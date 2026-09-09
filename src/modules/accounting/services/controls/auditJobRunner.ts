@@ -44,6 +44,7 @@ export async function runAuditSnapshotJob(input:AuditWorkerIdentity,options:{poo
   const result=await withAuditWorkerTransaction(pool,identity,'repeatable read',deadlineAt,signal,store=>withControlJobRequest(store,currentLease,async()=>{
    const ctx=requireControlTx(),saved=await loadStoredAuditJobDelegation(ctx.sql,identity.companyId,identity.personId,currentLease);
    signal.throwIfAborted();
+   if(saved.kind!=='audit_snapshot')throw new Error('Snapshot runner requires snapshot job kind');
    const snapshot=await captureAuditSnapshot(ctx,{snapshotId:identity.jobId,request:saved.request});
    signal.throwIfAborted();const retained=await retainSnapshotEvidence(ctx,snapshot,saved.request,signal);
    signal.throwIfAborted();const sealed=sealAuditSnapshot(retained.snapshot);signal.throwIfAborted();

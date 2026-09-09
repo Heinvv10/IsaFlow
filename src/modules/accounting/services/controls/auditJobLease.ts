@@ -31,9 +31,9 @@ export async function claimAuditJobForWorker(store:RequestContext,id:string):Pro
  const companyId=store.companyId,personId=store.userId;
  if(als.getStore()||store.controlPrincipal||!companyId||!UUID_RE.test(companyId)||!personId||!UUID_RE.test(id))throw new Error('Invalid cold audit worker transaction');
  return als.run(store,()=>withSavepoint('audit_worker_claim',async()=>{
-  const rows=await sql`SELECT id,company_id,requester_person_id,request_hash,protected_request FROM control_audit_job_intents
+  const rows=await sql`SELECT kind,id,company_id,requester_person_id,request_hash,protected_request FROM control_audit_job_intents
    WHERE company_id=${companyId}::uuid AND id=${id}::uuid AND requester_person_id=${personId}` as {
-    id:string;company_id:string;requester_person_id:string;request_hash:string;protected_request:ProtectedChange}[];
+    kind:string;id:string;company_id:string;requester_person_id:string;request_hash:string;protected_request:ProtectedChange}[];
   if(rows.length!==1||!rows[0])throw new Error('Audit job unavailable');
   openAuditJobRequest(rows[0]);
   const lease=await claimPendingJob({sql,principal:{companyId,personId}},id);

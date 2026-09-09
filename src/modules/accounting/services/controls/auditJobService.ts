@@ -8,7 +8,7 @@ import {protectChangeValues,type ProtectedChange} from './changeProtection';
 import {parseAuditSnapshotRequest,auditSnapshotPermissions,type AuditSnapshotRequest} from './auditJobContract';
 import {auditRequestHash,openAuditJobRequest} from './auditJobProtection';
 interface JobRow {
- id:string;company_id:string;requester_person_id:string;request_hash:string;protected_request:ProtectedChange;
+ kind:string;id:string;company_id:string;requester_person_id:string;request_hash:string;protected_request:ProtectedChange;
  state:'queued'|'running'|'succeeded'|'failed';attempts:number;created_at:Date|string;completed_at:Date|string|null;
  result_snapshot_id:string|null;last_error_code:string|null;
 }
@@ -21,12 +21,14 @@ async function authorize(ctx:ControlTx,request:AuditSnapshotRequest){
 export async function getAuditJob(ctx:ControlTx,id:string):Promise<AuditJobStatus>{
  assertControlTx(ctx);if(!UUID_RE.test(id))throw new Error('Invalid audit job identity');
  await assertEffectivePermission(ctx,'read:reports');
- const rows=await ctx.sql`SELECT i.id,i.company_id,i.requester_person_id,i.request_hash,i.protected_request,
+ const rows=await ctx.sql`SELECT i.kind,i.id,i.company_id,i.requester_person_id,i.request_hash,i.protected_request,
   j.state,j.attempts,j.created_at,j.completed_at,j.result_snapshot_id,j.last_error_code
   FROM control_audit_job_intents i JOIN control_audit_jobs j ON j.company_id=i.company_id AND j.job_id=i.id
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND i.id=${id}::uuid AND i.requester_person_id=${ctx.principal.personId}` as JobRow[];
  const row=rows[0];if(rows.length!==1||!row)throw new Error('Audit job not found');
- const evidence=openAuditJobRequest(row);await authorize(ctx,evidence.request);
+ const evidence=openAuditJobRequest(row);
+ if(evidence.kind!=='audit_snapshot')throw new Error('Snapshot job kind required');
+ await authorize(ctx,evidence.request);
  return{id:row.id,kind:'audit_snapshot',state:row.state,attempts:row.attempts,createdAt:timestamp(row.created_at),
   completedAt:row.completed_at===null?null:timestamp(row.completed_at),resultSnapshotId:row.result_snapshot_id,errorCode:row.last_error_code};
 }
