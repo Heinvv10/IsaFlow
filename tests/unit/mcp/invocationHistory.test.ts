@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+import {randomUUID} from 'node:crypto';
+const state=vi.hoisted(()=>({permission:vi.fn(),sql:vi.fn(),persist:vi.fn(),verify:vi.fn()}));
+vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:state.permission}));
+vi.mock('@/lib/mcp/invocationPersistence',()=>({captureInvocationIdentity:()=>({}),persistInvocationOutcome:state.persist,verifyInvocationOutcome:state.verify}));
+import {getMcpInvocationStatus,listMcpInvocations,reconcileMcpInvocation} from '@/lib/mcp/invocationHistory';
+import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+const ctx={principal:{companyId:randomUUID()},sql:state.sql} as unknown as ControlTx;
+beforeEach(()=>{vi.clearAllMocks();state.permission.mockResolvedValue(undefined);state.sql.mockResolvedValue([]);});
+it('reads require current audit read and never silently reconcile',async()=>{await getMcpInvocationStatus(ctx,randomUUID());await listMcpInvocations(ctx);expect(state.permission).toHaveBeenCalledWith(ctx,'read:audit');expect(state.persist).not.toHaveBeenCalled();expect(state.verify).not.toHaveBeenCalled();});
+it('reconciliation requires explicit current audit write before querying',async()=>{state.permission.mockRejectedValue(new Error('denied'));await expect(reconcileMcpInvocation(ctx,randomUUID())).rejects.toThrow('denied');expect(state.permission).toHaveBeenCalledExactlyOnceWith(ctx,'write:audit');expect(state.sql).not.toHaveBeenCalled();});
+it('rejects invalid or unbounded pages before data queries',async()=>{for(const limit of [0,101,1.5])await expect(listMcpInvocations(ctx,{limit})).rejects.toThrow();await expect(listMcpInvocations(ctx,{afterId:'raw cursor'})).rejects.toThrow();expect(state.sql).not.toHaveBeenCalled();});

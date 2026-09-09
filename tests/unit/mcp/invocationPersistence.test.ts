@@ -1,0 +1,13 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const state=vi.hoisted(()=>({query:vi.fn(),release:vi.fn(),connect:vi.fn(),sql:vi.fn(),config:{} as Record<string,unknown>}));
+vi.mock('pg',()=>({default:{Pool:class {constructor(config:Record<string,unknown>){state.config=config;} on(){} connect=state.connect; async end(){}}}}));
+vi.mock('@/lib/neon',()=>({sql:state.sql}));
+vi.mock('@/modules/accounting/services/controls/context',()=>({assertControlTx:vi.fn()}));
+import {captureInvocationIdentity,persistInvocationAdmission,closeInvocationPool} from '@/lib/mcp/invocationPersistence';
+import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+beforeEach(async()=>{await closeInvocationPool();vi.clearAllMocks();process.env.DATABASE_URL='synthetic-unit-url';state.connect.mockResolvedValue({query:state.query,release:state.release});state.query.mockImplementation(async(command:string)=>({command}));state.sql.mockResolvedValue([]);});
+const identity=()=>captureInvocationIdentity({principal:{companyId:'tenant',personId:'person',grantedScopes:[]}} as unknown as ControlTx);
+const input={tool:'test',argsHash:'a'.repeat(64),idempotencyKeyHash:null};
+it('bounds independent connections and statements',async()=>{await persistInvocationAdmission(identity(),input,'attempt','1');expect(state.config).toMatchObject({max:2,connectionTimeoutMillis:2000,statement_timeout:3000,query_timeout:3000});});
+it('fails admission when PostgreSQL resolves COMMIT as ROLLBACK',async()=>{state.query.mockImplementation(async(command:string)=>({command:command==='COMMIT'?'ROLLBACK':command}));await expect(persistInvocationAdmission(identity(),input,'attempt','1')).rejects.toMatchObject({code:'INVOCATION_UNAVAILABLE'});expect(state.release).toHaveBeenCalledWith(true);});
+it('does not expose connection errors to the caller',async()=>{state.connect.mockRejectedValue(new Error('connection string secret'));await expect(persistInvocationAdmission(identity(),input,'attempt','1')).rejects.toThrow('Durable invocation evidence is unavailable');});
