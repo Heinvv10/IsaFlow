@@ -11,7 +11,10 @@ A row with `rate_per_hour = 999, rate = 0` resolved to `0`.
 
 **After.** Migration 626 adds a BEFORE INSERT/UPDATE trigger that mirrors
 `staff_user_id`↔`user_id` and `rate_per_hour`↔`rate`, so no writer can leave the pairs
-divergent — including the unrouted legacy writer and any writer added later. The service
+divergent — including the unrouted legacy writer and any writer added later. On UPDATE the
+side the statement actually changed is carried across; on INSERT there is no OLD row to say
+which side was meant, so the newer column is authoritative and two supplied halves that
+disagree are reconciled rather than stored. The service
 still fills both pairs itself, which is what keeps the route working on a database where 626
 has not been applied. `updateClientRateOverride` sets `rate` only when a new rate is
 supplied, so a notes-only PUT no longer rewrites a money column. `resolveRate` reads
@@ -31,8 +34,9 @@ of R0.00 with a null staff member. Every query stays scoped by `company_id`.
 RED cases, dual-pair write/update sync, staff-rate fallback, another tenant's override ignored
 for the same staff member, an expired override window, a legacy-only row resolving through the
 `user_id` branch, a drifted row resolving from either identifier, a legacy-only row listing at
-its real rate, a notes-only update leaving the money columns alone, and the trigger mirroring a
-single-pair write. Full unit suite (no `DATABASE_URL`): 9391 passed, 234 skipped. `tsc
+its real rate, a notes-only update leaving the money columns alone, the trigger mirroring a
+single-pair write, an INSERT supplying both halves with different values, and an UPDATE
+changing both halves at once. Full unit suite (no `DATABASE_URL`): 9391 passed, 234 skipped. `tsc
 --noEmit`, `eslint`, `agent-docs:check` and the migration-RLS gate all clean. Mutation results
 are in `green.log`; the service-side dual INSERT is the one change the tests cannot isolate,
 because the trigger already covers it.
@@ -55,10 +59,19 @@ SELECT company_id, count(*) AS rows,
 FROM practice_client_rate_overrides GROUP BY company_id;
 ```
 
+**Known trigger edge.** `UPDATE … SET rate_per_hour = NULL` propagates the NULL into the
+still-`NOT NULL` `rate` and raises 23502, where before 626 it succeeded. No route can reach it:
+`updateClientRateOverride` guards with `COALESCE($1, rate_per_hour)`. Noted in the migration header.
+
 **Limits.** The duplicate `createClientRateOverride`/`listClientRateOverrides` in
 `practiceStaffRateService.ts` remain, now marked `@deprecated`; deleting them is out of scope.
 The legacy columns are not dropped, so a future migration must retire them. Where
 `staff_user_id` and `user_id` disagree on a historical row, the override now answers to both
 identifiers and returns `rate_per_hour`. The cross-tenant test proves the `WHERE company_id`
 predicate, not the RLS policy: it connects as a superuser with no `request.jwt.claims` GUC, as
-the rest of the integration suite does. Not run against production.
+the rest of the integration suite does. Once migration 626 has shipped everywhere, the service's own dual-pair INSERT becomes
+unfalsifiable code re-encoding the schema's rule in TypeScript; remove it together with the
+legacy columns and the trigger, and keep the readers simple. The test disables the mirror
+trigger to build pre-626 rows, which is global to the database and so runs inside an explicit
+transaction on its own client, and it guards the `auth.users` stub with an advisory lock; both
+are shared-fixture accommodations rather than product behaviour. Not run against production.

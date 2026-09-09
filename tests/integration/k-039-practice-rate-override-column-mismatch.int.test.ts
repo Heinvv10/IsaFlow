@@ -26,25 +26,40 @@ const otherClientId = crypto.randomUUID();
 const staffUserId = crypto.randomUUID();
 const onDate = '2026-06-15';
 let createdAuthUsers = false;
+const AUTH_USERS_STUB_LOCK = 39039039;
+// Advisory locks are per-connection, so the lock is held on a client of its own.
+let lockClient: import('pg').PoolClient;
 
-/** Write a row shaped the way it was before migration 626, bypassing the mirror trigger. */
+/**
+ * Write a row shaped the way it was before migration 626. The mirror trigger has to be
+ * off for that, and DISABLE TRIGGER is global to the database, so it runs inside an
+ * explicit transaction on a dedicated client: the ACCESS EXCLUSIVE lock makes concurrent
+ * writers wait rather than escape the mirror, and a crashed process rolls the disable back.
+ */
 async function insertPreMirrorRow(values: {
   userId: string | null;
   staffUserId: string | null;
   rate: number | null;
   ratePerHour: number | null;
 }): Promise<string> {
-  await pool.query('ALTER TABLE practice_client_rate_overrides DISABLE TRIGGER trg_pcro_mirror_columns');
+  const client = await pool.connect();
   try {
-    const inserted = await pool.query(
+    await client.query('BEGIN');
+    await client.query('ALTER TABLE practice_client_rate_overrides DISABLE TRIGGER trg_pcro_mirror_columns');
+    const inserted = await client.query(
       `INSERT INTO practice_client_rate_overrides
          (company_id, client_id, user_id, staff_user_id, rate, rate_per_hour, effective_from)
        VALUES ($1,$2,$3,$4,$5,$6,'2026-01-01') RETURNING id`,
       [companyId, clientId, values.userId, values.staffUserId, values.rate, values.ratePerHour],
     );
+    await client.query('ALTER TABLE practice_client_rate_overrides ENABLE TRIGGER trg_pcro_mirror_columns');
+    await client.query('COMMIT');
     return inserted.rows[0].id as string;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
   } finally {
-    await pool.query('ALTER TABLE practice_client_rate_overrides ENABLE TRIGGER trg_pcro_mirror_columns');
+    client.release();
   }
 }
 
@@ -53,6 +68,10 @@ beforeAll(async () => {
   // joins it for the staff display name. Stand up a stub only when the table is
   // absent, and remember to drop it, so this test leaves no DDL behind in the
   // shared fixture database for another suite to collide with.
+  // Two concurrent runs of this file would race on creating and dropping the stub;
+  // the advisory lock makes the create/use/drop window exclusive across sessions.
+  lockClient = await pool.connect();
+  await lockClient.query('SELECT pg_advisory_lock($1)', [AUTH_USERS_STUB_LOCK]);
   const present = await pool.query("SELECT to_regclass('auth.users') AS reg");
   createdAuthUsers = present.rows[0].reg === null;
   if (createdAuthUsers) {
@@ -77,6 +96,8 @@ afterAll(async () => {
   await pool.query('DELETE FROM practice_clients WHERE company_id=ANY($1)', [ids]);
   await pool.query('DELETE FROM companies WHERE id=ANY($1)', [ids]);
   if (createdAuthUsers) await pool.query('DROP TABLE auth.users');
+  await lockClient.query('SELECT pg_advisory_unlock($1)', [AUTH_USERS_STUB_LOCK]);
+  lockClient.release();
   await pool.end();
 });
 
@@ -253,5 +274,46 @@ describe('K-039 practice client rate override write/read use the same columns', 
     );
     expect(Number(after.rows[0].rate)).toBe(480);
     expect(Number(after.rows[0].rate_per_hour)).toBe(480);
+  });
+  it('reconciles an insert that supplies both halves with different values', async () => {
+    // MEDIUM-A: an INSERT never enters the trigger's UPDATE branch, so two disagreeing
+    // non-NULL halves would otherwise pass straight through. The newer pair wins.
+    const staff = crypto.randomUUID();
+    const legacy = crypto.randomUUID();
+    const inserted = await pool.query(
+      `INSERT INTO practice_client_rate_overrides
+         (company_id, client_id, user_id, staff_user_id, rate, rate_per_hour, effective_from)
+       VALUES ($1,$2,$3,$4,111,222,'2026-01-01')
+       RETURNING id, user_id, staff_user_id, rate, rate_per_hour`,
+      [companyId, clientId, legacy, staff],
+    );
+    expect(inserted.rows[0].user_id).toBe(staff);
+    expect(inserted.rows[0].staff_user_id).toBe(staff);
+    expect(Number(inserted.rows[0].rate)).toBe(222);
+    expect(Number(inserted.rows[0].rate_per_hour)).toBe(222);
+    // The discarded legacy identifier no longer names the row, and billing agrees.
+    expect(await resolveRate(companyId, staff, clientId, onDate)).toBe(222);
+    expect(await resolveRate(companyId, legacy, clientId, onDate)).toBe(null);
+  });
+
+  it('reconciles an update that changes both halves at once', async () => {
+    const staff = crypto.randomUUID();
+    const created = await createClientRateOverride(companyId, clientId, {
+      staffUserId: staff,
+      ratePerHour: 300,
+      effectiveFrom: '2026-01-01',
+      effectiveTo: null,
+      notes: null,
+    });
+    await pool.query(
+      'UPDATE practice_client_rate_overrides SET rate=700, rate_per_hour=800 WHERE id=$1 AND company_id=$2',
+      [created.id, companyId],
+    );
+    const row = await pool.query(
+      'SELECT rate, rate_per_hour FROM practice_client_rate_overrides WHERE id=$1 AND company_id=$2',
+      [created.id, companyId],
+    );
+    expect(Number(row.rows[0].rate)).toBe(800);
+    expect(Number(row.rows[0].rate_per_hour)).toBe(800);
   });
 });

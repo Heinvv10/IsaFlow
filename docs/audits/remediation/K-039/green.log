@@ -52,3 +52,29 @@ LOW-3 index usability, EXPLAIN at 20k rows inside BEGIN..ROLLBACK:
       Bitmap Index Scan on idx_pcro_staff       (company_id, staff_user_id)
       Bitmap Index Scan on idx_pcro_client_user (company_id, client_id, user_id, effective_from)
   No Seq Scan; both halves of the OR are index-driven.
+
+=== Review round 3 (1 MEDIUM + 3 LOW) ===
+MEDIUM-A: migration 626's trigger now reconciles an INSERT that supplies both halves with
+  different values (newer column wins); the UPDATE path keeps its which-side-changed logic.
+LOW-A: the rate_per_hour = NULL / 23502 edge documented in the migration header and fix.md.
+LOW-B: insertPreMirrorRow disables the trigger inside an explicit transaction on a dedicated
+  client, so concurrent writers block on the ACCESS EXCLUSIVE lock and a crash rolls it back.
+LOW-C: the auth.users stub create/use/drop window is held under pg_advisory_lock(39039039) on
+  a dedicated client, so two concurrent runs of this file serialise.
+LOW-D: recorded in fix.md "Limits" as code to remove with the legacy columns.
+
+Migration 626 re-applied to isaflow_schema_fixture (idempotent re-run, ON_ERROR_STOP=1): OK.
+bun run test:integration -> 13 passed (13)
+Full unit suite (no DATABASE_URL) -> 790 files passed / 36 skipped; 9391 passed / 234 skipped
+tsc --noEmit clean; eslint clean; check-migration-rls OK; audit-migration-naming 339 files,
+no new duplicate prefixes; agent-docs:check OK (74 mirrors).
+
+Mutation checks (13 tests each):
+A revert read value COALESCE                     -> 2 failed | 11 passed
+B revert read filter to `user_id = $2`           -> 1 failed | 12 passed
+C revert mapRow legacy fallback                  -> 1 failed | 12 passed
+D restore `rate = COALESCE($1, rate_per_hour, rate)` -> 1 failed | 12 passed
+E DROP TRIGGER trg_pcro_mirror_columns           -> 8 failed | 5 passed
+G drop the INSERT reconcile from the trigger     -> 1 failed | 12 passed
+All restored -> 13 passed (13). The service-side dual INSERT remains the one change no test
+isolates, because the trigger covers it (see fix.md "Limits").
