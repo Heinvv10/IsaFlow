@@ -1,0 +1,14 @@
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+
+Mutation check (production change reverted, tests unchanged):
+  7 of 10 tests RED — is stored closed at the end of its own batch period;
+  is NOT paid again in April 2025; and not in the following tax year either;
+  both reimbursive-travel rows (3702 and 3703) close at the period end;
+  an effective_from after the period end never produces an inverted range;
+  the second tenant is untouched...; R-006 ... skipped in its own period.
+  Production change restored afterwards.
+
+Full unit suite (DATABASE_URL unset):
+ Test Files  787 passed | 36 skipped (823)
+      Tests  9335 passed | 234 skipped (9569)
