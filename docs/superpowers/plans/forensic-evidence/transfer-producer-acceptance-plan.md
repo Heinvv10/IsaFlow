@@ -1,0 +1,9 @@
+# Actual transfer producer acceptance
+
+Base4a7bbe23ba4b9a70b43fa0f99458c1b2d19884c2. Tests-only ownership: new bankTransferControl.int.test.ts, bankTransferControlFixture.ts and bounded rollback test/helper if required. No changes to existing source, schema or helper fixtures.
+
+Create actual owned bank GL/metadata rows, open fiscal period and explicit payment approval policy. Use real issued context, prepareBankAllocation external transfer request without any server selection, getApprovalRequirements/requestOperationApproval and independent cookie decideOperationApproval. Execute through executeBankAllocation. Never insert synthetic operation receipts or replace source/provenance/approval services.
+
+First run: actual shared preparation must accept external transfer request and persist selected mode; current strict plan parser expects server selection and should fail. Record RED and pause for root implementation. Subsequent acceptance: both signs/two exact bank legs/one journal; imported opposite both linked; absent opposite only original linked; late opposite chooses saved link referencing original intent and creates no journal; stale source/opposite/current rights refuse; concurrent opposite execution yields at most one journal; approved retry one effect; a second PAT of the maker cannot approve, and maker cookie also cannot self-approve; scoped post/link SQL fault rolls back bank/journal/events and leaves approval unconsumed. No inverse tests until root finishes inverse contracts.
+
+Storage snapshots prove no unexpected financial changes. Fault injection is restricted to the owned fixture bank ID and cleaned in finally; no shared global fault. Every actor closes its transaction/client and suite closes pool. PG/heavy leases require root coordination. These shared-service tests are not UI/HTTP or production proof.
