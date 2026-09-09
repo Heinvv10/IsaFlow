@@ -119,6 +119,24 @@ function joinSql(call: unknown[]): string {
 beforeEach(() => vi.clearAllMocks());
 
 describe('reverseJournalEntry — semantics', () => {
+  it.each(['capital_goods', 'standard', 'zero_rated', undefined])(
+    'preserves VAT classification %s on the contra lines', async (vatType) => {
+      const original = originalEntry();
+      const lines = original.lines.map((line, i) => ({ ...line, vatType: i === 0 ? vatType : undefined }));
+      mockGetById.mockResolvedValueOnce({ ...original, lines }).mockResolvedValueOnce(contraEntryDraft());
+      mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID });
+      mockSql.mockResolvedValueOnce([{ status: 'open' }]).mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ status: 'posted' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+      await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
+
+      const input = mockCreate.mock.calls[0]![1] as { lines: typeof lines };
+      expect(input.lines.map(line => line.vatType)).toEqual([vatType, undefined]);
+      expect(input.lines[0]!.credit).toBe(lines[0]!.debit);
+      expect(input.lines[1]!.debit).toBe(lines[1]!.credit);
+    },
+  );
+
   it.each([
     ['66666666-6666-6666-6666-666666666666', '77777777-7777-7777-7777-777777777777'],
     [undefined, undefined],
