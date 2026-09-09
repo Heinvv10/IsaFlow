@@ -169,3 +169,47 @@ companies_member_read
 ```
 
 No invite policy. Nothing left behind: every probe ran inside `BEGIN … ROLLBACK`.
+
+================================================================
+ROUND 4 (2026-09-09) — 1 MEDIUM + 6 LOW, all fixed
+================================================================
+
+Integration (fixture DB + stubbed GoTrue), five invite files:
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts \
+    tests/integration/k-041-invite-page-reinvite-role.int.test.ts \
+    tests/integration/k-042-reinvite-unique-violation.int.test.ts \
+    tests/integration/k104-k105-invitation-token-encoding.int.test.ts \
+    tests/integration/k106-invitation-502-rollback.int.test.ts
+  -> Test Files 5 passed (5) · Tests 31 passed (31)      [was 28; +3 new]
+
+Components:
+  bunx vitest run --config vitest.components.config.ts tests/unit/components/inviteSignupLoop.test.tsx
+  -> 8 passed (8)
+
+FULL unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  -> Test Files 792 passed | 36 skipped (828) · Tests 9438 passed | 234 skipped (9672)
+
+bunx tsc --noEmit                  -> clean (exit 0)
+bunx eslint <4 changed pages files> -> clean (exit 0)
+bun scripts/audit-migration-naming.ts -> 341 files scanned, no new duplicate prefixes
+
+Mutation proofs (production change reverted, test re-run, then restored):
+  1. L3 pre-check deleted        -> L3 test FAILS: 'duplicate key value violates unique
+                                    constraint "users_email_key"', 500 instead of 409 (1 failed | 12 passed)
+  2. `email = EXCLUDED.email` restored on the conflict branch
+                                 -> L4 test FAILS (profile email reverted to the invited address)
+  3. profileName() bypassed      -> L5 test FAILS: 'value too long for type character
+                                    varying(255)', 500 instead of 200
+  4. ?signup=1 propagation restored in accept-invite.tsx + invite/[token].tsx
+                                 -> inviteSignupLoop 2 failed | 6 passed
+  5. M1 schema_migrations guard removed from 662, replayed on the fixture inside BEGIN…ROLLBACK
+     with a valid hashed-token invitation and a recorded 643_… row:
+        with guard:    UPDATE 0, still_live = t
+        without guard: UPDATE 1, still_live = f   <- the defect
+     First-run behaviour unchanged with the guard in place: UPDATE 1, row retired with the note.
+  (L2, the memoised admin pool, has no behavioural test: it is a resource fix. It is covered
+   only by the 13 accept tests continuing to pass with the pool now shared across requests.)
+
+Every fixture probe ran inside BEGIN … ROLLBACK; nothing left behind.

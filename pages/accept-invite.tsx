@@ -26,13 +26,12 @@ export default function AcceptInvitePage() {
       // An invitation created by the other invitation system has no GoTrue user
       // to set a password on. It is accepted at /invite/<token> by a signed-in
       // user; /register?invite= and /login?invite= both land here, so forward.
-      // `?signup=1` carries this verdict along: it is the only place that
-      // learns the token belongs to that flow, and downstream it is what lets
-      // /register show its signup form instead of bouncing back here (which
-      // would 409 again — a closed loop with no way for a brand-new invitee to
-      // create the account /invite/<token> requires).
+      // No `?signup=1` on the forward: /register asks the server for the
+      // verdict (GET /api/invitations/<token>, 409 WRONG_INVITE_FLOW) and does
+      // not read that flag, which was attacker-settable and is why the decision
+      // moved server-side.
       if (body.error?.code === 'WRONG_INVITE_FLOW') {
-        void router.replace(`/invite/${encodeURIComponent(token)}?signup=1`);
+        void router.replace(`/invite/${encodeURIComponent(token)}`);
         return;
       }
       if (!body.success) { setError(body.error?.message ?? 'Invalid invitation'); setLoading(false); return; }

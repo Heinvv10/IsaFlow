@@ -14,10 +14,16 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 
+// Memoised, like every other pool in the repo (src/lib/neon.ts,
+// src/lib/auth/withInviteToken.ts). Building one per request cost a TCP + TLS
+// handshake to the BYPASSRLS role on every accept attempt, including each of
+// the ten rate-limited password guesses admitted before the 429.
+let _adminPool: pg.Pool | null = null;
 function adminPool(): pg.Pool {
+  if (_adminPool) return _adminPool;
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
   if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required for invite accept');
-  return new pg.Pool({
+  _adminPool = new pg.Pool({
     connectionString: url,
     max: 2,
     ssl:
@@ -27,6 +33,19 @@ function adminPool(): pg.Pool {
           ? false
           : { rejectUnauthorized: false },
   });
+  return _adminPool;
+}
+
+/**
+ * `firstName` / `lastName` arrive in an anonymous request body. Neither type
+ * nor length was asserted before they reached GoTrue user_metadata and
+ * `users.first_name` / `users.last_name` (VARCHAR(255)): a non-string bound as
+ * JSON text, and an over-long string raised 22001, which escaped as a 500.
+ */
+function profileName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed.slice(0, 255);
 }
 
 const handler: NextApiHandler = async (req, res) => {
@@ -34,7 +53,9 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } });
   }
   const tokenHash = (req as InviteTokenRequest).inviteTokenHash;
-  const { password, firstName, lastName } = req.body ?? {};
+  const { password } = req.body ?? {};
+  const firstName = profileName((req.body ?? {}).firstName);
+  const lastName = profileName((req.body ?? {}).lastName);
   // Presence only here. The 10-character floor is a rule about a password being
   // SET, and step 2 below may find that this address already HAS a login, in
   // which case the typed password is proof of ownership of whatever that
@@ -103,8 +124,7 @@ const handler: NextApiHandler = async (req, res) => {
   //    INSERT (no pre-existing membership to satisfy USING) and `users` is
   //    readable only by auth.uid(), which is empty inside the invite-token
   //    transaction — so the step-2 lookup below would silently see no rows.
-  const admin = adminPool();
-  const client = await admin.connect();
+  const client = await adminPool().connect();
   let tok: GoTrueTokenResponse;
   let opened = false;
   try {
@@ -166,13 +186,37 @@ const handler: NextApiHandler = async (req, res) => {
        ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
       [inv.company_id, tok.user.id, inv.role]
     );
+    // `users` carries users_email_key UNIQUE (email) as well as its primary
+    // key, and the INSERT below arbitrates only on `id`. Another row holding
+    // this address under a different id (a pre-GoTrue-cutover profile, a
+    // deleted-and-recreated GoTrue identity) therefore raised 23505, which
+    // escaped as an opaque 500 the invitee could do nothing about. Answer the
+    // conflict instead. A concurrent insert of the same address between this
+    // read and the write still raises 23505 — the unique index remains the
+    // authority; this turns the reachable case into an actionable message.
+    const emailClash = await client.query<{ id: string }>(
+      `SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1`,
+      [inv.email, tok.user.id]
+    );
+    if ((emailClash.rowCount ?? 0) > 0) {
+      await client.query('ROLLBACK');
+      opened = false;
+      log.error('invite accept blocked: email already held by another user row', {
+        inviteId: inv.id,
+        companyId: inv.company_id,
+      }, 'auth');
+      return res.status(409).json({ success: false, error: { code: 'EMAIL_IN_USE', message: 'This email is already attached to a different IsaFlow profile. Ask an administrator to resolve it before accepting.' } });
+    }
     await client.query(
+      // No `email = EXCLUDED.email` on the conflict branch: that reverted the
+      // profile email of an account that had changed it, every time its owner
+      // accepted an invitation. The row's own email stays its own.
       `INSERT INTO users (id, email, first_name, last_name, is_active)
        VALUES ($1, $2, $3, $4, true)
-       ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email,
+       ON CONFLICT (id) DO UPDATE SET
          first_name = COALESCE(EXCLUDED.first_name, users.first_name),
          last_name  = COALESCE(EXCLUDED.last_name,  users.last_name)`,
-      [tok.user.id, inv.email, firstName ?? null, lastName ?? null]
+      [tok.user.id, inv.email, firstName, lastName]
     );
     await client.query(
       `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid`,
@@ -194,7 +238,6 @@ const handler: NextApiHandler = async (req, res) => {
     throw err;
   } finally {
     client.release();
-    await admin.end();
   }
 
   // 5. Set cookies

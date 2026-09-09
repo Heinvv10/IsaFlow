@@ -54,6 +54,31 @@ const SHORT_PASSWORD = 'short1';
 /** Round-2 L3: a brand-new invitee whose GoTrue call blows up mid-accept. */
 const outageUser = crypto.randomUUID();
 const outageToken = `k041o${'0'.repeat(27)}${outageUser.replace(/-/g, '')}`;
+/**
+ * Round-4 L3: the invited address is already held by ANOTHER `users` row
+ * (a pre-GoTrue-cutover profile, or a deleted-and-recreated identity).
+ * users_email_key raised 23505 through an INSERT that arbitrates only on id.
+ */
+const l3User = crypto.randomUUID();
+const l3Legacy = crypto.randomUUID();
+const l3Email = `k041l3-${l3User}@test.local`;
+const l3Token = `k041L${'0'.repeat(27)}${l3User.replace(/-/g, '')}`;
+/** Round-4 L4: an established account whose profile email is not the invited one. */
+const l4User = crypto.randomUUID();
+const l4Changed = `k041l4-changed-${l4User}@test.local`;
+const l4Invited = `k041l4-invited-${l4User}@test.local`;
+const l4Token = `k041M${'0'.repeat(27)}${l4User.replace(/-/g, '')}`;
+const L4_PASSWORD = 'low4-real-password-2026';
+/** Round-4 L5: names from an anonymous body that are not short strings. */
+const l5User = crypto.randomUUID();
+const l5Email = `k041l5-${l5User}@test.local`;
+const l5Token = `k041N${'0'.repeat(27)}${l5User.replace(/-/g, '')}`;
+
+/**
+ * Accounts the /token stub resolves by address, added by the round-4 cases.
+ * The original stub hard-codes three identities; these need their own.
+ */
+const extraAccounts = new Map<string, { id: string; password: string }>();
 
 /** company_invitations.token holds sha256 of the token carried by the link. */
 const stored = (raw: string) => createHash('sha256').update(raw).digest('hex');
@@ -113,11 +138,14 @@ const originalFetch = globalThis.fetch;
 
 let accept: typeof import('../../pages/api/invitations/[token]/accept').default;
 
-function acceptRequest(inviteToken: string, password: string, remote: string): NextApiRequest {
+function acceptRequest(
+  inviteToken: string, password: string, remote: string,
+  names: { firstName?: unknown; lastName?: unknown } = { firstName: 'K', lastName: '041' },
+): NextApiRequest {
   return {
     method: 'POST', url: `/api/invitations/${inviteToken}/accept`, query: { token: inviteToken },
     cookies: {}, headers: {},
-    body: { token: inviteToken, password, firstName: 'K', lastName: '041' },
+    body: { token: inviteToken, password, ...names },
     socket: { remoteAddress: remote },
   } as unknown as NextApiRequest;
 }
@@ -161,6 +189,18 @@ beforeAll(async () => {
         { status: 200, headers: { 'content-type': 'application/json' } });
     }
     if (url.pathname === '/token') {
+      const extra = extraAccounts.get(body.email);
+      if (extra) {
+        if (body.password !== extra.password) {
+          return new Response(JSON.stringify({ error: 'invalid_grant' }),
+            { status: 400, headers: { 'content-type': 'application/json' } });
+        }
+        return new Response(JSON.stringify({
+          access_token: 'disposable-access', refresh_token: 'disposable-refresh',
+          expires_in: 3600, token_type: 'bearer',
+          user: { id: extra.id, email: body.email },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       // GoTrue answers 400 for a wrong password. The pre-existing account keeps
       // REAL_PASSWORD; the brand-new one accepts whatever accept.ts just set.
       const isExisting = body.email === email;
@@ -194,7 +234,8 @@ afterAll(async () => {
     await pool.query('DELETE FROM company_invitations WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[existingUser, inviter, newInvitee, shortPwUser]]);
+    await pool.query('DELETE FROM users WHERE id=ANY($1::text[])',
+      [[existingUser, inviter, newInvitee, shortPwUser, l3User, l3Legacy, l4User, l5User]]);
     await pool.query('DELETE FROM rate_limit_counters WHERE key LIKE $1', ['invite-accept:%']);
   } finally { await pool.end(); }
 });
@@ -390,4 +431,78 @@ it('L3: an attempt that dies inside GoTrue is still counted against the invitati
   const counters = await pool.query('SELECT count FROM rate_limit_counters WHERE key=$1',
     [`invite-accept:${stored(outageToken)}`]);
   expect(counters.rows).toEqual([{ count: 2 }]);
+});
+
+it('L3: an address already held by another users row is refused, not 500ed', async () => {
+  // The invitee is brand-new (no `users` row for their GoTrue id), but the
+  // address they were invited at already belongs to a different profile row.
+  // `ON CONFLICT (id)` cannot see that conflict: users_email_key raised 23505,
+  // which escaped as an opaque 500 and rolled the acceptance back with no
+  // explanation the invitee could act on.
+  await pool.query("INSERT INTO users(id,email,is_active) VALUES($1,$2,true)", [l3Legacy, l3Email]);
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
+     VALUES($1,$2,'viewer',$3,$4, now()+interval '7 days', $5)`,
+    [shortPwCompany, l3Email, inviter, stored(l3Token), l3User]);
+  extraAccounts.set(l3Email, { id: l3User, password: 'low3-invitee-password-2026' });
+  const result = response();
+
+  await accept(acceptRequest(l3Token, 'low3-invitee-password-2026', '127.0.0.94'), result.res);
+
+  expect(result.state.statusCode).toBe(409);
+  expect(result.state.body).toMatchObject({ error: { code: 'EMAIL_IN_USE' } });
+  // The whole acceptance is rolled back: no membership, no profile row for the
+  // new id, and the invitation is still open once an admin resolves the clash.
+  const granted = await pool.query('SELECT 1 FROM company_users WHERE company_id=$1 AND user_id=$2',
+    [shortPwCompany, l3User]);
+  expect(granted.rowCount).toBe(0);
+  const profile = await pool.query('SELECT 1 FROM users WHERE id=$1', [l3User]);
+  expect(profile.rowCount).toBe(0);
+  const inv = await pool.query('SELECT accepted_at FROM company_invitations WHERE token=$1', [stored(l3Token)]);
+  expect(inv.rows[0].accepted_at).toBeNull();
+  // The legacy row is untouched — the conflict is reported, never resolved by
+  // overwriting somebody else's profile.
+  const legacy = await pool.query('SELECT email FROM users WHERE id=$1', [l3Legacy]);
+  expect(legacy.rows).toEqual([{ email: l3Email }]);
+});
+
+it('L4: accepting an invitation does not revert an established profile email', async () => {
+  await pool.query("INSERT INTO users(id,email,is_active) VALUES($1,$2,true)", [l4User, l4Changed]);
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
+     VALUES($1,$2,'manager',$3,$4, now()+interval '7 days', $5)`,
+    [newInviteeCompany, l4Invited, inviter, stored(l4Token), l4User]);
+  extraAccounts.set(l4Invited, { id: l4User, password: L4_PASSWORD });
+  const result = response();
+
+  await accept(acceptRequest(l4Token, L4_PASSWORD, '127.0.0.95'), result.res);
+
+  expect(result.state.statusCode).toBe(200);
+  // `DO UPDATE SET email = EXCLUDED.email` rewrote this to the invited address
+  // on every acceptance, silently undoing a profile email the user had changed.
+  const profile = await pool.query('SELECT email FROM users WHERE id=$1', [l4User]);
+  expect(profile.rows).toEqual([{ email: l4Changed }]);
+  const granted = await pool.query('SELECT role FROM company_users WHERE company_id=$1 AND user_id=$2',
+    [newInviteeCompany, l4User]);
+  expect(granted.rows).toEqual([{ role: 'manager' }]);
+});
+
+it('L5: names from the anonymous body are type-checked and bounded', async () => {
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
+     VALUES($1,$2,'viewer',$3,$4, now()+interval '7 days', $5)`,
+    [shortPwCompany, l5Email, inviter, stored(l5Token), l5User]);
+  extraAccounts.set(l5Email, { id: l5User, password: 'low5-invitee-password-2026' });
+  const result = response();
+
+  // A non-string bound as JSON text; a 400-character string raised 22001
+  // against users.last_name VARCHAR(255) and escaped as a 500.
+  await accept(acceptRequest(l5Token, 'low5-invitee-password-2026', '127.0.0.96',
+    { firstName: 12345, lastName: 'x'.repeat(400) }), result.res);
+
+  expect(result.state.statusCode).toBe(200);
+  const profile = await pool.query<{ first_name: string | null; last_name: string | null }>(
+    'SELECT first_name, last_name FROM users WHERE id=$1', [l5User]);
+  expect(profile.rows[0]!.first_name).toBeNull();
+  expect(profile.rows[0]!.last_name).toHaveLength(255);
 });
