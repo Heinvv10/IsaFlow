@@ -117,57 +117,10 @@ describe('getPayPackage', () => {
 });
 
 describe('applyPackageToEmployee', () => {
-  it('end-dates overlapping assignments and inserts one new row per package component', async () => {
-    mockImpl = (strings) => {
-      const q = strings.join('?');
-      if (q.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMP_ID }]);
-      if (q.includes('FROM pay_packages')) return Promise.resolve([{ id: PKG_ID }]);
-      if (q.includes('FROM pay_package_components')) {
-        return Promise.resolve([
-          { component_id: COMP_A, amount: '10000', is_recurring: true },
-          { component_id: COMP_B, amount: '5000', is_recurring: true },
-        ]);
-      }
-      return Promise.resolve([]);
-    };
-    const out = await applyPackageToEmployee(COMPANY_ID, PKG_ID, EMP_ID, '2026-05-01', USER_ID);
-    expect(out.inserted).toBe(2);
-    // No BEGIN/COMMIT: the service no longer emits them. `sql` routes onto the
-    // request's ALS client, so a raw COMMIT committed the WHOLE request;
-    // withTransaction nests a SAVEPOINT, which is not a statement in this log.
-    expect(sqlCalls.some(c => c.sql.trim() === 'BEGIN')).toBe(false);
-    expect(sqlCalls.filter(c => c.sql.includes('UPDATE payroll_employee_components')).length).toBe(2);
-    expect(sqlCalls.filter(c => c.sql.includes('INSERT INTO payroll_employee_components')).length).toBe(2);
-    expect(sqlCalls.some(c => c.sql.trim() === 'COMMIT')).toBe(false);
-    // Writes went through the TRANSACTION, not bare `sql`.
-    const writes = sqlCalls.filter(c => /INSERT INTO (pay_package_components|payroll_employee_components)|DELETE FROM pay_package_components|UPDATE payroll_employee_components/.test(c.sql));
-    expect(writes.length).toBeGreaterThan(0);
-    expect(writes.every(c => c.viaTx === true)).toBe(true);
-  });
-
-  it('propagates a failure so the surrounding transaction unwinds', async () => {
-    let insertCount = 0;
-    mockImpl = (strings) => {
-      const q = strings.join('?');
-      if (q.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMP_ID }]);
-      if (q.includes('FROM pay_packages')) return Promise.resolve([{ id: PKG_ID }]);
-      if (q.includes('FROM pay_package_components')) {
-        return Promise.resolve([
-          { component_id: COMP_A, amount: '10000', is_recurring: true },
-          { component_id: COMP_B, amount: '5000', is_recurring: true },
-        ]);
-      }
-      if (q.includes('INSERT INTO payroll_employee_components')) {
-        insertCount += 1;
-        if (insertCount === 2) return Promise.reject(new Error('boom'));
-      }
-      return Promise.resolve([]);
-    };
-    await expect(applyPackageToEmployee(COMPANY_ID, PKG_ID, EMP_ID, '2026-05-01', USER_ID))
-      .rejects.toThrow(/boom/);
-    // Rollback is withTransaction's savepoint, not a statement this service
-    // emits. What the service owes its caller is that the error PROPAGATES.
-    expect(sqlCalls.some(c => c.sql.trim() === 'ROLLBACK')).toBe(false);
+  // Actual approved replacement/retained closure is covered by payrollCompensationControl.int.test.ts.
+  it('refuses package application without issued compensation authority before SQL',async()=>{
+    await expect(applyPackageToEmployee(COMPANY_ID,PKG_ID,EMP_ID,'2026-05-01',USER_ID)).rejects.toThrow(/context|transaction/i);
+    expect(sqlCalls).toHaveLength(0);
   });
 
   it('lists by company_id', async () => {

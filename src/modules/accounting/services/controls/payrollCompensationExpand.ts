@@ -39,7 +39,9 @@ export function expandPayrollCompensation(value:unknown,s:CompensationSources){
    if(header.batch_type==='component_values')assign(args.employee,String(header.component_id),String(line.value),args.from,args.to,args.recurring);
    else{
     const taxable=new D(String(line.taxable_portion??0)),nonTaxable=new D(String(line.non_taxable_portion??0));
-    const amount=new D(String(line.km??0)).mul(String(line.rate_per_km??0)).toDecimalPlaces(2);
+    const km=new D(String(line.km??0)),rate=new D(String(line.rate_per_km??0));
+    if(!km.gt(0)||!rate.gt(0))throw new Error('Positive travel distance and rate required');
+    const amount=km.mul(rate).toDecimalPlaces(2);
     if(taxable.isNegative()||nonTaxable.isNegative()||!taxable.add(nonTaxable).eq(amount)||!amount.eq(String(line.value)))throw new Error('Travel portions do not reconcile to source amount');
     for(const [code,part] of [['3702',taxable],['3703',nonTaxable]] as const){
      if(part.isZero())continue;const matches=s.components.filter(c=>String(c.sars_source_code)===code&&c.is_active===true);
@@ -53,7 +55,7 @@ export function expandPayrollCompensation(value:unknown,s:CompensationSources){
  const exposures:{before:string|null;after:string}[]=[],dates:string[]=[];
  for(const action of payload.actions){
   const employee=s.employees.find(e=>e.id===action.employeeId);
-  if(!employee||(action.kind!=='end'&&(employee.status!=='active'||employee.is_active===false)))throw new Error('Active owned employee required');
+  if(!employee||(action.kind!=='end'&&employee.status!=='active'))throw new Error('Active owned employee required');
   if(!s.components.some(c=>c.id===action.componentId&&(action.kind==='end'||c.is_active===true)))throw new Error('Active owned component required');
   if(String(employee.start_date)>action.effectiveFrom||(employee.end_date&&(!action.effectiveTo||String(employee.end_date)<action.effectiveTo)))throw new Error('Compensation exceeds employee employment dates');
   const row=s.assignments.find(r=>r.id===action.assignmentId),before=row?assignmentState(row,action.kind):null;

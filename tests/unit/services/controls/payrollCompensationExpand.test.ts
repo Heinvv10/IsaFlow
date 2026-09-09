@@ -31,12 +31,12 @@ it('refuses incomplete batch source populations before deriving approved changes
  s.sourceLines=[{employee_id:e,value:'50.00',effective_from:'2026-10-01',effective_to:null}];
  expect(()=>expandPayrollCompensation({version:1,source:{kind:'batch',sourceId:a}},s)).toThrow(/population/i);
 });
-it('refuses an explicitly deactivated employee even if legacy status remains active',()=>{
- const s=sources();s.employees[0]!.is_active=false;
+it('refuses an inactive employee assignment amendment',()=>{
+ const s=sources();s.employees[0]!.status='inactive';
  expect(()=>expandPayrollCompensation({version:1,source:{kind:'manual'},actions:[{kind:'amend',assignmentId:a,amount:'50'}]},s)).toThrow(/employee/i);
 });
 it('allows approved closure of a terminated employee assignment within the employment interval',()=>{
- const s=sources();s.employees[0]!.status='terminated';s.employees[0]!.is_active=false;s.employees[0]!.end_date='2026-10-31';
+ const s=sources();s.employees[0]!.status='terminated';s.employees[0]!.end_date='2026-10-31';
  const result=expandPayrollCompensation({version:1,source:{kind:'manual'},actions:[{kind:'end',assignmentId:a,effectiveTo:'2026-10-31'}]},s);
  expect(result.amount).toBe('100.00');expect(result.payload.actions[0]!.kind).toBe('end');
 });
