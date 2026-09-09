@@ -236,6 +236,8 @@ export interface JournalLine {
   description?: string;
   projectId?: string;
   costCenterId?: string;
+  cc1Id?: string;
+  cc2Id?: string;
   buId?: string;
   vatType?: VatType;
   createdAt: string;
@@ -274,6 +276,8 @@ export interface JournalLineInput {
   description?: string;
   projectId?: string;
   costCenterId?: string;
+  cc1Id?: string;
+  cc2Id?: string;
   buId?: string;
   vatType?: VatType;
 }
