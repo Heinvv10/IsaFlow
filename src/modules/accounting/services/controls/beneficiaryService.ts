@@ -40,7 +40,8 @@ export async function proposeBeneficiaryChange(ctx: ControlTx, input: Beneficiar
     const currentBank = snapshot(await q.lockBank(ctx, ref));
     if (await q.pendingProposal(ctx, ref)) throw new BeneficiaryError('PENDING_HOLD');
     const previous = await q.latestVersion(ctx, ref);
-    const evidence = await q.validateEvidence(ctx, ref, evidenceRefs);
+    if (!Array.isArray(evidenceRefs)) throw new BeneficiaryError('INVALID_EVIDENCE');
+    const evidence = evidenceRefs.length ? await q.validateEvidence(ctx, ref, evidenceRefs) : [];
     const sealed = sealBeneficiary(ctx.principal.companyId, ref, details);
     const p = ctx.principal;
     if (p.authMethod === 'job') throw new BeneficiaryError('UNSUPPORTED_PRINCIPAL');
@@ -78,7 +79,7 @@ export async function verifyBeneficiaryChange(ctx: ControlTx, proposalId: string
     const oldVersion = previous === null ? null : positiveVersion(previous.version);
     if (proposal.status !== 'pending' || (proposal.base_verified_version === null ? null : positiveVersion(proposal.base_verified_version)) !== oldVersion
       || proposal.base_bank_fingerprint !== bankFingerprint(ctx.principal.companyId, ref, currentBank)) throw new BeneficiaryError('STALE_PROPOSAL');
-    await q.validateEvidence(ctx, ref, proposal.evidence_refs);
+    if (proposal.evidence_refs.length) await q.validateEvidence(ctx, ref, proposal.evidence_refs);
     const evidence = await q.validateEvidence(ctx, ref, evidenceRefs);
     const details = openBeneficiary(ctx.principal.companyId, ref, proposal.details_envelope, proposal.details_fingerprint);
     const version = (oldVersion ?? 0) + 1;
