@@ -112,7 +112,7 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
         ) AS days90_plus,
         SUM(ci.total_amount - ci.amount_paid) AS total_outstanding
       FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
@@ -211,7 +211,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
         (CURRENT_DATE - ci.due_date)::int AS days_overdue,
         ci.status
       FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.due_date IS NOT NULL
         AND ci.due_date < CURRENT_DATE
@@ -257,7 +257,12 @@ export async function getCollectionStats(companyId: string): Promise<CollectionS
           CASE WHEN ci.due_date IS NOT NULL AND ci.due_date < CURRENT_DATE
                THEN (CURRENT_DATE - ci.due_date)::numeric END
         ), 0)                                                             AS avg_days_outstanding,
-        COUNT(DISTINCT COALESCE(ci.client_id, ci.customer_id))::int      AS client_count,
+        -- Same-tenant EXISTS, so the tile counts exactly the debtors the summary
+        -- table lists; an id matching no customer of this company counts as none.
+        COUNT(DISTINCT COALESCE(ci.client_id, ci.customer_id)) FILTER (WHERE EXISTS (
+          SELECT 1 FROM customers c WHERE c.id = COALESCE(ci.client_id, ci.customer_id)
+             AND c.company_id = ci.company_id
+        ))::int                                                          AS client_count,
         COUNT(CASE WHEN ci.due_date < CURRENT_DATE THEN 1 END)::int      AS overdue_count
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
