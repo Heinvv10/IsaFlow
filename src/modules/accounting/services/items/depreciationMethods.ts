@@ -10,10 +10,14 @@
 export type DepreciationMethod = 'straight_line' | 'reducing_balance' | 'sum_of_years';
 
 /**
- * Narrows a DB string to a method. `asset_categories.depreciation_method`
- * (migration 360) uses `diminishing_balance` for what `assets` calls
- * `reducing_balance`, so the two vocabularies are folded here rather than
- * assumed equal. Anything unrecognised falls back to straight line.
+ * Narrows a DB string to a method, falling back to straight line.
+ *
+ * `assets.depreciation_method` is NOT NULL DEFAULT 'straight_line', so the
+ * asset row always carries a value and the method — unlike useful life,
+ * residual and tax life — does NOT inherit from `asset_categories`. The
+ * `diminishing_balance` arm folds that table's spelling of reducing balance
+ * onto this one for any caller that reads a category row directly; no run path
+ * does today.
  */
 export function toDepreciationMethod(value: unknown): DepreciationMethod {
   const v = String(value ?? '');
@@ -71,44 +75,79 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Whole years elapsed from the acquisition month to the period month. */
-export function elapsedYears(purchaseDate: Date, periodDate: Date): number {
+/** Whole months from the acquisition month to the period month; 0 = first month. */
+export function monthsBetween(purchaseDate: Date, periodDate: Date): number {
   const months =
     (periodDate.getFullYear() - purchaseDate.getFullYear()) * 12
     + (periodDate.getMonth() - purchaseDate.getMonth());
-  return months <= 0 ? 0 : Math.floor(months / 12);
+  return months <= 0 ? 0 : months;
+}
+
+export interface MethodChargeInput {
+  method: DepreciationMethod;
+  cost: number;
+  /** Absolute residual value, NOT a fraction of cost. */
+  residual: number;
+  usefulLifeYears: number;
+  /** Whole months from the acquisition month to the period month; 0 = first month. */
+  monthsElapsed: number;
 }
 
 /**
- * The annual charge for the period under the asset's configured method.
+ * The double-declining charge for one depreciation year, walked from cost.
+ *
+ * Crossover: once spreading the remaining depreciable amount evenly over the
+ * remaining life exceeds the declining charge, the schedule switches to that.
+ * Without it the geometric series only approaches the residual and never
+ * reaches it — a five-year asset still carried 13.1% of cost at the end of its
+ * life and the run posted a shrinking journal for it every month forever.
+ */
+function decliningYearCharge(a: MethodChargeInput, yearIndex: number): number {
+  const rate = 2 / a.usefulLifeYears;
+  let carrying = a.cost;
+  for (let k = 0; k <= yearIndex; k += 1) {
+    const remainingDepreciable = carrying - a.residual;
+    if (remainingDepreciable <= 0) return 0;
+    const charge = Math.min(
+      Math.max(carrying * rate, remainingDepreciable / (a.usefulLifeYears - k)),
+      remainingDepreciable,
+    );
+    if (k === yearIndex) return charge;
+    carrying -= charge;
+  }
+  return 0;
+}
+
+/**
+ * The annual charge for the depreciation YEAR the period falls in.
+ *
+ * Deterministic in `monthsElapsed`: it does NOT read accumulated depreciation,
+ * so all twelve months of a year carry the same rate. Deriving the declining
+ * charge from the running accumulated balance instead compounded the rate
+ * monthly and charged 33.4% of cost in year one where the stated rate is 40%.
  *
  * - straight_line: depreciable amount spread evenly over the life.
- * - reducing_balance: double-declining — carrying amount × 2 / life. The charge
- *   falls every year because the carrying amount does; the caller's remaining
- *   depreciable cap still stops it crossing the residual.
+ * - reducing_balance: 2 / life on the year-opening carrying amount, with the
+ *   straight-line crossover (see decliningYearCharge).
  * - sum_of_years: depreciable amount × remaining years / n(n+1)/2.
+ *
+ * Zero once the useful life has run out. The caller trues the schedule up in
+ * its final month, so the pro-rated first month is not stranded.
  */
-export function annualPolicyCharge(a: {
-  method: DepreciationMethod;
-  cost: number;
-  depreciableAmount: number;
-  usefulLifeYears: number;
-  openingAccDep: number;
-  purchaseDate: Date;
-  periodDate: Date;
-}): number {
-  if (a.method === 'reducing_balance') {
-    const carrying = a.cost - a.openingAccDep;
-    if (carrying <= 0) return 0;
-    return round2(carrying * (2 / a.usefulLifeYears));
-  }
+export function annualPolicyCharge(a: MethodChargeInput): number {
+  const depreciable = a.cost - a.residual;
+  if (depreciable <= 0 || a.usefulLifeYears <= 0) return 0;
+
+  const yearIndex = Math.floor(a.monthsElapsed / 12);
+  const remainingYears = a.usefulLifeYears - yearIndex;
+  if (remainingYears <= 0) return 0;
+
+  if (a.method === 'reducing_balance') return round2(decliningYearCharge(a, yearIndex));
   if (a.method === 'sum_of_years') {
-    const n = Math.ceil(a.usefulLifeYears);
-    const remaining = n - elapsedYears(a.purchaseDate, a.periodDate);
-    if (remaining <= 0) return 0;
-    return round2((a.depreciableAmount * remaining) / ((n * (n + 1)) / 2));
+    const sumOfDigits = (a.usefulLifeYears * (a.usefulLifeYears + 1)) / 2;
+    return round2((depreciable * remainingYears) / sumOfDigits);
   }
-  return round2(a.depreciableAmount / a.usefulLifeYears);
+  return round2(depreciable / a.usefulLifeYears);
 }
 
 // ─── Policy Depreciation (IAS 16) ─────────────────────────────────────────────
@@ -120,6 +159,8 @@ export function annualPolicyCharge(a: {
  * - Annual charge per the asset's method (see annualPolicyCharge); straight
  *   line on depreciable amount (cost × (1 − residualPct)) when unset
  * - Pro-rates the first month based on days remaining after purchase date
+ * - Trues the schedule up in the final month of the life, so every method
+ *   charges the depreciable amount exactly and then stops
  * - Caps at remaining depreciable amount (cannot over-depreciate)
  * - Zero depreciation in any period after disposal
  */
@@ -161,15 +202,14 @@ export function calculatePolicyDepreciation(input: PolicyDepreciationInput): Pol
   }
 
   const pd = parseDate(purchaseDate);
+  const monthsElapsed = monthsBetween(pd, periodDate);
 
   const annualDep = annualPolicyCharge({
     method,
     cost,
-    depreciableAmount,
+    residual: round2(cost - depreciableAmount),
     usefulLifeYears,
-    openingAccDep,
-    purchaseDate: pd,
-    periodDate,
+    monthsElapsed,
   });
   const fullMonthlyDep = round2(annualDep / 12);
   const depRate = round2((annualDep / cost) * 100) / 100;
@@ -204,6 +244,12 @@ export function calculatePolicyDepreciation(input: PolicyDepreciationInput): Pol
       depRate,
     };
   }
+
+  // Final month of the useful life: charge whatever is left, so the schedule
+  // lands exactly on the residual and ends there. Every method loses part of a
+  // month to the first-month pro-rate; sum-of-years and reducing balance both
+  // stop at the life and would otherwise strand it on the register forever.
+  if (monthsElapsed >= Math.round(usefulLifeYears * 12) - 1) monthlyDep = remainingDepreciable;
 
   monthlyDep = round2(Math.min(monthlyDep, remainingDepreciable));
 

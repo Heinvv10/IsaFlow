@@ -31,3 +31,57 @@ tests/unit/mcp/runDepreciationDb.test.ts — Test Files 1 passed, Tests 15 passe
 
 === lint ===
 eslint on all six changed src files — clean
+
+================================================================
+Round 2 — blind review of 01b56039 (1 HIGH, 5 MEDIUM, 3 LOW)
+================================================================
+=== GREEN (final shape) ===
+  int:       Tests  5 passed (5)
+  unit:       Tests  66 passed (66)
+=== M1: loader stops selecting depreciation_method ===
+  int:       Tests  3 failed | 2 passed (5)
+  unit:       Tests  66 passed (66)
+=== M2: reducing-balance branch disabled ===
+  int:       Tests  4 failed | 1 passed (5)
+  unit:       Tests  5 failed | 61 passed (66)
+=== M3: sum-of-years branch disabled ===
+  int:       Tests  2 failed | 3 passed (5)
+  unit:       Tests  4 failed | 62 passed (66)
+=== M4: declining crossover removed (H1) ===
+  int:       Tests  5 passed (5)
+  unit:       Tests  1 failed | 65 passed (66)
+=== M5: final-period true-up removed (M3 pro-rate) ===
+  int:       Tests  5 passed (5)
+  unit:       Tests  6 failed | 60 passed (66)
+=== M6: year clock pinned to year 1 (M2 annual-rate convention) ===
+  int:       Tests  4 failed | 1 passed (5)
+  unit:       Tests  5 failed | 61 passed (66)
+=== M7: assetService stops sharing the schedule (M4) ===
+  int:       Tests  1 failed | 4 passed (5)
+  unit:       Tests  4 failed | 62 passed (66)
+=== M8: ON CONFLICT stops refreshing the rate (L8) ===
+  int:       Tests  1 failed | 4 passed (5)
+  unit:       Tests  66 passed (66)
+=== RESTORED ===
+  int:       Tests  5 passed (5)
+  unit:       Tests  66 passed (66)
+  tsc: clean
+
+Each of the eight mutations turns at least one suite RED; the tree restores GREEN.
+  M1 loader column · M2/M3 the two new branches · M4 declining crossover (HIGH-1)
+  M5 final-period true-up (MEDIUM-3) · M6 the year clock (MEDIUM-2)
+  M7 the shared schedule (MEDIUM-4) · M8 the ledger rate refresh (LOW-8)
+
+=== full unit suite, no fixture env (DATABASE_URL unset) ===
+Test Files  5 failed | 779 passed | 36 skipped (820)
+     Tests  10 failed | 9329 passed | 234 skipped (9573)
+The 5 failing files are trackerExclusion, bankAllocationService,
+bankAllocationDateShift, bankAllocationUnwind and cashFlowReport. None imports
+assetService, farDepreciationService or depreciationMethods (grep found no
+match), and all 5 pass in isolation — 27 passed — so the failures are 10s
+timeouts under the full parallel run, not this change. Re-run in isolation:
+  Test Files  5 passed (5) / Tests 27 passed (27)
+
+=== lint / types ===
+eslint on all 9 changed src + pages files — clean
+tsc --noEmit — clean

@@ -6,12 +6,16 @@ was unconditionally straight line. Every asset saved as `reducing_balance` or
 `sum_of_years` was charged straight line by the monthly run, the dry-run preview
 and the MCP tool alike.
 
-**Before / after.** For a R100 000 asset, 5-year life, R20 000 accumulated,
-`reducing_balance`: the run posted R1 666.67/month; it now posts R2 666.67.
-`straight_line` assets are unchanged.
+**Before / after.** For a R100 000 asset, 5-year life, no residual, in year 3
+of its life, `reducing_balance`: the run posted R1 666.67/month; it now posts
+R1 200.00. `straight_line` assets are unchanged.
 
-- reducing balance = carrying amount x 2 / life (double declining)
+- reducing balance = 2 / life on the YEAR-OPENING carrying amount, switching to
+  straight line over the remaining life once that is larger, so the schedule
+  ends exactly on the residual at the end of the life
 - sum of years = depreciable amount x remaining years / n(n+1)/2
+- the final month of the life trues the schedule up, so the pro-rated first
+  month is recovered under every method
 - residual cap, first-month pro-rate and post-disposal zero are unchanged and
   apply to all three methods.
 
@@ -55,5 +59,9 @@ FROM assets a WHERE a.depreciation_method <> 'straight_line'
 GROUP BY 1,2 ORDER BY 3 DESC;
 ```
 
-**Limits.** Reducing balance uses the 2/life double-declining rate; a
-per-asset rate column does not exist. Not run against production data.
+**Limits.** Reducing balance uses the 2/life double-declining rate; a per-asset
+rate column does not exist. The method does NOT inherit from `asset_categories`
+— `assets.depreciation_method` is NOT NULL DEFAULT 'straight_line', so an
+inherited value cannot be told apart from a deliberate one; making it inherit
+needs a nullable column and is a schema decision. Not run against production
+data. See fix-round2.md for the eight review findings and what each changed.
