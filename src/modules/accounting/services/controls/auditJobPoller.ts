@@ -4,10 +4,13 @@ import {als} from '@/lib/als';
 import {log} from '@/lib/logger';
 import {sql} from '@/lib/neon';
 import {canonicalJson} from './canonical';
-import {runAuditJob,type AuditWorkerResult} from './auditJobRunner';
+import type {AuditWorkerResult} from './auditJobRunner';
+import type {AuditWorkerIdentity} from './auditWorkerTransaction';
 const schema=z.object({companyIds:z.array(z.string().uuid()).min(1).max(10).refine(ids=>new Set(ids).size===ids.length),
  batchSize:z.number().int().min(1).max(10).default(10)}).strict();
 export interface AuditPollerConfig{companyIds:string[];batchSize?:number}
+export type AuditJobExecutor=(identity:AuditWorkerIdentity,options:{signal?:AbortSignal})=>Promise<AuditWorkerResult>;
+export interface AuditPollerOptions{pool:Pool;executeJob:AuditJobExecutor}
 interface Cursor{jobId:string;updatedAt:string}
 interface Candidate extends Cursor{personId:string}
 /** Bound acquisition without leaking a client that arrives after timeout/cancellation. */
@@ -40,7 +43,8 @@ async function candidates(pool:Pool,companyId:string,limit:number,cursor:Cursor|
  finally{client.release(broken);}
 }
 /** Server queue discovery is not business authority. Only the cold runner authenticates saved delegation. */
-export function createAuditJobPoller(input:AuditPollerConfig,options:{pool:Pool}){
+export function createAuditJobPoller(input:AuditPollerConfig,options:AuditPollerOptions){
+ if(typeof options.executeJob!=='function')throw new Error('Explicit audit execution boundary required');
  const config=schema.parse(JSON.parse(canonicalJson(input))),cursors=new Map<string,Cursor>();
  let nextCompany=0,polling=false;
  return{async pollOnce(signal?:AbortSignal){
@@ -55,7 +59,7 @@ export function createAuditJobPoller(input:AuditPollerConfig,options:{pool:Pool}
    for(const row of rows){
     if(signal?.aborted)break;
     let result:AuditWorkerResult;
-    try{result=await runAuditJob({companyId,personId:row.personId,jobId:row.jobId},{pool:options.pool,signal});}
+    try{result=await options.executeJob({companyId,personId:row.personId,jobId:row.jobId},{signal});}
     catch{
      log.warn('Audit queue candidate refused before claim',{companyId,jobId:row.jobId},'audit-worker');
      result={state:'failed',code:signal?.aborted?'CANCELLED':'WORKER_ERROR',failureRecorded:false};
@@ -75,7 +79,7 @@ async function delay(ms:number,signal?:AbortSignal){
   const timer=setTimeout(done,ms);signal?.addEventListener('abort',done,{once:true});
  });
 }
-export async function runAuditJobPoller(input:AuditPollerConfig&{once?:boolean;intervalMs?:number},options:{pool:Pool;signal?:AbortSignal}){
+export async function runAuditJobPoller(input:AuditPollerConfig&{once?:boolean;intervalMs?:number},options:AuditPollerOptions&{signal?:AbortSignal}){
  const saved=z.object({companyIds:schema.shape.companyIds,batchSize:schema.shape.batchSize,
   once:z.boolean().default(false),intervalMs:z.number().int().min(1000).max(60000).default(5000)}).strict().parse(JSON.parse(canonicalJson(input)));
  const poller=createAuditJobPoller({companyIds:saved.companyIds,batchSize:saved.batchSize},options);

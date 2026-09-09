@@ -63,7 +63,7 @@ it('rolls back staged files and header when chunk storage fails',async()=>{
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'failed',resultExportId:null});
 });
 it('dispatches a queued export through the actual server poller',async()=>{
- const job=await enqueue(),poller=createAuditJobPoller({companyIds:[fixture.companyA],batchSize:10},{pool});
+ const job=await enqueue(),poller=createAuditJobPoller({companyIds:[fixture.companyA],batchSize:10},{pool,executeJob:(identity,options)=>runAuditJob(identity,{pool,...options})});
  await poller.pollOnce();
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'succeeded',resultExportId:job.id});
 });
