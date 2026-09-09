@@ -53,8 +53,8 @@ export function expandPayrollCompensation(value:unknown,s:CompensationSources){
  const exposures:{before:string|null;after:string}[]=[],dates:string[]=[];
  for(const action of payload.actions){
   const employee=s.employees.find(e=>e.id===action.employeeId);
-  if(!employee||employee.status!=='active')throw new Error('Active owned employee required');
-  if(!s.components.some(c=>c.id===action.componentId&&c.is_active===true))throw new Error('Active owned component required');
+  if(!employee||(action.kind!=='end'&&(employee.status!=='active'||employee.is_active===false)))throw new Error('Active owned employee required');
+  if(!s.components.some(c=>c.id===action.componentId&&(action.kind==='end'||c.is_active===true)))throw new Error('Active owned component required');
   if(String(employee.start_date)>action.effectiveFrom||(employee.end_date&&(!action.effectiveTo||String(employee.end_date)<action.effectiveTo)))throw new Error('Compensation exceeds employee employment dates');
   const row=s.assignments.find(r=>r.id===action.assignmentId),before=row?assignmentState(row,action.kind):null;
   dates.push(assertCompensationWindow(action,before,s.company,s.runs));exposures.push({before:before?.amount??null,after:action.amount});

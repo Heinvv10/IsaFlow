@@ -1,7 +1,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import {executeCompensationCaller,type CompensationExecutionOptions} from '../controls/payrollCompensationLegacyAdapter';
 
 type Row = DbRow;
 
@@ -34,12 +34,6 @@ function mapAssignment(r: Row): EmployeeComponentAssignment {
   };
 }
 
-/** Last day of the month containing `d`, in YYYY-MM-DD form. */
-function endOfMonthIso(d: Date): string {
-  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  return last.toISOString().slice(0, 10);
-}
-
 async function assertEmployeeInCompany(employeeId: string, companyId: string): Promise<void> {
   const rows = (await sql`
     SELECT id FROM payroll_employees
@@ -58,68 +52,24 @@ export async function assignComponentToEmployee(
   effectiveFrom: Date,
   effectiveTo?: Date,
   isRecurring: boolean = true,
+  options: CompensationExecutionOptions = {},
 ): Promise<EmployeeComponentAssignment> {
-  await assertEmployeeInCompany(employeeId, companyId);
-
-  log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
-
-  const effectiveFromStr = effectiveFrom.toISOString().slice(0, 10);
-  // Once-off → auto-cap effective_to at end of effective_from's month so the
-  // assignment dies after the period it was captured for. Caller-supplied
-  // effectiveTo wins if provided.
-  const effectiveToStr = effectiveTo
-    ? effectiveTo.toISOString().slice(0, 10)
-    : isRecurring
-    ? null
-    : endOfMonthIso(effectiveFrom);
-
-  const rows = (await sql`
-    INSERT INTO payroll_employee_components (
-      employee_id, component_id, amount, effective_from, effective_to, is_recurring
-    ) VALUES (
-      ${employeeId}::uuid,
-      ${componentId}::uuid,
-      ${amount},
-      ${effectiveFromStr},
-      ${effectiveToStr},
-      ${isRecurring}
-    )
-    RETURNING *
-  `) as Row[];
-
-  if (!rows[0]) throw new Error('INSERT returned no row');
+  const result=await executeCompensationCaller(companyId,{version:1,source:{kind:'manual'},actions:[{kind:'assign',employeeId,componentId,amount:String(amount),effectiveFrom:fmtDate(effectiveFrom),effectiveTo:effectiveTo?fmtDate(effectiveTo):null,isRecurring}]},options);
+  const rows=await sql`SELECT a.* FROM payroll_employee_components a JOIN payroll_employees e ON e.id=a.employee_id AND e.company_id=${companyId}::uuid
+    WHERE a.id=${result.assignmentIds[0]}::uuid` as Row[];
+  if(!rows[0])throw new Error('Controlled compensation assignment disappeared');
   return mapAssignment(rows[0]);
 }
 
-/**
- * Close an assignment. Returns whether a row was actually closed.
- *
- * The boolean is not decoration. The UPDATE is scoped through the employee's
- * company, so a stale, mistyped-but-well-formed, or foreign `assignmentId`
- * matches NOTHING and the statement succeeds having changed nothing. A caller
- * that reported success on that would tell an agent an old salary had been
- * ended while it stayed live — and the next costed run would pay it.
- */
+/** Close one owned assignment through its approved immutable compensation intent. */
 export async function endEmployeeComponent(
   companyId: string,
   assignmentId: string,
   effectiveTo: Date,
+  options: CompensationExecutionOptions = {},
 ): Promise<boolean> {
-  const effectiveToStr = fmtDate(effectiveTo);
-
-  log.info('Ending employee component', { companyId, assignmentId, effectiveTo: effectiveToStr }, 'payrollEmployeeComponentService');
-
-  const rows = (await sql`
-    UPDATE payroll_employee_components
-    SET effective_to = ${effectiveToStr}
-    WHERE id = ${assignmentId}::uuid
-      AND employee_id IN (
-        SELECT id FROM payroll_employees
-        WHERE company_id = ${companyId}::uuid
-      )
-    RETURNING id
-  `) as Row[];
-  return rows.length > 0;
+  const result=await executeCompensationCaller(companyId,{version:1,source:{kind:'manual'},actions:[{kind:'end',assignmentId,effectiveTo:fmtDate(effectiveTo)}]},options);
+  return result.ended===1;
 }
 
 export async function listEmployeeComponentAssignments(
