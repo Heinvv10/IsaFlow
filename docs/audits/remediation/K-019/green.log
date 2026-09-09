@@ -1,0 +1,28 @@
+=== M1: drive UPDATE from best_matches (drop winners CTE) ===
+     × never binds the same journal line to two bank transactions 41ms
+     × is idempotent: a second pass claims nothing already claimed 7ms
+      Tests  2 failed | 2 passed (4)
+=== M2: drop the NOT EXISTS anti-join ===
+     × is idempotent: a second pass claims nothing already claimed 14ms
+      Tests  1 failed | 3 passed (4)
+=== M3: drop the savepoint ===
+     × a failure inside the relink does not poison the request transaction 8ms
+      Tests  1 failed | 3 passed (4)
+=== RESTORED: full run ===
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+=== FULL UNIT SUITE (bunx vitest run, DATABASE_URL and fixture env UNSET) ===
+Test Files  2 failed | 782 passed | 36 skipped (820)
+     Tests  2 failed | 9318 passed | 234 skipped (9554)
+Duration 85.08s
+
+The 2 failures are 10s test timeouts under full-suite load, both pre-existing:
+  tests/unit/services/cashFlowReport.test.ts > ... (collapsed 1-query path)
+  tests/unit/services/bank/bankAllocationUnwind.test.ts > unwinds the application before posting the contra
+Neither imports bankTransferLinkService. Both pass in isolation (2 files, 17 tests
+passed). Proof they are not mine: the same full suite run with
+src/modules/accounting/services/bank/bankTransferLinkService.ts checked out from
+origin/master fails identically — 2 failed | 9318 passed | 234 skipped, same two
+test names. The renamed/added SQL aliases (date_distance, the winners CTE) break no
+mocked fixture elsewhere.
