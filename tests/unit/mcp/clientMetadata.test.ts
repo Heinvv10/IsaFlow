@@ -21,6 +21,11 @@ import { CLIENT_MCP_TOOL_NAMES, MCP_PATH, MCP_PROD_ENDPOINT } from '@/lib/mcp/cl
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 
 describe('clientMetadata drift guard', () => {
+  it('discovers queued forensic work and bounded retained delivery', () => {
+    const registered = mcpRegistry.getManifest().map(tool => tool.name);
+    expect(registered).toEqual(expect.arrayContaining(['audit_snapshot','export_audit_evidence','audit_job_status',
+      'audit_snapshot_manifest','audit_snapshot_items','audit_snapshot_chunk','audit_export_files','audit_export_chunk']));
+  });
   it('CLIENT_MCP_TOOL_NAMES exactly matches the registered tools', () => {
     const registered = mcpRegistry.getManifest().map((t) => t.name).sort();
     expect([...CLIENT_MCP_TOOL_NAMES].sort()).toEqual(registered);
