@@ -1,4 +1,14 @@
-const operations: Record<string,{read:string;write:string;rule:'supplier_invoice'|'payment'|'journal_entry'|'payroll_run'|'fiscal_period'|'fiscal_year'|'company_lockdown'|'vat_period'}>={
+const operations: Record<string,{read:string;write:string;rule:'supplier_invoice'|'payment'|'journal_entry'|'payroll_run'|'fiscal_period'|'fiscal_year'|'company_lockdown'|'vat_period'|'asset_depreciation'|'customer_invoice'|'credit_note'}>={
+  'bank_transfer.post':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
+  'asset_depreciation.post':{read:'read:assets',write:'write:assets',rule:'asset_depreciation'},
+  'customer_invoice.post':{read:'read:invoices',write:'write:invoices',rule:'customer_invoice'},
+  'customer_invoice.cancel':{read:'read:invoices',write:'write:invoices',rule:'customer_invoice'},
+  'customer_payment.confirm':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
+  'customer_payment.cancel':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
+  'credit_note.approve':{read:'read:invoices',write:'write:invoices',rule:'credit_note'},
+  'credit_note.cancel':{read:'read:invoices',write:'write:invoices',rule:'credit_note'},
+  'credit_note_application.apply':{read:'read:invoices',write:'write:invoices',rule:'credit_note'},
+  'recurring_invoice.generate':{read:'read:invoices',write:'write:invoices',rule:'customer_invoice'},
   'supplier_invoice.approve':{read:'read:invoices',write:'write:invoices',rule:'supplier_invoice'},
   'supplier_invoice.post':{read:'read:invoices',write:'write:invoices',rule:'supplier_invoice'},
   'supplier_invoice.cancel':{read:'read:invoices',write:'write:invoices',rule:'supplier_invoice'},

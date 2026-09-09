@@ -7,7 +7,9 @@ export const CONTROL_OPERATIONS = [
   'payroll_compensation.change', 'journal.post', 'journal.reverse', 'fiscal_period.close',
   'fiscal_period.lock', 'fiscal_period.reopen', 'year.close', 'company_lockdown.change',
   'vat_period.lock', 'beneficiary.propose', 'beneficiary.verify', 'beneficiary.activate',
-  'historical_import.post',
+  'historical_import.post', 'bank_transfer.post', 'asset_depreciation.post',
+  'customer_invoice.post', 'customer_invoice.cancel', 'customer_payment.confirm', 'customer_payment.cancel',
+  'credit_note.approve', 'credit_note.cancel', 'credit_note_application.apply', 'recurring_invoice.generate',
 ] as const;
 export type ControlOperation = typeof CONTROL_OPERATIONS[number];
 export interface ControlPrincipal {
