@@ -21,6 +21,7 @@ const operations: Record<string,{read:string;write:string;rule:'supplier_invoice
   'fiscal_period.close':{read:'read:reports',write:'write:locks',rule:'fiscal_period'},
   'fiscal_period.lock':{read:'read:reports',write:'write:locks',rule:'fiscal_period'},
   'fiscal_period.reopen':{read:'read:reports',write:'write:locks',rule:'fiscal_period'},
+  'year.periods_close':{read:'read:reports',write:'write:locks',rule:'fiscal_year'},
   'year.close':{read:'read:reports',write:'write:locks',rule:'fiscal_year'},
   'company_lockdown.change':{read:'read:reports',write:'write:locks',rule:'company_lockdown'},
   'vat_period.lock':{read:'read:vat',write:'write:locks',rule:'vat_period'},

@@ -5,7 +5,7 @@ export const CONTROL_OPERATIONS = [
   'supplier_payment.process', 'supplier_payment.void', 'supplier_payment_batch.process',
   'payment_release.dispatch', 'payroll_run.approve', 'payroll_run.post', 'payroll_run.reopen',
   'payroll_compensation.change', 'journal.post', 'journal.reverse', 'fiscal_period.close',
-  'fiscal_period.lock', 'fiscal_period.reopen', 'year.close', 'company_lockdown.change',
+  'fiscal_period.lock', 'fiscal_period.reopen', 'year.close', 'year.periods_close', 'company_lockdown.change',
   'vat_period.lock', 'beneficiary.propose', 'beneficiary.verify', 'beneficiary.activate',
   'historical_import.post', 'bank_transfer.post', 'asset_depreciation.post',
   'customer_invoice.post', 'customer_invoice.cancel', 'customer_payment.confirm', 'customer_payment.cancel',
