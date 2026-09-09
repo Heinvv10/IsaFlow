@@ -46,6 +46,7 @@ const BOUNDARY_TOTAL = 700;   // legacy invoice dated exactly on `to`
 const OUT_OF_RANGE_TOTAL = 9999;
 const CANCELLED_TOTAL = 4444;
 const DRIFTED_TOTAL = 3333;
+const NULL_PAID_TOTAL = 1200;  // amount_paid NULL, not 0
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
@@ -146,6 +147,17 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
       [COMPANY, OTHER_CUSTOMER, DRIFTED_TOTAL],
     );
 
+    // amount_paid NULL rather than 0. SUM() skips a NULL addend, so
+    // `SUM(total_amount - amount_paid)` drops the whole invoice from
+    // `outstanding` unless the column is COALESCEd inside the SUM.
+    await admin.query(
+      `INSERT INTO customer_invoices
+         (company_id, invoice_number, customer_id, client_id, subtotal, total_amount,
+          amount_paid, status, invoice_date, created_by)
+       VALUES ($1, 'K093-NULLPAID', $2, $2, $3, $3, NULL, 'sent', '2026-06-01', 'k093')`,
+      [COMPANY, CUSTOMER_MODERN, NULL_PAID_TOTAL],
+    );
+
     route = (await import('../../pages/api/accounting/reports/sales-by-customer'))
       .default as unknown as typeof route;
   }, 60000);
@@ -160,17 +172,18 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
   });
 
   it('reports every non-cancelled invoice in the period, legacy or not', async () => {
+    // The oracle reads the ledger with NO join to customers. Copying the
+    // route's own join here would make the oracle exclude exactly what the
+    // route excludes, and the two could never disagree.
     const { rows } = await admin.query(
       `SELECT COALESCE(SUM(ci.total_amount), 0)::numeric AS total, COUNT(*)::int AS n
          FROM customer_invoices ci
-         JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-                         AND c.company_id = ci.company_id
         WHERE ci.company_id = $1 AND ci.status <> 'cancelled'
           AND ci.invoice_date BETWEEN '2026-01-01' AND '2026-12-31'`,
       [COMPANY],
     );
-    const ledgerTotal = Number(rows[0].total); // 1000 + 2500 + 700
-    const ledgerCount = Number(rows[0].n);     // 3
+    const ledgerTotal = Number(rows[0].total); // 1000 + 2500 + 700 + 3333 + 1200
+    const ledgerCount = Number(rows[0].n);     // 5
 
     const res = mockRes();
     await route(
@@ -190,11 +203,13 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
     const reportTotal = data.reduce((a, r) => a + r.totalSales, 0);
     const reportInvoices = data.reduce((a, r) => a + r.invoiceCount, 0);
 
-    // Today the legacy invoice is absent: 1000 of 3500, 1 invoice of 2.
+    // The report must foot to the ledger, including the drifted invoice whose
+    // customer row belongs to another tenant — that row is unattributable, not
+    // absent, and dropping it would under-report sales by its value.
     expect(reportInvoices).toBe(ledgerCount);
     expect(reportTotal).toBeCloseTo(ledgerTotal, 2);
     expect(data.map((r) => r.clientName).sort())
-      .toEqual(['Boundary Customer', 'Legacy Customer', 'Modern Customer']);
+      .toEqual(['Boundary Customer', 'Legacy Customer', 'Modern Customer', 'Unknown customer']);
   });
 
   it('still excludes cancelled and out-of-period legacy invoices', async () => {
@@ -219,10 +234,11 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
     expect(legacy?.totalSales).toBeCloseTo(LEGACY_TOTAL, 2);
 
     const reportTotal = data.reduce((a, r) => a + r.totalSales, 0);
-    expect(reportTotal).toBeCloseTo(MODERN_TOTAL + LEGACY_TOTAL + BOUNDARY_TOTAL, 2);
+    expect(reportTotal).toBeCloseTo(
+      MODERN_TOTAL + LEGACY_TOTAL + BOUNDARY_TOTAL + DRIFTED_TOTAL + NULL_PAID_TOTAL, 2);
   });
 
-  it('does not name another tenant\'s customer on a drifted invoice', async () => {
+  it('surfaces a drifted invoice as unattributed instead of dropping it', async () => {
     const res = mockRes();
     await route(
       {
@@ -236,11 +252,41 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
     );
 
     const data = (res.body as { data: SalesRow[] }).data;
+
+    // The other tenant's customer NAME must never be printed on this report.
     expect(data.map((r) => r.clientName)).not.toContain('Other Tenant Customer');
-    expect(data.map((r) => r.clientId)).not.toContain(OTHER_CUSTOMER);
-    expect(data.reduce((a, r) => a + r.totalSales, 0)).not.toBeCloseTo(
-      MODERN_TOTAL + LEGACY_TOTAL + BOUNDARY_TOTAL + DRIFTED_TOTAL, 2,
+
+    // But the invoice's own money must still be counted, under a placeholder.
+    // Scoping the join by tenant without outer-joining would have turned a
+    // mislabelled invoice into a silently omitted one — the same defect class
+    // K-093 exists to fix.
+    const unknown = data.find((r) => r.clientName === 'Unknown customer');
+    expect(unknown?.invoiceCount).toBe(1);
+    expect(unknown?.totalSales).toBeCloseTo(DRIFTED_TOTAL, 2);
+  });
+
+  it('counts an invoice whose amount_paid is NULL towards outstanding', async () => {
+    const res = mockRes();
+    await route(
+      {
+        method: 'GET',
+        query: { from: '2026-01-01', to: '2026-12-31' },
+        headers: {},
+        companyId: COMPANY,
+        user: { id: 'k093' },
+      } as unknown as NextApiRequest,
+      res,
     );
+
+    const data = (res.body as { data: SalesRow[] }).data;
+    const modern = data.find((r) => r.clientName === 'Modern Customer');
+
+    // Two invoices: R1,000 with amount_paid 0 and R1,200 with amount_paid NULL.
+    // A bare `SUM(total_amount - amount_paid)` returns 1000, not 2200.
+    expect(modern?.invoiceCount).toBe(2);
+    expect(modern?.totalSales).toBeCloseTo(MODERN_TOTAL + NULL_PAID_TOTAL, 2);
+    expect(modern?.outstanding).toBeCloseTo(MODERN_TOTAL + NULL_PAID_TOTAL, 2);
+    expect(modern?.paymentsReceived).toBeCloseTo(0, 2);
   });
 
   it('carries the legacy invoice into the CSV download too', async () => {

@@ -48,3 +48,38 @@ GROUP  BY company_id;
 today's attribution. The new tenant guard drops any invoice whose customer row belongs to
 another company; that is data drift and should be zero, so the second query above is worth
 running before the deploy.
+
+---
+
+## Blind review of ade12166 — MEDIUM-1 and LOW-2 (both fixed)
+
+**MEDIUM-1.** Scoping the customers join by tenant on an INNER join turned a mislabelled invoice
+into a silently omitted one, which is the same defect class K-093 exists to fix: the report stopped
+footing to the ledger by the value of the drifted invoice. Worse, the suite pinned the omission as
+correct — its oracle was a hand-copy of the route's own join, including the new tenant predicate,
+so oracle and route excluded the same rows and could never disagree.
+
+**Disposition (fixed).** The customers side is now a LEFT JOIN with
+`COALESCE(c.name, 'Unknown customer')` in the select and in the GROUP BY, so a drifted or missing
+customer row is named honestly and its money is still counted. The other tenant's customer NAME is
+still never printed, which was the point of the tenant predicate. Test 1's oracle now reads
+`customer_invoices` with NO join at all, so it is independent of the route's join; test 3 asserts
+the drifted invoice appears as `Unknown customer` at its full value instead of asserting it is
+absent. Mutation M10: restoring the inner join turns 3 of the 5 tests red.
+
+**LOW-2 (fixed).** `customer_invoices.amount_paid` is nullable, `SUM` skips a NULL addend, and the
+outer `COALESCE(..., 0)` only covered the all-NULL case — so an invoice with a NULL `amount_paid`
+contributed nothing at all to `outstanding`. Legacy rows, which this fix exists to pull in, are
+exactly the ones most likely to predate the column default. Now
+`SUM(ci.total_amount - COALESCE(ci.amount_paid, 0))`, and `payments_received` COALESCEs inside the
+SUM for the same reason. A fixture invoice with `amount_paid` NULL and a fifth test pin it;
+mutation M11 removes the inner COALESCE and that test goes red.
+
+**Historical-data impact.** No stored row changes. `total_sales` and the invoice count rise by any
+drifted invoice previously dropped, and `outstanding` rises by the total of any invoice with a NULL
+`amount_paid`. The drift query already in this file finds the first set; for the second:
+```sql
+SELECT company_id, count(*), SUM(total_amount)
+FROM customer_invoices WHERE amount_paid IS NULL AND status <> 'cancelled'
+GROUP BY company_id;
+```
