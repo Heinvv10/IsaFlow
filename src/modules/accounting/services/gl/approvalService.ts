@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertMayDecide } from './approvalAuthority';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -233,6 +234,7 @@ export async function decideRequest(companyId: string,
   decidedBy: string,
   notes?: string
 ): Promise<ApprovalRequest> {
+  await assertMayDecide(companyId, requestId, decidedBy);
   const rows = (await sql`
     UPDATE approval_requests SET
       status = ${decision},

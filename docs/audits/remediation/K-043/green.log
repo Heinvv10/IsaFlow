@@ -1,0 +1,37 @@
+=== K-043 GREEN ===
+
+--- integration (fixture DB), both K-043 files ---
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-043"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-043
+
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Start at  11:36:55
+   Duration  6.11s (transform 2.12s, setup 0ms, import 7.85s, tests 1.01s, environment 0ms)
+
+
+--- mutation proof (production code temporarily reverted, then restored) ---
+A. self-approval throw replaced with `if (false)`:
+     Tests  1 failed | 5 passed (6)   × refuses the requester even when their own role satisfies the rule
+B. `deciderRank(userRole) < requiredRank(ruleRole)` replaced with `< 0`:
+     Tests  3 failed | 3 passed (6)   × manager-not-owner refused / owner approves / rejection path
+C. `await assertMayDecide(...)` call removed from decideRequest:
+     Tests  5 failed | 1 passed (6)   (only the cross-tenant case survives — it is caught by the UPDATE's company_id predicate)
+Restored: Test Files 2 passed (2) / Tests 6 passed (6).
+
+--- tsc --noEmit ---
+TSC_EXIT=0
+
+--- eslint (approvalAuthority.ts, approvalService.ts, approval-requests.ts) ---
+ESLINT_EXIT=0
+
+--- full unit suite (DATABASE_URL unset) ---
+bunx vitest run: Test Files 3 failed | 789 passed | 36 skipped (828)
+                 Tests 6 failed | 9432 passed | 234 skipped (9672)
+The failing files are trackerExclusion, bankAllocationService, bankAllocationDateShift,
+bankAllocationUnwind and cashFlowReport — none of them touch approvals, the failing set
+differed between two consecutive runs, and every one of them is a 10s vitest timeout under
+machine load (many parallel agents). Re-run in isolation on this branch:
+  bunx vitest run <those 5 files> → Test Files 5 passed (5) / Tests 27 passed (27).

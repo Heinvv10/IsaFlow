@@ -6,13 +6,14 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   listRequests, requestApproval, decideRequest, checkApproval, getPendingCount,
   type ApprovalStatus, type DocumentType,
 } from '@/modules/accounting/services/gl/approvalService';
+import { ApprovalDecisionError } from '@/modules/accounting/services/gl/approvalAuthority';
 
 const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
@@ -68,8 +69,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { requestId, notes } = req.body;
       if (!requestId) return apiResponse.badRequest(res, 'requestId is required');
       const decision = action === 'approve' ? 'approved' : 'rejected';
-      const result = await decideRequest(companyId, requestId, decision, userId, notes);
-      return apiResponse.success(res, result);
+      try {
+        const result = await decideRequest(companyId, requestId, decision, userId, notes);
+        return apiResponse.success(res, result);
+      } catch (error) {
+        // Segregation-of-duties refusals are a 403, not a 500 — withAuth would
+        // otherwise roll back and report a server fault for a policy decision.
+        if (error instanceof ApprovalDecisionError) {
+          return apiResponse.error(res, ErrorCode.FORBIDDEN, error.message, { reason: error.code });
+        }
+        throw error;
+      }
     }
 
     return apiResponse.badRequest(res, 'Invalid action. Use: request, approve, reject');

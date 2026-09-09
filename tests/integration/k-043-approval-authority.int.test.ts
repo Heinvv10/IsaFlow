@@ -1,0 +1,141 @@
+/**
+ * K-043 adjacent cases for the approval decide path.
+ *
+ * The RED case (a requester approving their own request) lives in
+ * k-043-self-approval-and-approver-role.int.test.ts. These cover the rest of
+ * the segregation-of-duties surface: a non-requester below the rule's approver
+ * role, the role that does satisfy the rule, the rejection path, and a decider
+ * authenticated to a different company.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { SignJWT } from 'jose';
+import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
+import type { NextApiRequest } from 'next';
+import approvalRequests from '../../pages/api/accounting/approval-requests';
+
+assertDisposable();
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const companyA = crypto.randomUUID();
+const companyB = crypto.randomUUID();
+const requester = crypto.randomUUID();
+const otherManager = crypto.randomUUID();
+const owner = crypto.randomUUID();
+const outsider = crypto.randomUUID();
+const ruleId = crypto.randomUUID();
+const approveRequest = crypto.randomUUID();
+const rejectRequest = crypto.randomUUID();
+const crossTenantRequest = crypto.randomUUID();
+const ownerOwnRequest = crypto.randomUUID();
+const tokens: Record<string, string> = {};
+
+async function mint(userId: string) {
+  return new SignJWT({ sub: userId, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+    .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+}
+
+async function decide(userId: string, companyId: string, action: 'approve' | 'reject', requestId: string) {
+  const csrf = 'disposable-postgres-workflow-csrf-0123456789';
+  const cookies = { 'sb-access-token': tokens[userId]!, active_company_id: companyId, isaflow_csrf: csrf };
+  const req = {
+    method: 'POST', url: '/api/accounting/approval-requests', query: {}, cookies,
+    headers: {
+      cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; '),
+      'x-csrf-token': csrf,
+    },
+    body: { action, requestId, notes: `k043 ${action}` },
+    socket: { remoteAddress: '127.0.0.85' },
+  } as unknown as NextApiRequest;
+  const result = response();
+  await approvalRequests(req, result.res);
+  return result;
+}
+
+async function readRequest(id: string) {
+  const { rows } = await pool.query('SELECT status, decided_by FROM approval_requests WHERE id=$1', [id]);
+  return rows[0];
+}
+
+beforeAll(async () => {
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)',
+    [companyA, 'K043 company A', companyB, 'K043 company B']);
+  // users.role is the platform-level role (no 'owner' in its CHECK); the
+  // per-company role that the rule is matched against lives in company_users.
+  for (const [id, role] of [[requester, 'manager'], [otherManager, 'manager'], [owner, 'admin'], [outsider, 'admin']] as const) {
+    await pool.query('INSERT INTO users(id,email,role,is_active) VALUES($1,$2,$3,true)',
+      [id, `k043-${id}@test.local`, role]);
+    tokens[id] = await mint(id);
+  }
+  await pool.query(
+    `INSERT INTO company_users(company_id,user_id,role)
+     VALUES($1,$2,'manager'),($1,$3,'manager'),($1,$4,'owner'),($5,$6,'owner')`,
+    [companyA, requester, otherManager, owner, companyB, outsider]);
+  await pool.query(
+    `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active,priority)
+     VALUES($1,$2,'K043 owner-only rule','supplier_invoice','total','greater_than',0,'owner',true,10)`,
+    [ruleId, companyA]);
+  for (const id of [approveRequest, rejectRequest, crossTenantRequest]) {
+    await pool.query(
+      `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,status,requested_by)
+       VALUES($1,$2,$3,'supplier_invoice',$4,250000,'pending',$5)`,
+      [id, companyA, ruleId, crypto.randomUUID(), requester]);
+  }
+  // Raised by the owner — the one person whose role does satisfy the rule.
+  await pool.query(
+    `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,status,requested_by)
+     VALUES($1,$2,$3,'supplier_invoice',$4,250000,'pending',$5)`,
+    [ownerOwnRequest, companyA, ruleId, crypto.randomUUID(), owner]);
+});
+
+afterAll(async () => {
+  try {
+    await pool.query('DELETE FROM approval_requests WHERE company_id = ANY($1)', [[companyA, companyB]]);
+    await pool.query('DELETE FROM approval_rules WHERE company_id = ANY($1)', [[companyA, companyB]]);
+    await pool.query('DELETE FROM company_users WHERE company_id = ANY($1)', [[companyA, companyB]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[companyA, companyB]]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[requester, otherManager, owner, outsider]]);
+  } finally { await pool.end(); }
+});
+
+describe('K-043 approval decision authority', () => {
+  it('refuses a manager who is not the requester when the rule demands owner', async () => {
+    const result = await decide(otherManager, companyA, 'approve', approveRequest);
+    expect(result.state.statusCode).toBe(403);
+    expect(result.state.body).toMatchObject({
+      error: { details: { reason: 'APPROVER_ROLE_REQUIRED' } },
+    });
+    expect(await readRequest(approveRequest)).toMatchObject({ status: 'pending', decided_by: null });
+  });
+
+  it('refuses the requester even when their own role satisfies the rule', async () => {
+    const result = await decide(owner, companyA, 'approve', ownerOwnRequest);
+    expect(result.state.statusCode).toBe(403);
+    expect(result.state.body).toMatchObject({
+      error: { details: { reason: 'SELF_APPROVAL_FORBIDDEN' } },
+    });
+    expect(await readRequest(ownerOwnRequest)).toMatchObject({ status: 'pending', decided_by: null });
+  });
+
+  it('refuses a decider authenticated to another company', async () => {
+    const result = await decide(outsider, companyB, 'approve', crossTenantRequest);
+    expect(result.state.statusCode).not.toBe(200);
+    expect(await readRequest(crossTenantRequest)).toMatchObject({ status: 'pending', decided_by: null });
+  });
+
+  it('lets the owner the rule demands approve someone else\'s request', async () => {
+    const result = await decide(owner, companyA, 'approve', approveRequest);
+    expect(result.state.statusCode).toBe(200);
+    expect(await readRequest(approveRequest)).toMatchObject({ status: 'approved', decided_by: owner });
+  });
+
+  it('applies the same authority check to the rejection path', async () => {
+    const refused = await decide(otherManager, companyA, 'reject', rejectRequest);
+    expect(refused.state.statusCode).toBe(403);
+    expect(await readRequest(rejectRequest)).toMatchObject({ status: 'pending', decided_by: null });
+
+    const allowed = await decide(owner, companyA, 'reject', rejectRequest);
+    expect(allowed.state.statusCode).toBe(200);
+    expect(await readRequest(rejectRequest)).toMatchObject({ status: 'rejected', decided_by: owner });
+  });
+});
