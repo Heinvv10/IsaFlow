@@ -26,7 +26,7 @@ export async function listDomainEvidenceNeighbors(ctx:ControlTx,ref:EvidenceIden
       CASE WHEN a_type=${t} AND a_id=${id} THEN b_id ELSE a_id END AS entity_id,relation
     FROM relationships WHERE a_id IS NOT NULL AND b_id IS NOT NULL AND ((a_type=${t} AND a_id=${id}) OR (b_type=${t} AND b_id=${id}))
   ), page AS (SELECT * FROM neighbors ORDER BY entity_type,entity_id,relation LIMIT ${limit} OFFSET ${offset})
-  SELECT (SELECT count(*)::integer FROM neighbors) AS total,COALESCE(jsonb_agg(page),'[]'::jsonb) AS links FROM page` as
+  SELECT (SELECT count(*)::integer FROM neighbors) AS total,COALESCE(jsonb_agg(page ORDER BY entity_type,entity_id,relation),'[]'::jsonb) AS links FROM page` as
     {total:number;links:{entity_type:EvidenceIdentity['entityType'];entity_id:string;relation:string}[]}[];
   return{total:rows[0]?.total??0,links:(rows[0]?.links??[]).map(r=>({target:{entityType:r.entity_type,entityId:r.entity_id},relation:r.relation}))};
 }

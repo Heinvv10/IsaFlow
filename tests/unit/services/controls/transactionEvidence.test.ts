@@ -59,3 +59,8 @@ it('malformed or unsupported persisted references cannot become queries or expos
  const result=await run(root);expect(JSON.stringify(result)).not.toContain('protected-payroll');expect(mocks.loadNode).toHaveBeenCalledTimes(1);
  expect(result.coverage.status).toBe('partial');
 });
+it('reports invalid recorded approval evidence without traversing or exposing the rejected document',async()=>{
+ mocks.neighbors.mockResolvedValue({total:1,links:[{target:{entityType:'captured_document',entityId:doc},relation:'approval_evidence',gap:'APPROVAL_EVIDENCE_PARENT_UNVERIFIED'}]});
+ const result=await run(root);expect(JSON.stringify(result)).not.toContain(doc);expect(mocks.loadNode).toHaveBeenCalledTimes(1);
+ expect(result.coverage.gaps.some(g=>g.reason==='APPROVAL_EVIDENCE_PARENT_UNVERIFIED')).toBe(true);
+});

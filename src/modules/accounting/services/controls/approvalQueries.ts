@@ -106,13 +106,13 @@ export async function validateApprovalEvidence(ctx: ControlTx, binding: Operatio
         FOR SHARE OF cd
       `;
     } else if (ref.store === 'procurement') {
+      // The legacy supplier_invoice document discriminator identifies Sage, not native invoices.
+      if (binding.entityType === 'supplier_invoice') throw new Error('Unsupported native procurement evidence parent');
       found = await ctx.sql`
         SELECT pd.id FROM procurement_documents pd WHERE pd.id=${ref.evidenceId}::uuid AND pd.is_active=true
           AND pd.entity_type=${binding.entityType} AND pd.entity_id=${binding.entityId}::uuid
-          AND (EXISTS(SELECT 1 FROM supplier_invoices si WHERE si.company_id=${ctx.principal.companyId}::uuid
-            AND si.id=pd.entity_id AND pd.entity_type='supplier_invoice')
-          OR EXISTS(SELECT 1 FROM supplier_payments sp WHERE sp.company_id=${ctx.principal.companyId}::uuid
-            AND sp.id=pd.entity_id AND pd.entity_type='supplier_payment'))
+          AND EXISTS(SELECT 1 FROM supplier_payments sp WHERE sp.company_id=${ctx.principal.companyId}::uuid
+            AND sp.id=pd.entity_id AND pd.entity_type='supplier_payment')
       `;
     } else { throw new Error('Unsupported approval evidence store'); }
     if (found.length !== 1) throw new Error('Approval evidence not found');

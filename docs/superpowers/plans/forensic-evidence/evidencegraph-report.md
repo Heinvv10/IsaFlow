@@ -47,4 +47,24 @@ TypeScript and focused source lint clean. Including the two new test files in th
 
 ## Integration boundaries
 
-Root owns tool/registry/UI registration and any new document provenance schema. This commit adds no transport endpoint or generic protected-data reveal. Employee/payroll evidence roots are deliberately unsupported. Approval subjects are traversed; decision JSON evidence refs and approval binding source-version arrays are not expanded by this reader. Historic deleted links/records cannot be reconstructed from current parent pointers. A future typed procurement provenance discriminator is needed before native procurement invoice links can be supported safely. No programme-wide completeness claim is made.
+Root owns tool/registry/UI registration and any new document provenance schema. This commit adds no transport endpoint or generic protected-data reveal. Employee/payroll evidence roots are deliberately unsupported. Approval subjects, stored source-version identities and decision evidence refs are traversed. Decision documents additionally require exact recorded subject and actual persisted parent agreement; source references are historical intent associations, not a claim that their current version still matches the approval. Historic deleted links/records cannot be reconstructed from current parent pointers. A future typed procurement provenance discriminator is needed before native procurement invoice links can be supported safely. No programme-wide completeness claim is made.
+
+
+## Review correction and approval-reference completion
+
+The first reversal fixture used obsolete `status=reversed` and masked the actual writer behavior. Shared `reverseJournalEntry` preserves `posted` and sets `reversed_at`. A focused unit failed before the fix; a real shared post/reverse PostgreSQL test also failed with the old status-only flag condition (`expected [] to include reversed`) and passes with the safe `reversed_at IS NOT NULL` projection. Cancellation alone no longer invents a reversal flag (unit RED then GREEN). One intermediate PG run correctly rejected an unbalanced legacy fixture when its status changed to posted; the fixture was balanced before final proof.
+
+The graph now expands persisted approval source-version identities, including GL account, fiscal-period and company-settings metadata under read:reports. It also expands decision evidence in captured, procurement and attachment stores only after exact subject/parent validation. Captured evidence may follow actual same-supplier payment allocations; procurement remains strictly typed to the legacy Sage convention. Unsupported, mismatched, missing-byte/hash assertions or invalid decision refs create source-only coverage gaps, with no rejected document IDs emitted. Raw hashes/fingerprints never enter the result. Deterministic ordering is explicit in SQL aggregation as well as result/cursor ordering.
+
+The authorized narrow `approvalQueries.validateApprovalEvidence` fix refuses native supplier-invoice procurement evidence until typed native provenance exists. Actual RLS in migration 497 already blocks the tested native-A/Sage-B collision: this is **not a reproduced cross-tenant disclosure**. A same-tenant native/Sage collision did reproduce incorrect approval evidence acceptance (promise resolved instead of rejecting) before the fix. The final tests preserve cross-tenant refusal without depending on new wording and enforce explicit unsupported native-parent refusal for the same-tenant case. Existing unambiguous supplier-payment validation remains supported.
+
+Final executed verification after these changes:
+
+- **33 units passed**, six graph and existing operation-approval suites.
+- **11 PostgreSQL tests passed**, 46.50 s total / 45.87 s tests, including real shared post/reverse, recorded event history, exact approval parent validation, inaccessible source references and both collision cases.
+- TypeScript and focused source ESLint passed. Existing test-file ESLint project-service limitation remains unchanged.
+- No fixture schema changes. Pools closed and DB lease released after final run.
+
+Additional local proof logs: `/tmp/evidencegraph-reversal-red.log`, `/tmp/evidencegraph-reversal-pg-red.log`, `/tmp/evidencegraph-procurement-pg-red2.log`, `/tmp/evidencegraph-review-pg-green.log`, `/tmp/evidencegraph-review-unit-green.log`, `/tmp/evidencegraph-review-ts.log`, `/tmp/evidencegraph-review-lint.log`. The first foreign-only PG RED was an error-wording mismatch, not a bypass; only the subsequent same-tenant case establishes wrong-parent acceptance.
+
+Customer invoice/payment allocation and posting-journal families remain a separately assigned follow-up; current supported association families are enumerated above. No programme-wide completion claim is made.

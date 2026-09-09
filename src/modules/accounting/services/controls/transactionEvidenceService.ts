@@ -54,6 +54,7 @@ export async function inspectTransactionEvidence(ctx: ControlTx,input:{entityTyp
       if(!Number.isSafeInteger(total)||total<0||page.links.length>100)throw new TransactionEvidenceError('EVIDENCE_UNAVAILABLE');
       if(!page.links.length&&offset<total){gap(ref,'RELATION_POPULATION_CHANGED',true);break;}
       for(const link of page.links){
+        if(link.gap){gap(ref,link.gap,true);continue;}
         const target=link.target,targetKey=evidenceKey(target);
         if(!nodes.has(targetKey)&&nodes.size>=500){gap(ref,'NODE_BUDGET',true);continue;}
         const found=await node(target);
