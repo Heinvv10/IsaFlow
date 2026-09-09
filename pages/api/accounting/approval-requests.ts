@@ -13,7 +13,9 @@ import {
   listRequests, requestApproval, decideRequest, checkApproval, getPendingCount,
   type ApprovalStatus, type DocumentType,
 } from '@/modules/accounting/services/gl/approvalService';
-import { ApprovalDecisionError } from '@/modules/accounting/services/gl/approvalAuthority';
+import {
+  ApprovalDecisionError, ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
+} from '@/modules/accounting/services/gl/approvalAuthority';
 
 const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
@@ -59,10 +61,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!ruleId || !documentType || !documentId) {
         return apiResponse.badRequest(res, 'ruleId, documentType, and documentId are required');
       }
-      const request = await requestApproval(companyId, {
-        ruleId, documentType, documentId, documentReference, amount, requestedBy: userId,
-      });
-      return apiResponse.success(res, request);
+      try {
+        const request = await requestApproval(companyId, {
+          ruleId, documentType, documentId, documentReference, amount, requestedBy: userId,
+        });
+        return apiResponse.success(res, request);
+      } catch (error) {
+        // A rule id belonging to another company is a bad request, not a fault.
+        if (error instanceof ApprovalRuleNotFoundError) {
+          return apiResponse.badRequest(res, error.message);
+        }
+        throw error;
+      }
     }
 
     if (action === 'approve' || action === 'reject') {
@@ -77,6 +87,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // otherwise roll back and report a server fault for a policy decision.
         if (error instanceof ApprovalDecisionError) {
           return apiResponse.error(res, ErrorCode.FORBIDDEN, error.message, { reason: error.code });
+        }
+        // Losing a decide race, or naming an unknown request, is an ordinary
+        // outcome — a 404, not the 500 a bare Error used to produce.
+        if (error instanceof ApprovalRequestNotFoundError) {
+          return apiResponse.notFound(res, error.message);
         }
         throw error;
       }

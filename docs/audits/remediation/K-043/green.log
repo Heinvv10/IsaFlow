@@ -35,3 +35,52 @@ bankAllocationUnwind and cashFlowReport — none of them touch approvals, the fa
 differed between two consecutive runs, and every one of them is a 10s vitest timeout under
 machine load (many parallel agents). Re-run in isolation on this branch:
   bunx vitest run <those 5 files> → Test Files 5 passed (5) / Tests 27 passed (27).
+
+=== Review follow-up round (2026-09-09, second fixer after the first died mid-task) ===
+
+Note on the log above and K-108/K-109's: the K-109 `describe` block it counts (7 tests in
+k108-k109-approval-rules.int.test.ts) was NOT in the file — the previous agent died before
+writing it. Those three cases have been written and are counted below. Everything else in the
+earlier logs reproduces.
+
+--- integration (fixture DB) ---
+k-043-self-approval-and-approver-role.int.test.ts   1 passed
+k-043-approval-authority.int.test.ts                8 passed  (5 original + 3 review cases)
+k108-k109-approval-rules.int.test.ts                9 passed  (4 K-108 + 2 approver_role + 3 K-109)
+                                                   ── 3 files, 18 passed
+
+--- unit ---
+tests/unit/services/gl/approvalOperatorFailClosed.test.ts   3 passed
+tests/unit/services/gl/approverRankLadder.test.ts           5 passed  (new, review L1)
+
+--- components (vitest.components.config.ts) ---
+tests/unit/components/approvalDecisionErrorSurface.test.tsx 3 passed  (new, review M2)
+
+--- mutation proof (production code temporarily reverted, then restored) ---
+G. handleDecision reverted to `if (!res.ok) throw new Error('Failed')`:
+     3 failed | 0 passed (3)  — the server's reason no longer reaches the screen.
+H. the foreign-rule refusal in assertMayDecide replaced with `if (false)`:
+     1 failed | 7 passed (8)  × refuses a decider when the request names a rule another company owns
+     (the discriminator is an admin decider against an owner-only rule: without the guard the
+      `?? APPROVER_RANK.admin` fallback lets him through)
+I. the ApprovalRequestNotFoundError → notFound mapping removed from the route:
+     2 failed | 6 passed (8)  × already-decided / unknown id (both answer 500 again)
+J. assertApproverRole's condition ANDed with false:
+     2 failed | 7 passed (9)  × create refused / update refused
+K. ladder drift, manager↔accountant: 1 failed | 4 passed (5)  × extra roles ranked correctly
+K2. ladder drift, super_admin↔owner: 1 failed | 4 passed (5)  × shared pairs ordered alike
+L. requestApproval reverted to the unscoped VALUES insert:
+     2 failed | 7 passed (9)  × another tenant's rule id / a rule id that exists nowhere
+All six files restored and re-run green afterwards.
+
+--- tsc --noEmit ---            TSC_EXIT=0
+--- eslint (6 changed src/pages files) ---  ESLINT_EXIT=0
+
+--- full unit suite (DATABASE_URL / JWT_SECRET / ISAFLOW_DISPOSABLE_AUTH_TEST unset) ---
+run 1: Test Files 5 failed | 789 passed | 36 skipped (830)  Tests 10 failed | 9436 passed (9680)
+run 2: Test Files 2 failed | 792 passed | 36 skipped (830)  Tests  2 failed | 9444 passed (9680)
+The failing SET differs between runs and every failure is a 10s vitest timeout; load average was
+121 with many parallel agents on the box. Re-run in isolation on this branch:
+  bankAllocationUnwind, cashFlowReport, bankAllocationService, approvalOperatorFailClosed,
+  approverRankLadder → Test Files 5 passed (5) / Tests 28 passed (28).
+No approvals test appears in either failing set.

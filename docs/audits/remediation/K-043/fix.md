@@ -45,3 +45,33 @@ returned rows by hand.
 **Limits.** No exemption for a sole owner who is also the only requester — such a company can no
 longer clear its own approvals. If that is wanted it should be an explicit exemption, not the
 check being off.
+
+## Blind-review dispositions (scratchpad/review-k043.md — 0 HIGH / 3 MEDIUM / 7 LOW)
+
+**M1 — a lost decide race or an unknown id answered 500. FIXED.** `decideRequest` throws a typed
+`ApprovalRequestNotFoundError`; the route maps it to 404 in the same catch as the 403. Two tests.
+
+**M2 — the only consumer threw the 403 reason away. FIXED.** `pages/accounting/approvals/index.tsx`
+reads the body on `!res.ok` and surfaces `error.message`, so a segregation-of-duties refusal no
+longer reads as a network failure. Rendered test, not grepped:
+`tests/unit/components/approvalDecisionErrorSurface.test.tsx` (3).
+
+**M3 — the role requirement failed OPEN when the rule row was missing. FIXED, both halves.**
+`assertMayDecide` refuses `APPROVER_ROLE_REQUIRED` when `rule_id` is set but no company-scoped rule
+came back, instead of falling back to `admin`; and `requestApproval` is now an `INSERT ... SELECT`
+scoped to the company, so the id cannot be planted in the first place (that half is K-109).
+
+**L1 — two rank ladders with nothing keeping them in step. FIXED.** `APPROVER_RANK` is exported and
+`tests/unit/services/gl/approverRankLadder.test.ts` (5) locks its ORDERING against `ROLE_HIERARCHY`
+pair by pair, plus coverage of the `accountant`/`user` roles that map lacks. The numbers still
+differ by design. `ROLE_HIERARCHY`'s own `?? 0` bug is left alone as the review advised.
+**L2 — self-comparison done in JavaScript. FIXED.** Compared in SQL as `ar.requested_by::TEXT = $`.
+**L3 — sole-owner deadlock. NOT FIXED, by design.** An exemption is a feature; see Limits above.
+**L4 — `approver_role` unvalidated. FIXED.** Rejected against the ladder keys on create and update,
+400 from the route. Two tests.
+**L5 — test order coupling. FIXED.** The positive approve case has its own request row.
+**L6 — module doc silent on the new files. FIXED.** `services/gl/.claude.md` + `AGENTS.md` mirror.
+**L7 — impersonation defeats the control. NOT FIXED, out of scope.** A platform admin impersonating
+an eligible approver passes the guard and `decided_by` records the impersonated user, so the audit
+row does not say who actually approved. Pre-existing platform capability; worth its own item now
+that a segregation-of-duties control leans on identity.
