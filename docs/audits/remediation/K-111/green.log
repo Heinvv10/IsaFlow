@@ -1,0 +1,15 @@
+K-111 GREEN (branch fix/audit-k110-k111-cost-centre-rowcount, fixture DB)
+
+tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts  2 passed
+tests/integration/k111-row-count-adjacent.int.test.ts              5 passed
+
+Mutation proof: duplicateMergeService.ts, timeTrackingService.ts and
+timeTrackingReportService.ts all reverted to origin/master
+ -> 5 failed of 7 (every count assertion; the two that still pass are the
+    "no documents at all" case, which is legitimately 0, and the repeated-merge
+    rejection, which does not read a count).
+ Restored: 7 passed.
+
+Full unit suite, DATABASE_URL unset: Test Files 800 passed | 40 skipped (840);
+Tests 9553 passed | 243 skipped (9796).
+bunx tsc --noEmit: clean. bunx eslint on the 4 changed src files: clean.

@@ -1,0 +1,22 @@
+K-110 GREEN (branch fix/audit-k110-k111-cost-centre-rowcount, fixture DB)
+
+tests/integration/k110-cost-centre-delete-unassigns.int.test.ts  1 passed
+tests/integration/k110-cost-centre-delete-adjacent.int.test.ts   4 passed
+
+Mutation proof (three states, all against the fixture DB):
+ 1. costCentreService.ts reverted to origin/master, migration 649 applied
+    -> 1 failed: "refuses a centre that only fixed assets reference, and names the count"
+       (expected '1 asset(s)', got pg 23503) — the guard is load-bearing.
+ 2. costCentreService.ts reverted AND both FKs put back to ON DELETE SET NULL
+    -> 3 failed of 5 (the original defect reproduces: centre deleted, assignment nulled).
+ 3. costCentreService.ts fixed, FKs still ON DELETE SET NULL
+    -> 1 failed: "the database refuses the delete even when the guard is bypassed"
+       — migration 649 is independently load-bearing.
+ Restored: 5 passed.
+
+Migration 649 applied to the fixture; pg_constraint confdeltype = 'r' on
+payroll_employees_cost_centre_id_fkey and assets_cost_centre_id_fkey.
+
+Full unit suite, DATABASE_URL unset: Test Files 800 passed | 40 skipped (840);
+Tests 9553 passed | 243 skipped (9796).
+bunx tsc --noEmit: clean. bunx eslint on the 4 changed src files: clean.

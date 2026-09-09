@@ -211,8 +211,9 @@ export async function submitEntries(
     WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'draft'
+    RETURNING id
   `) as DbRow[];
-  const count = Array.isArray(result) ? result.length : 0;
+  const count = result.length;
   log.info('Submitted time entries', { count, ids }, 'accounting');
   return count;
 }
@@ -227,8 +228,9 @@ export async function approveEntries(
     WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'submitted'
+    RETURNING id
   `) as DbRow[];
-  const count = Array.isArray(result) ? result.length : 0;
+  const count = result.length;
   log.info('Approved time entries', { count, ids }, 'accounting');
   return count;
 }
