@@ -11,7 +11,11 @@ export type AuditJobErrorCode=typeof ERROR_CODES[number];
 /** A lease is an internal capability; copying its visible identifiers never creates authority. */
 export function assertAuditJobLease(ctx:ControlTx,lease:AuditJobLease):void{
  assertControlTx(ctx);
- if(!issued.has(lease)||lease.companyId!==ctx.principal.companyId||lease.personId!==ctx.principal.personId)throw new Error('Invalid audit job lease authority');
+ assertIssuedAuditJobLease(lease,ctx.principal.companyId,ctx.principal.personId);
+}
+/** Bootstrap may check server issuance before a ControlTx exists; database freshness is checked separately. */
+export function assertIssuedAuditJobLease(lease:AuditJobLease,companyId:string|undefined,personId:string):void{
+ if(!issued.has(lease)||lease.companyId!==companyId||lease.personId!==personId)throw new Error('Invalid audit job lease authority');
 }
 /** Called by the worker, never a status/read path. SQL generation fencing survives worker restarts. */
 export async function claimAuditJob(ctx:ControlTx,id:string):Promise<AuditJobLease|null>{
