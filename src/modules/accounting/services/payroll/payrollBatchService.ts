@@ -13,6 +13,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { endOfMonthIso } from './leaveAccrualService';
 
 type Row = DbRow;
 
@@ -109,14 +110,21 @@ function toIso(d: Date): string {
 }
 
 /**
- * A once-off batch must apply to its own period only. The batch UI never sets a
- * line `effective_to`, so without this the assignment is open-ended and the
- * amount is paid again in every later run. Recurring batches stay open-ended.
+ * A once-off batch line must be paid once. The batch UI never sets a line
+ * `effective_to`, so without this the assignment is open-ended and the amount is
+ * paid again in every later run. Recurring batches stay open-ended.
+ *
+ * The close date is the end of the LINE's own `effective_from` month, which is
+ * the rule `payrollEmployeeComponentService.assignComponentToEmployee` already
+ * applies to a once-off assignment. Closing at the BATCH period end instead
+ * would bound only the tail: a backdated line still pays in every month from
+ * its own date up to the period end, and a line dated after the period end
+ * would be clamped to a single day the run never evaluates, so it would never
+ * be paid at all.
  */
 function closeOnceOffAt(batch: PayrollBatch, effectiveFrom: Date, effectiveTo: Date | null): Date | null {
   if (effectiveTo || batch.isRecurring) return effectiveTo;
-  const periodEnd = new Date(Date.UTC(batch.periodYear, batch.periodMonth, 0));
-  return periodEnd < effectiveFrom ? effectiveFrom : periodEnd;
+  return new Date(endOfMonthIso(effectiveFrom.getUTCFullYear(), effectiveFrom.getUTCMonth() + 1));
 }
 
 function mapBatch(r: Row): PayrollBatch {

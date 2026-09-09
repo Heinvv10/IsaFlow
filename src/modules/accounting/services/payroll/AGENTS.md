@@ -38,12 +38,15 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - VIP-parity foundations (2026-04-24): SARS codes table, bureau mode, period lock, variance engine.
 - Cash-pay register, IRP5 certificate validation, e@syFile EMP501 CSV — SARS compliance export paths.
 - `payrollRunLock`: once locked, period rejects new runs and edits.
+- **Once-off components close at month end.** `getEmployeeComponents` (the reader `calculatePayrollRun` uses) filters on the `effective_from`/`effective_to` window and IGNORES `is_recurring`, so an open-ended row flagged once-off is paid in every later run. All three writers to `payroll_employee_components` — `postBatch`, `assignComponentToEmployee`, `applyPackageToEmployee` — therefore set `effective_to` to the end of the row's own `effective_from` month when the row is not recurring, via the pure `endOfMonthIso(year, month)` from `leaveAccrualService`. A caller-supplied `effective_to` always wins. Do NOT close at the batch/package period end instead: that bounds only the tail, so a backdated line still pays every month up to it (2026-09-09, K-025).
+- Month-end must be derived with UTC accessors. `new Date(y, m + 1, 0).toISOString()` lands a day early east of UTC; `endOfMonthIso` uses `Date.UTC` (2026-09-09, K-025).
 
 ## Related files
 - `pages/api/accounting/payroll/*.ts` — routes.
 - `scripts/migrations/sql/*payroll*`, `*uif*`, `*tax_directive*`, `*leave_accrual*`.
 
 ## Recent changes
+- 2026-09-09 (K-025): once-off components close at the end of their own month in all three writers; `payrollEmployeeComponentService`'s local-time month-end was a day early in SAST; `payPackageService` wrote no `effective_to` at all.
 - 2026-06-11: parallel-run comparison (Workstream C) — external payslip import (mig 495, amounts in integer CENTS) + pure cent-level comparator + CSV export; routes `pages/api/payroll/parallel-run/*`, page `/payroll/parallel-run`.
 - 2026-04-24: leave balance INSERTs supply `company_id` for RLS.
 - 2026-04-24: leave accrual — EXCLUDED out of scope in RETURNING.

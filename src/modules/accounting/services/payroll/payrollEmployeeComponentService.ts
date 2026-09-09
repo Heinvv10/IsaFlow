@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import { endOfMonthIso } from './leaveAccrualService';
 
 type Row = DbRow;
 
@@ -32,12 +33,6 @@ function mapAssignment(r: Row): EmployeeComponentAssignment {
       : null,
     isRecurring: r.is_recurring === false ? false : true,
   };
-}
-
-/** Last day of the month containing `d`, in YYYY-MM-DD form. */
-function endOfMonthIso(d: Date): string {
-  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  return last.toISOString().slice(0, 10);
 }
 
 async function assertEmployeeInCompany(employeeId: string, companyId: string): Promise<void> {
@@ -71,7 +66,7 @@ export async function assignComponentToEmployee(
     ? effectiveTo.toISOString().slice(0, 10)
     : isRecurring
     ? null
-    : endOfMonthIso(effectiveFrom);
+    : endOfMonthIso(effectiveFrom.getUTCFullYear(), effectiveFrom.getUTCMonth() + 1);
 
   const rows = (await sql`
     INSERT INTO payroll_employee_components (

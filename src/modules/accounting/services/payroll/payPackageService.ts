@@ -5,7 +5,10 @@
  *   1. End-date any OPEN assignment (effective_to IS NULL) for each of the
  *      package's components, set effective_to = effectiveFrom - 1 day.
  *   2. Insert a new payroll_employee_components row per package row with
- *      the package's default amount + is_recurring flag.
+ *      the package's default amount + is_recurring flag. A row flagged
+ *      once-off is closed at the end of effectiveFrom's month, because the
+ *      payroll reader ignores is_recurring and an open-ended row would be
+ *      paid in every later run.
  *
  * The whole apply runs in a single transaction so partial application is
  * impossible. Subsequent edits to the package do not retroactively change
@@ -15,6 +18,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { endOfMonthIso } from './leaveAccrualService';
 
 export interface PayPackage {
   id: string;
@@ -249,6 +253,9 @@ export async function applyPackageToEmployee(
     'payPackageService',
   );
 
+  const startYear = Number(effectiveFrom.slice(0, 4));
+  const startMonth = Number(effectiveFrom.slice(5, 7));
+
   // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
   // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
   // `withAuth` opens for every request — so it commits the WHOLE request, makes
@@ -269,11 +276,18 @@ export async function applyPackageToEmployee(
       `) as DbRow[];
       ended += endResult.length;
 
+      // A once-off package row must be paid once. Without an explicit
+      // effective_to the row is open-ended, and the payroll reader
+      // (getEmployeeComponents) filters on the date window only — it ignores
+      // is_recurring — so the amount would be paid in every later run. Same
+      // close rule as payrollBatchService and assignComponentToEmployee.
+      const isRecurring = r.is_recurring === true;
+      const effectiveTo = isRecurring ? null : endOfMonthIso(startYear, startMonth);
       await tx`
         INSERT INTO payroll_employee_components
-          (employee_id, component_id, amount, effective_from, is_recurring)
+          (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
         VALUES
-          (${employeeId}::uuid, ${componentId}::uuid, ${Number(r.amount)}, ${effectiveFrom}::date, ${r.is_recurring === true})
+          (${employeeId}::uuid, ${componentId}::uuid, ${Number(r.amount)}, ${effectiveFrom}::date, ${effectiveTo}, ${isRecurring})
       `;
     }
     return { inserted: compRows.length, ended };
