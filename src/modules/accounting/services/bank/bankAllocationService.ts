@@ -1,4 +1,5 @@
 /** Shared immutable bank allocation adapters. All financial effects use the approved parent service. */
+import {isBankAllocationRefund} from './bankAllocationPlan';
 import Decimal from 'decimal.js';
 const D=Decimal.clone({precision:80});
 import {withSavepoint} from '@/lib/neon';
@@ -44,7 +45,9 @@ export async function allocateTransaction(companyId:string,bankTxId:string,contr
  let input:unknown;
  if(allocType==='customer'||allocType==='supplier'){
   if(!entityId)throw new Error('Owned allocation party required');
-  if(!opts?.applications&&!invoiceId&&opts?.autoApply!==false){
+  const refund=isBankAllocationRefund(allocType,bank.amount);
+  if(refund&&(invoiceId||opts?.applications?.length))throw new Error('Refund applications must be empty');
+  if(!refund&&!opts?.applications&&!invoiceId&&opts?.autoApply!==false){
    const rows=allocType==='customer'?await ctx.sql`SELECT auto_allocate_strategy FROM customers WHERE company_id=${companyId}::uuid AND id=${entityId}::uuid`
     :await ctx.sql`SELECT auto_allocate_strategy FROM suppliers WHERE company_id=${companyId}::uuid AND id=${entityId}::uuid`;
    const strategy=(rows as {auto_allocate_strategy:string|null}[])[0]?.auto_allocate_strategy;

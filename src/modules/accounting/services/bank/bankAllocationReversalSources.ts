@@ -5,7 +5,7 @@ import {assertControlTx} from '../controls/context';
 import {matchesBankAllocationJournalLines} from '../controls/bankAllocationJournalShape';
 import {canonicalJson} from '../controls/canonical';
 import type {ControlTx} from '../controls/contracts';
-import {parseBankAllocationPlan} from './bankAllocationPlan';
+import {parseBankAllocationPlan,isBankAllocationRefund} from './bankAllocationPlan';
 import {loadBankAllocationSources} from './bankAllocationSources';
 type Row=Record<string,unknown>;
 /** Prove original financial facts independently of mutable close-period/approval state. */
@@ -24,7 +24,10 @@ export async function loadBankAllocationOriginal(ctx:ControlTx,originalIntentId:
  if(!journal||journal.status!=='posted'||fmtDate(journal.entry_date as string|Date)!==intent.accounting_date||journal.source_record_id!==plan.bankTransactionId
   ||journal.source!==(plan.kind==='customer'?'auto_payment':plan.kind==='supplier'?'auto_supplier_payment':'auto_bank_recon')
   ||!matchesBankAllocationJournalLines(sources.lines,lines))throw new Error('Original allocation journal changed');
- if('applications' in plan){
+ if(isBankAllocationRefund(plan.kind,String(sources.bank.amount))){
+  if(receipt.result.paymentId!==null||sources.receipts.length||sources.disbursements.length
+   ||sources.receiptAllocations.length||sources.paymentAllocations.length)throw new Error('Refund must not have payment or application children');
+ }else if('applications' in plan){
   const payments=plan.kind==='customer'?sources.receipts:sources.disbursements;
   const payment=payments.find(p=>p.id===receipt.result.paymentId);
   if(!payment||payment.gl_journal_entry_id!==journal.id||!new D(String(payment.total_amount)).eq(String(intent.amount))
@@ -40,7 +43,7 @@ export async function assertOriginalAllocationReversible(ctx:ControlTx,originalI
  const material=await loadBankAllocationOriginal(ctx,originalIntentId);
  if(material.journal.reversed_at||!['allocated','matched','reconciled'].includes(String(material.sources.bank.status))
   ||!material.lines.some(l=>l.id===material.sources.bank.matched_journal_line_id&&l.gl_account_id===material.sources.bank.bank_account_id))throw new Error('Original allocation is no longer reversible');
- if('applications' in material.plan){
+ if('applications' in material.plan&&!isBankAllocationRefund(material.plan.kind,String(material.sources.bank.amount))){
   const payment=(material.plan.kind==='customer'?material.sources.receipts:material.sources.disbursements).find(p=>p.id===material.receipt.result.paymentId)!;
   if(!['confirmed','reconciled','processed'].includes(String(payment.status)))throw new Error('Original payment is not active');
   for(const item of material.sources.invoices){const invoice=item.invoice as Row,allocation=item.allocation as {amount:string};

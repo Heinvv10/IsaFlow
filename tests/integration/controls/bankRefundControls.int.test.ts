@@ -24,14 +24,14 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO bank_accounts(company_id,account_name,gl_account_id,currency) VALUES($1,'Synthetic refund bank',$2,'ZAR')",[fixture.companyA,bank]);
 });
 afterAll(()=>pool.end());
-async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u2'|'u3'='u1',token=0){
+async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u2'|'u3'='u1',token=-1){
  const client=await pool.connect(),user=fixture[person];
  try{
   await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
   const claims={sub:user.id,role:'authenticated',company_id:user.companyId};
   await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
-  const pat=user.tokens[token]!;
-  const result=await withControlRequest({client,userId:user.id,companyId:user.companyId,claims},{personId:user.id,companyId:user.companyId,authMethod:'pat',connectionId:pat.id,grantId:pat.id,grantedScopes:['write:bank-tx','write:post','write:approvals']},fn);
+  const pat=token>=0?user.tokens[token]!:null;
+  const result=await withControlRequest({client,userId:user.id,companyId:user.companyId,claims},{personId:user.id,companyId:user.companyId,authMethod:pat?'pat':'cookie',...(pat?{connectionId:pat.id,grantId:pat.id,grantedScopes:['write:bank-tx','write:post','write:approvals']}: {})},fn);
   await client.query('COMMIT');return result;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
@@ -43,7 +43,8 @@ async function source(kind:Kind){
 async function prepared(kind:Kind){
  const plan=await source(kind),intent=await actor(()=>prepareBankAllocation(requireControlTx(),plan));
  const approval=await actor(()=>requestOperationApproval(requireControlTx(),intent.operation));
- await expect(actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u1',1)).rejects.toThrow(/requester|same|self|maker/i);
+ await expect(actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u1',1)).rejects.toThrow('An authenticated human decision is required');
+ await expect(actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'))).rejects.toThrow(/requester|same|self|maker/i);
  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
  return{plan,...intent,approvalId:approval.id};
 }
@@ -87,9 +88,9 @@ for(const kind of ['supplier','customer'] as const){
  it(`${kind}: stale signed amount, foreign tenant and revoked current authority refuse writes`,async()=>{
   const p=await prepared(kind);
   await expect(actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId:p.approvalId}),'u3')).rejects.toThrow(/not found|permission/i);
-  await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,'bank',false)",[fixture.companyA,fixture.u1.id]);
+  await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,'banking',false)",[fixture.companyA,fixture.u1.id]);
   try{await expect(actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId:p.approvalId}))).rejects.toThrow(/permissions/i);}
-  finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='bank'",[fixture.companyA,fixture.u1.id]);}
+  finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='banking'",[fixture.companyA,fixture.u1.id]);}
   await pool.query('UPDATE bank_transactions SET amount=amount*2 WHERE company_id=$1 AND id=$2',[fixture.companyA,p.plan.bankTransactionId]);
   await expect(actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId:p.approvalId}))).rejects.toThrow(/source changed/i);
   expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,p.plan.bankTransactionId])).rows).toEqual([]);
@@ -105,3 +106,16 @@ for(const kind of ['supplier','customer'] as const){
   expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,p.plan.bankTransactionId])).rows).toEqual([]);
  });
 }
+it('backdating the owned bank source invalidates an already approved refund',async()=>{
+ const p=await prepared('supplier');
+ await pool.query("UPDATE bank_transactions SET transaction_date='2026-09-08' WHERE company_id=$1 AND id=$2",[fixture.companyA,p.plan.bankTransactionId]);
+ await expect(actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId:p.approvalId}))).rejects.toThrow(/source changed/i);
+ expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,p.plan.bankTransactionId])).rows).toEqual([]);
+});
+it('requires independent approval and refuses a foreign party before preparing refund material',async()=>{
+ const plan=await source('customer'),intent=await actor(()=>prepareBankAllocation(requireControlTx(),plan));
+ await expect(actor(()=>executeBankAllocation(requireControlTx(),intent.intentId))).rejects.toThrow(/approval/i);
+ const foreign=randomUUID();
+ await pool.query("INSERT INTO customers(id,company_id,name) VALUES($1,$2,'Synthetic foreign refund party')",[foreign,fixture.companyB]);
+ await expect(actor(()=>prepareBankAllocation(requireControlTx(),{...plan,partyId:foreign}))).rejects.toThrow(/Owned allocation party/);
+});

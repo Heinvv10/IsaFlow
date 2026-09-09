@@ -24,13 +24,18 @@ export function parseBankAllocationPlan(input:unknown):BankAllocationPlan{
  if('applications' in plan&&new Set(plan.applications.map(a=>a.invoiceId.toLowerCase())).size!==plan.applications.length)throw new Error('Duplicate allocation invoice');
  return plan;
 }
+/** Party refunds follow the owned statement sign; they never settle an invoice. */
+export function isBankAllocationRefund(kind:BankAllocationPlan['kind'],signedAmount:string):boolean{
+ const signed=new D(canonicalMoney(signedAmount));
+ return (kind==='supplier'&&signed.gt(0))||(kind==='customer'&&signed.lt(0));
+}
 export interface ExactBankJournalLine {accountId:string;debit:string;credit:string;description:string;vatType:string|null;cc1Id:string|null;cc2Id:string|null;buId:string|null}
 export function buildBankAllocationLines(plan:BankAllocationPlan,source:{bankAccountId:string;signedAmount:string;controlAccountId:string|null;vatAccountId:string|null}):ExactBankJournalLine[]{
  const signed=new D(canonicalMoney(source.signedAmount)),amount=allocationMoney(signed.abs().toFixed()),spent=signed.lt(0);
  const description=plan.description??'Bank allocation',result:ExactBankJournalLine[]=[];
  const add=(accountId:string,value:string,debit:boolean,desc=description,vatType:string|null=null,dims?:{cc1Id?:string;cc2Id?:string;buId?:string})=>result.push({accountId,debit:debit?value:'0',credit:debit?'0':value,description:desc,vatType,cc1Id:dims?.cc1Id??null,cc2Id:dims?.cc2Id??null,buId:dims?.buId??null});
  if('applications' in plan){
-  if((plan.kind==='customer'&&spent)||(plan.kind==='supplier'&&!spent))throw new Error('Allocation party direction is invalid');
+  if(isBankAllocationRefund(plan.kind,source.signedAmount)&&plan.applications.length)throw new Error('Refund applications must be empty');
   if(!source.controlAccountId)throw new Error('Allocation control account unavailable');
   if(plan.applications.reduce((sum,a)=>sum.add(a.amount),new D(0)).gt(amount))throw new Error('Applications exceed bank amount');
   add(source.controlAccountId,amount,spent);

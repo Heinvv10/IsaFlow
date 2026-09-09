@@ -14,11 +14,11 @@ it('refuses fractional cents, excessive bounds, duplicate invoice applications a
  expect(()=>parseBankAllocationPlan({...raw,personId:bank})).toThrow();
  expect(()=>parseBankAllocationPlan({version:1,kind:'customer',bankTransactionId:bank,partyId:account,applications:[{invoiceId:bank,amount:'1'},{invoiceId:bank,amount:'1'}]})).toThrow();
 });
-it('requires exact split equality and enforces customer receipt direction',()=>{
+it('requires exact split equality and refuses invoice-targeted customer refunds',()=>{
  const plan=parseBankAllocationPlan({version:1,kind:'split',bankTransactionId:bank,lines:[{accountId:account,amount:'1',vatCode:'none'}]});
  expect(()=>buildBankAllocationLines(plan,{bankAccountId:bank,signedAmount:'1.01',controlAccountId:null,vatAccountId:null})).toThrow('total');
- const receipt=parseBankAllocationPlan({version:1,kind:'customer',bankTransactionId:bank,partyId:account,applications:[]});
- expect(()=>buildBankAllocationLines(receipt,{bankAccountId:bank,signedAmount:'-1',controlAccountId:account,vatAccountId:null})).toThrow('direction');
+ const receipt=parseBankAllocationPlan({version:1,kind:'customer',bankTransactionId:bank,partyId:account,applications:[{invoiceId:bank,amount:'1'}]});
+ expect(()=>buildBankAllocationLines(receipt,{bankAccountId:bank,signedAmount:'-1',controlAccountId:account,vatAccountId:null})).toThrow('Refund applications');
 });
 it('canonicalizes UUID case before binding it to PostgreSQL source identity',()=>{
  const upper='ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF';
@@ -28,4 +28,12 @@ it('canonicalizes UUID case before binding it to PostgreSQL source identity',()=
 
 it('does not lose a cent when testing outstanding at the admitted amount bound',()=>{
  expect(()=>assertAllocationOutstanding('10000000000000000000','10000000000000000000','0.01')).toThrow('outstanding');
+});
+
+it.each(['supplier','customer'] as const)('%s refund uses exactly gross bank/control lines and no VAT',kind=>{
+ const plan=parseBankAllocationPlan({version:1,kind,bankTransactionId:bank,partyId:account,applications:[]});
+ const lines=buildBankAllocationLines(plan,{bankAccountId:bank,signedAmount:kind==='supplier'?'115.23':'-115.23',controlAccountId:account,vatAccountId:null});
+ expect(lines).toHaveLength(2);expect(lines.every(line=>line.vatType===null)).toBe(true);
+ expect(lines[0]).toMatchObject({accountId:account,debit:kind==='customer'?'115.23':'0',credit:kind==='supplier'?'115.23':'0'});
+ expect(lines[1]).toMatchObject({accountId:bank,debit:kind==='supplier'?'115.23':'0',credit:kind==='customer'?'115.23':'0'});
 });

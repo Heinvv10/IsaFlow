@@ -1,5 +1,5 @@
 import {recomputeInvoiceStatus} from '../ar/invoiceStatusRecompute';
-import {assertAllocationOutstanding} from './bankAllocationPlan';
+import {assertAllocationOutstanding,isBankAllocationRefund} from './bankAllocationPlan';
 import type {ControlTx} from '../controls/contracts';
 import {assertControlledEffectPermit,type ControlledEffectPermit} from '../controls/approvalExecutionService';
 import {recordCommittedChange} from '../controls/changeEventService';
@@ -15,8 +15,12 @@ export async function applyBankAllocationChildren(ctx:ControlTx,permit:Controlle
  assertControlledEffectPermit(ctx,permit,{entityType:'bank_allocation_intent',entityId:permit.entityId,operation:'bank_allocation.post'});
  if(!('applications' in plan))return null;
  const company=ctx.principal.companyId;
- const [bank]=await ctx.sql`SELECT bank_account_id FROM bank_transactions WHERE company_id=${company}::uuid AND id=${plan.bankTransactionId}::uuid` as Row[];
+ const [bank]=await ctx.sql`SELECT bank_account_id,amount::text FROM bank_transactions WHERE company_id=${company}::uuid AND id=${plan.bankTransactionId}::uuid` as Row[];
  if(!bank)throw new Error('Allocation bank disappeared');
+ if(isBankAllocationRefund(plan.kind,String(bank.amount))){
+  if(plan.applications.length)throw new Error('Refund applications must be empty');
+  return null;
+ }
  const payments=plan.kind==='customer'?await ctx.sql`INSERT INTO customer_payments(company_id,client_id,payment_date,total_amount,payment_method,bank_account_id,status,gl_journal_entry_id,created_by,confirmed_by,confirmed_at,currency_code)
   VALUES(${company}::uuid,${plan.partyId}::uuid,${permit.accountingDate}::date,${amount}::numeric,'eft',${bank.bank_account_id}::uuid,'confirmed',${journalId}::uuid,${ctx.principal.personId}::uuid,${ctx.principal.personId}::uuid,clock_timestamp(),'ZAR') RETURNING *`
   :await ctx.sql`INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,payment_method,bank_account_id,status,gl_journal_entry_id,created_by,processed_at)
