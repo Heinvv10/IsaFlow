@@ -164,6 +164,11 @@ it('settles a selected actually posted customer invoice and refuses standalone c
  })()).rejects.toThrow();
  expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('allocated');
  expect((await pool.query('SELECT status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].status).toBe('confirmed');
+ const reverse=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:prepared.intentId,reversalDate:'2026-09-10',reason:'Selected receipt correction'}));
+ const reverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),reverse.operation));await actor(()=>decideOperationApproval(requireControlTx(),reverseApproval.id,'approved'),'u2');
+ await actor(()=>executeBankAllocationReversal(requireControlTx(),reverse.intentId,{approvalId:reverseApproval.id}));
+ expect((await pool.query('SELECT status,amount_paid FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0]).toMatchObject({status:'approved',amount_paid:'0.00'});
+ expect((await pool.query('SELECT status,gl_journal_entry_id FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0]).toMatchObject({status:'cancelled',gl_journal_entry_id:posted.journalEntryId});
 });
 
 it('settles a selected actually posted supplier invoice with independently verified beneficiary',async()=>{
@@ -186,4 +191,9 @@ it('settles a selected actually posted supplier invoice with independently verif
  })()).rejects.toThrow();
  expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('allocated');
  expect((await pool.query('SELECT status FROM supplier_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].status).toBe('processed');
+ const reverse=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:prepared.intentId,reversalDate:'2026-09-10',reason:'Selected supplier correction'}));
+ const reverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),reverse.operation));await actor(()=>decideOperationApproval(requireControlTx(),reverseApproval.id,'approved'),'u2');
+ await actor(()=>executeBankAllocationReversal(requireControlTx(),reverse.intentId,{approvalId:reverseApproval.id}));
+ expect((await pool.query('SELECT status,amount_paid FROM supplier_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,supplier.invoice])).rows[0]).toMatchObject({status:'approved',amount_paid:'0.00'});
+ expect((await pool.query('SELECT status,gl_journal_entry_id FROM supplier_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0]).toMatchObject({status:'cancelled',gl_journal_entry_id:posted.journalEntryId});
 });
