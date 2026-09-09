@@ -67,7 +67,7 @@ beforeEach(() => {
 describe('postAllocationLine — the non-supply coercion', () => {
   it('posts gross when no supply can arise, and reports the coercion', async () => {
     resolveRuleVatCode.mockResolvedValue({
-      vatCode: 'none', denied: false, nonSupplyCoerced: true,
+      vatCode: 'none', denied: false, nonSupplyCoerced: true, settlementDropped: false,
     });
 
     const r = await postAllocationLine(CTX, TX, line(), 'bulk_allocate_bank_transactions');
@@ -80,7 +80,7 @@ describe('postAllocationLine — the non-supply coercion', () => {
     // Two counters exist so someone fixes the right configuration. A denial
     // relabelled as a non-supply sends them to the wrong place.
     resolveRuleVatCode.mockResolvedValue({
-      vatCode: 'none', denied: true, nonSupplyCoerced: false,
+      vatCode: 'none', denied: true, nonSupplyCoerced: false, settlementDropped: false,
     });
 
     const r = await postAllocationLine(CTX, TX, line(), 'allocate_bank_transaction');
@@ -91,7 +91,7 @@ describe('postAllocationLine — the non-supply coercion', () => {
 
   it('leaves a real supply claiming, and says nothing', async () => {
     resolveRuleVatCode.mockResolvedValue({
-      vatCode: 'standard', denied: false, nonSupplyCoerced: false,
+      vatCode: 'standard', denied: false, nonSupplyCoerced: false, settlementDropped: false,
     });
 
     const r = await postAllocationLine(CTX, TX, line(), 'allocate_bank_transaction');
@@ -104,7 +104,7 @@ describe('postAllocationLine — the non-supply coercion', () => {
     // A line nobody objects to must post byte-identically to how it did
     // before this guard existed — `undefined`, not the string 'none'.
     resolveRuleVatCode.mockResolvedValue({
-      vatCode: 'none', denied: false, nonSupplyCoerced: false,
+      vatCode: 'none', denied: false, nonSupplyCoerced: false, settlementDropped: false,
     });
 
     const r = await postAllocationLine(CTX, TX, line({ vatCode: undefined }), 'x');
@@ -113,9 +113,41 @@ describe('postAllocationLine — the non-supply coercion', () => {
     expect(r.vatCoerced).toBeUndefined();
   });
 
+  // K-016/K-017 review, MEDIUM: the drop was invisible. An agent that sends
+  // vat_code 'standard' on a supplier line gets a correct posting either way,
+  // but a success-shaped reply that says nothing is how a misconfigured caller
+  // keeps sending it.
+  it('reports a settlement drop as its own reason, not as a statutory guard', async () => {
+    resolveRuleVatCode.mockResolvedValue({
+      vatCode: 'none', denied: false, nonSupplyCoerced: false, settlementDropped: true,
+    });
+
+    const r = await postAllocationLine(
+      CTX, TX, line({ allocType: 'supplier', contraAccountId: undefined }), 'allocate_bank_transaction',
+    );
+
+    expect(postedVat()).toBe('none');
+    expect(r.vatCoerced).toEqual({ from: 'standard', to: 'none', reason: 'settlement' });
+  });
+
+  // The other half of it: every supplier line is a settlement, so reporting a
+  // coercion from 'none' to 'none' would put noise on all of them.
+  it('says nothing when a settlement line asked for no VAT anyway', async () => {
+    resolveRuleVatCode.mockResolvedValue({
+      vatCode: 'none', denied: false, nonSupplyCoerced: false, settlementDropped: true,
+    });
+
+    const r = await postAllocationLine(
+      CTX, TX, line({ allocType: 'supplier', contraAccountId: undefined, vatCode: undefined }), 'x',
+    );
+
+    expect(postedVat(), 'unchanged callers still post undefined, not "none"').toBeUndefined();
+    expect(r.vatCoerced).toBeUndefined();
+  });
+
   it('asks the guard about the contra account the line actually names', async () => {
     resolveRuleVatCode.mockResolvedValue({
-      vatCode: 'standard', denied: false, nonSupplyCoerced: false,
+      vatCode: 'standard', denied: false, nonSupplyCoerced: false, settlementDropped: false,
     });
 
     await postAllocationLine(CTX, TX, line(), 'bulk_allocate_bank_transactions');
