@@ -146,6 +146,7 @@ describe('runQueuedCharges', () => {
   it('charges the authorization and records a settled subscription_charges row on success', async () => {
     mockSql
       .mockResolvedValueOnce([baseCharge] as never)  // SELECT charges
+      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
       .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim the attempt
       .mockResolvedValueOnce([] as never)            // INSERT paystack_payment_requests
       .mockResolvedValueOnce([] as never)            // UPDATE charge → settled
@@ -173,6 +174,7 @@ describe('runQueuedCharges', () => {
   it('skips when mandate is not active', async () => {
     mockSql
       .mockResolvedValueOnce([{ ...baseCharge, mandate_status: 'revoked' }] as never)
+      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
       .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim
       .mockResolvedValueOnce([] as never); // UPDATE charge → failed
 
@@ -185,6 +187,7 @@ describe('runQueuedCharges', () => {
   it('skips when paystack_authorization_code is missing', async () => {
     mockSql
       .mockResolvedValueOnce([{ ...baseCharge, paystack_authorization_code: null }] as never)
+      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
       .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim
       .mockResolvedValueOnce([] as never);
 
@@ -196,6 +199,7 @@ describe('runQueuedCharges', () => {
   it('marks charge failed when Paystack throws', async () => {
     mockSql
       .mockResolvedValueOnce([baseCharge] as never)
+      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
       .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim
       .mockResolvedValueOnce([] as never); // UPDATE charge → failed
 
@@ -209,6 +213,7 @@ describe('runQueuedCharges', () => {
   it('does not charge when a concurrent run has already claimed the attempt', async () => {
     mockSql
       .mockResolvedValueOnce([baseCharge] as never)
+      .mockResolvedValueOnce([{ count: 0 }] as never) // unattributed live charges
       .mockResolvedValueOnce([] as never); // claim matched no row
 
     const result = await runQueuedCharges();

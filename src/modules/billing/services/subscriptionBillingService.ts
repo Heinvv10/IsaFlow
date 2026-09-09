@@ -22,6 +22,7 @@ import { randomBytes } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { chargeAuthorization } from './paystackClient';
+import { warnUnattributedLiveCharges } from './subscriptionChargeVerify';
 import {
   MAX_ATTEMPTS,
   advancePeriodForSettledCharge,
@@ -185,11 +186,16 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     JOIN subscription_mandates m ON m.id = c.mandate_id
     LEFT JOIN users u ON u.id = m.authorised_by
     WHERE c.gateway = 'paystack'
+      -- Unattributed charges cannot be settled (624's CHECK) and the rejection
+      -- would land after the money moved — skip them before Paystack, not after.
+      AND c.subscription_id IS NOT NULL
       AND (c.status = 'queued'
            OR (c.status = 'failed' AND c.last_attempt_at < ${cutoff.toISOString()}))
       AND c.attempt_count < ${MAX_ATTEMPTS}
     LIMIT 100
   `;
+
+  await warnUnattributedLiveCharges();
 
   let submitted = 0;
   let failed = 0;
