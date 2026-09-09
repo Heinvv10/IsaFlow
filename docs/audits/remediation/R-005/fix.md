@@ -14,10 +14,14 @@ runs that neither declaration uses.
 
 **After.** Both aggregates use `EMP201_DECLARABLE_STATUSES` (`['approved','paid']`), the
 same constant as the EMP201 report, the UI-19 declaration and, since the sibling K-024 fix,
-the IRP5 and EMP501 exports. March R1 000 and June R2 000 are balanced, April and May are
+the IRP5 and EMP501 exports. A blind review found the identical wrong triple still in
+`pages/api/payroll/year-end/status.ts`, which runs a SECOND EMP501 balance check off the
+same header aggregate; the third commit aligns it, and `K-024/fix.md` carries the full
+enumeration of declaration surfaces. March R1 000 and June R2 000 are balanced, April and May are
 `no_data`, and the reconciliation total equals the export total exactly.
 
-**Files.** `pages/api/payroll/emp501/reconciliation.ts` (+6 / -2).
+**Files.** `pages/api/payroll/emp501/reconciliation.ts` (+6 / -2, plus the taxYear guard in
+commit 3); `pages/api/payroll/year-end/status.ts` in commit 3.
 
 **Tests.** `tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts` —
 real Postgres, 2 tests, both green. The second asserts the reconciliation totals equal the
