@@ -1,3 +1,4 @@
+import { configureWhatsAppInbox } from '@/modules/accounting/services/capture/whatsAppInboxService';
 /**
  * GET  /api/accounting/capture/whatsapp-inbox → { data: { id, address, isActive } | null }
  * POST /api/accounting/capture/whatsapp-inbox body: { address: string }
@@ -44,20 +45,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'address must be E.164 format e.g. +27821234567');
     }
 
-    // Deactivate any existing whatsapp inbox first
-    await sql`
-      UPDATE capture_inboxes
-      SET is_active = false, updated_at = NOW()
-      WHERE company_id = ${companyId} AND channel = 'whatsapp' AND is_active = true
-    `;
-
-    const inserted = (await sql`
-      INSERT INTO capture_inboxes (company_id, channel, address, is_active, created_by)
-      VALUES (${companyId}, 'whatsapp', ${address}, true, ${userId ?? null})
-      RETURNING id, address, is_active
-    `) as Row[];
-
-    const row = inserted[0]!;
+    const row = await configureWhatsAppInbox(companyId, address, userId);
+    if (!row) return apiResponse.conflict(res, 'WhatsApp number is already reserved');
     log.info('Upserted WhatsApp capture inbox', { companyId, address }, 'whatsapp-inbox');
 
     return apiResponse.success(res, {

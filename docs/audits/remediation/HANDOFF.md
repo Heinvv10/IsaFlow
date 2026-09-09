@@ -1,9 +1,11 @@
 # Remediation handoff
 
-- Goal active; user explicitly asked why stopping. Continue root causes with commentary updates; no final-at-every-root pattern.
--4 code-verified candidates K001–K004;279 candidates remain in283-item register. DraftPR345/346/347/348 respectively, foundationPR344. No deployed verification, merge or historical repair.
-- K004 fix235bb407, reviewed; published PR348 head01f94839978a6b6e0f06c7c29344c1a240a148b5. Six realSQL tests,324 captureunit tests, fullCI9304 unit/384 component passed;234 skipped. Migration616 global normalized emailaddressreservation applied ONLY in disposable fixture. Legacy collisions abort target migration; no silentrotation. Historical scope query tested, no prod use.
-- K004 finalmetadata push runs from `/home/hein/Workspace/IsaFlow/.worktrees/audit-k004-capture-inbox-20260908`, branchfix/audit-k004-capture-inbox, log/tmp/isaflow-k004-metadata-push.log. Original pushhandle80935 is terminalexit0.
-- Reuse original idle worktree `/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908` for K005 branchfix/audit-k005-whatsapp-routing based on this metadata commit. Its prior K003 metadata pushhandle78240 is terminalexit0. Preserve old untracked logs; stage explicit paths.
-- Shared node_modules via symlink; source/build dirs isolated. Node22.23.1, Bun. Root masterstill5661d6f0 (verified this turn). K005 candidate: Twilio destination routing/uniqueness, missing credentials503 correction already recorded. Validate sender-authority claim against intended public-receive contract before coding.
-- Empty current-schema PostgreSQL33140, GoTrue33138. Historical pristine replay33134 remains open at253. Capture migration test drops/restores emailindex: run alone against fixture. No production data copied/changed; migration616 fixture leaves index installed and rowsclean.
+Continue the authorized remediation plan with progress updates; status questions do not cancel the task.
+
+Five roots K-001 through K-005 are code-verified in the 284-item register; 279 candidates remain. Draft PRs 345, 346, 347, 348 and 350 are stacked on foundation PR 344. No merge, deployment or historical repair occurred.
+
+K-005 fix a3278226 and review/documentation commit 8cff1456 passed full CI; draft PR 350 head verified as 8cff145616389fcbd05deed6220e62d86d9dec36. Eight real PostgreSQL/signed webhook cases and 643 regression tests passed. Migration 617 is installed only in the disposable fixture. R-003 remains the next candidate: first-registration provider ownership. Do not equate routing uniqueness with ownership proof.
+
+Current branch fix/audit-k005-whatsapp-routing in audit-remediation-20260908. Preserve old untracked logs and stage explicit paths. Secondary audit-k004-capture-inbox-20260908 worktree can be reused on a new R-003 branch after this metadata commit. Its previous push is terminal. Shared node_modules; keep source/build isolated while push CI runs. Use Node 22.23.1 and Bun.
+
+Disposable schema PostgreSQL is localhost33140/isaflow_schema_fixture; GoTrue localhost33138. Historical migration replay localhost33134 remains open at migration 253. Capture integration migration tests drop/restore their indexes and must run alone against the disposable fixture. Fixtures were cleaned after K-005. No production data copied or changed.
