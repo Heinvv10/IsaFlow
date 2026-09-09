@@ -63,7 +63,7 @@ export default function SupplierStatementsPage() {
   }, [asAtDate, router.isReady]);
 
   function handleExportAll() {
-    if (suppliers.length === 0) return;
+    if (isLoading || error || suppliers.length === 0) return;
     const header = 'Supplier,Current,1-30,31-60,61-90,90+,Credits on account,Net balance';
     const rows = suppliers.map(s =>
       [`"${s.entityName}"`, s.current.toFixed(2), s.days30.toFixed(2), s.days60.toFixed(2),
@@ -136,7 +136,7 @@ export default function SupplierStatementsPage() {
               />
             </div>
             {suppliers.length > 0 && (
-              <button onClick={handleExportAll}
+              <button onClick={handleExportAll} disabled={isLoading || Boolean(error)}
                 className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-sm font-medium">
                 <Download className="h-4 w-4" /> Export CSV
               </button>

@@ -42,3 +42,10 @@ it('waits for router readiness before loading a historical URL',()=>{
  render(<Page />);
  expect(apiFetch).not.toHaveBeenCalled();
 });
+it('prevents exporting previous balances while a new date is loading',async()=>{
+ vi.mocked(apiFetch).mockImplementationOnce(async()=>new Response(JSON.stringify({data:[{entityId:'s1',entityName:'Loaded supplier',current:100,days30:0,days60:0,days90:0,days120Plus:0,total:100,onAccount:25,netBalance:75}]}))).mockImplementationOnce(()=>new Promise(()=>{}));
+ render(<Page />);
+ await screen.findByRole('link',{name:'Loaded supplier'});
+ fireEvent.change(screen.getByLabelText('Statement date'),{target:{value:'2026-07-31'}});
+ expect((screen.getByRole('button',{name:'Export CSV'}) as HTMLButtonElement).disabled).toBe(true);
+});
