@@ -1846,8 +1846,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "466e3fd6",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k051-account-merge-into-header-hides-balance.int.test.ts"
@@ -1856,12 +1856,14 @@
     "K-051/red.log",
     "K-051/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "466e3fd6",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k051-k052-header-account-guard",
+   "reviewRounds": 1
   },
   {
    "id": "K-052",
@@ -1877,8 +1879,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "c7dcbd83",
+   "status": "in-progress",
    "dependencies": [
     "Same root cause as K-051 (no leaf/level guard on the target account); fixed together with one shared guard"
    ],
@@ -1889,12 +1891,14 @@
     "K-052/red.log",
     "K-052/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "c7dcbd83",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": "K-051",
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k051-k052-header-account-guard",
+   "reviewRounds": 1
   },
   {
    "id": "K-053",
