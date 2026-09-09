@@ -95,7 +95,7 @@ it('retains centre and matches the fiscal period for older TB ledger URLs', asyn
   expect(screen.getByDisplayValue('CC2 — Project')).toBeInTheDocument();
 });
 
-it('does not fetch default BS data during hydration and a late period response cannot overwrite the returned date', async () => {
+it('does not fetch default BS data during hydration and restores subsequent query changes', async () => {
   route.isReady = false;
   const view = render(<BalanceSheetPage />);
   await screen.findByRole('option', {name:'CC2 — Project'});
@@ -124,4 +124,20 @@ it.each(['https://evil.example/accounting/trial-balance', '//evil.example/accoun
   route.query = {source:'tb', return_to:returnTo, cost_centre_id:cc};
   render(<AccountDetailPage />);
   expect(screen.getByRole('link', {name:'Back to Trial Balance'})).toHaveAttribute('href', `/accounting/trial-balance?cost_centre_id=${cc}`);
+});
+
+it('keeps centre and movement choices made while fiscal periods are still loading', async () => {
+  let finishPeriods!: (r: Response) => void;
+  const delayedPeriods = new Promise<Response>(resolve => { finishPeriods = resolve; });
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation((...args) => String(args[0]) === '/api/accounting/fiscal-periods' ? delayedPeriods : original(...args));
+  render(<TrialBalancePage />);
+  await screen.findByRole('option', {name:'CC2 — Project'});
+  fireEvent.change(screen.getByDisplayValue('All Cost Centres'), {target:{value:cc}});
+  fireEvent.click(screen.getByRole('button', {name:'Show movement'}));
+  finishPeriods(response(periods));
+  await screen.findByRole('link', {name:'Bank'});
+  expect(screen.getByDisplayValue('CC2 — Project')).toBeInTheDocument();
+  expect(screen.getByRole('button', {name:'Hide movement'})).toHaveAttribute('aria-pressed','true');
+  expect(params('reports-trial-balance').at(-1)?.get('cost_centre_id')).toBe(cc);
 });
