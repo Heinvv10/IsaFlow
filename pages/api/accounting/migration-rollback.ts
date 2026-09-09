@@ -2,7 +2,8 @@
  * Migration Rollback API
  * POST /api/accounting/migration-rollback
  * Body: { source: MigrationSource }
- * Deletes GL accounts imported from the given source.
+ * Deletes GL accounts imported from the given source. Accounts other rows
+ * still point at are retained; the response reports them.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

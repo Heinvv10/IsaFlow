@@ -1,7 +1,4 @@
-/**
- * Journal Entry Posting Service
- * Post and reverse journal entries with fiscal period and balance validation.
- */
+/** Post and reverse journals with fiscal-period and balance validation. */
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -140,16 +137,7 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
   }
 }
 
-/**
- * Post the contra entry that reverses `id`.
- *
- * `opts.postingAgent` stamps the CONTRA (the original keeps whatever it was
- * posted with). A reversal is a real posted journal, so an automated caller
- * that does not stamp it lands on `human:<userId>` and its correction becomes
- * invisible to every posting_agent-based review surface. Callers that pass
- * nothing keep exactly that human default.
- */
-
+/** Automated callers stamp the contra via opts; omitted opts keep human attribution. */
 export async function reverseJournalEntry(
   companyId: string,
   id: string,
@@ -179,6 +167,8 @@ export async function reverseJournalEntry(
       description: `Reversal: ${l.description || ''}`,
       projectId: l.projectId,
       costCenterId: l.costCenterId,
+      cc1Id: l.cc1Id,
+      cc2Id: l.cc2Id,
       buId: l.buId,
       vatType: l.vatType,
     }));
