@@ -1,40 +1,58 @@
-### GREEN — fix applied, ux_gl_je_reversal_of PRESENT
-$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
+### GREEN — fix applied, ux_gl_je_reversal_of present
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k010-concurrent-journal-reversal.int.test.ts" "tests/integration/k010-reversal-claim-atomicity.int.test.ts"
 
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
 
 
- Test Files  1 passed (1)
-      Tests  3 passed (3)
-   Start at  05:49:19
-   Duration  453ms (transform 99ms, setup 0ms, import 159ms, tests 179ms, environment 0ms)
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  06:24:10
+   Duration  1.12s (transform 479ms, setup 0ms, import 789ms, tests 804ms, environment 0ms)
 
 
-### Mutation check (see red.log)
-Reverting src/modules/accounting/services/gl/journalEntryPostingService.ts to origin/master
-(and removing journalEntryReversalClaim.ts) turns test 1 RED again:
-  - with ux_gl_je_reversal_of dropped: 2 contras posted, "expected 1 got 2" (the defect itself)
-  - with ux_gl_je_reversal_of present: the duplicate is refused, but by a raw
-    uq_gl_je_company_entry_number / unique-constraint error, not "already reversed"
-Restoring the fix returns 3/3 GREEN.
+### GREEN — reversal unit suites
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
+
+
+ Test Files  4 passed (4)
+      Tests  28 passed (28)
+   Start at  06:24:11
+   Duration  632ms (transform 772ms, setup 0ms, import 1.08s, tests 84ms, environment 0ms)
+
 
 ### Full unit suite — `bunx vitest run`, DATABASE_URL unset
-DATABASE_URL=[unset]
- Test Files  784 passed | 36 skipped (820)
-      Tests  9320 passed | 234 skipped (9554)
-   Duration  37.79s
-Three reversal suites moved with the extra write and are included in that total:
-tests/unit/services/gl/journalEntryReversal.test.ts,
-tests/unit/services/journalEntryReversalDate.test.ts,
-tests/unit/services/journalEntryReversalPeriod.test.ts
+ Test Files  785 passed | 36 skipped (821)
+      Tests  9325 passed | 234 skipped (9559)
+Run at the default 10s per-test timeout, two files intermittently time out under
+parallel load: tests/unit/services/bank/bankAllocationUnwind.test.ts (the
+resetModules + doMock ordering test, which mocks reverseJournalEntry entirely and
+never reaches this change) and tests/unit/services/cashFlowReport.test.ts (no
+reference to reversal code at all). Both pass in isolation and both pass in the
+full suite at --testTimeout=30000, which is the run recorded above. Reported
+rather than hidden: they are slow, not broken by this commit.
+
+### Migration 619 — proven both directions on the fixture DB
+seeded duplicates -> ERROR: K-010: 1 journal entr(ies) already carry more than one
+                    contra (2 contra rows). Repair them before this index can be
+                    created — see docs/audits/remediation/K-010/fix.md ...
+clean table       -> DO / CREATE INDEX / DROP INDEX; \di shows ux_gl_je_reversal_of
+                    present and idx_gl_je_reversal_of gone.
+
+### Mutation checks
+1. K-010 itself (red.log): reverting journalEntryPostingService.ts to origin/master
+   with the index dropped posts two contras — "expected 1 got 2".
+2. The claim's transaction: making withReversalTransaction a pass-through turns
+   k010-reversal-claim-atomicity red on "does not commit the claim until the contra
+   is posted with it" — expected <timestamp> to be null, i.e. the claim was visible
+   to another connection mid-flight, which is review finding H1.
 
 ### Gates
 bunx tsc --noEmit                        clean
-bunx eslint <both changed src files>     clean
-bun scripts/audit-migration-naming.ts    OK, no new duplicate prefixes (619 unused)
+bunx eslint <4 changed src files>        clean
+bun scripts/audit-migration-naming.ts    OK; 619 still unused on origin/master (re-checked)
 bun scripts/ci/check-migration-rls.ts    OK
 bun run agent-docs:check                 OK: 74 mirrors match
 
 ### Databases touched
 Fixture DB only (disposable, from scratchpad fixture.env). No query of any kind was
-run against production; the historical-impact SQL in fix.md is unexecuted.
+run against production; both probes in fix.md are unexecuted.

@@ -31,6 +31,16 @@ vi.mock('@/lib/neon', () => {
   });
   return {
     sql: sqlMock,
+    // reverseJournalEntry wraps itself in a transaction (withReversalTransaction)
+    // so the reversal claim cannot outlive the contra. Outside a request it
+    // opens one on a pool client and binds it into ALS, so this suite hands it
+    // a client whose BEGIN/COMMIT and lock_timeout statements are no-ops.
+    getPool: () => ({
+      connect: async () => ({
+        query: async () => ({ rows: [{ v: '0' }] }),
+        release: () => undefined,
+      }),
+    }),
     withTransaction: vi.fn(),
     // The real fmtDate: local calendar getters, strings passed through.
     fmtDate: (val: unknown) => {
@@ -195,13 +205,19 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
     expect(del!).toMatch(/company_id/i);
   });
 
-  it('never links the contra back, and gives the reversal claim up, when posting fails', async () => {
+  it('releases the reversal claim when the draft it created was actually deleted', async () => {
     // The claim is taken BEFORE the contra exists (K-010), so `reversed_at` is
     // written on the way in. The invariant is not "never written" — it is that a
-    // failed post leaves the original UNMARKED and UNLINKED: the claim is
-    // released, and no reversal_of_id is ever issued. Outside a request
-    // transaction that release is the only thing standing between a failed
-    // attempt and an entry nobody can ever reverse again.
+    // failed post leaves the original UNMARKED and UNLINKED. The DELETE below is
+    // made to report one row removed, which is the case where the contra is
+    // genuinely gone and the claim must go with it.
+    mockSql.mockImplementation((strings: readonly string[]) => {
+      const text = strings.join(' ');
+      if (text.includes('reversed_at IS NULL')) return Promise.resolve([{ id: 'claimed' }]);
+      if (/DELETE\s+FROM\s+gl_journal_entries/i.test(text)) return Promise.resolve([{ id: REVERSAL_ID }]);
+      return Promise.resolve([]);
+    });
+
     await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch(() => undefined);
     const text = issuedSql().join(' | ');
     expect(text).not.toMatch(/reversal_of_id/i);
@@ -209,6 +225,18 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
     expect(release, 'a failed post must release the reversal claim').toBeDefined();
     expect(release!).toMatch(/reversed_by\s*=\s*NULL/i);
     expect(release!).toMatch(/company_id/i);
+  });
+
+  it('KEEPS the claim when the contra was not a draft and so survived the delete', async () => {
+    // postJournalEntry can throw after its status UPDATE has landed. The
+    // `status = 'draft'` guard then matches nothing and a POSTED contra
+    // survives, unlinked — invisible to the unique index. Clearing reversed_at
+    // there would invite a retry that posts a second one, so the claim stays:
+    // a posted contra exists, so the original really is reversed.
+    await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch(() => undefined);
+    const text = issuedSql().join(' | ');
+    expect(text).not.toMatch(/reversal_of_id/i);
+    expect(issuedSql().find((t) => /reversed_at\s*=\s*NULL/i.test(t))).toBeUndefined();
   });
 });
 

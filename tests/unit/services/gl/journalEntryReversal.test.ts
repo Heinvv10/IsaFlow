@@ -17,7 +17,19 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return { sql: sqlMock };
+  return {
+    sql: sqlMock,
+    // reverseJournalEntry wraps itself in a transaction (withReversalTransaction)
+    // so the reversal claim cannot outlive the contra. Outside a request it
+    // opens one on a pool client and binds it into ALS, so this suite hands it
+    // a client whose BEGIN/COMMIT and lock_timeout statements are no-ops.
+    getPool: () => ({
+      connect: async () => ({
+        query: async () => ({ rows: [{ v: '0' }] }),
+        release: () => undefined,
+      }),
+    }),
+  };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
