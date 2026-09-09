@@ -1,0 +1,35 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/integration/forensic-change-history.int.test.ts (6 tests | 1 failed | 5 skipped) 380ms
+   × caught invalid evidence context cannot commit an earlier domain mutation 128ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/forensic-change-history.int.test.ts > caught invalid evidence context cannot commit an earlier domain mutation
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ tests/integration/forensic-change-history.int.test.ts:122:6
+    120|     await ctx.sql`INSERT INTO suppliers(id,company_id,name) VALUES(${i…
+    121|     await recordCommittedChange({ ...ctx }, change(id)).catch(() => 'c…
+    122|   })).rejects.toThrow('evidence');
+       |      ^
+    123|   expect((await pool.query('SELECT id FROM suppliers WHERE company_id=…
+    124| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+   Start at  09:25:47
+   Duration  1.75s (transform 595ms, setup 0ms, import 813ms, tests 380ms, environment 0ms)
+

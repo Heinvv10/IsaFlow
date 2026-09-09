@@ -7,8 +7,8 @@ import type { ChangeEventInput, ControlTx } from './contracts';
 
 /** Mandatory event and exact restricted evidence share the caller's transaction. */
 export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventInput): Promise<{ eventId: string; newVersion: number }> {
-  assertControlTx(ctx);
   try {
+    assertControlTx(ctx);
     if (!input.entityType || !input.entityId || !input.action || input.action.length > 100
       || !Number.isSafeInteger(input.newVersion) || input.newVersion < 1
       || (input.previousVersion === null ? input.newVersion !== 1

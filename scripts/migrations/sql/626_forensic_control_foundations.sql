@@ -93,6 +93,7 @@ DROP POLICY IF EXISTS tenant_isolation ON control_change_events;
 CREATE POLICY tenant_isolation ON control_change_events TO app_user
   USING(company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
   WITH CHECK(company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
+REVOKE ALL ON control_entity_versions,control_protected_evidence,control_change_events FROM app_user,PUBLIC;
 GRANT SELECT,INSERT,UPDATE ON control_entity_versions TO app_user;
 GRANT SELECT,INSERT ON control_protected_evidence,control_change_events TO app_user;
 GRANT ALL ON control_entity_versions,control_protected_evidence,control_change_events TO migration_admin;
