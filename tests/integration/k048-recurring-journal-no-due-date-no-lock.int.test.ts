@@ -76,7 +76,12 @@ it('refuses to generate a recurring journal whose next_run_date has not arrived'
 });
 
 it('generates at most one journal per scheduled run, however often it is called', async () => {
-  await pool.query('UPDATE recurring_journals SET next_run_date=CURRENT_DATE, run_count=0, last_run_date=NULL WHERE id=$1', [template]);
+  // The SAST date, not CURRENT_DATE: the guard compares against
+  // `(NOW() AT TIME ZONE 'Africa/Johannesburg')::DATE`, and for the first two
+  // hours of the SAST day the UTC date is yesterday's.
+  await pool.query(
+    `UPDATE recurring_journals SET next_run_date=(NOW() AT TIME ZONE 'Africa/Johannesburg')::DATE,
+            run_count=0, last_run_date=NULL WHERE id=$1`, [template]);
   await pool.query("DELETE FROM gl_journal_lines WHERE company_id=$1", [company]);
   await pool.query("DELETE FROM gl_journal_entries WHERE company_id=$1", [company]);
 

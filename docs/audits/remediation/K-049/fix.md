@@ -28,4 +28,8 @@ ORDER BY company_id, entry_date;
 
 Drafts do not reach the trial balance, so no reported figure is wrong. They are clutter a later bulk-post could turn into real postings. Nothing is deleted automatically.
 
+**Also changed by this, and worth recording:** the class split moved `pause`, `resume` and `cancel` from 400 to **404** for an unknown or cross-tenant id, not just `generate` — `updateRecurringJournalStatus` raises `RecurringJournalNotFoundError`. That is the right answer (no correction of the body makes those succeed) and the page surfaces the message either way, but it is a status-code change on three actions the K-048 note discussed only for `generate`.
+
+**A contended `entry_number` answers 409, not 500** (round-4 MEDIUM 2). Same doctrine as the lock timeout: the request was valid and succeeds on retry, so it must not be told the system broke. Nothing is committed on that 4xx — the action's `withTransaction` savepoint is rolled back by the 23505 before the route answers. See `K-048/fix.md`.
+
 **Limit.** Only this route is changed. The same `badRequestFromError`-around-the-whole-handler shape exists elsewhere and is out of scope here.

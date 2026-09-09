@@ -17,6 +17,12 @@ import {
   RecurringJournalNotFoundError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 
+/** Detect by SQLSTATE + constraint name; pg localises and rewords messages. */
+function isDuplicateEntryNumber(err: unknown): boolean {
+  const e = err as { code?: unknown; constraint?: unknown };
+  return e?.code === '23505' && e?.constraint === 'uq_gl_je_company_entry_number';
+}
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
@@ -70,6 +76,30 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof RecurringJournalRequestError) {
       log.warn('Recurring journal action refused', { message: err.message }, 'accounting-api');
       return apiResponse.badRequest(res, err.message);
+    }
+    // A duplicate entry_number is the other transient refusal, and it belongs
+    // with the 409 rather than the 500 for exactly the same reason: the same
+    // request succeeds on retry. `generate_journal_entry_number` computes
+    // MAX(seq)+1 in a BEFORE INSERT, so two journals numbered in the same
+    // instant — any two posters in one company, not just two recurring
+    // templates — take the same number and the loser gets 23505 on
+    // `uq_gl_je_company_entry_number`. Answering that a 500 tells an operator
+    // whose Generate was perfectly valid that WE broke, and gives no remedy.
+    // Only that one constraint is mapped: any other unique violation on this
+    // path is a real fault. It cannot be retried in place — the 23505 aborts
+    // the transaction, so unlike `customerInvoiceCreateService`, which reserves
+    // its number outside the insert, there is nothing left here to retry into.
+    // withAuth COMMITs a 4xx, which is safe here because everything the action
+    // wrote — the claim, the entry, its lines — is inside the `withTransaction`
+    // that `generateJournalFromRecurring` opens, and inside a request that is a
+    // SAVEPOINT: the 23505 takes a `ROLLBACK TO SAVEPOINT` on the way out, so
+    // the COMMIT that follows has nothing of this action left to commit. The
+    // test asserts that outcome — run_count, entry count, line count — rather
+    // than the status code, because the status code is not what protects the
+    // ledger here.
+    if (isDuplicateEntryNumber(err)) {
+      log.warn('Recurring journal entry number contended', { message: (err as Error).message }, 'accounting-api');
+      return apiResponse.conflict(res, 'Another journal was numbered at the same moment. Nothing was posted — try again.');
     }
     log.error('Recurring journal action failed', { error: err }, 'accounting-api');
     throw err;
