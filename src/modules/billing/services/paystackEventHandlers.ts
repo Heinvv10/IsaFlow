@@ -11,6 +11,11 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
 import { completeBundlePurchase, failBundlePurchase } from './flowWalletService';
+import {
+  activateAuthorisedMandate,
+  noteAuthorisationNotAttached,
+  resolveAuthorisedMandate,
+} from './paystackMandateActivation';
 
 export interface PaystackWebhookEvent {
   event: string;
@@ -77,36 +82,6 @@ export async function processEvent(
 
   // subscription.create / invoice.create / invoice.update — informational.
   log.info('Paystack event recorded (no-op handler)', { eventType }, 'PaystackWebhook');
-}
-
-/**
- * The mandate a successful authorisation belongs to, or null if there is none.
- * Migration 651 records the link on the payment request; rows written before it
- * have none (create.ts passed the id only in Paystack metadata) and fall back
- * to the company's newest pending paystack mandate. Either way: at most ONE row.
- */
-async function resolveAuthorisedMandateId(
-  companyId: string,
-  linkedMandateId: string | null,
-): Promise<string | null> {
-  if (linkedMandateId) {
-    const rows = await sql<{ id: string }>`
-      SELECT id FROM subscription_mandates
-      WHERE id = ${linkedMandateId}
-        AND company_id = ${companyId}
-      LIMIT 1
-    `;
-    return rows[0]?.id ?? null;
-  }
-  const rows = await sql<{ id: string }>`
-    SELECT id FROM subscription_mandates
-    WHERE company_id = ${companyId}
-      AND gateway = 'paystack'
-      AND status = 'pending'
-    ORDER BY created_at DESC
-    LIMIT 1
-  `;
-  return rows[0]?.id ?? null;
 }
 
 async function handleChargeSuccess(
@@ -204,36 +179,40 @@ async function handleChargeSuccess(
 
   if (pr.purpose === 'authorization' && auth.authorization_code) {
     // Auth capture — promote the authorization onto the ONE mandate this
-    // checkout was started for. The predicate used to be every mandate on the
-    // company with status IN ('pending','active'), which raises 23505 on
-    // ux_sub_mandates_company_active once an abandoned-then-retried checkout
-    // has left a second pending row behind. That throw rolls the event back,
-    // the webhook answers 500, and every redelivery hits the same constraint.
-    const mandateId = await resolveAuthorisedMandateId(pr.company_id, pr.mandate_id);
-    if (!mandateId) {
+    // checkout was started for, and never at the cost of a 23505 on
+    // ux_sub_mandates_company_active: that throw rolls the event back, leaves
+    // processed = FALSE, answers 500 and makes every Paystack redelivery repeat
+    // it forever while the card has already been charged. See
+    // paystackMandateActivation.ts for how the constraint stays the arbiter.
+    const mandate = await resolveAuthorisedMandate(pr.company_id, pr.mandate_id);
+    if (!mandate) {
       log.warn(
         'charge.success authorisation has no mandate row to activate',
         { reference, companyId: pr.company_id },
         'PaystackWebhook',
       );
+      await noteAuthorisationNotAttached(pr.id, pr.company_id, 'authorisation_no_mandate_row');
       return;
     }
-    await sql`
-      UPDATE subscription_mandates
-      SET status = 'active',
-          gateway = 'paystack',
-          paystack_authorization_code = ${auth.authorization_code},
-          paystack_customer_code = ${customer.customer_code ?? null},
-          card_last4 = ${auth.last4 ?? null},
-          card_brand = ${auth.brand ?? null},
-          card_exp_month = ${auth.exp_month ?? null},
-          card_exp_year = ${auth.exp_year ?? null},
-          bank_name = COALESCE(${auth.bank ?? null}, bank_name),
-          authorised_at = COALESCE(authorised_at, now()),
-          updated_at = now()
-      WHERE id = ${mandateId}
-        AND company_id = ${pr.company_id}
-    `;
+    const outcome = await activateAuthorisedMandate(pr.company_id, mandate, {
+      authorizationCode: auth.authorization_code,
+      customerCode: customer.customer_code ?? null,
+      last4: auth.last4 ?? null,
+      brand: auth.brand ?? null,
+      expMonth: auth.exp_month ?? null,
+      expYear: auth.exp_year ?? null,
+      bank: auth.bank ?? null,
+    });
+    if (outcome === 'activated' || outcome === 'already_active') return;
+    // 'blocked' (the company already has a different active mandate) and
+    // 'not_pending' (revoked/expired/failed) are both settled states, not
+    // transient ones: throwing would only buy an unbreakable redelivery loop.
+    log.warn(
+      'charge.success authorisation could not activate its mandate',
+      { reference, companyId: pr.company_id, mandateId: mandate.id, status: mandate.status, outcome },
+      'PaystackWebhook',
+    );
+    await noteAuthorisationNotAttached(pr.id, pr.company_id, `authorisation_${outcome}`);
     return;
   }
 

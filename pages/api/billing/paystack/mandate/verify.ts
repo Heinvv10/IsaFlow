@@ -4,7 +4,8 @@
  * Called by the admin mandate-return landing page. If the webhook hasn't
  * arrived yet, we re-query Paystack and (if successful) promote the captured
  * authorization onto the pending mandate row inline so the UI doesn't have
- * to wait. Always scoped by company_id.
+ * to wait. Always scoped by company_id, and always reported for the mandate
+ * THIS reference is linked to — never the company's newest row.
  */
 
 import type { NextApiResponse } from 'next';
@@ -14,17 +15,27 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { verifyTransaction } from '@/modules/billing/services/paystackClient';
+import {
+  activateAuthorisedMandate,
+  noteAuthorisationNotAttached,
+  resolveAuthorisedMandate,
+  type MandateRow,
+} from '@/modules/billing/services/paystackMandateActivation';
 
-interface Row {
-  pr_id: string;
-  pr_status: string;
+interface PrRow {
+  id: string;
+  status: string;
   paystack_reference: string;
   mandate_id: string | null;
-  mandate_status: string | null;
-  max_amount_cents: string | null;
+}
+
+interface MandateView {
+  id: string;
+  status: string;
   bank_name: string | null;
   card_last4: string | null;
   card_brand: string | null;
+  max_amount_cents: string | null;
   authorised_at: Date | string | null;
 }
 
@@ -35,41 +46,31 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const ref = typeof req.query.ref === 'string' ? req.query.ref : '';
   if (!ref) return apiResponse.badRequest(res, 'Missing ref');
 
-  const rows = await sql<Row>`
-    SELECT pr.id AS pr_id, pr.status AS pr_status, pr.paystack_reference,
-           m.id AS mandate_id, m.status AS mandate_status,
-           m.max_amount_cents, m.bank_name,
-           m.card_last4, m.card_brand,
-           m.authorised_at
-    FROM paystack_payment_requests pr
-    LEFT JOIN subscription_mandates m
-      ON m.company_id = pr.company_id
-     AND m.gateway = 'paystack'
-     AND m.status IN ('pending','active')
-     -- Migration 651 records which mandate the checkout was started for. When
-     -- it is set only that row can join, so two abandoned checkouts can no
-     -- longer make one reference activate the other's mandate (and its
-     -- max_amount_cents ceiling). Rows written before 651 have no recoverable
-     -- link, so they keep the old newest-pending heuristic.
-     AND (pr.mandate_id IS NULL OR m.id = pr.mandate_id)
-    WHERE pr.paystack_reference = ${ref}
-      AND pr.company_id = ${req.companyId}
-      AND pr.purpose = 'authorization'
-    ORDER BY (m.status = 'active') DESC NULLS LAST, m.created_at DESC NULLS LAST
+  const prRows = await sql<PrRow>`
+    SELECT id, status, paystack_reference, mandate_id
+    FROM paystack_payment_requests
+    WHERE paystack_reference = ${ref}
+      AND company_id = ${req.companyId}
+      AND purpose = 'authorization'
     LIMIT 1
   `;
-  const row = rows[0];
-  if (!row) return apiResponse.notFound(res, 'Mandate');
+  const pr = prRows[0];
+  if (!pr) return apiResponse.notFound(res, 'Mandate');
+
+  // Migration 651 records which mandate the checkout was started for. Rows
+  // written before it have no recoverable link (the id lives in Paystack
+  // metadata) and keep the old newest-first heuristic.
+  const mandate: MandateRow | null = await resolveAuthorisedMandate(req.companyId, pr.mandate_id);
 
   // If the webhook hasn't fired, ask Paystack directly. The webhook is the
   // source of truth long-term — this is just to avoid stalling the UI.
-  if (row.pr_status === 'pending') {
+  if (pr.status === 'pending') {
     // Best-effort: this whole block gets its own savepoint so a failure here
     // cannot abort the request transaction withAuth opened, which would make
     // the canonical re-read below raise 25P02 and 500 the request.
     try {
       await withSavepoint('paystack_mandate_verify', async () => {
-        const live = await verifyTransaction(row.paystack_reference);
+        const live = await verifyTransaction(pr.paystack_reference);
         if (live.status === 'success' && live.authorization?.authorizationCode) {
           await sql`
             UPDATE paystack_payment_requests
@@ -78,46 +79,47 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
                 paystack_transaction_id = ${live.id ?? null},
                 paystack_authorization_code = ${live.authorization.authorizationCode},
                 paystack_customer_code = ${live.customer?.customerCode ?? null}
-            WHERE id = ${row.pr_id}
+            WHERE id = ${pr.id}
+              AND company_id = ${req.companyId}
           `;
-          // Only the mandate this reference is linked to. Promoting every
-          // pending row breaks ux_sub_mandates_company_active the moment an
-          // abandoned checkout has left a second one behind.
-          if (row.mandate_id) {
-            await sql`
-              UPDATE subscription_mandates
-              SET status = 'active',
-                  gateway = 'paystack',
-                  paystack_authorization_code = ${live.authorization.authorizationCode},
-                  paystack_customer_code = ${live.customer?.customerCode ?? null},
-                  card_last4 = ${live.authorization.last4 ?? null},
-                  card_brand = ${live.authorization.brand ?? null},
-                  card_exp_month = ${live.authorization.expMonth ?? null},
-                  card_exp_year = ${live.authorization.expYear ?? null},
-                  bank_name = COALESCE(${live.authorization.bank ?? null}, bank_name),
-                  authorised_at = COALESCE(authorised_at, now()),
-                  updated_at = now()
-              WHERE id = ${row.mandate_id}
-                AND company_id = ${req.companyId}
-            `;
-          } else {
-            // The reference is now spent — pr_status is no longer 'pending', so
-            // this block never runs again — and nothing was activated. Say so
-            // rather than letting the route report 'pending' forever.
+          if (!mandate) {
+            // The reference is now spent — pr.status is no longer 'pending', so
+            // this block never runs again — and nothing was activated. Record
+            // why rather than letting the route report 'pending' forever.
             log.warn(
               'Paystack authorisation succeeded but resolved to no mandate row',
-              { prId: row.pr_id, companyId: req.companyId },
+              { prId: pr.id, companyId: req.companyId },
               'PaystackMandate',
             );
+            await noteAuthorisationNotAttached(pr.id, req.companyId, 'authorisation_no_mandate_row');
+            return;
+          }
+          const outcome = await activateAuthorisedMandate(req.companyId, mandate, {
+            authorizationCode: live.authorization.authorizationCode,
+            customerCode: live.customer?.customerCode ?? null,
+            last4: live.authorization.last4 ?? null,
+            brand: live.authorization.brand ?? null,
+            expMonth: live.authorization.expMonth ?? null,
+            expYear: live.authorization.expYear ?? null,
+            bank: live.authorization.bank ?? null,
+          });
+          if (outcome !== 'activated' && outcome !== 'already_active') {
+            log.warn(
+              'Paystack authorisation could not activate its mandate',
+              { prId: pr.id, companyId: req.companyId, mandateId: mandate.id, outcome },
+              'PaystackMandate',
+            );
+            await noteAuthorisationNotAttached(pr.id, req.companyId, `authorisation_${outcome}`);
           }
         } else if (live.status === 'failed' || live.status === 'abandoned') {
           await sql`
-            UPDATE paystack_payment_requests SET status = 'failed' WHERE id = ${row.pr_id}
+            UPDATE paystack_payment_requests SET status = 'failed'
+            WHERE id = ${pr.id} AND company_id = ${req.companyId}
           `;
-          if (row.mandate_id) {
+          if (mandate) {
             await sql`
               UPDATE subscription_mandates SET status = 'failed', updated_at = now()
-              WHERE id = ${row.mandate_id}
+              WHERE id = ${mandate.id}
                 AND company_id = ${req.companyId}
                 AND status = 'pending'
             `;
@@ -127,22 +129,32 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     } catch (err) {
       log.warn(
         'Paystack mandate live verify failed',
-        { prId: row.pr_id, err: err instanceof Error ? err.message : String(err) },
+        { prId: pr.id, err: err instanceof Error ? err.message : String(err) },
         'PaystackMandate',
       );
     }
   }
 
-  // Re-read the canonical state.
-  const fresh = await sql<{ status: string; bank_name: string | null; card_last4: string | null; card_brand: string | null; max_amount_cents: string | null; authorised_at: Date | string | null; id: string }>`
-    SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents, authorised_at
-    FROM subscription_mandates
-    WHERE company_id = ${req.companyId}
-      AND gateway = 'paystack'
-      AND status IN ('active','pending','failed')
-    ORDER BY (status = 'active') DESC, created_at DESC
-    LIMIT 1
-  `;
+  // Re-read the canonical state — of THIS reference's mandate. Reading the
+  // company's newest row instead reported another checkout's ceiling, card and
+  // id under this reference, which is the mis-attribution migration 651 exists
+  // to retire. Only a pre-651 row with no resolvable link falls back.
+  const fresh = mandate
+    ? await sql<MandateView>`
+        SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents, authorised_at
+        FROM subscription_mandates
+        WHERE id = ${mandate.id} AND company_id = ${req.companyId}
+        LIMIT 1
+      `
+    : await sql<MandateView>`
+        SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents, authorised_at
+        FROM subscription_mandates
+        WHERE company_id = ${req.companyId}
+          AND gateway = 'paystack'
+          AND status IN ('active','pending','failed')
+        ORDER BY (status = 'active') DESC, created_at DESC
+        LIMIT 1
+      `;
   const m = fresh[0];
 
   const publicStatus =

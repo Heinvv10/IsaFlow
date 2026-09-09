@@ -4,7 +4,7 @@
 //
 //   1. The happy path still writes the audit row and commits — the savepoint
 //      must be released, not left open or rolled back.
-//   2. A CRITICAL_ACTIONS write whose INSERT fails still throws
+//   2. A write whose INSERT fails still throws
 //      CriticalAuditError and still raises `criticalAuditFailed`, and the
 //      request transaction is left usable so the middleware can roll back
 //      deliberately instead of hitting a bare 25P02.
@@ -93,7 +93,7 @@ describeIfDb('K-097 audit savepoint adjacent cases', () => {
     expect(audit.rows).toHaveLength(1);
   });
 
-  it('a failed CRITICAL audit write throws and leaves the transaction usable', async () => {
+  it('a failed audit write throws and leaves the transaction usable', async () => {
     let thrown: unknown = null;
     let criticalFlag: boolean | undefined;
     let readBackAfterFailure: string | null = null;
@@ -125,12 +125,18 @@ describeIfDb('K-097 audit savepoint adjacent cases', () => {
     expect(committed).toBe(true);
   });
 
-  // MEDIUM-2 from the blind review of fb63f304. The savepoint changed what
-  // membership of CRITICAL_ACTIONS means: an action OUTSIDE the set that fails
-  // to log now COMMITS its mutation unaudited, where before the poisoned
-  // transaction discarded it. These are money movement and identity
-  // destruction, so they have to be inside the set. Mutation-proof: drop any
-  // one of them from CRITICAL_ACTIONS and this goes red.
+  // MEDIUM-2, rounds 1 and 2. The savepoint changed what falling outside the
+  // audit allow-list meant: an action outside it that failed to log started
+  // COMMITTING its mutation unaudited, where the poisoned transaction used to
+  // discard it. Round 1 widened the list; the round-2 review found it still
+  // missing actions that reprice billing, grant free paid service and grant
+  // access to a tenant's books. The allow-list is now gone — everything fails
+  // closed unless it is named in BEST_EFFORT_ACTIONS, which is empty.
+  //
+  // The first block was on the old list, the second was not, and the last is a
+  // name nothing emits: an unknown action must fail closed too.
+  // Mutation-proof: make the catch in logAdminAction return instead of throw
+  // and every case here goes red.
   it.each([
     'flow.adjust',
     'user.delete',
@@ -139,6 +145,16 @@ describeIfDb('K-097 audit savepoint adjacent cases', () => {
     'trial.convert_to_paid',
     'plan.create',
     'invoice.mark_paid',
+
+    'flow.bundle.update',
+    'invoice.create',
+    'trial.extend',
+    'company.extend_trial',
+    'user.add_to_company',
+    'user.remove_from_company',
+    'user.activate',
+
+    'something.nobody.emits',
   ])('%s fails closed when its audit write fails', async (action) => {
     let thrown: unknown = null;
     let criticalFlag: boolean | undefined;
@@ -158,17 +174,27 @@ describeIfDb('K-097 audit savepoint adjacent cases', () => {
   });
 
   it('two failed audit writes in one request still leave the mutation intact', async () => {
+    const thrown: unknown[] = [];
     const { error, committed } = await inRequestTx(async () => {
       const rows = (await sql`
         INSERT INTO flow_bundles (name, flows, price_cents, is_active, display_order)
         VALUES (${TWICE_BUNDLE}, 100, 9900, true, 0)
         RETURNING id
       `) as Array<{ id: string }>;
-      await logAdminAction(ADMIN_USER, 'flow.bundle.create', 'flow_bundle', rows[0]!.id, BAD_DETAILS, '127.0.0.1');
-      await logAdminAction(ADMIN_USER, 'flow.bundle.update', 'flow_bundle', rows[0]!.id, BAD_DETAILS, '127.0.0.1');
+      // Both throw now (fail-closed); a route that swallows them is exactly the
+      // caller this savepoint has to survive — each failure gets its own, so
+      // the second write and the COMMIT still run on a usable transaction.
+      for (const action of ['flow.bundle.create', 'flow.bundle.update']) {
+        try {
+          await logAdminAction(ADMIN_USER, action, 'flow_bundle', rows[0]!.id, BAD_DETAILS, '127.0.0.1');
+        } catch (err) {
+          thrown.push(err);
+        }
+      }
       return rows[0]!.id;
     });
 
+    expect(thrown).toHaveLength(2);
     expect(error).toBeNull();
     expect(committed).toBe(true);
     const bundle = await admin.query('SELECT id FROM flow_bundles WHERE name = $1', [TWICE_BUNDLE]);

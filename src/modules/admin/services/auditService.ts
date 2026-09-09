@@ -10,8 +10,8 @@ import { log } from '@/lib/logger';
 import type { AuditLogEntry, PaginatedResult } from '../types/admin.types';
 
 /**
- * Thrown by logAdminAction when a CRITICAL_ACTIONS audit write fails. A
- * distinct type so callers/middleware can tell "the audit failed" apart from
+ * Thrown by logAdminAction when an audit write fails for any action outside
+ * BEST_EFFORT_ACTIONS. A distinct type so callers/middleware can tell "the audit failed" apart from
  * "the mutation failed" and refuse to let the privileged action persist
  * unaudited. (Pentest M6.)
  */
@@ -38,29 +38,32 @@ export interface AuditLogFilters {
 }
 
 /**
- * Critical actions that MUST be audit-logged — fail the request if logging
- * fails. Every entry has to be a string some call site actually passes to
- * `logAdminAction`; a name nothing emits protects nothing. Guarded by
- * tests/unit/services/adminCriticalActions.test.ts.
+ * Actions whose audit write may fail WITHOUT failing the request.
  *
- * Membership decides fail-closed vs fail-open. Since the INSERT below runs in
- * its own savepoint, an action OUTSIDE this set that fails to log now commits
- * its mutation unaudited — before the savepoint it was silently discarded
- * instead. So the set has to cover money movement, identity destruction and
- * anything that starts or reprices billing, not just the obvious suspensions.
+ * Everything else fails closed: `logAdminAction` throws CriticalAuditError and
+ * flags the request context so withPlatformAdmin/withAdmin roll the whole
+ * transaction back. Guarded by tests/unit/services/adminCriticalActions.test.ts.
+ *
+ * It used to be the other way round — an allow-list named CRITICAL_ACTIONS, with
+ * everything outside it best-effort. That was safe only while a failed INSERT
+ * poisoned the request transaction and took the mutation down with it. Once the
+ * INSERT got its own savepoint (below), non-membership stopped meaning
+ * "discarded" and started meaning "commits unaudited behind a 2xx" — and the
+ * list was, predictably, incomplete: `flow.bundle.update` reprices every
+ * tenant's wallet bundles, `user.add_to_company` grants access to a tenant's
+ * books, `trial.extend` grants free paid service, and none of the three were on
+ * it. An allow-list of privileged actions has to be complete to be correct; a
+ * deny-list of harmless ones only has to be right about the entries it names.
+ *
+ * Every entry has to be a string some `logAdminAction` call site actually
+ * passes. Actions written by a direct INSERT INTO admin_audit_log never reach
+ * this function and are not governed by it — those routes protect themselves.
+ *
+ * Empty on purpose: every action emitted today mutates platform or tenant
+ * state. Add one only with a reason why an unaudited commit of it is
+ * acceptable.
  */
-export const CRITICAL_ACTIONS = new Set([
-  'user.suspend', 'user.reset_password', 'user.update', 'user.force_logout',
-  'user.delete',
-  'impersonation_start',
-  'company.create', 'company.suspend', 'company.delete', 'company.impersonate',
-  'company.activate', 'company.export_data',
-  'subscription.create', 'subscription.cancel', 'subscription.update',
-  'trial.convert_to_paid',
-  'plan.create', 'plan.update', 'plan.archive',
-  'flow.adjust', 'invoice.mark_paid',
-  'company_feature.override_set', 'company_feature.override_removed',
-]);
+export const BEST_EFFORT_ACTIONS = new Set<string>([]);
 
 export async function logAdminAction(
   adminUserId: string,
@@ -71,11 +74,12 @@ export async function logAdminAction(
   ipAddress: string | null
 ): Promise<void> {
   try {
-    // The audit write is best-effort for non-critical actions, and it shares
-    // the request transaction withPlatformAdmin/withAdmin opened. Without a
-    // savepoint a failed INSERT aborts that transaction, Postgres answers the
-    // middleware's COMMIT with a silent ROLLBACK, and the admin mutation this
-    // log entry describes disappears behind a 2xx.
+    // The audit write shares the request transaction withPlatformAdmin /
+    // withAdmin opened, so it needs its own savepoint. Without one, a
+    // failed INSERT aborts that transaction, Postgres answers the middleware's
+    // COMMIT with a silent ROLLBACK, and the admin mutation this log entry
+    // describes disappears behind a 2xx. The catch below then decides whether
+    // the request itself may survive an unlogged mutation.
     await withSavepoint('admin_audit_log_write', async () => {
       await sql`
         INSERT INTO admin_audit_log (
@@ -99,14 +103,13 @@ export async function logAdminAction(
     });
   } catch (err) {
     log.error('logAdminAction failed', { adminUserId, action, error: err }, 'auditService');
-    if (CRITICAL_ACTIONS.has(action)) {
-      // M6: flag the request context so withPlatformAdmin ROLLS BACK the whole
-      // transaction even if a route-level catch swallows the throw below — a
-      // privileged action must never COMMIT without its audit row.
-      const ctx = als.getStore();
-      if (ctx) ctx.criticalAuditFailed = true;
-      throw new CriticalAuditError(action);
-    }
+    if (BEST_EFFORT_ACTIONS.has(action)) return;
+    // M6: flag the request context so withPlatformAdmin ROLLS BACK the whole
+    // transaction even if a route-level catch swallows the throw below — a
+    // privileged action must never COMMIT without its audit row.
+    const ctx = als.getStore();
+    if (ctx) ctx.criticalAuditFailed = true;
+    throw new CriticalAuditError(action);
   }
 }
 
