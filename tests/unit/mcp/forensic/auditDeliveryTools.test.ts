@@ -1,7 +1,8 @@
 import {it,expect,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({ctx:{issued:'fixture'},snapshot:vi.fn(async()=>({id:'job',state:'queued'})),export:vi.fn(async()=>({id:'export',state:'queued'})),
+const mocks=vi.hoisted(()=>({ctx:{issued:'fixture'},permission:vi.fn(async()=>undefined),snapshot:vi.fn(async()=>({id:'job',state:'queued'})),export:vi.fn(async()=>({id:'export',state:'queued'})),
  status:vi.fn(async()=>({state:'queued'})),header:vi.fn(),page:vi.fn(),snapshotChunk:vi.fn(async()=>({item:{ordinal:0},chunkOrdinal:0,bytes:new Uint8Array([0,255])})),files:vi.fn(),exportChunk:vi.fn(async()=>({file:{ordinal:0},chunkOrdinal:0,bytes:new Uint8Array([1,2])}))}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>mocks.ctx}));
+vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:mocks.permission}));
 vi.mock('@/modules/accounting/services/controls/auditJobService',()=>({enqueueAuditSnapshot:mocks.snapshot,getAuditJob:mocks.status}));
 vi.mock('@/modules/accounting/services/controls/auditExportJobService',()=>({enqueueAuditExport:mocks.export}));
 vi.mock('@/modules/accounting/services/controls/auditSnapshotIndexRead',()=>({readAuditSnapshotIndexHeader:mocks.header}));
@@ -14,6 +15,13 @@ it('declares bounded explicit contracts for enqueue and retained delivery',()=>{
  expect(auditDeliveryTools.map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence','audit_job_status','audit_snapshot_manifest','audit_snapshot_items','audit_snapshot_chunk','audit_export_files','audit_export_chunk']);
  for(const tool of auditDeliveryTools){expect(tool.scope).toBe('read:reports');expect(tool.inputSchema.additionalProperties).toBe(false);expect(tool.requiresPost).not.toBe(true);}
  expect(auditDeliveryTools.filter(tool=>tool.write).map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence']);
+ for(const tool of auditDeliveryTools.filter(tool=>tool.write)){expect(tool.perUserIdempotency).toBe(true);expect(tool.authorize).toBeTypeOf('function');}
+});
+it('derives all current source permissions again before replay and authenticates export source metadata',async()=>{
+ await auditDeliveryTools[0].authorize!({cutoff:'2026-09-09',sources:['payroll','ap','bank'],checks:[],idempotency_key:'retry'},ctx);
+ expect(mocks.permission.mock.calls.map(call=>call[1])).toEqual(['read:bank-tx','read:invoices','read:payroll','read:reports']);
+ await auditDeliveryTools[1].authorize!({snapshot_id:id,idempotency_key:'retry'},ctx);
+ expect(mocks.header).toHaveBeenCalledWith(mocks.ctx,id);
 });
 it('delegates enqueue to real shared interfaces with context-derived authority and explicit retry keys',async()=>{
  await call('audit_snapshot',{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotency_key:'retry'});

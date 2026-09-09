@@ -120,7 +120,7 @@ export class McpRegistry {
     args = validated.args;
     argsHash = hashArgs(args);
 
-    try { await assertCurrentToolAuthority(tool, ctx); }
+    try { await assertCurrentToolAuthority(tool, ctx); await tool.authorize?.(args,ctx); }
     catch { return reject('Current permissions do not allow this operation.', null); }
 
     // Assert-only company guard. Runs before the idempotency-key check so a
