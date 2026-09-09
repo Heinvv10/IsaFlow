@@ -1,0 +1,50 @@
+=== MUTATION 1: pre-flight call removed (savepoint intact) ===
+     × refuses BEFORE the unwind when the fallback reversal date has no open period 60ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected '{"success":false,"error":{"code":"BAD…' to match /fiscal period covering \d{4}-\d{2}-\d…/
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+=== MUTATION 2: savepoint removed (pre-flight intact) ===
+     × rolls the unwind back when the contra fails for a reason the pre-flight cannot see 43ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { bankTxStatus: 'allocated', …(5) } to deeply equal { bankTxStatus: 'allocated', …(5) }
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+=== MUTATION 3: BOTH removed (origin/master behaviour) ===
+     × leaves the subledger untouched when the contra journal cannot be posted 56ms
+     × rolls the unwind back when the contra fails for a reason the pre-flight cannot see 41ms
+     × refuses BEFORE the unwind when the fallback reversal date has no open period 38ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  3 failed | 3 passed (6)
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+ .../services/bank/bankAllocationService.ts         | 107 +++++++++++++++------
+ 1 file changed, 75 insertions(+), 32 deletions(-)
+=== FINAL: full unit suite ===
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+=== FINAL: tsc --noEmit exit 0; bun run lint 0 errors / 11 pre-existing warnings ===
+
+=== FULL UNIT SUITE, no DATABASE_URL / fixture env in the shell ===
+$ unset DATABASE_URL PLATFORM_ADMIN_DATABASE_URL ISAFLOW_DISPOSABLE_AUTH_TEST GOTRUE_URL JWT_SECRET ENCRYPTION_KEY DATABASE_SSL
+
+# via the repo's own script (bun run test:unit -> check:routes + vitest run)
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+
+# via bunx vitest run (vitest/4.1.2 linux-x64 node-v20.20.1)
+ Test Files  5 failed | 779 passed | 36 skipped (820)
+      Tests  10 failed | 9310 passed | 234 skipped (9554)
+
+# SAME 10 failures on UNMODIFIED origin/master (d0f4f5dc) in a throwaway
+# worktree, byte-identical list, so they are pre-existing suite-isolation
+# flakiness under bunx and not caused by this change:
+#   tests/unit/components/trackerExclusion.test.ts (1)
+#   tests/unit/services/bankAllocationService.test.ts (4)
+#   tests/unit/services/bank/bankAllocationDateShift.test.ts (3)
+#   tests/unit/services/bank/bankAllocationUnwind.test.ts (1, the ordering test)
+#   tests/unit/services/cashFlowReport.test.ts (1)
+# All 5 files pass when run together on their own (27 passed), so the failures
+# are cross-file interference under full-suite concurrency, not assertions.
