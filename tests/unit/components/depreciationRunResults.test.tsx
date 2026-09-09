@@ -35,13 +35,16 @@ const EXPIRED_NOTE =
   + 'prior-period correction, not a month of depreciation.';
 
 const RUN = {
-  processed: 2, skipped: 1, glFailed: 1, total: 4, eligible: 4,
+  processed: 2, skipped: 1, glFailed: 2, total: 5, eligible: 5,
   periodDate: '2026-09-30', yyyymm: '202609',
   results: [
-    { assetNumber: 'A-0001', policyDep: 1200, taxDep: 1666.67, entryId: 'je-1' },
-    { assetNumber: 'A-0002', policyDep: 833.33, taxDep: 1666.67, entryId: 'je-2' },
-    { assetNumber: 'A-0003', policyDep: 0, taxDep: 0, entryId: null, lifeExpiredNote: EXPIRED_NOTE },
-    { assetNumber: 'A-0004', policyDep: 500, taxDep: 500, entryId: null },
+    { assetNumber: 'A-0001', policyDep: 1200, taxDep: 1666.67, entryId: 'je-1', glFailed: false },
+    { assetNumber: 'A-0002', policyDep: 833.33, taxDep: 1666.67, entryId: 'je-2', glFailed: false },
+    { assetNumber: 'A-0003', policyDep: 0, taxDep: 0, entryId: null, glFailed: false, lifeExpiredNote: EXPIRED_NOTE },
+    { assetNumber: 'A-0004', policyDep: 500, taxDep: 500, entryId: null, glFailed: true },
+    // Life-expired AND its period rolled back. `entryId: null` is shared with
+    // an ordinary zero charge, so only `glFailed` separates the two.
+    { assetNumber: 'A-0005', policyDep: 0, taxDep: 0, entryId: null, glFailed: true, lifeExpiredNote: EXPIRED_NOTE },
   ],
 };
 
@@ -86,15 +89,34 @@ describe('depreciation page — last run results', () => {
 
     await waitFor(() => expect(screen.getByText('A-0003')).toBeInTheDocument());
     expect(screen.getByText('No charge')).toBeInTheDocument();
-    // Exactly one row genuinely failed — A-0004, which has a charge and no entry.
-    expect(screen.getAllByText('GL Failed')).toHaveLength(1);
+    // A-0004 and A-0005 both rolled back; A-0005 is ALSO life-expired and used
+    // to hide behind the note as a quiet "No charge" (MEDIUM-K).
+    expect(screen.getAllByText('GL Failed')).toHaveLength(2);
     expect(screen.getAllByText('GL Posted')).toHaveLength(2);
+  });
+
+  it('shows a rolled-back period as failed even when the asset is life-expired (MEDIUM-K)', async () => {
+    await renderPage();
+    await runOnce();
+
+    await waitFor(() => expect(screen.getByText('A-0005')).toBeInTheDocument());
+    // The row's own label, not the run totals: find the line A-0005 sits on.
+    const row = screen.getByText('A-0005').closest('div')!;
+    expect(row.textContent).toContain('GL Failed');
+    expect(row.textContent).not.toContain('No charge');
+  });
+
+  it('puts the glFailed count on the summary line (MEDIUM-K)', async () => {
+    await renderPage();
+    await runOnce();
+    await waitFor(() => expect(screen.getByText(/GL Failed: 2/)).toBeInTheDocument());
   });
 
   it('renders the life-expired note so the balance is visible', async () => {
     await renderPage();
     await runOnce();
-    await waitFor(() => expect(screen.getByText(EXPIRED_NOTE)).toBeInTheDocument());
+    // Both life-expired rows carry it, the failed one included.
+    await waitFor(() => expect(screen.getAllByText(EXPIRED_NOTE)).toHaveLength(2));
   });
 
   it('renders real amounts rather than RNaN (MEDIUM-I)', async () => {
@@ -112,6 +134,18 @@ describe('depreciation page — last run results', () => {
 });
 
 describe('depreciation page — the register', () => {
+  it('shows a dash, not a pro-rated guess, when there is no purchase date (LOW-L)', async () => {
+    apiFetch.mockImplementation(async (url: string) =>
+      url.includes('run-depreciation')
+        ? jsonResponse(RUN)
+        : jsonResponse({ items: [{ ...ASSETS[0], purchase_date: null }] }));
+    await renderPage();
+    // Substituting today fired the first-month pro-rate and printed a partial
+    // charge — a number, and the wrong one.
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('NaN');
+  });
+
   it('no longer advertises straight line (LOW-J)', async () => {
     await renderPage();
     expect(document.body.textContent).not.toContain('Straight-line monthly depreciation');
