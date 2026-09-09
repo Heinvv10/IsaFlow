@@ -38,66 +38,6 @@ export function computeFingerprint(
   return `${vat}|${inv}|${amt}`.toLowerCase();
 }
 
-/**
- * Translate the unique-violation raised by uq_supplier_invoices_supplier_fingerprint
- * (migration 625) into a message that names the invoice.
- *
- * Migration 625 turned this column from an advisory duplicate flag into a
- * constraint, so every path that stamps a fingerprint on INSERT can now be
- * refused by it. Without this the refusal surfaces as a bare 23505.
- *
- * Returns normally when the error is anything else — the caller rethrows.
- */
-export function rethrowDuplicateFingerprint(err: unknown, invoiceNumber: string): void {
-  if (!isDuplicateFingerprintViolation(err)) return;
-  log.warn(
-    'Duplicate supplier invoice refused by uq_supplier_invoices_supplier_fingerprint',
-    { invoiceNumber },
-    'duplicate-detection',
-  );
-  // `cause` keeps the pg error's own `code` and `constraint` reachable: the
-  // translation replaces the message a person reads, and must not blind a
-  // caller that branches on the violation.
-  throw new Error(
-    `This supplier already has an invoice ${invoiceNumber} for the same amount. Change the invoice number or amount, or open the existing bill.`,
-    { cause: err },
-  );
-}
-
-/**
- * True for the unique violation on uq_supplier_invoices_supplier_fingerprint,
- * whether it arrives raw or wrapped by `rethrowDuplicateFingerprint`.
- */
-export function isDuplicateFingerprintViolation(err: unknown): boolean {
-  const seen = new Set<unknown>();
-  let e: unknown = err;
-  while (e && typeof e === 'object' && !seen.has(e)) {
-    seen.add(e);
-    const { code, constraint } = e as { code?: unknown; constraint?: unknown };
-    if (code === '23505' && constraint === 'uq_supplier_invoices_supplier_fingerprint') return true;
-    e = (e as { cause?: unknown }).cause;
-  }
-  return false;
-}
-
-/**
- * Run a supplier-invoice INSERT and name the duplicate if it is refused.
- *
- * The error is always rethrown — this only replaces the message, it never
- * swallows the failure, and the transaction is aborted by the 23505 either way.
- */
-export async function insertNamingDuplicate<T>(
-  invoiceNumber: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (err) {
-    rethrowDuplicateFingerprint(err, invoiceNumber);
-    throw err;
-  }
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function daysDiff(a: string, b: string): number {

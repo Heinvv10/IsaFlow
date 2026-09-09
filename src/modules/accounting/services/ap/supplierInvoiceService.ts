@@ -18,7 +18,7 @@ import type {
   SupplierInvoiceCreateInput,
 } from '../../types/ap.types';
 import type { VatType } from '../../types/gl.types';
-import { computeFingerprint, rethrowDuplicateFingerprint } from '../capture/captureDeduplicationService';
+import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { resolvePendingAlertForInvoice } from '../capture/alertResolutionService';
 import { mapInvoiceRow } from './supplierInvoiceQueryService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
@@ -177,7 +177,6 @@ export async function createSupplierInvoice(
 
     return mapInvoiceRow(invoiceRow);
   } catch (err) {
-    rethrowDuplicateFingerprint(err, input.invoiceNumber);
     log.error('Failed to create supplier invoice', { error: err }, 'accounting');
     throw err;
   }

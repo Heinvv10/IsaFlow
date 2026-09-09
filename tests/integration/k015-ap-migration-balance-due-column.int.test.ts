@@ -31,9 +31,7 @@ import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { importAPInvoices } from '@/modules/accounting/services/ap/migrationApService';
-import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { updateSession } from '@/modules/accounting/services/core/migrationService';
-import { insertNamingDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -287,35 +285,6 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
-  it('names the duplicate for the other paths that stamp a fingerprint', async () => {
-    // recurringTransactionService and sageImportService INSERT a fingerprint
-    // directly. Migration 625 can now refuse them, and they went through the
-    // same translator so the operator gets the message, not a bare 23505.
-    const c = await pool.connect();
-    await c.query('BEGIN');
-    try {
-      const supplierId = (await c.query(
-        `SELECT id FROM suppliers WHERE company_id = $1 AND name = $2`,
-        [COMPANY, `ACME ${TAG}`],
-      )).rows[0].id;
-
-      const insert = () => c.query(
-        `INSERT INTO supplier_invoices
-           (company_id, supplier_id, invoice_number, invoice_date, due_date,
-            subtotal, tax_amount, total_amount, status, created_by, duplicate_fingerprint)
-         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'draft', $4, $5)`,
-        [COMPANY, supplierId, `${TAG}-rec`, USER, `no-vat|${TAG}-rec|115`],
-      );
-
-      await run(c, () => insertNamingDuplicate(`${TAG}-rec`, insert));
-      await expect(run(c, () => insertNamingDuplicate(`${TAG}-rec`, insert)))
-        .rejects.toThrow(/already has an invoice/);
-    } finally {
-      await c.query('ROLLBACK').catch(() => {});
-      c.release();
-    }
-  }, 60000);
-
   it('a failing row is skipped without poisoning the rest of the run', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');
@@ -423,74 +392,40 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
-  it('aborts the run with a named error when migration 625 has not been applied', async () => {
+  it('imports for two VAT-less suppliers whose rows share a fingerprint', async () => {
+    // duplicate_fingerprint is lower(vat|invoice_number|total) with 'no-vat',
+    // 'no-inv' and '0' substituted for missing parts, so rows missing the same
+    // parts collapse onto one string. Production holds groups of 55-79 live
+    // invoices sharing a fingerprint, which is why the column carries no unique
+    // index and the wizard's idempotency is a lookup scoped by supplier.
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      // Dropping inside the transaction is local to this connection.
-      await c.query('DROP INDEX uq_supplier_invoices_supplier_fingerprint');
+      const result = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-shared`, supplierName: `ACME ${TAG}` }),
+        bill({ invoiceNumber: `${TAG}-shared`, supplierName: `BETA ${TAG}` }),
+      ], USER));
 
-      await expect(run(c, () => importAPInvoices(COMPANY, sessionId, [
-        bill({ invoiceNumber: `${TAG}-no-index` }),
-      ], USER))).rejects.toThrow(/migration 625/);
+      expect(result.errors).toEqual([]);
+      expect(result.imported).toBe(2);
 
-      // The old behaviour was 200 with imported: 0 and a raw Postgres message
-      // on every row; the run must stop instead.
       const rows = (await c.query(
-        `SELECT COUNT(*)::INT AS n FROM supplier_invoices
+        `SELECT DISTINCT duplicate_fingerprint FROM supplier_invoices
           WHERE company_id = $1 AND invoice_number = $2`,
-        [COMPANY, `${TAG}-no-index`],
-      )).rows[0];
-      expect(rows.n).toBe(0);
-    } finally {
-      await c.query('ROLLBACK').catch(() => {});
-      c.release();
-    }
-  }, 60000);
-
-  it('lets two VAT-less suppliers hold the same invoice number and amount', async () => {
-    // computeFingerprint folds a missing VAT number to 'no-vat', so both rows
-    // carry an identical fingerprint. Keying the unique index on supplier_id is
-    // what stops that being a false duplicate — for the wizard and for the five
-    // other paths that stamp this column on a plain INSERT.
-    const c = await pool.connect();
-    await c.query('BEGIN');
-    try {
-      const suppliers = (await c.query(
-        `SELECT id, name FROM suppliers WHERE company_id = $1 ORDER BY name`,
-        [COMPANY],
+        [COMPANY, `${TAG}-shared`],
       )).rows;
-      expect(suppliers).toHaveLength(2);
-
-      const insert = (supplierId: string, n: string) => c.query(
-        `INSERT INTO supplier_invoices
-           (company_id, supplier_id, invoice_number, invoice_date, due_date,
-            subtotal, tax_amount, total_amount, status, created_by, duplicate_fingerprint)
-         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', $4, $5)
-         RETURNING id`,
-        [COMPANY, supplierId, n, USER, `no-vat|${TAG}-shared|115`],
-      );
-
-      await insert(suppliers[0].id, `${TAG}-shared-a`);
-      await insert(suppliers[1].id, `${TAG}-shared-b`);
-
-      const rows = (await c.query(
-        `SELECT COUNT(*)::INT AS n FROM supplier_invoices
-          WHERE company_id = $1 AND duplicate_fingerprint = $2`,
-        [COMPANY, `no-vat|${TAG}-shared|115`],
-      )).rows[0];
-      expect(rows.n).toBe(2);
-
-      // The same supplier twice is still refused, by the named constraint.
-      await expect(insert(suppliers[0].id, `${TAG}-shared-c`))
-        .rejects.toMatchObject({ code: '23505', constraint: 'uq_supplier_invoices_supplier_fingerprint' });
+      // One fingerprint, two invoices, two suppliers — and both imported.
+      expect(rows).toHaveLength(1);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
     }
   }, 60000);
 
-  it('the ordinary create path names the duplicate instead of raising a bare 23505', async () => {
+  it('a fingerprint shared by many rows of one supplier is not blocked by an index', async () => {
+    // The shape the production probe found: rows with no invoice number and a
+    // zero total all carry 'no-vat|no-inv|0'. A unique index would have made
+    // these unwritable; the wizard's duplicate reporting has to live with it.
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
@@ -499,18 +434,22 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
         [COMPANY, `ACME ${TAG}`],
       )).rows[0].id;
 
-      const input = {
-        invoiceNumber: `${TAG}-ordinary`,
-        supplierId,
-        invoiceDate: '2026-06-30',
-        items: [{ description: 'Consulting', quantity: 1, unitPrice: 100, taxRate: 15 }],
-      };
+      for (let n = 0; n < 3; n++) {
+        await c.query(
+          `INSERT INTO supplier_invoices
+             (company_id, supplier_id, invoice_number, invoice_date, due_date,
+              subtotal, tax_amount, total_amount, status, created_by, duplicate_fingerprint)
+           VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 0, 0, 0, 'approved', $4, 'no-vat|no-inv|0')`,
+          [COMPANY, supplierId, `${TAG}-degenerate-${n}`, USER],
+        );
+      }
 
-      const created = await run(c, () => createSupplierInvoice(COMPANY, input, USER));
-      expect(created.invoiceNumber).toBe(`${TAG}-ordinary`);
-
-      await expect(run(c, () => createSupplierInvoice(COMPANY, input, USER)))
-        .rejects.toThrow(/already has an invoice/);
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM supplier_invoices
+          WHERE company_id = $1 AND duplicate_fingerprint = 'no-vat|no-inv|0'`,
+        [COMPANY],
+      )).rows[0];
+      expect(rows.n).toBe(3);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
@@ -518,6 +457,8 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
   }, 60000);
 
   it('re-running the same file does not import the bill a second time', async () => {
+    // Idempotency now comes from the lookup before the INSERT, not from a
+    // unique constraint — production data forbids one on this column.
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
@@ -548,6 +489,30 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
         [COMPANY, `%${TAG}-rerun%`],
       )).rows[0];
       expect(journals.n).toBe(1);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('a soft-deleted bill does not block re-importing a corrected one', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-softdel` }),
+      ], USER));
+      await c.query(
+        `UPDATE supplier_invoices SET deleted_at = NOW()
+          WHERE company_id = $1 AND invoice_number = $2`,
+        [COMPANY, `${TAG}-softdel`],
+      );
+
+      const again = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-softdel` }),
+      ], USER));
+      expect(again.imported).toBe(1);
+      expect(again.errors).toEqual([]);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
