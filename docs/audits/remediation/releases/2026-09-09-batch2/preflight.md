@@ -4,14 +4,14 @@ Unique indexes added by this batch will refuse to build if production already ho
 
 | Migration | Branch | Probe (read-only) | Prod count | Checked by |
 |---|---|---|---|---|
-| 619_gl_journal_entry_single_reversal | K-010 | originals with more than one posted contra: see K-010/fix.md | | |
-| 620_customer_payments_card_reference_unique | K-035/K-036 | duplicate card references per company: see K-036/fix.md | | |
+| 619_gl_journal_entry_single_reversal | K-010 | originals with more than one posted contra: see K-010/fix.md | 0 duplicate contras; 0 stuck claims (baseline) | lead, 2026-09-09 read-only |
+| 620_customer_payments_card_reference_unique | K-035/K-036 | duplicate card references per company: see K-036/fix.md | 0 | lead, 2026-09-09 read-only |
 | 621_payroll_loan_payment_reversals | K-022 | new table, no precondition | n/a | |
 | 623_gl_je_reversal_of_index | K-032 | non-unique index, no precondition | n/a | |
-| 624_subscription_charges_subscription_id | K-033/K-034 | backfill precondition: charges whose company holds >1 subscription: see K-033/fix.md | | |
-| 625_supplier_invoice_duplicate_fingerprint_unique | K-015 | duplicate (company_id, supplier_id, fingerprint) rows: see K-015/fix.md | | |
+| 624_subscription_charges_subscription_id | K-033/K-034 | pre-migration form of the gate: charges whose mandate's company holds ≠1 subscription | 0 of 0 subscription_charges rows | lead, 2026-09-09 read-only |
+| 625_supplier_invoice_duplicate_fingerprint_unique | K-015 | duplicate (company_id, supplier_id, fingerprint) rows: see K-015/fix.md | **BLOCKED**: 5+ groups of 55–79 approved/paid bills per fingerprint on the Demo company; fingerprint values degenerate ('no-vat', supplier VAT number). Unique index removed from 625 on the K-015 branch (pending) | lead, 2026-09-09 read-only |
 | 622_payroll_loan_payment_columns | K-022 | ADD COLUMN IF NOT EXISTS only, no precondition | n/a | |
-| 626_practice_rate_override_mirror_trigger | K-039 | trigger only; confirm no legacy rows with disagreeing pairs: see K-039/fix.md | | |
+| 626_practice_rate_override_mirror_trigger | K-039 | trigger only; informational: legacy rows with disagreeing pairs | 1 row (repaired by the migration's one-time UPDATE) | lead, 2026-09-09 read-only |
 
 Post-deploy verification (in addition to the deploy script's golden paths + integrity):
 - RELEASE_SHA and BUILD_ID on the live app match the merged master SHA.
@@ -24,3 +24,5 @@ Post-deploy verification (in addition to the deploy script's golden paths + inte
 
 ## Dev/golden database note (2026-09-09)
 The blocking Golden Paths job boots against `isaflow_dev`, which was at migration 614 while master carries 615–618 and the batch-2 branches add 619–626. K-022's golden run failed on `column p.schedule_row_id does not exist` until 621 and 622 were applied to `isaflow_dev` by psql with hand-inserted `schema_migrations` rows (name, version, sha256). Other batch-2 migrations are indexes/triggers the golden paths do not depend on; 615–618 remain unapplied on dev (pre-existing gap, capture/WhatsApp only). Production is migrated by `scripts/deploy.sh`; this note is about the dev runner only.
+
+Probe SQL as run: preflight-probes.sql (SELECT-only, executed inside BEGIN READ ONLY … ROLLBACK against the production DATABASE_URL from the deploy env).
