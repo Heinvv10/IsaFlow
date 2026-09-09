@@ -42,8 +42,9 @@ throws if called.
 
 **Migration / rollback.** None.
 
-**Historical-data impact.** Read-only query run against production `isaflow` (see green.log):
-one affected receipt, R115,370.58, company `00000000-0000-0000-0000-000000000001`
+**Historical-data impact.** The query below was run read-only against production `isaflow`
+once, before the instruction arrived not to query production; it is recorded here rather
+than re-run. One affected receipt, R115,370.58, company `00000000-0000-0000-0000-000000000001`
 ("ISAFlow Demo (Pty) Ltd"), invoice INV-00553, 2026-05-01. No other tenant is affected and
 no unprocessed webhook events exist. No data was repaired.
 ```sql
