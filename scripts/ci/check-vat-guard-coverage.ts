@@ -57,8 +57,6 @@ const ALLOWED: Record<string, string> = {
     + 'verify what approval ultimately posts on an invoice captured elsewhere.',
   'pages/api/accounting/bank-match-confirm.ts':
     'Attended API action on one transaction the user is looking at.',
-  'pages/api/accounting/bank-transactions-action.ts':
-    'Attended API action on one transaction the user is looking at.',
   'pages/api/accounting/bank-transactions-manual.ts':
     'Attended API action on one transaction the user is looking at.',
 
