@@ -1,0 +1,33 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/services/controls/operationApprovalMaterial.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/operationApprovalMaterial.test.ts (5 tests | 2 failed) 10ms
+   × binds the reversal target for supplier_payment.void 2ms
+   × binds the reversal target for supplier_invoice.cancel 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/operationApprovalMaterial.test.ts > binds the reversal target for supplier_payment.void
+ FAIL  tests/unit/services/controls/operationApprovalMaterial.test.ts > binds the reversal target for supplier_invoice.cancel
+Error: Invalid reversal date
+ ❯ canonicalOperationRef src/modules/accounting/services/controls/operationMaterializer.ts:19:155
+     17|   if (!operations.includes(ref.operation)) throw new Error('Unsupporte…
+     18|   const reversalDate = ref.reversalDate ?? (ref.operation === 'journal…
+     19|   if (reversalDate !== undefined && (ref.operation !== 'journal.revers…
+       |                                                                                                                                                           ^
+     20|   return { entityType: ref.entityType, entityId: ref.entityId,
+     21|     ...(ref.expectedVersion === undefined ? {} : { expectedVersion: re…
+ ❯ tests/unit/services/controls/operationApprovalMaterial.test.ts:27:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  10:21:41
+   Duration  1.18s (transform 421ms, setup 0ms, import 571ms, tests 10ms, environment 0ms)
+
+error: script "test:unit" exited with code 1
