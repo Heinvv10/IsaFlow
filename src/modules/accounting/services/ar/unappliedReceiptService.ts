@@ -112,28 +112,7 @@ export async function getUnappliedReceipts(
   const cursorDate = opts.after?.paymentDate ?? null;
   const cursorId = opts.after?.id ?? null;
 
-  // One page of ATTRIBUTED receipts, ordered oldest first: the oldest unapplied
-  // cash is the most likely to be the reconciling item somebody is looking for.
-  // Unattributed rows are deliberately not in this stream — they are reported
-  // in full below, so paging cannot serve half of them.
-  // WHY THE OUTER JOIN'S ON CLAUSE CARRIES PREDICATES HERE, and why that is not
-  // the defect it usually is.
-  //
-  // A predicate that must RESTRICT a result belongs in WHERE: inside an outer
-  // join's ON it restricts nothing, the unmatched row survives with NULL
-  // columns, and those NULLs flow into the arithmetic.  kpiChartsService did
-  // exactly that (is_active = true AND account_subtype = 'bank' in a LEFT JOIN
-  // ON) and charted every transaction regardless of account.
-  //
-  // These predicates are NOT trying to restrict.  They define which customer
-  // row counts as a match — same tenant, not soft-deleted — and a receipt whose
-  // customer fails them is meant to survive as unmatched, because the cash is
-  // real whether or not the customer record still is.  The restriction is done
-  // explicitly in WHERE (`c.id IS NOT NULL` here, `c.id IS NULL` in the orphan
-  // query), so every row lands in exactly one of the two streams and no NULL
-  // ever reaches a SUM.  Moving them to WHERE would turn the outer join into an
-  // inner one and silently DROP the orphaned receipts — the very rows this
-  // report exists to surface.
+  // Preserve unmatched counterparties in the separate orphan population.
   const rows = (await sql`
     SELECT cp.id,
            cp.payment_number,
@@ -154,7 +133,11 @@ export async function getUnappliedReceipts(
     LEFT JOIN LATERAL (
       SELECT SUM(cpa.amount_allocated) AS allocated
       FROM customer_payment_allocations cpa
+      LEFT JOIN control_cash_application_intents app ON app.company_id = cp.company_id AND app.id = cpa.application_intent_id
+      LEFT JOIN control_cash_application_reversal_intents inverse ON inverse.company_id = cp.company_id AND inverse.id = cpa.reversal_intent_id
       WHERE cpa.payment_id = cp.id
+        AND COALESCE(app.accounting_date, cp.payment_date) <= ${opts.asAt}::DATE
+        AND (inverse.reversal_date IS NULL OR inverse.reversal_date > ${opts.asAt}::DATE)
     ) alloc ON TRUE
     WHERE cp.company_id = ${companyId}::UUID
       AND cp.status <> 'cancelled'
@@ -190,7 +173,11 @@ export async function getUnappliedReceipts(
     LEFT JOIN LATERAL (
       SELECT SUM(cpa.amount_allocated) AS allocated
       FROM customer_payment_allocations cpa
+      LEFT JOIN control_cash_application_intents app ON app.company_id = cp.company_id AND app.id = cpa.application_intent_id
+      LEFT JOIN control_cash_application_reversal_intents inverse ON inverse.company_id = cp.company_id AND inverse.id = cpa.reversal_intent_id
       WHERE cpa.payment_id = cp.id
+        AND COALESCE(app.accounting_date, cp.payment_date) <= ${opts.asAt}::DATE
+        AND (inverse.reversal_date IS NULL OR inverse.reversal_date > ${opts.asAt}::DATE)
     ) alloc ON TRUE
     WHERE cp.company_id = ${companyId}::UUID
       AND cp.status <> 'cancelled'
@@ -221,7 +208,11 @@ export async function getUnappliedReceipts(
     LEFT JOIN LATERAL (
       SELECT SUM(cpa.amount_allocated) AS allocated
       FROM customer_payment_allocations cpa
+      LEFT JOIN control_cash_application_intents app ON app.company_id = cp.company_id AND app.id = cpa.application_intent_id
+      LEFT JOIN control_cash_application_reversal_intents inverse ON inverse.company_id = cp.company_id AND inverse.id = cpa.reversal_intent_id
       WHERE cpa.payment_id = cp.id
+        AND COALESCE(app.accounting_date, cp.payment_date) <= ${opts.asAt}::DATE
+        AND (inverse.reversal_date IS NULL OR inverse.reversal_date > ${opts.asAt}::DATE)
     ) alloc ON TRUE
     WHERE cp.company_id = ${companyId}::UUID
       AND cp.status <> 'cancelled'

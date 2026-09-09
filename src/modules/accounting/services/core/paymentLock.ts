@@ -83,7 +83,7 @@ export async function lockCustomerPaymentForUpdate(
              COALESCE((
                SELECT SUM(cpa.amount_allocated)
                FROM customer_payment_allocations cpa
-               WHERE cpa.payment_id = cp.id
+               WHERE cpa.payment_id = cp.id AND cpa.reversed_at IS NULL
              ), 0) AS allocated_amount
       FROM customer_payments cp
       WHERE cp.id = ${paymentId}::UUID AND cp.company_id = ${companyId}::UUID
@@ -124,7 +124,7 @@ export async function lockSupplierPaymentForUpdate(
              COALESCE((
                SELECT SUM(pa.amount_allocated)
                FROM payment_allocations pa
-               WHERE pa.payment_id = sp.id
+               WHERE pa.payment_id = sp.id AND pa.reversed_at IS NULL
              ), 0) AS allocated_amount
       FROM supplier_payments sp
       WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID

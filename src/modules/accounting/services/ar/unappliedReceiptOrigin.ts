@@ -94,7 +94,11 @@ export async function getUnappliedReceiptOrigins(
     LEFT JOIN LATERAL (
       SELECT SUM(cpa.amount_allocated) AS allocated
       FROM customer_payment_allocations cpa
+      LEFT JOIN control_cash_application_intents app ON app.company_id = cp.company_id AND app.id = cpa.application_intent_id
+      LEFT JOIN control_cash_application_reversal_intents inverse ON inverse.company_id = cp.company_id AND inverse.id = cpa.reversal_intent_id
       WHERE cpa.payment_id = cp.id
+        AND COALESCE(app.accounting_date, cp.payment_date) <= ${asAt}::DATE
+        AND (inverse.reversal_date IS NULL OR inverse.reversal_date > ${asAt}::DATE)
     ) alloc ON TRUE
     WHERE cp.company_id = ${companyId}::UUID
       AND cp.status <> 'cancelled'

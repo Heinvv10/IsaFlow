@@ -1,3 +1,6 @@
+import {confirmCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
+import {getUnappliedReceipts} from '@/modules/accounting/services/ar/unappliedReceiptService';
+import {lockCustomerPaymentForUpdate} from '@/modules/accounting/services/core/paymentLock';
 import {loadCashApplicationSources} from '@/modules/accounting/services/shared/cashApplicationSources';
 import {prepareCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
 import {planReceiptApplication,applyReceiptPlan} from '@/modules/accounting/services/ar/receiptApplicationService';
@@ -90,4 +93,45 @@ it('refuses a target invoice date that no longer agrees with its actual posted j
  const {invoice,posted}=await postedCash();
  await pool.query("UPDATE customer_invoices SET invoice_date='2026-09-10' WHERE company_id=$1 AND id=$2",[fixture.companyA,invoice]);
  await expect(actor(()=>loadCashApplicationSources(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}))).rejects.toThrow(/date|journal/i);
+});
+
+async function retainedInverseCash(){
+ const {invoice,posted}=await postedCash(),intent=randomUUID(),inverse=randomUUID();
+ // Synthetic storage lifecycle isolates the production reader; this does not certify the inverse writer.
+ const payload=JSON.stringify({version:1,kind:'customer',paymentId:posted.paymentId,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]});
+ await pool.query("INSERT INTO control_cash_application_intents(company_id,id,requester_person_id,payment_id,kind,accounting_date,amount,currency,payload,source_fingerprint) VALUES($1,$2,$3,$4,'customer','2026-09-10',115,'ZAR',$5,repeat('a',64))",[fixture.companyA,intent,fixture.u1.id,posted.paymentId,payload]);
+ await pool.query('INSERT INTO customer_payment_allocations(payment_id,invoice_id,amount_allocated,application_intent_id) VALUES($1,$2,115,$3)',[posted.paymentId,invoice,intent]);
+ await pool.query("INSERT INTO control_cash_application_reversal_intents(company_id,id,requester_person_id,original_intent_id,reversal_date,reason) VALUES($1,$2,$3,$4,'2026-09-11','Synthetic reader inverse')",[fixture.companyA,inverse,fixture.u1.id,intent]);
+ await pool.query('UPDATE customer_payment_allocations SET reversed_at=clock_timestamp(),reversal_intent_id=$1 WHERE application_intent_id=$2',[inverse,intent]);
+ return{posted,intent};
+}
+it('excludes retained reversed application history from the actual payment write lock balance',async()=>{
+ const {posted,intent}=await retainedInverseCash();
+ const locked=await actor(()=>lockCustomerPaymentForUpdate(fixture.companyA,posted.paymentId!));
+ expect(Number(locked!.allocated_amount)).toBe(0);
+ expect((await pool.query('SELECT amount_allocated::text FROM customer_payment_allocations WHERE application_intent_id=$1',[intent])).rows).toEqual([{amount_allocated:'115.00'}]);
+});
+
+for(const [asAt,expected] of [['2026-09-09',115],['2026-09-10',0],['2026-09-11',115]] as const)it(`reports retained application history at its accounting date ${asAt}`,async()=>{
+ const {posted}=await retainedInverseCash();
+ const report=await actor(()=>getUnappliedReceipts(fixture.companyA,{asAt,limit:500}));
+ const receipt=report.rows.find(row=>row.paymentId===posted.paymentId);
+ expect(receipt?.unappliedAmount??0).toBe(expected);
+});
+
+it('refuses target cash application after balanced invoice journal direction tampering',async()=>{
+ const {invoice,posted}=await postedCash();
+ await pool.query('UPDATE gl_journal_lines SET debit=credit,credit=debit WHERE company_id=$1 AND journal_entry_id=(SELECT gl_journal_entry_id FROM customer_invoices WHERE company_id=$1 AND id=$2)',[fixture.companyA,invoice]);
+ await expect(actor(()=>loadCashApplicationSources(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}))).rejects.toThrow(/journal|direction|source|receivable/i);
+});
+
+it('refuses legacy direct receipt source after balanced cash journal direction tampering',async()=>{
+ const {invoice}=await postedCash(),paymentId=randomUUID();
+ await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,currency_code,created_by) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'ZAR',$4)",[paymentId,fixture.companyA,customer,fixture.u1.id]);
+ const ref={entityType:'customer_payment',entityId:paymentId,operation:'customer_payment.confirm' as const};
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),ref));
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ const payment=await actor(()=>confirmCustomerPayment(fixture.companyA,paymentId,fixture.u1.id,{approvalId:approval.id}));
+ await pool.query('UPDATE gl_journal_lines SET debit=credit,credit=debit WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,payment.glJournalEntryId]);
+ await expect(actor(()=>loadCashApplicationSources(requireControlTx(),{version:1,kind:'customer',paymentId,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}))).rejects.toThrow(/journal|direction|source|receivable/i);
 });

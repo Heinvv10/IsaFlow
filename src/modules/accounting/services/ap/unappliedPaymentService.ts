@@ -1,46 +1,4 @@
-/**
- * Supplier payments that are in the ledger but attached to no bill.
- *
- * WHAT PRODUCES THEM. `bankAllocationService#allocateTransaction` with
- * `allocType='supplier'` posts DR Accounts Payable / CR Bank and inserts a
- * `supplier_payments` row, and — when the supplier's `auto_allocate_strategy`
- * is 'off', which is the default — writes no `payment_allocations` and never
- * touches `supplier_invoices.amount_paid`. The cash has left the bank, the AP
- * control account has been debited, and no bill knows about it. The AP mirror
- * of the AR defect that put R2.45m on Brightsphere's control account.
- *
- * Before migration 614 that row did not exist at ALL: the allocation created no
- * document and flagged an arbitrary bill `payment_matched` instead, so this
- * report would have found nothing while the cash was just as unapplied. A
- * supplier set to 'oldest' or 'newest' has its payments applied at allocation
- * time and never reaches this report.
- *
- * An unapplied payment is therefore a POSTED `supplier_payments` row whose
- * `total_amount` exceeds the sum of its allocations. Partial application
- * counts: a R100,000 payment with R40,000 allocated is R60,000 of unapplied
- * cash, and reporting only the wholly unallocated ones would miss it.
- *
- * WHY THE STATUS FILTER IS `IN ('processed','reconciled')` AND NOT THE AR
- * SIDE'S `<> 'cancelled'`. A `customer_payments` row is created already
- * confirmed — the receipt exists because the money arrived. A supplier payment
- * has a lifecycle in front of it: `draft` and `approved` rows have no journal,
- * no cash has left the bank and nothing has touched the AP control account.
- * Only `processed` and `reconciled` represent cash actually posted. Listing a
- * draft here would invent a reconciling item — an amount claimed to sit on a
- * control account it never reached.
- *
- * THE LIVE ALLOCATION TABLE IS `payment_allocations`. Migration 201's
- * `supplier_payment_allocations` holds zero rows and is read by nothing; see
- * the note on `lockSupplierPaymentForUpdate` in `core/paymentLock.ts`. It has
- * no `company_id` column of its own, so it is scoped through its payment.
- *
- * WHAT THIS DOES NOT SEE, and the limit is real rather than defensive: cash
- * debited to the AP control account by a plain journal, with no
- * `supplier_payments` row behind it — a hand-written journal, or any of the
- * cash posted this way before migration 614. Those postings move the control
- * account and are invisible here. Finding them is a control-account-versus-subledger
- * reconciliation (`reconcile_subledger`), not a payment listing.
- */
+/** Posted supplier cash remaining unapplied at an accounting-date cutoff. */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -173,7 +131,11 @@ export async function getUnappliedPayments(
     LEFT JOIN LATERAL (
       SELECT SUM(pa.amount_allocated) AS allocated
       FROM payment_allocations pa
+      LEFT JOIN control_cash_application_intents app ON app.company_id = sp.company_id AND app.id = pa.application_intent_id
+      LEFT JOIN control_cash_application_reversal_intents inverse ON inverse.company_id = sp.company_id AND inverse.id = pa.reversal_intent_id
       WHERE pa.payment_id = sp.id
+        AND COALESCE(app.accounting_date, sp.payment_date) <= ${opts.asAt}::DATE
+        AND (inverse.reversal_date IS NULL OR inverse.reversal_date > ${opts.asAt}::DATE)
     ) alloc ON TRUE
     WHERE sp.company_id = ${companyId}::UUID
       AND sp.status IN ('processed', 'reconciled')
@@ -210,7 +172,11 @@ export async function getUnappliedPayments(
     LEFT JOIN LATERAL (
       SELECT SUM(pa.amount_allocated) AS allocated
       FROM payment_allocations pa
+      LEFT JOIN control_cash_application_intents app ON app.company_id = sp.company_id AND app.id = pa.application_intent_id
+      LEFT JOIN control_cash_application_reversal_intents inverse ON inverse.company_id = sp.company_id AND inverse.id = pa.reversal_intent_id
       WHERE pa.payment_id = sp.id
+        AND COALESCE(app.accounting_date, sp.payment_date) <= ${opts.asAt}::DATE
+        AND (inverse.reversal_date IS NULL OR inverse.reversal_date > ${opts.asAt}::DATE)
     ) alloc ON TRUE
     WHERE sp.company_id = ${companyId}::UUID
       AND sp.status IN ('processed', 'reconciled')
@@ -241,7 +207,11 @@ export async function getUnappliedPayments(
     LEFT JOIN LATERAL (
       SELECT SUM(pa.amount_allocated) AS allocated
       FROM payment_allocations pa
+      LEFT JOIN control_cash_application_intents app ON app.company_id = sp.company_id AND app.id = pa.application_intent_id
+      LEFT JOIN control_cash_application_reversal_intents inverse ON inverse.company_id = sp.company_id AND inverse.id = pa.reversal_intent_id
       WHERE pa.payment_id = sp.id
+        AND COALESCE(app.accounting_date, sp.payment_date) <= ${opts.asAt}::DATE
+        AND (inverse.reversal_date IS NULL OR inverse.reversal_date > ${opts.asAt}::DATE)
     ) alloc ON TRUE
     WHERE sp.company_id = ${companyId}::UUID
       AND sp.status IN ('processed', 'reconciled')
