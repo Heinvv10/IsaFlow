@@ -112,3 +112,48 @@ FULL COMPONENT SUITE:  62 files / 421 tests passed
 bunx tsc --noEmit   exit 0
 bunx eslint <the four changed src/pages files>   exit 0
 bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.
+
+────────────────────────────────────────────────────────────────────────
+ROUND 5 — review-k048-r4.md (0 HIGH, 2 MEDIUM, 2 LOW), 2026-09-09
+────────────────────────────────────────────────────────────────────────
+
+CORRECTION to the M20 note above. It is accurate as written — "the closed path
+never wrote in the first place" is a statement about the WRITE — but read
+quickly it invites the wrong conclusion, so state the measurement outright:
+  the closed-period REFUSAL FIRES. Round 4 drove it through the real route and
+  measured 400, the remedy in the message, gl_journal_entries 0 and the
+  fiscal_periods count unmoved at 1/1. It is the WRITE BEFORE that refusal that
+  is unreachable, which is what LOW 2 actually alleged and why the reorder is
+  byte-identical on every input and the deleted test proved nothing.
+
+GREEN, real Postgres fixture (six files; the sixth is new this round):
+  Test Files  6 passed (6)
+       Tests  23 passed (23)      [was 22; +1 entry-number conflict]
+
+MUTATION CHECK, round-5 change:
+  M21 409 branch for 23505/uq_gl_je_company_entry_number disabled
+      -> int 1 failed  RED  ("expected 500 to be 409")
+
+  The conflict test does NOT race. A second connection holds the contended
+  entry_number in an uncommitted transaction; the route's INSERT blocks on the
+  unique index; the blocker commits only once
+  `SELECT ... WHERE <blocker pid> = ANY(pg_blocking_pids(pid))` returns a row,
+  i.e. only once the route is provably waiting on it. No sleep, no timing
+  assumption, and the blocker is released in a `finally`.
+
+  Measured, and it corrects the reviewer's stated reason for the same safe
+  outcome: the outer request transaction is NOT left aborted. The run log shows
+  "withTransaction rolled back (request savepoint)" — the action's own
+  withTransaction is a SAVEPOINT inside the request, so the 23505 takes a
+  ROLLBACK TO SAVEPOINT and the COMMIT withAuth performs for a 4xx has nothing
+  of this action left to commit. Asserted by outcome: 0 auto_recurring entries,
+  0 lines, run_count 0, next_run_date and last_run_date unmoved.
+
+FULL UNIT SUITE (no fixture env; DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL /
+ISAFLOW_DISPOSABLE_AUTH_TEST unset):
+  Test Files  793 passed | 36 skipped (829)
+       Tests  9457 passed | 234 skipped (9691)      0 failed
+FULL COMPONENT SUITE:  62 files / 421 tests passed
+bunx tsc --noEmit   exit 0
+bunx eslint <the five changed src/pages files>   exit 0
+bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.

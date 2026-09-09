@@ -43,7 +43,7 @@ beforeAll(async () => {
   );
   await pool.query(
     `INSERT INTO recurring_journals(id,company_id,template_name,description,frequency,next_run_date,lines,total_amount,created_by,status)
-     VALUES($1,$2,'K049 monthly accrual','K049 monthly accrual','monthly',CURRENT_DATE,$3::jsonb,1000,$4,'active')`,
+     VALUES($1,$2,'K049 monthly accrual','K049 monthly accrual','monthly',(NOW() AT TIME ZONE 'Africa/Johannesburg')::DATE,$3::jsonb,1000,$4,'active')`,
     [template, company,
       JSON.stringify([
         { glAccountId: debitAccount, debit: 1000, credit: 0, description: 'K049 accrual DR' },
