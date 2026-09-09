@@ -226,6 +226,7 @@ export default function TrialBalancePage() {
                 <tbody>
                   {rows.map(r => (
                     <TrialBalanceRow
+                      costCentreId={costCentreId}
                       key={r.accountCode}
                       row={r}
                       isExpanded={expandedAccount === r.accountCode}
@@ -272,6 +273,7 @@ export default function TrialBalancePage() {
       </div>
       {evidenceTarget && (
         <EvidenceDrillModal
+          costCentreId={costCentreId}
           accountId={evidenceTarget.accountId}
           accountName={evidenceTarget.accountName}
           periodStart={drillDownStart}
