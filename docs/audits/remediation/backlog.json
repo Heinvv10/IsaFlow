@@ -3785,7 +3785,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k110-cost-centre-delete-unassigns.int.test.ts"
@@ -3794,7 +3794,7 @@
         "K-110/red.log",
         "K-110/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "a9e8c3e7",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3802,7 +3802,8 @@
       "sourceReferences": [
         "inputs/gl-core.md:159"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k110-k111-cost-centre-rowcount"
     },
     {
       "id": "K-111",
@@ -3817,7 +3818,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts"
@@ -3826,7 +3827,7 @@
         "K-111/red.log",
         "K-111/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "a9e8c3e7",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3834,7 +3835,8 @@
       "sourceReferences": [
         "inputs/gl-core.md:166"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k110-k111-cost-centre-rowcount"
     },
     {
       "id": "K-112",
