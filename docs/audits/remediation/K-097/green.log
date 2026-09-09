@@ -1,0 +1,24 @@
+K-097 GREEN — fix/audit-k095-k096-k097-billing-admin (merged with origin/master @46da1253)
+
+Integration (real fixture DB, bun run test:integration):
+  tests/integration/k097-audit-log-failure-poisons-admin-tx.int.test.ts  1 passed
+  tests/integration/k097-audit-savepoint-adjacent.int.test.ts            3 passed
+
+Unit:
+  tests/unit/services/adminCriticalActions.test.ts   2 passed  (adjacent: dead entries)
+  tests/unit/services/admin/auditService.test.ts     6 passed  (pre-existing, updated)
+
+Mutation proof — `git show origin/master:src/modules/admin/services/auditService.ts`
+restored:
+  integration  Test Files 2 failed (2) / Tests 3 failed | 1 passed (4)
+  unit adminCriticalActions  Test Files 1 failed (1) / Tests 2 failed (2)
+Production file restored; all green again.
+
+Full unit suite, DATABASE_URL unset (bunx vitest run):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9547 passed | 243 skipped (9790)
+(Before the neon mock in tests/unit/services/admin/auditService.test.ts was given a
+withSavepoint stub, that file was 2 failed — the only suite the change broke.)
+
+bunx tsc --noEmit                                              exit 0, no output
+bunx eslint src/modules/admin/services/auditService.ts         exit 0, no output

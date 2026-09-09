@@ -21,7 +21,7 @@ const DATABASE_URL = process.env.DATABASE_URL;
 
 const COMPANY = randomUUID();
 const OTHER_COMPANY = randomUUID();
-const PLAN = randomUUID();
+let PLAN = randomUUID();
 const BUNDLE = randomUUID();
 const BUNDLE_FLOWS = 250;
 const BUNDLE_PRICE_CENTS = 19900;
@@ -45,11 +45,17 @@ describeIfDb('K-095 unpaid fallback gate', () => {
       `INSERT INTO companies (id, name, is_active) VALUES ($1, 'K095 Gate Fixture', true), ($2, 'K095 Other Tenant', true)`,
       [COMPANY, OTHER_COMPANY],
     );
+    // plans.code is globally unique and the route requires the company to be
+    // on 'payg', so a sibling suite may already have created the row. Take
+    // whichever id ends up in the table.
     await admin.query(
       `INSERT INTO plans (id, code, name, monthly_price_cents, annual_price_cents, is_active)
-       VALUES ($1, 'payg', 'Pay As You Go', 0, 0, true)`,
+       VALUES ($1, 'payg', 'Pay As You Go', 0, 0, true)
+       ON CONFLICT (code) DO NOTHING`,
       [PLAN],
     );
+    const planRow = await admin.query(`SELECT id FROM plans WHERE code = 'payg'`);
+    PLAN = planRow.rows[0].id;
     await admin.query(
       `INSERT INTO subscriptions (company_id, plan_id, status) VALUES ($1, $2, 'active'), ($3, $2, 'active')`,
       [COMPANY, PLAN, OTHER_COMPANY],
@@ -85,7 +91,12 @@ describeIfDb('K-095 unpaid fallback gate', () => {
       await c.query('DELETE FROM flow_bundles WHERE id = $1', [BUNDLE]);
       await c.query('DELETE FROM subscriptions WHERE company_id = ANY($1)', [[COMPANY, OTHER_COMPANY]]);
       await c.query('DELETE FROM companies WHERE id = ANY($1)', [[COMPANY, OTHER_COMPANY]]);
-      await c.query('DELETE FROM plans WHERE id = $1', [PLAN]);
+      // Only if no sibling suite still holds a subscription on it.
+      await c.query(
+        `DELETE FROM plans WHERE id = $1
+           AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE plan_id = $1)`,
+        [PLAN],
+      );
       await c.query('COMMIT');
     } finally {
       c.release();

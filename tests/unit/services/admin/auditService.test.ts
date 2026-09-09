@@ -15,7 +15,13 @@ const { sqlMock, ctx } = vi.hoisted(() => {
   return { sqlMock, ctx };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  // The INSERT now runs inside its own savepoint so its failure cannot abort
+  // the request transaction. Outside a request tx withSavepoint just runs fn,
+  // which is what the real implementation does too.
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
+}));
 vi.mock('@/lib/als', () => ({ als: { getStore: () => ctx } }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -56,8 +62,11 @@ describe('logAdminAction — CRITICAL action, audit write fails', () => {
     expect(ctx.criticalAuditFailed).toBe(true);
   });
 
-  it('treats user.impersonate / company.delete / impersonation_start as critical', async () => {
-    for (const action of ['user.impersonate', 'company.delete', 'impersonation_start']) {
+  it('treats company.impersonate / company.delete / impersonation_start as critical', async () => {
+    // 'user.impersonate' used to be listed here; no call site ever emitted it,
+    // so it protected nothing. The impersonation route emits
+    // 'impersonation_start'. See tests/unit/services/adminCriticalActions.test.ts.
+    for (const action of ['company.impersonate', 'company.delete', 'impersonation_start']) {
       reset(); fail();
       await expect(
         logAdminAction(ADMIN, action, 'x', 'id', null, IP)

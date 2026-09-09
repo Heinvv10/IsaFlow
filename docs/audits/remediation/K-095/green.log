@@ -1,0 +1,22 @@
+K-095 GREEN — fix/audit-k095-k096-k097-billing-admin (merged with origin/master @46da1253)
+
+Integration (real fixture DB, bun run test:integration):
+  tests/integration/k095-flow-purchase-fails-open-without-paystack.int.test.ts  1 passed
+  tests/integration/k095-flow-purchase-fallback-gate.int.test.ts                3 passed
+
+Mutation proof — `git show origin/master:pages/api/billing/flows/purchase.ts` restored,
+both suites re-run:
+  Test Files  2 failed (2) / Tests  4 failed (4)
+Production file restored; both suites green again (4 passed).
+
+Full unit suite, DATABASE_URL unset (bunx vitest run):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9547 passed | 243 skipped (9790)
+
+bunx tsc --noEmit                              exit 0, no output
+bunx eslint pages/api/billing/flows/purchase.ts exit 0, no output
+
+Note: the two K-095 suites both need plans.code = 'payg', which is globally unique.
+Their fixtures were changed to ON CONFLICT (code) DO NOTHING + resolve the id, and to
+drop the plan row only when no sibling suite still holds a subscription on it. Without
+that the pair collides on plans_code_key when vitest runs the files in parallel.
