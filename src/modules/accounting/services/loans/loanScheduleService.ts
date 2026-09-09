@@ -8,6 +8,7 @@ import type { LoanInputs, LoanEvent, RatePoint, ScheduleRow } from '@/lib/amorti
 
 type Row = DbRow;
 
+// Part of the cached-run key: bump on ANY behavioural change to the amortisation engine.
 const ENGINE_VERSION = '1.0.0';
 
 export interface ScheduleResult {
@@ -86,14 +87,13 @@ function dbPointToEngine(r: Row): RatePoint {
   };
 }
 
-function buildInputsHash(loan: Row, events: Row[], points: Row[]): string {
-  // Hash every value the engine actually consumes, so editing principal, rate,
-  // term or residual invalidates the cached run instead of returning it.
+// Cache key over every engine input, sorted as the compute path sorts. Exported for tests.
+export function buildInputsHash(loan: Row, events: Row[], points: Row[]): string {
   const payload = JSON.stringify({
     engine: ENGINE_VERSION,
     loan: loanRowToInputs(loan),
-    events: events.map(dbEventToEngine),
-    points: points.map(dbPointToEngine),
+    events: events.map(dbEventToEngine).sort((a, b) => a.date.localeCompare(b.date)),
+    points: points.map(dbPointToEngine).sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate)),
   });
   return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16);
 }
@@ -110,14 +110,14 @@ async function fetchEvents(companyId: string, loanId: string): Promise<Row[]> {
   return (await sql`
     SELECT * FROM loan_events
     WHERE loan_id = ${loanId} AND company_id = ${companyId}
-    ORDER BY event_date ASC
+    ORDER BY event_date ASC, id ASC
   `) as Row[];
 }
 
 async function fetchRatePoints(curveId: string | null | undefined): Promise<Row[]> {
   if (!curveId || curveId === 'null') return [];
   return (await sql`
-    SELECT * FROM loan_rate_points WHERE curve_id = ${curveId} ORDER BY effective_date ASC
+    SELECT * FROM loan_rate_points WHERE curve_id = ${curveId} ORDER BY effective_date ASC, id ASC
   `) as Row[];
 }
 
@@ -170,11 +170,18 @@ export async function getOrComputeSchedule(
     const cachedRows = (await sql`
       SELECT * FROM loan_schedule_rows WHERE run_id = ${String(run.id)} ORDER BY period ASC
     `) as Row[];
+    // Consumers take the LATEST run by computed_at; touch the hit so a revert
+    // cannot leave a superseded run newest.
+    const touched = (await sql`
+      UPDATE loan_schedule_runs SET computed_at = now()
+      WHERE id = ${String(run.id)} AND company_id = ${companyId}
+      RETURNING computed_at
+    `) as Row[];
     return {
       rows: cachedRows.map(mapDbRowToSchedule),
       runId: String(run.id),
       cached: true,
-      computedAt: String(run.computed_at),
+      computedAt: String(touched[0]?.computed_at ?? run.computed_at),
     };
   }
 

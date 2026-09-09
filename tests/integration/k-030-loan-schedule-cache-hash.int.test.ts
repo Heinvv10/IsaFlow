@@ -20,6 +20,7 @@ const loanId = crypto.randomUUID();
 const touchLoanId = crypto.randomUUID();
 const residualLoanId = crypto.randomUUID();
 const revertLoanId = crypto.randomUUID();
+const tieLoanId = crypto.randomUUID();
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K-030 loan fixture']);
@@ -29,6 +30,7 @@ beforeAll(async () => {
     [touchLoanId, 'K030-TOUCH'],
     [residualLoanId, 'K030-RESIDUAL'],
     [revertLoanId, 'K030-REVERT'],
+    [tieLoanId, 'K030-TIE'],
   ] as const) {
     await pool.query(
       `INSERT INTO loans(id,company_id,reference,principal,start_date,term_months,
@@ -41,6 +43,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
+    await pool.query('DELETE FROM loan_events WHERE company_id=$1', [company]);
     await pool.query(
       `DELETE FROM loan_schedule_rows WHERE run_id IN
          (SELECT id FROM loan_schedule_runs WHERE company_id=$1)`,
@@ -82,6 +85,9 @@ it('still serves the cache when only updated_at is touched', async () => {
   const second = await getOrComputeSchedule(company, touchLoanId);
   expect(second.cached).toBe(true);
   expect(second.runId).toBe(first.runId);
+  expect(new Date(second.computedAt).getTime()).toBeGreaterThanOrEqual(
+    new Date(first.computedAt).getTime(),
+  );
 });
 
 it('recomputes when only the residual changes', async () => {
@@ -96,7 +102,16 @@ it('recomputes when only the residual changes', async () => {
   expect(after.rows[after.rows.length - 1]!.closing).not.toBeCloseTo(closingBefore, 2);
 });
 
-it('reuses the original run when the edit is reverted', async () => {
+/** The query GL posting, compliance and period close all use to pick a run. */
+async function latestRunId(loan: string): Promise<string> {
+  const { rows } = await pool.query(
+    'SELECT id FROM loan_schedule_runs WHERE loan_id=$1 ORDER BY computed_at DESC LIMIT 1',
+    [loan],
+  );
+  return String(rows[0]!.id);
+}
+
+it('leaves the reverted run newest, so GL posting reads the current terms', async () => {
   const original = await getOrComputeSchedule(company, revertLoanId);
   expect(original.cached).toBe(false);
 
@@ -104,13 +119,41 @@ it('reuses the original run when the edit is reverted', async () => {
   const edited = await getOrComputeSchedule(company, revertLoanId);
   expect(edited.cached).toBe(false);
   expect(edited.runId).not.toBe(original.runId);
+  expect(await latestRunId(revertLoanId)).toBe(edited.runId);
 
   await pool.query('UPDATE loans SET principal=100000 WHERE id=$1', [revertLoanId]);
   const reverted = await getOrComputeSchedule(company, revertLoanId);
   expect(reverted.cached).toBe(true);
   expect(reverted.runId).toBe(original.runId);
+  expect(reverted.rows[0]!.opening).toBeCloseTo(100000, 2);
+  // What the ledger would post must be the schedule the screen shows.
+  expect(await latestRunId(revertLoanId)).toBe(reverted.runId);
 });
 
 it('does not serve one company the schedule of another company loan', async () => {
   await expect(getOrComputeSchedule(otherCompany, loanId)).rejects.toThrow(/not found/);
+});
+
+it('stays cached when two events share a date, whatever order the rows come back in', async () => {
+  await pool.query(
+    `INSERT INTO loan_events(loan_id,company_id,event_date,kind,amount)
+     VALUES($1,$2,'2026-06-30','LUMP',5000),($1,$2,'2026-06-30','LUMP',9000)`,
+    [tieLoanId, company],
+  );
+
+  const first = await getOrComputeSchedule(company, tieLoanId);
+  expect(first.cached).toBe(false);
+
+  // Repeat reads must not churn a new run per read (M1: hash keyed on tie order).
+  for (let i = 0; i < 3; i += 1) {
+    const again = await getOrComputeSchedule(company, tieLoanId);
+    expect(again.cached).toBe(true);
+    expect(again.runId).toBe(first.runId);
+  }
+
+  const { rows } = await pool.query(
+    'SELECT count(*)::int AS n FROM loan_schedule_runs WHERE loan_id=$1',
+    [tieLoanId],
+  );
+  expect(rows[0]!.n).toBe(1);
 });

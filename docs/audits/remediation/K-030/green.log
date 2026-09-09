@@ -1,24 +1,52 @@
-$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-030-loan-schedule-cache-hash.int.test.ts"
-
- RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-030
-
-{"level":"info","message":"Computed and cached schedule","timestamp":"2026-09-09T03:42:57.965Z","component":"loans","data":{"loanId":"e9809085-19a1-450f-907d-92d00390f1a9","runId":"084995dc-ed24-407e-8a2f-626dea7efdba","periods":60}}
-{"level":"info","message":"Computed and cached schedule","timestamp":"2026-09-09T03:42:58.726Z","component":"loans","data":{"loanId":"e9809085-19a1-450f-907d-92d00390f1a9","runId":"fe18df41-5b6b-4a93-b000-8e4cb4d3e6ad","periods":84}}
-{"level":"info","message":"Computed and cached schedule","timestamp":"2026-09-09T03:42:59.215Z","component":"loans","data":{"loanId":"7b394652-5103-40b0-a493-013bcb638a6a","runId":"a1baa562-b8c9-4cde-bc35-361a02490ff7","periods":60}}
-{"level":"info","message":"Computed and cached schedule","timestamp":"2026-09-09T03:42:59.749Z","component":"loans","data":{"loanId":"7022b00c-3403-4a49-bcd1-ed90a142cb37","runId":"b4502d78-e9b5-41a2-8c95-76e9cf0910d4","periods":60}}
-{"level":"info","message":"Computed and cached schedule","timestamp":"2026-09-09T03:43:00.157Z","component":"loans","data":{"loanId":"7022b00c-3403-4a49-bcd1-ed90a142cb37","runId":"abb33bbf-c3c9-4ec0-9e7c-07dce29602f0","periods":60}}
-{"level":"info","message":"Computed and cached schedule","timestamp":"2026-09-09T03:43:00.578Z","component":"loans","data":{"loanId":"55771c6c-5503-4993-b401-6a801f490e05","runId":"6d97b89c-94bf-4b35-9544-d7d51a1ccaf8","periods":60}}
-{"level":"info","message":"Computed and cached schedule","timestamp":"2026-09-09T03:43:01.082Z","component":"loans","data":{"loanId":"55771c6c-5503-4993-b401-6a801f490e05","runId":"2a9cd04a-1826-4061-88f0-4c4f311238db","periods":60}}
-
+=== GREEN (both rounds of the fix in place) ===
  Test Files  1 passed (1)
-      Tests  5 passed (5)
-   Start at  05:42:56
-   Duration  4.52s (transform 106ms, setup 0ms, import 178ms, tests 4.16s, environment 0ms)
+      Tests  6 passed (6)
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
 
-
-=== Mutation check (buildInputsHash reverted to origin/master, tests unchanged) ===
+=== Mutation A: production file reset to origin/master (export kept so tests compile) ===
+   × recomputes the schedule after the principal and rate are edited 308ms
+   × recomputes when only the residual changes 190ms
+   × leaves the reverted run newest, so GL posting reads the current terms 254ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
  Test Files  1 failed (1)
-      Tests  3 failed | 2 passed (5)
-Failing without the fix: principal/rate/term edit, residual-only edit, revert-reuses-run.
-Passing either way (control): updated_at-only touch stays cached, cross-tenant read throws.
-Production file restored afterwards.
+      Tests  3 failed | 3 passed (6)
+     × changes when the principal is edited 4ms
+     × changes when fixed_rate is edited 1ms
+     × changes when term_months is edited 0ms
+     × changes when residual is edited 0ms
+     × changes when start_date is edited 0ms
+     × changes when day_count is edited 0ms
+     × keeps same-date rows in the order the totally ordered fetch returned them 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  7 failed | 3 passed (10)
+
+=== Mutation B: only the H1 cache-hit computed_at touch removed ===
+   × leaves the reverted run newest, so GL posting reads the current terms 458ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+
+=== Mutation C: only the M1 hash sort removed ===
+     × keeps same-date rows in the order the totally ordered fetch returned them 11ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+
+Production file restored after every mutation.
+
+=== Existing unit suite ===
+tests/unit/services/loans/loanScheduleService.test.ts  8 passed (8)
+  ('returns cached schedule when hash matches' now mocks the computed_at touch
+   and asserts it; without the touch mock the queue underflows.)
+
+Full tests/unit/services/ run: 3 files fail, and WHICH files fail changes between
+identical runs (cashFlowReport, bankAllocationUnwind, bankAllocationService seen
+across three runs; all pass in isolation, and the same instability reproduces with
+this change's test file removed). Pre-existing cross-file mock pollution, not
+introduced here.
+
+bun run lint: 0 errors, 11 warnings, exit 0.
+bunx tsc --noEmit: clean.
+bun run agent-docs:check: OK, 74 mirrors match.
