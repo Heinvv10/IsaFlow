@@ -15,6 +15,7 @@
  *     after the foreign-key refusal, which is what the loop depends on.
  *  7. Re-importing the same source after a partial rollback says WHY it will
  *     not post, naming the released account rather than an import that failed.
+ *  8. Both classes of opening-balance refusal are reported in one message.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -26,8 +27,8 @@ import type { ParsedAccount } from '../../src/modules/accounting/services/core/m
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const owner = crypto.randomUUID(), neighbour = crypto.randomUUID(), user = crypto.randomUUID();
-const blocked = crypto.randomUUID(), txCo = crypto.randomUUID();
-const companies = [owner, neighbour, blocked, txCo];
+const blocked = crypto.randomUUID(), txCo = crypto.randomUUID(), reimport = crypto.randomUUID();
+const companies = [owner, neighbour, blocked, txCo, reimport];
 const period = crypto.randomUUID();
 
 const parsed = (code: string, name: string): ParsedAccount => ({
@@ -36,8 +37,9 @@ const parsed = (code: string, name: string): ParsedAccount => ({
 });
 
 beforeAll(async () => {
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4),($5,$6),($7,$8)',
-    [owner, 'K009 owner fixture', neighbour, 'K009 neighbour fixture', blocked, 'K009 blocked fixture', txCo, 'K009 tx fixture']);
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4),($5,$6),($7,$8),($9,$10)',
+    [owner, 'K009 owner fixture', neighbour, 'K009 neighbour fixture', blocked, 'K009 blocked fixture',
+     txCo, 'K009 tx fixture', reimport, 'K009 reimport fixture']);
   await pool.query(`INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,level,is_active)
     VALUES($1,'7000','House cash','asset','debit',3,true)`, [blocked]);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
@@ -166,29 +168,36 @@ it('keeps the request transaction usable after the foreign-key refusal', async (
 });
 
 it('names the released account when the same source is re-imported after a partial rollback', async () => {
-  // txCo has been partially rolled back above: 8000 survived and was untagged.
-  // The natural recovery workflow is to fix the source file and re-import, and
-  // it must say what is actually in the way — the operator still has 8000.
-  const result = await executeMigration(txCo, user, 'xero', [
-    { sourceCode: '8000', sourceName: 'Banked', sourceType: 'Asset', openingBalance: 100,
+  // Self-contained: this test performs its own partial rollback rather than
+  // reading what an earlier test left behind, so reordering or running it with
+  // .only cannot turn it into a confusing failure.
+  await executeMigration(reimport, user, 'xero', [parsed('9000', 'Banked'), parsed('9100', 'Untouched')], [], []);
+  await pool.query(`INSERT INTO bank_accounts(company_id,account_name,gl_account_id)
+    SELECT $1,'Cheque',id FROM gl_accounts WHERE company_id=$1 AND account_code='9000'`, [reimport]);
+  await expect(rollbackMigration(reimport, 'xero')).resolves.toEqual({ deleted: 1, retained: 1, retainedCodes: ['9000'] });
+
+  // The recovery workflow: fix the source file, re-import. It must say what is
+  // actually in the way — the operator still holds 9000, now untagged.
+  const result = await executeMigration(reimport, user, 'xero', [
+    { sourceCode: '9000', sourceName: 'Banked', sourceType: 'Asset', openingBalance: 100,
       mappedType: 'asset', mappedNormalBalance: 'debit', mappedSubtype: 'current_asset' },
-    { sourceCode: '8100', sourceName: 'Sales', sourceType: 'Revenue', openingBalance: 100,
+    { sourceCode: '9100', sourceName: 'Sales', sourceType: 'Revenue', openingBalance: 100,
       mappedType: 'revenue', mappedNormalBalance: 'credit', mappedSubtype: 'operating_revenue' },
   ], [], []);
 
   expect(result.errors).toEqual([
     expect.stringContaining('code already used by an account the xero import does not own — it was created here, or a partial rollback released it'),
-    'Opening balances: 8000 Banked already exists as an account the xero import does not own — opening balances not imported (renumber the source row, or delete the existing account, then re-run)',
+    'Opening balances: opening balances not imported: 9000 Banked already exists as an account the xero import does not own (renumber the source row, or delete the existing account, then re-run)',
   ]);
   expect(result.accountsImported).toBe(1);
   expect(result.openingBalancesSet).toBe(0);
 
-  // 8100 is re-created and tagged; 8000 is still the company's own, untouched.
-  const after = await pool.query('SELECT account_code,account_name,imported_from FROM gl_accounts WHERE company_id=$1 ORDER BY account_code', [txCo]);
+  // 9100 is re-created and tagged; 9000 is still the company's own, untouched.
+  const after = await pool.query('SELECT account_code,account_name,imported_from FROM gl_accounts WHERE company_id=$1 ORDER BY account_code', [reimport]);
   expect(after.rows).toEqual([
-    { account_code: '8000', account_name: 'Banked', imported_from: null },
-    { account_code: '8100', account_name: 'Sales', imported_from: 'xero' },
+    { account_code: '9000', account_name: 'Banked', imported_from: null },
+    { account_code: '9100', account_name: 'Sales', imported_from: 'xero' },
   ]);
-  const lines = await pool.query('SELECT count(*)::int AS n FROM gl_journal_lines WHERE company_id=$1', [txCo]);
+  const lines = await pool.query('SELECT count(*)::int AS n FROM gl_journal_lines WHERE company_id=$1', [reimport]);
   expect(lines.rows[0].n).toBe(0);
 });

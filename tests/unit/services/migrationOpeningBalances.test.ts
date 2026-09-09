@@ -150,6 +150,20 @@ describe('executeMigration — opening balances', () => {
     expect(result.errors.join(' ')).toContain('3000 Share capital already exists as an account the xero import does not own');
   });
 
+  it('reports a missing account and a not-owned one in the SAME refusal', async () => {
+    withResolvableAccounts(['1000'], ['3000']);
+
+    const result = await executeMigration(COMPANY, USER, 'xero', BALANCED, [], []);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(result.openingBalancesSet).toBe(0);
+    // One message, both causes. Naming only the first sends the operator round
+    // the loop again to meet the second for the first time.
+    const message = result.errors.join(' ');
+    expect(message).toContain('no GL account was created for 1000 Bank');
+    expect(message).toContain('3000 Share capital already exists as an account the xero import does not own');
+  });
+
   it('does NOT post when the source trial balance does not sum to zero', async () => {
     withResolvableAccounts();
 
