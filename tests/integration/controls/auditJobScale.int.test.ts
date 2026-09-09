@@ -39,11 +39,14 @@ it('cold snapshot and export preserve the independent complete balanced journal 
  const snapshotJob=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
  for(let n=0;n<2;n++)expect(await actor(()=>getAuditJob(requireControlTx(),snapshotJob.id))).toMatchObject({state:'queued',attempts:0});
  const captured=await runner.runIsolatedAuditJob(identity(snapshotJob.id));
+ if(process.env.ISAFLOW_AUDIT_SCALE_REPORT?.startsWith('/'))await writeFile(process.env.ISAFLOW_AUDIT_SCALE_REPORT,JSON.stringify({phase:'snapshot',companyId:fixture.companyA,jobId:snapshotJob.id,records,census,result:captured.result,observation:captured.observation},null,2));
  expect(captured.result,JSON.stringify(captured)).toMatchObject({state:'succeeded',snapshotId:snapshotJob.id});
  const header=await actor(()=>readAuditSnapshotIndexHeader(requireControlTx(),snapshotJob.id));expect(header.counts.records).toBe(records);
  const job=await actor(()=>enqueueAuditExport(requireControlTx(),{snapshotId:snapshotJob.id,idempotencyKey:randomUUID()}));
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'queued',attempts:0});
- const exported=await runner.runIsolatedAuditJob(identity(job.id));expect(exported.result,JSON.stringify(exported)).toMatchObject({state:'succeeded',exportId:job.id});
+ const exported=await runner.runIsolatedAuditJob(identity(job.id));
+ if(process.env.ISAFLOW_AUDIT_SCALE_REPORT?.startsWith('/'))await writeFile(process.env.ISAFLOW_AUDIT_SCALE_REPORT,JSON.stringify({phase:'export',companyId:fixture.companyA,jobId:job.id,snapshotId:snapshotJob.id,records,census,snapshot:captured.observation,result:exported.result,observation:exported.observation},null,2));
+ expect(exported.result,JSON.stringify(exported)).toMatchObject({state:'succeeded',exportId:job.id});
  const metadata:Array<{path:string;byteLength:number;sha256:string}>=[];let cursor:string|undefined,totalBytes=0,expectedFiles:number|undefined;
  do{
   const page=await actor(()=>getAuditExportFiles(requireControlTx(),{jobId:job.id,limit:2,...(cursor?{cursor}:{})}));
@@ -71,7 +74,7 @@ it('cold snapshot and export preserve the independent complete balanced journal 
  expect(manifest.files.map(({path,byteLength,sha256})=>({path,byteLength,sha256}))).toEqual(metadata.filter(file=>file.path!=='manifest.json'));
  expect(manifest.populations).toEqual(snapshot.populations);
  expect((await runner.runIsolatedAuditJob(identity(job.id))).result).toEqual({state:'not_claimed'});
- const evidence={records,census,snapshot:captured.observation,export:exported.observation,totalBytes,fileCount:metadata.length};
+ const evidence={phase:'verified',companyId:fixture.companyA,jobId:job.id,snapshotId:snapshotJob.id,records,census,snapshot:captured.observation,export:exported.observation,totalBytes,fileCount:metadata.length};
  if(process.env.ISAFLOW_AUDIT_SCALE_REPORT?.startsWith('/'))await writeFile(process.env.ISAFLOW_AUDIT_SCALE_REPORT,JSON.stringify(evidence,null,2));
 },180000);
 
