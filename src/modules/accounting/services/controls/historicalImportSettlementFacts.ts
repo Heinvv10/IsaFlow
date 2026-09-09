@@ -1,15 +1,18 @@
 import Decimal from 'decimal.js';
+import {loadHistoricalSettlementPopulation} from './historicalImportSettlementPopulation';
 import type {ControlTx} from './contracts';
 import type {HistoricalImportNormalized} from './historicalImportTypes';
 type Row=Record<string,unknown>;
 const D=Decimal.clone({precision:80});
 /** Paid state needs an actual owned document allocation and its exact control/bank journal. */
 export async function loadHistoricalSettlementFacts(ctx:ControlTx,source:HistoricalImportNormalized,accounts:Row[]){
- const doc=source.document;if(!doc||!doc.settlements.length)return[];
+ const doc=source.document;if(!doc)return[];
+ const population=await loadHistoricalSettlementPopulation(ctx,source);
+ if(!doc.settlements.length)return population?[population]:[];
  const company=ctx.principal.companyId,ar=source.kind==='customer_invoice';
  const control=accounts.find(a=>a.account_subtype===(ar?'receivable':'payable'));
  if(!control)throw new Error('Historical settlement control account unavailable');
- const result:Row[]=[];
+ const result:Row[]=population?[population]:[];
  for(const settlement of doc.settlements){
   const payments=ar?await ctx.sql`SELECT p.id,p.total_amount::text,p.status,p.bank_account_id,a.amount_allocated::text,ci.id AS invoice_id,
     (SELECT count(*)::int FROM customer_payment_allocations x WHERE x.payment_id=p.id) AS allocation_count

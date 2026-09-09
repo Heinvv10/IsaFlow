@@ -109,8 +109,23 @@ it.each([true,false])('binds exact existing invoice and allocated settlement; re
  const prepared=await actor('u1',ctx=>prepareHistoricalImport(ctx,input));expect(prepared.amount).toBe('100');
  const read=()=>actor('u2',ctx=>materializeHistoricalImportOperation(ctx,{entityType:'historical_import',entityId:prepared.importId,operation:'historical_import.post'}));
  expect(canonicalJson((await read()).observedSources[0]!.facts)).toContain(paymentJournal);
- try{await pool.query('UPDATE gl_journal_entries SET reversed_at=NOW() WHERE company_id=$1 AND id=$2',[company,paymentJournal]);await expect(read()).rejects.toThrow('settlement journal');}
+ try{await pool.query('UPDATE gl_journal_entries SET reversed_at=NOW() WHERE company_id=$1 AND id=$2',[company,paymentJournal]);await expect(read()).rejects.toThrow('Historical settlement');}
  finally{await pool.query('UPDATE gl_journal_entries SET reversed_at=NULL WHERE company_id=$1 AND id=$2',[company,paymentJournal]);}
+ const extraJournal=randomUUID(),extraPayment=randomUUID();
+ await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,status,source,created_by) VALUES($1,$2,$3,'2023-02-28','posted','auto_migration',$4)",[extraJournal,company,number+'-EXTRA',user]);
+ await pool.query('INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit) VALUES($1,$2,$3,$5,$6),($1,$2,$4,$6,$5)',[company,extraJournal,control,bank,ar?0:25,ar?25:0]);
+ if(ar){
+  await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_date,total_amount,status,bank_account_id,gl_journal_entry_id,created_by) VALUES($1,$2,$3,'2023-02-28',25,'confirmed',$4,$5,$6)",[extraPayment,company,party,bank,extraJournal,user]);
+  await pool.query('INSERT INTO customer_payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,25)',[extraPayment,invoice]);
+ }else{
+  await pool.query("INSERT INTO supplier_payments(id,company_id,supplier_id,payment_date,total_amount,status,bank_account_id,gl_journal_entry_id,created_by) VALUES($1,$2,$3,'2023-02-28',25,'processed',$4,$5,$6)",[extraPayment,company,party,bank,extraJournal,user]);
+  await pool.query('INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,25)',[extraPayment,invoice]);
+ }
+ try{await expect(read()).rejects.toThrow('population');}
+ finally{await pool.query(ar?'DELETE FROM customer_payments WHERE company_id=$1 AND id=$2':'DELETE FROM supplier_payments WHERE company_id=$1 AND id=$2',[company,extraPayment]);}
+ const originalSettlements=body.document.settlements;body.document.amountPaid='0';body.document.settlements=[];
+ const omitted=await stage();await expect(actor('u1',ctx=>prepareHistoricalImport(ctx,{...input,evidenceId:omitted.sourceId}))).rejects.toThrow('population');
+ body.document.amountPaid='100';body.document.settlements=originalSettlements;
  body.document.invoiceNumber=number+'-UNRELATED';const unrelated=await stage();
  await expect(actor('u1',ctx=>prepareHistoricalImport(ctx,{...input,evidenceId:unrelated.sourceId}))).rejects.toThrow('allocation');
  try{await pool.query('UPDATE gl_journal_lines SET debit=debit*2,credit=credit*2 WHERE company_id=$1 AND journal_entry_id=$2',[company,journal]);await expect(read()).rejects.toThrow('lines differ');}
