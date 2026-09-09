@@ -1,0 +1,44 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k013-recurring-invoice-no-lines-no-gl.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-013
+
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  06:13:37
+   Duration  2.97s (transform 847ms, setup 0ms, import 1.16s, tests 1.22s, environment 0ms)
+
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  06:13:41
+   Duration  694ms (transform 95ms, setup 0ms, import 120ms, tests 45ms, environment 0ms)
+
+
+=== Full unit suite, DATABASE_URL unset (brief addendum) ===
+this branch      : 821 files, 6 failed | 9328 passed | 234 skipped
+origin/master    : 820 files, 10 failed | 9310 passed | 234 skipped
+The failures are the same flaky set on both sides (bankAllocationService,
+bankAllocationDateShift, bankAllocationUnwind, cashFlowReport — all 10s
+timeouts under full-suite load). None reference recurring invoices; both
+failing files pass in isolation on this branch. The branch is not worse than
+its base. No production database was queried at any point.
+
+=== Mutation check (review round) ===
+N1  not-due guard disabled                  -> 2 failed | 9 passed   (H1)
+N2  FOR UPDATE removed from the lock read   -> 1 failed | 10 passed  (H1)
+N3  request-transaction requirement removed -> 1 failed | 10 passed  (H1)
+N4  schedule UPDATE moved back outside the
+    savepoint                               -> 1 failed | 11 passed  (M1)
+N5  stored aggregate used instead of the
+    derived totals, agreement check dropped -> 2 failed | 9 passed   (M3)
+N6  nullish unit-price check dropped
+    (unit suite)                            -> 1 failed | 13 passed  (L1)
+Restored after each; final runs 12 integration + 14 unit passed.
+
+Still not mutation-covered: the `AND company_id` on the schedule UPDATE (L3 —
+`id` is the primary key and the locking SELECT is already company-scoped, so no
+test can distinguish it) and the savepoint-name sequencing (L2 — the runner is
+strictly sequential, so a constant name is observationally identical today; the
+sequenced-savepoint test proves the block rolls back independently, not that
+the name is unique).

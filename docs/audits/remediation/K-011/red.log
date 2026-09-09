@@ -1,0 +1,34 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k011-credit-note-apply-lost-update.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Applied credit note to invoice","timestamp":"2026-09-09T03:41:16.987Z","component":"accounting","data":{"creditNoteId":"89d17308-ac5a-4681-b9c9-ef55fcef617c","invoiceId":"de1735a2-4b9f-4057-971c-c3cb1bef5bfb","applyAmount":100,"userId":"7e6a57cd-2b44-4512-a166-06298c37d754"}}
+{"level":"info","message":"Applied credit note to invoice","timestamp":"2026-09-09T03:41:17.016Z","component":"accounting","data":{"creditNoteId":"44bf3e4f-7440-45e7-b748-b7ce1385d25b","invoiceId":"de1735a2-4b9f-4057-971c-c3cb1bef5bfb","applyAmount":50,"userId":"7e6a57cd-2b44-4512-a166-06298c37d754"}}
+ ❯ tests/integration/k011-credit-note-apply-lost-update.int.test.ts (1 test | 1 failed) 247ms
+   × applies both credit notes without one erasing the other 69ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k011-credit-note-apply-lost-update.int.test.ts > applies both credit notes without one erasing the other
+AssertionError: expected '50.00' to be '150.00' // Object.is equality
+
+Expected: "150.00"
+Received: "50.00"
+
+ ❯ tests/integration/k011-credit-note-apply-lost-update.int.test.ts:89:28
+     87|   const notes = await pool.query("SELECT sum(applied_amount)::text AS …
+     88|   expect(notes.rows[0].applied).toBe('150.00');
+     89|   expect(inv.rows[0].paid).toBe('150.00');
+       |                            ^
+     90| });
+     91|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  05:41:16
+   Duration  864ms (transform 303ms, setup 0ms, import 413ms, tests 247ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
