@@ -14,6 +14,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { verifyTransaction } from '@/modules/billing/services/paystackClient';
+import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
+import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
 
 interface PrRow {
   id: string;
@@ -66,34 +68,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       else if (live.status === 'abandoned') mapped = 'cancelled';
       const isTerminal = mapped !== 'pending';
       if (mapped !== status && isTerminal) {
-        await sql`
-          UPDATE paystack_payment_requests
-          SET status = ${mapped},
-              completed_at = CASE WHEN ${mapped} = 'completed' THEN COALESCE(completed_at, now()) ELSE completed_at END,
-              paystack_transaction_id = ${live.id ?? null},
-              paystack_authorization_code = COALESCE(${live.authorization?.authorizationCode ?? null}, paystack_authorization_code),
-              channel = COALESCE(${live.channel ?? null}, channel)
-          WHERE id = ${pr.id} AND company_id = ${pr.company_id}
-        `;
-        // If the webhook hasn't run yet, also apply the invoice-paid update so
-        // the return page doesn't have to wait for it.
-        if (mapped === 'completed' && pr.customer_invoice_id) {
-          const amountRand = Number(pr.amount_cents) / 100;
+        // One transaction: the status change and the ledger posting stand or
+        // fall together, so a GL failure cannot leave the request completed
+        // (and the invoice paid) with nothing in the books. On a throw the
+        // catch below logs and the webhook remains free to apply it later.
+        await withPublicRouteTransaction('paystack-verify', async () => {
           await sql`
-            UPDATE customer_invoices
-            SET amount_paid = LEAST(total_amount, COALESCE(amount_paid, 0) + ${amountRand}),
-                status = CASE
-                  WHEN COALESCE(amount_paid, 0) + ${amountRand} >= total_amount THEN 'paid'
-                  ELSE status
-                END,
-                updated_at = now()
-            WHERE id = ${pr.customer_invoice_id} AND company_id = ${pr.company_id}
-              AND NOT EXISTS (
-                SELECT 1 FROM paystack_payment_requests p2
-                WHERE p2.id = ${pr.id} AND p2.completed_at < now() - INTERVAL '1 second'
-              )
+            UPDATE paystack_payment_requests
+            SET status = ${mapped},
+                completed_at = CASE WHEN ${mapped} = 'completed' THEN COALESCE(completed_at, now()) ELSE completed_at END,
+                paystack_transaction_id = ${live.id ?? null},
+                paystack_authorization_code = COALESCE(${live.authorization?.authorizationCode ?? null}, paystack_authorization_code),
+                channel = COALESCE(${live.channel ?? null}, channel)
+            WHERE id = ${pr.id} AND company_id = ${pr.company_id}
           `;
-        }
+          // If the webhook hasn't run yet, record the receipt so the return
+          // page doesn't have to wait for it. Idempotent on the reference, so
+          // whichever of the two arrives second records nothing.
+          if (mapped === 'completed' && pr.customer_invoice_id) {
+            await recordGatewayInvoiceReceipt({
+              companyId: pr.company_id,
+              invoiceId: pr.customer_invoice_id,
+              amountRand: Number(pr.amount_cents) / 100,
+              reference: pr.paystack_reference,
+            });
+          }
+        });
         status = mapped;
       }
     } catch (err) {
