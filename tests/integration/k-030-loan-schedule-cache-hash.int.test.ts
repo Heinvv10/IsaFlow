@@ -8,7 +8,10 @@
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import { getOrComputeSchedule } from '../../src/modules/accounting/services/loans/loanScheduleService';
+import {
+  getOrComputeSchedule,
+  previewSchedule,
+} from '../../src/modules/accounting/services/loans/loanScheduleService';
 import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
@@ -23,6 +26,8 @@ const residualLoanId = crypto.randomUUID();
 const revertLoanId = crypto.randomUUID();
 const tieLoanId = crypto.randomUUID();
 const lockLoanId = crypto.randomUUID();
+const previewLoanId = crypto.randomUUID();
+const bulkLoanId = crypto.randomUUID();
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K-030 loan fixture']);
@@ -34,6 +39,8 @@ beforeAll(async () => {
     [revertLoanId, 'K030-REVERT'],
     [tieLoanId, 'K030-TIE'],
     [lockLoanId, 'K030-LOCK'],
+    [previewLoanId, 'K030-PREVIEW'],
+    [bulkLoanId, 'K030-BULK'],
   ] as const) {
     await pool.query(
       `INSERT INTO loans(id,company_id,reference,principal,start_date,term_months,
@@ -214,4 +221,70 @@ it('lets the edit through once the reading transaction has ended', async () => {
   expect(after.cached).toBe(false);
   expect(after.rows[0]!.opening).toBeCloseTo(180000, 2);
   expect(await latestRunId(lockLoanId)).toBe(after.runId);
+});
+
+/** Runs `fn` the way withAuth does: an open transaction bound to the request context. */
+async function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run(
+      { client, userId: 'k030', companyId: company, claims: {} },
+      fn,
+    );
+    await client.query('ROLLBACK');
+    return out;
+  } finally {
+    client.release();
+  }
+}
+
+/** Attempts a loan edit on its own connection, failing fast instead of queueing. */
+async function tryEdit(loan: string, principal: number): Promise<boolean> {
+  const editor = await pool.connect();
+  try {
+    await editor.query('BEGIN');
+    await editor.query('SET LOCAL lock_timeout = 1000');
+    await editor.query('UPDATE loans SET principal=$2 WHERE id=$1', [loan, principal]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await editor.query('ROLLBACK').catch(() => undefined);
+    editor.release();
+  }
+}
+
+it('does not block a loan edit while a dry-run preview is open', async () => {
+  // R3-1: previewSchedule persists nothing, so it has no stake in the touch window
+  // and must not hold the loan. The user previewing "what if" is the one about to edit.
+  const edited = await inRequestTx(async () => {
+    const rows = await previewSchedule(company, previewLoanId);
+    expect(rows.length).toBe(60);
+    return tryEdit(previewLoanId, 123456);
+  });
+  expect(edited).toBe(true);
+});
+
+it('persists every schedule row in the bulk insert, in period order', async () => {
+  // R3-2: the per-period insert loop became one unnest statement. The rows the
+  // cache serves must still be the rows the engine produced.
+  const computed = await getOrComputeSchedule(company, bulkLoanId);
+  expect(computed.cached).toBe(false);
+  expect(computed.rows.length).toBe(60);
+
+  const cached = await getOrComputeSchedule(company, bulkLoanId);
+  expect(cached.cached).toBe(true);
+  expect(cached.rows.length).toBe(computed.rows.length);
+  expect(cached.rows.map((r) => r.period)).toEqual(computed.rows.map((_, i) => i + 1));
+  for (const [i, row] of cached.rows.entries()) {
+    const src = computed.rows[i]!;
+    expect(row.date).toBe(src.date);
+    expect(row.opening).toBeCloseTo(src.opening, 2);
+    expect(row.interest).toBeCloseTo(src.interest, 2);
+    expect(row.principal).toBeCloseTo(src.principal, 2);
+    expect(row.closing).toBeCloseTo(src.closing, 2);
+    expect(row.skip).toBe(src.skip);
+  }
+  expect(cached.rows[cached.rows.length - 1]!.closing).toBeCloseTo(0, 2);
 });
