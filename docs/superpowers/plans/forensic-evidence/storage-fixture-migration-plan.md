@@ -19,3 +19,22 @@ Initial state: exact plan/source audit only. Existing raw column uses identified
 - Serialized51338:79pass14fail over93tests. Six suites GREEN including actual bank allocation. Remaining14paymentRelease failures traced to a later test replacing the whole fetch router with fake Netcash, causing subsequent captured object reads to receive fake provider output. Corrected test router routes only exact fixture origin/object path to native HTTP and exact Netcash submit URL to fake provider; all other external requests still throw. Rerun pending.
 - Test-only helper owns one actual local server per importing suite, explicitly closes/restores env; all raw-only seeds use seed, tamper uses put.121root count test now shares one actual object, preserving complete accounting/count/cursor assertions within separate100object verification bound. Existing actual101document deferral test remains unchanged.
 - PAT beneficiary valid-source setup now includes read:invoices; later persisted permission revocation remains tested. OperationApproval metadata-only linkage test left unchanged deliberately.
+
+## Verified release/storage followup
+
+- Root deadline correction be38beb38 independently reviewed by snapshot and cherry-picked asffde4adb6. This is root-authored source dependency, not a worker-owned production edit.
+- PG89107 terminal0:29actual tests GREEN, full17paymentRelease plus capturedEvidenceSource and capturedEvidenceConsumers411, serialized suites. Logs storage-fixtures-release-source-green.log. Actual payment release lifecycle includes committed attempting state before fake provider observation, retry/no retransmit, revoked authority, source changes, child-process refusal and actual local captured object reads. Source suites cover actual411 schema, missing/changed object, namespace/current permission checks and101object deferral.
+- All fixture pools/local HTTP servers closed and DB lease returned to root. Prior six non-release suites already passed under51338; no final aggregate claim until invoice override source repair is received and existing override suite reruns. Invoice worker has089aaa71f test checkpoint and owns only its source/new tests.
+- All touched test files remain under300lines. Final sourceTS/scoped supported lint slot not yet requested/granted; tests are outside the repository typed ESLint project, so their execution evidence is actual Vitest PG. No transport/production verification claimed.
+
+SourceTS25487 terminal0; heavy slot returned. Root independently reviewing exact fixture089aaa71f againstb7af33e9d. Final combined actual acceptance remains queued behind invoice source correction and central DB lease; no process left running.
+
+## Final accepted invoice source and capture fixtures
+
+Root independently reviewed invoice sourcef5b76b6c7 and permitted its exact tests/source/ledger stack. Cherried b829288a2,c6345056f,f5b76b6c7,3ace1f44b,3765144d5 as2b1e44562,14097ac74,160a19924,4ae55053e,e0540f1dd; skipped duplicatebd37fixture. All source edits remain root/invoice-worker authored dependencies.
+
+PG41450 terminal0:119tests across11 serialized suites GREEN after actual invoice source repair. Durable storage-fixtures-final-combined.log. Includes original six source/approval suites, bank allocation, payment release, captured source/consumer411 and new invoice evidence411.
+
+Remaining dependent capture audit found two raw-only seeds. Baseline87697:23pass1fail; actual snapshot statement preparation refused absent storage. Converted both auditSnapshotCapture seeds to shared actualHTTP. Schema-only bankStatementAttestationSchema seed remained passing until a new test-first transactional411 column drop reproduced42703; removed raw payload field while preserving deliberate metadata/FK-only assertions. AlwaysROLLBACK restores schema, no persistent migration.
+
+PG11520 terminal0:24capture/schema tests GREEN, storage-fixtures-capture-schema-green.log. This adds to119tests for143actual tests across two final serialized runs on unchanged production source. All pools and local servers closed and DB lease returned. No remaining raw-only seeds found in controls tests; remaining references are valid hash/size metadata or deliberate transactional column-drop regressions. Final two-fixture correction awaits independent named review. No finalCI, external provider integration or production object storage claim.
