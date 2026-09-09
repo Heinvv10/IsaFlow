@@ -1,0 +1,72 @@
+=== GREEN (round 4 fixes in place) ===
+ Test Files  2 passed (2)
+      Tests  32 passed (32)
+
+=== R1: duplicate guard blind to a NULL subscription_id (the pre-624 row) ===
+     × does not queue a replacement for a charge that predates migration 624 136ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 31 passed (32)
+
+=== R2: resolver failure UPDATE without the status guard ===
+     × does not overwrite a settlement that lands while the resolver is verifying 110ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 31 passed (32)
+
+=== R3: settleSubscriptionCharge without the cancelled guard ===
+     × does not resurrect a charge that was voided when the customer cancelled 52ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 31 passed (32)
+
+=== R5: resolver without the per-charge claim ===
+     × lets only one of two resolver runs verify the same submitted charge 99ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 31 passed (32)
+
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  32 passed (32)
+
+=== R4: the void predicate under a non-UTC session TimeZone ===
+A charge whose period starts on the boundary day, with the boundary late in the UTC day:
+SET
+    session_tz    | old_session_tz_form | new_utc_form 
+------------------+---------------------+--------------
+ Pacific/Auckland | f                   | t
+(1 row)
+
+The old form drops the charge from the void set purely because of the session
+timezone; the UTC-anchored form is stable. Same query under TimeZone='UTC':
+SET
+ old_session_tz_form | new_utc_form 
+---------------------+--------------
+ t                   | t
+(1 row)
+
+
+=== a charge that cannot be attributed: migration 624 must refuse ===
+fixture: 1 company, 2 subscriptions, 1 charge with subscription_id NULL
+psql:scripts/migrations/sql/624_subscription_charges_subscription_id.sql:52: ERROR:  624: 1 subscription_charges row(s) could not be attributed to a subscription.
+  Set subscription_id by hand (the company holds more than one subscription), then re-run.
+  aaaa0624-0000-4000-8000-000000000007 (company aaaa0624-0000-4000-8000-000000000001, 2026-08-01..2026-09-01, queued)
+
+=== attributed by hand: the migration applies ===
+applied cleanly
+fixtures cleaned up
+0 rows left in subscription_charges
+
+=== FULL UNIT SUITE (bunx vitest run --testTimeout=30000, DATABASE_URL and PG* unset) ===
+ Test Files  785 passed | 36 skipped (821)
+      Tests  9326 passed | 234 skipped (9560)
+
+=== GATES ===
+bunx tsc --noEmit                      -> clean
+bunx eslint src pages (the CI scope)   -> clean
+bun scripts/audit-migration-naming.ts  -> no new duplicate prefixes
+bun scripts/ci/check-migration-rls.ts  -> OK
+bun run agent-docs:check               -> 74 mirrors match
+
+=== MIGRATION 624 ON THE FIXTURE DB, AFTER A FULL RESET TO THE PRE-624 SHAPE ===
+ux_sub_charges_subscription_period_settled UNIQUE btree
+  (mandate_id, subscription_id, period_start, period_end) WHERE status = 'settled'
+subscription_charges_settled_has_subscription
+  CHECK (status <> 'settled' OR subscription_id IS NOT NULL)

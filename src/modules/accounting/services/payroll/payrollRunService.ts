@@ -4,6 +4,7 @@ import { log } from '@/lib/logger';
 import { listPayrollEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
+import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
 import { isPayrollRunLocked, PayrollRunLockedError } from './payrollRunLock';
@@ -136,17 +137,15 @@ export async function calculatePayrollRun(
   let totalPaye = 0;
   let totalUifEmployee = 0;
   let totalUifEmployer = 0;
-  let totalSdl = 0;
   let totalEti = 0;
   let totalNet = 0;
-
-  const annualPayrollEstimate = employees.length * 25_000 * 12;
 
   // Build all line inserts in memory before touching the DB
   type LineInsert = {
     employeeId: string;
     grossPay: number; taxableIncome: number; paye: number;
-    uifEmployee: number; uifEmployer: number; sdl: number;
+    uifEmployee: number; uifEmployer: number;
+    sdl: number; sdlLeviable: number;
     eti: number; netPay: number;
     componentBreakdown: string; validationResults: string;
   };
@@ -187,7 +186,7 @@ export async function calculatePayrollRun(
       components: componentsWithLoans,
       period,
       taxYear,
-      annualPayrollEstimate,
+      annualPayrollEstimate: 'defer',
     });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
@@ -205,7 +204,8 @@ export async function calculatePayrollRun(
       paye: line.paye.monthlyPaye,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,
-      sdl: line.sdl,
+      sdl: 0, // set below, once the run's own leviable total decides leviability
+      sdlLeviable: line.sdlLeviable,
       eti: line.eti.monthlyEti,
       netPay: line.netPay,
       componentBreakdown: JSON.stringify(line.componentBreakdown),
@@ -218,12 +218,22 @@ export async function calculatePayrollRun(
     totalPaye += line.paye.monthlyPaye;
     totalUifEmployee += line.uif.employeeContribution;
     totalUifEmployer += line.uif.employerContribution;
-    totalSdl += line.sdl;
     totalEti += line.eti.monthlyEti;
     totalNet += line.netPay;
   }
 
   const r = (n: number) => Math.round(n * 100) / 100;
+
+  // SDL leviability belongs to the employer, not to one employee, and is
+  // decided on twelve months of remuneration — see sdlLeviabilityService for
+  // the basis. The levy itself is still charged per line on that line's own
+  // leviable amount. The previous headcount x R25 000 x 12 decided the
+  // threshold by employee count alone, exempting any single employee however
+  // much they earned and levying any two however little.
+  const annualRemuneration = await estimateAnnualRemuneration(
+    companyId, period, r(totalGross), runId,
+  );
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 
   // All DB mutations in one transaction so a partial failure cannot corrupt
   // state — but via `withTransaction`, NEVER raw BEGIN/COMMIT.

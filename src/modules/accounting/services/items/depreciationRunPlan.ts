@@ -18,7 +18,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { isRealCalendarDate } from '@/lib/validation';
 import { lifeExpiredNote, monthsBetween } from './depreciationMethods';
-import { alreadyPosted, resolvePeriod } from './depreciationRunQueries';
+import { alreadyInSubledger, alreadyPosted, resolvePeriod } from './depreciationRunQueries';
 
 // The run's three reads live in `depreciationRunQueries.ts`. Re-exported: this
 // module is the entry point every caller already imports.
@@ -33,7 +33,8 @@ export type DepreciationSkipReason =
   | 'no_purchase_price'
   | 'below_capitalisation_threshold'
   | 'no_useful_life'
-  | 'already_posted';
+  | 'already_posted'
+  | 'already_in_subledger';
 
 export interface DepreciationPlanRow {
   assetId: string;
@@ -122,6 +123,7 @@ export async function planDepreciationRun(
     (a) => depreciationEntryNumber(String(a.asset_number ?? ''), periodDate),
   );
   const posted = await alreadyPosted(companyId, numbers);
+  const inSubledger = await alreadyInSubledger(companyId, yyyymmFor(periodDate));
 
   const rows: DepreciationPlanRow[] = [];
   let eligibleTotal = 0;
@@ -192,6 +194,12 @@ export async function planDepreciationRun(
     }
     if (posted.has(entryNumber)) {
       skip('already_posted', `${entryNumber} is already posted for this period and has not been reversed.`);
+      continue;
+    }
+    // Its own reason: no live journal means no policy charge, or a reversal.
+    if (inSubledger.has(String(a.id))) {
+      skip('already_in_subledger', `The subledger already holds ${yyyymmFor(periodDate)} for `
+        + 'this asset; a re-run would recompute it from the balance the first run wrote.');
       continue;
     }
 
