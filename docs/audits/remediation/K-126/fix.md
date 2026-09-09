@@ -40,3 +40,33 @@ Those invoices were issued with an overstated per-line VAT column and may need r
 **Limits.** `invoicePdfSnapshotService` treats a sealed snapshot as evidence; snapshots sealed
 before this fix keep the wrong column and are not rewritten here. Re-sealing is a separate,
 deliberate decision. The totals block itself was always correct and is unchanged.
+
+---
+
+## Blind review of ade12166 — LOW-1, LOW-3, LOW-4, LOW-5 (all fixed)
+
+**LOW-1 (fixed).** The "foots to the totals block" assertion compared the column sum to the literal
+`15` and never read the totals block, so a change to how the totals VAT renders would have passed.
+A `totalsVatOf` helper now parses the rand figure beside the totals VAT label, and the test asserts
+the column sum against that parsed value.
+
+**LOW-4 (fixed).** `vatLabelOf` sliced from `lastIndexOf('Subtotal') + 1`, which is `0` when the
+token is absent — the scan would then reach the line table's own bare `'VAT'` column header, which
+is exactly what the mixed-rate test expects, so that test could pass vacuously after a layout
+change. The slice is now `totalsBlockOf`, which throws when there is no totals block.
+
+**LOW-3 (fixed, wider than the commit).** `quotePdfBuilder` printed each line's own
+`customer_quote_lines.tax_rate` in the table while hardcoding the literal `'VAT (15%)'` in the
+totals block, so a mixed-rate quote contradicted itself on the page — and the quote is the source
+document for the invoice this item fixes. It now carries the same `mixedRates` label switch, and
+the boilerplate terms sentence no longer asserts 15%. New suite
+`tests/integration/k126b-quote-pdf-mixed-vat-rate-label.int.test.ts`, 3 tests; mutation M12
+restores the literal and the mixed-rate test goes red.
+`creditNotePdfBuilder` was checked and needs no change: `credit_note_items` does not exist in the
+schema (the builder catches the error and renders without a line table), so there are no per-line
+rates to contradict, and its label reads the header `tax_rate` correctly.
+
+**LOW-5 (fixed).** validation.md's impact SQL grouped by `ci.id` and then counted distinct `ci.id`,
+so the column was always 1. Replaced with fix.md's correct form.
+
+**Not a finding, confirmed.** The reviewer accepted the disclosed `?? 15` gap. Unchanged.

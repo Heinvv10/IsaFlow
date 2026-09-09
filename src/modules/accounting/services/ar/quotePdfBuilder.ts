@@ -123,6 +123,12 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   ]);
 
   // ── Line Items Table ───────────────────────────────────────────────────────
+  // customer_quote_lines carries a per-line tax_rate and the table below prints
+  // it, so the totals block must not claim a single rate the lines contradict.
+  const lineRate = (line: DbRow): number =>
+    line.tax_rate != null ? Number(line.tax_rate) : Number(q.tax_rate ?? 15);
+  const mixedRates = new Set(lines.map(lineRate)).size > 1;
+
   if (lines.length > 0) {
     autoTable(doc, {
       startY: y,
@@ -131,7 +137,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
         line.description || '—',
         Number(line.quantity || 0).toFixed(2),
         fmtZAR(Number(line.unit_price || 0)),
-        `${Number(line.tax_rate || 15).toFixed(0)}%`,
+        `${lineRate(line).toFixed(0)}%`,
         fmtZAR(Number(line.amount || 0)),
       ]),
       styles: {
@@ -174,7 +180,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
 
   y = renderTotalsBlock(doc, y, PAGE_W, MARGIN, accent, [
     { label: 'Subtotal (excl. VAT)', value: fmtZAR(subtotal) },
-    { label: 'VAT (15%)', value: fmtZAR(taxAmount) },
+    { label: mixedRates ? 'VAT' : `VAT (${Number(q.tax_rate ?? 15)}%)`, value: fmtZAR(taxAmount) },
     { label: 'QUOTATION TOTAL', value: fmtZAR(total), isTotal: true },
   ]);
 
@@ -190,7 +196,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   const termsText = q.terms
     ? String(q.terms)
     : 'This quotation is valid for the period stated. Prices are subject to change without notice after the validity date. ' +
-      'All amounts are in South African Rand (ZAR) and include VAT at 15% where applicable. E&OE.';
+      'All amounts are in South African Rand (ZAR) and include VAT at the rate shown per line. E&OE.';
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7);
