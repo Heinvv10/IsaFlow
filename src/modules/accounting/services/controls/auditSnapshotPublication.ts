@@ -1,3 +1,4 @@
+import {publishSnapshotIndex} from './auditSnapshotIndexPublication';
 import {withSavepoint} from '@/lib/neon';
 import {UUID_RE} from '@/lib/validation';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -12,7 +13,7 @@ import {openProtectedChange,protectChangeValues,type ProtectedChange} from './ch
 import {assertSnapshotArtifacts,assertSnapshotRequest,copySnapshotArtifacts,type SnapshotArtifactBytes} from './auditSnapshotPublicationMaterial';
 
 /** Worker publication is one transaction: no success without every authenticated retained byte. */
-export async function publishAuditSnapshot(ctx:ControlTx,lease:AuditJobLease,input:SealedAuditSnapshot,sourceArtifacts:readonly SnapshotArtifactBytes[]){
+export async function publishAuditSnapshot(ctx:ControlTx,lease:AuditJobLease,input:SealedAuditSnapshot,sourceArtifacts:readonly SnapshotArtifactBytes[],options?:{signal?:AbortSignal;deadlineAt?:number}){
  assertAuditJobLease(ctx,lease);
  if(ctx.principal.authMethod!=='job'||ctx.principal.jobId!==lease.jobId||ctx.principal.jobLeaseId!==lease.leaseId
   ||ctx.principal.jobGeneration!==lease.generation)throw new Error('Snapshot publication requires the original delegated job context');
@@ -32,6 +33,7 @@ export async function publishAuditSnapshot(ctx:ControlTx,lease:AuditJobLease,inp
    await ctx.sql`INSERT INTO control_audit_snapshot_artifacts(company_id,snapshot_id,artifact_id,protected_artifact)
     VALUES(${lease.companyId}::uuid,${lease.jobId}::uuid,${artifact.id},${JSON.stringify(protectedArtifact)}::jsonb)`;
   }
+  await publishSnapshotIndex(ctx,lease,sealed,artifacts,options);
   const rows=await ctx.sql`UPDATE control_audit_jobs SET state='succeeded',result_snapshot_id=${lease.jobId}::uuid,
    lease_id=NULL,lease_expires_at=NULL,last_error_code=NULL,completed_at=clock_timestamp(),updated_at=clock_timestamp()
    WHERE company_id=${lease.companyId}::uuid AND job_id=${lease.jobId}::uuid AND state='running'

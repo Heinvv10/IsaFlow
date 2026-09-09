@@ -47,7 +47,7 @@ export async function runAuditSnapshotJob(input:AuditWorkerIdentity,options:{poo
    const snapshot=await captureAuditSnapshot(ctx,{snapshotId:identity.jobId,request:saved.request});
    signal.throwIfAborted();const retained=await retainSnapshotEvidence(ctx,snapshot,saved.request,signal);
    signal.throwIfAborted();const sealed=sealAuditSnapshot(retained.snapshot);signal.throwIfAborted();
-   return publishAuditSnapshot(ctx,currentLease,sealed,retained.artifacts);
+   return publishAuditSnapshot(ctx,currentLease,sealed,retained.artifacts,{signal,deadlineAt});
   }));
   return{state:'succeeded',...result};
  }catch(error){
