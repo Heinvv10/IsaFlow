@@ -272,18 +272,41 @@
       "sourceIds": [
         "A C5"
       ],
-      "correctedTrigger": "Committed GRN creation fails on nonexistent po_items.company_id and rolls back. Validate missing ownership checks independently; do not claim durable cross-tenant corruption from that failing transaction.",
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Valid, foreign-PO and mismatched-item receipt POSTs all fail500 on nonexistent po_items.company_id and roll back. Restore the writer using parent-derived company scope and fix broken PO detail/partial-delivery form wiring.",
+      "severityRationale": "Confirmed broken receipt functionality; durable cross-tenant corruption not reproduced on current schema. Explicit ownership guards required for safe restoration.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
-      "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
+      "currentSha": "f2fd92439e185cbf61b6faab3200cef0169f7f2b",
+      "status": "code-verified",
+      "dependencies": [
+        "K-133 retains downstream invoice three-way matching separately"
+      ],
+      "testNames": [
+        "tests/integration/goods-received-postgres.int.test.ts",
+        "tests/integration/goods-received-browser.mjs"
+      ],
+      "evidencePaths": [
+        "K-007/browser-red.log",
+        "K-007/browser.log",
+        "K-007/browser.png",
+        "K-007/ci.log",
+        "K-007/fraction-browser.png",
+        "K-007/fraction-green.log",
+        "K-007/fraction-red.log",
+        "K-007/historical-impact.sql",
+        "K-007/historical-review.md",
+        "K-007/plan.md",
+        "K-007/precision-red.log",
+        "K-007/red.log",
+        "K-007/regression.log",
+        "K-007/result.md",
+        "K-007/review.md",
+        "K-007/typecheck.log",
+        "K-007/workflow.log"
+      ],
+      "fixCommit": "5a7e5ea4; f2fd9243",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/353",
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "No route-induced durable corruption reproduced. Read-only inventory tested on a privileged synthetic malformed row; no production historical repair.",
       "canonicalItem": null,
       "reportedSeverity": "critical"
     },
