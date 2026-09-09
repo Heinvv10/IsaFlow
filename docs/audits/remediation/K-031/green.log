@@ -75,3 +75,52 @@ $ bunx eslint <5 changed src/pages files>                        ESLINT_CLEAN
 $ bun run agent-docs:check                                       74 mirrors match
 
 No query was run against the production database.
+
+================================================================================
+THIRD COMMIT — re-review findings N1-N5
+================================================================================
+
+=== GREEN — real DB (fixture.env) ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+      Tests  13 passed (13)
+
+=== GREEN — unit ===
+$ bunx vitest run tests/unit/sars/efiling-submission.test.ts
+      Tests  25 passed (25)
+
+=== FULL unit suite, DATABASE_URL unset (brief addendum) ===
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9331 passed | 234 skipped (9565)
+Zero failures this run. The 10 failures recorded against the previous commit
+(trackerExclusion, bankAllocationService, bankAllocationUnwind, cashFlowReport)
+did not reproduce; they also appeared on origin/master's full run and passed in
+isolation in both trees, so they are flaky full-run module-state interference
+and never touched VAT201.
+
+=== MUTATION CHECKS (four, each reverted from backup after) ===
+D. field 1 stops giving back the nil-rated share of a mixed journal
+   `return r2(taxed - nilRatedInside)` -> `return r2(taxed)`
+   integration: 2 failed | 11 passed  (mixed zero-rated, mixed exempt)
+E. nil-rated query stops requiring a posted journal
+   dropped `AND je.status = 'posted'`
+   integration: 1 failed | 12 passed  (unposted document reaches field 2)
+F. input-breakdown contradiction check disabled (`if (false)`)
+   unit:        1 failed | 24 passed
+   integration: 1 failed | 12 passed
+G. proportional 15% tolerance reduced to vatBoxBasis's absolute R1
+   `RATE_CHECK_PROPORTION = 0.005` -> `0`
+   unit:        1 failed | 24 passed  (immaterial variance wrongly blocked)
+   integration: 1 failed | 12 passed
+All four restored; suites back to 13 and 25 passed.
+
+NOTE — a false pass caught while running F. The unit test for the contradiction
+gate asserted `/services/` and still passed with the gate disabled, because the
+draft-drift gate threw a message naming `field8_services`. The test now supplies
+a matching saved draft and asserts the gate's own wording; it goes red under F.
+
+=== Gates ===
+$ bunx tsc --noEmit                                              TSC_CLEAN
+$ bunx eslint <5 changed src/pages files>                        ESLINT_CLEAN
+
+No query was run against the production database.
