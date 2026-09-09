@@ -400,10 +400,10 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "8e5c7d2c",
+   "currentSha": "36edb470",
    "status": "in-progress",
    "dependencies": [
-    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+    "36edb470 repairs a master unit fixture (mocked SQL queue order) after merge; CI rerun queued"
    ],
    "testNames": [
     "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
@@ -412,7 +412,7 @@
     "K-010/red.log",
     "K-010/validation.md"
    ],
-   "fixCommit": "8e5c7d2c",
+   "fixCommit": "e2c8708e;9875248c;6ee84917;8e5c7d2c;36edb470",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
