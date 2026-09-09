@@ -198,6 +198,7 @@ export default function BalanceSheetPage() {
             </div>
           ) : report ? (
             <BalanceSheetBody
+                costCentreId={costCentreId}
               report={report}
               showComparative={showComparative}
               columns={columns}
@@ -213,6 +214,7 @@ export default function BalanceSheetPage() {
       </div>
       {evidenceTarget && (
         <EvidenceDrillModal
+          costCentreId={costCentreId}
           accountId={evidenceTarget.accountId}
           accountName={evidenceTarget.accountName}
           periodStart={drillDownStart}

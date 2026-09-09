@@ -1,0 +1,57 @@
+K-028 (PPE additions) + R-007 (fiscal-year boundaries) — GREEN
+
+Integration (real Postgres fixture, DATABASE_URL sourced):
+  bun run test:integration -- tests/integration/k028
+  Test Files  2 passed (2)
+  Tests       6 passed (6)
+    k028-ppe-additions-include-prior-year.int.test.ts  2 (validator RED, now green)
+    k028-afs-summary-fiscal-year.int.test.ts           4 (adjacent cases)
+
+Full unit suite (DATABASE_URL unset):
+  env -u DATABASE_URL bunx vitest run
+  Test Files  790 passed | 36 skipped (826)
+  Tests       9391 passed | 234 skipped (9625)
+  (A first run showed 2 timeouts in cashFlowReport.test.ts and a
+   bankReconciliation ordering test — 10.3s on a 2-test file, under parallel
+   load. Both pass in isolation and neither imports afs-summary.ts. A clean
+   re-run of the whole suite passed 9391/9391.)
+
+tsc --noEmit    exit 0
+eslint pages/api/accounting/assets/afs-summary.ts  exit 0
+
+MUTATION PROOF (production change reverted, tests re-run, then restored):
+  1. additions expression back to `MIN(apl.yyyymm) >= currentYearStart`
+       -> 5 failed | 1 passed (6). Both K-028 tests RED, plus all three
+          fiscal-year figure tests, which also depend on the additions test.
+  2. boundaries back to `${year}01` / `${year-1}${month}`
+       -> 2 failed | 4 passed (6). The February-year-end and interim-period
+          tests RED; the K-028 pair stays green, confirming the two defects
+          are independent.
+  Restored, re-ran: 6 passed (6).
+
+─────────────────────────────────────────────────────────────────────────────
+Review follow-ups (4 MEDIUM, 3 LOW) — GREEN
+
+Integration: bun run test:integration -- tests/integration/k028
+  Test Files  3 passed (3)
+  Tests       15 passed (15)
+    k028-ppe-additions-include-prior-year.int.test.ts   2
+    k028-afs-summary-fiscal-year.int.test.ts            4
+    k028-afs-summary-boundaries.int.test.ts             9  (new)
+
+Full unit suite (DATABASE_URL unset):
+  Test Files  790 passed | 36 skipped (826)
+  Tests       9398 passed | 234 skipped (9632)   (+7: fiscalWindowForPeriod)
+
+tsc --noEmit  exit 0
+eslint afs-summary.ts afsFiscalPeriod.ts  exit 0
+bun run agent-docs:check  OK: 74 mirrors match
+
+MUTATION PROOF (each change reverted, re-run, restored):
+  A. period guard back to /^\d{6}$/
+       -> 3 failed | 6 passed. 202600 / 202613 / 202699 return 500, not 400.
+  B. prior snapshot keeps disposed assets (WHERE made a tautology)
+       -> 2 failed | 7 passed. Opening cost 50 000 against an expected 10 000.
+  C. fiscalWindowForPeriod loses the December wrap
+       -> 2 failed | 14 passed. January start gives priorEnd 202600.
+  Restored, re-ran: 15/15 integration, 9398 unit.
