@@ -29,6 +29,23 @@ export async function convertToSalesOrder(
   const quote = await getQuote(companyId, id);
   if (!quote) return null;
 
+  // CLAIM THE QUOTE BEFORE ANYTHING IS MINTED. The existence check above is a
+  // check-then-act: a double-click or a client retry used to reserve a second
+  // SO number, insert a full duplicate order with all its lines, and overwrite
+  // converted_order_id so the quote pointed at only the second. The
+  // status-predicated UPDATE is the guard — the first caller moves the quote
+  // out of a convertible status and every later one sees zero rows and stops
+  // here, before the sequence is touched. `convertToInvoice` below is already
+  // self-limiting on `status !== 'accepted'`.
+  const claimed = (await sql`
+    UPDATE customer_quotes
+    SET status = 'converted_to_order', updated_at = NOW()
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+      AND status <> 'converted_to_order'
+    RETURNING id
+  `) as Row[];
+  if (claimed.length === 0) return null;
+
   const numRows = (await sql`
     INSERT INTO company_document_numbers (company_id, document_type, prefix, next_number)
     VALUES (${companyId}::UUID, 'sales_order', 'SO-', 1)
@@ -67,7 +84,7 @@ export async function convertToSalesOrder(
 
   await sql`
     UPDATE customer_quotes
-    SET status = 'converted_to_order', converted_order_id = ${salesOrderId}::UUID, updated_at = NOW()
+    SET converted_order_id = ${salesOrderId}::UUID, updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `;
 

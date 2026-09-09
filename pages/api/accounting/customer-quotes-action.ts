@@ -42,7 +42,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     case 'convert-to-order': {
       const result = await convertToSalesOrder(companyId, id, userId);
-      if (!result) return apiResponse.notFound(res, 'Quote', id);
+      // null now means EITHER no such quote for this company OR the quote was
+      // already claimed by an earlier conversion (K-121): the status-predicated
+      // UPDATE inside the service refuses the second caller. 'Quote not found'
+      // alone read as a bug on a double-click.
+      if (!result) return apiResponse.notFound(res, 'Unconverted quote', id);
       return apiResponse.success(res, { salesOrderId: result.salesOrderId });
     }
     default:
