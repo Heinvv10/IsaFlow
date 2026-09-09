@@ -25,3 +25,17 @@ Planning and source inspection complete. Tests/fixture being authored before any
 ## Authored acceptance checkpoint
 
 Both test and streaming fixture are authored; no production changes. Dedicated test typecheck (`bunx tsc --noEmit -p .audit-evidence-scale-tsconfig.json`) session11816 terminal0. Typed ESLint on the exact two files session19010 terminal0. Logs: sibling forensic artifacts `audit-evidence-scale-typecheck.log`, `audit-evidence-scale-lint.log`. These checks validate test types/style only; no runtime RED/GREEN or near-bound success is claimed. Root named plan/test review and explicit PG/process lease remain required before running the 100 MiB case.
+
+## Actual local boundary proof
+
+Root independently reviewed 0b574a25f and granted exclusive PG/process/heavy lease. Cleanup was strengthened to initiate server.close before closing connections and restore environment in finally. Actual `bunx vitest run --config vitest.integration.config.ts --no-file-parallelism tests/integration/controls/auditEvidenceScale.int.test.ts` with explicit validated fixture.env, `ISAFLOW_AUDIT_EVIDENCE_SCALE_LEASE=100MiB`, explicit trusted artifact and report path: session98994 terminal0, one complete workflow passed in32.87seconds.
+
+- Company ad139f48-57e7-4b6d-b3be-e93adbde5012. Snapshot d283514a-7017-4bcb-beef-52cf2bacafc8: succeeded14,269ms; kernel cgroup peak974,606,336B; sampled RSS peak1,006,878,720B; no OOM.
+- Export76fdbb00-2b82-494e-ab15-510067ff89fa: succeeded7,613ms; cgroup peak634,388,480B; sampled RSS614,858,752B; no OOM. Sixteen files total104,887,461B fully reconstructed through authenticated paging/chunks, hashes and manifest HMAC independently checked. Ten original files total104,857,600B, exact recorded identities/hash/size verified. Generated evidence.pdf has2pages. Completed export retry not_claimed.
+- Overflow job27248762-28da-47ed-975e-88752b4a31e9: eleven originals total104,857,601B, all11 HTTP reads observed; RESOURCE_LIMIT/failureRecordedtrue in641ms. No snapshot, retained artifact or index rows; repeated enqueue same idempotency key returns same job; execution retry not_claimed. Cgroup peak215,756,800B, sampled RSS262,021,120B, no OOM.
+- Fixture pool and storage server closed; actual systemctl user-unit listing showed zero audit units after terminal. PG/process lease explicitly released.
+- Evidence logs: sibling artifacts audit-evidence-scale-100mib.log, audit-evidence-scale-100mib-report.json and .overflow.json. Trusted actual cold artifact: ../mcp-isolated-poller-20260909/.audit-build/audit-job.cjs, root-approved existing build; unchanged worker bounds.
+
+This proves arbitrary deterministic original-byte retention; synthetic.bin originals are octet-stream with a legacy PDF classification marker and are not valid-PDF parsing evidence. Generated PDF page proof is separate. The1GiB outer export ceiling was not approached: admitted original bytes are100MiB, actual bundle104,887,461B. This does not fix or waive the prior fresh-seed100k timeout, prove a combined100k+100MiB workload, or verify production behavior.
+
+Final cleanup dedicated TypeScript and typed lint session7236 terminal0; logs audit-evidence-scale-final-typecheck.log and audit-evidence-scale-final-lint.log. Artifact SHA2566e19d3c4b6fc6af8161f3d14659666d8a1b039614659f911878a858eb79c595f; artifact tree HEAD02d549ca90ca363b0474c838ad0016876a08b97c (test-only commit atop16eef4d34 production sources). No source or limit changes were necessary for this boundary acceptance. Root named re-review of cleanup/results remains pending.

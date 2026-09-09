@@ -32,6 +32,9 @@ export async function evidenceScaleStorage(){
    await pool.query("INSERT INTO captured_documents(id,company_id,status,file_name,file_type,matched_bank_tx_id,storage_bucket,storage_path,raw_bytes_sha256,raw_bytes_size) VALUES($1,$2,'matched','synthetic.bin','pdf',$3,'captured-documents',$4,$5,$6)",[id,company,bank,`${company}/${id}`,sha256,length]);
    objects.set(`/storage/v1/object/captured-documents/${company}/${id}`,{length,fill});return{id:`captured:${id}`,byteLength:length,sha256};
   },
-  async close(){server.closeAllConnections();await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));names.forEach((name,i)=>{if(saved[i]===undefined)delete process.env[name];else process.env[name]=saved[i];});},
+  async close(){
+   try{await new Promise<void>((resolve,reject)=>{server.close(error=>error?reject(error):resolve());server.closeAllConnections();});}
+   finally{names.forEach((name,i)=>{if(saved[i]===undefined)delete process.env[name];else process.env[name]=saved[i];});}
+  },
  };
 }
