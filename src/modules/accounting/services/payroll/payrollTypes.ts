@@ -114,14 +114,15 @@ export interface PayrollLineInput {
   period: PayrollPeriod;
   taxYear: number;
   /**
-   * The employer's estimated annual payroll, used only to decide SDL
-   * leviability. Omit it when the caller computes a whole run: the R500 000
-   * exemption is a property of the employer's total remuneration, which is not
-   * known until every line has been costed, so the run service applies the
-   * threshold itself in a second pass over `sdlLeviable`. When omitted, `sdl`
-   * comes back 0 and the caller must derive it.
+   * The employer's estimated annual remuneration, used only to decide SDL
+   * leviability. Pass `'defer'` when costing a whole run: the R500 000
+   * exemption is a property of the employer's total remuneration over twelve
+   * months, which is not known until every line has been costed, so the run
+   * service applies the threshold itself in a second pass over `sdlLeviable`.
+   * Deferring returns `sdl` as 0, and the caller MUST then set it — the value
+   * is spelled out rather than omitted so that forgetting is a type error.
    */
-  annualPayrollEstimate?: number;
+  annualPayrollEstimate: number | 'defer';
   priorPeriodCumulativePaye?: number;
 }
 

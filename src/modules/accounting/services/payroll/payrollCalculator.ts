@@ -61,10 +61,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
-  // Leviability depends on the employer's whole payroll, not on this line, so a
-  // caller costing a full run leaves the estimate out and applies the threshold
-  // once it knows the run's own leviable total.
-  const sdl = annualPayrollEstimate === undefined
+  // Leviability depends on the employer's twelve-month remuneration, not on
+  // this line, so a caller costing a full run defers and applies the threshold
+  // once it knows that total.
+  const sdl = annualPayrollEstimate === 'defer'
     ? 0
     : calculateSDL(sdlLeviable, annualPayrollEstimate, taxYear);
 
