@@ -22,7 +22,7 @@ process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
 process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService',()=>({snapshotInvoicePdf:async()=>({documentId:null,wasExisting:false})}));
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
-const pool=new Pool({connectionString:target.connectionString,ssl:false,max:2});
+const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3});
 let fixture:ForensicFixture;let apAccounts:Awaited<ReturnType<typeof seedApAccounts>>;
 const customer=randomUUID(),bank=randomUUID(),rule=randomUUID();
 beforeAll(async()=>{
@@ -235,4 +235,34 @@ for(const kind of ['customer','supplier'] as const)it(`${kind}: bank journal sib
  await expect(actor(()=>voidPaymentDocument(fixture.companyA,kind,sibling,fixture.u1.id,{intentId:inverse.intentId,approvalId:inverseApproval,reversalDate:'2026-09-12'}))).rejects.toThrow(/identity|original.*payment|owned.*payment/i);
  expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('allocated');
  expect((await pool.query('SELECT status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].status).toBe('confirmed');
+});
+
+it('adapter and direct approved cancellation share policy-before-payment lock order',async()=>{
+ const doc=await document('customer');
+ const originalJournal=(await state('customer',doc.payment,doc.invoice)).payment[0].gl_journal_entry_id;
+ const approved=await approval({entityType:'customer_payment',entityId:doc.payment,operation:'customer_payment.cancel',reversalDate:'2026-09-12'});
+ let policyReady!:()=>void,allowDirect!:()=>void,adapterReady!:(pid:number)=>void;
+ const held=new Promise<void>(resolve=>{policyReady=resolve;}),proceed=new Promise<void>(resolve=>{allowDirect=resolve;}),started=new Promise<number>(resolve=>{adapterReady=resolve;});
+ const direct=actor(async()=>{
+  await requireControlTx().sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${fixture.companyA}`},0))`;
+  policyReady();await proceed;
+  return cancelCustomerPayment(fixture.companyA,doc.payment,fixture.u1.id,undefined,{approvalId:approved,reversalDate:'2026-09-12'});
+ });
+ await held;
+ const adapter=actor(async()=>{
+  const [row]=await requireControlTx().sql`SELECT pg_backend_pid() AS pid` as {pid:number}[];adapterReady(row!.pid);
+  return voidPaymentDocument(fixture.companyA,'customer',doc.payment,fixture.u1.id,{approvalId:approved,reversalDate:'2026-09-12'});
+ });
+ // Observe the real contender waiting for the held advisory lock before releasing the direct caller.
+ const pid=await started;let waiting=false;
+ try{
+  for(let attempt=0;attempt<100&&!waiting;attempt++){
+   waiting=(await pool.query("SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND NOT granted",[pid])).rowCount===1;
+   if(!waiting)await new Promise(resolve=>setTimeout(resolve,10));
+  }
+ }finally{allowDirect();}
+ const results=await Promise.allSettled([direct,adapter]);
+ expect(waiting).toBe(true);expect(results.map(result=>result.status==='fulfilled'?'fulfilled':String(result.reason?.code??result.reason))).toEqual(['fulfilled','fulfilled']);
+ expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND reversal_of_id=$2',[fixture.companyA,originalJournal])).rows).toHaveLength(1);
+ expect((await state('customer',doc.payment,doc.invoice)).payment[0].status).toBe('cancelled');
 });
