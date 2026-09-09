@@ -1,0 +1,11 @@
+# Controlled default bank allocation
+
+Base 71f72b0ab, worker snapshot_capture. Root owns registry and shared contracts. Owned files: bankAllocationService.ts; new bankAllocationDefaultPreparation.ts; dedicated real PostgreSQL tests. No migrations or effect/reversal changes.
+
+Baseline 5661d6f0 reads owned contact strategy off/oldest/newest, selects eligible open invoices by invoice_date,created_at,id in the requested direction and greedily applies cash, partially settling the last invoice. Customer ownership uses COALESCE(client_id,customer_id); supplier excludes deleted invoices. Explicit target and autoApply:false opt out for both parties. Baseline excludes balances <=0.01 and has no invoice-date cutoff relative to cash date. Preserve these selection semantics using exact decimals; selected source/date integrity comes from the existing immutable materializer.
+
+Plan: export preparePartyBankAllocation(ctx,input) returning existing intent/operation. Validate detached strict input, current bank/post authority, owned bank and party; serialize on existing company policy lock. Explicit applications including [] and autoApply:false bypass selection, refunds never select. Query at most101 ordered eligible candidates; stop when cash is exhausted, refuse if more than100 required applications, do not silently truncate required application. Existing prepareBankAllocation authenticates selected invoice journals, balances and dates and binds exact applications before approval. Execution of a supplied intent must never read current strategy or reselect. Changes to selected material invalidate approval; new unselected invoices or strategy edits do not change already approved instructions.
+
+Tests FIRST: missing preparation capability and existing strategy refusal; actual oldest/newest with tied dates and partial cents, explicit optout/refund, future-dated eligible invoice baseline behavior, >100 unused candidates vs >100 required, tenant and revoked authority, selected balance/date changes, new older invoice after approval, concurrent exact execution and real shared adapter. MCP/REST forwarding gaps are reported to root, not silently treated as accepted HTTP workflows.
+
+Pending: genuine RED, implementation, PG and TS/lint, independent named review. No production verification.
