@@ -4,7 +4,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { KpiResult, KpiScorecard, FinancialSnapshot, RagThresholds } from './afsTypes';
 import { marginPct } from '../reports/marginPct';
-import { CASH_SUBTYPES } from '../gl/accountSubtypes';
+import { fetchOpeningCash, fetchClosingCash } from './afsKpiCash';
 
 export type { FinancialSnapshot, RagThresholds };
 
@@ -226,62 +226,12 @@ async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promi
   };
 }
 
-/**
- * Opening cash, on the SAME definition the cash-flow statement uses.
- *
- * The literal `account_subtype = 'bank'` missed petty cash (subtype `cash`) and
- * counted a credit card spelled `bank_account` as cash, so the KPI block and the
- * cash-flow reconciliation printed beside it in the same AFS export disagreed by
- * exactly those balances. `CASH_SUBTYPES` plus `account_type = 'asset'` is the
- * definition `cashBalanceService`, `cashFlowDirectService` and
- * `cashFlowReconciliationService` all carry.
- */
-async function fetchCash(companyId: string, beforeDate: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
-    ), 0)::numeric AS balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
-      AND ga.account_type = 'asset'
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
-      AND je.entry_date < ${beforeDate}::date
-  `) as Row[];
-
-  return Number(rows[0]?.balance ?? 0);
-}
-
-async function fetchClosingCash(companyId: string, upToDate: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
-    ), 0)::numeric AS balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
-      AND ga.account_type = 'asset'
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
-      AND je.entry_date <= ${upToDate}::date
-  `) as Row[];
-
-  return Number(rows[0]?.balance ?? 0);
-}
-
 async function buildSnapshot(companyId: string, period: string): Promise<FinancialSnapshot> {
   const { start, end, days } = periodBounds(period);
   const [income, balance, openingCash, closingCash] = await Promise.all([
     fetchIncomeSnapshot(companyId, start, end),
     fetchBalanceSnapshot(companyId, end),
-    fetchCash(companyId, start),
+    fetchOpeningCash(companyId, start),
     fetchClosingCash(companyId, end),
   ]);
   return { ...income, ...balance, openingCash, closingCash, daysInPeriod: days };

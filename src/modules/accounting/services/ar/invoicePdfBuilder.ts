@@ -157,10 +157,11 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     ? `VAT (${distinctRates[0]}%)`
     : distinctRates.length === 0 ? `VAT (${headerTaxRate}%)` : 'VAT';
   // The printed column must ADD UP to the printed VAT total. Rounding each line
-  // independently does not — see vatLineAllocation — so the header aggregate is
-  // shared out across the lines instead. `unattributed` is non-zero only when
-  // the header states VAT that no line's rate can account for, which is a data
-  // disagreement rather than rounding and is printed and logged, not hidden.
+  // independently does not — see vatLineAllocation — so the cents that rounding
+  // loses are moved between the rated lines. `unattributed` is non-zero only
+  // when the header states VAT beyond a cent a line that no line's own rate can
+  // account for: a data disagreement rather than rounding, printed and logged
+  // rather than absorbed into a line that would then print the wrong rate.
   const headerVat = Number(inv.tax_amount || 0);
   const { lineVats, unattributed } = allocateVatToLines(
     headerVat,

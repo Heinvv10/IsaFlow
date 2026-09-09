@@ -245,6 +245,17 @@ export const INVENTORY_SUBTYPES: readonly string[] = rawSubtypesFor('inventory')
  */
 export const BANK_SUBTYPES: readonly string[] = rawSubtypesFor('bank');
 
+/**
+ * The predicate form of `BANK_SUBTYPES`, for the paths that compare a subtype
+ * in TypeScript rather than in SQL. Both answer the same question — "does this
+ * account hold bank transactions?" — so they must not be able to disagree, and
+ * a literal `=== 'bank'` beside a query that accepts `bank_account` is exactly
+ * such a disagreement.
+ */
+export function isBankSubtype(subtype: string | null | undefined): boolean {
+  return canonicalSubtype(subtype) === 'bank';
+}
+
 /** Raw spellings meaning trade receivables. */
 export const RECEIVABLE_SUBTYPES: readonly string[] = rawSubtypesFor('receivable');
 

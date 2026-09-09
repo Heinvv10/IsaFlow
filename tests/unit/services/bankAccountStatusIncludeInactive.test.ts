@@ -110,7 +110,9 @@ describe('getBankAccountsStatus includeInactive', () => {
     await getBankAccountsStatus(COMPANY, { includeInactive: true });
 
     const q = sqlText();
-    expect(q).toMatch(/ga\.account_subtype = 'bank'/);
+    // BANK_SUBTYPES, not the literal: the query is parameterised, and the
+    // spelling `bank_account` is a bank account too.
+    expect(q).toMatch(/ga\.account_subtype = ANY\(\s*[?$]/);
     expect(q).toMatch(/NOT EXISTS \( SELECT 1 FROM gl_accounts child/);
   });
 });

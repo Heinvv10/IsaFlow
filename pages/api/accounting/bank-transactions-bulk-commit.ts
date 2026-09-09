@@ -58,6 +58,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
 import {
   parseStatement,
@@ -119,7 +120,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     FROM gl_accounts
     WHERE id = ${bankAccountId}
       AND company_id = ${companyId}
-      AND account_subtype = 'bank'
+      AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
       AND is_active = true
     LIMIT 1
   `) as Array<{ bank_account_number: string | null }>;

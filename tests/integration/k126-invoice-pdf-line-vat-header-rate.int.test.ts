@@ -24,6 +24,7 @@ const zeroHeaderInvoice = crypto.randomUUID();
 const uniformZeroInvoice = crypto.randomUUID();
 const roundingInvoice = crypto.randomUUID();
 const unattributableInvoice = crypto.randomUUID();
+const partlyUnattributableInvoice = crypto.randomUUID();
 const driftedInvoice = crypto.randomUUID();
 const otherCustomer = crypto.randomUUID();
 
@@ -115,13 +116,20 @@ beforeAll(async () => {
   // explain R15 across two zero-rated lines; it is a data disagreement.
   await seedInvoice(unattributableInvoice, 'K126-INV-6', null, 200, 15,
     [['Unattributable A', 100, 0], ['Unattributable B', 100, 0]]);
+  // Round 4 review, HIGH-1: the PARTIAL case. One R100 line at 15% and one at
+  // 0%, under a header still holding the 15.00-rate default's R30 — exactly the
+  // drift the conversion paths produce. Sharing R30 across the rated line made
+  // the column foot by printing 30% VAT against a line the same page labels 15%.
+  await seedInvoice(partlyUnattributableInvoice, 'K126-INV-8', null, 200, 30,
+    [['Partly rated A', 100, 15], ['Partly rated B', 100, 0]]);
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id = ANY($1::uuid[])',
       [[invoice, legacyInvoice, zeroHeaderInvoice, uniformZeroInvoice,
-        roundingInvoice, unattributableInvoice, driftedInvoice]]);
+        roundingInvoice, unattributableInvoice, partlyUnattributableInvoice,
+        driftedInvoice]]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, otherCompany]]);
@@ -205,6 +213,22 @@ it('says so on the page when the VAT total is not attributable to any line', asy
   // The totals stay authoritative, and the gap is stated rather than hidden.
   expect(rands(totalsVatOf(text))).toBeCloseTo(15.00, 2);
   expect(text.some((t) => /no line item accounts for/.test(t))).toBe(true);
+});
+
+it('will not misstate a rated line to absorb a header it cannot account for', async () => {
+  const text = pdfText(await generateInvoicePdf(company, partlyUnattributableInvoice));
+  const rands = (v: string | undefined) => Number(String(v).replace(/[^0-9.]/g, ''));
+
+  // The 15% line prints its OWN 15% — R15.00, not the R30.00 that made the
+  // column foot on a lie — and the zero-rated line stays at zero.
+  expect.soft(rands(vatCellOf(text, 'Partly rated A'))).toBeCloseTo(15.00, 2);
+  expect.soft(rands(vatCellOf(text, 'Partly rated B'))).toBe(0);
+  // The header aggregate is still what the totals block states, and the R15 no
+  // line can carry is disclosed on the page rather than buried in a line.
+  expect(rands(totalsVatOf(text))).toBeCloseTo(30.00, 2);
+  const note = text.find((t) => /no line item accounts for/.test(t));
+  expect(note).toBeDefined();
+  expect(note).toContain('15.00');
 });
 
 it('will not print another tenant\'s customer on a customer-facing invoice', async () => {

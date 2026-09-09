@@ -7,6 +7,13 @@
  * picker flag and a deactivated account still holds money (Brightsphere's
  * account 1110 is deactivated and carries R6,550 of cash today).
  *
+ * "Bank-subtype account" means `BANK_SUBTYPES`, not the literal `'bank'`. The
+ * literal excluded the `bank_account` spelling this schema also accepts, and
+ * `cash.balance.v1` counts an asset-typed `bank_account` as cash — so such an
+ * account had a cash balance and no coverage row at all: the same "the row
+ * silently left the report" failure this file exists to close, in the other
+ * direction. The vocabulary is defined once, in `accountSubtypes`.
+ *
  * "Bank-subtype account" is deliberately NOT narrowed by `account_type` here.
  * Two different questions share the word "bank": which GL accounts HOLD bank
  * transactions (subtype `bank`, whatever its type), and which balances count as
@@ -28,6 +35,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 export interface CoverageAccountRow {
   bankAccountId: string;
@@ -116,7 +124,7 @@ export async function fetchCoverageAccounts(
             AND bt.company_id        = ${companyId}::UUID
             AND bt.transaction_date <= ${asAt}::DATE
      WHERE ga.company_id      = ${companyId}::UUID
-       AND ga.account_subtype = 'bank'
+       AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
        AND (${bankAccountId ?? null}::UUID IS NULL OR ga.id = ${bankAccountId ?? null}::UUID)
      GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.is_active,
               ga.bank_opening_balance, ga.bank_opening_balance_date

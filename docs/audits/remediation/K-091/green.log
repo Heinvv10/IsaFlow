@@ -135,3 +135,23 @@ Re-verified AFTER rebasing the branch onto origin/master (LOW-4):
  Test Files  6 passed (6)   Tests  39 passed (39)   (the six integration files)
  Test Files  803 passed | 40 skipped (843)  Tests  9568 passed | 243 skipped (9811)  (full unit suite, fixture env unset)
  bunx tsc --noEmit  exit 0
+
+── Round 5 ─────────────────────────────────────────────────────────────────────
+integration (fixture DB, 6 files) : 44 passed / 44
+unit  tests/unit/services/vatLineAllocation.test.ts    : 10 passed
+unit  tests/unit/services/bankSubtypeVocabulary.test.ts:  5 passed
+full unit suite (DATABASE_URL unset): 805 files, 9583 passed / 243 skipped / 0 failed
+bunx tsc --noEmit                  : clean
+bunx eslint <changed src+pages>    : clean (tests/** are outside tsconfig; eslint
+                                     reports a parse error for any test file, on
+                                     master too — not a finding)
+bun run agent-docs:check           : OK, 74 mirrors match
+
+mutations (each reverted immediately after):
+  M-A  vatLineAllocation: absorb any residual (drop the tolerance)  -> 6 unit red
+  M-B  vatLineAllocation: let a zero-rated line absorb a cent       -> 1 unit red
+  M-C  bankCoverageQueries: back to the literal 'bank'              -> 3 int red
+  M-D  bankStatementImportService: back to the literal 'bank'       -> 4 int red
+  M-F  quotePdfBuilder: restore `lines.length > 0` on the note      -> 1 int red
+  M-G  isBankSubtype: narrow to `subtype === 'bank'`                -> 1 unit red
+baseline green before each.
