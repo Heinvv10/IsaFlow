@@ -1,0 +1,40 @@
+### GREEN — fix applied, ux_gl_je_reversal_of PRESENT
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  05:49:19
+   Duration  453ms (transform 99ms, setup 0ms, import 159ms, tests 179ms, environment 0ms)
+
+
+### Mutation check (see red.log)
+Reverting src/modules/accounting/services/gl/journalEntryPostingService.ts to origin/master
+(and removing journalEntryReversalClaim.ts) turns test 1 RED again:
+  - with ux_gl_je_reversal_of dropped: 2 contras posted, "expected 1 got 2" (the defect itself)
+  - with ux_gl_je_reversal_of present: the duplicate is refused, but by a raw
+    uq_gl_je_company_entry_number / unique-constraint error, not "already reversed"
+Restoring the fix returns 3/3 GREEN.
+
+### Full unit suite — `bunx vitest run`, DATABASE_URL unset
+DATABASE_URL=[unset]
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+   Duration  37.79s
+Three reversal suites moved with the extra write and are included in that total:
+tests/unit/services/gl/journalEntryReversal.test.ts,
+tests/unit/services/journalEntryReversalDate.test.ts,
+tests/unit/services/journalEntryReversalPeriod.test.ts
+
+### Gates
+bunx tsc --noEmit                        clean
+bunx eslint <both changed src files>     clean
+bun scripts/audit-migration-naming.ts    OK, no new duplicate prefixes (619 unused)
+bun scripts/ci/check-migration-rls.ts    OK
+bun run agent-docs:check                 OK: 74 mirrors match
+
+### Databases touched
+Fixture DB only (disposable, from scratchpad fixture.env). No query of any kind was
+run against production; the historical-impact SQL in fix.md is unexecuted.

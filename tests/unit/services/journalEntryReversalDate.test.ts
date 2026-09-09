@@ -19,7 +19,13 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {
+  // reverseJournalEntry claims the reversal with a predicated UPDATE before it
+  // creates the contra; one row back means this caller won it. Everything else
+  // this suite exercises is indifferent to the rows returned.
+  const sqlMock = Object.assign(
+    vi.fn((strings: readonly string[]) =>
+      Promise.resolve(strings.join(' ').includes('reversed_at IS NULL') ? [{ id: 'claimed' }] : [])),
+    {
     transaction: vi.fn(),
     unsafe: vi.fn((s: string) => s),
   });
@@ -165,7 +171,8 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
     mockGet.mockResolvedValue(postedEntry(ORIGINAL_DATE));
     mockCreate.mockResolvedValue({ id: REVERSAL_ID });
     mockPeriodStatus.mockResolvedValue('open');
-    mockSql.mockResolvedValue([]);
+    mockSql.mockImplementation((strings: readonly string[]) =>
+      Promise.resolve(strings.join(' ').includes('reversed_at IS NULL') ? [{ id: 'claimed' }] : []));
   });
 
   /** All SQL text issued during the call, one string per sql`` invocation. */
@@ -188,11 +195,20 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
     expect(del!).toMatch(/company_id/i);
   });
 
-  it('never issues the reversed_at / reversal_of_id link-backs when posting fails', async () => {
+  it('never links the contra back, and gives the reversal claim up, when posting fails', async () => {
+    // The claim is taken BEFORE the contra exists (K-010), so `reversed_at` is
+    // written on the way in. The invariant is not "never written" — it is that a
+    // failed post leaves the original UNMARKED and UNLINKED: the claim is
+    // released, and no reversal_of_id is ever issued. Outside a request
+    // transaction that release is the only thing standing between a failed
+    // attempt and an entry nobody can ever reverse again.
     await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch(() => undefined);
     const text = issuedSql().join(' | ');
-    expect(text).not.toMatch(/reversed_at/i);
     expect(text).not.toMatch(/reversal_of_id/i);
+    const release = issuedSql().find((t) => /reversed_at\s*=\s*NULL/i.test(t));
+    expect(release, 'a failed post must release the reversal claim').toBeDefined();
+    expect(release!).toMatch(/reversed_by\s*=\s*NULL/i);
+    expect(release!).toMatch(/company_id/i);
   });
 });
 

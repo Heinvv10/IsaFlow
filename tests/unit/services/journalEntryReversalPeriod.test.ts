@@ -15,7 +15,13 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {
+  // reverseJournalEntry claims the reversal with a predicated UPDATE before it
+  // creates the contra; one row back means this caller won it. Everything else
+  // this suite exercises is indifferent to the rows returned.
+  const sqlMock = Object.assign(
+    vi.fn((strings: readonly string[]) =>
+      Promise.resolve(strings.join(' ').includes('reversed_at IS NULL') ? [{ id: 'claimed' }] : [])),
+    {
     transaction: vi.fn(),
     unsafe: vi.fn((s: string) => s),
   });
