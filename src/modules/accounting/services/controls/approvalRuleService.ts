@@ -3,6 +3,7 @@ import type {operationRuleType} from './operationPermissions';
 import { canonicalMoney } from './canonical';
 import { assertControlTx } from './context';
 import type { ControlTx, PolicyBinding } from './contracts';
+const Money = Decimal.clone({ precision: 80 });
 
 export interface ApprovalRuleRow {
   id: string; document_type: string; condition_field: string; condition_operator: string;
@@ -13,7 +14,7 @@ export interface ApprovalRuleRow {
 
 export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: string | null,
   priorExposure: ReadonlyMap<string, string>): PolicyBinding[] {
-  const value = amount === null ? null : new Decimal(canonicalMoney(amount));
+  const value = amount === null ? null : new Money(canonicalMoney(amount));
   const matches: PolicyBinding[] = [];
   for (const rule of rules) {
     if (rule.is_active !== true) continue;
@@ -24,7 +25,7 @@ export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: st
         || (rule.aggregate_window_days === 1 && rule.aggregate_by === 'supplier'))) {
       throw new Error('Unsupported approval policy');
     }
-    const threshold = new Decimal(canonicalMoney(String(rule.condition_value)));
+    const threshold = new Money(canonicalMoney(String(rule.condition_value)));
     if (threshold.isNegative()) throw new Error('Invalid approval policy threshold');
     if (value === null && (rule.condition_operator !== 'any' || rule.aggregate_window_days !== null)) {
       throw new Error('Monetary approval policy cannot evaluate a nonfinancial operation');

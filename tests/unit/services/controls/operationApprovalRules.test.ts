@@ -17,6 +17,12 @@ it('applies the configured daily supplier aggregate to resist split payments', (
   const aggregate = { ...rule, aggregate_window_days: 1, aggregate_by: 'supplier' };
   expect(matchApprovalRules([aggregate], '6000', new Map([['rule-a', '6000']]))).toHaveLength(1);
 });
+it('does not round away small prior exposure at a large exact threshold', () => {
+  const aggregate = { ...rule, aggregate_window_days: 1, aggregate_by: 'supplier',
+    condition_value: '9007199254740993.000000005' };
+  expect(matchApprovalRules([aggregate], '9007199254740993', new Map([['rule-a', '0.00000001']])))
+    .toHaveLength(1);
+});
 it.each([
   { condition_operator: 'unsupported' }, { condition_field: 'caller_amount' },
   { control_version: 0 }, { approver_role: '' }, { aggregate_window_days: 30 },
