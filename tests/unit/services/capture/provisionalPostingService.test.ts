@@ -361,6 +361,10 @@ describe('postProvisional', () => {
       [{ vat_input_denied: false, account_code: '5700', account_name: 'Electricity & Water' }] as never,
     );
     vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Electricity & Water' }] as never);
+    // THIRD guard read, and only on a code that survived the other two: the
+    // contra's subtype, because a rule whose contra IS a bank account is a
+    // transfer and claims nothing. An expense account, so the claim stands.
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_subtype: 'default_expense' }] as never);
     // vat_input lookup fails — system account not configured
     vi.mocked(getSystemAccountId).mockRejectedValueOnce(
       new Error('system account vat_input not configured'),
