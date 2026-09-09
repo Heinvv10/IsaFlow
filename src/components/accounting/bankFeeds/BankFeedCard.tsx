@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import {
   PROVIDER_LABELS, STATUS_STYLES, SYNC_STATUS_STYLES, fmtDate,
+  isUnsupportedProvider,
   type BankFeedConnection, type SyncLog,
 } from './bankFeedTypes';
 
@@ -96,6 +97,7 @@ export function BankFeedCard({
   connection: conn, logs, logsOpen, logsLoading,
   isSyncing, isDeleting, onSync, onDelete, onToggleLogs,
 }: Props) {
+  const unsupported = isUnsupportedProvider(conn.provider);
   const statusStyle = STATUS_STYLES[conn.status] ?? STATUS_STYLES['active']!;
   const syncStyle = conn.lastSyncStatus ? (SYNC_STATUS_STYLES[conn.lastSyncStatus] ?? null) : null;
   const isExtension = conn.provider === 'extension';
@@ -150,6 +152,12 @@ export function BankFeedCard({
                   {conn.lastSyncError}
                 </p>
               )}
+              {unsupported && (
+                <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                  Not supported — this provider was never implemented and imports nothing.
+                </p>
+              )}
             </div>
           </div>
 
@@ -164,9 +172,9 @@ export function BankFeedCard({
             )}
             <button
               onClick={triggerSync}
-              disabled={isSyncing}
-              title="Sync Now"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+              disabled={isSyncing || unsupported}
+              title={unsupported ? 'This provider is not supported — syncing imports nothing' : 'Sync Now'}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSyncing
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

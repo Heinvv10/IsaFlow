@@ -1,16 +1,13 @@
-/**
- * Supplier Statement Detail Page
- * Full AP transaction history with running balance for a single supplier
- */
-
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
+import { fmtDate } from '@/lib/fmtDate';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { TypeBadge, getTransactionUrl, type SupplierInfo, type Summary } from '@/components/accounting/supplierStatementParts';
 
 interface Transaction {
   id: number | string;
@@ -23,51 +20,12 @@ interface Transaction {
   balance: number;
 }
 
-interface SupplierInfo {
-  id: number;
-  name: string;
-  email: string | null;
-  phone: string | null;
-}
-
-interface Summary {
-  totalInvoiced: number;
-  totalPaid: number;
-  totalReturns: number;
-  balance: number;
-}
-
 type TypeFilter = 'all' | 'invoice' | 'payment' | 'debit_note';
-
-function getTransactionUrl(txn: Transaction): string | null {
-  switch (txn.type) {
-    case 'invoice': return `/accounting/supplier-invoices/${txn.id}`;
-    case 'payment': return `/accounting/supplier-payments/${txn.id}`;
-    default: return null;
-  }
-}
-
-function TypeBadge({ type }: { type: string }) {
-  const styles: Record<string, string> = {
-    invoice: 'bg-blue-500/10 text-blue-400',
-    payment: 'bg-teal-500/10 text-teal-400',
-    debit_note: 'bg-amber-500/10 text-amber-400',
-  };
-  const labels: Record<string, string> = {
-    invoice: 'Invoice',
-    payment: 'Payment',
-    debit_note: 'Debit Note',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[type] || ''}`}>
-      {labels[type] || type}
-    </span>
-  );
-}
 
 export default function SupplierStatementDetailPage() {
   const router = useRouter();
   const supplierId = router.query.supplierId as string;
+  const asAtDate = typeof router.query.as_at_date === 'string' ? router.query.as_at_date : fmtDate(new Date());
 
   const [supplier, setSupplier] = useState<SupplierInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -77,25 +35,31 @@ export default function SupplierStatementDetailPage() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
 
-  const load = useCallback(async () => {
-    if (!supplierId) return;
-    setIsLoading(true);
-    setError('');
-    try {
-      const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}`);
-      const json = await res.json();
-      const data = json.data || json;
-      setSupplier(data.supplier || null);
-      setTransactions(data.transactions || []);
-      setSummary(data.summary || null);
-    } catch {
-      setError('Failed to load supplier statement');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [supplierId]);
-
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!router.isReady) return;
+    let active = true;
+    const load = async () => {
+      if (!supplierId) return;
+      setIsLoading(true);
+      setError('');
+      try {
+        const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}&as_at_date=${encodeURIComponent(asAtDate)}`);
+        await assertOk(res, 'Failed to load supplier statement');
+        const json = await res.json();
+        const data = json.data || json;
+        if (!active) return;
+        setSupplier(data.supplier || null);
+        setTransactions(data.transactions || []);
+        setSummary(data.summary || null);
+      } catch {
+        if (active) setError('Failed to load supplier statement');
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [supplierId, asAtDate, router.isReady]);
 
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;
@@ -112,7 +76,7 @@ export default function SupplierStatementDetailPage() {
   }, [transactions, search, typeFilter]);
 
   function handleExportCSV() {
-    if (!supplier || transactions.length === 0) return;
+    if (isLoading || error || !supplier || transactions.length === 0) return;
     const header = 'Date,Type,Reference,Description,Debit,Credit,Balance';
     const rows = transactions.map(t =>
       [formatDate(t.date), t.type, `"${t.reference}"`, `"${(t.description || '').replace(/"/g, '""')}"`,
@@ -129,7 +93,7 @@ export default function SupplierStatementDetailPage() {
   }
 
   async function handleDownloadPDF() {
-    if (!supplier || !summary || transactions.length === 0) return;
+    if (isLoading || error || !supplier || !summary || transactions.length === 0) return;
     const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
     let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
     try {
@@ -145,7 +109,7 @@ export default function SupplierStatementDetailPage() {
       clientName: supplier.name,
       clientEmail: supplier.email || undefined,
       clientPhone: supplier.phone || undefined,
-      asAtDate: new Date().toISOString().split('T')[0] ?? '',
+      asAtDate,
       totalInvoiced: summary.totalInvoiced,
       totalPaid: summary.totalPaid,
       totalCredits: summary.totalReturns,
@@ -178,7 +142,7 @@ export default function SupplierStatementDetailPage() {
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Link href="/accounting/supplier-statements" className="p-3 rounded-lg hover:bg-[var(--ff-bg-tertiary)] transition-colors" title="Back to Supplier Statements">
+                <Link href={`/accounting/supplier-statements?as_at_date=${asAtDate}`} className="p-3 rounded-lg hover:bg-[var(--ff-bg-tertiary)] transition-colors" title="Back to Supplier Statements">
                   <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" aria-hidden="true" />
                   <span className="sr-only">Back to Supplier Statements</span>
                 </Link>
@@ -189,16 +153,16 @@ export default function SupplierStatementDetailPage() {
                   <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">
                     {supplier?.name || 'Supplier Statement'}
                   </h1>
-                  <p className="text-sm text-[var(--ff-text-secondary)]">Full AP transaction history</p>
+                  <p className="text-sm text-[var(--ff-text-secondary)]">AP transaction history as at {asAtDate}</p>
                 </div>
               </div>
               {transactions.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <button onClick={handleDownloadPDF}
+                  <button onClick={handleDownloadPDF} disabled={isLoading || Boolean(error)}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-sm font-medium">
                     <FileText className="h-4 w-4" /> PDF
                   </button>
-                  <button onClick={handleExportCSV}
+                  <button onClick={handleExportCSV} disabled={isLoading || Boolean(error)}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-sm font-medium">
                     <Download className="h-4 w-4" /> CSV
                   </button>

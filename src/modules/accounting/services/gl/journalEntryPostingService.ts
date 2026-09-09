@@ -254,6 +254,7 @@ export async function reverseJournalEntry(
       description: `Reversal: ${l.description || ''}`,
       projectId: l.projectId,
       costCenterId: l.costCenterId,
+      buId: l.buId,
     }));
 
     // A correction belongs in the period it corrects. Dating every reversal to

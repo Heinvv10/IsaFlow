@@ -1,0 +1,47 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k027-tax-depreciation-carry-forward.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Asset depreciation GL posted","timestamp":"2026-09-09T03:42:12.950Z","component":"accounting","data":{"assetId":"ed5564b5-4b39-4c45-8c71-2a24048cddb3","entryId":"93af69c2-3f4d-4321-9424-3ff93a628191","depreciationAmount":1000}}
+{"level":"info","message":"Dual depreciation ledger updated","timestamp":"2026-09-09T03:42:12.953Z","component":"accounting","data":{"assetId":"ed5564b5-4b39-4c45-8c71-2a24048cddb3","yyyymm":"202601","policyDep":1000,"taxDep":2000}}
+{"level":"info","message":"Dual depreciation run completed","timestamp":"2026-09-09T03:42:12.953Z","component":"accounting","data":{"processed":1,"skipped":0,"glFailed":0,"total":1,"periodDate":"2026-01-31"}}
+{"level":"info","message":"Asset depreciation GL posted","timestamp":"2026-09-09T03:42:13.019Z","component":"accounting","data":{"assetId":"ed5564b5-4b39-4c45-8c71-2a24048cddb3","entryId":"5277882e-ff5a-434a-b9bf-2e646a6f1d48","depreciationAmount":1000}}
+{"level":"info","message":"Dual depreciation ledger updated","timestamp":"2026-09-09T03:42:13.019Z","component":"accounting","data":{"assetId":"ed5564b5-4b39-4c45-8c71-2a24048cddb3","yyyymm":"202602","policyDep":1000,"taxDep":2000}}
+{"level":"info","message":"Dual depreciation run completed","timestamp":"2026-09-09T03:42:13.019Z","component":"accounting","data":{"processed":1,"skipped":0,"glFailed":0,"total":1,"periodDate":"2026-02-28"}}
+ ❯ tests/integration/k027-tax-depreciation-carry-forward.int.test.ts (3 tests | 2 failed) 354ms
+   × the run writes the tax accumulation back to the asset 7ms
+   × February opens on January closing tax accumulated depreciation, not on zero 60ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k027-tax-depreciation-carry-forward.int.test.ts > the run writes the tax accumulation back to the asset
+AssertionError: expected +0 to be close to 2000, received difference is 2000, but expected 0.005
+ ❯ tests/integration/k027-tax-depreciation-carry-forward.int.test.ts:99:27
+     97|   expect(rows[0].pol_acc).toBeGreaterThan(0);
+     98|   // Tax side is not — this is the defect.
+     99|   expect(rows[0].tax_acc).toBeCloseTo(MONTHLY_TAX_DEP, 2);
+       |                           ^
+    100| });
+    101|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k027-tax-depreciation-carry-forward.int.test.ts > February opens on January closing tax accumulated depreciation, not on zero
+AssertionError: expected +0 to be close to 2000, received difference is 2000, but expected 0.005
+ ❯ tests/integration/k027-tax-depreciation-carry-forward.int.test.ts:113:27
+    111|   expect(rows[0].closing).toBeCloseTo(MONTHLY_TAX_DEP, 2);
+    112|   // February must open where January closed.
+    113|   expect(rows[1].opening).toBeCloseTo(MONTHLY_TAX_DEP, 2);
+       |                           ^
+    114|   expect(rows[1].closing).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
+    115|   expect(rows[1].carrying).toBeCloseTo(COST - MONTHLY_TAX_DEP * 2, 2);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  05:42:12
+   Duration  932ms (transform 280ms, setup 0ms, import 385ms, tests 354ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

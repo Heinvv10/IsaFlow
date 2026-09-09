@@ -1,0 +1,28 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts (1 test | 1 failed) 236ms
+     × moves the payable by the same amount the cash and the document carry 76ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts > K-016 VAT code on a supplier bank allocation relieves AP net > moves the payable by the same amount the cash and the document carry
+AssertionError: expected 100 to be close to 115, received difference is 15, but expected 0.005
+ ❯ tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts:136:19
+    134|     // THE CLAIM: the control account must move by that same gross amo…
+    135|     // the input tax must not be claimed a second time on a payment.
+    136|     expect(ap.dr).toBeCloseTo(115, 2);
+       |                   ^
+    137|     expect(vat.dr).toBeCloseTo(0, 2);
+    138|   }, 60000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  05:40:28
+   Duration  887ms (transform 332ms, setup 0ms, import 466ms, tests 236ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

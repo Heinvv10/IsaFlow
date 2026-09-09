@@ -51,6 +51,11 @@ export interface AutoPostLineInput {
    * per-line resolver rather than treating undefined as "nothing to check".
    */
   ruleGlAccountName?: string | null;
+  /**
+   * Whether the rule's contra account IS a bank account. Pre-resolved by the
+   * sweep; undefined means "look it up per line", never "not a bank".
+   */
+  ruleGlAccountIsBank?: boolean;
   ruleName: string;
   allocType: RuleAllocType;
   ruleGlAccountId: string | null;
@@ -125,6 +130,7 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     glAccountId: ruleGlAccountId,
     ruleGlAccountVatDenied: input.ruleGlAccountVatDenied,
     ruleGlAccountName: input.ruleGlAccountName,
+    ruleGlAccountIsBank: input.ruleGlAccountIsBank,
     denialContext,
     guardContext: { bankTxId: String(tx.id), ruleName, glAccountId: ruleGlAccountId ?? undefined },
   });

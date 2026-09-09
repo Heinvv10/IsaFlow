@@ -1,0 +1,71 @@
+=== MUTATION 1: pre-flight call removed (savepoint intact) ===
+     × refuses BEFORE the unwind when the fallback reversal date has no open period 60ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected '{"success":false,"error":{"code":"BAD…' to match /fiscal period covering \d{4}-\d{2}-\d…/
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+=== MUTATION 2: savepoint removed (pre-flight intact) ===
+     × rolls the unwind back when the contra fails for a reason the pre-flight cannot see 43ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { bankTxStatus: 'allocated', …(5) } to deeply equal { bankTxStatus: 'allocated', …(5) }
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+=== MUTATION 3: BOTH removed (origin/master behaviour) ===
+     × leaves the subledger untouched when the contra journal cannot be posted 56ms
+     × rolls the unwind back when the contra fails for a reason the pre-flight cannot see 41ms
+     × refuses BEFORE the unwind when the fallback reversal date has no open period 38ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  3 failed | 3 passed (6)
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+ .../services/bank/bankAllocationService.ts         | 107 +++++++++++++++------
+ 1 file changed, 75 insertions(+), 32 deletions(-)
+=== FINAL: full unit suite ===
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+=== FINAL: tsc --noEmit exit 0; bun run lint 0 errors / 11 pre-existing warnings ===
+
+=== FULL UNIT SUITE, no DATABASE_URL / fixture env in the shell ===
+$ unset DATABASE_URL PLATFORM_ADMIN_DATABASE_URL ISAFLOW_DISPOSABLE_AUTH_TEST GOTRUE_URL JWT_SECRET ENCRYPTION_KEY DATABASE_SSL
+
+The full suite does not give a stable number on this box. Observed across runs:
+  bun run test:unit   ->  0 failed (9320 passed)
+  bun run test:unit   ->  1 failed (cashFlowReport.test.ts)
+  bunx vitest run     -> 10 failed across 5 files
+An earlier note in this file claimed the failures were specific to `bunx` and
+clean under the repo's own script. THAT WAS WRONG, and the blind review caught
+it (L7): the reviewer ran `bun run test:unit` three times at this tip and got
+7, 8 and 7 failures with a DIFFERENT file set each time, and saw a failure on a
+worktree that does not carry this change at all.
+
+The failure mode is `Error: Test timed out in 10000ms`, never an assertion, and
+every file named passes when run on its own. This box runs several parallel
+Claude sessions, so the suite is competing for CPU. Read as load flakiness, not
+as a result attributable to this change. A trustworthy full-suite number needs
+a quiet machine.
+
+Files named in at least one failing run, all green in isolation:
+  tests/unit/services/cashFlowReport.test.ts
+  tests/unit/components/trackerExclusion.test.ts
+  tests/unit/services/bankAllocationService.test.ts
+  tests/unit/services/bank/bankAllocationDateShift.test.ts
+  tests/unit/services/bank/bankAllocationUnwind.test.ts
+  tests/unit/services/paymentVoidService.test.ts
+
+=== TARGETED SUITES (deterministic, run repeatedly) ===
+bunx vitest run tests/unit/services/bank/ tests/unit/services/bankAllocationService.test.ts \
+                tests/unit/services/bankAllocationBatchStamp.test.ts -> 24 files, 221 passed / 1 skipped
+bunx vitest run tests/unit/services/paymentVoidService.test.ts tests/unit/mcp/voidPaymentTools.test.ts -> 25 passed
+bunx tsc --noEmit -> exit 0
+bun run lint -> 0 errors, 11 pre-existing warnings (none in changed files)
+
+=== MUTATION MATRIX, review round (7 integration tests) ===
+M-A  pre-flight refuses no_period too (the MEDIUM regression reinstated)
+     -> 1 failed: "still reverses when NO period covers today"
+M-B  pre-flight call removed
+     -> 1 failed: "refuses BEFORE the unwind when the fallback reversal date has no open period"
+M-C  savepoint removed
+     -> 1 failed: "rolls the unwind back when the contra fails for a reason the pre-flight cannot see"
+RESTORED -> 2 files, 7 tests passed

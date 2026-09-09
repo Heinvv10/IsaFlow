@@ -37,6 +37,17 @@ export interface BankAccount {
   accountName: string;
 }
 
+/**
+ * basiq | tink | plaid never had an integration behind them. New connections
+ * are refused by the API; legacy rows still render, so the card disables Sync
+ * for them rather than letting the user trigger a guaranteed failure.
+ */
+export const UNSUPPORTED_PROVIDERS: readonly Provider[] = ['basiq', 'tink', 'plaid'];
+
+export function isUnsupportedProvider(provider: Provider): boolean {
+  return UNSUPPORTED_PROVIDERS.includes(provider);
+}
+
 export const PROVIDER_LABELS: Record<Provider, string> = {
   manual_csv: 'Manual CSV Upload',
   basiq: 'Basiq (Open Banking AU/ZA)',
@@ -47,9 +58,9 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
 
 export const PROVIDER_DESCRIPTIONS: Record<Provider, string> = {
   manual_csv: 'Import bank statements manually via CSV file upload.',
-  basiq: 'Connect directly to SA/AU banks via the Basiq API (requires Basiq API key).',
-  tink: 'Connect to European banks via Tink Open Banking (requires Tink credentials).',
-  plaid: 'Connect to US and international banks via Plaid (requires Plaid credentials).',
+  basiq: 'Not supported — the Basiq integration was never built.',
+  tink: 'Not supported — the Tink integration was never built.',
+  plaid: 'Not supported — the Plaid integration was never built.',
   extension: 'Use the IsaFlow Bank Connector Chrome extension to import from your authenticated bank session. No credentials leave your browser.',
 };
 

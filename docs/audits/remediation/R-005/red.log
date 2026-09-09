@@ -1,0 +1,72 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-024
+
+{"level":"info","message":"API Request: GET /api/payroll/emp501/reconciliation","timestamp":"2026-09-09T07:08:00.783Z","component":"API","requestId":"01M22FXDWDAX3R8QDHFB6FKR79","data":{"type":"request","method":"GET","url":"/api/payroll/emp501/reconciliation","query":{"taxYear":"2026"}}}
+{"level":"info","message":"API Response: GET /api/payroll/emp501/reconciliation - 200 (9ms)","timestamp":"2026-09-09T07:08:00.791Z","component":"API","requestId":"01M22FXDWDAX3R8QDHFB6FKR79","data":{"type":"response","method":"GET","url":"/api/payroll/emp501/reconciliation","statusCode":200,"duration":"9ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T07:08:00.794Z","component":"http","requestId":"01M22FXDWDAX3R8QDHFB6FKR79","data":{"event":"request_completed","route":"/api/payroll/emp501/reconciliation","method":"GET","status":200,"durationMs":12,"userId":"63d9ded9-dcb3-4888-be16-8b55bebdf5ae","companyId":"242ad52b-c13a-4d8a-8c61-4952079bb993","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/payroll/emp501/reconciliation","timestamp":"2026-09-09T07:08:00.816Z","component":"API","requestId":"01M22FXDXGT710R703MEBFD186","data":{"type":"request","method":"GET","url":"/api/payroll/emp501/reconciliation","query":{"taxYear":"2026"}}}
+{"level":"info","message":"API Response: GET /api/payroll/emp501/reconciliation - 200 (15ms)","timestamp":"2026-09-09T07:08:00.831Z","component":"API","requestId":"01M22FXDXGT710R703MEBFD186","data":{"type":"response","method":"GET","url":"/api/payroll/emp501/reconciliation","statusCode":200,"duration":"15ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T07:08:00.831Z","component":"http","requestId":"01M22FXDXGT710R703MEBFD186","data":{"event":"request_completed","route":"/api/payroll/emp501/reconciliation","method":"GET","status":200,"durationMs":15,"userId":"63d9ded9-dcb3-4888-be16-8b55bebdf5ae","companyId":"242ad52b-c13a-4d8a-8c61-4952079bb993","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/payroll/emp501/export","timestamp":"2026-09-09T07:08:00.841Z","component":"API","requestId":"01M22FXDY9DESEN6J9BP52QPS6","data":{"type":"request","method":"GET","url":"/api/payroll/emp501/export","query":{"taxYear":"2026"}}}
+{"level":"info","message":"EMP501 export requested","timestamp":"2026-09-09T07:08:00.841Z","component":"emp501Export","requestId":"01M22FXDY9DESEN6J9BP52QPS6","data":{"companyId":"242ad52b-c13a-4d8a-8c61-4952079bb993","taxYear":2026}}
+{"level":"info","message":"API Response: GET /api/payroll/emp501/export - 200 (2ms)","timestamp":"2026-09-09T07:08:00.843Z","component":"API","requestId":"01M22FXDY9DESEN6J9BP52QPS6","data":{"type":"response","method":"GET","url":"/api/payroll/emp501/export","statusCode":200,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T07:08:00.843Z","component":"http","requestId":"01M22FXDY9DESEN6J9BP52QPS6","data":{"event":"request_completed","route":"/api/payroll/emp501/export","method":"GET","status":200,"durationMs":2,"userId":"63d9ded9-dcb3-4888-be16-8b55bebdf5ae","companyId":"242ad52b-c13a-4d8a-8c61-4952079bb993","outcome":"ok"}}
+ ❯ tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts (2 tests | 2 failed) 577ms
+   × reconciles only approved/paid runs, month by month 104ms
+   × agrees with the EMP501 export it reconciles 33ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts > reconciles only approved/paid runs, month by month
+AssertionError: expected { month: 6, …(6) } to match object { emp201Paye: 2000, …(2) }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "emp201Paye": 2000,
+-   "irp5Paye": 2000,
+-   "status": "balanced",
++   "emp201Paye": 0,
++   "irp5Paye": 0,
++   "status": "no_data",
+  }
+
+ ❯ tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts:136:35
+    134|   // Approved March and paid June are declarable.
+    135|   expect(byLabel.get('Mar 2025')).toMatchObject({ emp201Paye: 1000, ir…
+    136|   expect(byLabel.get('Jun 2025')).toMatchObject({ emp201Paye: 2000, ir…
+       |                                   ^
+    137|   // Calculated April and cancelled May are not.
+    138|   expect(byLabel.get('Apr 2025')).toMatchObject({ emp201Paye: 0, irp5P…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts > agrees with the EMP501 export it reconciles
+AssertionError: expected 201000 to be 3000 // Object.is equality
+
+- Expected
++ Received
+
+- 3000
++ 201000
+
+ ❯ tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts:155:31
+    153|     .reduce((sum, line) => sum + Number(line.split(',')[3]), 0);
+    154|   expect(exportedPaye).toBe(3000);
+    155|   expect(summary.totalEmp201).toBe(exportedPaye);
+       |                               ^
+    156|   expect(summary.totalIrp5).toBe(exportedPaye);
+    157|   expect(summary.totalVariance).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  09:07:57
+   Duration  3.28s (transform 1.17s, setup 0ms, import 2.25s, tests 577ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

@@ -1,0 +1,26 @@
+K-024 GREEN — annual SARS exports filtered to EMP201_DECLARABLE_STATUSES
+
+Branch: fix/audit-k024-annual-export-declarable (off origin/master f57f71a7)
+
+1) RED confirmed on branch head before the fix (real Postgres fixture):
+   tests/integration/k024-annual-export-declarable-status.int.test.ts — 2 failed / 2.
+   IRP5 emitted 3601,1210000 (expected 3601,10000); EMP501 emitted 1210000.00 gross.
+
+2) GREEN after the fix, with adjacent cases added (paid included, prior tax year
+   excluded, second tenant excluded):
+   Test Files 1 passed (1) / Tests 2 passed (2)
+
+3) Mutation check — both `AND prh.status = ANY(${declarableStatuses}::text[])`
+   predicates replaced with `-- MUTATED`:
+   Test Files 1 failed (1) / Tests 2 failed (2)   → restored, grep MUTATED = 0.
+
+4) bunx tsc --noEmit — clean (no output).
+   bunx eslint pages/api/payroll/irp5/easyfile-export.ts pages/api/payroll/emp501/export.ts — clean.
+
+5) Full unit suite, DATABASE_URL unset:
+   Test Files  2 failed | 785 passed | 36 skipped (823)
+   Tests       2 failed | 9333 passed | 234 skipped (9569)
+   The failing files (bankAllocationUnwind, trackerExclusion, bankAllocationService,
+   cashFlowReport) are 10s timeouts under parallel-agent load, and the set differed
+   between two runs of the same tree. Re-run in isolation on this branch:
+   Test Files 4 passed (4) / Tests 24 passed (24). Unrelated to this change.
