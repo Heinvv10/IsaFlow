@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { checkCapitalizationThreshold } from '@/modules/accounting/services/items/farDepreciationService';
@@ -46,17 +46,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { assetId } = req.body as { assetId?: string };
     if (!assetId) return apiResponse.badRequest(res, 'assetId is required');
 
+    // FOR UPDATE: the already-expensed check below is only meaningful while the
+    // row is held. postCapitalizationExpenseToGL sets below_threshold = true only
+    // AFTER posting, so two concurrent requests would otherwise both read false
+    // and both post an expense journal for the same asset. OF a: the LEFT JOIN
+    // must not be locked (and asset_categories is a shared reference table).
     const assetRows = (await sql`
-      SELECT a.id, a.purchase_price AS cost, a.status,
+      SELECT a.id, a.purchase_price AS cost, a.status, a.below_threshold,
              COALESCE(c.capitalization_threshold, 5000) AS threshold
       FROM assets a
       LEFT JOIN asset_categories c ON c.id = a.category_id
       WHERE a.id = ${assetId}::UUID AND a.company_id = ${companyId}::UUID
+      FOR UPDATE OF a
     `) as Row[];
 
     if (!assetRows[0]) return apiResponse.notFound(res, 'Asset not found');
 
     const asset = assetRows[0];
+    if (asset.below_threshold === true) {
+      return apiResponse.badRequest(res, 'Asset has already been expensed');
+    }
+
     const cost = Number(asset.cost);
     const threshold = Number(asset.threshold);
 
@@ -72,4 +82,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
 }
 
-export default withAuth(withCsrf(withErrorHandler(handler)));
+// withWriteAccess (owner/admin/manager) was missing: the POST branch posts a GL
+// journal, so a company `viewer` could write to the ledger through this route.
+export default withAuth(
+  withCsrf(withErrorHandler(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))),
+);

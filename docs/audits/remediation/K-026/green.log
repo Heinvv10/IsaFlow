@@ -1,0 +1,25 @@
+K-026 GREEN evidence
+
+Integration (real Postgres, fixture DB, handler through withAuth):
+  bun run test:integration -- tests/integration/k026-below-threshold-expense-repeat.int.test.ts
+  Test Files  1 passed (1)
+  Tests  7 passed (7)
+
+Mutation check A - production file reverted to origin/master, tests re-run:
+  Test Files  1 failed (1)
+  Tests  5 failed | 2 passed (7)
+
+Mutation check B - only `FOR UPDATE OF a` removed (guard + withWriteAccess kept):
+  × two concurrent requests for the same asset post ONE journal
+  Test Files  1 failed (1)
+  Tests  1 failed | 6 passed (7)
+  (proves the lock, not just the boolean guard, carries the concurrent case)
+
+Production file restored; 7/7 green again.
+
+Full unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run):
+  Test Files  790 passed | 36 skipped (826)
+  Tests  9391 passed | 234 skipped (9625)
+
+bunx tsc --noEmit           exit 0
+bunx eslint <changed file>  exit 0
