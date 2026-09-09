@@ -76,7 +76,7 @@ export default function SupplierStatementDetailPage() {
   }, [transactions, search, typeFilter]);
 
   function handleExportCSV() {
-    if (!supplier || transactions.length === 0) return;
+    if (isLoading || error || !supplier || transactions.length === 0) return;
     const header = 'Date,Type,Reference,Description,Debit,Credit,Balance';
     const rows = transactions.map(t =>
       [formatDate(t.date), t.type, `"${t.reference}"`, `"${(t.description || '').replace(/"/g, '""')}"`,
@@ -93,7 +93,7 @@ export default function SupplierStatementDetailPage() {
   }
 
   async function handleDownloadPDF() {
-    if (!supplier || !summary || transactions.length === 0) return;
+    if (isLoading || error || !supplier || !summary || transactions.length === 0) return;
     const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
     let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
     try {
@@ -158,11 +158,11 @@ export default function SupplierStatementDetailPage() {
               </div>
               {transactions.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <button onClick={handleDownloadPDF}
+                  <button onClick={handleDownloadPDF} disabled={isLoading || Boolean(error)}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-sm font-medium">
                     <FileText className="h-4 w-4" /> PDF
                   </button>
-                  <button onClick={handleExportCSV}
+                  <button onClick={handleExportCSV} disabled={isLoading || Boolean(error)}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-sm font-medium">
                     <Download className="h-4 w-4" /> CSV
                   </button>
