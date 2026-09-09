@@ -22,6 +22,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
   const fiscalPeriodId = req.query.fiscal_period_id as string;
+  const costCentreId = req.query.cost_centre_id as string | undefined;
   if (!fiscalPeriodId) return apiResponse.badRequest(res, 'fiscal_period_id is required');
 
   try {
@@ -32,7 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<CompanyRow[]>,
         sql`SELECT period_name AS name, start_date, end_date FROM fiscal_periods WHERE id = ${fiscalPeriodId}::UUID AND company_id = ${companyId}::UUID LIMIT 1` as Promise<PeriodRow[]>,
       ]),
-      getTrialBalanceReport(companyId, fiscalPeriodId),
+      getTrialBalanceReport(companyId, fiscalPeriodId, { costCentreId: costCentreId || undefined }),
     ]);
     const { rows, totalDebit, totalCredit, difference, balanced } = report;
     const companyName = companyRows[0]?.name ?? 'Company';
