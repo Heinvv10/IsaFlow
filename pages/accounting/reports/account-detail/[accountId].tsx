@@ -25,6 +25,8 @@ import { AccountLedgerSummary } from '@/components/reports/AccountLedgerSummary'
 import { AccountLedgerTable } from '@/components/reports/AccountLedgerTable';
 import type { AccountLedgerResult } from '@/modules/accounting/services/reports/accountLedgerService';
 
+import { accountReportBackHref } from '@/components/reports/reportReturnState';
+
 const PAGE_SIZE = 200;
 
 function fmtDate(d: string): string {
@@ -93,10 +95,7 @@ export default function AccountDetailPage() {
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
 
-  const backHref =
-    sourceParam === 'bs'
-      ? `/accounting/reports/balance-sheet${to ? `?as_at_date=${to}` : ''}`
-      : '/accounting/trial-balance';
+  const backHref = accountReportBackHref(router.query);
   const backLabel = sourceParam === 'bs' ? 'Back to Balance Sheet' : 'Back to Trial Balance';
 
   function goPage(p: number) {
