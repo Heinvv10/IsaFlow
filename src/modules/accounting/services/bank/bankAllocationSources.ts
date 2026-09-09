@@ -47,7 +47,18 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  if(periods.length!==1)throw new Error('Unambiguous bank accounting period required');
  const vatLocks=await ctx.sql`SELECT * FROM vat_period_locks WHERE company_id=${company}::uuid AND period_start<=${bank.transaction_date}::date AND period_end>=${bank.transaction_date}::date ORDER BY id FOR SHARE` as Row[];
  const beneficiary=plan.kind==='supplier'?await getVerifiedBeneficiary(ctx,{entityType:'supplier',entityId:plan.partyId}):null;
- const facts={bank,metadata,ledger,accounts,party,invoices,lines,periods,vatLocks,beneficiary};
+ const receipts=await ctx.sql`SELECT p.* FROM customer_payments p JOIN gl_journal_entries je ON je.company_id=p.company_id AND je.id=p.gl_journal_entry_id
+  WHERE p.company_id=${company}::uuid AND je.source_record_id=${plan.bankTransactionId}::uuid ORDER BY p.id FOR SHARE OF p` as Row[];
+ const disbursements=await ctx.sql`SELECT p.* FROM supplier_payments p JOIN gl_journal_entries je ON je.company_id=p.company_id AND je.id=p.gl_journal_entry_id
+  WHERE p.company_id=${company}::uuid AND je.source_record_id=${plan.bankTransactionId}::uuid ORDER BY p.id FOR SHARE OF p` as Row[];
+ const receiptAllocations=await ctx.sql`SELECT a.* FROM customer_payment_allocations a JOIN customer_payments p ON p.id=a.payment_id JOIN gl_journal_entries je ON je.company_id=p.company_id AND je.id=p.gl_journal_entry_id
+  WHERE p.company_id=${company}::uuid AND je.source_record_id=${plan.bankTransactionId}::uuid ORDER BY a.id FOR SHARE OF a` as Row[];
+ const paymentAllocations=await ctx.sql`SELECT a.* FROM payment_allocations a JOIN supplier_payments p ON p.id=a.payment_id JOIN gl_journal_entries je ON je.company_id=p.company_id AND je.id=p.gl_journal_entry_id
+  WHERE p.company_id=${company}::uuid AND je.source_record_id=${plan.bankTransactionId}::uuid ORDER BY a.id FOR SHARE OF a` as Row[];
+ const generated=await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${company}::uuid AND source_record_id=${plan.bankTransactionId}::uuid AND status='posted' ORDER BY id LIMIT 101 FOR SHARE` as {id:string}[];
+ if(generated.length>100)throw new Error('Bank allocation journal population exceeds limit');
+ const generatedJournals=[];for(const journal of generated)generatedJournals.push((await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:journal.id,operation:'journal.post'})).observedSources);
+ const facts={bank,metadata,ledger,accounts,party,invoices,lines,periods,vatLocks,beneficiary,receipts,disbursements,receiptAllocations,paymentAllocations,generatedJournals};
  return{...facts,fingerprint:createHash('sha256').update(canonicalJson(facts)).digest('hex')};
 }
 export type BankAllocationSources=Awaited<ReturnType<typeof loadBankAllocationSources>>;

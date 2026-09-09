@@ -1,43 +1,11 @@
-/**
- * Allocating an outgoing bank line to the supplier bills it settles, in one
- * operation.
- *
- * THE ASYMMETRY THIS CLOSES. `allocateTransaction` with `allocType='customer'`
- * inserts a `customer_payments` row alongside its journal, so a receipt at
- * least has a document. With `allocType='supplier'` it inserts NOTHING — it
- * posts DR Accounts Payable / CR Bank and calls `recordPaymentMatch`, which
- * sets a `payment_matched` boolean and leaves `amount_paid` and `status`
- * untouched. There is no payment document at all, so the bill can never be
- * reconciled back to the cash that paid it. That is how seventeen bills read as
- * wholly open against a Sage book showing every one paid.
- *
- * So this creates the missing document: one `supplier_payments` row at status
- * `processed`, carrying the journal the allocation posted, and then applies it
- * through the same service the "cash already in the ledger" path uses. It does
- * NOT post a second journal — `allocateTransaction` posted the only one.
- *
- * SINCE THE AUTO-ALLOCATION CHANGE, this is no longer the only writer of that
- * document. `allocateTransaction` creates a `supplier_payments` row itself when
- * a supplier line names NO invoice, and applies it only if the supplier's
- * `auto_allocate_strategy` says to (see `ap/supplierAutoAllocate.ts`). The two
- * cannot collide: this path always passes an `invoiceId`, and that is exactly
- * the condition under which `allocateTransaction` creates nothing.
- *
- * Guard order is load-bearing. `validateBankSupplierPayment` reads and refuses
- * everything BEFORE `allocateTransaction`, so an MCP handler can answer with
- * `toolError` while nothing has been written. After that call nothing is
- * caught: the savepoint unwinds on a throw and not on a returned error.
- */
-
+/** Supplier bank matching executes its immutable application plan inside the bank parent effect. */
 import { sql } from '@/lib/neon';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { DbRow } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import { fetchBankTransaction } from '../bank/bankMatchDbQueries';
 import { getBankTransactionStatus } from '../bank/bankTransactionLookupService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { allocateTransaction } from '../bank/bankAllocationService';
-import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import {
   EPS,
   planSupplierAllocationLines,
@@ -45,10 +13,6 @@ import {
   type SupplierAllocationInput,
   type SupplierApplicationLine,
 } from './supplierAllocationLines';
-import {
-  applySupplierPaymentPlan,
-  planSupplierPaymentApplication,
-} from './supplierPaymentApplicationService';
 
 export interface BankSupplierPaymentValidation {
   bankTxId: string;
@@ -163,83 +127,11 @@ export async function applyBankLineToSupplierInvoices(
     postingOpts?: PostingActorOpts;
   },
 ): Promise<BankSupplierPaymentResult> {
-  const { bankTxId, userId, allocations } = params;
-  const validation = await validateBankSupplierPayment(companyId, bankTxId, allocations);
-
-  const description = validation.lines.length === 1
-    ? `Payment allocated to ${validation.lines[0]!.invoiceNumber}`
-    : `Payment allocated to ${validation.lines.length} supplier invoices`;
-
-  const { journalEntryId } = await allocateTransaction(
-    companyId,
-    bankTxId,
-    null,
-    userId,
-    description,
-    'supplier',
-    validation.supplierId,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    validation.lines[0]!.invoiceId,
-    params.postingOpts ?? (params.postingAgent ? { postingAgent: params.postingAgent } : undefined),
-  );
-
-  // The document allocateTransaction does not create on the AP side. Status is
-  // `processed` because the journal HAS posted — it is the state
-  // processSupplierPayment would have left the payment in — and it carries that
-  // journal so the pair can be reversed together. `payment_number` is left to
-  // trg_sp_payment_number.
-  //
-  // `created_by` must be a real uuid: the column is uuid-typed and a GoTrue
-  // user id is not always one, which is the same trap allocateTransaction works
-  // around for customer_payments.
-  const createdBy = await resolveUserUuid(userId);
-  const bankAccountRows = (await sql`
-    SELECT bank_account_id FROM bank_transactions
-    WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  const bankAccountId = bankAccountRows[0]?.bank_account_id
-    ? String(bankAccountRows[0]!.bank_account_id)
-    : null;
-
-  const paymentRows = (await sql`
-    INSERT INTO supplier_payments (
-      company_id, supplier_id, payment_date, total_amount, payment_method,
-      bank_account_id, reference, description, status, gl_journal_entry_id,
-      created_by, approved_by, approved_at, processed_at
-    ) VALUES (
-      ${companyId}::UUID, ${validation.supplierId}::UUID, ${validation.transactionDate},
-      ${validation.paymentAmount}, 'eft',
-      ${bankAccountId}::UUID, ${bankTxId}, ${description}, 'processed',
-      ${journalEntryId}::UUID,
-      ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
-    )
-    RETURNING id, payment_number
-  `) as DbRow[];
-  const paymentId = String(paymentRows[0]!.id);
-
-  const plan = await planSupplierPaymentApplication(companyId, paymentId, allocations);
-  await applySupplierPaymentPlan(companyId, plan, userId);
-
-  log.info('Allocated bank line to supplier invoices', {
-    bankTxId,
-    journalEntryId,
-    supplierPaymentId: paymentId,
-    lines: plan.lines.length,
-    allocatedTotal: validation.allocatedTotal,
-    unappliedRemainder: validation.unappliedRemainder,
-  }, 'accounting');
-
-  return {
-    ...validation,
-    lines: plan.lines,
-    journalEntryId,
-    supplierPaymentId: paymentId,
-    paymentNumber: paymentRows[0]!.payment_number
-      ? String(paymentRows[0]!.payment_number)
-      : '',
-    paymentStatus: plan.paymentStatusAfter,
-  };
+  const {bankTxId,userId,allocations}=params;
+  const validation=await validateBankSupplierPayment(companyId,bankTxId,allocations);
+  const {journalEntryId}=await allocateTransaction(companyId,bankTxId,null,userId,'Matched supplier payment','supplier',validation.supplierId,
+   undefined,undefined,undefined,undefined,undefined,{...params.postingOpts,autoApply:false,applications:allocations.map(a=>({invoiceId:a.invoiceId,amount:String(a.amount)}))});
+  const rows=await sql`SELECT id,status,payment_number FROM supplier_payments WHERE company_id=${companyId}::uuid AND gl_journal_entry_id=${journalEntryId}::uuid` as DbRow[];
+  if(rows.length!==1)throw new Error('Controlled bank payment association unavailable');
+  return{...validation,journalEntryId,supplierPaymentId:String(rows[0]!.id),paymentNumber:String(rows[0]!.payment_number??''),paymentStatus:String(rows[0]!.status)};
 }
