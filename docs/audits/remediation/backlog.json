@@ -1032,7 +1032,7 @@
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
-   "historicalDataImpact": "Not assessed",
+   "historicalDataImpact": "Read-side only and the endpoint has no consumer in the repo (reviewer-verified), so no issued AFS note was produced from it; the filed note comes from a separate generator (R-023).",
    "canonicalItem": null,
    "reportedSeverity": "critical"
   },
@@ -8570,6 +8570,35 @@
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "low"
+  },
+  {
+   "id": "R-023",
+   "claim": "The AFS PPE note that is filed comes from generateNote3PropertyPlantEquipment (reads assets), while pages/api/accounting/assets/afs-summary.ts (ledger-based, no repo consumer) computes the same note differently; the two implementations diverge.",
+   "area": "afs",
+   "affectedPaths": [
+    "src/modules/accounting/services/afs/noteGenerators",
+    "pages/api/accounting/assets/afs-summary.ts"
+   ],
+   "sourceLabel": "Review of K-028 fix",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Reviewer-established: the endpoint K-028 fixed is unconsumed in the repo, so no issued statement came from it; the filed generator has not been validated against the ledger.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "candidate",
+   "dependencies": [
+    "Validate generateNote3PropertyPlantEquipment against the period ledger for prior-year assets, disposals and non-December year ends"
+   ],
+   "testNames": [],
+   "evidencePaths": [
+    "K-028/fix.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
   }
  ],
  "sourceInventory": [
