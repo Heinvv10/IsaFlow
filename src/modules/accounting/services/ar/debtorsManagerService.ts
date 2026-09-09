@@ -82,7 +82,7 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
   try {
     const rows = (await sql`
       SELECT
-        ci.client_id,
+        COALESCE(ci.client_id, ci.customer_id) AS client_id,
         c.name AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         SUM(
@@ -112,11 +112,11 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
         ) AS days90_plus,
         SUM(ci.total_amount - ci.amount_paid) AS total_outstanding
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
+      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
-      GROUP BY ci.client_id, c.name
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY total_outstanding DESC
     `) as Row[];
 
@@ -160,7 +160,7 @@ export async function getDebtorDetail(companyId: string, clientId: string): Prom
         END AS days_overdue
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
-        AND ci.client_id = ${clientId}::UUID
+        AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
       ORDER BY ci.due_date ASC NULLS LAST, ci.invoice_date ASC
@@ -201,7 +201,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
       SELECT
         ci.id,
         ci.invoice_number,
-        ci.client_id,
+        COALESCE(ci.client_id, ci.customer_id) AS client_id,
         c.name AS client_name,
         ci.invoice_date,
         ci.due_date,
@@ -211,7 +211,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
         (CURRENT_DATE - ci.due_date)::int AS days_overdue,
         ci.status
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
+      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId}
         AND ci.due_date IS NOT NULL
         AND ci.due_date < CURRENT_DATE
@@ -257,7 +257,7 @@ export async function getCollectionStats(companyId: string): Promise<CollectionS
           CASE WHEN ci.due_date IS NOT NULL AND ci.due_date < CURRENT_DATE
                THEN (CURRENT_DATE - ci.due_date)::numeric END
         ), 0)                                                             AS avg_days_outstanding,
-        COUNT(DISTINCT ci.client_id)::int                                AS client_count,
+        COUNT(DISTINCT COALESCE(ci.client_id, ci.customer_id))::int      AS client_count,
         COUNT(CASE WHEN ci.due_date < CURRENT_DATE THEN 1 END)::int      AS overdue_count
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
