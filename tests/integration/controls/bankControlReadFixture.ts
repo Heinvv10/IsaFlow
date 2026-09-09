@@ -14,9 +14,9 @@ export async function bankControlReadFixture(){
   void apiResolver(req,res,query,{default:approval?approvalRoute:route},{previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,approval?'/api/accounting/control-approvals':'/api/accounting/bank-control-state')
    .catch(()=>{res.statusCode=500;res.end('Synthetic route failure');});});
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error('Loopback fixture unavailable');
- async function read(bankTransactionId:string,intentId?:string,person:'u1'|'u2'|'u3'='u1'){
+ async function read(bankTransactionId:string|undefined,intentId?:string,person:'u1'|'u2'|'u3'='u1',approvalId?:string){
   const user=f.fixture[person],token=await new SignJWT({role:'authenticated',aal:'aal2'}).setProtectedHeader({alg:'HS256'}).setSubject(user.id).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(process.env.JWT_SECRET));
-  const query=new URLSearchParams({bankTransactionId,...(intentId?{intentId}:{})});
+  const query=new URLSearchParams({...(bankTransactionId?{bankTransactionId}:{}),...(intentId?{intentId}:{}),...(approvalId?{approvalId}:{})});
   const response=await fetch(`http://127.0.0.1:${address.port}/api/accounting/bank-control-state?${query}`,{redirect:'error',headers:{cookie:`sb-access-token=${token}; active_company_id=${user.companyId}`},signal:AbortSignal.timeout(10000)});
   return{status:response.status,body:await response.json()};
  }
