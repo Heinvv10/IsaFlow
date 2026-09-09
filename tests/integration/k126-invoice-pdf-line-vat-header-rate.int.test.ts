@@ -21,6 +21,7 @@ const otherCompany = crypto.randomUUID();
 const invoice = crypto.randomUUID();
 const legacyInvoice = crypto.randomUUID();
 const zeroHeaderInvoice = crypto.randomUUID();
+const uniformZeroInvoice = crypto.randomUUID();
 
 /**
  * jsPDF writes uncompressed content streams: `(text) Tj` in document order.
@@ -95,12 +96,17 @@ beforeAll(async () => {
   // test pins that so a future numeric type-parser cannot turn 0 into 15.
   await seedInvoice(zeroHeaderInvoice, 'K126-INV-3', 0, 100, 0,
     [['Exempt supply', 100, null]]);
+  // Every line zero-rated, header still holding the 15.00 column default. The
+  // lines agree with each other, so `mixedRates` alone never fired and the
+  // label fell back to the header rate that both lines contradict.
+  await seedInvoice(uniformZeroInvoice, 'K126-INV-4', null, 200, 0,
+    [['Export line A', 100, 0], ['Export line B', 100, 0]]);
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id = ANY($1::uuid[])',
-      [[invoice, legacyInvoice, zeroHeaderInvoice]]);
+      [[invoice, legacyInvoice, zeroHeaderInvoice, uniformZeroInvoice]]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, otherCompany]]);
@@ -143,6 +149,16 @@ it('treats a header rate of zero as zero, not as absent', async () => {
 
   expect.soft(vatCellOf(text, 'Exempt supply')).toBe('R 0.00');
   expect(vatLabelOf(text)).toBe('VAT (0%)');
+});
+
+it('states the rate the lines carry, not the header default they contradict', async () => {
+  const text = pdfText(await generateInvoicePdf(company, uniformZeroInvoice));
+
+  expect.soft(vatCellOf(text, 'Export line A')).toBe('R 0.00');
+  expect.soft(vatCellOf(text, 'Export line B')).toBe('R 0.00');
+  // A fully zero-rated export invoice must not claim 15% in its totals block.
+  expect(vatLabelOf(text)).toBe('VAT (0%)');
+  expect(totalsVatOf(text)).toBe('R 0.00');
 });
 
 it('will not render another tenant\'s invoice', async () => {

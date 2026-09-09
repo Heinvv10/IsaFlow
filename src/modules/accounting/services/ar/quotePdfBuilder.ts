@@ -125,9 +125,16 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   // ── Line Items Table ───────────────────────────────────────────────────────
   // customer_quote_lines carries a per-line tax_rate and the table below prints
   // it, so the totals block must not claim a single rate the lines contradict.
+  const headerTaxRate = Number(q.tax_rate ?? 15);
   const lineRate = (line: DbRow): number =>
-    line.tax_rate != null ? Number(line.tax_rate) : Number(q.tax_rate ?? 15);
-  const mixedRates = new Set(lines.map(lineRate)).size > 1;
+    line.tax_rate != null ? Number(line.tax_rate) : headerTaxRate;
+  // As in invoicePdfBuilder: state the rate the LINES carry. Uniform zero-rated
+  // lines under a header still holding the 15.00 column default must not be
+  // labelled 'VAT (15%)'.
+  const distinctRates = [...new Set(lines.map(lineRate))];
+  const totalsVatLabel = distinctRates.length === 1
+    ? `VAT (${distinctRates[0]}%)`
+    : distinctRates.length === 0 ? `VAT (${headerTaxRate}%)` : 'VAT';
 
   if (lines.length > 0) {
     autoTable(doc, {
@@ -180,7 +187,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
 
   y = renderTotalsBlock(doc, y, PAGE_W, MARGIN, accent, [
     { label: 'Subtotal (excl. VAT)', value: fmtZAR(subtotal) },
-    { label: mixedRates ? 'VAT' : `VAT (${Number(q.tax_rate ?? 15)}%)`, value: fmtZAR(taxAmount) },
+    { label: totalsVatLabel, value: fmtZAR(taxAmount) },
     { label: 'QUOTATION TOTAL', value: fmtZAR(total), isTotal: true },
   ]);
 
