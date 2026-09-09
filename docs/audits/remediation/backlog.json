@@ -512,25 +512,29 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "dc2aaf76",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/integration/k013-recurring-invoice-no-lines-no-gl.int.test.ts"
    ],
    "evidencePaths": [
+    "K-013/ci.log",
+    "K-013/fix.md",
+    "K-013/green.log",
     "K-013/red.log",
     "K-013/validation.md"
    ],
-   "fixCommit": "dc2aaf76",
-   "pr": null,
+   "fixCommit": "1ef8c82e;1c39bf80;dc2aaf76",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/369",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k013-recurring-invoice-lines-gl",
-   "reviewRounds": 3
+   "reviewRounds": 3,
+   "mergeCommit": "0f16391e"
   },
   {
    "id": "K-014",
@@ -733,24 +737,30 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "fe21320e",
-   "status": "in-progress",
-   "dependencies": [],
+   "status": "code-verified",
+   "dependencies": [
+    "Merged to master; production deployment pending (batch 2)"
+   ],
    "testNames": [
     "tests/integration/k019-transfer-relink-double-bind.int.test.ts"
    ],
    "evidencePaths": [
+    "K-019/ci.log",
+    "K-019/fix.md",
+    "K-019/green.log",
     "K-019/red.log",
     "K-019/validation.md"
    ],
-   "fixCommit": "fe21320e",
-   "pr": null,
+   "fixCommit": "6303e7bc;1a33abb5;1d002aaa;fe21320e",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/368",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "sourceReferences": [
     "inputs/bank-reconciliation-capture.md:133"
    ],
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "mergeCommit": "a67ab6bc"
   },
   {
    "id": "K-020",
@@ -768,25 +778,29 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "2ff1617e",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/integration/k020-reconciled-balance-double-count.int.test.ts"
    ],
    "evidencePaths": [
+    "K-020/ci.log",
+    "K-020/fix.md",
+    "K-020/green.log",
     "K-020/red.log",
     "K-020/validation.md"
    ],
-   "fixCommit": "2ff1617e",
+   "fixCommit": "69734678;3f1702b6;146990a4;2ff1617e",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/367",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k020-reconciled-balance",
-   "reviewRounds": 4
+   "reviewRounds": 4,
+   "mergeCommit": "b765c8d4"
   },
   {
    "id": "K-021",
@@ -854,7 +868,7 @@
     "K-022/validation.md"
    ],
    "fixCommit": "dd112c24",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/370",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
