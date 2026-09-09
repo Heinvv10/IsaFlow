@@ -18,7 +18,7 @@ export async function loadBankAllocationOriginal(ctx:ControlTx,originalIntentId:
   AND entity_type='bank_allocation_intent' AND entity_id=${originalIntentId} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{intentId:string;journalEntryId:string;paymentId:string|null}}[];
  if(!receipt||receipt.result.intentId!==originalIntentId||plan.bankTransactionId!==intent.bank_transaction_id)throw new Error('Original bank allocation receipt required');
  const [journal]=await ctx.sql`SELECT * FROM gl_journal_entries WHERE company_id=${company}::uuid AND id=${receipt.result.journalEntryId}::uuid FOR SHARE` as Row[];
- const lines=await ctx.sql`SELECT id,gl_account_id,debit::text,credit::text,vat_type,cc1_id,cc2_id,bu_id FROM gl_journal_lines
+ const lines=await ctx.sql`SELECT id,gl_account_id,debit::text,credit::text,vat_type,cost_center_id,cc1_id,cc2_id,bu_id FROM gl_journal_lines
   WHERE company_id=${company}::uuid AND journal_entry_id=${receipt.result.journalEntryId}::uuid ORDER BY id FOR SHARE` as (Row&Parameters<typeof matchesBankAllocationJournalLines>[1][number])[];
  if(!new D(String(sources.bank.amount)).abs().eq(String(intent.amount))||fmtDate(sources.bank.transaction_date as string|Date)!==intent.accounting_date)throw new Error('Original bank source changed');
  if(!journal||journal.status!=='posted'||fmtDate(journal.entry_date as string|Date)!==intent.accounting_date||journal.source_record_id!==plan.bankTransactionId

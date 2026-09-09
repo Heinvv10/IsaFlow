@@ -35,7 +35,7 @@ export async function readBankCurrentOriginal(ctx:ControlTx,bank:BankControlRow)
   ||!new Decimal(bank.amount).abs().eq(String(e.amount)))throw new Error('Controlled bank provenance is inconsistent');
  const plan=parseBankAllocationPlan(e.payload);
  if(plan.bankTransactionId!==bank.id||e.source!==(plan.kind==='customer'?'auto_payment':plan.kind==='supplier'?'auto_supplier_payment':'auto_bank_recon'))throw new Error('Controlled bank intent is inconsistent');
- const lines=await ctx.sql`SELECT l.id,l.gl_account_id,l.debit::text,l.credit::text,l.vat_type,l.cc1_id,l.cc2_id,l.bu_id,a.id AS owned_account_id,a.account_type,a.account_subtype,a.is_system_account
+ const lines=await ctx.sql`SELECT l.id,l.gl_account_id,l.debit::text,l.credit::text,l.vat_type,l.cost_center_id,l.cc1_id,l.cc2_id,l.bu_id,a.id AS owned_account_id,a.account_type,a.account_subtype,a.is_system_account
   FROM gl_journal_lines l LEFT JOIN gl_accounts a ON a.company_id=l.company_id AND a.id=l.gl_account_id
   WHERE l.company_id=${company}::uuid AND l.journal_entry_id=${e.journal_id}::uuid ORDER BY l.id LIMIT 302` as (Row&Parameters<typeof matchesBankAllocationJournalLines>[1][number])[];
  if(lines.some(l=>l.owned_account_id===null))throw new Error('Controlled bank journal account ownership is inconsistent');
