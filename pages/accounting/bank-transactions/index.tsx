@@ -61,6 +61,7 @@ export default function BankTransactionsPage() {
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [relinkFailed, setRelinkFailed] = useState(false);
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
@@ -166,15 +167,26 @@ export default function BankTransactionsPage() {
     }, 4000);
   }, [loadTransactions]);
 
-  // Silently re-link any imported transactions that are the counterpart of
-  // an existing allocation (covers 'account' type pointing to a bank GL).
+  // Re-link any imported transactions that are the counterpart of an existing
+  // allocation (covers 'account' type pointing to a bank GL). The pass swallows
+  // its own error to stay non-fatal, so `failed` is the only way a user learns
+  // their transfers were not linked; anything else stays silent.
   useEffect(() => {
     if (!selectedBank) return;
+    let cancelled = false;
+    setRelinkFailed(false);
     apiFetch('/api/accounting/bank-relink-transfers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bankAccountId: selectedBank }),
-    }).catch(() => {/* non-fatal */});
+    })
+      .then(async res => {
+        if (cancelled || !res.ok) return;
+        const json = await res.json();
+        if (json?.data?.failed) setRelinkFailed(true);
+      })
+      .catch(() => {/* non-fatal */});
+    return () => { cancelled = true; };
   }, [selectedBank]);
 
   // ---- Seed rowSelections from DB suggestion fields ----
@@ -297,6 +309,11 @@ export default function BankTransactionsPage() {
         {/* Table */}
         <div className="px-4 py-2">
           <AutoPostRunsPanel onUndone={loadTransactions} />
+          {relinkFailed && (
+            <div className="flex items-center gap-2 text-xs text-amber-400 py-1 pb-2">
+              <AlertCircle className="h-3 w-3" /> Transfer re-linking failed for this account — counterpart transfers may still show as unallocated.
+            </div>
+          )}
           {aiPolling > 0 && (
             <div className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] py-1 pb-2">
               <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
