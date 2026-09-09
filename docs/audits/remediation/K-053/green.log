@@ -1,0 +1,30 @@
+# K-053 GREEN (branch fix/audit-k053-aging-soft-deleted, base origin/master 0f16391e)
+
+## Integration (fixture DB, real Postgres)
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k053-aging-includes-soft-deleted.int.test.ts" "tests/integration/k053-aging-soft-delete-adjacent.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-053
+
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Start at  11:26:19
+   Duration  2.46s (transform 1.33s, setup 0ms, import 2.55s, tests 477ms, environment 0ms)
+
+
+## Mutation check
+Production change reverted (git checkout of the three files), same two test
+files re-run: 5 failed | 1 passed (6). The two summary tests, both detail tests
+and the supplier-ledger test all went RED. The sixth ("a second company keeps
+its own live bill") passes either way by design — it is the no-leak guard, not
+the defect. Change restored via git apply; git diff --stat back to
+3 files changed, 20 insertions(+).
+
+## Full unit suite (DATABASE_URL unset)
+bunx vitest run
+  Test Files  792 passed | 36 skipped (828)
+       Tests  9434 passed | 234 skipped (9668)
+
+## Static gates
+bunx tsc --noEmit                          -> clean (exit 0)
+bunx eslint <3 changed src/pages files>    -> clean (exit 0)

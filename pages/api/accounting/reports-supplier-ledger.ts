@@ -90,6 +90,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM supplier_invoices si
       WHERE si.company_id = ${companyId}
         AND si.supplier_id = ${supplierId}
+        -- The supplier NAME lookup above already filters deleted_at; the
+        -- invoice leg did not, so a soft-deleted bill stayed in the ledger
+        -- and in its running balance.
+        AND si.deleted_at IS NULL
         AND (${dateFromVal}::date IS NULL OR si.invoice_date >= ${dateFromVal}::date)
         AND (${dateToVal}::date IS NULL OR si.invoice_date <= ${dateToVal}::date)
 
