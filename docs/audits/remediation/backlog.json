@@ -2845,19 +2845,20 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [
         "K-081/red.log",
         "K-081/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "8488ef09",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k081-k084-loans"
     },
     {
       "id": "K-082",
@@ -2874,19 +2875,20 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [
         "K-082/red.log",
         "K-082/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "8488ef09",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k081-k084-loans"
     },
     {
       "id": "K-083",
@@ -2903,7 +2905,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k083-loan-period-journal-idempotency.int.test.ts"
@@ -2912,12 +2914,13 @@
         "K-083/red.log",
         "K-083/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "8488ef09",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k081-k084-loans"
     },
     {
       "id": "K-084",
@@ -2934,7 +2937,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/unit/lib/amortisation/k084-skip-every-month-never-terminates.test.ts"
@@ -2943,12 +2946,13 @@
         "K-084/red.log",
         "K-084/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "8488ef09",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k081-k084-loans"
     },
     {
       "id": "K-085",
