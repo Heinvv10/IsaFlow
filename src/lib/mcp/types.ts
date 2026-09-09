@@ -72,5 +72,7 @@ export interface McpTool {
   perUserIdempotency?: boolean;
   /** Additionally requires the 'write:post' scope (posting/finalizing). */
   requiresPost?: boolean;
+  /** Read-only request-specific authority check, run after input validation and before replay lookup. */
+  authorize?(args:Record<string,unknown>,ctx:McpToolContext):Promise<void>;
   handler(args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult>;
 }

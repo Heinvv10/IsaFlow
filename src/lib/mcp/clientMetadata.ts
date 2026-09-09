@@ -14,12 +14,21 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /**
- * All MCP tool names — 64 read + 47 write = 111. Drift-guarded against
+ * All MCP tool names. Drift-guarded against
  * toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
  * ARRAY rather than this comment; the comment is the part that can rot, so it
  * is derived by counting `MCP_TOOLS.filter(t => !t.write)` and not by hand.
  */
 export const CLIENT_MCP_TOOL_NAMES = [
+  'audit_snapshot',
+  'export_audit_evidence',
+  'audit_job_status',
+  'audit_snapshot_manifest',
+  'audit_snapshot_items',
+  'audit_snapshot_chunk',
+  'audit_export_files',
+  'audit_export_chunk',
+
   'duplicate_invoice_checks',
   'payment_risk_checks',
   // read
