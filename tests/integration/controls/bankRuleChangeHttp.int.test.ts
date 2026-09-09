@@ -8,7 +8,7 @@ it('existing default MCP CRUD traverses central capture and records actual PAT p
  await f.call('update_bank_rule',{rule_id:rule.id,priority:0,idempotency_key:randomUUID()});
  await f.call('disable_bank_rule',{rule_id:rule.id,idempotency_key:randomUUID()});
  const events=(await f.pool.query("SELECT new_version,action,person_id,connection_id FROM control_change_events WHERE company_id=$1 AND entity_type='bank_categorisation_rule' AND entity_id=$2 ORDER BY new_version",[f.f.companyA,rule.id])).rows;
- expect(events.map(row=>row.new_version)).toEqual([1,2,3]);expect(events.map(row=>row.action)).toEqual(['bank_categorisation_rule.created','bank_categorisation_rule.updated','bank_categorisation_rule.toggled']);
+ expect(events.map(row=>Number(row.new_version))).toEqual([1,2,3]);expect(events.map(row=>row.action)).toEqual(['bank_categorisation_rule.created','bank_categorisation_rule.updated','bank_categorisation_rule.toggled']);
  for(const event of events)expect(event).toMatchObject({person_id:f.f.u1.id,connection_id:f.f.u1.tokens[0]!.id});
 });
 it('real cookie seed captures every created rule and rolls back the whole batch on evidence failure',async()=>{
