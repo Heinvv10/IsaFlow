@@ -1,0 +1,24 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/contracts.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/contracts.test.ts [ tests/unit/services/controls/contracts.test.ts ]
+Error: Cannot find package '@/modules/accounting/services/controls/canonical' imported from /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/services/controls/contracts.test.ts
+ ❯ tests/unit/services/controls/contracts.test.ts:2:1
+      1| import { describe, expect, it } from 'vitest';
+      2| import { canonicalJson, canonicalMoney, operationBindingHash } from '@…
+       | ^
+      3| import type { OperationBinding } from '@/modules/accounting/services/c…
+      4|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  08:42:50
+   Duration  127ms (transform 12ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+
