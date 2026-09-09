@@ -4,14 +4,16 @@ import {sealAuditSnapshot} from '@/modules/accounting/services/controls/auditSna
 import {renderAuditEvidence} from '@/modules/accounting/services/controls/auditEvidenceExportService';
 import {exportDeliveryRows,openExportDeliveryHeader,openExportDeliveryFile,openExportDeliveryChunk} from '@/modules/accounting/services/controls/auditExportDeliveryMaterial';
 import type {ExportDeliveryRow} from '@/modules/accounting/services/controls/auditExportDeliveryContract';
+import {indexCryptography} from '@/modules/accounting/services/controls/auditSnapshotIndexCrypto';
+import {sealExportManifest,type ExportManifest} from '@/modules/accounting/services/controls/auditEvidenceExportMaterial';
 const hash=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 afterEach(()=>vi.unstubAllEnvs());
-async function fixture(){
+async function fixture(payroll=false){
  vi.stubEnv('ENCRYPTION_KEY','synthetic-delivery-encryption-key-0000000000001');
  vi.stubEnv('CONTROL_SNAPSHOT_SIGNING_KEY','synthetic-delivery-signing-key-000000000000001');
  const companyId=randomUUID(),snapshotId=randomUUID(),bytes=Buffer.from('中文\u0000'.repeat(50000));
  const sealed=sealAuditSnapshot({version:1,companyId,snapshotId,cutoff:'2026-09-09',capturedAt:'2026-09-09T01:00:00Z',
-  records:[],populations:[{source:'journal_entry',count:0,excludedCount:0,exclusions:[]},{source:'journal_line',count:0,excludedCount:0,exclusions:[]}],
+  records:[],populations:['journal_entry','journal_line',...payroll?['payroll_run','payroll_run_line']:[]].map(source=>({source,count:0,excludedCount:0,exclusions:[]})),
   checks:[],evidence:[{id:'source',sha256:hash(bytes),byteLength:bytes.length,mediaType:'application/octet-stream'}],coverage:[],missingSources:[]});
  const bundle=await renderAuditEvidence(sealed,[{id:'source',bytes}],{companyId,snapshotId});
  return{bundle,identity:{companyId,snapshotId,canonicalSnapshotHash:sealed.canonicalHash,jobId:randomUUID(),leaseId:randomUUID(),generation:1}};
@@ -51,11 +53,51 @@ it('rejects tampering, wrong generation, detached brands, spliced chunk and trun
 it('detaches bytes before header and never invokes caller accessors',async()=>{
  const input=await fixture();let calls=0;
  await expect(exportDeliveryRows({...input.bundle,get files(){calls++;return input.bundle.files;}},input.identity,['read:reports']).next()).rejects.toThrow();expect(calls).toBe(0);
+ const expected=input.bundle.files.map(file=>Buffer.from(file.bytes));
  const iterator=exportDeliveryRows(input.bundle,input.identity,['read:reports']);const first=await iterator.next();expect(first.value?.kind).toBe('header');
  input.bundle.files.forEach(file=>file.bytes.fill(0));
- const rows=[];for await(const row of iterator)rows.push(row);expect(rows.length).toBeGreaterThan(0);
+ const rows=[];for await(const row of iterator)rows.push(row);
+ if(first.value?.kind!=='header')throw Error();const header=openExportDeliveryHeader(first.value.envelope,input.identity);
+ for(const row of rows){if(row.kind!=='file'||row.file.path==='manifest.json')continue;const file=openExportDeliveryFile(row.envelope,header,row.file.ordinal);
+  const bytes=Buffer.concat(rows.filter(r=>r.kind==='chunk'&&r.fileOrdinal===file.ordinal).map(r=>{if(r.kind!=='chunk')throw Error();return Buffer.from(openExportDeliveryChunk(r.envelope,file,r.chunkOrdinal));}));
+  expect(bytes).toEqual(expected[file.ordinal]);
+ }
 });
 it('observes a real timer abort before publishing anything',async()=>{
  const input=await fixture(),controller=new AbortController();const timer=setTimeout(()=>controller.abort(),0);
  try{await expect(exportDeliveryRows(input.bundle,input.identity,['read:reports'],{signal:controller.signal}).next()).rejects.toThrow(/abort/i);}finally{clearTimeout(timer);}
+});
+it('derives payroll permission from authenticated zero-count source families',async()=>{
+ const input=await fixture(true);
+ await expect(exportDeliveryRows(input.bundle,input.identity,['read:reports']).next()).rejects.toThrow(/permissions/);
+ const first=await exportDeliveryRows(input.bundle,input.identity,['read:reports','read:payroll']).next();
+ expect(first.value).toMatchObject({kind:'header',header:{permissions:['read:payroll','read:reports']}});
+ const manifest=JSON.parse(input.bundle.manifest.canonicalData) as ExportManifest;manifest.populations=manifest.populations.filter(p=>!p.source.startsWith('payroll'));
+ input.bundle.manifest=sealExportManifest(manifest);
+ await expect(exportDeliveryRows(input.bundle,input.identity,['read:reports']).next()).rejects.toThrow(/population/);
+});
+it('rejects authenticated malformed chunk length/hash and cross-file swaps',async()=>{
+ const input=await fixture(),rows=await collect(input),h=rows.find(r=>r.kind==='header')!;
+ if(h.kind!=='header')throw Error();const header=openExportDeliveryHeader(h.envelope,input.identity);
+ const fs=rows.filter(r=>r.kind==='file'),cs=rows.filter(r=>r.kind==='chunk');
+ const file=openExportDeliveryFile(fs[0]!.envelope,header,0),other=openExportDeliveryFile(fs[1]!.envelope,header,1),crypto=indexCryptography();
+ expect(()=>openExportDeliveryChunk(cs[0]!.envelope,other,0)).toThrow();
+ const value=crypto.open('export-chunk',cs[0]!.envelope) as Record<string,unknown>;
+ expect(()=>openExportDeliveryChunk(crypto.seal('export-chunk',{...value,bytesBase64:'eA=='}),file,0)).toThrow();
+ expect(()=>openExportDeliveryChunk(crypto.seal('export-chunk',{...value,sha256:'0'.repeat(64)}),file,0)).toThrow();
+});
+it('enforces the exact file/aggregate boundaries without allocating a gigabyte',async()=>{
+ const input=await fixture(),crypto=indexCryptography();
+ const raw={...input.identity,version:1,fileCount:100006,totalBytes:1073741824,permissions:['read:reports']};
+ const header=openExportDeliveryHeader(crypto.seal('export-header',raw),input.identity);expect(header.fileCount).toBe(100006);
+ for(const changed of [{fileCount:100007},{totalBytes:1073741825}])expect(()=>openExportDeliveryHeader(crypto.seal('export-header',{...raw,...changed}),input.identity)).toThrow();
+ const huge={...input.identity,ordinal:100005,path:'manifest.json',mediaType:'application/json',byteLength:1073741824,sha256:'0'.repeat(64),chunkCount:4096};
+ expect(openExportDeliveryFile(crypto.seal('export-file',huge),header,100005).chunkCount).toBe(4096);
+ expect(()=>openExportDeliveryFile(crypto.seal('export-file',{...huge,byteLength:1073741825}),header,100005)).toThrow();
+});
+it('uses intrinsic byte length without invoking decorators and cancels between yielded rows',async()=>{
+ const input=await fixture();let calls=0;Object.defineProperty(input.bundle.files[0]!.bytes,'byteLength',{get(){calls++;return NaN;}});
+ const controller=new AbortController(),iterator=exportDeliveryRows(input.bundle,input.identity,['read:reports'],{signal:controller.signal});
+ expect((await iterator.next()).value?.kind).toBe('header');expect(calls).toBe(0);
+ controller.abort();await expect(iterator.next()).rejects.toThrow(/abort/);
 });
