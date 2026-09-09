@@ -44,6 +44,22 @@ export class RecurringJournalLockTimeoutError extends RecurringJournalRequestErr
   }
 }
 
+/**
+ * No template with this id in THIS company. Its own class so the route can
+ * answer 404: a wrong id — including another tenant's, which is the shape the
+ * cross-tenant test exercises — is not a malformed request, and a caller that
+ * cannot tell the two apart retries the one it should abandon. Kept inside
+ * `RecurringJournalRequestError` so every existing `instanceof` check, and the
+ * "caller fault, do not roll back" contract, still hold.
+ */
+export class RecurringJournalNotFoundError extends RecurringJournalRequestError {
+  override readonly code = 'RECURRING_JOURNAL_NOT_FOUND';
+  constructor(readonly id: string) {
+    super(`Recurring journal ${id} not found`);
+    this.name = 'RecurringJournalNotFoundError';
+  }
+}
+
 /** Postgres `lock_not_available` — the 5s `lock_timeout` elapsed on the template row. */
 const LOCK_NOT_AVAILABLE = '55P03';
 
@@ -109,6 +125,9 @@ export async function businessToday(): Promise<string> {
   return String(rows[0]!.today);
 }
 
+/** A `gl_accounts.id` as Postgres will accept it; anything else is a 22P02, not a 400. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Refuse a template whose stored lines cannot be posted as they stand.
  *
@@ -137,6 +156,21 @@ export async function assertTemplateLinesPostable(
   }
 
   const accountIds = [...new Set(lines.map((l) => l.glAccountId))];
+
+  // Shape-check before the cast. `lines` is a JSONB snapshot and nothing on the
+  // create or update path validates `glAccountId`, so a non-UUID reaches
+  // `ANY(...::UUID[])` and Postgres raises 22P02 — not a
+  // RecurringJournalRequestError, so the route rethrows and the operator gets
+  // the same "an unexpected error occurred" 500 this guard exists to replace.
+  const malformed = accountIds.filter((id) => typeof id !== 'string' || !UUID_RE.test(id));
+  if (malformed.length > 0) {
+    throw new RecurringJournalRequestError(
+      `This recurring journal template has ${malformed.length} malformed GL account `
+      + `reference${malformed.length === 1 ? '' : 's'}: ${malformed.map((id) => JSON.stringify(id)).sort().join(', ')}. `
+      + 'Recode the template before generating from it.',
+    );
+  }
+
   const rows = (await sql`
     SELECT id, account_code, account_name, is_active
     FROM gl_accounts
@@ -181,11 +215,17 @@ export async function assertTemplateLinesPostable(
  * `fiscal_period_id` — invisible to the trial balance, the VAT201 and the AFS,
  * which is the hazard the guard exists for.
  *
- * The one thing this does write before a possible later refusal is that fiscal
- * year. That is deliberate: the periods are correct and needed whatever happens
- * next, `createJournalEntry` would have created them a moment later anyway, and
- * the guard order puts every read-only check ahead of this one so a refusable
- * template never reaches it.
+ * The creation is a write on a path that can still refuse afterwards, so it is
+ * worth saying exactly when it can leave rows behind: never, on any refusal
+ * that exists. `ensureFiscalPeriodForDate` returns early when a covering period
+ * already exists, and the lookup it uses (`getFiscalPeriodIdForDate`) does NOT
+ * filter on status — so a CLOSED period is found and nothing is written before
+ * that refusal. The `no_period` refusal fires only for a year outside the
+ * auto-create window, where creation was declined and nothing was written
+ * either. The one theoretical exception is a `createFiscalYear` that succeeds
+ * and still leaves the date uncovered; that is an inconsistency in the calendar
+ * itself, not a path this guard takes. `createJournalEntry` would have created
+ * the same periods a moment later anyway.
  */
 export async function assertPostablePeriod(companyId: string, dueDate: string): Promise<void> {
   await ensureFiscalPeriodForDate(companyId, dueDate);

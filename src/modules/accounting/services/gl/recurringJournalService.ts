@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import {
   RecurringJournalRequestError,
+  RecurringJournalNotFoundError,
   readTemplateForUpdate,
   businessToday,
   assertTemplateLinesPostable,
@@ -18,7 +19,7 @@ import { advanceDate } from './recurringSchedule';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 
-export { RecurringJournalRequestError, RecurringJournalLockTimeoutError } from './recurringJournalGuards';
+export { RecurringJournalRequestError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError } from './recurringJournalGuards';
 
 export async function getRecurringJournals(companyId: string, filters?: {
   status?: string;
@@ -80,7 +81,7 @@ export async function updateRecurringJournalStatus(companyId: string,
   status: 'paused' | 'active' | 'cancelled'
 ): Promise<void> {
   const result = (await sql`UPDATE recurring_journals SET status = ${status} WHERE id = ${id} AND company_id = ${companyId} RETURNING id`) as DbRow[];
-  if (result.length === 0) throw new RecurringJournalRequestError(`Recurring journal not found: ${id}`);
+  if (result.length === 0) throw new RecurringJournalNotFoundError(id);
   log.info('Updated recurring journal status', { id, status }, 'accounting');
 }
 
@@ -101,8 +102,9 @@ export async function updateRecurringJournalStatus(companyId: string,
  * Four guards the original had none of, in this order — every one of them
  * before the first JOURNAL write, so a refusal leaves no half-made journal for
  * `withAuth` to commit alongside the 400. (Guard 3 may create a fiscal year,
- * which is a write; it is deliberate, and the ordering below is why it is the
- * only one that can happen on a refused request.):
+ * which is a write; it never happens before a refusal — see the reasoning on
+ * `assertPostablePeriod` — and the periods are correct and needed whatever
+ * happens next.):
  *
  * 1. **Due date.** `next_run_date` was read only to compute the next one; a
  *    template scheduled for next year posted on demand.
@@ -140,7 +142,7 @@ export async function generateJournalFromRecurring(companyId: string,
   }
 
   const rj = await readTemplateForUpdate(companyId, id);
-  if (!rj) throw new RecurringJournalRequestError('Recurring journal not found');
+  if (!rj) throw new RecurringJournalNotFoundError(id);
   if (rj.status !== 'active') throw new RecurringJournalRequestError('Recurring journal is not active');
 
   const dueDate = String(rj.next_run_date);

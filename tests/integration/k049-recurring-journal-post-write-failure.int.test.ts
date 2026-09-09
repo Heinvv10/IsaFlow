@@ -54,7 +54,9 @@ beforeAll(async () => {
     [company],
   );
   expect(rows.length).toBeGreaterThan(0);
-  today = new Date().toISOString().slice(0, 10);
+  // The SAST date, which is what businessToday() compares next_run_date to.
+  // The UTC date is a day behind it for two hours each night.
+  today = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10);
   await pool.query(
     `INSERT INTO recurring_journals(id,company_id,template_name,description,frequency,next_run_date,lines,total_amount,created_by,status)
      VALUES($1,$2,'K049P monthly accrual','K049P monthly accrual','monthly',$3::date,$4::jsonb,1000,$5,'active')`,

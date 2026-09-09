@@ -50,6 +50,20 @@ beforeAll(async () => {
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 
+/**
+ * The SAST calendar date, which is what `businessToday()` returns and what the
+ * due-date guard compares against. `new Date().toISOString()` is the UTC date,
+ * and SAST is UTC+2, so between 22:00 and 00:00 UTC the two differ and a
+ * template armed on the UTC date would be armed for YESTERDAY in SAST. The
+ * guard would still pass (`dueDate <= today`), so the tests could not flake —
+ * but "correct because the skew happens to point the safe way" is not a
+ * property to leave in a suite whose next test polices exactly this
+ * distinction.
+ */
+function sastToday(): string {
+  return new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 /** Re-arm the template as due today, with a clean GL, before each case. */
 async function armTemplate(nextRunDate: string, endDate: string | null = null) {
   await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
@@ -81,7 +95,7 @@ afterAll(async () => {
 });
 
 it('two concurrent generations of the same due run produce exactly one journal', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
 
   // Two real request transactions on two connections, the shape the route
@@ -104,7 +118,7 @@ it('two concurrent generations of the same due run produce exactly one journal',
 });
 
 it('another tenant cannot generate this template, and does not advance it', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
 
   await expect(
@@ -120,9 +134,9 @@ it('another tenant cannot generate this template, and does not advance it', asyn
 });
 
 it('an overdue run posts into the period it was scheduled for, not today', async () => {
-  const scheduled = new Date();
-  scheduled.setUTCMonth(scheduled.getUTCMonth() - 2);
+  const scheduled = new Date(`${sastToday()}T00:00:00Z`);
   scheduled.setUTCDate(1);
+  scheduled.setUTCMonth(scheduled.getUTCMonth() - 2);
   const scheduledDate = scheduled.toISOString().slice(0, 10);
   await armTemplate(scheduledDate);
 
@@ -158,7 +172,7 @@ async function generateViaRoute() {
 }
 
 it('a deactivated account is refused 400 naming it, before any write', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
   // A template's lines are a JSONB snapshot taken when it was created, so an
   // account deactivated since then is the ordinary way a working template goes
@@ -185,7 +199,7 @@ it('a deactivated account is refused 400 naming it, before any write', async () 
 });
 
 it('a template whose lines no longer balance is refused before any write', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
   await pool.query(
     `UPDATE recurring_journals SET lines = $2::jsonb WHERE id = $1`,
@@ -206,7 +220,7 @@ it('a template whose lines no longer balance is refused before any write', async
 });
 
 it('a template referencing an account that no longer exists is refused before any write', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
   await pool.query(
     `UPDATE recurring_journals SET lines = $2::jsonb WHERE id = $1`,
@@ -225,7 +239,7 @@ it('a template referencing an account that no longer exists is refused before an
 });
 
 it('refuses to run outside a request transaction rather than posting on autocommitting connections', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
 
   // No ALS context: withTransaction would take its own pooled connection for
@@ -242,7 +256,7 @@ it('refuses to run outside a request transaction rather than posting on autocomm
 });
 
 it('a contended template answers 409, and the request transaction survives the lock timeout', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
 
   const holder = await pool.connect();
@@ -274,7 +288,7 @@ it('a contended template answers 409, and the request transaction survives the l
 }, 40000);
 
 it('restores lock_timeout after the template read, so later locks are not capped at 5s', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
 
   await inRequestTx(pool, company, admin, async () => {
@@ -293,7 +307,7 @@ it('restores lock_timeout after the template read, so later locks are not capped
 
 it('"today" is the SAST calendar date, not the UTC one', async () => {
   const sastNow = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-  const sastDate = sastNow.slice(0, 10);
+  const sastDate = sastToday();
   // Skew the session clock so CURRENT_DATE is guaranteed to fall on a different
   // calendar day from SAST whatever time this runs: UTC+14 is 12 hours ahead of
   // SAST, UTC-12 is 14 hours behind it.
@@ -336,9 +350,9 @@ it('a closed period is refused as a 400 BEFORE any write, not a 500 after one', 
   // is already INSERTed; the route then rethrows it as a 500 and the request
   // rolls back — correct, but a logged incident for what is a user error. The
   // pre-check makes it a refusal with the remedy in it and nothing written.
-  const scheduled = new Date();
-  scheduled.setUTCMonth(scheduled.getUTCMonth() - 2);
+  const scheduled = new Date(`${sastToday()}T00:00:00Z`);
   scheduled.setUTCDate(1);
+  scheduled.setUTCMonth(scheduled.getUTCMonth() - 2);
   const scheduledDate = scheduled.toISOString().slice(0, 10);
   await armTemplate(scheduledDate);
   await pool.query(
@@ -366,7 +380,7 @@ it('a closed period is refused as a 400 BEFORE any write, not a 500 after one', 
 });
 
 it('a malformed action still refuses with 400 and writes nothing', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = sastToday();
   await armTemplate(today);
 
   const req = request({ 'sb-access-token': adminToken, active_company_id: company }, 'POST') as never as {
@@ -384,10 +398,9 @@ it('a malformed action still refuses with 400 and writes nothing', async () => {
 });
 
 it('the last run before end_date completes the template instead of leaving it active', async () => {
-  const today = new Date();
-  const todayDate = today.toISOString().slice(0, 10);
+  const todayDate = sastToday();
   // end_date sits before the next interval, so this run is the final one.
-  const end = new Date(today);
+  const end = new Date(`${todayDate}T00:00:00Z`);
   end.setUTCDate(end.getUTCDate() + 5);
   await armTemplate(todayDate, end.toISOString().slice(0, 10));
 
@@ -403,3 +416,72 @@ it('the last run before end_date completes the template instead of leaving it ac
     "SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='auto_recurring'", [company]);
   expect(posted.rows[0].n).toBe(1);
 });
+
+it('a template whose stored glAccountId is not a UUID is refused as a 400, not a 22P02 500', async () => {
+  // `lines` is a JSONB snapshot and nothing on the create or update path
+  // validates glAccountId, so a malformed one reached `ANY(...::UUID[])` and
+  // Postgres raised 22P02 — not a RecurringJournalRequestError, so the route
+  // rethrew it and the operator got "an unexpected error occurred": exactly the
+  // outcome this guard exists to replace.
+  const today = sastToday();
+  await armTemplate(today);
+  await pool.query(
+    "UPDATE recurring_journals SET lines = $2::jsonb WHERE id = $1",
+    [template, JSON.stringify([
+      { glAccountId: 'not-a-uuid', debit: 1000, credit: 0, description: 'K048A bad DR' },
+      { glAccountId: creditAccount, debit: 0, credit: 1000, description: 'K048A CR' },
+    ])],
+  );
+
+  const req = request({ 'sb-access-token': adminToken, active_company_id: company }, 'POST') as never as {
+    url: string; body: unknown; query: Record<string, string>;
+  };
+  req.url = '/api/accounting/recurring-journals-action';
+  req.query = {};
+  req.body = { action: 'generate', id: template };
+  const result = response();
+  await action(req as never, result.res);
+
+  expect(result.state.statusCode).toBe(400);
+  expect(JSON.stringify(result.state.body)).toMatch(/malformed GL account reference/i);
+  // Nothing written, and the schedule untouched — a 400 is COMMITted by withAuth.
+  const posted = await pool.query('SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1', [company]);
+  expect(posted.rows[0].n).toBe(0);
+  const rj = await pool.query('SELECT run_count, next_run_date::text AS d FROM recurring_journals WHERE id=$1', [template]);
+  expect(Number(rj.rows[0].run_count)).toBe(0);
+  expect(rj.rows[0].d).toBe(today);
+});
+
+it('an unknown id answers 404, not 400, and another tenant\'s id is the same 404', async () => {
+  // A wrong id is not a malformed request: no correction of the body will make
+  // it succeed, and a caller that cannot tell the two apart retries the one it
+  // should abandon. The cross-tenant case must be INDISTINGUISHABLE from a
+  // wholly unknown id, or the status code enumerates other companies' templates.
+  const foreign = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO recurring_journals(id,company_id,template_name,frequency,next_run_date,lines,total_amount,created_by,status)
+     VALUES($1,$2,'K048A peer template','monthly',CURRENT_DATE,$3::jsonb,1000,$4,'active')`,
+    [foreign, otherCompany, lines, admin],
+  );
+
+  for (const id of [crypto.randomUUID(), foreign]) {
+    const req = request({ 'sb-access-token': adminToken, active_company_id: company }, 'POST') as never as {
+      url: string; body: unknown; query: Record<string, string>;
+    };
+    req.url = '/api/accounting/recurring-journals-action';
+    req.query = {};
+    req.body = { action: 'generate', id };
+    const result = response();
+    await action(req as never, result.res);
+    expect(result.state.statusCode).toBe(404);
+  }
+
+  // The peer's template is untouched — no claim, no posting, no status change.
+  const peer = await pool.query('SELECT run_count, status FROM recurring_journals WHERE id=$1', [foreign]);
+  expect(Number(peer.rows[0].run_count)).toBe(0);
+  expect(peer.rows[0].status).toBe('active');
+  const posted = await pool.query('SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1', [otherCompany]);
+  expect(posted.rows[0].n).toBe(0);
+  await pool.query('DELETE FROM recurring_journals WHERE id=$1', [foreign]);
+});
+
