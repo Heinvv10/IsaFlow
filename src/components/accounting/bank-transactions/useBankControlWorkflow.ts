@@ -46,7 +46,9 @@ export function useBankControlWorkflow(){
    body={action:'prepare_reverse',bankTransactionId:active.bankTransactionId,originalIntentId:active.bank.currentOriginalIntentId,...inverse};
   }
   if(!body)throw new Error('Select an allocation instruction before preparing');
-  const prepared=await prepareBankControl(body);await refreshSelection(active.id,prepared.intentId);
+  const prepared=await prepareBankControl(body);
+  if(prepared.bankTransactionId)patch(active.id,{bankTransactionId:prepared.bankTransactionId,bank:null,selected:null});
+  await refreshSelection(active.id,prepared.intentId);
   const requirements=await loadBankApprovalRequirements(prepared.operation);patch(active.id,{requirements});
  });
  const requestApproval=()=>run(async active=>{

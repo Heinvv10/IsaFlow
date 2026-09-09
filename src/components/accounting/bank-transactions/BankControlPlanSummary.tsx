@@ -13,7 +13,10 @@ export function BankControlPlanSummary({operation,accounts=[],bankAmount}:{opera
    <div><dt className="text-[var(--ff-text-tertiary)]">Instruction</dt><dd className="break-all font-mono text-xs">{operation.intentId}</dd></div></dl>
   {'kind' in plan?<>
    <p className="font-medium capitalize">{plan.kind} allocation</p>{plan.description&&<p>{plan.description}</p>}
-   {'lines' in plan?<ol className="space-y-3">{plan.lines.map((line,index)=>{
+   {plan.kind==='transfer'?<div className="space-y-1 break-all">
+    <p>Bank transaction: {plan.bankTransactionId}</p><p>Counterparty bank account: {label(plan.counterpartyAccountId)}</p>
+    {plan.transfer.mode==='post'?<><p>Post a new transfer journal</p><p>{plan.transfer.oppositeBankTransactionId?`Opposite bank transaction: ${plan.transfer.oppositeBankTransactionId}`:'No opposite bank transaction is linked yet.'}</p></>:<><p>Link to an existing transfer journal</p><p>Original instruction: {plan.transfer.originalIntentId}</p></>}
+   </div>:'lines' in plan?<ol className="space-y-3">{plan.lines.map((line,index)=>{
     const gross=new D(line.amount),vat=line.vatCode==='standard'?gross.minus(gross.div('1.15').toDecimalPlaces(2,Decimal.ROUND_HALF_UP)):new D(0);
     return <li key={index} className="border-t border-[var(--ff-border-light)] pt-2"><p className="break-words">{label(line.accountId)}</p><p>Gross {amount(line.amount)} · VAT {line.vatCode.replace('_',' ')}{vat.gt(0)?` (${vat.toFixed(2)} included)`:''}</p>{line.description&&<p>{line.description}</p>}{dimensions(line)&&<p className="break-all text-xs">{dimensions(line)}</p>}</li>;
    })}</ol>:<><p className="break-all">{plan.kind==='supplier'?'Supplier':'Customer'} ID: {plan.partyId}</p>{dimensions(plan)&&<p className="break-all text-xs">{dimensions(plan)}</p>}
