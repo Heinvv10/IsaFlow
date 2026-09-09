@@ -190,3 +190,17 @@ it('refuses a related generated contra with a different monetary amount',async()
   expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,childId])).rows).toHaveLength(0);
   expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='journal.reverse'",[fixture.companyA,original.entityId])).rows).toHaveLength(0);
 });
+
+
+it.each(['auto_invoice','auto_payment','auto_credit_note','auto_supplier_invoice','auto_supplier_payment',
+ 'auto_batch_payment','auto_depreciation','auto_payroll','auto_bank_transfer','auto_bank_recon','year_end'])(
+ 'requires the domain parent for direct post and reversal of %s journals',async source=>{
+  const ref=await journal();
+  await pool.query('UPDATE gl_journal_entries SET source=$1 WHERE company_id=$2 AND id=$3',[source,fixture.companyA,ref.entityId]);
+  await expect(actor('u1',()=>postJournalEntry(fixture.companyA,ref.entityId,fixture.u1.id))).rejects.toThrow('domain operation');
+  expect((await pool.query('SELECT status FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,ref.entityId])).rows[0].status).toBe('draft');
+  // Model a legacy posted source without creating an authorized modern effect receipt.
+  await pool.query("UPDATE gl_journal_entries SET status='posted' WHERE company_id=$1 AND id=$2",[fixture.companyA,ref.entityId]);
+  await expect(actor('u1',()=>reverseJournalEntry(fixture.companyA,ref.entityId,fixture.u1.id))).rejects.toThrow('domain operation');
+  expect((await pool.query('SELECT reversed_at FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,ref.entityId])).rows[0].reversed_at).toBeNull();
+ });

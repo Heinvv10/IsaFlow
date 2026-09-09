@@ -11,7 +11,7 @@ vi.mock('@/modules/accounting/services/controls/approvalRequestService',()=>({in
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService',()=>({getJournalEntryById:mocks.get,resolveUserUuid:vi.fn(),mapEntryRow:(r:unknown)=>r,createJournalEntry:vi.fn()}));
 import { postJournalEntry,reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 const id='11111111-1111-4111-8111-111111111111';
-beforeEach(()=>{vi.clearAllMocks();mocks.get.mockResolvedValue(null);mocks.require.mockImplementation(()=>{throw new Error('Authenticated control transaction required');});});
+beforeEach(()=>{vi.clearAllMocks();mocks.sql.mockResolvedValue([{source:'manual'}]);mocks.get.mockResolvedValue(null);mocks.require.mockImplementation(()=>{throw new Error('Authenticated control transaction required');});});
 it.each([postJournalEntry,reverseJournalEntry])('requires authenticated context before any journal access',async writer=>{
   await expect(writer('company',id,'person')).rejects.toThrow('Authenticated control transaction required');
   expect(mocks.get).not.toHaveBeenCalled();expect(mocks.sql).not.toHaveBeenCalled();
@@ -22,16 +22,17 @@ it('rejects a forged supplied person before dispatch',async()=>{
   expect(mocks.execute).not.toHaveBeenCalled();
 });
 it('hands an ordinary posting to the shared execution gate before its effect',async()=>{
-  const ctx={principal:{companyId:'company',personId:'person'}};mocks.require.mockReturnValue(ctx);
+  const ctx={principal:{companyId:'company',personId:'person'},sql:mocks.sql};mocks.require.mockReturnValue(ctx);
   mocks.execute.mockRejectedValue(new Error('Independent operation approval is required'));
   await expect(postJournalEntry('company',id,'person')).rejects.toThrow('approval');
   expect(mocks.execute).toHaveBeenCalledWith(ctx,{entityType:'journal_entry',entityId:id,operation:'journal.post'},null,expect.any(Function));
-  expect(mocks.sql).not.toHaveBeenCalled();
+  expect(writes()).toHaveLength(0);
 });
 
+const writes=()=>mocks.sql.mock.calls.filter(([parts])=>/\b(?:INSERT|UPDATE|DELETE)\b/.test((parts as string[]).join(' ')));
 function material(overrides:Record<string,unknown>={}) {
   return {binding:{entityId:id,entityVersion:1,accountingDate:'2026-09-09'},observedSources:[{entityType:'journal_entry',entityId:id,
-    facts:{header:{status:'draft'},targetPeriod:{status:'open'},company:{lockdown_enabled:false},accounts:[{is_active:true}],...overrides}}]};
+    facts:{header:{status:'draft',source:'manual'},vatLocks:[],targetPeriod:{status:'open'},company:{lockdown_enabled:false},accounts:[{is_active:true}],...overrides}}]};
 }
 it.each([
   {targetPeriod:{status:'closed'}}, {accounts:[{is_active:false,account_code:'TEST',account_name:'Inactive'}]},
@@ -39,12 +40,12 @@ it.each([
 ])('keeps period, inactive-account, lockdown and status refusals before posting SQL',async state=>{
   const ctx={principal:{companyId:'company',personId:'person'},sql:mocks.sql};mocks.require.mockReturnValue(ctx);
   mocks.execute.mockImplementation(async (_ctx,_ref,_approval,effect)=>effect({}));mocks.material.mockResolvedValue(material(state));
-  await expect(postJournalEntry('company',id,'person')).rejects.toThrow();expect(mocks.sql).not.toHaveBeenCalled();
+  await expect(postJournalEntry('company',id,'person')).rejects.toThrow();expect(writes()).toHaveLength(0);
 });
 it('posts only after material guards and execution approval, stamping the authenticated person',async()=>{
   const ctx={principal:{companyId:'company',personId:'person'},sql:mocks.sql};mocks.require.mockReturnValue(ctx);
   mocks.execute.mockImplementation(async (_ctx,_ref,_approval,effect)=>effect({}));mocks.material.mockResolvedValue(material());
-  mocks.sql.mockResolvedValue([{id,status:'posted'}]);
+  mocks.sql.mockImplementation(async parts=>(parts as string[]).join(' ').includes('UPDATE')?[{id,status:'posted'}]:[{source:'manual'}]);
   expect(await postJournalEntry('company',id,'person',{approvalId:'approved-intent'})).toEqual({id,status:'posted'});
-  expect(mocks.execute.mock.calls[0]?.[2]).toBe('approved-intent');expect(mocks.sql).toHaveBeenCalledOnce();
+  expect(mocks.execute.mock.calls[0]?.[2]).toBe('approved-intent');expect(writes()).toHaveLength(1);
 });
