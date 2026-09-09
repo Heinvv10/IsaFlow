@@ -1,0 +1,10 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-09T06:52:14.132Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"commit failed: serialization"}}
+
+ Test Files  4 passed (4)
+      Tests  26 passed (26)
+   Start at  08:52:13
+   Duration  455ms (transform 405ms, setup 0ms, import 457ms, tests 257ms, environment 0ms)
+

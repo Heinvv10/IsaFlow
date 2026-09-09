@@ -7,7 +7,7 @@ import { verifyToken } from './gotrue';
 import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
-import { als } from '@/lib/als';
+import { withControlRequest } from '@/modules/accounting/services/controls/context';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -202,8 +202,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       };
 
       const runHandler = async () =>
-        als.run(
+        withControlRequest(
           { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
+          { personId: claims.sub, companyId: activeCompanyId, authMethod: 'cookie' },
           async () => { await handler(req, res); }
         );
 
