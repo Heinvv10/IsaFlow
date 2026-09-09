@@ -1,7 +1,7 @@
 import type {ProtectedChange} from './changeProtection';
 export const SNAPSHOT_INDEX_SECTIONS=['records','checks','findings','evidence','gaps'] as const;
 export type SnapshotIndexSection=typeof SNAPSHOT_INDEX_SECTIONS[number];
-export const SNAPSHOT_INDEX_LIMITS=Object.freeze({chunkBytes:262144,pageItems:100,maxItems:600000});
+export const SNAPSHOT_INDEX_LIMITS=Object.freeze({chunkBytes:262144,pageItems:100,maxItems:800006});
 export interface SnapshotIndexIdentity {companyId:string;snapshotId:string;canonicalHash:string}
 export interface SnapshotIndexHeader extends SnapshotIndexIdentity {
  version:1;permissions:string[];counts:Record<SnapshotIndexSection,number>;
