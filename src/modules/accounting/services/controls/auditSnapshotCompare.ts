@@ -23,7 +23,10 @@ function checkMaterial(check:AuditSnapshotData['checks'][number]){
  const {capturedAt:_capturedAt,...material}=check;return material;
 }
 /** Internal retained-material comparison. Service callers must enforce current source-domain reads first. */
-export function compareSealedAuditSnapshots(companyId:string,first:SnapshotReference,second:SnapshotReference){
+export function compareSealedAuditSnapshots(inputCompanyId:string,inputFirst:SnapshotReference,inputSecond:SnapshotReference){
+ const {companyId,first,second}=JSON.parse(canonicalJson({companyId:inputCompanyId,first:inputFirst,second:inputSecond})) as {
+  companyId:string;first:SnapshotReference;second:SnapshotReference;
+ };
  const a=verifyAuditSnapshot(first.sealed,{companyId,snapshotId:first.id});
  const b=verifyAuditSnapshot(second.sealed,{companyId,snapshotId:second.id});
  return{

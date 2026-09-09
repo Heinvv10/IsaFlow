@@ -28,6 +28,9 @@ const bodySchema=z.object({
 export type AuditSnapshotData=z.infer<typeof bodySchema>;
 export interface SealedAuditSnapshot {version:1;keyId:string;canonicalData:string;canonicalHash:string;authentication:string}
 const MAX_CANONICAL_BYTES=100*1024*1024;
+const envelopeSchema=z.object({version:z.literal(1),keyId:text,canonicalData:z.string().max(MAX_CANONICAL_BYTES),
+ canonicalHash:hash,authentication:hash}).strict();
+const identitySchema=z.object({companyId:z.string().uuid(),snapshotId:z.string().uuid()}).strict();
 const verifiedSnapshots=new WeakSet<AuditSnapshotData>();
 function freezeRetained(value:unknown):void{
  if(value!==null&&typeof value==='object'){
@@ -77,7 +80,10 @@ export function sealAuditSnapshot(input:unknown):SealedAuditSnapshot{
  return{version:1,keyId,canonicalData,canonicalHash,authentication:signature(keyId,canonicalHash)};
 }
 /** A database attacker replacing records and the adjacent plain hash cannot forge this authentication. */
-export function verifyAuditSnapshot(sealed:SealedAuditSnapshot,identity:{companyId:string;snapshotId:string}):AuditSnapshotData{
+export function verifyAuditSnapshot(input:SealedAuditSnapshot,expected:{companyId:string;snapshotId:string}):AuditSnapshotData{
+ // Authenticate and parse the same detached bytes; accessors are not trusted storage data.
+ const sealed=envelopeSchema.parse(JSON.parse(canonicalJson(input)));
+ const identity=identitySchema.parse(JSON.parse(canonicalJson(expected)));
  if(sealed.version!==1||sealed.keyId!==(process.env.CONTROL_SNAPSHOT_KEY_ID??'current')
   ||typeof sealed.canonicalData!=='string'||Buffer.byteLength(sealed.canonicalData)>MAX_CANONICAL_BYTES
   ||!hash.safeParse(sealed.canonicalHash).success||!hash.safeParse(sealed.authentication).success
