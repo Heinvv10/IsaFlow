@@ -26,7 +26,7 @@ import { validateToolArguments, MCP_INPUT_SCHEMA_KEYWORDS } from '@/lib/mcp/inpu
 interface Schema {
   type?: string | string[]; properties?: Record<string, Schema>; required?: string[];
   items?: Schema; enum?: unknown[]; minimum?: number; exclusiveMinimum?: number;
-  minItems?: number; format?: string;
+  minItems?: number; format?: string; pattern?: string;
 }
 interface Row { name: string; scope: string | null; write: boolean; requires_post: boolean;
   per_user_idempotency: boolean; input_schema: Record<string, unknown> }
@@ -40,6 +40,7 @@ function sample(schema: Schema): unknown {
   if (type === 'number' || type === 'integer') return Math.max(schema.minimum ?? 1, (schema.exclusiveMinimum ?? -1) + 1);
   if (type === 'boolean') return false;
   if (type === 'null') return null;
+  if(schema.pattern==='^(0|[1-9][0-9]{0,5})$')return '0';
   return schema.format === 'date' ? '2026-09-09' : UUID;
 }
 function requiredPaths(schema: Schema, prefix: Array<string | number> = []): Array<Array<string | number>> {
@@ -59,9 +60,9 @@ const context = (scopes: string[]): McpToolContext => ({ companyId: UUID, userId
   scopes, tokenJti: UUID, oauthAppId: null });
 
 describe('every registered tool has a frozen schema/auth fixture', () => {
-  it('matches all 133 tool names and all schema keywords without silently skipping a new tool', () => {
-    expect(MCP_TOOLS).toHaveLength(133);
-    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(133);
+  it('matches all 141 tool names and all schema keywords without silently skipping a new tool', () => {
+    expect(MCP_TOOLS).toHaveLength(141);
+    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(141);
     expect(MCP_TOOLS.map(t => t.name).sort()).toEqual(frozen.tools.map(t => t.name).sort());
     expect([...CLIENT_MCP_TOOL_NAMES].sort()).toEqual(MCP_TOOLS.map(t => t.name).sort());
     const visit = (s: Schema) => {
@@ -70,7 +71,7 @@ describe('every registered tool has a frozen schema/auth fixture', () => {
       if (s.items) visit(s.items);
     };
     for (const t of MCP_TOOLS) visit(t.inputSchema);
-    expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(62);
+    expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(64);
     expect(MCP_TOOLS.filter(t => t.requiresPost)).toHaveLength(30);
   });
 
@@ -99,7 +100,8 @@ describe('every registered tool has a frozen schema/auth fixture', () => {
     vi.mocked(findIdempotentReplay).mockResolvedValue({ status: 'none' });
     const handler = vi.fn(async (_args: Record<string, unknown>, _ctx: McpToolContext) => ({ content: [{ type: 'text' as const, text: '{"fixture":true}' }] }));
     const registry = new McpRegistry();
-    registry.register({ ...t, handler } as McpTool);
+    // This matrix isolates registry fences; request-specific authority has separate real HTTP/PG coverage.
+    registry.register({ ...t, authorize:t.authorize?vi.fn(async()=>undefined):undefined, handler } as McpTool);
     const args = sample(t.inputSchema) as Record<string, unknown>;
     const granted = [...(t.scope ? [t.scope] : []), ...(t.requiresPost ? ['write:post'] : [])];
     if (t.scope) {

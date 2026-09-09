@@ -60,7 +60,7 @@ describe('bounded schema validation before any handler', () => {
     expect(validateToolArguments(t, { name: '😀éx' }).ok).toBe(false);
   });
   it('fails closed on unimplemented schema keywords and formats', () => {
-    expect(validateToolArguments(tool({ value: { type: 'string', pattern: '^x$' } }), { value: 'x' }).ok).toBe(false);
+    expect(validateToolArguments(tool({ value: { type: 'string', contentEncoding: 'base64' } }), { value: 'x' }).ok).toBe(false);
     expect(validateToolArguments(tool({ value: { type: 'string', format: 'uuid' } }), { value: 'x' }).ok).toBe(false);
   });
   it('rejects getters, hidden fields, symbols, decorated/sparse arrays and cycles without calling accessors', () => {
@@ -130,7 +130,10 @@ it('never echoes exceptions from exotic caller objects', () => {
   if (!result.ok) expect(result.message).not.toContain('secret-do-not-echo');
 });
 it('rejects unsupported schema keywords even in unused optional branches', () => {
-  expect(validateToolArguments(tool({ unused: { type: 'string', pattern: '^x$' } }), {}).ok).toBe(false);
+  expect(validateToolArguments(tool({ unused: { type: 'string', contentEncoding: 'base64' } }), {}).ok).toBe(false);
+});
+it('rejects malformed pattern schemas even when the property is absent',()=>{
+  expect(validateToolArguments(tool({unused:{type:'string',pattern:'['}}),{}).ok).toBe(false);
 });
 it('bounds recursive argument traversal', () => {
   let value: Record<string, unknown> = {};

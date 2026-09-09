@@ -3,9 +3,9 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 133,
-    "reads": 71,
-    "writes": 62,
+    "total": 141,
+    "reads": 77,
+    "writes": 64,
     "requires_post": 30
   },
   "tools": [
@@ -452,6 +452,249 @@
           "idempotency_key"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "audit_export_chunk",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "file_ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100005
+          },
+          "chunk_ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4095
+          }
+        },
+        "required": [
+          "job_id",
+          "file_ordinal",
+          "chunk_ordinal"
+        ]
+      }
+    },
+    {
+      "name": "audit_export_files",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,5})$"
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "audit_job_status",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "audit_snapshot",
+      "scope": "read:reports",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cutoff": {
+            "type": "string",
+            "format": "date"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "journals",
+                "ar",
+                "ap",
+                "bank",
+                "payroll"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 5
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "duplicate_invoice_checks",
+                "payment_risk_checks",
+                "three_way_match_exceptions",
+                "journal_risk_checks",
+                "bank_statement_completeness",
+                "payroll_control_checks"
+              ]
+            },
+            "maxItems": 6
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          }
+        },
+        "required": [
+          "cutoff",
+          "sources",
+          "checks",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
+      "name": "audit_snapshot_chunk",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "records",
+              "checks",
+              "findings",
+              "evidence",
+              "gaps"
+            ]
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 800005
+          },
+          "chunk_ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1023
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "section",
+          "ordinal",
+          "chunk_ordinal"
+        ]
+      }
+    },
+    {
+      "name": "audit_snapshot_items",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "records",
+              "checks",
+              "findings",
+              "evidence",
+              "gaps"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,5})$"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "section"
+        ]
+      }
+    },
+    {
+      "name": "audit_snapshot_manifest",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "snapshot_id"
+        ]
       }
     },
     {
@@ -2245,6 +2488,33 @@
           "idempotency_key"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "export_audit_evidence",
+      "scope": "read:reports",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "idempotency_key"
+        ]
       }
     },
     {
@@ -5257,6 +5527,21 @@
           "payment_id": {
             "type": "string"
           },
+          "approval_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Approval bound to this exact cancellation or bank inverse."
+          },
+          "intent_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Prepared bank reversal intent; required for bank-backed documents."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
           "reversal_date": {
             "type": "string",
             "format": "date",
@@ -5268,6 +5553,7 @@
         },
         "required": [
           "payment_id",
+          "approval_id",
           "idempotency_key"
         ],
         "additionalProperties": false
@@ -5285,6 +5571,21 @@
           "receipt_id": {
             "type": "string"
           },
+          "approval_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Approval bound to this exact cancellation or bank inverse."
+          },
+          "intent_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Prepared bank reversal intent; required for bank-backed documents."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
           "reversal_date": {
             "type": "string",
             "format": "date",
@@ -5296,6 +5597,7 @@
         },
         "required": [
           "receipt_id",
+          "approval_id",
           "idempotency_key"
         ],
         "additionalProperties": false

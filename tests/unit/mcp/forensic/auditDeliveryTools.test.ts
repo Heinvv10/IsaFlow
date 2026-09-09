@@ -31,6 +31,7 @@ it('accepts only a matching registry company assertion without forwarding it as 
   await expect(tool.authorize!(args,ctx)).resolves.toBeUndefined();
   expect((await tool.handler(args,ctx)).isError).not.toBe(true);
   await expect(tool.authorize!({...args,company_id:'other'},ctx)).rejects.toThrow();
+  await expect(tool.handler({...args,company_id:'other'},ctx)).rejects.toThrow();
  }
 });
 it('declares bounded explicit contracts for enqueue and retained delivery',()=>{
