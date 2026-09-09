@@ -1,3 +1,5 @@
+import Decimal from 'decimal.js';
+import {fmtDate} from '@/lib/fmtDate';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
 import {readControlEntityVersion} from '../controls/operationVersions';
@@ -28,16 +30,31 @@ async function ownSettlement(ctx:ControlTx,payment:PaymentSourceRow){
  const source=await journalSource(ctx,payment.gl_journal_entry_id),journal=source.journal;
  const entityType=payment.batch_id?'supplier_payment_batch':'supplier_payment';
  const entityId=payment.batch_id??payment.id,operation=payment.batch_id?'supplier_payment_batch.process':'supplier_payment.process';
- if(journal.status!=='posted'||journal.reversed_at||journal.source_record_id!==entityId
+ if(journal.status!=='posted'||journal.reversed_at||journal.source_record_id!==entityId||fmtDate(journal.entry_date as string|Date)!==payment.payment_date
   ||journal.source!==(payment.batch_id?'auto_batch_payment':'auto_supplier_payment'))throw new Error('Payment settlement journal changed');
  const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
   AND entity_type=${entityType} AND entity_id=${entityId} AND operation=${operation}
   AND COALESCE(result->>'journalEntryId',result->>'glJournalEntryId')=${payment.gl_journal_entry_id} ORDER BY committed_at DESC LIMIT 1` as Row[];
  if(!effect)throw new Error('Payment settlement has no committed control receipt');
+ let settlementAmount=payment.total_amount,bankId=payment.bank_account_id;
  if(payment.batch_id){
-  const [batch]=await ctx.sql`SELECT status,gl_journal_entry_id FROM supplier_payment_batches WHERE company_id=${ctx.principal.companyId}::uuid AND id=${payment.batch_id}::uuid FOR UPDATE` as Row[];
+  const [batch]=await ctx.sql`SELECT status,gl_journal_entry_id,total_amount,bank_account_id,payment_count FROM supplier_payment_batches WHERE company_id=${ctx.principal.companyId}::uuid AND id=${payment.batch_id}::uuid FOR UPDATE` as Row[];
   if(batch?.status!=='processed'||batch.gl_journal_entry_id!==payment.gl_journal_entry_id)throw new Error('Payment aggregate settlement changed');
+  settlementAmount=String(batch.total_amount);bankId=String(batch.bank_account_id);
+  const population=await ctx.sql`SELECT id,total_amount,status,gl_journal_entry_id,bank_account_id FROM supplier_payments
+   WHERE company_id=${ctx.principal.companyId}::uuid AND batch_id=${payment.batch_id}::uuid ORDER BY id LIMIT 101 FOR SHARE` as Row[];
+  const D=Decimal.clone({precision:80});
+  if(population.length!==Number(batch.payment_count)||population.length>100
+   ||population.some(p=>p.status!=='processed'||p.gl_journal_entry_id!==payment.gl_journal_entry_id||p.bank_account_id!==bankId)
+   ||!population.reduce((sum,p)=>sum.add(String(p.total_amount)),new D(0)).eq(settlementAmount))throw new Error('Payment settlement population changed');
  }
+ const D=Decimal.clone({precision:80}),total=new D(settlementAmount);
+ const payable=source.lines.filter(line=>line.account_type==='liability'&&line.account_subtype==='payable');
+ const bank=source.lines.filter(line=>line.gl_account_id===bankId&&line.account_type==='asset'&&line.account_subtype==='bank');
+ if(!total.gt(0)||source.lines.length!==2||payable.length!==1||bank.length!==1
+  ||!new D(String(journal.debit)).eq(total)||!new D(String(journal.credit)).eq(total)||!new D(String(journal.payable_credit)).eq(total.neg())
+  ||!new D(String(payable[0]!.debit)).eq(total)||!new D(String(payable[0]!.credit)).isZero()
+  ||!new D(String(bank[0]!.credit)).eq(total)||!new D(String(bank[0]!.debit)).isZero())throw new Error('Payment settlement journal does not reconcile');
  return{...source,effectId:effect.id};
 }
 /** Locks current invoices, source journals and source lines; full observations are bound at release preparation. */
