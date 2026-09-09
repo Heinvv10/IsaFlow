@@ -1,4 +1,4 @@
-import {afterAll,beforeAll,expect,it} from 'vitest';
+import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {createHash,createHmac,randomBytes,randomUUID} from 'node:crypto';
 import {mkdtemp,open,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -44,10 +44,12 @@ it('cold snapshot and export preserve the independent complete balanced journal 
  const job=await actor(()=>enqueueAuditExport(requireControlTx(),{snapshotId:snapshotJob.id,idempotencyKey:randomUUID()}));
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'queued',attempts:0});
  const exported=await runner.runIsolatedAuditJob(identity(job.id));expect(exported.result,JSON.stringify(exported)).toMatchObject({state:'succeeded',exportId:job.id});
- const metadata:Array<{path:string;byteLength:number;sha256:string}>=[];let cursor:string|undefined,totalBytes=0;
+ const metadata:Array<{path:string;byteLength:number;sha256:string}>=[];let cursor:string|undefined,totalBytes=0,expectedFiles:number|undefined;
  do{
   const page=await actor(()=>getAuditExportFiles(requireControlTx(),{jobId:job.id,limit:2,...(cursor?{cursor}:{})}));
+  if(expectedFiles!==undefined)expect(page.fileCount).toBe(expectedFiles);expectedFiles=page.fileCount;
   for(const file of page.files){
+   expect(file.ordinal).toBe(metadata.length);
    const hash=createHash('sha256'),handle=await open(join(directory,String(file.ordinal)),'w');let length=0;
    try{for(let chunkOrdinal=0;chunkOrdinal<file.chunkCount;chunkOrdinal++){
     const chunk=await actor(()=>readAuditExportChunk(requireControlTx(),{jobId:job.id,fileOrdinal:file.ordinal,chunkOrdinal}));
@@ -57,6 +59,7 @@ it('cold snapshot and export preserve the independent complete balanced journal 
    metadata.push({path:file.path,byteLength:file.byteLength,sha256:file.sha256});
   }cursor=page.nextCursor??undefined;
  }while(cursor);
+ expect(metadata).toHaveLength(expectedFiles!);expect(new Set(metadata.map(file=>file.path)).size).toBe(metadata.length);
  const load=async(path:string)=>JSON.parse(await readFile(join(directory,String(metadata.findIndex(file=>file.path===path))),'utf8'));
  const snapshot=await load('snapshot.json') as AuditSnapshotData;
  expect(snapshot.records).toHaveLength(records);expect(createHash('sha256').update(canonicalJson(snapshot)).digest('hex')).toBe(header.canonicalHash);
@@ -71,3 +74,11 @@ it('cold snapshot and export preserve the independent complete balanced journal 
  const evidence={records,census,snapshot:captured.observation,export:exported.observation,totalBytes,fileCount:metadata.length};
  if(process.env.ISAFLOW_AUDIT_SCALE_REPORT?.startsWith('/'))await writeFile(process.env.ISAFLOW_AUDIT_SCALE_REPORT,JSON.stringify(evidence,null,2));
 },180000);
+
+it('independent census digest uses fixed code-unit order even when ambient collation differs',()=>{
+ const records:AuditSnapshotData['records']=[{source:'journal_entry',id:'b',version:null,data:{}},{source:'journal_entry',id:'a',version:null,data:{}}];
+ const expected=createHash('sha256').update('journal_entry:a\njournal_entry:b\n').digest('hex');
+ expect(scaleCensus(records).identityHash).toBe(expected);
+ const collation=vi.spyOn(String.prototype,'localeCompare').mockImplementation(function(this:string,other:string){return this<other?1:this>other?-1:0;});
+ try{expect(scaleCensus(records).identityHash).toBe(expected);}finally{collation.mockRestore();}
+});
