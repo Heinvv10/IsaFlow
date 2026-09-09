@@ -166,9 +166,22 @@ it('settles a partial payment and leaves the generated balance consistent', asyn
   expect(Number((await paymentFor(bankTx)).allocated)).toBe(400);
 });
 
+/** Journal LINES on one account, for the whole company. A delta of zero across
+ *  a request is the only honest way to say "no journal was posted": the
+ *  journal's description names the invoice, never the bank line, so a LIKE on
+ *  the bank-tx id matches nothing whether or not one was written. */
+async function apLineCount(): Promise<number> {
+  const { rows } = await pool.query(
+    'SELECT count(*)::int AS n FROM gl_journal_lines WHERE company_id=$1 AND gl_account_id=$2',
+    [fx.company, fx.apAccount],
+  );
+  return rows[0].n as number;
+}
+
 it('refuses an over-payment rather than leaving a credit the AP aging cannot see', async () => {
   const bill = await seedBill(pool, fx, 600);
   const bankTx = await seedBankLine(pool, fx, -1000);
+  const apLinesBefore = await apLineCount();
 
   const { status, body, committed } = await confirmMatch(pool, fx, {
     bankTransactionId: bankTx, candidateType: 'supplier_invoice', candidateId: bill,
@@ -188,11 +201,10 @@ it('refuses an over-payment rather than leaving a credit the AP aging cannot see
   expect(Number(row.amount_paid)).toBe(0);
   expect(row.status).toBe('approved');
   expect(await paymentFor(bankTx)).toBeUndefined();
-  const { rowCount } = await pool.query(
-    'SELECT id FROM gl_journal_entries WHERE company_id=$1 AND description LIKE $2',
-    [fx.company, '%' + bankTx + '%'],
-  );
-  expect(rowCount).toBe(0);
+  // The GL half of the same invariant: allocateTransaction's first act is to
+  // debit AP, so one new line on that account is what a posted journal looks
+  // like here. Unchanged count = nothing posted.
+  expect(await apLineCount()).toBe(apLinesBefore);
 });
 
 it('names the payment document it created in the response', async () => {

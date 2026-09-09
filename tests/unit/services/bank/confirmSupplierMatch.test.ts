@@ -28,6 +28,7 @@ vi.mock('@/modules/accounting/services/ap/supplierBankPaymentService', () => ({
 }));
 
 import { confirmSupplierInvoiceMatch } from '@/modules/accounting/services/bank/confirmSupplierMatch';
+import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 
 const COMPANY = 'company-1';
 const TX = 'tx-1';
@@ -93,11 +94,43 @@ describe('confirmSupplierInvoiceMatch', () => {
 
   it('turns a validation refusal into its message, with nothing written', async () => {
     bill(600);
-    validateBankSupplierPayment.mockRejectedValueOnce(new Error('is "allocated" and cannot be allocated'));
+    validateBankSupplierPayment.mockRejectedValueOnce(
+      new SupplierPaymentRefusal('is "allocated" and cannot be allocated'),
+    );
     const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
     expect(outcome).toMatchObject({ ok: false, kind: 'refused' });
     expect((outcome as { message: string }).message).toMatch(/cannot be allocated/);
     expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
+  });
+
+  // The refusal's MIRROR, and the reason the class exists. Catching every throw
+  // classified an infrastructure failure as the user's fault: the route answers
+  // a refusal with `apiResponse.badRequest`, which passes the message straight
+  // to the client, so raw Postgres text reached the browser as a 400 — a status
+  // `withAuth` COMMITs — and a real fault was monitored as a client error.
+  it('re-throws an infrastructure failure instead of reporting it as a refusal', async () => {
+    bill(600);
+    const dbError = Object.assign(
+      new Error('current transaction is aborted, commands ignored until end of transaction block'),
+      { code: '25P02' },
+    );
+    validateBankSupplierPayment.mockRejectedValueOnce(dbError);
+
+    await expect(confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600)).rejects.toThrow(/25P02|aborted/);
+    expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
+  });
+
+  // A refusal raised from `planSupplierAllocationLines` beneath the validator
+  // must be classified the same way — the class is on the refusal, not on the
+  // function that happens to raise it.
+  it('treats a refusal raised deeper in the plan as a refusal', async () => {
+    bill(600);
+    validateBankSupplierPayment.mockRejectedValueOnce(
+      new SupplierPaymentRefusal('Invoice INV-9 is cancelled and cannot receive a payment.'),
+    );
+    const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
+    expect(outcome).toMatchObject({ kind: 'refused' });
+    expect((outcome as { message: string }).message).toMatch(/cancelled/);
   });
 
   it('refuses a bill with nothing outstanding', async () => {

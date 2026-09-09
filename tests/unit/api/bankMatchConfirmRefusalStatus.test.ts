@@ -1,0 +1,145 @@
+/**
+ * POST /api/accounting/bank-match-confirm — which status code the trailing
+ * catch is allowed to answer, and why the answer is not always 500.
+ *
+ * The rule this route lives under is `withAuth`'s: it decides COMMIT vs
+ * ROLLBACK on `statusCode >= 500`, so a 4xx raised AFTER a write commits that
+ * write. That is why the catch answers 500 by default — everything reachable
+ * from inside `allocateTransaction` past its first statement has already posted
+ * a journal and touched `bank_transactions`.
+ *
+ * But `allocateTransaction`'s FIRST statement is `lockBankTransactionForUpdate`,
+ * and the three throws decided from that locked row happen before any write at
+ * all. Answering those 500 made an ordinary UI double-click a hard failure with
+ * no remedy in it — `apiResponse.internalError` replaces the message with "An
+ * internal error occurred" outside development — and turned every contention
+ * event into a monitored server fault.
+ *
+ * So: a lock timeout is 409 (retryable, nothing acquired), a
+ * `BankAllocationRefusal` is 400 (decided from the row, nothing written), and
+ * everything else keeps its 500. This suite pins all three, and pins that the
+ * 4xx branches really did write nothing.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+vi.mock('@/lib/logger', () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+vi.mock('@/lib/auth', () => ({
+  withAuth: (h: unknown) => h,
+  withWriteAccess: (h: unknown) => h,
+}));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
+vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
+  allocateTransaction: vi.fn(),
+  matchTransaction: vi.fn(),
+}));
+
+import { sql } from '@/lib/neon';
+import { allocateTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
+import handler from '../../../pages/api/accounting/bank-match-confirm';
+
+const COMPANY = '11111111-1111-4111-8111-111111111111';
+const BANK_TX = '66666666-6666-4666-8666-666666666666';
+const CANDIDATE = '44444444-4444-4444-8444-444444444444';
+
+type SqlMock = ReturnType<typeof vi.fn>;
+const mockSql = sql as unknown as SqlMock;
+const allocate = allocateTransaction as unknown as ReturnType<typeof vi.fn>;
+
+/** A money-IN line against a customer invoice: the direction agrees, so the
+ *  route reaches `allocateTransaction` and the catch is what decides. */
+const INVOICE = {
+  id: CANDIDATE, customer_id: '22222222-2222-4222-8222-222222222222',
+  total_amount: '1000.00', amount_paid: '0.00',
+};
+
+function mockReqRes() {
+  const req = {
+    method: 'POST',
+    query: {},
+    body: { bankTransactionId: BANK_TX, candidateType: 'customer_invoice', candidateId: CANDIDATE },
+    companyId: COMPANY,
+    user: { id: '99999999-9999-4999-8999-999999999999' },
+  } as unknown as NextApiRequest;
+  const res = {
+    statusCode: 0,
+    sent: undefined as unknown,
+    setHeader() { return this; },
+    status(code: number) { this.statusCode = code; return this; },
+    json(payload: unknown) { this.sent = payload; return this; },
+    send(payload: unknown) { this.sent = payload; return this; },
+    end() { return this; },
+  };
+  return { req, res: res as unknown as NextApiResponse & typeof res };
+}
+
+/** Writes the route issued itself. The 4xx branches must have issued none. */
+function writeCount(): number {
+  return mockSql.mock.calls.filter(
+    (c) => /UPDATE|INSERT|DELETE/.test((c[0] as unknown as TemplateStringsArray).join('')),
+  ).length;
+}
+
+beforeEach(() => {
+  // mockReset, not clearAllMocks: an unread `mockResolvedValueOnce` leaks into
+  // the next test and is read there as the bank line.
+  vi.clearAllMocks();
+  mockSql.mockReset();
+  allocate.mockReset();
+  mockSql.mockResolvedValueOnce([{ amount: 1000 }]).mockResolvedValueOnce([INVOICE]).mockResolvedValue([]);
+});
+
+describe('bank-match-confirm — the status code the trailing catch answers', () => {
+  it('answers 409 with the retry wording when the line is held by another request', async () => {
+    allocate.mockRejectedValueOnce(new BankTransactionLockTimeoutError(BANK_TX));
+    const { req, res } = mockReqRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(409);
+    // The wording `bankTxLock` documents as load-bearing has to survive to the
+    // client: `internalError` would have replaced it in production.
+    expect(JSON.stringify(res.sent)).toMatch(/retry/i);
+    expect(JSON.stringify(res.sent)).not.toMatch(/An internal error occurred/);
+    expect(writeCount()).toBe(0);
+  });
+
+  it('answers 400 with its own remedy when the locked row refuses the allocation', async () => {
+    allocate.mockRejectedValueOnce(
+      new BankAllocationRefusal('Transaction already allocated — cannot allocate'),
+    );
+    const { req, res } = mockReqRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.sent)).toMatch(/already allocated/);
+    expect(writeCount()).toBe(0);
+  });
+
+  it('still answers 500 for a throw that could have happened after the first write', async () => {
+    allocate.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    const { req, res } = mockReqRes();
+    await handler(req, res);
+
+    // 500 is what makes `withAuth` ROLLBACK. A 400 here would COMMIT the
+    // half-finished match.
+    expect(res.statusCode).toBe(500);
+  });
+
+  // The classification is on the error's `code`, not on `instanceof`: module
+  // mocking and a bundler's second copy of a module both defeat prototype
+  // identity, and a refusal misread as a fault answers 500 with no remedy.
+  it('classifies a structurally identical error from another module realm', async () => {
+    allocate.mockRejectedValueOnce(
+      Object.assign(new Error('a foreign copy of the refusal'), { code: 'BANK_ALLOCATION_REFUSED' }),
+    );
+    const { req, res } = mockReqRes();
+    await handler(req, res);
+    expect(res.statusCode).toBe(400);
+  });
+});

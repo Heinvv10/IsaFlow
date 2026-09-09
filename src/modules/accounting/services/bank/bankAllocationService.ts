@@ -21,6 +21,7 @@ import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 
 
@@ -104,8 +105,13 @@ export async function allocateTransaction(
   // allocate blocks here rather than passing the same status check and posting
   // a second journal for one transaction.
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId);
-  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
-  if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot allocate`);
+  // BankAllocationRefusal, not a bare Error: both are decided from the locked
+  // row before the first write, and a caller that can show that ordering may
+  // answer them with a 4xx instead of the 500 every later throw here needs.
+  if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
+  if (tx.status !== 'imported') {
+    throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot allocate`);
+  }
 
   const totalAmount = Math.abs(Number(tx.amount));
   const bankAccountId = String(tx.bank_account_id);

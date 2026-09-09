@@ -20,6 +20,15 @@ import { parseQifStatement } from '../../utils/bankQifParser';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
 
+/**
+ * Per-call suffix for the auto-post savepoint. `SAVEPOINT x` with a name that is
+ * already live SHADOWS the outer one rather than erroring, so the inner RELEASE
+ * would release its parent's — the same idiom `withTransaction` uses in
+ * `neon.ts`. Sequential calls in one request are safe today; a re-entrant one
+ * would not be, and the failure would be silent.
+ */
+let autoPostSeq = 0;
+
 export interface BulkImportContext {
   bulkImportId: string;
   bulkSequence: number;
@@ -241,7 +250,8 @@ export async function importParsedTransactions(
     // discarding the import the caller was just told succeeded.
     let autoPostFailed = false;
     try {
-      await withSavepoint('bank_import_autopost', async () => {
+      autoPostSeq = (autoPostSeq + 1) % 1_000_000;
+      await withSavepoint(`bank_import_autopost_${autoPostSeq}`, async () => {
         const outflowIds = (await sql`
           SELECT id FROM bank_transactions
           WHERE company_id = ${companyId}::UUID

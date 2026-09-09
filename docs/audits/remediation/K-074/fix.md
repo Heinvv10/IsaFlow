@@ -155,3 +155,41 @@ anyway; the route now maps its outcome to a status code and nothing else.
 the extracted module. Four mutation probes, one per fixed finding. Full unit suite 9444
 passed with one load-induced timeout in an untouched file — see `green.log`, which reports it
 rather than rounding it to green.
+
+---
+
+## Round 4 — the three MEDIUMs and LOW-2 of `review-k071-r3.md`
+
+**MEDIUM-1 (a pre-write refusal was answered `500 "An internal error occurred"`, and the route
+comment claiming otherwise was false).** Fixed. `allocateTransaction`'s first statement is
+`lockBankTransactionForUpdate`, so the lock timeout and the "already <status>" refusal are both
+decided before any write. Those two are now typed — `BankTransactionLockTimeoutError` (already
+existed) and the new `BankAllocationRefusal` — and the route answers 409 and 400 for them,
+keeping 500 for every remaining throw, which really does land after the first write. The comment
+now says "every REMAINING throw". Both classifiers are structural (`err.code`), not
+`instanceof`: module mocking and a bundler's second copy of a module defeat prototype identity,
+and this decides a status code. Proof: two interleaved pool clients on the fixture — a holder
+takes the row's `FOR UPDATE`, the route blocks in `lockBankTransactionForUpdate`, times out at
+5s and answers 409 with the retry wording, the line still `imported`, no payment, no journal.
+
+**MEDIUM-2 (any failure of `validateBankSupplierPayment` became a 400 carrying raw error text).**
+Fixed by giving refusals a type. `validateBankSupplierPayment` and `planSupplierAllocationLines`
+throw `SupplierPaymentRefusal` and nothing else; `confirmSupplierInvoiceMatch` re-throws anything
+that is not one. A dropped connection or a `25P02` is now a 500 that ROLLBACKs, instead of a
+400 that COMMITs while showing the user Postgres's own words. The mirror of MEDIUM-1, as the
+review said, and fixed in the same shape.
+
+**MEDIUM-3 (the "no journal was posted" assertion could never fail).** Fixed. The journal's
+description names the invoice, never the bank line, so `LIKE '%<bankTxId>%'` matched nothing
+either way. Replaced by a count of `gl_journal_lines` on the AP control account taken before and
+after the request. Sensitivity proved with a throwaway probe that asserted the count UNCHANGED
+across a SUCCESSFUL confirm and went red.
+
+**LOW-2 (two copies of the over-payment threshold).** `buildLine` now carries a comment naming
+the outer guard in `confirmSupplierMatch.ts`, why the outer one has to decide first, and that
+the two move together. Not deduplicated into one helper: the outer guard needs the bill's
+outstanding balance before the validator runs, and the inner one needs it from the row it has
+just read inside the write — the same arithmetic in two places on purpose.
+
+**LOW-1 and LOW-3 are K-071's; see `../K-071/fix.md`.** LOW-1's residual is now gone: the module
+doc is 44 lines, and the one rule the earlier compaction had dropped is back.

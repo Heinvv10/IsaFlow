@@ -24,6 +24,7 @@ import {
   validateBankSupplierPayment,
 } from '../ap/supplierBankPaymentService';
 import { EPS, round2 } from '../ap/supplierAllocationLines';
+import { isSupplierPaymentRefusal } from '../ap/supplierPaymentRefusal';
 
 export type ConfirmSupplierMatchOutcome =
   | { ok: false; kind: 'not_found' }
@@ -82,15 +83,19 @@ export async function confirmSupplierInvoiceMatch(
   // Reads only: line already allocated, closed or missing fiscal period,
   // cancelled bill, money the wrong way. Each refusal carries its own remedy,
   // and none of them has written anything yet.
+  //
+  // ONLY a `SupplierPaymentRefusal` is one of those. Catching every throw here
+  // classified a dropped connection or a `25P02` as the user's fault: the route
+  // answers a refusal with `apiResponse.badRequest`, which passes the message
+  // straight through, so raw Postgres text reached the browser as a 400 and a
+  // real server fault was monitored as a client error — on a status `withAuth`
+  // COMMITs. Anything else is re-thrown for the route's 500 branch.
   let validation;
   try {
     validation = await validateBankSupplierPayment(companyId, bankTransactionId, allocations);
   } catch (refusal) {
-    return {
-      ok: false,
-      kind: 'refused',
-      message: refusal instanceof Error ? refusal.message : 'Match refused',
-    };
+    if (!isSupplierPaymentRefusal(refusal)) throw refusal;
+    return { ok: false, kind: 'refused', message: refusal.message };
   }
 
   // Handed the validation it just made rather than letting the service repeat

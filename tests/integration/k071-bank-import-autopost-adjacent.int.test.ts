@@ -19,13 +19,39 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 const sweepBehaviour = { fail: true, destroySavepoint: false };
 
+/**
+ * The name the sweep's savepoint is actually opened under, captured as it is
+ * opened. It carries a per-call sequence (a duplicate SAVEPOINT name SHADOWS
+ * the outer one rather than erroring), so a test that has to destroy that exact
+ * savepoint cannot hardcode it — and hardcoding it is how this test silently
+ * stopped destroying anything.
+ */
+const liveSavepoint = { name: '', opened: [] as string[] };
+
+vi.mock('@/lib/neon', async (orig) => {
+  const actual = await orig<typeof import('@/lib/neon')>();
+  return {
+    ...actual,
+    withSavepoint: (name: string, fn: () => Promise<unknown>) => {
+      if (name.startsWith('bank_import_autopost')) {
+        liveSavepoint.name = name;
+        liveSavepoint.opened.push(name);
+      }
+      return actual.withSavepoint(name, fn);
+    },
+  };
+});
+
 vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   sweep: async () => {
     const { sql } = await import('@/lib/neon');
     if (sweepBehaviour.destroySavepoint) {
       // Releasing the savepoint the caller is standing in makes its own
       // ROLLBACK TO SAVEPOINT fail — the one case a savepoint cannot survive.
-      await sql`RELEASE SAVEPOINT bank_import_autopost`;
+      // Raw on the request client: a savepoint name is an identifier, and the
+      // `sql` template would send it as a bind parameter.
+      const { als } = await import('@/lib/als');
+      await als.getStore()!.client.query(`RELEASE SAVEPOINT ${liveSavepoint.name}`);
       throw new Error('sweep exploded with its savepoint already gone');
     }
     if (sweepBehaviour.fail) {
@@ -71,7 +97,11 @@ beforeAll(async () => {
   await seedCompany(companyB, bankB, 'K071 adjacent B');
 });
 
-beforeEach(() => { sweepBehaviour.fail = true; sweepBehaviour.destroySavepoint = false; });
+beforeEach(() => {
+  sweepBehaviour.fail = true;
+  sweepBehaviour.destroySavepoint = false;
+  liveSavepoint.opened.length = 0;
+});
 
 afterAll(async () => {
   try {
@@ -141,6 +171,12 @@ it('does not lose a second company imported in the same request transaction', as
     'SELECT id FROM bank_transactions WHERE company_id=$1 AND bank_account_id=$2', [companyA, bankB],
   );
   expect(rowCount).toBe(0);
+
+  // And the two sweeps did not open the SAME savepoint. `SAVEPOINT x` with a
+  // live name shadows the outer one instead of erroring, so a re-entrant call
+  // would release its parent's savepoint and lose the enclosing work silently.
+  expect(liveSavepoint.opened).toHaveLength(2);
+  expect(new Set(liveSavepoint.opened).size).toBe(2);
 });
 
 it('reports a clean import when the sweep succeeds', async () => {

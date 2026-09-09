@@ -54,3 +54,35 @@ K-074's; their dispositions are in `../K-074/fix.md`.
 No K-071 findings in the round-3 review. The import-side code is unchanged since
 `4c857048`; the four findings were all K-074's and their dispositions are in
 `../K-074/fix.md`.
+
+---
+
+## Round 4 — every finding of `review-k071-r3.md` (0 HIGH · 3 MEDIUM · 3 LOW)
+
+Two are K-071's (LOW-1, LOW-3); the rest belong to K-074's arm and are cross-referenced
+here because the review covered both in one pass. Full dispositions for M1–M3 and LOW-2
+are in `../K-074/fix.md`; evidence for all six is in `green.log` under ROUND 4.
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 — pre-write refusals answered 500 | **Fixed.** Lock timeout → 409 with the retry wording, `BankAllocationRefusal` → 400; everything after the first write keeps its 500. The false comment is rewritten. Proved with two interleaved pool clients on the real fixture, not from reading the code. |
+| MEDIUM-2 — any failure of the validator became a 400 | **Fixed.** `SupplierPaymentRefusal` is thrown for a refusal and nothing else; anything else is re-thrown to the route's 500 branch. |
+| MEDIUM-3 — the "no journal" assertion could never fail | **Fixed.** Replaced with an AP-line count taken before and after; a probe confirmed the count moves when a journal really is posted. |
+| LOW-1 — module doc over the 50-line limit | **Fixed.** `src/modules/accounting/services/bank/.claude.md` is 44 lines, down from 86 — and one rule the compaction had dropped (`getCashBalance`'s `{ exclusive: true }` opening-balance semantics, and why the option exists rather than the caller subtracting a day) is restored. Every other rule in the 86-line version was checked against the 44-line one, bullet by bullet: the losses are PRD tags, file extensions, consumer lists and evidence pointers, not rules. |
+| LOW-2 — two copies of the over-payment threshold | **Fixed.** `buildLine` now carries a comment naming the outer guard, why the outer one must fire first (a 4xx after a write COMMITs), and that both move together. |
+| LOW-3 — fixed savepoint name | **Fixed.** `bank_import_autopost_${seq}`, the `with_tx_${seq}` idiom `neon.ts` already uses. A duplicate SAVEPOINT name shadows rather than errors, so the adjacent test now asserts two imports in one request open two distinct names — and the test that destroys the savepoint captures the live name instead of hardcoding one, which is how it had silently stopped destroying anything. |
+
+**Tests added this round.** `tests/unit/api/bankMatchConfirmRefusalStatus.test.ts` (4 — 409, 400,
+the surviving 500, and classification by `code` across a module realm);
+`tests/unit/services/bank/confirmSupplierMatch.test.ts` (+2 — an infrastructure failure is
+re-thrown, a refusal raised deeper is still a refusal);
+`tests/integration/k074-bank-match-confirm-adjacent.int.test.ts` (+1 — two real clients, the
+holder keeps the row's `FOR UPDATE` while the route runs);
+`tests/integration/k071-bank-import-autopost-adjacent.int.test.ts` (savepoint-name uniqueness).
+
+**Migration.** None, this round or any other.
+
+**Historical-data impact.** None added. The status-code changes alter what a caller is TOLD;
+no path that wrote before now writes, and no path that wrote now refuses. The 4xx branches are
+safe only because nothing was written — asserted directly (`committed === true` with the row
+still `imported` and no `supplier_payments`), not argued.

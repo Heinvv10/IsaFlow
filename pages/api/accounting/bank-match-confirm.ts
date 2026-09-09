@@ -15,7 +15,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
@@ -32,6 +32,8 @@ import {
   signMismatchReason,
   type SettlementKind,
 } from '@/modules/accounting/services/bank/bankLineDirection';
+import { isBankTransactionLockTimeout } from '@/modules/accounting/services/bank/bankTxLock';
+import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 type Row = Record<string, unknown>;
 
 const BodySchema = z.object({
@@ -248,8 +250,25 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, { matched: true, candidateType, candidateId, ...settlement });
   } catch (err) {
-    // 500, not 400. Every throw reachable here happens at or after
-    // `allocateTransaction`, which has already posted a journal, touched
+    // TWO of the throws reachable here are decided BEFORE the first write —
+    // `allocateTransaction` raises both from the row it has just locked, and on
+    // every branch above it is the first thing that writes. They keep a 4xx,
+    // which `withAuth` COMMITs: an empty transaction, committed, is a no-op.
+    //
+    // A contended line is the ordinary case of this — a UI double-click — and
+    // the message is written to be read by whoever double-clicked. 409, because
+    // the answer is "retry", and `internalError` would have replaced that
+    // wording with "An internal error occurred" in production anyway.
+    if (isBankTransactionLockTimeout(err)) {
+      log.info('Bank match confirm hit a contended line', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
+      return apiResponse.error(res, ErrorCode.CONFLICT, err.message);
+    }
+    if (isBankAllocationRefusal(err)) {
+      return apiResponse.badRequest(res, err.message);
+    }
+
+    // 500, not 400, for every REMAINING throw: those happen at or after the
+    // first write of `allocateTransaction`, which has posted a journal, touched
     // `bank_transactions` and may have written a payment document. `withAuth`
     // decides COMMIT vs ROLLBACK on `statusCode >= 500`, so answering 400 here
     // committed exactly the half-finished match this route must not leave
