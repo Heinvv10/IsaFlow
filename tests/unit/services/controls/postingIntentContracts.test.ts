@@ -2,6 +2,8 @@ import {expect,it} from 'vitest';
 import {CONTROL_OPERATIONS} from '@/modules/accounting/services/controls/contracts';
 import {operationPermission,operationRequiresPosting,operationRuleType} from '@/modules/accounting/services/controls/operationPermissions';
 it.each([
+ ['bank_allocation.post','write:bank-tx','payment'],
+ ['bank_allocation.reverse','write:bank-tx','payment'],
  ['bank_transfer.post','write:bank-tx','payment'],
  ['asset_depreciation.post','write:assets','asset_depreciation'],
  ['customer_invoice.post','write:invoices','customer_invoice'],

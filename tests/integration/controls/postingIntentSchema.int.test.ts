@@ -6,7 +6,8 @@ const target=validateFixtureTarget(fixtureConfigFromEnv(process.env));
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:1});
 afterAll(async()=>{await pool.end();});
 it.each(['control_bank_transfer_intents','control_asset_depreciation_intents',
- 'control_credit_note_applications','control_recurring_invoice_runs'])('enforces immutable tenant-scoped storage for %s',async table=>{
+ 'control_credit_note_applications','control_recurring_invoice_runs',
+ 'control_bank_allocation_intents','control_bank_allocation_reversal_intents'])('enforces immutable tenant-scoped storage for %s',async table=>{
  const rows=await pool.query(`SELECT c.relrowsecurity,c.relforcerowsecurity,
   has_table_privilege('app_user',c.oid,'SELECT') AS readable,
   has_table_privilege('app_user',c.oid,'INSERT') AS insertable,
@@ -18,7 +19,7 @@ it.each(['control_bank_transfer_intents','control_asset_depreciation_intents',
  for(const policy of policies.rows)expect(policy.qual??policy.with_check).toContain('current_company_id');
  expect(policies.rows[0].with_check).toContain('requester_person_id');
  const fks=await pool.query(`SELECT conkey FROM pg_constraint WHERE conrelid=$1::regclass AND contype='f'`,[table]);
- expect(fks.rows.some(row=>row.conkey.length===2)).toBe(true);
+ expect(fks.rows.some(row=>row.conkey.length>=2)).toBe(true);
 });
 it('stores explicit nullable legacy AR currency without fabricated backfills',async()=>{
  const rows=await pool.query(`SELECT table_name,is_nullable,column_default FROM information_schema.columns
