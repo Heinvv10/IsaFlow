@@ -8,10 +8,11 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
-  ArrowLeft, Landmark, Loader2, AlertCircle, CheckCircle2,
+  ArrowLeft, Landmark, Loader2, AlertCircle,
   Zap, Link2, Unlink, Ban, Check, Trash2,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
+import { ReconciliationBalances } from '@/components/accounting/bank/ReconciliationBalances';
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -345,29 +346,7 @@ export default function ReconciliationDetailPage() {
           )}
 
           {/* Balances Summary */}
-          {/* One ledger figure, not two: reconciled_balance IS the posted GL
-              balance as at the statement date, so a second tile repeated it. */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Statement Balance</p>
-              <p className="text-xl font-bold text-[var(--ff-text-primary)]">{formatCurrency(recon.statementBalance)}</p>
-            </div>
-            <div className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">GL Balance (as at statement date)</p>
-              <p className="text-xl font-bold text-blue-400">{formatCurrency(recon.reconciledBalance)}</p>
-            </div>
-            <div className={`p-4 rounded-lg border ${Math.abs(recon.difference) < 0.01 ? 'bg-teal-500/10 border-teal-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Difference</p>
-              <p className={`text-xl font-bold ${Math.abs(recon.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
-                {formatCurrency(recon.difference)}
-              </p>
-              {Math.abs(recon.difference) < 0.01 && (
-                <p className="text-xs text-teal-400 flex items-center gap-1 mt-1">
-                  <CheckCircle2 className="h-3 w-3" /> Balanced
-                </p>
-              )}
-            </div>
-          </div>
+          <ReconciliationBalances recon={recon} />
 
           {/* Manual Match Controls */}
           {!isCompleted && selectedTx && selectedGl && (

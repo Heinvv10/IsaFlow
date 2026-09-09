@@ -91,3 +91,34 @@ from the reverted-service run, not prose.
 **Tests added.** Two cases in `k020-reconciled-balance-recompute.int.test.ts` for M2 and
 M3, each asserting the throw AND that no journal entry was created and the balances did
 not move. 6 integration tests pass; 5 of the 6 go red when the service is reverted.
+
+---
+
+## Re-review round — N1 and N2
+
+**N1 (MEDIUM) — the collapsed tile hid the legacy figure.** The tile rendered
+`reconciledBalance`, which is the GL balance only for rows written by the new code. On
+un-backfilled rows it is `gl_balance + SUM(matched)`, so the tile asserted a GL balance
+that was the double-counted number, and the frozen `gl_balance` that would have
+contradicted it was no longer shown anywhere. The tile now renders `glBalance`, which is
+identical on new rows and correct on old ones. Because `difference` is still derived from
+`reconciled_balance`, a legacy row would otherwise show a tile and a difference that do
+not tie; the tile now carries an amber line naming the stored figure and saying an
+adjustment recomputes it. That is the chosen answer over the backfill, which stays
+deferred.
+
+**N2 (LOW) — the mock counted `sql` calls.** `bl80-83-tenant-isolation.test.ts` answers
+the balance query by matching its text for `gl_balance` instead of queueing three
+positional values, and an `afterEach` restores the shared fragment stub so nothing leaks
+into the BL-83 describe. Proof it no longer encodes the count: the file passes 10/10
+against both the new service (three `sql` calls) and the `origin/master` service (one).
+
+**Extraction.** The balances header moved from the page into
+`src/components/accounting/bank/ReconciliationBalances.tsx` so the two conditionals could
+be rendered in a test rather than grepped, following the `BillLineItemsTable` precedent.
+The page drops from 553 to 522 lines and its orphaned `CheckCircle2` import is removed.
+New test `tests/unit/components/reconciliationBalances.test.tsx` (2 tests, run under
+`vitest.components.config.ts`, which the `.ts`-only unit config does not pick up):
+the agreeing case shows one GL tile with no warning and no revived "Reconciled Balance"
+tile; the defect's own shape (GL 1000, reconciled 2000) shows the warning and the GL
+figure. Reverting the tile to `reconciledBalance` turns one of the two red.

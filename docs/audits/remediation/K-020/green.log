@@ -63,3 +63,37 @@ tests across BL-82 and BL-83. The mock now queues all three. 10/10 pass.
 
 == tsc / eslint ==
 bunx tsc --noEmit → clean. bunx eslint on the service and [reconId].tsx → clean.
+
+================= RE-REVIEW ROUND (1 MEDIUM / 1 LOW) =================
+
+== FULL UNIT SUITE (no fixture env; DATABASE_URL unset) ==
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+Fully green: the 2 timeouts recorded in the previous round were contention, as stated.
+
+== COMPONENT SUITE (vitest.components.config.ts; the .ts unit config excludes .tsx) ==
+$ bun run test:components
+      Tests  386 passed (386)
+Includes the new tests/unit/components/reconciliationBalances.test.tsx (2).
+
+== INTEGRATION (fixture DB) ==
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+== N2 mutation check: the mock no longer encodes the sql() call count ==
+bl80-83-tenant-isolation.test.ts → 10/10 pass against the NEW service (3 sql calls)
+bl80-83-tenant-isolation.test.ts → 10/10 pass against origin/master (1 sql call)
+Service restored afterwards.
+
+== N1 mutation check ==
+Tile reverted to formatCurrency(recon.reconciledBalance) → 1 of 2 component tests red.
+Component restored afterwards.
+
+== tsc / eslint ==
+bunx tsc --noEmit → clean. eslint on the service, the page and the new component → clean
+(the orphaned CheckCircle2 import the extraction left behind was removed).
+
+== NOT DONE ==
+No browser proof of the reconciliation page: no dev server is running on :3200 and
+starting a build on this box would disrupt the other agents' suites. The two conditionals
+are covered by a real jsdom render instead.
