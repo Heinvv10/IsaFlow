@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { validateEvidence } from '@/modules/accounting/services/controls/beneficiaryQueries';
+import { validateEvidence, assertPoliciesSupported } from '@/modules/accounting/services/controls/beneficiaryQueries';
 import { requireControlTx, withControlRequest } from '@/modules/accounting/services/controls/context';
 import type { EvidenceRef } from '@/modules/accounting/services/controls/contracts';
 const companyId = '11111111-1111-4111-8111-111111111111';
@@ -31,4 +31,13 @@ it('refuses absent, duplicate, unsupported-store and employee-parent evidence ex
   await expect(check([evidence,evidence])).rejects.toThrow('INVALID_EVIDENCE');
   await expect(check([{ ...evidence,store:'procurement' }])).rejects.toThrow('EVIDENCE_STORE_UNSUPPORTED');
   await expect(check([evidence],'employee')).rejects.toThrow('EMPLOYEE_EVIDENCE_PARENT_UNSUPPORTED');
+});
+
+it('locks the policy namespace before reading even an empty configured population', async () => {
+  query.mockResolvedValue({ rows: [] });
+  await withControlRequest({ client, userId: 'u1', companyId, claims: {} }, { personId: 'u1', companyId, authMethod: 'cookie' },
+    () => assertPoliciesSupported(requireControlTx()));
+  expect(query.mock.calls[0]![0]).toContain('pg_advisory_xact_lock');
+  expect(query.mock.calls[0]![1]).toContain(`control-policy:${companyId}`);
+  expect(query.mock.calls[1]![0]).toContain('FROM approval_rules');
 });

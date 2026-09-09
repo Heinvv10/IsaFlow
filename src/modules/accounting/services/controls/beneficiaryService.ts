@@ -111,3 +111,36 @@ export async function getVerifiedBeneficiary(ctx: ControlTx, input: BeneficiaryR
   if (bankFingerprint(ctx.principal.companyId, ref, current) !== verified.fingerprint) throw new BeneficiaryError('BANKING_CHANGED');
   return { ...ref, beneficiaryId: verified.id, details, version: positiveVersion(verified.version), fingerprint: verified.fingerprint };
 }
+
+async function terminateProposal(ctx: ControlTx, proposalId: string, reason: string, status: 'rejected' | 'cancelled') {
+  return mutation(ctx, async () => {
+    if (!UUID_RE.test(proposalId) || typeof reason !== 'string' || !reason.trim() || reason.length > 1000) {
+      throw new BeneficiaryError('INVALID_DECISION');
+    }
+    if (ctx.principal.authMethod !== 'cookie' || ctx.principal.provenance !== 'human') throw new BeneficiaryError('HUMAN_REQUIRED');
+    await q.lockAuthorities(ctx, proposalId, false);
+    const initial = await q.loadProposal(ctx, proposalId);
+    const isRequester = initial.requester_person_id === ctx.principal.personId;
+    if (status === 'cancelled' && !isRequester) throw new BeneficiaryError('REQUESTER_REQUIRED');
+    if (status === 'rejected' && isRequester) throw new BeneficiaryError('INDEPENDENT_PERSON_REQUIRED');
+    const ref = validateBeneficiaryRef({ entityType: initial.entity_type, entityId: initial.entity_id });
+    await assertEffectivePermission(ctx, 'write:beneficiaries', ref);
+    if (status === 'rejected') await assertEffectivePermission(ctx, 'write:approvals', ref);
+    await q.lockBank(ctx, ref);
+    const proposal = await q.loadProposal(ctx, proposalId, true);
+    if (proposal.status !== 'pending') throw new BeneficiaryError('STALE_PROPOSAL');
+    await q.markTerminal(ctx, proposalId, status);
+    await recordCommittedChange(ctx, { entityType: `beneficiary_${ref.entityType}_proposal`, entityId: proposalId,
+      previousVersion: 1, newVersion: 2, action: `beneficiary.${status === 'rejected' ? 'reject' : 'cancel'}`, accountingDate: null,
+      before: { status: 'pending' }, after: { status, decisionReason: reason.trim() }, bindingHash: null, protectedEvidenceRef: null });
+    return { proposalId, status };
+  });
+}
+/** Rejection preserves the current verified bank and records the independent decision in protected evidence. */
+export function rejectBeneficiaryChange(ctx: ControlTx, proposalId: string, reason: string) {
+  return terminateProposal(ctx, proposalId, reason, 'rejected');
+}
+/** Only the authenticated human requester may withdraw their pending intent. */
+export function cancelBeneficiaryChange(ctx: ControlTx, proposalId: string, reason: string) {
+  return terminateProposal(ctx, proposalId, reason, 'cancelled');
+}

@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstrap';
 import { provisionForensicFixture, validateFixtureTarget, type ForensicFixture } from '../forensic-fixture';
 import { withControlRequest, requireControlTx } from '../../../src/modules/accounting/services/controls/context';
-import { proposeBeneficiaryChange, verifyBeneficiaryChange, getVerifiedBeneficiary } from '../../../src/modules/accounting/services/controls/beneficiaryService';
+import { proposeBeneficiaryChange, verifyBeneficiaryChange, getVerifiedBeneficiary, rejectBeneficiaryChange, cancelBeneficiaryChange } from '../../../src/modules/accounting/services/controls/beneficiaryService';
 import type { ControlTx, EvidenceRef } from '../../../src/modules/accounting/services/controls/contracts';
 
 const config = fixtureConfigFromEnv(process.env), target = validateFixtureTarget(config);
@@ -110,4 +110,46 @@ it('outer rollback removes activation, version and required events together', as
   expect(versions.rows).toHaveLength(0);
   const proposal = await pool.query('SELECT status FROM control_beneficiary_proposals WHERE company_id=$1 AND id=$2',[fixture.companyA,p.proposalId]);
   expect(proposal.rows[0].status).toBe('pending');
+});
+
+it('rejection preserves verified A, permits a new B proposal, and cancellation never activates', async () => {
+  const s = await source(), a = await actor(fixture.u1.id,ctx => proposeBeneficiaryChange(ctx,s.ref,bank,s.evidence));
+  await actor(fixture.u2.id,ctx => verifyBeneficiaryChange(ctx,a.proposalId,s.evidence));
+  const bindingA = await actor(fixture.u1.id,ctx => getVerifiedBeneficiary(ctx,s.ref));
+  const bankB = { ...bank, accountNumber:'00888888888' };
+  const rejected = await actor(fixture.u1.id,ctx => proposeBeneficiaryChange(ctx,s.ref,bankB,s.evidence));
+  await actor(fixture.u2.id,ctx => rejectBeneficiaryChange(ctx,rejected.proposalId,'Bank evidence rejected'));
+  expect(await current(s.ref.entityId)).toBe(bank.accountNumber);
+  expect((await actor(fixture.u1.id,ctx => getVerifiedBeneficiary(ctx,s.ref))).version).toBe(1);
+  await expect(actor(fixture.u2.id,ctx => verifyBeneficiaryChange(ctx,rejected.proposalId,s.evidence))).rejects.toThrow('STALE_PROPOSAL');
+  const retry = await actor(fixture.u1.id,ctx => proposeBeneficiaryChange(ctx,s.ref,bankB,s.evidence));
+  await actor(fixture.u2.id,ctx => verifyBeneficiaryChange(ctx,retry.proposalId,s.evidence));
+  const bindingB = await actor(fixture.u1.id,ctx => getVerifiedBeneficiary(ctx,s.ref));
+  expect(bindingB.version).toBe(2); expect(bindingB.fingerprint).not.toBe(bindingA.fingerprint);
+  const cancelled = await actor(fixture.u1.id,ctx => proposeBeneficiaryChange(ctx,s.ref,bank,s.evidence));
+  await actor(fixture.u1.id,ctx => cancelBeneficiaryChange(ctx,cancelled.proposalId,'Withdraw incorrect request'));
+  expect(await current(s.ref.entityId)).toBe(bankB.accountNumber);
+  expect((await actor(fixture.u1.id,ctx => getVerifiedBeneficiary(ctx,s.ref))).version).toBe(2);
+});
+it('serializes empty policy population against a concurrent configured-policy insert', async () => {
+  const s = await source(), p = await actor(fixture.u1.id,ctx => proposeBeneficiaryChange(ctx,s.ref,bank,s.evidence));
+  const policy = await pool.connect(), policyId = randomUUID();
+  let verification: Promise<unknown> | undefined;
+  try {
+    await policy.query('BEGIN');
+    await policy.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`control-policy:${fixture.companyA}`]);
+    verification = actor(fixture.u2.id,ctx => verifyBeneficiaryChange(ctx,p.proposalId,s.evidence));
+    const settled = verification.then(() => 'activated',() => 'refused');
+    const state = await Promise.race([settled,new Promise<string>(resolve => setTimeout(() => resolve('waiting'),200))]);
+    expect(state).toBe('waiting');
+    await policy.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_operator,approver_role)
+      VALUES($1,$2,'Synthetic beneficiary policy','beneficiary','any','admin')`,[policyId,fixture.companyA]);
+    await policy.query('COMMIT');
+    await expect(verification).rejects.toThrow('CONFIGURED_POLICY_REQUIRES_APPROVAL_FACADE');
+    expect(await current(s.ref.entityId)).toBe(oldBank);
+  } finally {
+    await policy.query('ROLLBACK'); policy.release();
+    if (verification) await verification.catch(() => undefined);
+    await pool.query('DELETE FROM approval_rules WHERE company_id=$1 AND id=$2',[fixture.companyA,policyId]);
+  }
 });
