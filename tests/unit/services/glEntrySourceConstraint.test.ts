@@ -86,13 +86,12 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
    * construction and savepoint-atomic, and its deterministic entry_number is
    * load-bearing for idempotency, so it was deliberately left alone.
    *
-   * These three are emitted by live code and rejected by the constraint, so
+   * These two are emitted by live code and rejected by the constraint, so
    * those features are dead — and they must STAY dead until their code is
    * converted.
    *
    *   'opening_balance' — pages/api/accounting/opening-balances.ts
    *   'bank_transfer'   — pages/api/accounting/bank-transfers.ts
-   *   'year_end'        — gl/yearEndService.ts
    *
    * Each still INSERTs its header straight to status='posted' without
    * validateJournalEntry, and trg_gl_je_balanced is BEFORE UPDATE only, so
@@ -102,14 +101,23 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
    * same change to stay safe.
    *
    * The constraint is currently the only thing protecting the ledger from
-   * these three. Without this test the next person debugging their 23514 fixes
+   * these two. Without this test the next person debugging their 23514 fixes
    * it by widening the list, which is the trap. Convert the code first, then
    * delete the relevant line here.
+   *
+   * 'year_end' WAS on this list and came off in migration 627. It is still an
+   * INSERT-at-posted path and cannot become postJournalEntry — the year-end
+   * close requires every period CLOSED and postJournalEntry refuses a period
+   * that is not OPEN — so what came off the list is the guard, not the
+   * requirement: yearEndCloseService.postClosingJournal now runs
+   * validateJournalEntry over the closing lines itself, before the transaction
+   * opens. The test below pins that, so removing the check puts the union and
+   * the constraint back in an unsafe state loudly rather than silently.
    */
-  it('keeps the three unconverted direct-INSERT sources OUT of the union and the constraint', () => {
+  it('keeps the two unconverted direct-INSERT sources OUT of the union and the constraint', () => {
     const allowed = new Set(sourcesInConstraint(latestSourceConstraintSql()));
 
-    for (const dead of ['opening_balance', 'bank_transfer', 'year_end']) {
+    for (const dead of ['opening_balance', 'bank_transfer']) {
       expect(
         GL_ENTRY_SOURCES as readonly string[],
         `${dead}: convert its writer to createJournalEntry before adding it`,
@@ -119,6 +127,24 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
         `${dead}: admitting this source un-gates an unvalidated INSERT-at-posted path`,
       ).toBe(false);
     }
+  });
+
+  it('admits year_end only while its writer validates the journal itself', () => {
+    const allowed = new Set(sourcesInConstraint(latestSourceConstraintSql()));
+    expect(allowed.has('year_end'), 'migration 627 admits year_end').toBe(true);
+    expect(GL_ENTRY_SOURCES as readonly string[]).toContain('year_end');
+
+    // The source is only safe to admit because postClosingJournal replaces the
+    // guard the constraint was providing. If this call goes away, the
+    // INSERT-at-posted path is unvalidated again and year_end must go back on
+    // the dead list above.
+    const closeService = readFileSync(
+      join(process.cwd(), 'src/modules/accounting/services/gl/yearEndCloseService.ts'), 'utf8');
+    const postClosing = closeService.slice(closeService.indexOf('async function postClosingJournal'));
+    expect(
+      postClosing,
+      'postClosingJournal must validate the closing journal before writing it',
+    ).toContain('validateJournalEntry(');
   });
 
   it('no longer carries the pre-509 spellings the constraint never accepted', () => {

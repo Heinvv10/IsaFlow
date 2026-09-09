@@ -83,6 +83,10 @@ export const GL_ENTRY_SOURCES = [
   'auto_asset_disposal',
   'auto_asset_expense',
   'auto_gl_import',
+  // Year-end close. Admitted by migration 627 once postClosingJournal gained
+  // its own validateJournalEntry check — it INSERTs at status='posted', so no
+  // other guard sees it.
+  'year_end',
 ] as const;
 
 export type GLEntrySource = (typeof GL_ENTRY_SOURCES)[number];
