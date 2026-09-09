@@ -24,3 +24,8 @@ it('does not restore old-account pending links after a new account response',asy
  rerender({bank:'two'});await act(async()=>{finish({ok:true,json:async()=>({data:{linked:0,failed:false,pending:[pending]}})});});
  expect(result.current.pending).toEqual([]);expect(result.current.failed).toBe(false);
 });
+it('refreshes prepared work after execution instead of retaining a now-posted pending row',async()=>{
+ apiFetch.mockResolvedValueOnce({ok:true,json:async()=>({data:{linked:0,failed:false,pending:[pending]}})}).mockResolvedValueOnce({ok:true,json:async()=>({data:{linked:0,failed:false,pending:[]}})});
+ const {result}=renderHook(()=>useBankTransferRelink('one'));await waitFor(()=>expect(result.current.pending).toEqual([pending]));
+ act(()=>result.current.refresh());await waitFor(()=>expect(result.current.pending).toEqual([]));expect(apiFetch).toHaveBeenCalledTimes(2);
+});

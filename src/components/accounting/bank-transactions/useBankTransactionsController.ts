@@ -1,3 +1,4 @@
+import {useBankTransferRelink} from './useBankTransferRelink';
 import {useState,useEffect,useCallback,useRef} from 'react';
 import {useRouter} from 'next/router';
 import {apiFetch} from '@/lib/apiFetch';
@@ -29,6 +30,7 @@ export function useBankTransactionsController() {
   const [buOptions, setBuOptions] = useState<SelectOption[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAcct[]>([]);
   const [selectedBank, setSelectedBank] = useState('');
+  const transferRelink = useBankTransferRelink(selectedBank);
   const [refDataLoaded, setRefDataLoaded] = useState(false);
   const didApplyQueryParam = useRef(false);
   const { refreshBankAccounts } = useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded });
@@ -48,7 +50,7 @@ export function useBankTransactionsController() {
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [relinkFailed, setRelinkFailed] = useState(false);
+
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
@@ -127,7 +129,7 @@ export function useBankTransactionsController() {
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
-  useBankControlResume(bankControl,()=>{void loadTransactions();refreshBankAccounts();});
+  useBankControlResume(bankControl,()=>{void loadTransactions();refreshBankAccounts();transferRelink.refresh();});
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const [aiPolling, setAiPolling] = useState(0);
@@ -155,27 +157,6 @@ export function useBankTransactionsController() {
     }, 4000);
   }, [loadTransactions]);
 
-  // Re-link any imported transactions that are the counterpart of an existing
-  // allocation (covers 'account' type pointing to a bank GL). The pass swallows
-  // its own error to stay non-fatal, so `failed` is the only way a user learns
-  // their transfers were not linked; anything else stays silent.
-  useEffect(() => {
-    if (!selectedBank) return;
-    let cancelled = false;
-    setRelinkFailed(false);
-    apiFetch('/api/accounting/bank-relink-transfers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bankAccountId: selectedBank }),
-    })
-      .then(async res => {
-        if (cancelled || !res.ok) return;
-        const json = await res.json();
-        if (json?.data?.failed) setRelinkFailed(true);
-      })
-      .catch(() => {/* non-fatal */});
-    return () => { cancelled = true; };
-  }, [selectedBank]);
 
   // ---- Seed rowSelections from DB suggestion fields ----
   useEffect(() => {
@@ -215,7 +196,7 @@ export function useBankTransactionsController() {
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
     setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,
-    openBankControl:bankControl.open,
+    openBankControl:async input=>{const outcome=await bankControl.open(input);if(outcome==='posted')transferRelink.refresh();return outcome;},
     onLlmResidual: pollForLlmResults,
   });
 
@@ -236,7 +217,7 @@ export function useBankTransactionsController() {
   return {
   bankControl,glAccounts,setGlAccounts,suppliers,setSuppliers,customers,setCustomers,cc1Options,
   cc2Options,buOptions,bankAccounts,selectedBank,setSelectedBank,refreshBankAccounts,transactions,isLoading,
-  error,relinkFailed,tab,setTab,page,setPage,total,searchTerm,
+  error,transferRelink,tab,setTab,page,setPage,total,searchTerm,
   setSearchTerm,fromDate,setFromDate,toDate,setToDate,fromAmount,setFromAmount,toAmount,
   setToAmount,sortOrder,setSortOrder,allocationFilter,setAllocationFilter,txType,setTxType,allocType,
   setAllocType,hasSuggestion,setHasSuggestion,selectedIds,setSelectedIds,rowSelections,setRowSelections,smartRunning,
