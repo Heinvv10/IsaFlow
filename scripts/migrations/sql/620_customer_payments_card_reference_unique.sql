@@ -1,4 +1,4 @@
--- 619: one card receipt per gateway reference.
+-- 620: one card receipt per gateway reference.
 --
 -- recordGatewayInvoiceReceipt guards against a double receipt with a read of
 -- customer_payments.bank_reference followed by an insert. Nothing behind that

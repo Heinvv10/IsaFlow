@@ -19,7 +19,7 @@ balance stopped agreeing with the AR aging.
   (`withPublicRouteTransaction`), so a GL failure cannot leave the invoice marked paid.
 
 **Idempotency.** Guarded on `customer_payments.bank_reference = <paystack reference>`
-(status <> cancelled), and enforced by migration 619's partial unique index behind it.
+(status <> cancelled), and enforced by migration 620's partial unique index behind it.
 Whichever of webhook and verify arrives second records nothing, and a webhook redelivery
 records nothing. A settlement LARGER than the invoice balance is banked in full: the whole
 receipt is debited to bank and credited to the customer, the invoice absorbs only what it
@@ -48,7 +48,7 @@ throws if called.
 
 **Mutation check.** Reverting both call sites to dd4f854c turns all 6 red.
 
-**Migration / rollback.** `scripts/migrations/sql/619_customer_payments_card_reference_unique.sql`
+**Migration / rollback.** `scripts/migrations/sql/620_customer_payments_card_reference_unique.sql`
 adds a partial unique index behind the idempotency read. Rollback: `DROP INDEX
 ux_customer_payments_card_reference`.
 
