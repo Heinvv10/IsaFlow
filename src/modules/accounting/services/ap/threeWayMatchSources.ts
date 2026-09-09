@@ -1,14 +1,14 @@
 import type {ControlTx} from '../controls/contracts';
 import {RISK_SOURCE_LIMIT} from '../controls/invoiceRiskQueriesResult';
 export interface MatchSourceRow {invoice_id:string;item_id:string|null;description:string|null;supplier_owned:boolean;currency:string;invoice_date:string;
- invoice_status:string;cached_status:string;po_id:string|null;po_item_id:string|null;quantity:string|null;unit_price:string|null;line_total:string|null;
+ invoice_deleted:boolean;invoice_status:string;cached_status:string;po_id:string|null;po_item_id:string|null;quantity:string|null;unit_price:string|null;line_total:string|null;
  flat_po_id:string|null;supplier_po_id:string|null;ordered:string|null;ordered_price:string|null;po_status:string|null;
  bills:Array<{id:string;invoiceId:string;quantity:string;unitPrice:string;date:string;status:string}>;
  receipts:Array<{id:string;lineId:string;received:string;rejected:string;status:string;quality:string;date:string}>;
  rules:Array<{id:string;qty:string;price:string;updatedAt:string}>;version:number|string|null}
 export async function readThreeWayMatchSources(ctx:ControlTx,cutoff:string|null,invoiceId:string|null){
  const rows=await ctx.sql`SELECT i.id AS invoice_id,l.id AS item_id,l.description,(s.id IS NOT NULL) AS supplier_owned,i.currency,i.invoice_date::text,
- i.status AS invoice_status,i.match_status AS cached_status,i.purchase_order_id AS po_id,l.po_item_id,l.quantity::text,l.unit_price::text,l.line_total::text,
+ i.deleted_at IS NOT NULL AS invoice_deleted,i.status AS invoice_status,i.match_status AS cached_status,i.purchase_order_id AS po_id,l.po_item_id,l.quantity::text,l.unit_price::text,l.line_total::text,
  p.id AS flat_po_id,sp.id AS supplier_po_id,COALESCE(pi.quantity,spi.quantity)::text AS ordered,
  COALESCE(pi.unit_price,spi.unit_price)::text AS ordered_price,COALESCE(p.status,sp.status) AS po_status,
  COALESCE(b.bills,'[]'::jsonb) AS bills,COALESCE(g.receipts,'[]'::jsonb) AS receipts,COALESCE(r.rules,'[]'::jsonb) AS rules,v.version,

@@ -7,7 +7,7 @@ import {readThreeWayMatchSources,type MatchSourceRow} from './threeWayMatchSourc
 import {calculateCumulativeThreeWayMatch} from './threeWayMatchMath';
 export function evaluateThreeWayMatchRow(row:MatchSourceRow){
  const missing:string[]=[];
- const excluded=['cancelled','void','voided','rejected'].includes(row.invoice_status);
+ const excluded=row.invoice_deleted||['cancelled','void','voided','rejected'].includes(row.invoice_status);
  if(!row.supplier_owned||!row.item_id||!row.ordered||!row.ordered_price||!row.unit_price||!row.quantity||!!row.flat_po_id===!!row.supplier_po_id)
   missing.push('owned_purchase_order_line_material_unavailable');
  if(row.po_status&&['draft','cancelled'].includes(row.po_status))missing.push('eligible_purchase_order_unavailable');
@@ -19,6 +19,7 @@ export function evaluateThreeWayMatchRow(row:MatchSourceRow){
  const accepted=known.length?known.map(r=>r.status==='rejected'||r.quality==='rejected'||r.quality==='pending'?'0':r.received):null;
  const match=missing.length||excluded?null:calculateCumulativeThreeWayMatch({ordered:row.ordered!,unitPrice:row.ordered_price!,
   accepted:row.supplier_po_id?null:accepted,invoiced:row.bills.map(b=>b.quantity),invoiceUnitPrice:row.unit_price!,qtyTolerance:tolerance.qty,priceTolerance:tolerance.price});
+ if(row.receipts.some(r=>!['received','inspected','accepted','rejected'].includes(r.status)||!['accepted','partial','rejected'].includes(r.quality)))missing.push('unresolved_receipt_acceptance_evidence');
  if(row.supplier_po_id)missing.push('supplier_po_accepted_receipt_provenance_unavailable');
  if(match)missing.push(...match.missing);
  return{row,match,missing,excluded,tolerance,fingerprint:riskHash(row)};
