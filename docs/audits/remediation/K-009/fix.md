@@ -59,6 +59,14 @@ reliably means "the company's own account".
   concurrent delete or an RLS-hidden row cannot leave an armed tag behind a "clean" report.
 - **L14.** The stale "all three changed source files" line is corrected below.
 
+**After (round 5 — re-review nits L15, L16).**
+- **L15.** The re-import test performed its own import, blocker and partial rollback on its own
+  company instead of reading the state an earlier test left on a shared one. It passes alone under a
+  `-t` filter, so a reorder can no longer turn it into a confusing failure.
+- **L16.** `postOpeningBalances` collected the missing codes and the not-owned ones into one refusal
+  instead of throwing on the first bucket. An import with both no longer sends the operator round the
+  loop to meet the second message only after fixing the first.
+
 **Files.** `src/modules/accounting/services/core/migrationRollbackService.ts` (new, 118 lines — the
 rollback moved out of `migrationExecuteService.ts` to stay under the 300-line cap, and is re-exported
 from it so no caller changed), `migrationExecuteService.ts` (229 lines),
@@ -67,15 +75,17 @@ from it so no caller changed), `migrationExecuteService.ts` (229 lines),
 (comment only), `tests/unit/services/core/migrationExecuteSubtype.test.ts` (mock now mirrors the real
 `transaction` contract, plus a case for the refused upsert).
 
-**Tests.** Real DB 7 passed / 7; mocked unit 8 passed / 8. Full unit suite with no `DATABASE_URL`:
-9322 passed, 0 failed (`green.log`). Earlier rounds saw two order-dependent flakes in
-`bankAllocationUnwind` and `cashFlowReport` that also appear on an `origin/master` baseline run of the
-same command; neither appeared in the round-4 run.
+**Tests.** Real DB 7 passed / 7; mocked unit 9 passed / 9. Full unit suite with no `DATABASE_URL`, run
+twice: 9321 passed / 2 failed and 9313 passed / 10 failed (`green.log`). The failing set is unstable
+across runs on both this branch and an `origin/master` baseline, always drawn from the same pool of
+bank-allocation, cash-flow and tracker tests. Every one of them passes in isolation here and none
+imports migration code.
 
 **Mutation checks** (`green.log`, round 4, against the 7-test real-DB suite): dropping the M3 conflict
 guard fails 4; restoring the journal-lines-only DELETE fails 3; dropping the M4 tag clear fails 4;
 dropping the M7 ownership check fails 2; collapsing the M12 message back into "no GL account was
-created" fails 2; restored passes 7. Two mutants are equivalent by construction and recorded as such
+created" fails 2; restored passes 7; throwing on the missing codes before checking the not-owned ones (the L16
+regression) fails 1 mocked unit test. Two mutants are equivalent by construction and recorded as such
 rather than as passing mutations: re-adding `imported_from = EXCLUDED.imported_from` (unreachable once
 the M3 guard exists) and removing the L11 fast path (a performance path with identical results). The
 zero-row branches from L8 and L13 are defensive and are NOT covered by a test — reproducing either
