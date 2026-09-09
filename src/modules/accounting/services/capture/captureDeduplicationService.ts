@@ -49,12 +49,35 @@ export function computeFingerprint(
  * Returns normally when the error is anything else — the caller rethrows.
  */
 export function rethrowDuplicateFingerprint(err: unknown, invoiceNumber: string): void {
-  const e = err as { code?: unknown; constraint?: unknown } | null;
-  if (e?.code === '23505' && e.constraint === 'uq_supplier_invoices_supplier_fingerprint') {
-    throw new Error(
-      `This supplier already has an invoice ${invoiceNumber} for the same amount. Change the invoice number or amount, or open the existing bill.`,
-    );
+  if (!isDuplicateFingerprintViolation(err)) return;
+  log.warn(
+    'Duplicate supplier invoice refused by uq_supplier_invoices_supplier_fingerprint',
+    { invoiceNumber },
+    'duplicate-detection',
+  );
+  // `cause` keeps the pg error's own `code` and `constraint` reachable: the
+  // translation replaces the message a person reads, and must not blind a
+  // caller that branches on the violation.
+  throw new Error(
+    `This supplier already has an invoice ${invoiceNumber} for the same amount. Change the invoice number or amount, or open the existing bill.`,
+    { cause: err },
+  );
+}
+
+/**
+ * True for the unique violation on uq_supplier_invoices_supplier_fingerprint,
+ * whether it arrives raw or wrapped by `rethrowDuplicateFingerprint`.
+ */
+export function isDuplicateFingerprintViolation(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let e: unknown = err;
+  while (e && typeof e === 'object' && !seen.has(e)) {
+    seen.add(e);
+    const { code, constraint } = e as { code?: unknown; constraint?: unknown };
+    if (code === '23505' && constraint === 'uq_supplier_invoices_supplier_fingerprint') return true;
+    e = (e as { cause?: unknown }).cause;
   }
+  return false;
 }
 
 /**

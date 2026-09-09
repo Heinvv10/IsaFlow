@@ -1,44 +1,48 @@
-# GREEN — K-015 + K-089 after the third blind review (R0-R4)
+# GREEN — K-015 + K-089 after the fourth blind review (N1-N4)
 # Fixture PostgreSQL (isaflow_schema_fixture), migration 625 applied.
 
-$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts" "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts" "tests/integration/k089-ar-migration-balance-due-column.int.test.ts" "tests/integration/k015-sage-import-duplicate-savepoint.int.test.ts"
 
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-015
 
 
- Test Files  2 passed (2)
-      Tests  26 passed (26)
-   Start at  09:26:02
-   Duration  3.65s (transform 1.58s, setup 0ms, import 2.76s, tests 2.17s, environment 0ms)
+ Test Files  3 passed (3)
+      Tests  29 passed (29)
+   Start at  09:44:28
+   Duration  1.63s (transform 803ms, setup 0ms, import 1.36s, tests 1.73s, environment 0ms)
 
 
-## Mutation checks — round 3 (R0-R4)
+## Mutation checks — round 4
 
- R0. errors filter back to the negated IN
-       -> k015: 1 failed | 14 passed (15)
-          ["keeps the other steps' errors when a new error carries no step key"]
- R1. rethrowDuplicateFingerprint's constraint match disabled
-       -> k015: 2 failed | 13 passed (15)
-          [both the ordinary create path and the direct-INSERT paths]
- R2. rethrowIfConflictTargetMissing removed from the AR catch
-       -> k089: 1 failed | 10 passed (11)
-          ["aborts the run with a named error when the arbiter index is absent"]
- R3. no test: the settlement-account assertion is unreachable by construction
-     (the flag is derived from the same array), which is why it is an assertion
-     rather than a branch. The logging change is observable only in the log.
- R4. no test: a module split, proved by tsc, eslint and the suite still passing.
-     migrationImportService.ts 284 -> 270 lines; migrationContactMatch.ts is 36.
+ N2. `{ cause: err }` dropped from rethrowDuplicateFingerprint
+       -> sage: 2 failed | 1 passed (3)
+          ["the savepoint keeps the transaction usable…" and "recognises the violation
+           through the wrapper…" — isDuplicateFingerprintViolation can no longer see the code]
+ N1. no mutation check. The savepoint's absence is a runtime hazard, not a compile
+     error, and importSupplierInvoices cannot be driven end to end on this schema
+     (see below). The defect itself is asserted directly instead, by the test
+     "without the savepoint the follow-up UPDATE dies with 25P02", which measures
+     the 23505 -> 25P02 sequence the fix exists to prevent.
+ N3/N4. no test: a duplicated comment paragraph and the position of a re-export.
+     Both are proved by tsc, eslint and the suite still passing.
 
-Rounds 1 and 2 are unchanged and still hold; their checks are in the previous
-revisions of this file (commits fdcf3522 and 46fca787).
+Rounds 1-3 are unchanged; their checks are in the previous revisions of this file
+(commits fdcf3522, 46fca787, 47ead2b2).
 
-All mutations restored; the run above is 26/26 green.
+All mutations restored; the run above is 29/29 green.
 
-## R0 verified directly against the reviewer's own case
+## importSupplierInvoices cannot be exercised — measured, and registered as a finding
 
-  existing = [{"step":"suppliers","row":1}]   new = [{"row":2}]   stepsCompleted = {}
-  before (negated IN) -> [{"row": 2}]                                  -- suppliers lost
-  after  (NOT EXISTS) -> [{"row":1,"step":"suppliers"}, {"row":2}]     -- kept
+  psql> SELECT id, sage_invoice_id, sage_supplier_id, ... FROM sage_supplier_invoices
+  ERROR:  column "sage_invoice_id" does not exist
+
+  actual columns (migration 205 + 288):
+    id, sage_id, invoice_number, supplier_name, invoice_date, total_amount,
+    gl_supplier_invoice_id, migration_status, imported_at, company_id
+
+Eleven of the columns the function selects do not exist, so it raises 42703 on its first
+statement for every tenant. That is the K-015 class in a third service. NOT fixed in this
+branch — see review-response-4.md.
 
 ## Migration gates
 
@@ -52,12 +56,10 @@ Migration 625 unchanged this round; still NOT run against production.
   Test Files  785 passed | 36 skipped (821)
        Tests  9331 passed | 234 skipped (9565)
 
-The 60s timeout is deliberate: at the default 10s this shared box fails a different handful of
-unrelated tests on every run, each passing in isolation.
-
 ## Gates
 
-bunx tsc --noEmit                            -> exit 0
-bunx eslint <the nine changed src/ files>    -> exit 0
+bunx tsc --noEmit                          -> exit 0
+bunx eslint <the changed src/ files>       -> exit 0
 File sizes against the 300-line ceiling: migrationImportService 270, migrationApService 198,
-migrationContactMatch 36, migrationPostingSupport 62.
+migrationContactMatch 36, migrationPostingSupport 74. sageImportService is 572 and was 526
+before this branch — already over, flagged, not refactored here.
