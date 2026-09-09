@@ -49,3 +49,13 @@ the posted population is smaller than the extracted one.
 **Limits.** `1,234` alone is genuinely ambiguous between conventions. The last-separator rule
 treats it as thousands, which is the conservative reading and what master did. An amount printed
 with three decimal places is read as thousands for the same reason.
+
+## Round 3
+
+The amount/label grammar was hardened again after the second blind review — see
+`docs/audits/remediation/K-072/fix.md` for the disposition of all nine findings and
+`K-072/green-round3.log` for the evidence. Touching this item: the subtotal and VAT label
+guards are now variable-width (`Sub[\s-]*Total`, `(?<!(?:Ex|In)cl(?:uding)?\.?[\s-]*)`), the
+generic `Tax` form ranks below the bare `VAT` column, VAT candidates are chosen by the
+document's own arithmetic where it decides, and `AMOUNT` refuses to half-read a malformed
+figure such as `1150.005`.

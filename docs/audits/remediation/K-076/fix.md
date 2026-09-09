@@ -75,3 +75,13 @@ all, where before it got a wrong one. That is the safer failure and it surfaces 
 A negative or refund total still extracts nothing, and `validateReceiptExtraction` then rejects
 the document with a 400. Admitting the minus sign would let the auto-post branch write an
 unattended reversal; a credit note needs its own path. See `review-round-2.md`.
+
+## Round 3
+
+The amount/label grammar was hardened again after the second blind review — see
+`docs/audits/remediation/K-072/fix.md` for the disposition of all nine findings and
+`K-072/green-round3.log` for the evidence. Touching this item: the subtotal and VAT label
+guards are now variable-width (`Sub[\s-]*Total`, `(?<!(?:Ex|In)cl(?:uding)?\.?[\s-]*)`), the
+generic `Tax` form ranks below the bare `VAT` column, VAT candidates are chosen by the
+document's own arithmetic where it decides, and `AMOUNT` refuses to half-read a malformed
+figure such as `1150.005`.

@@ -50,6 +50,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   `) as Row[];
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
+  // `status` was selected and never read. The handler stamps the document
+  // 'matched' at the end but refused nothing, and nothing else on this path is
+  // idempotent — so a double-click or a client retry created and auto-posted a
+  // SECOND journal against the same source_document_id, doubling the expense
+  // and the bank credit. Worth refusing now that migration 509 has made this
+  // path actually postable. The check is a read, before any write, so the 4xx
+  // commits nothing.
+  if (doc.status === 'matched') {
+    return apiResponse.badRequest(res, 'Document already posted to a journal');
+  }
   if (!doc.extracted_data) return apiResponse.badRequest(res, 'Document has no extracted data');
 
   const extracted = doc.extracted_data as ExtractedDocument;
@@ -197,5 +207,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   });
 }
 
- 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

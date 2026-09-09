@@ -18,7 +18,10 @@ PRD-05 autonomous capture + evidence-first ledger. Pure business logic — HTTP 
   `gl_accounts.vat_input_denied` on the coded account and hands it to
   `buildExpenseJournalFromReceipt`, so s17(2)(a) entertainment claims are denied on a path
   that auto-posts unattended. It tags `vatType` and posts, so it — not the route — is what
-  `scripts/ci/check-vat-guard-coverage.ts` governs.
+  `scripts/ci/check-vat-guard-coverage.ts` governs. It runs `validateJournalEntry` on the
+  built lines BEFORE its first write and throws `ReceiptDoesNotBalanceError`, which the
+  route maps to a 400 — the same answer `receipt-to-journal.ts` gives, so a mis-extracted
+  receipt is not reported as an internal error on either path.
 - **Audit**: `auditTrailExportService.ts`.
 - **Bank-Tx Attach (Workstream G)**: `captureBankTxAttachService.ts` — tenant-preflighted link of captured doc → bank tx + ≤2MB data-URL mirror into bank_transaction_attachments, dedupe key `${documentId}_${fileName}`, mirror fail-soft link-only.
 
@@ -67,6 +70,14 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
 - `docs/prd/PRD-05-autonomous-capture-evidence-ledger.md` — spec.
 
 ## Recent changes
+- 2026-09-09: the EMPLOYEE branch of `capture/[id]/post-expense` obeys s17(2)(a) too. It put the
+  machine-derived VAT on the claim line and `expenseClaimService.postClaim` debits VAT Input with
+  the sum of those, so an entertainment receipt posted with an `employeeId` produced the identical
+  denied claim through `expense_claim_lines`. The account's `vat_input_denied` marker is now
+  resolved before the amounts are built; on a denial the line carries the GROSS on `amount`,
+  `vat_amount = 0` and `vat_code = 'none'`, and the response returns `inputVatDenied` +
+  `INPUT_VAT_DENIED_ADVICE` so the approver is told.
+- 2026-09-09: `pettyCashJournalService` balance-checks before its first write (see above).
 - 2026-06-11: Workstream G — captureBankTxAttachService; document-capture-action null-guard + ::uuid cast hardening (PR #168 review batch).
 - 2026-06-11: Blind-review hardening — tenant ownership preflight + mime re-validation + webhook-retry dedupe in attachReplyMedia; reply_text LEFT(…,10000) cap; SSRF hostname allowlist in twilioMediaFetch; NumMedia capped at 10; migration comment for created_by FK absence.
 - 2026-06-11: Workstream D — bankTxQueryMessage, bankTxQueryService, bankTxQueryReplyService, twilioMediaFetch; inbound webhook reply hook added to whatsAppInboundService; `sid` on whatsAppReplyService SendResult.
