@@ -1,0 +1,9 @@
+# Bind legacy VAT account fallback before approval
+
+Base86618d455; owner snapshot_capture. Root approved optional vatAccountId on taxable account/split plans only, new bankAllocationVatPreparation.ts and preparation-only bankAllocationControl.ts hook, plus plan/source modules and dedicated PG tests. No migrations/effect/registry edits.
+
+Baseline5661 bankAllocationService resolves normal subtype then company/system account_code1140 or2120 LIMIT1. It does not check fallback type/active/ambiguity. Committed327 documents legacy input other_current_asset/tax and output tax/other_current_liability. Restore those documented classifications (and absent subtype) with correct asset/liability type, owned active system account, unique candidate; reject unrelated bank/expense/opposite VAT roles. Canonical subtype takes precedence; ambiguity fails rather than choosing a winner.
+
+At preparation under existing policy lock, select and persist exact VAT ID. Explicit requested ID must pass same role check. At source loading include that ID in account observations and validate it without selecting another account. Legacy plans lacking ID retain old subtype behavior and source fingerprint; no newly resolved code fallback at execution. Tax-free plans and party refunds unchanged. Taxable sign selects input for money out/output for money in; existing exact Decimal gross/net rounding remains authoritative.
+
+Tests FIRST actual app_user PG on local fixture: missing fallback, explicit account, exact signs/net/tax, exempt/zero/noVAT, ambiguity/foreign/wrong/inactive account, permission/currentsource change, bankdate/period change and rollback. Legacy fingerprint preservation and no silent reselection checked against named base source behavior. Pending RED/implementation/PG/TS/lint and named independent review. No transport/production claim.
