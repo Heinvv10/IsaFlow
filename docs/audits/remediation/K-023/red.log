@@ -1,0 +1,59 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k023-sdl-invented-salary.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Calculating payroll run","timestamp":"2026-09-09T03:43:14.372Z","component":"payrollRunService","data":{"runId":"d7f730d2-7661-4616-9bda-6527b6e48475","companyId":"8bd216f8-922b-4a85-bc7a-e515adef96e2"}}
+{"level":"info","message":"Payroll run calculated","timestamp":"2026-09-09T03:43:14.407Z","component":"payrollRunService","data":{"runId":"d7f730d2-7661-4616-9bda-6527b6e48475","employeeCount":1,"totalGross":100000}}
+{"level":"info","message":"Calculating payroll run","timestamp":"2026-09-09T03:43:14.413Z","component":"payrollRunService","data":{"runId":"dfc7c705-3ade-461e-a37b-b07ee2dda80e","companyId":"c5106018-6f66-4b09-a5db-c18ad0e3d05a"}}
+{"level":"info","message":"Payroll run calculated","timestamp":"2026-09-09T03:43:14.429Z","component":"payrollRunService","data":{"runId":"dfc7c705-3ade-461e-a37b-b07ee2dda80e","employeeCount":2,"totalGross":10000}}
+ ❯ tests/integration/k023-sdl-invented-salary.int.test.ts (2 tests | 2 failed) 351ms
+     × levies SDL on a single employee whose remuneration exceeds the R500,000 threshold 41ms
+     × does not levy SDL on two employees whose combined payroll is under the threshold 17ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k023-sdl-invented-salary.int.test.ts > K-023 SDL leviability > levies SDL on a single employee whose remuneration exceeds the R500,000 threshold
+AssertionError: expected +0 to be 1000 // Object.is equality
+
+- Expected
++ Received
+
+- 1000
++ 0
+
+ ❯ tests/integration/k023-sdl-invented-salary.int.test.ts:84:30
+     82|     const summary = await calculatePayrollRun(runA, bigA);
+     83|     // R100,000 leviable at 1% = R1,000 per month.
+     84|     expect(summary.totalSdl).toBe(1000);
+       |                              ^
+     85|   });
+     86|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k023-sdl-invented-salary.int.test.ts > K-023 SDL leviability > does not levy SDL on two employees whose combined payroll is under the threshold
+AssertionError: expected 100 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 100
+
+ ❯ tests/integration/k023-sdl-invented-salary.int.test.ts:90:30
+     88|     const summary = await calculatePayrollRun(runB, smallB);
+     89|     // R120,000 annual payroll: below R500,000, so the employer is not…
+     90|     expect(summary.totalSdl).toBe(0);
+       |                              ^
+     91|   });
+     92| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  05:43:13
+   Duration  795ms (transform 178ms, setup 0ms, import 266ms, tests 351ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

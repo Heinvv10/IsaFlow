@@ -1,0 +1,52 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Creating client rate override","timestamp":"2026-09-09T03:39:25.604Z","component":"Practice","data":{"companyId":"db084423-b900-4c0b-ad33-43d1cf59f752","clientId":"d80d304a-a534-4ff7-a3a3-87f9ddda8082","staffUserId":"121f6955-d67a-4718-b736-52e79c81d2b9"}}
+ ❯ tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts (2 tests | 2 failed) 113ms
+     × creates an override and resolveRate returns it 10ms
+     × a row written the new way is still visible to resolveRate 18ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts > K-039 practice client rate override write/read use the same columns > creates an override and resolveRate returns it
+error: null value in column "user_id" of relation "practice_client_rate_overrides" violates not-null constraint
+ ❯ node_modules/pg-pool/index.js:45:11
+ ❯ LazyQuery.run src/lib/neon.ts:110:17
+    108|       return res.rows as T[];
+    109|     }
+    110|     const res = await getPool().query(this.text, this.values);
+       |                 ^
+    111|     return res.rows as T[];
+    112|   }
+ ❯ createClientRateOverride src/modules/accounting/services/practice/practiceClientRateOverrideService.ts:97:16
+ ❯ tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts:46:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts > K-039 practice client rate override write/read use the same columns > a row written the new way is still visible to resolveRate
+AssertionError: expected +0 to be 999 // Object.is equality
+
+- Expected
++ Received
+
+- 999
++ 0
+
+ ❯ tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts:72:22
+     70|     // resolveRate returns the LEGACY rate column (0), not rate_per_ho…
+     71|     const resolved = await resolveRate(companyId, other, clientId, onD…
+     72|     expect(resolved).toBe(999);
+       |                      ^
+     73|   });
+     74| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  05:39:25
+   Duration  330ms (transform 59ms, setup 0ms, import 109ms, tests 113ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
