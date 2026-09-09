@@ -8,12 +8,17 @@ import { materializeGlOperation } from '@/modules/accounting/services/controls/g
 import { operationBindingHash } from '@/modules/accounting/services/controls/canonical';
 import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
+import { seedApAccounts } from './apSyntheticAccounts';
+import { approveSupplierInvoice, cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { getVatPeriodLines } from '@/modules/accounting/services/reports/vatBoxBasisQuery';
+import { deriveVatBoxes } from '@/modules/accounting/services/reports/vatBoxBasis';
 process.env.ENCRYPTION_KEY = randomBytes(32).toString('hex');
 process.env.CONTROL_FINGERPRINT_KEY = randomBytes(32).toString('hex');
 const config = fixtureConfigFromEnv(process.env), target = validateFixtureTarget(config);
 const pool = new Pool({ connectionString: target.connectionString, ssl: false, max: 2 });
 let fixture: ForensicFixture;
 const tax = randomUUID(), expense = randomUUID(), bank = randomUUID(), august = randomUUID(), september = randomUUID();
+const supplier = randomUUID(), invoice = randomUUID();
 async function actor<T>(fn: (ctx: ControlTx) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   try {
@@ -46,6 +51,13 @@ beforeAll(async () => {
   await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
     VALUES($1,$3,'August',8,2026,'2026-08-01','2026-08-31','open'),($2,$3,'September',9,2026,'2026-09-01','2026-09-30','open')`,
   [august, september, fixture.companyA]);
+  const ap = await seedApAccounts(pool, fixture.companyA);
+  await pool.query('INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,$3)', [supplier, fixture.companyA, 'Synthetic filed VAT supplier']);
+  await pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,tax_rate,tax_amount,total_amount,currency,status,created_by)
+    VALUES($1,$2,$3,$4,'2026-08-31',100,15,15,115,'ZAR','draft',$5)`, [invoice, fixture.companyA, supplier, invoice, fixture.u1.id]);
+  await pool.query(`INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,tax_rate,tax_amount,gl_account_id)
+    VALUES($1,'Synthetic filed supply',1,100,100,15,15,$2)`, [invoice, ap.default_expense]);
+  await actor(() => approveSupplierInvoice(fixture.companyA, invoice, fixture.u1.id));
 });
 afterAll(async () => { await pool.end(); });
 it('binds newly filed VAT locks and refuses backdated shared posting without effects', async () => {
@@ -68,4 +80,19 @@ it('allows a correction in the next open VAT period but refuses a backdated cont
   await expect(actor(() => reverseJournalEntry(fixture.companyA, id, fixture.u1.id, { reversalDate: '2026-08-31' }))).rejects.toThrow('filed VAT');
   const result = await actor(() => reverseJournalEntry(fixture.companyA, id, fixture.u1.id, { reversalDate: '2026-09-09' }));
   expect(result.status).toBe('posted'); expect(result.entryDate).toBe('2026-09-09');
+});
+it('preserves the filed original AP return when cancellation posts its contra in September', async () => {
+  const filed = () => actor(async () => deriveVatBoxes((await getVatPeriodLines(fixture.companyA, '2026-07-01', '2026-08-31')).lines));
+  const before = await filed();
+  expect(before.inputTax).toBeGreaterThanOrEqual(15);
+  await expect(actor(() => cancelSupplierInvoice(fixture.companyA, invoice, fixture.u1.id))).rejects.toThrow('filed VAT');
+  expect(await filed()).toEqual(before);
+  await pool.query("UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND id=$2", [fixture.companyA, august]);
+  expect((await actor(() => cancelSupplierInvoice(fixture.companyA, invoice, fixture.u1.id, { reversalDate: '2026-09-10' }))).status).toBe('cancelled');
+  expect(await filed()).toEqual(before);
+  const rows = await pool.query(`SELECT contra.entry_date::text AS date,original.id AS original_id FROM supplier_invoices si
+    JOIN gl_journal_entries original ON original.company_id=si.company_id AND original.id=si.gl_journal_entry_id
+    JOIN gl_journal_entries contra ON contra.company_id=original.company_id AND contra.reversal_of_id=original.id
+    WHERE si.company_id=$1 AND si.id=$2 AND contra.status='posted'`, [fixture.companyA, invoice]);
+  expect(rows.rows).toHaveLength(1); expect(rows.rows[0].date).toBe('2026-09-10');
 });
