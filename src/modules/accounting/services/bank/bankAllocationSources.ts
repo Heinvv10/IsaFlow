@@ -1,4 +1,5 @@
 import {assertBankVatAccount} from './bankAllocationVatPreparation';
+import {loadBankAllocationDimensions} from './bankAllocationDimensions';
 import {getVerifiedBeneficiary} from '../controls/beneficiaryService';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
@@ -29,8 +30,8 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
   :system(new D(String(bank.amount)).lt(0)?'vat_input':'vat_output',new D(String(bank.amount)).lt(0)?'asset':'liability')):null;
  if('lines' in plan)for(const line of plan.lines){
   const account=accounts.find(a=>a.id===line.accountId);if(!account||account.is_active!==true||line.accountId===bank.bank_account_id)throw new Error('Owned active contra account required');
-  if(line.cc1Id||line.cc2Id||line.buId)throw new Error('Dimension allocation requires verified dimension material');
  }
+ const dimensions=await loadBankAllocationDimensions(ctx,plan);
  let party:Row|null=null;const invoices:Row[]=[];
  if('applications' in plan){
   const rows=plan.kind==='customer'?await ctx.sql`SELECT id,name FROM customers WHERE company_id=${company}::uuid AND id=${plan.partyId}::uuid FOR SHARE`
@@ -63,7 +64,7 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  const generated=await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${company}::uuid AND source_record_id=${plan.bankTransactionId}::uuid AND status='posted' ORDER BY id LIMIT 101 FOR SHARE` as {id:string}[];
  if(generated.length>100)throw new Error('Bank allocation journal population exceeds limit');
  const generatedJournals=[];for(const journal of generated)generatedJournals.push((await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:journal.id,operation:'journal.post'})).observedSources);
- const facts={bank,metadata,ledger,accounts,party,invoices,lines,periods,vatLocks,beneficiary,receipts,disbursements,receiptAllocations,paymentAllocations,generatedJournals};
+ const facts={bank,metadata,ledger,accounts,party,invoices,lines,periods,vatLocks,beneficiary,receipts,disbursements,receiptAllocations,paymentAllocations,generatedJournals,...(dimensions?{dimensions}:{})};
  return{...facts,fingerprint:createHash('sha256').update(canonicalJson(facts)).digest('hex')};
 }
 export type BankAllocationSources=Awaited<ReturnType<typeof loadBankAllocationSources>>;

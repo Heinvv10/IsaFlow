@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {bankAllocationRowDimensions} from './bankAllocationDimensions';
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
 import {bankAllocationActor} from './bankAllocationActor';
 import type {ControlTx} from '../controls/contracts';
@@ -19,14 +20,16 @@ export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,
  const source=plan.kind==='customer'?'auto_payment':plan.kind==='supplier'?'auto_supplier_payment':'auto_bank_recon';
  await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent,actor_type,actor_token_jti)
   VALUES(${id}::uuid,${company}::uuid,${permit.accountingDate}::date,${sources.periods[0]!.id}::uuid,${plan.description??'Bank allocation'},${source},${plan.bankTransactionId}::uuid,'draft',${ctx.principal.personId}::uuid,${actor.postingAgent},${actor.actorType},${actor.actorTokenJti})`;
- for(const line of sources.lines)await ctx.sql`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description,vat_type,cost_center_id,bu_id)
-  VALUES(${company}::uuid,${id}::uuid,${line.accountId}::uuid,${line.debit}::numeric,${line.credit}::numeric,${line.description},${line.vatType},${line.cc1Id}::uuid,${line.buId}::uuid)`;
+ for(const line of sources.lines)await ctx.sql`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description,vat_type,cost_center_id,cc1_id,cc2_id,bu_id)
+  VALUES(${company}::uuid,${id}::uuid,${line.accountId}::uuid,${line.debit}::numeric,${line.credit}::numeric,${line.description},${line.vatType},${line.cc1Id}::uuid,${line.cc1Id}::uuid,${line.cc2Id}::uuid,${line.buId}::uuid)`;
  const parentControl={parent,permit};await registerGeneratedJournal(ctx,parentControl,id,'journal.post');
  await postJournalEntry(company,id,ctx.principal.personId,{parentControl});
  const paymentId=await applyBankAllocationChildren(ctx,permit,plan,id,intent.amount);
  const bankLines=await ctx.sql`SELECT id FROM gl_journal_lines WHERE company_id=${company}::uuid AND journal_entry_id=${id}::uuid AND gl_account_id=${sources.bank.bank_account_id}::uuid` as {id:string}[];
  if(bankLines.length!==1)throw new Error('Allocation bank journal line is ambiguous');
+ const dimensions=bankAllocationRowDimensions(plan);
  const [after]=await ctx.sql`UPDATE bank_transactions SET status='allocated',matched_journal_line_id=${bankLines[0]!.id}::uuid,
+  cc1_id=${dimensions.cc1Id}::uuid,cc2_id=${dimensions.cc2Id}::uuid,bu_id=${dimensions.buId}::uuid,
   allocation_type=${plan.kind==='split'?'account':plan.kind},allocated_entity_name=${sources.party?String(sources.party.name):'Account allocation'},
   allocation_rule_id=NULL,allocation_rule_name=NULL,allocation_batch_id=NULL,updated_at=clock_timestamp()
   WHERE company_id=${company}::uuid AND id=${plan.bankTransactionId}::uuid AND status='imported' RETURNING *` as Record<string,unknown>[];
