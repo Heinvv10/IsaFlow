@@ -128,8 +128,13 @@ function settledAtSource(
     return { amountPaid: 0, warning };
   }
   if (raw > totalAmount) {
+    // Below a cent this is arithmetic dust, not a credit: `createSupplierInvoice`
+    // sums `subtotal + totalTax` without re-rounding, so a stored total can be
+    // 1345.6699999999998. Warning on that would bury the real overpayments this
+    // list exists to surface, and would read "0 of credit was NOT imported".
     const excess = Math.round((raw - totalAmount) * 100) / 100;
-    const warning = `${invoiceNumber}: source paid ${raw} exceeds the invoice total ${totalAmount} — ${excess} of credit was NOT imported`;
+    if (excess < 0.01) return { amountPaid: totalAmount };
+    const warning = `${invoiceNumber}: the source's settled amount exceeds the invoice total of ${totalAmount} by ${excess} — that much credit was NOT imported`;
     log.warn('sage commit: source amountPaid exceeds the invoice total; excess discarded', { invoiceNumber, amountPaid: raw, totalAmount, excess }, 'sage-migration');
     return { amountPaid: totalAmount, warning };
   }
@@ -205,12 +210,19 @@ export async function commitAPInvoice(
     items: [{ description: inv.reference ?? `Invoice ${inv.invoiceNumber}`, quantity: 1, unitPrice: inv.subtotal, taxRate }],
   }, userId);
 
-  // Clamp against `created.totalAmount`, NOT `inv.totalAmount`:
-  // createSupplierInvoice recomputes the total from the 2 dp `taxRate` above,
-  // so a bill whose blended VAT rate is not exact stores a different figure.
-  // Anchoring to the source total there would store a negative balance, or
-  // leave a fully settled bill `partially_paid` with a phantom residual.
-  const settled = settledAtSource(inv.invoiceNumber, inv.amountPaid, created.totalAmount);
+  // What Sage says is still OUTSTANDING is the figure to preserve, not what it
+  // says was paid. createSupplierInvoice recomputes the total from the 2 dp
+  // `taxRate` above, so any bill whose blended VAT rate is not exact stores a
+  // total that differs from Sage's by cents — in EITHER direction. Carrying the
+  // source's paid amount across would then store a negative balance (stored
+  // total below Sage's) or strand a fully settled bill at `partially_paid` with
+  // a residual that never clears (stored total above Sage's, the case the clamp
+  // cannot see because it only binds upwards). Re-deriving from the outstanding
+  // amount makes the row agree with the source by construction: AmountDue 0
+  // settles the bill exactly, whatever the recomputed total came to.
+  const dueAtSource = Number(inv.totalAmount) - Number(inv.amountPaid ?? 0);
+  const paidAgainstStored = Math.round((created.totalAmount - dueAtSource) * 100) / 100;
+  const settled = settledAtSource(inv.invoiceNumber, paidAgainstStored, created.totalAmount);
   const amountPaid = settled.amountPaid;
 
   // Post JE directly — bypasses workflow helper that blocks backdated periods.
