@@ -35,3 +35,9 @@ describe('clientMetadata drift guard', () => {
     expect(MCP_PROD_ENDPOINT.endsWith(MCP_PATH)).toBe(true);
   });
 });
+
+it('discovers the complete attended approval, beneficiary and bank command entry points',()=>{
+ const names=['approval_requirements','request_operation_approval','list_pending_approvals','propose_supplier_bank_change','supplier_bank_change_status','prepare_bank_operation','execute_bank_operation'];
+ const registered=mcpRegistry.getManifest().map(tool=>tool.name);
+ for(const name of names){expect(registered).toContain(name);expect(CLIENT_MCP_TOOL_NAMES).toContain(name);}
+});
