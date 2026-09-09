@@ -2,6 +2,8 @@ import {materializeBankTransferOperation} from './bankTransferOperationMateriali
 import {materializeAssetDepreciationOperation} from './assetDepreciationOperationMaterializer';
 import {materializeArOperation} from './arOperationMaterializer';
 import { materializePayrollOperation } from './payrollOperationMaterializer';
+import { materializePaymentBatchOperation } from '../ap/paymentBatchMaterializer';
+import { materializePaymentReleaseOperation } from '../ap/paymentReleaseMaterializer';
 import { materializePeriodOperation } from './periodOperationMaterializer';
 import { isRealCalendarDate } from '@/lib/validation';
 import { materializeGlOperation } from './glOperationMaterializer';
@@ -30,6 +32,8 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
     : ref.entityType === 'credit_note' ? ['credit_note.approve','credit_note.cancel']
     : ref.entityType === 'credit_note_application' ? ['credit_note_application.apply']
     : ref.entityType === 'recurring_invoice_run' ? ['recurring_invoice.generate']
+    : ref.entityType === 'supplier_payment_batch' ? ['supplier_payment_batch.process']
+    : ref.entityType === 'payment_release_intent' ? ['payment_release.dispatch']
     : ref.entityType === 'supplier_payment' ? ['supplier_payment.process', 'supplier_payment.void']
       : ref.entityType === 'journal_entry' ? ['journal.post','journal.reverse']
         : ref.entityType === 'payroll_run' ? ['payroll_run.post','payroll_run.reopen']
@@ -89,6 +93,8 @@ export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promi
   if(ref.entityType==='bank_transfer_intent')return materializeBankTransferOperation(ctx,ref);
   if(ref.entityType==='asset_depreciation_intent')return materializeAssetDepreciationOperation(ctx,ref);
   if(['customer_invoice','customer_payment','credit_note','credit_note_application','recurring_invoice_run'].includes(ref.entityType))return materializeArOperation(ctx,ref);
+  if(ref.entityType==='supplier_payment_batch')return materializePaymentBatchOperation(ctx,ref);
+  if(ref.entityType==='payment_release_intent')return materializePaymentReleaseOperation(ctx,ref);
   if(ref.entityType==='payroll_run')return materializePayrollOperation(ctx,ref);
   if(['fiscal_period','fiscal_year','vat_period','company_lockdown_intent'].includes(ref.entityType))return materializePeriodOperation(ctx,ref);
   return ref.entityType==='journal_entry' ? materializeGlOperation(ctx,ref) : materializeApOperation(ctx,ref);
