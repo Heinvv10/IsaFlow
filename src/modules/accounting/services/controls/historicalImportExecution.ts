@@ -12,7 +12,7 @@ import type {ControlTx,OperationRef} from './contracts';
 import type {HistoricalImportKind,HistoricalImportMode,HistoricalImportNormalized} from './historicalImportTypes';
 import type {loadHistoricalImportCurrentFacts} from './historicalImportCurrentFacts';
 type Row=Record<string,unknown>;
-type Facts=Awaited<ReturnType<typeof loadHistoricalImportCurrentFacts>>&{source:{normalized:HistoricalImportNormalized}};
+type Facts=Awaited<ReturnType<typeof loadHistoricalImportCurrentFacts>>&{source:{normalized:HistoricalImportNormalized;contentHash:string}};
 export interface HistoricalImportEffect {
  importId:string;kind:HistoricalImportKind;mode:HistoricalImportMode;journalEntryId:string;documentId?:string;
  amount:string;currency:'ZAR';accountingDate:string;
@@ -53,9 +53,9 @@ export async function executeHistoricalImport(ctx:ControlTx,ref:OperationRef,app
   let journalEntryId=source.existingJournalId;
   if(source.mode==='post_journal'){
    journalEntryId=randomUUID();
-   await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent)
+   await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent,source_document_hash)
     VALUES(${journalEntryId}::uuid,${company}::uuid,${`HI-${ref.entityId}`},${source.accountingDate}::date,${facts.period.id}::uuid,
-     ${`Historical import ${source.sourceSystem}: ${source.sourceKey}`},'auto_migration',${ref.entityId}::uuid,'draft',${user}::uuid,${`human:${user}`})`;
+     ${`Historical import ${source.sourceSystem}: ${source.sourceKey}`},'auto_gl_import',${ref.entityId}::uuid,'draft',${user}::uuid,${`human:${user}`},${facts.source.contentHash})`;
    for(const line of facts.plan)await ctx.sql`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description,vat_type)
     VALUES(${company}::uuid,${journalEntryId}::uuid,${line.glAccountId}::uuid,${line.debit},${line.credit},${line.description},${line.vatType??null})`;
    const parentControl={permit,parent:ref};await registerGeneratedJournal(ctx,parentControl,journalEntryId,'journal.post');

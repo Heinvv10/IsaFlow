@@ -38,10 +38,10 @@ export async function historicalImportInvoiceEvidence(ctx:ControlTx,kind:'custom
  if(!invoice||invoices.length!==1||invoice.party_id!==doc.partyId||invoice.invoice_number!==doc.invoiceNumber||invoice.invoice_date!==source.accountingDate
   ||(kind==='supplier_invoice'&&invoice.currency!=='ZAR')||invoice.due_date!==doc.dueDate||invoice.gl_journal_entry_id!==result.journalEntryId||invoice.currency_code!=='ZAR'||canonicalMoney(String(invoice.exchange_rate))!=='1'
   ||canonicalMoney(String(invoice.subtotal))!==doc.subtotal||canonicalMoney(String(invoice.tax_amount))!==doc.taxAmount||canonicalMoney(String(invoice.total_amount))!==doc.totalAmount)throw new Error('Historical invoice header differs from source summary');
- const journals=await ctx.sql`SELECT id,status,entry_date::text,source,source_record_id FROM gl_journal_entries WHERE company_id=${company}::uuid AND id=${result.journalEntryId}::uuid FOR SHARE` as Row[];
+ const journals=await ctx.sql`SELECT id,status,entry_date::text,source,source_record_id,source_document_hash FROM gl_journal_entries WHERE company_id=${company}::uuid AND id=${result.journalEntryId}::uuid FOR SHARE` as Row[];
  const journal=journals[0];
  if(journals.length!==1||!journal||journal.status!=='posted'||journal.entry_date!==source.accountingDate
-  ||(source.mode==='post_journal'?(journal.source!=='auto_migration'||journal.source_record_id!==intent.id):source.existingJournalId!==journal.id))throw new Error('Historical invoice journal evidence differs');
+  ||(source.mode==='post_journal'?(journal.source!=='auto_gl_import'||journal.source_record_id!==intent.id||journal.source_document_hash!==artifact.contentHash):source.existingJournalId!==journal.id))throw new Error('Historical invoice journal evidence differs');
  const lines=await ctx.sql`SELECT gl_account_id,debit::text,credit::text,vat_type FROM gl_journal_lines WHERE company_id=${company}::uuid
   AND journal_entry_id=${result.journalEntryId}::uuid ORDER BY id LIMIT 1001 FOR SHARE` as Row[];
  const shape=(id:unknown,debit:unknown,credit:unknown,vat:unknown)=>canonicalJson({id,debit:canonicalMoney(String(debit)),credit:canonicalMoney(String(credit)),vat:vat??null});
