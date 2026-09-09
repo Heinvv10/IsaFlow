@@ -58,3 +58,38 @@ env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
 bunx tsc --noEmit                       -> clean (exit 0)
 bunx eslint <14 changed src/pages files>-> clean (exit 0)
 bun run agent-docs:check                -> OK: 74 mirrors match
+
+## Round 3 (re-review findings) — fixture DB, migration 645 applied
+$ psql "$DATABASE_URL" -f scripts/migrations/sql/645_soft_delete_journal_reversals.sql
+  CREATE TABLE / CREATE INDEX / ALTER TABLE x2 / DO / COMMENT
+$ bunx tsx scripts/ci/check-migration-rls.ts
+  OK: every company_id table created by a migration is under RLS.
+
+$ bun run test:integration -- <the six k053 files>
+  Test Files  6 passed (6)
+       Tests  27 passed (27)
+
+### Mutation checks (each reverted, run, restored)
+M1 undo infers from the chain (round-2 behaviour)  -> 1 failed | 7 passed  [undo-identity]
+     the failing test is the reviewer's own manual-reversal probe
+M2 close-readiness predicate removed               -> 3 failed (3)         [close-readiness-tie]
+M2b predicate replaced by plain deleted_at IS NULL -> 1 failed | 2 passed  [close-readiness-tie]
+     fails ONLY the historical-era test, which is the evidence for the
+     journal-aware form over the literal one the finding proposed
+M3 live-allocation guard disabled                  -> 2 failed | 6 passed  [undo-identity]
+M4 unreachable journal link skipped silently       -> 1 failed | 7 passed  [undo-identity]
+M5 undo catch always 500                           -> 2 failed | 6 passed  [undo-identity]
+     the second is a cascade: the 400 test aborts before restoring state
+M6 FOR UPDATE removed from the journal read        -> 1 failed | 7 passed  [undo-identity]
+git status --porcelain identical to pre-mutation after every restore.
+
+## Full unit suite (DATABASE_URL unset)
+env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+  Test Files  792 passed | 36 skipped (828)
+       Tests  9434 passed | 234 skipped (9668)
+  Host load average 103; no failures this run.
+
+## Static gates
+bunx tsc --noEmit                        -> clean (exit 0)
+bunx eslint <5 changed src/pages files>  -> clean (exit 0)
+bun run agent-docs:check                 -> OK: 74 mirrors match
