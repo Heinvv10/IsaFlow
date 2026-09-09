@@ -1593,8 +1593,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "9d8a142e",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-043-self-approval-and-approver-role.int.test.ts"
@@ -1603,12 +1603,14 @@
     "K-043/red.log",
     "K-043/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "9d8a142e",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k043-approval-self-and-role",
+   "reviewRounds": 1
   },
   {
    "id": "K-044",
