@@ -1908,8 +1908,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "ccf775a2",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k053-aging-includes-soft-deleted.int.test.ts",
@@ -1919,12 +1919,14 @@
     "K-053/red.log",
     "K-053/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "ccf775a2",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k053-aging-soft-deleted",
+   "reviewRounds": 1
   },
   {
    "id": "K-054",
@@ -2064,8 +2066,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "7352734c",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k058-debtors-drops-null-client-id.int.test.ts"
@@ -2074,12 +2076,14 @@
     "K-058/red.log",
     "K-058/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "7352734c",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k058-debtors-coalesce-customer",
+   "reviewRounds": 1
   },
   {
    "id": "K-059",
@@ -9007,6 +9011,35 @@
    "historicalDataImpact": "None; no export ever succeeded.",
    "canonicalItem": null,
    "reportedSeverity": "high"
+  },
+  {
+   "id": "R-029",
+   "claim": "purgeExpiredDeletes has no caller, so soft deletes are permanent and the advertised 5-minute undo window never expires; deleted rows remain in every table indefinitely.",
+   "area": "core",
+   "affectedPaths": [
+    "src/modules/accounting/services/core/softDeleteService.ts:256"
+   ],
+   "sourceLabel": "K-053 validation",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Data-retention and reporting hygiene; no ledger figure wrong once K-053 filters deleted rows.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
+   "dependencies": [
+    "Decide whether purge should run (cron) and what the retention period is"
+   ],
+   "testNames": [],
+   "evidencePaths": [
+    "K-053/validation.md",
+    "K-053/fix.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Deleted rows since launch are all still present.",
+   "canonicalItem": null,
+   "reportedSeverity": "low"
   }
  ],
  "sourceInventory": [
