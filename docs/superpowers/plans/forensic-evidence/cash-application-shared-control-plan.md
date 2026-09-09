@@ -24,3 +24,58 @@ Proposed frozen operations: cash_application.apply/entity cash_application_inten
 Real PG must prove required approval and self-approval through another PAT refusal; current caller/requester/approver revocation; stale target invoice/status/journal/paid balance and changed payment allocation population; tenant isolation; exact remaining balance/over-allocation; bounded decimals; unsupported FX; concurrent application and idempotent retry; transaction rollback of allocations/balances/history/effect; explicit accounting date period/VAT/lockdown; valid source evidence where required; and approved inverse restoration without deleting original evidence. Parent bank reversal after an authorized later application must either correctly include a bound application chain or explicitly require controlled unapplication first. Do not certify this dependency by happy-path balance checks alone.
 
 Actual RED executed under exclusive root lease: one failure in1.13s (`cash-application-red.log`). Production legacy application committed115 to the target, marked invoice paid and receipt reconciled, despite the required supported payment policy and no fresh application approval. This is a genuine financial policy bypass, not a fixture or unsupported-rule failure. Pool closed and lease returned. Root accepted proposed operation/entity and existing permission contracts. No implementation, migration, full CI, HTTP, or production verification is claimed by this checkpoint.
+
+
+## Allocation consumer inventory at frozen f671a156
+
+Every TypeScript mention is listed below, including comments/schema allowlists so they are not mistaken for financial readers. New cash files are excluded from this frozen baseline. Each active sum needs active-row semantics; each cutoff report needs original application/reversal accounting dates; protected evidence may intentionally include historical rows.
+
+- `pages/api/accounting/customer-allocations-export.ts`
+- `pages/api/accounting/customer-allocations.ts`
+- `pages/api/accounting/customer-payments-export.ts`
+- `pages/api/accounting/customer-statement-detail.ts`
+- `pages/api/accounting/customer-statement.ts`
+- `pages/api/accounting/supplier-allocations.ts`
+- `src/modules/accounting/services/ap/batchPaymentService.ts`
+- `src/modules/accounting/services/ap/supplierAllocationLines.ts`
+- `src/modules/accounting/services/ap/supplierPaymentApplicationService.ts`
+- `src/modules/accounting/services/ap/supplierPaymentService.ts`
+- `src/modules/accounting/services/ap/supplierPaymentSettlement.ts`
+- `src/modules/accounting/services/ap/supplierStatementBalancesService.ts`
+- `src/modules/accounting/services/ap/unappliedPaymentService.ts`
+- `src/modules/accounting/services/ar/customerInvoiceCancelService.ts`
+- `src/modules/accounting/services/ar/customerPaymentService.ts`
+- `src/modules/accounting/services/ar/receiptAllocationLines.ts`
+- `src/modules/accounting/services/ar/receiptApplicationService.ts`
+- `src/modules/accounting/services/ar/unappliedReceiptOrigin.ts`
+- `src/modules/accounting/services/ar/unappliedReceiptService.ts`
+- `src/modules/accounting/services/bank/bankAllocationChildEffect.ts`
+- `src/modules/accounting/services/bank/bankAllocationSources.ts`
+- `src/modules/accounting/services/bank/bankAllocationUnwind.ts`
+- `src/modules/accounting/services/controls/apOperationMaterializer.ts`
+- `src/modules/accounting/services/controls/approvalQueries.ts`
+- `src/modules/accounting/services/controls/arSourceMaterial.ts`
+- `src/modules/accounting/services/controls/transactionEvidenceApprovals.ts`
+- `src/modules/accounting/services/controls/transactionEvidenceRelations.ts`
+- `src/modules/accounting/services/core/nlQueryFkPairs.ts`
+- `src/modules/accounting/services/core/nlQueryValidationService.ts`
+- `src/modules/accounting/services/core/paymentLock.ts`
+- `src/modules/accounting/services/reconciliation/settlementFlagService.ts`
+- `src/modules/accounting/services/reconciliation/unappliedCashService.ts`
+- `src/modules/accounting/services/reconciliation/unpostedDocumentService.ts`
+- `src/modules/accounting/services/shared/agingRewind.ts`
+- `src/modules/accounting/services/shared/autoAllocateStrategy.ts`
+
+Root ownership intersections: controls/{apOperationMaterializer,arSourceMaterial,approvalQueries,transactionEvidenceApprovals,transactionEvidenceRelations}; AR/AP cancellation and settlement shared contracts; historical aging/report semantics. Worker owns cash application adapters and must coordinate these intersections before edits. NL allowlists/FK catalog and autoAllocateStrategy comments need classification, not blind SQL predicate edits. Existing source baseline lacks subsequently integrated payment-release additions; root must reconcile the final integration tree inventory before closing the reader migration.
+
+## Frozen storage decision and isolated foundation
+
+Root accepted nullable application_intent_id, reversed_at, reversal_intent_id on both live allocation tables. Positive allocation rows remain; reversal binding is one-way and owned. Historical reads use original intent accounting_date/reversal intent reversal_date; current sums filter reversed markers. Root owns640 DDL and later global maker-hook registration for these new intents. No row deletion or negative-amount workaround is permitted.
+
+Cash worktree/branch: `.worktrees/mcp-forensic-cash-application-20260909` / `feat/mcp-forensic-cash-application-20260909`, exact base f671a156; bank tree preserved. Pure plan/preparation boundary missing-module REDs → five focused units GREEN. Current source/preparation is authored against frozen names but has no actual schema or PG preparation proof yet. Deferred source admission for supplier batch-origin payments must be reconciled with the newer release stack, which is absent from this worker baseline; never infer a valid posted source merely from an arbitrary owned journal ID.
+
+## Cash foundation dependency checkpoint
+
+Owned pure plan, source/target locks, preparation, apply materializer and internal permitted apply effect are implemented. Source validates live exact original cash journal and supported denomination, locks original invoice denomination rows, validates owned current target journals, observes complete bounded allocation history, current period/VAT/lockdown and beneficiary state. Preparation freezes exact sources. Apply material compares immutable fields/fingerprint and verifies actual after-state for known receipts; internal effect appends intent-linked rows and records exact balance/status changes with protected child history, without a second cash journal.
+
+Five focused units, full source TypeScript and scoped source lint passed (`cash-foundation-unit.log`, `cash-foundation-types.log`, `cash-foundation-lint.log`). Missing-module boundary/pure RED logs preserved. No640 DDL or actual preparation/execution GREEN exists yet; central dispatch, maker hook, public executor, inverse, current/history reader migration, legacy adapters and full workflow adversarial proof remain required. This is a dependency checkpoint for independent review, not a completed cash application capability.
