@@ -80,3 +80,36 @@ bunx tsc --noEmit — clean.
 bunx eslint on all three changed/added src files — 0 errors, 5 pre-existing
 unused-import warnings in creditNoteCancelService.ts (unchanged count).
 bun run agent-docs:check — OK: 74 mirrors match.
+
+================================================================
+Round 3 (re-review of aef352ec: MEDIUM A + LOW B/C/D)
+================================================================
+
+Unit, no fixture env:
+  tests/unit/lib/lockTimeoutSurfacing.test.ts     7 passed
+Integration, real disposable DB:
+  k011-credit-note-apply-lost-update.int.test.ts  1 passed
+  k011-credit-note-apply-adjacent.int.test.ts     3 passed
+  k011-invoice-lock-review.int.test.ts            4 passed
+  Test Files 3 passed (3) | Tests 8 passed (8)
+
+Mutation — `isCallerSafeError` reverted to the old `code === undefined` predicate:
+  × admits a plain refusal and a lock timeout, refuses a driver error
+  × passes the lock timeout through instead of the fallback
+  Tests 2 failed | 5 passed (7)          Restored.
+
+Mutation — the cancel path's un-apply un-wrapped from withCustomerInvoiceLock:
+  × bounds the cancel path's un-apply on the same budget and says to retry
+      Test timed out in 30000ms (the wait is unbounded again)
+  Tests 1 failed | 3 passed (4)          Restored.
+
+Full unit suite, NO fixture env (DATABASE_URL unset), load average 68:
+  Test Files 785 passed | 36 skipped (821)
+  Tests      9327 passed | 234 skipped (9561)
+  0 failed. (The single cashFlowReport timeout recorded in the round-2 block
+  above did not recur; it was load, at average 124.)
+
+bunx tsc --noEmit — clean.
+bunx eslint on all six changed/added src+pages files — 0 errors, the same 5
+pre-existing unused-import warnings in creditNoteCancelService.ts.
+bun run agent-docs:check — OK: 74 mirrors match.

@@ -83,19 +83,23 @@ Widened probe, still read-only and NOT run against production from here:
 ```sql
 SELECT ci.company_id, ci.id, ci.invoice_number,
        ci.amount_paid,
-       COALESCE(SUM(DISTINCT cn.applied_amount), 0) AS credited,
+       COALESCE(SUM(cn.applied_amount), 0) AS credited,
        COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa
                  WHERE cpa.invoice_id = ci.id), 0) AS receipted
 FROM customer_invoices ci
 LEFT JOIN credit_notes cn ON cn.customer_invoice_id = ci.id AND cn.company_id = ci.company_id
                          AND cn.status = 'applied'
 GROUP BY 1,2,3,4
-HAVING ci.amount_paid <> COALESCE(SUM(DISTINCT cn.applied_amount), 0)
+HAVING ci.amount_paid <> COALESCE(SUM(cn.applied_amount), 0)
                        + COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa
                                    WHERE cpa.invoice_id = ci.id), 0);
 ```
 A row where `amount_paid` is LESS than credited + receipted is a lost update; MORE is a
 double-count. Both directions are now visible. `validation.md` carries a pointer to this.
+No `DISTINCT` on the credit-note sum: two notes applied to one invoice for the SAME amount are the
+ordinary case and would collapse into one, understating `credited` and reporting a healthy invoice
+as a double-count. There is no fan-out to defend against — the receipts term is a scalar subquery,
+not a second join, so the `LEFT JOIN` cannot multiply rows.
 
 **MEDIUM 2 — partial application strands credit (NOT fixed; pre-existing).** `approveCreditNote`
 credits AR with a note's FULL `total_amount`, while `applyCreditNoteToInvoice` caps at the invoice's
@@ -117,3 +121,77 @@ WHERE status = 'applied' AND applied_amount < total_amount - 0.01;
 interleave refuses and leaves `amount_paid = 100.00`; the lock gives up on the 5s budget with the
 typed retryable error and writes nothing; a successful apply leaves no `lock_timeout` in force for
 the rest of the request. All three go red against c1d36ffc (`green.log`).
+
+---
+
+# Register item — MEDIUM 2, open, NOT fixed in this branch
+
+**What.** `approveCreditNote` credits the AR control account with a credit note's FULL
+`total_amount` (`creditNoteApproveService.ts:62-63`). `applyCreditNoteToInvoice` absorbs only
+`min(total_amount, invoice outstanding)` into the subledger and then sets `status='applied'`, which
+the apply guard will not re-admit. The unabsorbed remainder is stranded: the GL and the AR aging
+diverge by it, permanently, for every partially applied note.
+
+**Why it is not fixed here.** `credit_notes` carries ONE `customer_invoice_id`, and
+`cancelCreditNote` un-applies through that same column. Letting a note span two invoices needs a
+link table and a rewrite of cancel — a schema migration behind a concurrency fix.
+
+**Exposure — NOT RUN. Read-only, safe on production:**
+```sql
+SELECT company_id,
+       COUNT(*)                                    AS notes,
+       SUM(total_amount - applied_amount)          AS stranded_credit
+FROM credit_notes
+WHERE status = 'applied'
+  AND applied_amount < total_amount - 0.01
+GROUP BY company_id
+ORDER BY stranded_credit DESC;
+```
+Per-note detail, same predicate:
+```sql
+SELECT company_id, id, credit_note_number, credit_date, customer_invoice_id,
+       total_amount, applied_amount, total_amount - applied_amount AS stranded
+FROM credit_notes
+WHERE status = 'applied' AND applied_amount < total_amount - 0.01
+ORDER BY stranded DESC;
+```
+`stranded_credit` is the amount by which the AR control account is credited more than the aging, per
+company. Supplier notes (`type='supplier'`) carry the mirror defect against AP.
+
+---
+
+# Round 3 — the four findings of the re-review of aef352ec
+
+**MEDIUM A — the typed retry error never reached two of its three callers (fixed).** Both filters
+between a service error and a caller key on `code === undefined`, because a pg driver error always
+carries a SQLSTATE and could leak schema names. All seven lock helpers set a `code` too, so their
+timeouts were discarded with the driver errors: `receipt-match/confirm.ts` turned routine 5s
+contention into a 500, and `safeErrorText` gave an MCP agent the generic fallback rather than
+"retry in a moment". New `src/lib/lockTimeout.ts` exports `isLockTimeoutError` (a `code` that is a
+string ending in `_LOCK_TIMEOUT`, which no five-character SQLSTATE can be) and `isCallerSafeError`;
+`isRefusal` and `safeErrorText` both use the latter. Driver errors are still hidden, including a raw
+55P03 that reaches them unmapped.
+
+**LOW B — the invariant sentence was false (fixed).** "The invoice is always the LAST lock" is
+contradicted by `customerInvoiceCancelService`, which holds an invoice and then locks
+`gl_journal_entries`. The ordering CONCLUSION stands — the only path holding a journal row when it
+reaches an invoice is `cancelCreditNote`, and the journal it holds is the note's — so the wording in
+`customerInvoiceLock.ts` and `ar/.claude.md` now states the order that is actually true
+(note/payment/bank-line before invoice) and the narrow rule: never take a note or payment lock while
+holding an invoice lock.
+
+**LOW C — `SUM(DISTINCT ...)` in the widened probe (fixed).** Dropped, with the reason recorded
+above the query.
+
+**LOW D — the cancel path's un-apply was still unbounded (fixed).** `cancelCreditNote` moves
+`amount_paid` with a guarded `UPDATE` and never reads the row, so it took the invoice lock through
+the statement with no budget while already holding the credit note. The customer branch now runs
+inside `withCustomerInvoiceLock`; the supplier branch inside a new `withSupplierInvoiceLock` in
+`ap/supplierInvoiceLock.ts`, reusing that module's existing typed error.
+
+**Tests.** `tests/unit/lib/lockTimeoutSurfacing.test.ts` — 7 tests over the three typed lock errors,
+the two filters, and four driver SQLSTATEs including 55P03. Reverting `isCallerSafeError` to the old
+predicate turns 2 of them red. `tests/integration/k011-invoice-lock-review.int.test.ts` gains a
+fourth real-DB test: the cancel gives up inside the budget with the typed error and leaves the note
+applied and the invoice's credit intact. Reverting the cancel wrapping makes it hang to the 30s
+timeout.
