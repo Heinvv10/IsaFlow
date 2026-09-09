@@ -112,3 +112,25 @@ bun run agent-docs:check: OK: 74 mirror(s) match.
 bun scripts/audit-migration-naming.ts: no new duplicate prefixes.
 bun scripts/ci/check-migration-rls.ts: OK.
 File sizes: bankRulesMatchingService 268, bankRulesSuggestionPass 98, all others < 300.
+
+=== Round 4 (blind review round 3 findings) — 2026-09-09 ===
+Integration (fixture DB, 13 K-140..K-145 files in one parallel run):
+  Test Files 13 passed | Tests 51 passed, 1 skipped (the opt-in DDL end-to-end case)
+Opt-in case: BANK_TABLE_LOCK_E2E=1 on k144-match-table-lock-not-a-race.int.test.ts
+  Test Files 1 passed | Tests 3 passed
+Full unit suite, DATABASE_URL and PG* UNSET (`env -u DATABASE_URL … bunx vitest run`):
+  Test Files 803 passed | 40 skipped (843); Tests 9583 passed | 243 skipped (9826)
+tsc --noEmit: clean. eslint on all 9 changed src/pages files: clean.
+
+Mutation proofs (production change reverted, test re-run, then restored):
+  M1 mapping — `if (await tableLockUnavailable())` → `if (false)`:
+     k144-match-table-lock-not-a-race (e2e) 1 failed / 1 passed;
+     matchLockClassification.test.ts 1 failed / 3 passed. RESTORED.
+  M1 counters — `if (raced) skippedRaced++; else skippedUnavailable++` → `skippedRaced++`:
+     autoMatchRaceHandling.test.ts 2 failed / 6 passed. RESTORED.
+  L2 — `/^\s*[DTdt]/m` → `/^[DT]/m`:
+     k145-non-csv-parse-guard.test.ts 2 failed / 11 passed. RESTORED.
+  L5 — ORDER BY priority, created_at, id → ORDER BY priority:
+     k141-suggestion-priority-tiebreak.int.test.ts 1 failed / 1 passed. RESTORED.
+  L4 (DROP INDEX IF EXISTS) not mutation-proved: it only changes behaviour on a database
+     that has never applied 657, which the fixture has.

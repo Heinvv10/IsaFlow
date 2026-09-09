@@ -53,7 +53,11 @@ export async function applySuggestionRules(
         r.client_id,
         r.rule_name,
         r.vat_code,
-        ROW_NUMBER() OVER (PARTITION BY bt.id ORDER BY r.priority ASC) AS rn
+        -- created_at, id after priority: two active rules at the same priority
+        -- left the winner to heap order, and the auto-post gate sweep posts
+        -- the chosen suggestion unattended.
+        ROW_NUMBER() OVER (
+          PARTITION BY bt.id ORDER BY r.priority ASC, r.created_at ASC, r.id ASC) AS rn
       FROM bank_transactions bt
       CROSS JOIN unnest(${suggestionRuleIds}::UUID[], ${suggestionPatterns}::TEXT[])
         AS rp(rule_id, pattern)

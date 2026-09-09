@@ -163,7 +163,10 @@ function isEmptyPeriodEnvelope(format: BankFormat, body: string): boolean {
     // as zero rows — the misleading success this guard exists to stop. `D`
     // (date) and `T` (amount) open every transaction record, so their absence
     // is what makes "no records" true rather than merely unterminated.
-    return /^\s*!Type:/im.test(body) && !/\^/.test(body) && !/^[DT]/m.test(body);
+    // `\s*[DTdt]`, not `[DT]`: `parseQifRecord` trims each line and upper-cases
+    // the prefix, so ` D10/03/2026` and `d10/03/2026` are records to the parser.
+    // A stricter test here refuses a file the parser can read as records.
+    return /^\s*!Type:/im.test(body) && !/\^/.test(body) && !/^\s*[DTdt]/m.test(body);
   }
   if (format === 'mt940') {
     // :20: opens the statement, :61: is the statement line. An account with no

@@ -20,7 +20,10 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { BankTransaction } from '../../types/bank.types';
 import { mapTxRow } from './bankTxRowMapper';
-import { lockBankTransactionForUpdate } from './bankTxLock';
+import {
+  lockBankTransactionForUpdate, isLockNotAvailable, tableLockUnavailable, BankMatchUnavailableError,
+} from './bankTxLock';
+export { BankMatchUnavailableError } from './bankTxLock';
 
 type Row = DbRow;
 
@@ -150,23 +153,6 @@ function isMatchedLineUniqueViolation(err: unknown): boolean {
   return e?.code === '23505' && e?.constraint === 'uq_bank_tx_matched_line';
 }
 
-/**
- * The same race, seen slowly.
- *
- * Before migration 657 the two racers locked different bank rows and never
- * blocked. The unique index makes them block on the INDEX instead, and that
- * wait is bounded by the 5s `SET LOCAL lock_timeout` that
- * `lockBankTransactionForUpdate` issued on this same connection — so a peer
- * that holds its transaction longer than 5s hands this UPDATE a raw 55P03
- * rather than the 23505 above. Unmapped it escapes as a bare pg error,
- * `autoMatchTransactions` does not recognise it, the route 400s and `withAuth`
- * COMMITs the partial run. `lock_timeout` is a wait on THIS statement, so
- * inside this UPDATE it can only mean the line is claimed.
- */
-function isMatchedLineLockTimeout(err: unknown): boolean {
-  return (err as { code?: string } | null)?.code === '55P03';
-}
-
 export async function matchTransaction(
   companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string
 ): Promise<BankTransaction> {
@@ -184,29 +170,48 @@ export async function matchTransaction(
     // Under its own savepoint so the 23505 is recoverable: `autoMatchTransactions`
     // skips this error and keeps going, which an aborted transaction (25P02 on
     // every later row) would make impossible.
-    const rows = await withSavepoint(MATCH_WRITE_SAVEPOINT, async (): Promise<Row[]> => {
-      try {
-        if (reconciliationId) {
+    let rows: Row[];
+    try {
+      rows = await withSavepoint(MATCH_WRITE_SAVEPOINT, async (): Promise<Row[]> => {
+        try {
+          if (reconciliationId) {
+            return (await sql`
+              UPDATE bank_transactions
+              SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
+                  reconciliation_id = ${reconciliationId}::UUID
+              WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
+          }
           return (await sql`
             UPDATE bank_transactions
-            SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
-                reconciliation_id = ${reconciliationId}::UUID
+            SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
             WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
+        } catch (writeErr) {
+          if (isMatchedLineUniqueViolation(writeErr)) {
+            throw new BankMatchTargetError(
+              'LINE_CLAIMED',
+              `Journal line ${journalLineId} is already matched to another bank transaction`,
+            );
+          }
+          throw writeErr;
         }
-        return (await sql`
-          UPDATE bank_transactions
-          SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
-          WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
-      } catch (writeErr) {
-        if (isMatchedLineUniqueViolation(writeErr) || isMatchedLineLockTimeout(writeErr)) {
-          throw new BankMatchTargetError(
-            'LINE_CLAIMED',
-            `Journal line ${journalLineId} is already matched to another bank transaction`,
-          );
-        }
-        throw writeErr;
-      }
-    });
+      });
+    } catch (writeErr) {
+      // The same race, seen slowly: before migration 657 the two racers locked
+      // different bank rows and never blocked; the unique index makes them
+      // block on the INDEX instead, and that wait is bounded by the 5s
+      // lock_timeout, so a peer holding its transaction longer hands this
+      // UPDATE a raw 55P03 rather than the 23505 above. Unmapped it escapes as
+      // a bare pg error, the run does not recognise it, the route 400s and
+      // withAuth COMMITs the partial run. But the same 55P03 is what a locked
+      // TABLE produces, and that is not a claim on the line — see
+      // `tableLockUnavailable`.
+      if (!isLockNotAvailable(writeErr)) throw writeErr;
+      if (await tableLockUnavailable()) throw new BankMatchUnavailableError(bankTxId);
+      throw new BankMatchTargetError(
+        'LINE_CLAIMED',
+        `Journal line ${journalLineId} is already matched to another bank transaction`,
+      );
+    }
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     log.info('Matched bank transaction', { bankTxId, journalLineId }, 'accounting');
     return mapTxRow(rows[0]!);

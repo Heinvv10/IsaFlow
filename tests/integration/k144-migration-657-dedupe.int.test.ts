@@ -35,7 +35,9 @@ let line = '';
 async function runMigrationOn(
   client: PoolClient, statuses: readonly string[],
 ): Promise<{ id: string; status: string; link: string | null }[]> {
-  await client.query('DROP INDEX uq_bank_tx_matched_line');
+  // IF EXISTS: on a database where db:migrate has not applied 657 yet, a bare
+  // DROP errors in setup and every case reports a failure that is not real.
+  await client.query('DROP INDEX IF EXISTS uq_bank_tx_matched_line');
   const ids: string[] = [];
   for (let i = 0; i < statuses.length; i++) {
     const r = await client.query(

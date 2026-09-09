@@ -107,6 +107,22 @@ describe('K-145 a non-CSV import that parses nothing must not report success', (
       .rejects.toThrow(/Parsed no transactions/);
   });
 
+  // Adjacent case (review r3 L2): `parseQifRecord` trims each line and
+  // upper-cases the prefix, so an indented or lower-case `D`/`T` opens a record
+  // as far as the parser is concerned. A `/^[DT]/m` test refuses those, calls a
+  // file that carries records an empty period, and imports it as zero rows.
+  it('QIF: indented unreadable records with no terminator are NOT an empty period', async () => {
+    const qif = ['!Type:Bank', '  DNOT-A-DATE', '  Tnot-an-amount', '  PWOOLWORTHS'].join('\n');
+    await expect(parseStatement({ fileType: 'qif', csvContent: qif }))
+      .rejects.toThrow(/Parsed no transactions/);
+  });
+
+  it('QIF: lower-case record prefixes with no terminator are NOT an empty period', async () => {
+    const qif = ['!Type:Bank', 'dNOT-A-DATE', 'tnot-an-amount', 'pWOOLWORTHS'].join('\n');
+    await expect(parseStatement({ fileType: 'qif', csvContent: qif }))
+      .rejects.toThrow(/Parsed no transactions/);
+  });
+
   it('MT940: a statement with no :61: line is an empty period', async () => {
     const mt940 = [
       ':20:K145EMPTY',
