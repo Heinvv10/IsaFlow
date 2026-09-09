@@ -63,7 +63,7 @@ describe('K-108 — condition_operator allowlist', () => {
 
   it('refuses an update that swaps a good operator for an unreadable one', async () => {
     const created = await call(approvalRules, 'POST', {
-      name: 'Payments over 1000', documentType: 'payment',
+      name: 'Payments over 1000 (valid operator)', documentType: 'payment',
       conditionField: 'amount', conditionOperator: 'greater_than', conditionValue: 1000, approverRole: 'admin',
     });
     expect(created.state.statusCode).toBe(200);
@@ -77,8 +77,9 @@ describe('K-108 — condition_operator allowlist', () => {
   });
 
   it('the rule the UI describes actually fires once the operator is a real one', async () => {
-    // Its own rule: this test must not depend on one an earlier test happened
-    // to leave behind, or it passes only in declaration order.
+    // Its own rule, and its own NAME: the refusal test above asserts that no row
+    // named 'Payments over 1000' exists, so a second rule sharing that name made
+    // the pair order-coupled and red under --sequence.shuffle (review LOW-1).
     await pool.query(
       `INSERT INTO approval_rules(company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
        VALUES($1,'fires over 1000','payment','amount','greater_than',1000,'admin')`, [alpha]);
@@ -111,8 +112,10 @@ describe('K-108 — approver_role allowlist (review L4)', () => {
 
   it('refuses an update that swaps a real role for an unknown one', async () => {
     const created = await call(approvalRules, 'POST', {
+      // 'manager', not 'owner': the caller is an admin and may not create a rule
+      // demanding a rank above their own (round-4 HIGH-1).
       name: 'Role update', documentType: 'payment',
-      conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'owner',
+      conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'manager',
     });
     expect(created.state.statusCode).toBe(200);
     const ruleId = (created.state.body as { data: { id: string } }).data.id;
@@ -121,20 +124,23 @@ describe('K-108 — approver_role allowlist (review L4)', () => {
     expect(updated.state.statusCode).toBe(400);
 
     const stored = await pool.query('SELECT approver_role FROM approval_rules WHERE id=$1', [ruleId]);
-    expect(stored.rows[0].approver_role).toBe('owner');
+    expect(stored.rows[0].approver_role).toBe('manager');
   });
 });
 
-describe('K-109 — a request may only name a rule this company owns', () => {
-  it("refuses another tenant's rule id and stores nothing", async () => {
+describe('K-109 — a request is governed by this company\'s own rule, never a named one', () => {
+  // The route no longer accepts `ruleId`. These assert the property that
+  // replaced it: whatever the body says, the stored rule_id is resolved from the
+  // company's own active rules or nothing is written at all.
+  it("ignores another tenant's rule id and stores nothing when no own rule matches", async () => {
     const betaRule = crypto.randomUUID();
     await pool.query(
       `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
-       VALUES($1,$2,'beta only','payment','amount','any',0,'admin')`, [betaRule, beta]);
+       VALUES($1,$2,'beta only','journal_entry','amount','any',0,'admin')`, [betaRule, beta]);
 
     const documentId = crypto.randomUUID();
     const made = await call(approvalRequests, 'POST', {
-      action: 'request', ruleId: betaRule, documentType: 'payment', documentId, amount: 5000,
+      action: 'request', ruleId: betaRule, documentType: 'journal_entry', documentId, amount: 5000,
     });
     expect(made.state.statusCode).toBe(400);
 
@@ -142,10 +148,10 @@ describe('K-109 — a request may only name a rule this company owns', () => {
     expect(stored.rowCount).toBe(0);
   });
 
-  it('refuses a rule id that exists nowhere', async () => {
+  it('refuses a document no active rule of this company governs', async () => {
     const documentId = crypto.randomUUID();
     const made = await call(approvalRequests, 'POST', {
-      action: 'request', ruleId: crypto.randomUUID(), documentType: 'payment', documentId, amount: 5000,
+      action: 'request', documentType: 'credit_note', documentId, amount: 5000,
     });
     expect(made.state.statusCode).toBe(400);
 
@@ -153,15 +159,16 @@ describe('K-109 — a request may only name a rule this company owns', () => {
     expect(stored.rowCount).toBe(0);
   });
 
-  it("accepts the caller's own rule id and stores it against the caller's company", async () => {
+  it("resolves the caller's own rule and stores it against the caller's company", async () => {
     const ownRule = crypto.randomUUID();
     await pool.query(
       `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
-       VALUES($1,$2,'alpha own','payment','amount','any',0,'admin')`, [ownRule, alpha]);
+       VALUES($1,$2,'alpha own','supplier_invoice','amount','any',0,'admin')`, [ownRule, alpha]);
 
     const documentId = crypto.randomUUID();
     const made = await call(approvalRequests, 'POST', {
-      action: 'request', ruleId: ownRule, documentType: 'payment', documentId, amount: 5000,
+      // A foreign rule id in the body is simply not read any more.
+      action: 'request', ruleId: crypto.randomUUID(), documentType: 'supplier_invoice', documentId, amount: 5000,
     });
     expect(made.state.statusCode).toBe(200);
 
@@ -191,18 +198,31 @@ describe('K-108 — a legacy unreadable rule can still be switched off (review L
     // form even when the migration no longer produces it, which makes these
     // tests pass against an unscoped constraint — the exact thing they exist to
     // rule out.
-    const { rows } = await pool.query(
-      'SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname=$1', [CONSTRAINT]);
-    const def = rows[0]?.def as string | undefined;
-    if (!def) throw new Error(`${CONSTRAINT} is not on the fixture — apply migration 647 first`);
-
-    await pool.query(`ALTER TABLE approval_rules DROP CONSTRAINT ${CONSTRAINT}`);
+    //
+    // Review LOW-2: the drop/insert/restore runs in ONE transaction holding
+    // ACCESS EXCLUSIVE on the table, so no concurrent test file ever observes
+    // the fixture with the constraint missing. Dropping it at auto-commit left
+    // exactly that window open.
+    const client = await pool.connect();
     try {
-      await pool.query(
+      await client.query('BEGIN');
+      await client.query('LOCK TABLE approval_rules IN ACCESS EXCLUSIVE MODE');
+      const { rows } = await client.query(
+        'SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname=$1', [CONSTRAINT]);
+      const def = rows[0]?.def as string | undefined;
+      if (!def) throw new Error(`${CONSTRAINT} is not on the fixture — apply migration 647 first`);
+
+      await client.query(`ALTER TABLE approval_rules DROP CONSTRAINT ${CONSTRAINT}`);
+      await client.query(
         `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
          VALUES($1,$2,'legacy less_than','payment','amount','less_than',1000,'admin',true)`, [id, alpha]);
+      await client.query(`ALTER TABLE approval_rules ADD CONSTRAINT ${CONSTRAINT} ${def}`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
     } finally {
-      await pool.query(`ALTER TABLE approval_rules ADD CONSTRAINT ${CONSTRAINT} ${def}`);
+      client.release();
     }
   };
 

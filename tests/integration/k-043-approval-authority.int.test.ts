@@ -190,7 +190,9 @@ describe('K-043 review findings', () => {
     expect(result.state.statusCode).toBe(404);
   });
 
-  it('answers 400 for a rule id that is not a UUID', async () => {
+  it('answers 400 for a document id that is not a UUID', async () => {
+    // The rule id is no longer read from the body at all (round-4 HIGH-1); the
+    // document id is what still reaches a `::UUID` cast.
     const csrf = 'disposable-postgres-workflow-csrf-0123456789';
     const cookies = { 'sb-access-token': tokens[owner]!, active_company_id: companyA, isaflow_csrf: csrf };
     const req = {
@@ -199,7 +201,7 @@ describe('K-043 review findings', () => {
         cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; '),
         'x-csrf-token': csrf,
       },
-      body: { action: 'request', ruleId: 'not-a-uuid', documentType: 'payment', documentId: crypto.randomUUID() },
+      body: { action: 'request', documentType: 'payment', documentId: 'not-a-uuid' },
       socket: { remoteAddress: '127.0.0.85' },
     } as unknown as NextApiRequest;
     const result = response();

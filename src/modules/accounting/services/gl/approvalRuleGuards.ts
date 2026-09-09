@@ -10,8 +10,14 @@
  * parameters its subjects can edit is not one.
  *
  * So: you may not change or delete a rule that demands more authority than you
- * hold, and every rule change writes an audit row (approval_rules has no
- * updated_by and the table kept no history at all).
+ * hold, you may not CREATE one (or raise/lower an existing one) at a rank you
+ * could not exercise yourself, and every rule change writes an audit row
+ * (approval_rules has no updated_by and the table kept no history at all).
+ *
+ * The create half is not decoration. Blocking PUT and DELETE alone leaves the
+ * admin who cannot weaken an owner-only rule free to POST a second, manager-level
+ * rule for the same document type — which is why `assertMayDemand` guards the
+ * INCOMING role on every write, not just the stored one.
  */
 
 import { sql } from '@/lib/neon';
@@ -30,7 +36,7 @@ export class ApprovalRuleAuthorityError extends Error {
   readonly code = 'RULE_AUTHORITY_REQUIRED';
 
   constructor(ruleRole: string) {
-    super(`This rule requires the ${ruleRole} role; you cannot change or delete it`);
+    super(`This rule requires the ${ruleRole} role; you do not hold it, so you cannot create, change or delete it`);
     this.name = 'ApprovalRuleAuthorityError';
   }
 }
@@ -55,6 +61,20 @@ function fieldChanges(
     if (old !== next) changes.push({ field, old, new: next, label: field });
   }
   return changes;
+}
+
+/**
+ * Refuses when `actor` ranks below the authority a rule is about to DEMAND.
+ * A rule is a separation-of-duties parameter, so nobody may set one to a rank
+ * they do not themselves hold: an admin can neither mint an owner-only rule nor
+ * hand one down to `viewer`. Synchronous — it ranks two strings and touches no
+ * row, so `createRule` can call it before its INSERT.
+ */
+export function assertMayDemand(actor: RuleActor, ruleRole: string | undefined): void {
+  if (ruleRole === undefined) return;
+  if (actorRank(actor.role) < requiredRank(ruleRole)) {
+    throw new ApprovalRuleAuthorityError(ruleRole);
+  }
 }
 
 /**

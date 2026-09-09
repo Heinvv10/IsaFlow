@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { requiredRank } from './approvalAuthority';
 import type {
   ApprovalCheckResult, ApprovalRequest, ApprovalRule, ApprovalStatus, DocumentType,
 } from './approvalService';
@@ -43,15 +44,23 @@ export async function checkApproval(
     };
   }
 
-  // Find matching active rules
+  // Find matching active rules. The ORDER BY is the tiebreak, not the decision:
+  // `priority` is INTEGER DEFAULT 100 and no write path sets it, so every rule a
+  // company can create ties, and without created_at/id the winner was heap order.
   const rules = (await sql`
     SELECT * FROM approval_rules
     WHERE company_id = ${companyId}
       AND document_type = ${documentType}
       AND is_active = true
-    ORDER BY priority ASC
+    ORDER BY priority ASC, created_at ASC, id ASC
   `) as Record<string, unknown>[];
 
+  // The STRICTEST matching rule governs, not the first one found. Ordering alone
+  // is not enough for a separation-of-duties control: whichever rule wins decides
+  // the approver_role, so "first match" let a laxer rule created beside an
+  // owner-only one shadow it — in whichever direction the tiebreak happened to
+  // run. Ties in rank fall back to the deterministic order above.
+  let matched: ApprovalRule | null = null;
   for (const rule of rules) {
     const r = mapRule(rule);
     let matches = false;
@@ -77,13 +86,13 @@ export async function checkApproval(
         break;
     }
 
-    if (matches) {
-      return {
-        requiresApproval: true,
-        matchedRule: r,
-        existingRequest: null,
-      };
+    if (matches && (matched === null || requiredRank(r.approverRole) > requiredRank(matched.approverRole))) {
+      matched = r;
     }
+  }
+
+  if (matched) {
+    return { requiresApproval: true, matchedRule: matched, existingRequest: null };
   }
 
   return { requiresApproval: false, matchedRule: null, existingRequest: null };
