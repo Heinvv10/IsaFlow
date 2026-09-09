@@ -1,0 +1,25 @@
+NOTICE:  relation "control_beneficiary_proposals" already exists, skipping
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE INDEX
+NOTICE:  relation "control_beneficiary_pending_idx" already exists, skipping
+NOTICE:  relation "control_beneficiary_versions" already exists, skipping
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
+GRANT
+GRANT
+DROP FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+REVOKE
+GRANT

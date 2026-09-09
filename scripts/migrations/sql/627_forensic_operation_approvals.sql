@@ -22,9 +22,13 @@ CREATE TABLE IF NOT EXISTS control_policy_exposure (
   company_id uuid NOT NULL REFERENCES companies(id), policy_id text NOT NULL, beneficiary_key text NOT NULL,
   currency text NOT NULL, window_start date NOT NULL, operation text NOT NULL, entity_id text NOT NULL,
   amount numeric NOT NULL CHECK(amount >= 0), state text NOT NULL CHECK(state IN ('reserved','committed')),
-  approval_id uuid, UNIQUE(company_id,policy_id,operation,entity_id,beneficiary_key,currency),
+  approval_id uuid,
   FOREIGN KEY(company_id,approval_id) REFERENCES control_operation_approvals(company_id,id)
 );
+-- Also correct an already-created local draft table; CREATE TABLE alone cannot change a constraint.
+ALTER TABLE control_policy_exposure DROP CONSTRAINT IF EXISTS control_policy_exposure_company_id_policy_id_operation_enti_key;
+CREATE UNIQUE INDEX IF NOT EXISTS control_policy_exposure_bucket_unique
+  ON control_policy_exposure(company_id,policy_id,operation,entity_id,beneficiary_key,currency);
 CREATE INDEX IF NOT EXISTS control_policy_exposure_window_idx
   ON control_policy_exposure(company_id,policy_id,beneficiary_key,currency,window_start);
 CREATE TABLE IF NOT EXISTS control_operation_effects (

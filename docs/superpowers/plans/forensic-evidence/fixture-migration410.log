@@ -1,0 +1,5 @@
+NOTICE:  column "raw_bytes_sha256" of relation "captured_documents" already exists, skipping
+NOTICE:  column "raw_bytes_size" of relation "captured_documents" already exists, skipping
+NOTICE:  relation "idx_captured_docs_sha256" already exists, skipping
+ALTER TABLE
+CREATE INDEX
