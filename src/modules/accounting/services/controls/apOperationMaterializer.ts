@@ -1,4 +1,5 @@
 import {assertStandalonePaymentVoid,assertStandalonePaymentProcess} from '../ap/batchPaymentValidation';
+import {assertStandaloneBankChildReversal} from './bankChildReversalGuard';
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { canonicalJson, canonicalMoney } from './canonical';
@@ -77,6 +78,7 @@ export async function materializeApOperation(ctx: ControlTx, ref: OperationRef):
     if (!header) throw new Error('Operation not found');
     if (ref.operation === 'supplier_payment.void') assertStandalonePaymentVoid(header.batch_id);
     if (ref.operation === 'supplier_payment.process') assertStandalonePaymentProcess(header.batch_id);
+    if(ref.operation==='supplier_payment.void')await assertStandaloneBankChildReversal(ctx,ref.entityId,header.gl_journal_entry_id);
     const allocations = await ctx.sql`
       SELECT pa.id,pa.invoice_id,pa.amount_allocated::text,si.currency AS invoice_currency,
         si.total_amount::text,si.amount_paid::text,si.status,si.gl_journal_entry_id
