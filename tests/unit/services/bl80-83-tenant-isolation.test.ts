@@ -165,7 +165,11 @@ describe('BL-82: startReconciliation — bank_transactions UPDATE must include c
       unmatched_count: 0,
     };
 
-    // sql() for gl_balance query
+    // startReconciliation composes the shared bankGlBalanceAsAt fragment, so it
+    // calls sql() three times: the account expression, the date expression, then
+    // the balance SELECT that actually returns the row.
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ gl_balance: '10000' }] as never);
 
     // withTransaction captures the callback and executes it

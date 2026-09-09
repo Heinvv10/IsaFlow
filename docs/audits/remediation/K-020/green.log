@@ -21,3 +21,45 @@ $ env -u DATABASE_URL bunx vitest run
       Tests  9320 passed | 234 skipped (9554)
    Duration  73.69s
 No mocked fixture elsewhere broke on the SET-clause rewrite.
+
+================= REVIEW ROUND (0 HIGH / 3 MEDIUM / 4 LOW) =================
+
+== INTEGRATION (fix applied, fixture DB) ==
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+== MUTATION CHECK (service reverted to origin/master, captured) ==
+     × reflects the adjustment journal and does not re-add matched movements
+     × does not move the balance when a transaction becomes matched
+     × leaves the row untouched when called with the wrong company_id
+     × refuses an adjustment posted to a different bank account, and posts nothing
+     × refuses an adjustment on a completed reconciliation and preserves its balances
+AssertionError: expected 2000 to be 1050
+AssertionError: expected 800 to be 400
+AssertionError: expected 800 to be 400
+AssertionError: promise resolved "'1de19a53-...'" instead of rejecting  (wrong bank account)
+AssertionError: promise resolved "'c1684fb3-...'" instead of rejecting  (completed reconciliation)
+ Test Files  2 failed (2)
+      Tests  5 failed | 1 passed (6)
+Service restored; git diff --stat confirms the fixed version is back in place.
+The one test that stays green asserts a freshly computed snapshot with no matched
+rows, where the old formula yields the same 400.
+
+== FULL UNIT SUITE (no fixture env; DATABASE_URL unset) ==
+$ env -u DATABASE_URL bunx vitest run
+ Test Files  782 passed | 2 failed | 36 skipped (820)
+      Tests  9318 passed | 2 failed | 234 skipped (9554)
+The 2 failures are 10s timeouts in tests/unit/services/cashFlowReport.test.ts and
+tests/unit/services/bank/bankAllocationUnwind.test.ts — neither module is touched by
+this change, and both pass in isolation (2 files, 17 tests) on this same tree. The box
+is running many parallel agent suites; these are contention timeouts, not regressions.
+
+== FIXTURE BREAK CAUGHT BY THE FULL SUITE (real, fixed) ==
+tests/unit/services/bl80-83-tenant-isolation.test.ts mocked `sql` with a single
+mockResolvedValueOnce for the balance query. startReconciliation now composes the
+shared fragment and so calls sql() three times; the queued value was consumed by an
+argument expression and the unconsumed queue leaked into the next test, failing 3
+tests across BL-82 and BL-83. The mock now queues all three. 10/10 pass.
+
+== tsc / eslint ==
+bunx tsc --noEmit → clean. bunx eslint on the service and [reconId].tsx → clean.

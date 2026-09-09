@@ -49,3 +49,45 @@ someone reopens them — no backfill is included here.
 **Limits.** Whether unpresented items should be added back to `reconciled_balance` is
 an accounting decision left unchanged. No concurrency claim is made: the helper remains
 one atomic UPDATE, as before.
+
+---
+
+## Review round — all 7 findings addressed (0 HIGH, 3 MEDIUM, 4 LOW)
+
+**M1 — two tiles showing one number.** `reconciled_balance` is the posted GL balance
+as at `statement_date` by construction, so the reconciliation page rendered "GL Balance"
+and "Reconciled Balance" as identical figures. The pair is collapsed into one tile,
+"GL Balance (as at statement date)", and the grid drops to three columns. The API,
+types and both MCP tools are unchanged, so no contract moves. Whether
+`reconciled_balance` should carry an outstanding-items term remains the accounting
+decision deferred under Limits; the consequence for `completeReconciliation` is that a
+genuine timing difference still has to be cleared by a journal.
+
+**M2 — adjustment on a completed reconciliation.** `createAdjustmentEntry` now throws
+when `recon.status === 'completed'`, matching the shape `completeReconciliation` uses.
+Without it the recompute would rewrite the `gl_balance` of a signed-off audit artefact.
+
+**M3 — unvalidated `bankAccountId`.** The recompute correlates on the reconciliation's
+own `bank_account_id`, so an adjustment posted to a different account returned 200 with
+a journal id and moved nothing. It is now refused before any journal is created.
+
+**L4 / L5 — duplicated, twice-evaluated balance SQL.** Extracted `bankGlBalanceAsAt`,
+a composable `sql` fragment that both `startReconciliation` and `updateReconciledBalance`
+build on, so the snapshot and the recompute cannot drift. The recompute wraps it in a
+derived table and selects the column twice, so the aggregate is written once. Tradeoff:
+the snapshot call site now issues three `sql` calls (two expression fragments plus the
+SELECT), which required queueing three mocks in
+`tests/unit/services/bl80-83-tenant-isolation.test.ts`.
+
+**L6 — not in the CI gate.** Both files are `tests/integration/*.int.test.ts` under
+`vitest.integration.config.ts`, which needs `DATABASE_URL`. `bun run ci` does not supply
+it, so `scripts/ci/run-ci.sh` does not execute them. Run them manually with the fixture
+env: `bun run test:integration -- tests/integration/k020-*.int.test.ts`. This fix has no
+guard on master until an integration job runs with a database.
+
+**L7 — unevidenced mutation check.** `green.log` now carries the captured failure output
+from the reverted-service run, not prose.
+
+**Tests added.** Two cases in `k020-reconciled-balance-recompute.int.test.ts` for M2 and
+M3, each asserting the throw AND that no journal entry was created and the balances did
+not move. 6 integration tests pass; 5 of the 6 go red when the service is reverted.
