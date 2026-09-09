@@ -37,5 +37,5 @@ K-022 — verification of the review-remediation commit
    $ bun scripts/audit-migration-naming.ts   No new duplicate prefixes found
    $ bun scripts/ci/check-migration-rls.ts   OK: every company_id table under RLS
 
-5. Migration 620 applied to the fixture DB and re-applied to prove idempotence.
+5. Migration 621 applied to the fixture DB and re-applied to prove idempotence.
    Not run against production.
