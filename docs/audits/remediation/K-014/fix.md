@@ -38,7 +38,9 @@ retry idempotence, wrong tenant refused with nothing posted, cancelled bill stil
 bulk file, 2/2, driving the real route through `withAuth` with a second pool client holding
 `FOR UPDATE` past the timeout: the uncontended sibling posts when the earlier id times out, and
 a bill posted before the timeout stays posted, balanced and linked. Unit 10/10 plus the bulk
-route's own 9/9. Mutation-proof both ways: reverting the lock returns the race test to RED
+route's own 11/11, which now cover the two savepoint mechanics directly: nested SAVEPOINT /
+RELEASE issued strictly LIFO around a service's own savepoint, and a FAILED
+`ROLLBACK TO SAVEPOINT` making the handler throw rather than answer 200 with a success count. Mutation-proof both ways: reverting the lock returns the race test to RED
 (`expected 2 to be 1`), reverting the savepoint returns both bulk tests to RED. See `green.log`.
 
 **Migration / rollback.** None. Rollback is reverting the commit.
@@ -57,7 +59,7 @@ SELECT si.company_id, si.id, si.invoice_number, count(*) AS journals
 **Limits.** The lock is held to end of request, so a batch at the route's 200-id cap holds 200
 row locks, as bulk approve already does. A contended bill now fails that id alone: reported as
 that item's error, rolled back to its savepoint, siblings committed. `supplierInvoiceWorkflowService.ts`
-was 495 lines before this change and is 511 after — over the 300-line guidance, pre-existing and
-not refactored here. The savepoint change also covers `approve` and `cancel` on the same route,
+was 495 lines before this change and is 513 after (measured with `wc -l`) — over the 300-line
+guidance, pre-existing and not refactored here; the bulk route is 133 lines. The savepoint change also covers `approve` and `cancel` on the same route,
 which carried the same hazard before this commit; that is wider than K-014 but the same defect
 and the same two lines.

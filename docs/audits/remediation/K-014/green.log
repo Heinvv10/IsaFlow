@@ -82,3 +82,35 @@ Reverted pages/api/accounting/supplier-invoices-bulk-action.ts to HEAD and re-ra
 === tsc / eslint ===
   bunx tsc --noEmit: clean
   bunx eslint pages/api/accounting/supplier-invoices-bulk-action.ts src/.../supplierInvoiceWorkflowService.ts: clean
+
+=== SECOND FOLLOW-UP (re-review of 64f3d09e: 2 LOW) ===
+
+--- Unit: bulk route, incl. the two new savepoint tests ---
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  06:18:54
+   Duration  1.07s (transform 343ms, setup 0ms, import 569ms, tests 20ms, environment 0ms)
+
+
+=== MUTATION CHECK (txUnusable bail) ===
+Deleted the six-line 'if (als.getStore()?.txUnusable) throw' block from the route:
+  x throws instead of reporting success when a savepoint rollback fails
+  AssertionError: promise resolved "{ success: true, data: { ...(5) } }" instead of rejecting
+  Tests 1 failed | 10 passed (11).  <- exactly the reported-success-on-a-lost-batch signature
+Replacing withSavepoint('bulk_supplier_invoice_item', ...) with a bare async IIFE reddens the
+nesting test along with five others. Route restored; 11/11 green above.
+
+=== FULL UNIT SUITE, no fixture env (DATABASE_URL unset) ===
+  Tests  2 failed | 9321 passed | 234 skipped (9557)
+  The two failures are 10s timeouts under full-suite load and differ between runs
+  (run 1: trackerExclusion + bankAllocationService; run 2: cashFlowReport + bankAllocationUnwind);
+  each passes when re-run alone. None touch the changed paths.
+
+=== LINE COUNTS (wc -l, the figure fix.md now quotes) ===
+  513 src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts
+  133 pages/api/accounting/supplier-invoices-bulk-action.ts
+  646 total
+
+  bunx tsc --noEmit: clean
+  bunx eslint (route + workflow service): clean
