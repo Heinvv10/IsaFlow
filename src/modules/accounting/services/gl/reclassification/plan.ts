@@ -14,6 +14,7 @@
  */
 
 import { fmtDate } from '@/lib/fmtDate';
+import { withSavepoint } from '@/lib/neon';
 import { lockReclassLinesForUpdate } from './lineLock';
 import { getLedgerPostedThrough } from '../../reports/postedThroughService';
 import {
@@ -131,9 +132,21 @@ export async function planReclassification(
   // a preview never blocks a real batch on 414 posted lines. The same flag has
   // already decided the target-account lock inside `admitReclassification`, so
   // a preview holds nothing at all.
+  //
+  // IN ITS OWN SAVEPOINT, because the timeout is CAUGHT. A `lock_timeout`
+  // raises 55P03, which aborts the (sub)transaction; catching the error does
+  // not un-poison it, and `planFromArgs` turns `RECLASS_LINE_LOCKED` into a
+  // toolError and RETURNS. The enclosing `withSavepoint` in `registry.call`
+  // then issues `RELEASE SAVEPOINT` on its normal-return path, which raises
+  // 25P02 — so the agent received GENERIC_FAILURE and the retry wording was
+  // discarded. Only a savepoint rollback restores the transaction. Same shape
+  // as `snapshotInvoicePdf` (mcp/.claude.md), and the reason is identical.
   let lockedLineIds: ReadonlySet<string> | undefined;
   if (input.lockCandidateLines) {
-    const locked = await lockReclassLinesForUpdate(companyId, rows.map((r) => r.line_id));
+    const locked = await withSavepoint(
+      'reclass_line_lock',
+      () => lockReclassLinesForUpdate(companyId, rows.map((r) => r.line_id)),
+    );
     lockedLineIds = new Set(locked);
     // The re-read. Same query, under the lock, so every row-state guard runs
     // against state no peer can now be holding uncommitted.

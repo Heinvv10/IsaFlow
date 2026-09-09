@@ -82,3 +82,39 @@ edited. The guard reads the reports' predicate as it stands today. A PREVIEW can
 overtaken by a batch or a chart edit that commits before the caller acts on it, exactly as a report
 can — that is the deliberate price of a lock-free preview, and the write path re-forms the verdict
 under the lock.
+
+## Round-5 disposition (blind re-review `0d0f4897`, MEDIUM-1)
+
+**Trigger.** `post_reclassification_batch` while another request holds the target GL account
+(a merge, a chart edit, or a peer batch) for longer than the 5s `lock_timeout`.
+
+**Before.** `lockGlAccountsForUpdate` issued `FOR UPDATE` directly in the request transaction.
+The timeout raises SQLSTATE 55P03, which ABORTS the subtransaction. `planFromArgs` caught
+`GL_ACCOUNT_LOCK_TIMEOUT` and RETURNED a toolError, so `registry.call` took the normal-return
+path and issued `RELEASE SAVEPOINT` on an aborted subtransaction — 25P02. The agent received
+GENERIC_FAILURE, the wording naming the account and asking for a retry was discarded anyway,
+and a clean 5s wait was reported as a transaction fault. The catch looked like it worked and
+did not.
+
+**After.** Both locks the plan can take run in their own `withSavepoint` — the target account
+(`planGuards.ts`, `reclass_target_lock`) and the candidate lines (`plan.ts`,
+`reclass_line_lock`, which had the identical latent shape for `RECLASS_LINE_LOCKED`). The
+savepoint rolls back before the error reaches the catch, so the transaction is usable when the
+toolError returns and the registry can still write its audit row. Same shape as
+`snapshotInvoicePdf` (`src/lib/mcp/.claude.md`), and for the same reason: catching a SQL error
+does not un-poison a transaction.
+
+Also in this round, `admitReclassification` takes the target lock LAST, below the period,
+VAT-subtype and VAT-lock refusals — a request that was never going to proceed no longer holds
+the row for the rest of the transaction.
+
+**Tests.** `tests/integration/k052-reclassification-lock-savepoint.int.test.ts` (2, real DB):
+a second connection holds the row for the whole 5s, the REAL write tool runs inside
+`withSavepoint(savepointNameFor('post_reclassification_batch'), ...)` exactly as the registry
+does, the caller receives the refusal naming the account, a later query on the same transaction
+succeeds, and nothing was written. `tests/unit/mcp/reclassificationTools.test.ts` moves both
+catch tests onto the write tool — the only caller that can reach either code — and adds one for
+`RECLASS_LINE_LOCKED`. Mutation: removing the savepoint wrap makes the integration test fail
+with `current transaction is aborted`.
+
+**Migration / historical data.** None for K-052.

@@ -88,4 +88,33 @@ repaired by this change.
 | LOW-1 — the mock's `accountType` is not load-bearing while the comment says it is | **Fixed.** The comment in `reclassificationLockSequence.test.ts` now names `level` as the load-bearing field and says the type is realism at level 3. |
 | LOW-2 — the concurrency test leaks its transaction when it fails | **Fixed.** The race test has the same `catch { ROLLBACK }` as the file's `admit()` helper. Re-run under the reviewer's own mutation (lock the SOURCE): the test fails in 6 ms, `afterAll` does not block, and the fixture DB is left with zero `K05*` rows and zero idle-in-transaction connections. |
 | LOW-3a — the type narrowing that keeps expense targets lock-free was unproven | **Fixed** by the write-path expense test above. |
-| LOW-3b — `company_id` on `assertParentUsable`'s posted-lines read is unproven | **Kept, not proven — disputed.** Reaching it needs a `gl_journal_lines` row whose `company_id` disagrees with its account's, which no code path writes and no constraint permits by accident; a fixture that fabricates one would assert only that we ignore corrupt data. The scope stays because every query in this codebase carries it, which is the same disposition round 2 reached for `hasJournalLines`. |
+| LOW-3b — `company_id` on `assertParentUsable`'s posted-lines read is unproven | **Dispute OVERTURNED in round 5 — see below.** The premise was wrong in both halves: nothing prevented the row, and `POST /api/accounting/journal-entries` wrote it. |
+
+
+## Round-5 dispositions (blind re-review `0d0f4897`)
+
+| Finding | Disposition |
+|---|---|
+| MED-1 — a caught `GL_ACCOUNT_LOCK_TIMEOUT` leaves the transaction ABORTED, so the registry's `RELEASE SAVEPOINT` raises 25P02 and the agent gets GENERIC_FAILURE anyway | **Fixed.** Both locks now run in their own `withSavepoint` — the target account (`planGuards.ts`) and the candidate lines (`plan.ts`, which had the same latent shape). A caught SQL error does not un-poison a transaction; only a savepoint rollback does. `k052-reclassification-lock-savepoint.int.test.ts` proves it end-to-end: a second connection genuinely holds the target for the full 5s `lock_timeout`, the REAL write tool runs inside `withSavepoint(savepointNameFor('post_reclassification_batch'), ...)` exactly as `registry.call` does, and the caller receives the typed refusal naming the account while a later query on the same transaction still succeeds. Reverting the wrap makes it fail with `current transaction is aborted`. |
+| LOW-1 (was LOW-3b) — the `company_id` scope is right and nothing proves it | **Fixed, and the cross-tenant write behind it is closed.** The reviewer's live path is real: `createJournalEntry` stamped `company_id` from the session and `gl_account_id` from the request body with no ownership check. Two defences now: `accountsBelongToCompany` at the service every journal creation goes through (the same check `create_draft_journal` always had), and **migration 660**, a composite FK `(gl_account_id, company_id) -> gl_accounts(id, company_id)`, NOT VALID so it enforces every future write without scanning history. The scope test the reviewer asked for is the fourth case in `k051-cross-company-journal-line.int.test.ts`: the pre-660 row is built with `session_replication_role='replica'` in a rolled-back transaction, `assertParentUsable` admits, and the balance sheet agrees at R0. Both mutations (drop the ownership check; drop the `company_id` scope) go red. |
+| LOW-2 — the catch tests drive the tool that cannot reach the catch | **Fixed.** Both moved to `post_reclassification_batch`, plus a third for `RECLASS_LINE_LOCKED`, all asserting `postReclassBatch` was never called. |
+| LOW-3 — the K-051 test file is 408 lines | **Fixed.** Split: the verdicts stay (261 lines), the two-connection tests move to `k051-account-merge-header-concurrency.int.test.ts` (209) with their own fixture. `OPENING_ASSETS` drops 2475 -> 2285 accordingly. |
+| LOW-4 — the comments overstate `validateLeafAccount` | **Fixed.** Both comments now say it runs on the expense-claim posting route and nowhere else, and that these guards are the control rather than a second line of one. |
+| LOW-5 — the target lock is taken before the cheap refusals | **Fixed.** The header block moved BELOW the period, VAT-subtype and VAT-lock refusals, so a request that was never going to proceed holds nothing. |
+
+**Migration.** `660_gl_journal_lines_account_company_fk.sql` — composite FK, NOT VALID, `IF NOT EXISTS` guarded, applied to the fixture DB and proved to refuse the pair. Rollback: `ALTER TABLE gl_journal_lines DROP CONSTRAINT gl_journal_lines_account_company_fk`.
+
+**Historical-data impact of 660.** NOT VALID leaves existing rows untouched, so nothing breaks on deploy. Census first; `VALIDATE CONSTRAINT` (SHARE UPDATE EXCLUSIVE only) is a separate decision once it returns zero. Read-only, NOT run against production:
+
+```sql
+SELECT jl.company_id AS line_company, ga.company_id AS account_company,
+       COUNT(*) AS lines, SUM(jl.debit + jl.credit) AS gross
+FROM gl_journal_lines jl
+JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+WHERE ga.company_id <> jl.company_id
+GROUP BY 1, 2 ORDER BY gross DESC;
+```
+
+Such a row is a cross-tenant ledger line: the other company's account carries a balance it did not post, and this company's trial balance names an account it does not own. `balanceSheetService` filters all three of `jl.company_id`, `ga.company_id` and `je.company_id`, so neither balance sheet shows it — the trial balance and any single-filter report are where it surfaces.
+
+**Blast radius of 660 — four fixtures outside this item.** Four integration tests deliberately build the cross-company row to prove some OTHER guard ignores it (`k019-import-autolink`, `k019-transfer-relink`, `opening-balances-postgres`, `k020-reconciled-balance-recompute`). They are still correct — 660 is NOT VALID, so those rows survive in production — but the fixture can no longer be written normally. Each now goes through `tests/integration/helpers/preConstraintRow.ts`, which suppresses the FK trigger for one transaction. No production code was changed for them. The whole integration suite was swept afterwards: zero `gl_journal_lines_account_company_fk` violations.

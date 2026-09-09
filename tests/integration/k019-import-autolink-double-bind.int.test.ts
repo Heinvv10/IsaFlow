@@ -9,6 +9,7 @@ import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { getPoolForTests } from '@/lib/neon';
 import { autoLinkImportedBatchTransfers } from '@/modules/accounting/services/bank/bankTransferLinkService';
+import { insertPreConstraintRow } from './helpers/preConstraintRow';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID();
@@ -196,7 +197,11 @@ describe('K-019 import batch auto-link', () => {
        VALUES($1,$2,DATE '${DAY}','K019 their import transfer','posted',$3)`,
       [theirJe, other, user],
     );
-    await pool.query(
+    // The target leg names OUR bank account under THEIR company_id — the
+    // cross-company shape migration 660 now refuses, kept here because rows
+    // written before it still exist and this test is about ignoring them.
+    await insertPreConstraintRow(
+      pool,
       `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
        VALUES($1,$3,$4,$5,0,${AMOUNT}),($2,$3,$4,$6,${AMOUNT},0)`,
       [theirSrcLine, theirTargetLine, other, theirJe, theirBank, targetBank],

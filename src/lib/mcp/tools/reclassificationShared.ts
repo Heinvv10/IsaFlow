@@ -104,6 +104,16 @@ export async function planFromArgs(
     // `writeMergeGlAccounts` matches it: uncaught, `registry.call` renders it
     // as GENERIC_FAILURE and the wording that names the account is discarded.
     // Anything else rethrows: only these two conditions are known write-free.
+    //
+    // BOTH LOCKS RUN IN THEIR OWN SAVEPOINT (`plan.ts`, `planGuards.ts`), and
+    // that is what makes this catch work at all rather than merely look like it
+    // does. A `lock_timeout` is SQLSTATE 55P03, which ABORTS the
+    // subtransaction; returning from here leaves the registry's enclosing
+    // savepoint to `RELEASE` an aborted one, which raises 25P02 and hands the
+    // agent GENERIC_FAILURE anyway — the exact outcome this catch exists to
+    // avoid, plus a clean 5s wait reported as a transaction fault. Catching a
+    // SQL error does not un-poison a transaction; only a savepoint rollback
+    // does.
     const code = typeof err === 'object' && err !== null
       ? (err as { code?: unknown }).code : undefined;
     if (code === 'RECLASS_LINE_LOCKED' || code === 'GL_ACCOUNT_LOCK_TIMEOUT') {

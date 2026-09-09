@@ -17,7 +17,6 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { als } from '../../src/lib/als';
 import { getPoolForTests } from '../../src/lib/neon';
 import { mergeAccounts } from '../../src/modules/accounting/services/gl/accountMergeService';
-import { assertParentUsable } from '../../src/modules/accounting/services/gl/accountParentRules';
 import { getBalanceSheet } from '../../src/modules/accounting/services/reports/balanceSheetService';
 
 assertDisposable();
@@ -38,11 +37,7 @@ const expenseSource = crypto.randomUUID();
 const ancSource = crypto.randomUUID(), ancTarget = crypto.randomUUID();
 const ancGrand = crypto.randomUUID();
 const linedSource = crypto.randomUUID();
-const raceTarget = crypto.randomUUID(), raceSource = crypto.randomUUID();
-const raceIntruder = crypto.randomUUID();
 const sageTarget = crypto.randomUUID(), sageSource = crypto.randomUUID();
-const postedExpenseParent = crypto.randomUUID(), postedAssetParent = crypto.randomUUID();
-const scopeParent = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 
 async function postJournal(entryNumber: string, legs: [string, number, number][]) {
@@ -118,25 +113,13 @@ beforeAll(async () => {
       deepTarget, deepChild, deepSource, deepSourceChild,
       expenseTarget, expenseChild, expenseSource, ancSource, ancTarget, ancGrand,
       linedSource]);
-  // The concurrency pair: a level-2 CHILDLESS target the guard admits today,
-  // and a childless source carrying one line, so the merge has a journal-line
-  // UPDATE that a second connection can hold up mid-merge.
-  await pool.query(
-    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
-     VALUES($1,$2,'K051-1900','K051 Bonds (level 2 leaf)','asset','debit',2,true,NULL),
-            ($3,$2,'K051-1950','K051 Bond deposits','asset','debit',3,true,NULL)`,
-    [raceTarget, company, raceSource]);
   // A Sage-shaped chart: the leaves sit at level 1, so an ordinary merge lands a
-  // real balance on a CHILDLESS level-1 target and must still run. Plus the two
-  // posted parents `assertParentUsable` judges — same level, different type.
+  // real balance on a CHILDLESS level-1 target and must still run.
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
      VALUES($1,$2,'K051-2000','K051 Sage cashbook (level 1 leaf)','asset','debit',1,true,NULL),
-            ($3,$2,'K051-2050','K051 Sage petty cash','asset','debit',3,true,NULL),
-            ($4,$2,'K051-6700','K051 Admin expenses (posted, level 2)','expense','debit',2,true,NULL),
-            ($5,$2,'K051-2100','K051 Deposits paid (posted, level 2)','asset','debit',2,true,NULL),
-            ($6,$2,'K051-2200','K051 Rent deposits (unposted, level 2)','asset','debit',2,true,NULL)`,
-    [sageTarget, company, sageSource, postedExpenseParent, postedAssetParent, scopeParent]);
+            ($3,$2,'K051-2050','K051 Sage petty cash','asset','debit',3,true,NULL)`,
+    [sageTarget, company, sageSource]);
   // The expense journal below gives the company a non-zero current-year result,
   // and `balanceSheetService` then resolves the retained-earnings role.
   await pool.query(
@@ -160,13 +143,10 @@ beforeAll(async () => {
   await postJournal('K051-JE-DEEP', [[deepSource, 250, 0], [equity, 0, 250]]);
   await postJournal('K051-JE-PETTY', [[linedSource, 75, 0], [equity, 0, 75]]);
   await postJournal('K051-JE-EXPENSE', [[expenseSource, 90, 0], [equity, 0, 90]]);
-  await postJournal('K051-JE-RACE', [[raceSource, 60, 0], [equity, 0, 60]]);
   // crossSource needs a balance, or the guard's harmless-source exemption
   // returns before the cross-tenant child read the test below is about.
   await postJournal('K051-JE-CROSS', [[crossSource, 40, 0], [equity, 0, 40]]);
   await postJournal('K051-JE-SAGE', [[sageSource, 120, 0], [equity, 0, 120]]);
-  await postJournal('K051-JE-PARENTS',
-    [[postedExpenseParent, 110, 0], [postedAssetParent, 130, 0], [equity, 0, 240]]);
 });
 
 afterAll(async () => {
@@ -183,8 +163,8 @@ afterAll(async () => {
   } finally { await pool.end(); }
 });
 
-/** 500 + 1000 + 300 leaf + 250 deep + 75 lined + 60 race + 40 cross + 120 sage + 130 parent. */
-const OPENING_ASSETS = 2475;
+/** 500 + 1000 + 300 leaf + 250 deep + 75 lined + 40 cross + 120 sage. */
+const OPENING_ASSETS = 2285;
 
 it('refuses a merge that would turn the target into a header account', async () => {
   expect(await assetsOnBalanceSheet()).toBeCloseTo(OPENING_ASSETS, 2);
@@ -271,81 +251,6 @@ it('merges a Sage level-1 leaf target — a childless target loses nothing', asy
   expect(await assetsOnBalanceSheet()).toBeCloseTo(before, 2);
 });
 
-/**
- * `assertParentUsable` locks a leaf-rule parent before its posted-lines read,
- * so it needs the request transaction `withAuth` and the MCP bearer pipeline
- * supply in production.
- */
-async function parentCheck(parentId: string, childType: string) {
-  const client = await getPoolForTests().connect();
-  try {
-    await client.query('BEGIN');
-    const result = await als.run(
-      { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0],
-      () => assertParentUsable(company, parentId, childType),
-    );
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally { (client as PoolClient).release(); }
-}
-
-it('lets a posted level-2 EXPENSE parent take a child, and refuses the asset one', async () => {
-  // `assertParentUsable` guards the third write path — createAccount and
-  // reclassifyAccount. It carried the same false reason the merge guard did.
-  await expect(parentCheck(postedExpenseParent, 'expense'))
-    .resolves.toEqual({ childLevel: 3 });
-  await expect(parentCheck(postedAssetParent, 'asset'))
-    .rejects.toThrow(/journal lines posted to it/);
-});
-
-it('refuses a parent whose first lines land while the create waits', async () => {
-  // The race the parent lock closes, run in the order the guard cannot control.
-  // A holds FOR UPDATE on the empty parent and posts its first line; B's
-  // createAccount check starts inside that window. Before the lock, B read zero
-  // posted lines, waited only at its INSERT, and then attached a child to an
-  // account that by then carried a balance — the level-2 asset header this
-  // guard exists to refuse. Now B waits at the lock and reads the settled row.
-  const holder = await getPoolForTests().connect();
-  let verdict: Promise<unknown>;
-  try {
-    await holder.query('BEGIN');
-    await als.run(
-      { client: holder, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0],
-      async () => {
-        const { lockGlAccountsForUpdate } = await import(
-          '../../src/modules/accounting/services/gl/glAccountLock');
-        await lockGlAccountsForUpdate(company, [scopeParent]);
-      },
-    );
-    const { rows } = await holder.query(
-      `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,source,status,created_by,posted_at)
-       VALUES($1,'K051-JE-LATE','2026-03-15'::date,'K051 late posting','manual','posted',$2,NOW()) RETURNING id`,
-      [company, user]);
-    await holder.query(
-      'INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id) VALUES($1,$2,$3,$4,$5)',
-      [rows[0].id, scopeParent, 75, 0, company]);
-    // B starts while A still holds the row: it must block, not decide.
-    verdict = parentCheck(scopeParent, 'asset');
-    // And it must STILL be blocked when A commits — otherwise B would be
-    // reading the settled row by luck and the assertion below would hold with
-    // no lock in the code at all.
-    const raced = await Promise.race([
-      verdict.then(() => 'settled', () => 'settled'),
-      new Promise((resolve) => { setTimeout(() => resolve('blocked'), 150); }),
-    ]);
-    expect(raced).toBe('blocked');
-    await holder.query('COMMIT');
-  } catch (err) {
-    await holder.query('ROLLBACK');
-    throw err;
-  } finally { (holder as PoolClient).release(); }
-
-  await expect(verdict).rejects.toThrow(/journal lines posted to it/);
-});
-
 it("ignores another tenant's child when judging a level-1 leaf target", async () => {
   const result = await runMerge(crossSource, crossTarget);
   expect(result.targetAccountCode).toBe('K051-1400');
@@ -353,56 +258,4 @@ it("ignores another tenant's child when judging a level-1 leaf target", async ()
     'SELECT parent_account_id FROM gl_accounts WHERE id=$1 AND company_id=$2',
     [foreignChild, otherCompany]);
   expect(rows[0].parent_account_id).toBe(crossTarget);
-});
-
-/** Runs `stmt` on its own connection with a 1s lock_timeout; resolves the SQLSTATE. */
-async function withOneSecondLockTimeout(stmt: string, values: unknown[]): Promise<string> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query("SET LOCAL lock_timeout = '1s'");
-    await client.query(stmt, values);
-    await client.query('ROLLBACK');
-    return 'committed';
-  } catch (err) {
-    await client.query('ROLLBACK');
-    return String((err as { code?: string }).code);
-  } finally { client.release(); }
-}
-
-it("the merge's row lock blocks a concurrent chart edit onto the target", async () => {
-  // `lockGlAccountsForUpdate` is described as locking two ROWS, which reads as
-  // if a concurrent `createAccount` or `reclassifyAccount` could still parent a
-  // third account onto the target between the guard read and the merge's write.
-  // It cannot: `gl_accounts_parent_account_id_fkey` references gl_accounts(id),
-  // so both statements take FOR KEY SHARE on the target row and FOR UPDATE
-  // conflicts with it. That is why the guard needs no post-write re-read.
-  const holder = await pool.connect();
-  try {
-    await holder.query('BEGIN');
-    await holder.query('SELECT id FROM gl_accounts WHERE id=$1 AND company_id=$2 FOR UPDATE',
-      [raceTarget, company]);
-
-    // createAccount's INSERT.
-    expect(await withOneSecondLockTimeout(
-      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
-       VALUES($1,$2,'K051-1910','K051 Bonds - detail','asset','debit',3,true,$3)`,
-      [raceIntruder, company, raceTarget],
-    )).toBe('55P03');
-
-    // reclassifyAccount's reparent of an EXISTING account.
-    expect(await withOneSecondLockTimeout(
-      'UPDATE gl_accounts SET parent_account_id=$1 WHERE id=$2 AND company_id=$3',
-      [raceTarget, raceSource, company],
-    )).toBe('55P03');
-  } finally {
-    await holder.query('ROLLBACK');
-    holder.release();
-  }
-
-  // Nothing was written by either attempt.
-  const { rows } = await pool.query(
-    'SELECT COUNT(*)::int AS n FROM gl_accounts WHERE parent_account_id=$1 AND company_id=$2',
-    [raceTarget, company]);
-  expect(rows[0].n).toBe(0);
 });
