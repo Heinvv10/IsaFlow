@@ -6,7 +6,7 @@ import type {ControlTx,EvidenceRef} from '../controls/contracts';
 import {queryThreeWayMatch} from './threeWayMatchQueryService';
 /** Legacy source writers lack tenant phantom fences. Brief table locks provide a complete local source freeze. */
 export async function withInvoiceMatchSourceLocks<T>(ctx:ControlTx,action:()=>Promise<T>):Promise<T>{
- assertControlTx(ctx);await assertEffectivePermission(ctx,'write:invoices');
+ assertControlTx(ctx);await assertEffectivePermission(ctx,'read:invoices');
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
  return withSavepoint('invoice_override_sources',async()=>{
   const [setting]=await ctx.sql`SELECT current_setting('lock_timeout') AS value` as {value:string}[];

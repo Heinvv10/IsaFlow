@@ -1,3 +1,4 @@
+import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {z} from 'zod';
 const evidence=z.object({store:z.literal('captured'),evidenceId:z.string().uuid(),entityType:z.literal('supplier_invoice'),
  entityId:z.string().uuid(),version:z.null(),hash:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
@@ -16,6 +17,7 @@ import {recordCommittedChange} from '../controls/changeEventService';
 import {loadInvoiceMatchCurrent,verifyInvoiceMatchEvidence,withInvoiceMatchSourceLocks} from './invoiceMatchOverrideMaterial';
 /** Requires current invoice read and write authority; no journal posting authority is required. */
 export async function prepareInvoiceMatchOverride(ctx:ControlTx,input:unknown){
+ await assertEffectivePermission(ctx,'write:invoices');
  const parsed=parseInvoiceMatchOverride(input);
  return withInvoiceMatchSourceLocks(ctx,async()=>{
   const current=await loadInvoiceMatchCurrent(ctx,parsed.invoiceId);
