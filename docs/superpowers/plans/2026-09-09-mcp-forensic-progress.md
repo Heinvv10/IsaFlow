@@ -58,3 +58,9 @@ Read this ledger, worker report artifacts, and committed specification. Finish P
 
 ## Contract independent review
 - preventive_map reviewed named4aa6907c: three confirmed contract gaps (multi-policy decision binding, nullable nonmonetary amount, employee beneficiary support). Fixed in following contract commit, plus explicit tx/lock/protected-evidence contracts. No code capability inferred from this review.
+
+## Phase 0 gate and Phase 1 start
+- Contract re-review of7e71e7d7: preventive_map confirms all three conflicts fixed; no remaining scoped contract blocker.
+- Fixture3659c2ae independently reviewed clean, integrated aa16ec7a; root13unit pass. Worker realPG proof beaf6477 reports3pass (identity, RLS, rollback); review found P2 fault-injection cleanup setup gap, sent back for fix/re-review before integration of proof test.
+- Phase0 source inventory, subplans,38requirement mappings, frozen contracts and reproducible current-schema baseline established. Historical empty replay gap remains confirmed baseline limitation, not waived proof. Synthetic fixture proof task cleanup fix still open; no Phase1 DB-dependent integration until reviewed.
+- Root Phase1 common canonical contract task: tests written first; red missing module confirmed contracts-red.log; implemented real canonical material hashing/types;23unit pass, type-check and focused ESLint pass. Changes do not yet enforce financial operations. Independent review next.
