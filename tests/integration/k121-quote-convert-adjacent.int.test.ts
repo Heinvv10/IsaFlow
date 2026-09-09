@@ -13,7 +13,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { convertToSalesOrder } from '../../src/modules/accounting/services/ar/quoteConvertService';
+import { convertToSalesOrder, QuoteNotConvertibleError } from '../../src/modules/accounting/services/ar/quoteConvertService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -73,13 +73,19 @@ it('two concurrent conversions of one quote produce exactly one sales order', as
   const a = await pool.connect();
   const b = await pool.connect();
   try {
-    const [first, second] = await Promise.all([
+    const settled = await Promise.allSettled([
       asRequest(a, () => convertToSalesOrder(company, raceQuote, user)),
       asRequest(b, () => convertToSalesOrder(company, raceQuote, user)),
     ]);
 
-    const winners = [first, second].filter((r) => r !== null);
+    // Exactly one winner; the loser is REFUSED, not silently given null.
+    const winners = settled.filter(
+      (r) => r.status === 'fulfilled' && r.value !== null);
     expect.soft(winners.length).toBe(1);
+    const losers = settled.filter((r) => r.status === 'rejected');
+    expect.soft(losers.length).toBe(1);
+    expect.soft((losers[0] as PromiseRejectedResult).reason)
+      .toBeInstanceOf(QuoteNotConvertibleError);
 
     const orders = await pool.query(
       'SELECT id FROM customer_sales_orders WHERE company_id=$1 AND reference=$2',

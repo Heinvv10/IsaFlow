@@ -21,6 +21,29 @@ import type { Quote } from './quoteService';
 
 type Row = DbRow;
 
+/**
+ * The only states a quote may be converted to a sales order FROM.
+ *
+ * An allow-list, not a deny-list: `customer_quotes_status_check` permits
+ * draft, sent, accepted, rejected, declined, expired, converted and
+ * converted_to_order, so a "not already converted" guard still let a REJECTED
+ * or EXPIRED quote through — and let a quote already turned into an invoice
+ * (`converted`, holding `converted_invoice_id`) be turned into an order too,
+ * silently rewriting its status so the invoiced state was no longer visible.
+ * That order could then be invoiced again: the same quote billed twice.
+ */
+const CONVERTIBLE_TO_ORDER = ['accepted', 'sent'];
+
+export class QuoteNotConvertibleError extends Error {
+  constructor(
+    readonly quoteStatus: string,
+    readonly existingOrderId: string | null,
+  ) {
+    super(`A quote with status '${quoteStatus}' cannot be converted to a sales order`);
+    this.name = 'QuoteNotConvertibleError';
+  }
+}
+
 export async function convertToSalesOrder(
   companyId: string,
   id: string,
@@ -35,16 +58,26 @@ export async function convertToSalesOrder(
   // converted_order_id so the quote pointed at only the second. The
   // status-predicated UPDATE is the guard — the first caller moves the quote
   // out of a convertible status and every later one sees zero rows and stops
-  // here, before the sequence is touched. `convertToInvoice` below is already
-  // self-limiting on `status !== 'accepted'`.
+  // here, before the sequence is touched and before any status is rewritten.
   const claimed = (await sql`
     UPDATE customer_quotes
     SET status = 'converted_to_order', updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-      AND status <> 'converted_to_order'
+      AND status = ANY(${CONVERTIBLE_TO_ORDER}::TEXT[])
     RETURNING id
   `) as Row[];
-  if (claimed.length === 0) return null;
+  if (claimed.length === 0) {
+    // Re-read rather than trusting the row read before the UPDATE: the loser of
+    // a double-click needs the winner's order id, which did not exist yet then.
+    const [current] = (await sql`
+      SELECT status, converted_order_id FROM customer_quotes
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+    `) as Row[];
+    throw new QuoteNotConvertibleError(
+      String(current?.status ?? quote.status),
+      current?.converted_order_id ? String(current.converted_order_id) : null,
+    );
+  }
 
   const numRows = (await sql`
     INSERT INTO company_document_numbers (company_id, document_type, prefix, next_number)
