@@ -89,3 +89,7 @@ webhook landing mid-verify is not overwritten and a voided charge is not resurre
 **Review round 5 (`review-fixes-round5.md`):** the pre-deploy query above is now the migration's own
 gate rather than a narrower one, and `runQueuedCharges` skips a charge that names no subscription
 instead of debiting it and failing on the CHECK afterwards.
+
+**Review round 6 (`review-fixes-round6.md`):** migration 624 also adds `verifying_at`, the claim
+marker the stale resolver filters on, and the unattributed-charge warning counts `submitted` — the
+one such state where Paystack has already taken the money.

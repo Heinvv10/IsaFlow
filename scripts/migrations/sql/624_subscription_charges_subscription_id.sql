@@ -18,6 +18,13 @@ ALTER TABLE subscription_charges
 CREATE INDEX IF NOT EXISTS idx_sub_charges_subscription
   ON subscription_charges (subscription_id);
 
+-- Claim marker for the stale-submission resolver. Bumping a row version does
+-- not serialise anything: a run starting moments later simply re-reads the new
+-- version and verifies the same charge in parallel. Taking the row out of the
+-- resolver's SELECT for a while does.
+ALTER TABLE subscription_charges
+  ADD COLUMN IF NOT EXISTS verifying_at TIMESTAMPTZ;
+
 -- Derive through the charge's own mandate: mandate -> company -> the company's
 -- single subscription. One subscription is the only unambiguous case.
 UPDATE subscription_charges c

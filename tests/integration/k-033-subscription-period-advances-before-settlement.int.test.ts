@@ -26,7 +26,7 @@ const { generateDueCharges, runQueuedCharges } = await import(
 const { advancePeriodForSettledCharge, claimChargeAttempt } = await import(
   '@/modules/billing/services/subscriptionPeriod'
 );
-const { resolveStaleSubmittedCharges } = await import(
+const { resolveStaleSubmittedCharges, warnUnattributedLiveCharges } = await import(
   '@/modules/billing/services/subscriptionChargeVerify'
 );
 const { settleSubscriptionCharge } = await import(
@@ -511,17 +511,20 @@ describe('K-033 subscription period advances before Paystack settles', () => {
       "UPDATE subscription_charges SET last_attempt_at = now() - INTERVAL '30 hours' WHERE company_id=$1",
       [companyId],
     );
-    verifyTransaction.mockResolvedValue({ status: 'success', reference: 'ref_k033_two' });
+    // The verify call takes time, so the second run starts after the first has
+    // already claimed — the case a row-version CAS does not cover.
+    verifyTransaction.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return { status: 'success', reference: 'ref_k033_two' };
+    });
 
-    const [a, b] = await Promise.all([
-      resolveStaleSubmittedCharges(new Date()),
-      resolveStaleSubmittedCharges(new Date()),
-    ]);
+    const first = resolveStaleSubmittedCharges(new Date());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const [a, b] = await Promise.all([first, resolveStaleSubmittedCharges(new Date())]);
 
     expect(a.settled + b.settled).toBe(1);
-    // The run that lost the claim reports contention, not a Paystack problem.
-    expect(a.contended + b.contended).toBe(1);
     expect(a.errored + b.errored).toBe(0);
+    // The later run must not have seen the charge at all, let alone verified it.
     expect(verifyTransaction).toHaveBeenCalledTimes(1);
   });
 
@@ -563,5 +566,35 @@ describe('K-033 subscription period advances before Paystack settles', () => {
       ['orphan_k033'],
     );
     expect(rows[0]).toMatchObject({ status: 'queued', attempt_count: 0 });
+  });
+  it('counts and skips a submitted charge that names no subscription', async () => {
+    // Paystack already has this money and 624's CHECK will reject the
+    // settlement, so the resolver must leave it alone and the warning must see
+    // it — this is the one unattributed state that has already cost the
+    // customer something.
+    const periodStartDay = new Date(originalPeriodEnd).toISOString().slice(0, 10);
+    const nextEnd = new Date(originalPeriodEnd);
+    nextEnd.setMonth(nextEnd.getMonth() + 1);
+    await pool.query(
+      `INSERT INTO subscription_charges
+         (company_id, subscription_id, mandate_id, period_start, period_end,
+          amount_cents, currency, gateway, external_reference, paystack_reference,
+          status, last_attempt_at)
+       VALUES ($1, NULL, $2, $3, $4, 49900, 'ZAR', 'paystack', $5, $5,
+               'submitted', now() - INTERVAL '30 hours')`,
+      [companyId, mandateId, periodStartDay, nextEnd.toISOString().slice(0, 10), 'orphan_sub_k033'],
+    );
+
+    expect(await warnUnattributedLiveCharges()).toBeGreaterThanOrEqual(1);
+
+    const resolved = await resolveStaleSubmittedCharges(new Date());
+
+    expect(verifyTransaction).not.toHaveBeenCalled();
+    expect(resolved).toMatchObject({ settled: 0, failed: 0, errored: 0 });
+    const { rows } = await pool.query(
+      'SELECT status FROM subscription_charges WHERE external_reference=$1',
+      ['orphan_sub_k033'],
+    );
+    expect(rows[0].status).toBe('submitted');
   });
 });

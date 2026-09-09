@@ -14,11 +14,16 @@ import { log } from '@/lib/logger';
 import { verifyTransaction } from './paystackClient';
 import { STALE_SUBMITTED_HOURS, settleSubscriptionCharge } from './subscriptionPeriod';
 
+/** How long one resolver run owns a charge before another may retry it. */
+const VERIFY_CLAIM_MINUTES = 10;
+
 /**
  * A live charge that names no subscription cannot be settled — migration 624's
  * CHECK rejects it, and that rejection would land after Paystack had taken the
- * money. `runQueuedCharges` skips such rows; this says so out loud, because the
- * customer is silently not being billed until someone attributes them.
+ * money. `runQueuedCharges` and the resolver both skip such rows; this says so
+ * out loud, because the customer is silently not being billed until someone
+ * attributes them. 'submitted' is included deliberately: that is the one state
+ * where the money has already moved.
  */
 export async function warnUnattributedLiveCharges(): Promise<number> {
   const rows = await sql<{ count: number }>`
@@ -26,7 +31,7 @@ export async function warnUnattributedLiveCharges(): Promise<number> {
     FROM subscription_charges
     WHERE gateway = 'paystack'
       AND subscription_id IS NULL
-      AND status IN ('queued','failed')
+      AND status IN ('queued','submitted','failed')
   `;
   const count = rows[0]?.count ?? 0;
   if (count > 0) {
@@ -60,15 +65,16 @@ export async function resolveStaleSubmittedCharges(
     company_id: string;
     paystack_reference: string | null;
     external_reference: string;
-    row_version: string;
   }>`
-    SELECT id, company_id, paystack_reference, external_reference,
-           xmin::text AS row_version
+    SELECT id, company_id, paystack_reference, external_reference
     FROM subscription_charges
     WHERE gateway = 'paystack'
       AND status = 'submitted'
+      AND subscription_id IS NOT NULL
       AND last_attempt_at IS NOT NULL
       AND last_attempt_at < ${cutoff.toISOString()}
+      AND (verifying_at IS NULL
+           OR verifying_at < now() - ${`${VERIFY_CLAIM_MINUTES} minutes`}::interval)
     LIMIT 100
   `;
 
@@ -79,17 +85,16 @@ export async function resolveStaleSubmittedCharges(
   let errored = 0;
 
   for (const c of stale) {
-    // Claim it: a second cron run holding the same snapshot gets nothing back
-    // and leaves the charge alone rather than verifying it in parallel. The
-    // predicate is the row version, which is an exact integer — a timestamp
-    // read back through the driver loses precision and renders through the
-    // session's TimeZone, so a CAS on one silently stops matching.
+    // Claim it by stamping verifying_at, which the SELECT above filters on, so
+    // a run starting moments later does not pick the same charge up at all.
     const claimed = await sql<{ id: string }>`
       UPDATE subscription_charges
-      SET updated_at = now()
+      SET verifying_at = now(),
+          updated_at = now()
       WHERE id = ${c.id}
         AND status = 'submitted'
-        AND xmin::text = ${c.row_version}
+        AND (verifying_at IS NULL
+             OR verifying_at < now() - ${`${VERIFY_CLAIM_MINUTES} minutes`}::interval)
       RETURNING id
     `;
     if (!claimed[0]) {
