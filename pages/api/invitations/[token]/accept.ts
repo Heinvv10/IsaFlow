@@ -8,6 +8,7 @@ import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 
@@ -36,13 +37,40 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
   }
 
+  // For an address that already has a login, step 3 below turns this endpoint
+  // into a password oracle: 401 and 200 tell a guess apart. The token is only
+  // ever mailed to the address it authenticates, so the prober is the mailbox
+  // owner — but the invitation is a single acceptance, and nothing legitimate
+  // needs more than a handful of tries. Keyed on the digest, never the raw
+  // token, so the rate-limit table holds no usable invitation secret.
+  // Charged above 1 deliberately: checkRateLimit short-circuits on its
+  // in-process LRU while a key sits below half its limit, which under-counts
+  // precisely the burst a guesser produces, and a cost above 1 is documented to
+  // always fall through to the authoritative shared counter. Ten attempts an
+  // hour, counted exactly and across pods.
+  const ATTEMPT_COST = 2;
+  const ATTEMPTS_PER_HOUR = 10;
+  if (!(await checkRateLimit(`invite-accept:${tokenHash}`, {
+    max: ATTEMPTS_PER_HOUR * ATTEMPT_COST, windowSecs: 3600, cost: ATTEMPT_COST,
+  }))) {
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
+  }
+
   // 1. Look up invitation (RLS policy invites_by_token permits this)
+  //    gotrue_user_id IS NOT NULL is load-bearing twice over. Unifying the token
+  //    encoding (K-104) made userInvitationService's invitations match here, and
+  //    that path never creates a GoTrue user — accepting one would PUT a password
+  //    to /admin/users/null. A NULL also defeats the step-2 guard below, because
+  //    `id = NULL` matches no `users` row, so the account-protection branch would
+  //    be skipped on exactly the rows whose identity is unknown. Those
+  //    invitations are accepted at /invite/<token> instead.
   const rows = await sql<{
     id: string; email: string; role: string; company_id: string; gotrue_user_id: string;
   }>`
     SELECT id, email, role, company_id, gotrue_user_id
     FROM company_invitations
     WHERE token = ${tokenHash} AND accepted_at IS NULL AND expires_at > now()
+      AND gotrue_user_id IS NOT NULL
     LIMIT 1
   `;
   if (rows.length === 0) {
@@ -57,6 +85,7 @@ const handler: NextApiHandler = async (req, res) => {
   const admin = adminPool();
   const client = await admin.connect();
   let tok: GoTrueTokenResponse;
+  let opened = false;
   try {
     // 2. Does this address already hold an established IsaFlow login? A `users`
     //    row is written only by tenant provisioning (after email verification)
@@ -102,10 +131,14 @@ const handler: NextApiHandler = async (req, res) => {
 
     // 4. Attach the membership + profile row.
     await client.query('BEGIN');
+    opened = true;
     await client.query(
+      // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
+      // invitation row when the same address is re-invited, so an existing
+      // member kept their old role while the invitation claimed the new one.
       `INSERT INTO company_users (company_id, user_id, role)
        VALUES ($1::uuid, $2, $3)
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
       [inv.company_id, tok.user.id, inv.role]
     );
     await client.query(
@@ -121,8 +154,12 @@ const handler: NextApiHandler = async (req, res) => {
       [inv.id]
     );
     await client.query('COMMIT');
+    opened = false;
   } catch (err) {
-    await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
+    // The GoTrue calls above run before BEGIN. Rolling back a client with no
+    // open transaction only logs `WARNING: there is no transaction in progress`
+    // on every GoTrue failure, so ask first.
+    if (opened) await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
       log.error(
         'ROLLBACK failed after transaction error',
         { error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr) },

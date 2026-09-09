@@ -36,8 +36,15 @@ CREATE POLICY companies_invite_token_read ON public.companies FOR SELECT TO app_
 -- column is set by no other path. Only unaccepted, not-yet-expired ones need
 -- touching — the rest already read as expired or done.
 UPDATE public.company_invitations
+-- Appended, not COALESCEd: an invitation whose email had already failed
+-- carries an SMTP error here, and those are exactly the rows an operator hunts
+-- for. Keeping only the old message would expire them silently.
 SET expires_at = now(),
-    email_error = COALESCE(email_error, 'Invitation link retired by migration 643 (token encoding change) — please resend')
+    email_error = CASE
+      WHEN email_error IS NULL OR email_error = ''
+        THEN 'Invitation link retired by migration 643 (token encoding change) — please resend'
+      ELSE email_error || ' | Invitation link retired by migration 643 (token encoding change) — please resend'
+    END
 WHERE gotrue_user_id IS NOT NULL
   AND accepted_at IS NULL
   AND expires_at > now();

@@ -6,9 +6,14 @@
 //        joins `companies`, whose only read policy is companies_member_read. The
 //        invite-token session has no JWT, so the join dropped every row and every
 //        valid invitation answered 410 — the whole /accept-invite flow was dead.
-//        Migration 643 adds companies_invite_token_read. K-105's own claim (email
-//        leak, expiry ignored) was a false positive; the email is masked here for
-//        defence in depth and expiry/acceptance are enforced by RLS.
+//        Migration 648 exposes the one column the endpoint needs through a
+//        SECURITY DEFINER function; 643's whole-row policy on companies (163
+//        columns, including the Netcash keys and the bank account number) is
+//        dropped. K-105's own claim (email leak, expiry ignored) was a false
+//        positive; the email is masked here for defence in depth and
+//        expiry/acceptance are enforced by RLS.
+// H1:    a userInvitationService invitation has no gotrue_user_id, so neither
+//        endpoint may treat it as an accept-invite invitation.
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -83,13 +88,17 @@ beforeAll(async () => {
     [company, 'K104 fixture', otherCompany, 'K104 unrelated company']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [inviter, `${inviter}@test.local`]);
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [company, inviter]);
+  // gotrue_user_id is what POST /api/invitations writes and userInvitationService
+  // does not; these three are shaped like the former, and the H1 test below adds
+  // one shaped like the latter.
   await pool.query(
-    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,accepted_at)
-     VALUES($1,$2,'viewer',$3,$4, now() + interval '7 days', NULL),
-           ($1,$5,'viewer',$3,$6, now() - interval '1 day', NULL),
-           ($1,$7,'viewer',$3,$8, now() + interval '7 days', now())`,
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,accepted_at,gotrue_user_id)
+     VALUES($1,$2,'viewer',$3,$4, now() + interval '7 days', NULL, $9),
+           ($1,$5,'viewer',$3,$6, now() - interval '1 day', NULL, $9),
+           ($1,$7,'viewer',$3,$8, now() + interval '7 days', now(), $9)`,
     [company, `fresh-${invitee}`, inviter, stored(freshToken),
-      `expired-${invitee}`, stored(expiredToken), `accepted-${invitee}`, stored(acceptedToken)]);
+      `expired-${invitee}`, stored(expiredToken), `accepted-${invitee}`, stored(acceptedToken),
+      gotrueUserId]);
 });
 
 afterAll(async () => {
@@ -147,19 +156,62 @@ it('R-030: a live invitation resolves, with the email masked, and expired or acc
   });
 });
 
-it('R-030: the invite-token session can read that one company and no other', async () => {
-  const visible = await inviteSession(freshToken, (c) => c.query('SELECT id FROM companies'));
-  expect(visible.rows).toEqual([{ id: company }]);
-  // An unrelated company is never exposed, and a session with no invite token
-  // sees nothing at all.
-  const none = await inviteSession('e'.repeat(64), (c) => c.query('SELECT id FROM companies'));
-  expect(none.rows).toEqual([]);
+it('R-030: the invite session gets the company NAME and no other column of it', async () => {
+  const seen = await inviteSession(freshToken, async (c) => ({
+    name: (await c.query('SELECT invite_token_company_name() AS n')).rows[0].n,
+    // The row itself stays unreadable: migration 648 dropped the whole-row
+    // policy 643 added, so the 163 columns of `companies` — netcash_service_key,
+    // netcash_payouts_key, bank_account_number, bank_branch_code among them —
+    // are not exposed to whoever holds an invitation link.
+    rows: (await c.query('SELECT id FROM companies')).rows.length,
+    secrets: (await c.query(
+      'SELECT netcash_service_key, bank_account_number FROM companies')).rows.length,
+  }));
+  expect(seen).toEqual({ name: 'K104 fixture', rows: 0, secrets: 0 });
+
+  // An unrelated company is never named, and a session with no live invite
+  // token gets nothing at all.
+  const none = await inviteSession('e'.repeat(64), (c) => c.query('SELECT invite_token_company_name() AS n'));
+  expect(none.rows).toEqual([{ n: null }]);
 });
 
 it('R-030: an expired invitation exposes neither the invitation nor the company', async () => {
   const rows = await inviteSession(expiredToken, async (c) => ({
     invitations: (await c.query('SELECT id FROM company_invitations')).rows.length,
     companies: (await c.query('SELECT id FROM companies')).rows.length,
+    name: (await c.query('SELECT invite_token_company_name() AS n')).rows[0].n,
   }));
-  expect(rows).toEqual({ invitations: 0, companies: 0 });
+  expect(rows).toEqual({ invitations: 0, companies: 0, name: null });
+});
+
+it('H1: a userInvitationService invitation is sent to its own flow, not this one', async () => {
+  // Same shape createInvitation writes: hashed token, and no gotrue_user_id
+  // because that path never creates a GoTrue user. Before the encoding was
+  // unified these rows could not match this route at all; now they can.
+  const legacyToken = 'f'.repeat(64);
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
+     VALUES($1,$2,'viewer',$3,$4, now() + interval '7 days', NULL)`,
+    [company, `legacy-${invitee}`, inviter, stored(legacyToken)]);
+
+  const looked = await lookup(legacyToken);
+  expect({
+    status: looked.state.statusCode,
+    code: (looked.state.body as { error?: { code?: string } }).error?.code,
+  }).toEqual({ status: 409, code: 'WRONG_INVITE_FLOW' });
+
+  // And accept refuses it outright rather than PUTting a password to
+  // /admin/users/null, which is what an unguarded gotrue_user_id produced.
+  const accept = (await import('../../pages/api/invitations/[token]/accept')).default;
+  const req = {
+    method: 'POST', url: `/api/invitations/${legacyToken}/accept`, query: { token: legacyToken },
+    headers: {}, cookies: {}, body: { password: 'a-perfectly-fine-password' },
+    socket: { remoteAddress: '127.0.0.90' },
+  };
+  const result = response();
+  await accept(req as never, result.res);
+  expect({
+    status: result.state.statusCode,
+    code: (result.state.body as { error?: { code?: string } }).error?.code,
+  }).toEqual({ status: 410, code: 'INVALID_OR_EXPIRED' });
 });

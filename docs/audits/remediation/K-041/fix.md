@@ -40,8 +40,15 @@ JOIN users u ON lower(u.email) = ci.email
 WHERE ci.accepted_at IS NOT NULL AND u.created_at < ci.created_at;
 ```
 
-**Limits.** The accept endpoint has no rate limit, so a token holder can now probe passwords
-against it. The token is only ever emailed to the address it authenticates, so the prober is
-already the mailbox owner; a per-token attempt cap would still be worth adding separately.
-The UI at `/accept-invite` must label the password field "your existing password" when the
-401 comes back, or these invitations look broken to the invitee.
+**Blind-review follow-ups (both now done).** The attempt cap this section asked for exists:
+`checkRateLimit('invite-accept:<digest>')`, ten tries an hour, charged at cost 2 so the
+limiter's in-process short-circuit cannot under-count a guessing burst (review L4).
+`/accept-invite` relabels the password field on `SIGN_IN_REQUIRED` (review L3). Two more
+landed here: the `ROLLBACK` after a GoTrue failure is now guarded by an `opened` flag, since
+the GoTrue calls run before `BEGIN` (L2); and the membership insert uses
+`ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role`, so re-inviting an
+existing member at a new role actually changes it (L6).
+
+**Limits.** A legitimate invitee who genuinely forgets their password gets ten tries an hour
+against this endpoint and must then use password reset. Full per-finding dispositions are in
+`docs/audits/remediation/R-030/fix.md`.

@@ -38,6 +38,9 @@ const token = `k041${'0'.repeat(28)}${existingUser.replace(/-/g, '')}`;
 const newToken = `k041n${'0'.repeat(27)}${newInvitee.replace(/-/g, '')}`;
 const inviteId = crypto.randomUUID();
 const newInviteId = crypto.randomUUID();
+/** L4: a fourth company, so the attempt-cap test gets its own invitation row. */
+const cappedCompany = crypto.randomUUID();
+const cappedToken = `k041c${'0'.repeat(27)}${existingUser.replace(/-/g, '')}`;
 
 /** company_invitations.token holds sha256 of the token carried by the link. */
 const stored = (raw: string) => createHash('sha256').update(raw).digest('hex');
@@ -64,9 +67,9 @@ beforeAll(async () => {
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'disposable-service-role-key');
   vi.stubEnv('SUPABASE_ANON_KEY', 'disposable-anon-key');
 
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4),($5,$6)',
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4),($5,$6),($7,$8)',
     [invitingCompany, 'K041 inviting company', existingCompany, 'K041 existing company',
-      newInviteeCompany, 'K041 new-invitee company']);
+      newInviteeCompany, 'K041 new-invitee company', cappedCompany, 'K041 attempt-cap company']);
   // The victim: an account that already exists and already has a password.
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'viewer',true),($3,$4,'admin',true)",
     [existingUser, email, inviter, `k041-inviter-${inviter}@test.local`]);
@@ -115,12 +118,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
-  const companies = [invitingCompany, existingCompany, newInviteeCompany];
+  const companies = [invitingCompany, existingCompany, newInviteeCompany, cappedCompany];
   try {
     await pool.query('DELETE FROM company_invitations WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[existingUser, inviter, newInvitee]]);
+    await pool.query('DELETE FROM rate_limit_counters WHERE key LIKE $1', ['invite-accept:%']);
   } finally { await pool.end(); }
 });
 
@@ -181,4 +185,48 @@ it('still sets the password for a brand-new invitee who has no users row yet', a
   expect(granted.rows).toEqual([{ role: 'manager' }]);
   const profile = await pool.query('SELECT email FROM users WHERE id=$1', [newInvitee]);
   expect(profile.rows).toEqual([{ email: newEmail }]);
+});
+
+it('L6: re-inviting an existing member at a new role changes their role on accept', async () => {
+  // Exactly what POST /api/invitations does on a resend: the row is rewritten
+  // in place by ON CONFLICT (company_id, email). The member already exists in
+  // this company as a viewer from the test above.
+  await pool.query(
+    `UPDATE company_invitations
+     SET role='manager', token=$2, expires_at=now()+interval '7 days', accepted_at=NULL
+     WHERE id=$1`,
+    [inviteId, stored(cappedToken + 'role')]);
+  const result = response();
+
+  await accept(acceptRequest(cappedToken + 'role', REAL_PASSWORD, '127.0.0.86'), result.res);
+
+  expect(result.state.statusCode).toBe(200);
+  // ON CONFLICT DO NOTHING left the old role in place while the invitation
+  // claimed the new one.
+  const granted = await pool.query('SELECT role FROM company_users WHERE company_id=$1 AND user_id=$2',
+    [invitingCompany, existingUser]);
+  expect(granted.rows).toEqual([{ role: 'manager' }]);
+});
+
+it('L4: the accept endpoint caps password attempts per invitation token', async () => {
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
+     VALUES($1,$2,'viewer',$3,$4, now()+interval '7 days', $5)`,
+    [cappedCompany, email, inviter, stored(cappedToken), existingUser]);
+
+  const statuses: number[] = [];
+  for (let i = 0; i < 12; i += 1) {
+    const result = response();
+    await accept(acceptRequest(cappedToken, `wrong-guess-number-${i}-2026`, '127.0.0.88'), result.res);
+    statuses.push(result.state.statusCode as number);
+  }
+
+  // Ten guesses are refused as wrong passwords; the rest never reach GoTrue.
+  expect(statuses.slice(0, 10)).toEqual(Array(10).fill(401));
+  expect(statuses.slice(10)).toEqual([429, 429]);
+  // No guess ever set a password, and no membership was granted.
+  expect(passwordPatches).toEqual([{ userId: newInvitee, password: 'new-invitee-password-2026' }]);
+  const granted = await pool.query('SELECT 1 FROM company_users WHERE company_id=$1 AND user_id=$2',
+    [cappedCompany, existingUser]);
+  expect(granted.rowCount).toBe(0);
 });
