@@ -93,7 +93,13 @@ export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvP
  * trade one misleading success for a misleading failure. Only a file that HAS
  * rows and produced nothing from them is refused.
  *
- * Known edge: an export whose header sits below title lines and carries no data
+ * `hasDataRows` alone answers that for CSV, where an empty period really is one
+ * header line. OFX, QIF and MT940 all carry a multi-line envelope even with no
+ * transaction in it, so the line count says "has rows" for every empty-period
+ * export in those three formats — `isEmptyPeriodEnvelope` is what keeps the
+ * guard one-sided for them.
+ *
+ * Known edge: a CSV whose header sits below title lines and carries no data
  * rows is counted as having rows and is refused. The message says what to check,
  * and this direction is the safer one to be wrong in — a refusal is visible,
  * whereas the silent empty import it replaces was not.
@@ -110,6 +116,7 @@ function requireTransactions(
 ): BankCsvParseResult {
   if (result.transactions.length > 0) return result;
   if (!hasDataRows(csv)) return result;
+  if (isEmptyPeriodEnvelope(format, csv)) return result;
   const detail = result.errors.length > 0
     ? ` Row errors: ${result.errors.slice(0, 3).map(e => `row ${e.row}: ${e.error}`).join('; ')}`
       + (result.errors.length > 3 ? ` (and ${result.errors.length - 3} more)` : '')
@@ -130,4 +137,32 @@ function requireTransactions(
  */
 function hasDataRows(csv: string): boolean {
   return csv.split('\n').filter(l => l.trim() !== '').length > 1;
+}
+
+/**
+ * Did this file bring its format's own envelope but no transaction record?
+ *
+ * That is an empty period, not an unreadable file — the same case a one-line
+ * CSV represents. Refusing it told the user to check that the file "is really
+ * in that format", which is wrong advice for a file that plainly is.
+ *
+ * Only the envelope marker counts as proof of format. A body carrying neither
+ * envelope nor record is still refused: that is the wrong-file-type case the
+ * guard exists for.
+ */
+function isEmptyPeriodEnvelope(format: BankFormat, body: string): boolean {
+  if (format === 'ofx') {
+    return /<BANKTRANLIST\b/i.test(body) && !/<STMTTRN\b/i.test(body);
+  }
+  if (format === 'qif') {
+    // A QIF with a type header and no `^` terminator has declared itself a QIF
+    // and delivered no records; the parser reports exactly that.
+    return /^\s*!Type:/im.test(body) && !/\^/.test(body);
+  }
+  if (format === 'mt940') {
+    // :20: opens the statement, :61: is the statement line. An account with no
+    // movement still gets :20:/:25:/:60F:/:62F:.
+    return /^:20:/m.test(body) && !/^:61:/m.test(body);
+  }
+  return false;
 }

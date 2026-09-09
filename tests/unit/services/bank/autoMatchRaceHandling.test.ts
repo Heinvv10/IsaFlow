@@ -33,7 +33,10 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', async 
   return { ...actual, matchTransaction: matchMock };
 });
 
-import { BankTransactionAllocatedError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
+import {
+  BankTransactionAllocatedError,
+  BankMatchTargetError,
+} from '@/modules/accounting/services/bank/bankTxStatusMutations';
 import { autoMatchTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
@@ -81,6 +84,36 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
 
     const attempted = matchMock.mock.calls.map((c) => c[1]);
     expect(attempted).toEqual([...attempted].sort());
+  });
+
+  // The same race seen from the other side: the peer got there first and the
+  // claim check (or `uq_bank_tx_matched_line`) names the line as already bound.
+  // The candidate query excludes claimed lines, so this can only be a peer
+  // binding it between that read and this write.
+  it('skips a LINE_CLAIMED target error the same way', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) {
+        throw new BankMatchTargetError('LINE_CLAIMED', `Journal line jl-2 is already matched to bank transaction ${TX(9)}`);
+      }
+      return { id: txId };
+    });
+
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+
+    expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(1);
+  });
+
+  // Adjacent case: the type alone is not the licence to continue. A target the
+  // company does not own is a real failure and must still reach the caller.
+  it('propagates a LINE_NOT_FOUND target error', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankMatchTargetError('LINE_NOT_FOUND', 'Journal line jl-2 not found');
+      return { id: txId };
+    });
+
+    await expect(autoMatchTransactions(COMPANY, BANK_GL)).rejects.toThrow('not found');
   });
 
   it('still propagates a failure that is not a race', async () => {

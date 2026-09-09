@@ -66,9 +66,17 @@ export async function applyRules(
       // rule, then keep the highest-priority match per transaction. We deliberately
       // overwrite any existing suggestion: a freshly-created or higher-priority rule
       // should take precedence over a stale AI suggestion or earlier rule hit.
-      const suggestionRuleIds = rules
-        .filter((r: Record<string, unknown>) => !r.auto_create_entry)
-        .map((r: Record<string, unknown>) => String(r.id));
+      const suggestionRules = rules.filter((r: Record<string, unknown>) => !r.auto_create_entry);
+      const suggestionRuleIds = suggestionRules.map((r: Record<string, unknown>) => String(r.id));
+      // Escaped in TS and carried into the query beside its rule id, so this arm
+      // runs the identical `toSqlPattern` output as the auto-create arm below.
+      // Built in SQL from the raw `r.match_pattern`, `_` and `%` stayed live
+      // ILIKE wildcards on this arm alone — and the UPDATE below writes the
+      // suggested_* columns that `autoPostGateService.sweep` posts UNATTENDED,
+      // so the over-match still arrived as a posted misallocation, through the
+      // gate rather than through the rule.
+      const suggestionPatterns = suggestionRules.map((r: Record<string, unknown>) =>
+        toSqlPattern(String(r.match_type), String(r.match_pattern)));
       const updated = (await sql`
         WITH matched AS (
           SELECT
@@ -80,29 +88,17 @@ export async function applyRules(
             r.vat_code,
             ROW_NUMBER() OVER (PARTITION BY bt.id ORDER BY r.priority ASC) AS rn
           FROM bank_transactions bt
+          CROSS JOIN unnest(${suggestionRuleIds}::UUID[], ${suggestionPatterns}::TEXT[])
+            AS rp(rule_id, pattern)
           JOIN bank_categorisation_rules r ON (
-            r.company_id = ${companyId}::UUID
+            r.id = rp.rule_id
+            AND r.company_id = ${companyId}::UUID
             AND r.is_active = true
             AND r.auto_create_entry = false
-            AND r.id = ANY(${suggestionRuleIds}::UUID[])
             AND (
-              (r.match_field IN ('description', 'both')
-                AND bt.description ILIKE
-                  CASE r.match_type
-                    WHEN 'contains'    THEN '%' || r.match_pattern || '%'
-                    WHEN 'starts_with' THEN        r.match_pattern || '%'
-                    WHEN 'ends_with'   THEN '%' || r.match_pattern
-                    ELSE                           r.match_pattern
-                  END)
+              (r.match_field IN ('description', 'both') AND bt.description ILIKE rp.pattern)
               OR
-              (r.match_field IN ('reference', 'both')
-                AND bt.reference ILIKE
-                  CASE r.match_type
-                    WHEN 'contains'    THEN '%' || r.match_pattern || '%'
-                    WHEN 'starts_with' THEN        r.match_pattern || '%'
-                    WHEN 'ends_with'   THEN '%' || r.match_pattern
-                    ELSE                           r.match_pattern
-                  END)
+              (r.match_field IN ('reference', 'both') AND bt.reference ILIKE rp.pattern)
             )
           )
           WHERE bt.bank_account_id = ${bankAccountId}::UUID

@@ -30,3 +30,51 @@ None of them is touched by this branch.
 tsc --noEmit: exit 0.
 eslint (6 changed src files): exit 0, no output.
 bun run agent-docs:check: OK: 74 agent document mirror(s) match canonical sources.
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 2 — blind-review findings H-1, M-1..M-5, L-1..L-5 (2026-09-09)
+════════════════════════════════════════════════════════════════════════════
+
+GREEN (real DB, fixture isaflow_schema_fixture, migration 657 applied):
+  bun run test:integration -- k140-autopost-sweep / k140-undo-run /
+    k141-rule-pattern / k141-suggestion-arm / k142-match-candidate-filters /
+    k143-undo-counts / k144-match-unvalidated / k144-concurrent-double-binding
+  Test Files  8 passed (8)   Tests  30 passed (30)
+
+GREEN (unit):
+  tests/unit/services/bank/autoMatchRaceHandling.test.ts        5 passed
+  tests/unit/bank/k145-non-csv-parse-guard.test.ts             10 passed
+  tests/unit/api/bankRulesPreviewEscapesPattern.test.ts         5 passed
+  tests/unit/services/bankReconciliationService.test.ts        37 passed
+  tests/unit/services/bank + tests/unit/bank + tests/unit/bank-rules
+    Test Files 43 passed | 7 skipped (50)   Tests 499 passed | 13 skipped
+
+MUTATION PROOF — each production change reverted in turn, test re-run, restored:
+  H-1  suggestion arm back to unescaped SQL CASE   → 3 failed | 2 passed (5)
+  M-1  DROP INDEX uq_bank_tx_matched_line          → 2 failed | 1 passed (3)
+  M-2  drop the LINE_CLAIMED skip branch           → 1 failed | 4 passed (5)
+  M-3  drop the isEmptyPeriodEnvelope call         → 3 failed | 7 passed (10)
+  M-4  preview back to the raw ILIKE assembly      → 3 failed | 2 passed (5)
+  M-5  undo row back to a bare IIFE (no savepoint) → 1 failed | 1 passed (2)
+  L-2  importBankStatement back to direct parsers  → 2 failed | 35 passed (37)
+  L-4/L-5 deleted_at filters removed, PO status
+       back to 'partially_paid'                    → 3 failed (3)
+  All restored and re-run GREEN; the index was re-created from the migration file.
+
+NOTE — the round-1 working tree had BROKEN three unit files that its green.log
+recorded as load-related timeouts: bankReconciliationService.test.ts (11 failed),
+bankTxStatusMutationsLock.test.ts (4) and bank/autoPostUndoService.test.ts (1) all
+failed with 'No "withSavepoint" export is defined on the "@/lib/neon" mock'. Their
+mocks now carry a pass-through withSavepoint, which is what the real helper does
+with no ALS client.
+
+FULL UNIT SUITE (DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset, load avg ~11):
+  Test Files  802 passed | 40 skipped (842)
+  Tests  9573 passed | 243 skipped (9816)      — 0 failed
+
+tsc --noEmit: clean.
+eslint (11 changed src/pages files): clean.
+bun run agent-docs:check: OK: 74 mirror(s) match.
+bun scripts/ci/check-migration-rls.ts: OK.
+bun scripts/audit-migration-naming.ts: no new duplicate prefixes.
+File sizes: autoPostGateService 291, autoPostSettingsService 127, all others < 300.

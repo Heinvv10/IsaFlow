@@ -69,6 +69,59 @@ describe('K-145 a non-CSV import that parses nothing must not report success', (
     expect(res.transactions[0]!.amount).toBeCloseTo(-899, 2);
   });
 
+  // The one-sidedness has to be FORMAT-AWARE. A CSV of an empty period really is
+  // one header line, but OFX, QIF and MT940 all carry a multi-line envelope even
+  // with nothing in it — so a line count alone said "has rows" for every
+  // empty-period export in those three formats and refused a file that is
+  // perfectly valid, telling the user to check it "is really in that format".
+  it('OFX: an envelope with no STMTTRN is an empty period, not a failure', async () => {
+    const ofx = [
+      'OFXHEADER:100',
+      'DATA:OFXSGML',
+      '<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>ZAR',
+      '<BANKACCTFROM><ACCTID>1234567890</BANKACCTFROM>',
+      '<BANKTRANLIST><DTSTART>20260301<DTEND>20260331</BANKTRANLIST>',
+      '<LEDGERBAL><BALAMT>0.00<DTASOF>20260331</LEDGERBAL>',
+      '</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>',
+    ].join('\n');
+    const res = await parseStatement({ fileType: 'ofx', csvContent: ofx });
+    expect(res.transactions).toEqual([]);
+  });
+
+  it('QIF: a type header with no record terminator is an empty period', async () => {
+    // Multi-line on purpose: a one-line body is already exempt via the line
+    // count, so it would not exercise the envelope check at all.
+    const qif = ['!Option:AutoSwitch', '!Type:Bank', '!Clear:AutoSwitch'].join('\n');
+    const res = await parseStatement({ fileType: 'qif', csvContent: qif });
+    expect(res.transactions).toEqual([]);
+  });
+
+  it('MT940: a statement with no :61: line is an empty period', async () => {
+    const mt940 = [
+      ':20:K145EMPTY',
+      ':25:632005/1234567890',
+      ':28C:1/1',
+      ':60F:C260301ZAR0,00',
+      ':62F:C260331ZAR0,00',
+    ].join('\n');
+    const res = await parseStatement({ fileType: 'mt940', csvContent: mt940 });
+    expect(res.transactions).toEqual([]);
+  });
+
+  // Adjacent case: only the envelope marker buys the exemption. A multi-line
+  // body that carries neither the envelope nor a record is still the
+  // wrong-file-type case the guard exists for.
+  it('OFX: a multi-line body with no BANKTRANLIST is still refused', async () => {
+    const notOfx = [
+      'OFXHEADER:100',
+      '<OFX><SIGNONMSGSRSV1><SONRS><STATUS><CODE>0</STATUS></SONRS></SIGNONMSGSRSV1>',
+      '</OFX>',
+    ].join('\n');
+    await expect(
+      parseStatement({ fileType: 'ofx', csvContent: notOfx }),
+    ).rejects.toBeInstanceOf(StatementNotImportableError);
+  });
+
   it('an empty-period export still succeeds on every non-CSV type', async () => {
     // The guard must stay one-sided: a header-only / single-line file is a real
     // export of a quiet period and must not be turned into a failure.

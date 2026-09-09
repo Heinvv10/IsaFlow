@@ -3,7 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { sqlMock } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn() }),
 }));
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), transaction: vi.fn() }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  withTransaction: vi.fn(),
+  transaction: vi.fn(),
+  // Pass-through, matching the real helper's behaviour with no ALS client.
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 const reverseReconciledTransaction = vi.fn();

@@ -26,6 +26,9 @@ vi.mock('@/lib/neon', async (importOriginal) => ({
   sql: sqlMock,
   transaction: vi.fn(),
   withTransaction: vi.fn(),
+  // Pass-through: there is no ALS client under a unit test, which is exactly
+  // what the real `withSavepoint` does when `als.getStore()` is empty.
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -33,6 +36,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { sql, transaction } from '@/lib/neon';
 import { importBankStatement } from '@/modules/accounting/services/bank/bankImportService';
+import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import {
   getBankTransactions,
   matchTransaction,
@@ -259,6 +263,18 @@ describe('importBankStatement', () => {
     await expect(
       importBankStatement(COMPANY_ID, 'garbage,csv,data\n1,2,3', BANK_ACCOUNT_ID, '2026-03-31', 'unknown')
     ).rejects.toThrow('Unable to detect bank format');
+  });
+
+  // K-145/L-2: this entry point used to call the parsers directly and return a
+  // clean `{transactionCount: 0}` for a file it could not read — the same
+  // misleading success `requireTransactions` was written to stop on the
+  // preview/commit path. It now goes through `parseStatement`, so it inherits
+  // the guard: a file WITH rows that yields nothing is refused.
+  it('refuses a file with rows that parses to nothing', async () => {
+    await expect(
+      importBankStatement(COMPANY_ID, FNB_CSV, BANK_ACCOUNT_ID, '2026-03-31', 'capitec')
+    ).rejects.toBeInstanceOf(StatementNotImportableError);
+    expect(vi.mocked(transaction)).not.toHaveBeenCalled();
   });
 
   it('propagates transaction() errors', async () => {

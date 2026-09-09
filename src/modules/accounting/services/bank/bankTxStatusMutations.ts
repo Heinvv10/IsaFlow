@@ -15,7 +15,7 @@
  * `reverseReconciledTransaction`'s job, which posts the contra.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { BankTransaction } from '../../types/bank.types';
@@ -49,6 +49,27 @@ export class BankTransactionAllocatedError extends Error {
       + `reverse the allocation before you ${verb} it.`,
     );
     this.name = 'BankTransactionAllocatedError';
+  }
+}
+
+/**
+ * Raised when a match names a target this company cannot use, or a journal line
+ * another bank transaction already holds.
+ *
+ * Typed rather than a bare `Error` because `autoMatchTransactions` rethrows
+ * everything it does not recognise, and `withAuth` COMMITs the 4xx the route
+ * then returns — so an escaping throw aborts the run with the matches it had
+ * already applied persisted. `LINE_CLAIMED` is exactly the race that loop was
+ * written to tolerate (the candidate query excludes claimed lines, so it can
+ * only fire when a peer binds the line in between), so the code is what lets
+ * the loop skip that one case and keep rethrowing the rest.
+ */
+export type BankMatchTargetCode = 'LINE_NOT_FOUND' | 'LINE_CLAIMED' | 'RECONCILIATION_NOT_FOUND';
+
+export class BankMatchTargetError extends Error {
+  constructor(readonly code: BankMatchTargetCode, message: string) {
+    super(message);
+    this.name = 'BankMatchTargetError';
   }
 }
 
@@ -88,7 +109,9 @@ async function assertMatchTargets(
     SELECT id FROM gl_journal_lines
     WHERE id = ${journalLineId}::UUID AND company_id = ${companyId}::UUID
     LIMIT 1`) as Row[];
-  if (line.length === 0) throw new Error(`Journal line ${journalLineId} not found`);
+  if (line.length === 0) {
+    throw new BankMatchTargetError('LINE_NOT_FOUND', `Journal line ${journalLineId} not found`);
+  }
 
   const claimed = (await sql`
     SELECT id FROM bank_transactions
@@ -97,7 +120,8 @@ async function assertMatchTargets(
       AND id <> ${bankTxId}::UUID
     LIMIT 1`) as Row[];
   if (claimed.length > 0) {
-    throw new Error(
+    throw new BankMatchTargetError(
+      'LINE_CLAIMED',
       `Journal line ${journalLineId} is already matched to bank transaction ${String(claimed[0]!.id)}`,
     );
   }
@@ -107,8 +131,23 @@ async function assertMatchTargets(
       SELECT id FROM bank_reconciliations
       WHERE id = ${reconciliationId}::UUID AND company_id = ${companyId}::UUID
       LIMIT 1`) as Row[];
-    if (rec.length === 0) throw new Error(`Reconciliation ${reconciliationId} not found`);
+    if (rec.length === 0) {
+      throw new BankMatchTargetError('RECONCILIATION_NOT_FOUND', `Reconciliation ${reconciliationId} not found`);
+    }
   }
+}
+
+/** `withSavepoint` caps names at 31 characters; this one is 19. */
+const MATCH_WRITE_SAVEPOINT = 'bank_tx_match_write';
+
+/**
+ * Is this the partial unique index from migration 657 rejecting a second bank
+ * transaction for the same journal line? Matched by constraint name, not by the
+ * bare 23505: any other unique violation on this UPDATE is a real failure.
+ */
+function isMatchedLineUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string } | null;
+  return e?.code === '23505' && e?.constraint === 'uq_bank_tx_matched_line';
 }
 
 export async function matchTransaction(
@@ -117,19 +156,40 @@ export async function matchTransaction(
   try {
     await lockForStatusWrite(companyId, bankTxId, 'match');
     await assertMatchTargets(companyId, bankTxId, journalLineId, reconciliationId);
-    let rows: Row[];
-    if (reconciliationId) {
-      rows = (await sql`
-        UPDATE bank_transactions
-        SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
-            reconciliation_id = ${reconciliationId}::UUID
-        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
-    } else {
-      rows = (await sql`
-        UPDATE bank_transactions
-        SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
-        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
-    }
+    // The claim check above cannot hold under concurrency: the two racing
+    // requests lock two DIFFERENT bank rows, so they never contend, and at READ
+    // COMMITTED neither claim SELECT sees the peer's uncommitted UPDATE. Both
+    // committed, and one journal line ended up bound to two bank transactions —
+    // double-counting that line in the reconciled balance. `uq_bank_tx_matched_line`
+    // (migration 657) is what actually stops it; the check above stays because it
+    // gives the clean 400 in the common case and names the other transaction.
+    //
+    // Under its own savepoint so the 23505 is recoverable: `autoMatchTransactions`
+    // skips this error and keeps going, which an aborted transaction (25P02 on
+    // every later row) would make impossible.
+    const rows = await withSavepoint(MATCH_WRITE_SAVEPOINT, async (): Promise<Row[]> => {
+      try {
+        if (reconciliationId) {
+          return (await sql`
+            UPDATE bank_transactions
+            SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
+                reconciliation_id = ${reconciliationId}::UUID
+            WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
+        }
+        return (await sql`
+          UPDATE bank_transactions
+          SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
+          WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
+      } catch (writeErr) {
+        if (isMatchedLineUniqueViolation(writeErr)) {
+          throw new BankMatchTargetError(
+            'LINE_CLAIMED',
+            `Journal line ${journalLineId} is already matched to another bank transaction`,
+          );
+        }
+        throw writeErr;
+      }
+    });
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     log.info('Matched bank transaction', { bankTxId, journalLineId }, 'accounting');
     return mapTxRow(rows[0]!);
