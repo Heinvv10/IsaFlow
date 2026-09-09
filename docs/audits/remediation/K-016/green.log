@@ -1,0 +1,28 @@
+=== GREEN after fix (K-016, K-017, adjacent) ===
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts" "tests/integration/k017-bank-rule-vat-net-control-account.int.test.ts" "tests/integration/k016-k017-settlement-vat-adjacent.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-016
+
+
+ Test Files  3 passed (3)
+      Tests  7 passed (7)
+   Start at  05:52:47
+   Duration  1.17s (transform 821ms, setup 0ms, import 1.19s, tests 1.39s, environment 2ms)
+
+
+=== MUTATION 1: isControlAccountSettlement() => false (defect restored) ===
+4 failed / 3 passed — K-016, K-017, customer receipt and supplier refund all go RED; the two account-arm controls stay GREEN.
+
+=== MUTATION 2: isControlAccountSettlement() => true (fix too wide) ===
+1 failed / 4 passed — 'still splits an account RULE 15% exclusive' goes RED.
+The attended account arm is unreachable by this mutation: bankAllocationService ANDs the predicate with Boolean(entityId), and an account allocation has none.
+
+=== unit suite (bun run test:unit, no DATABASE_URL) ===
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9323 passed | 234 skipped (9557)
+
+Three pre-existing unit tests asserted the defect and were rewritten to the
+corrected behaviour (see fix.md). With DATABASE_URL exported the suite reports
+200 failures in tests/unit/**/*Db.test.ts — those files opt into a seeded
+database and the disposable fixture has none. Unrelated to this change: the
+named failures are VAT-submission-journal exclusion and system-account roles.

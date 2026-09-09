@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
+import { isControlAccountSettlement } from '../gl/settlementVat';
 import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -143,23 +144,32 @@ export async function allocateTransaction(
     : [];
   const effectiveVatCode = vatCode;
 
-  const hasVat = effectiveVatCode === 'standard';
+  // K-016: the supplier and customer arms SETTLE a document that already
+  // carried its VAT, so no split may happen on them however the caller asked —
+  // see `isControlAccountSettlement`. This is not the coercion the block above
+  // forbids: nothing here overrides which ACCOUNT the user chose, and the
+  // `account` arm (including a supplier/customer call with no entity, which
+  // falls through to it) keeps the caller's code untouched.
+  const isSettlement = isControlAccountSettlement(allocType) && Boolean(entityId);
+
+  const hasVat = effectiveVatCode === 'standard' && !isSettlement;
   const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
-  // The `account` branch has no entity, so the direction IS the only signal:
-  // money out is a purchase (input tax), money in is a supply (output tax).
+  // Only the `account` branch can reach a VAT line now (K-016), and it has no
+  // entity, so the direction IS the only signal: money out is a purchase (input
+  // tax), money in is a supply (output tax).
   //
-  // supplier/customer are NOT direction-derived, and that was the bug's quiet
-  // half. A supplier REFUND reverses the original purchase, so it reverses
-  // INPUT tax — reaching for vat_output because the cash happened to come in
-  // put the reversal on the wrong side of the VAT201 entirely. The tax side
-  // follows what the counterparty is, and the sign only decides DR or CR.
-  const vatAccountKey: 'vat_input' | 'vat_output' =
-    allocType === 'supplier' ? 'vat_input'
-      : allocType === 'customer' ? 'vat_output'
-        : isSpent ? 'vat_input' : 'vat_output';
-  const mapVatType = effectiveVatCode === 'standard' ? 'standard' as const
+  // The supplier/customer arms used to pick the side from the alloc type rather
+  // than the sign, because a supplier REFUND reverses INPUT tax however the
+  // cash moved. That distinction has no line to land on any more — a settlement
+  // posts no VAT at all — so the two arms no longer reach this.
+  const vatAccountKey: 'vat_input' | 'vat_output' = isSpent ? 'vat_input' : 'vat_output';
+  // A settlement leg must not carry a vat_type either: VAT201 reads that column,
+  // so tagging the AP/AR leg 'standard' would declare the supply a second time
+  // even with the VAT line gone.
+  const mapVatType = isSettlement ? undefined
+    : effectiveVatCode === 'standard' ? 'standard' as const
     : effectiveVatCode === 'zero_rated' ? 'zero_rated' as const
     : effectiveVatCode === 'exempt' ? 'exempt' as const : undefined;
 
