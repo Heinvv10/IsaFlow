@@ -35,6 +35,8 @@ const a = tenant();
 const b = tenant();
 const c = tenant();  // break-even year: revenue exactly equals expenses
 const d = tenant();  // dormant year: nothing posted at all
+const e = tenant();  // a DEACTIVATED revenue account still carrying a balance
+const f = tenant();  // a year whose closing journal was later reversed
 
 async function seed(t: Tenant, name: string) {
   await pool.query('INSERT INTO companies(id,name,financial_year_start) VALUES($1,$2,1)', [t.company, name]);
@@ -72,6 +74,8 @@ beforeAll(async () => {
   await seed(b, 'K046 tenant B');
   await seed(c, 'K046 tenant C');
   await seed(d, 'K046 tenant D');
+  await seed(e, 'K046 tenant E');
+  await seed(f, 'K046 tenant F');
   // Tenant A: revenue 4000 carries a net DEBIT of 500 (a refund bigger than the
   // year's billing), expense 5000 carries a normal debit of 200.
   await post(a, a.revenue, a.bank, 500, 'A-REFUND');
@@ -84,11 +88,18 @@ beforeAll(async () => {
   await post(c, c.bank, c.revenue, 1000, 'C-SALE');
   await post(c, c.expense, c.bank, 1000, 'C-COST');
   // Tenant D: nothing posted at all.
+  // Tenant E: revenue of 1000, then the revenue account is WITHDRAWN.
+  await post(e, e.bank, e.revenue, 1000, 'E-SALE');
+  await pool.query('UPDATE gl_accounts SET is_active=false WHERE id=$1 AND company_id=$2',
+    [e.revenue, e.company]);
+  clearSystemAccountCache(e.company);
+  // Tenant F: revenue of 400; its close, and the reversal of it, happen in the test.
+  await post(f, f.bank, f.revenue, 400, 'F-SALE');
 });
 
 afterAll(async () => {
   try {
-    for (const t of [a, b, c, d]) {
+    for (const t of [a, b, c, d, e, f]) {
       clearSystemAccountCache(t.company);
       await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [t.company]);
       await pool.query(
@@ -174,11 +185,19 @@ describe('year-end close with a contra revenue account (tenant A)', () => {
     // separate, UNFIXED finding: the dry run of a closed year still reports a
     // false zero. What is pinned here is only that the live re-run writes no
     // second journal and does not misreport.
-    const again = await closeFiscalYear(a.company, '2025', user) as
-      { alreadyClosed: boolean; closingEntry: { entry_number: string } | null; message: string };
+    const again = await closeFiscalYear(a.company, '2025', user) as {
+      alreadyClosed: boolean; periodsLocked: number;
+      closingEntry: { entry_number: string } | null; message: string;
+    };
     expect(again.alreadyClosed).toBe(true);
     expect(again.closingEntry?.entry_number).toBe('YE-2025');
     expect(again.message).toMatch(/already closed/i);
+    // periodsLocked is an OBSERVATION even here, where the call locks nothing:
+    // it reports the periods that carry `locked`, read back from the table.
+    const stillLocked = await pool.query(
+      "SELECT count(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2 AND status='locked'",
+      [a.company, '2025']);
+    expect(again.periodsLocked).toBe(stillLocked.rows[0].n);
 
     const count = await pool.query(
       "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'", [a.company]);
@@ -248,11 +267,17 @@ describe('a year with nothing to transfer still closes', () => {
     // no such thing as a legal empty journal. The year must still close: a
     // company that traded not at all would otherwise carry it open forever.
     const result = await closeFiscalYear(d.company, '2025', user) as
-      { netIncome: number; closingEntry: null; periodsLocked: true; alreadyClosed: boolean; message: string };
+      { netIncome: number; closingEntry: null; periodsLocked: number; alreadyClosed: boolean; message: string };
     expect(result.netIncome).toBe(0);
     expect(result.closingEntry).toBeNull();
-    expect(result.periodsLocked).toBe(true);
     expect(result.alreadyClosed).toBe(false);
+    // COUNTED from the lock UPDATE, then agreed with the table. The literal
+    // `true` this replaced was an assertion about a statement nobody read.
+    const lockedNow = await pool.query(
+      "SELECT count(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2 AND status='locked'",
+      [d.company, '2025']);
+    expect(result.periodsLocked).toBe(1);
+    expect(result.periodsLocked).toBe(lockedNow.rows[0].n);
     expect(result.message).toMatch(/no posted profit or loss/i);
 
     const written = await pool.query(
@@ -262,5 +287,81 @@ describe('a year with nothing to transfer still closes', () => {
     const periods = await pool.query(
       'SELECT DISTINCT status FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2', [d.company, '2025']);
     expect(periods.rows.map((r) => r.status)).toEqual(['locked']);
+  });
+});
+
+describe('the close does NOT refuse a deactivated account (tenant E)', () => {
+  it('posts the closing line to a WITHDRAWN revenue account and zeroes it', async () => {
+    // The canonical posting path refuses a line on an inactive account
+    // (journalEntryPostingService.assertNoInactiveAccountLines). The close is
+    // exempt ON PURPOSE: closing a withdrawn account is precisely how its
+    // balance gets zeroed, and refusing would strand the tenant — the account
+    // cannot be cleared without the close and cannot be closed without being
+    // reactivated first, every year, forever. That exemption was written down
+    // in three places and pinned by none, so a future reader following
+    // assertNoInactiveAccountLines' own docstring ("both must still enforce
+    // this") could take year-end close away from every tenant carrying a
+    // withdrawn P&L account with the suite still green. This is the test that
+    // goes red.
+    const inactive = await pool.query(
+      'SELECT is_active FROM gl_accounts WHERE id=$1 AND company_id=$2', [e.revenue, e.company]);
+    expect(inactive.rows[0].is_active).toBe(false);
+
+    const result = await closeFiscalYear(e.company, '2025', user) as
+      { netIncome: number; closingEntry: { id: string } };
+    expect(result.netIncome).toBe(1000);
+
+    const lines = await pool.query(
+      `SELECT ga.account_code, ga.is_active, jl.debit::numeric AS debit, jl.credit::numeric AS credit
+       FROM gl_journal_lines jl JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+       WHERE jl.journal_entry_id=$1 AND jl.company_id=$2 ORDER BY ga.account_code`,
+      [result.closingEntry.id, e.company]);
+    expect(lines.rows.map((r) => ({
+      code: r.account_code, active: r.is_active, debit: Number(r.debit), credit: Number(r.credit),
+    }))).toEqual([
+      { code: '3200', active: true, debit: 0, credit: 1000 },
+      { code: '4000', active: false, debit: 1000, credit: 0 },
+    ]);
+  });
+});
+
+describe('a REVERSED closing journal is not a close (tenant F)', () => {
+  it('refuses in its own vocabulary instead of claiming the year is already closed', async () => {
+    const first = await closeFiscalYear(f.company, '2025', user) as
+      { closingEntry: { id: string }; alreadyClosed: boolean };
+    expect(first.alreadyClosed).toBe(false);
+
+    // The closing journal is reversed and the periods are re-opened to
+    // 'closed', which is the state an admin correction leaves behind.
+    await pool.query("UPDATE gl_journal_entries SET status='reversed' WHERE id=$1 AND company_id=$2",
+      [first.closingEntry.id, f.company]);
+    await pool.query("UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND fiscal_year=$2",
+      [f.company, '2025']);
+
+    // Without the status distinction this answered `alreadyClosed: true` for a
+    // year that is NOT closed, and — because that path writes nothing and locks
+    // nothing — the year could never be closed again through this service.
+    // Matching only on `status='posted'` instead would send it to the INSERT,
+    // where uq_gl_je_company_entry_number raises a raw 23505 the caller cannot
+    // read. Both halves are wrong; the refusal is typed and names the row.
+    const again = await closeFiscalYear(f.company, '2025', user) as
+      { error: string; entryNumber: string; entryId: string; status: string };
+    expect(again.error).toBe('closing_journal_not_posted');
+    expect(again.entryNumber).toBe('YE-2025');
+    expect(again.entryId).toBe(first.closingEntry.id);
+    expect(again.status).toBe('reversed');
+
+    // The dry run refuses identically: it must not promise a close that the
+    // unique index cannot let happen.
+    const dry = await closeFiscalYear(f.company, '2025', user, { dryRun: true }) as { error: string };
+    expect(dry.error).toBe('closing_journal_not_posted');
+
+    // Nothing was written and nothing was locked by the refusal.
+    const count = await pool.query(
+      "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'", [f.company]);
+    expect(count.rows[0].n).toBe(1);
+    const periods = await pool.query(
+      'SELECT DISTINCT status FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2', [f.company, '2025']);
+    expect(periods.rows.map((r) => r.status)).toEqual(['closed']);
   });
 });

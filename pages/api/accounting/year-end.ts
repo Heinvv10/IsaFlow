@@ -105,6 +105,14 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
               `${result.expected.endDate}. Closing the labelled span would roll the wrong ` +
               `twelve months into equity and lock them. Fix the period dates, then close again.`
           );
+        case 'closing_journal_not_posted':
+          return apiResponse.conflict(
+            res,
+            `This year already has a closing journal (${result.entryNumber}) and it is `
+              + `${result.status}, not posted. The year is therefore NOT closed, but it also `
+              + `cannot be closed again while that entry holds the number. Delete or renumber `
+              + `journal ${result.entryId}, then close the year.`
+          );
         default: {
           // Exhaustive over CloseYearError: `unhandled` stops being `never` the
           // moment a member is added without a case. Without this the refusal

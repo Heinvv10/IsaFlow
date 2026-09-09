@@ -41,6 +41,24 @@ guard the source-text pin only greps) and `tests/unit/services/gl/yearEndInsertC
 (3) — 12 passed. Full unit suite 9438 passed, 0 failed. Four mutations each go RED; see
 `green.log`.
 
+**Round-2 review dispositions (2 MEDIUM, 4 LOW — all fixed).** MEDIUM-1: the year-end PAGE
+hardcoded "Closing journal created" for every 200 and discarded the service's message; it renders
+`data.message` now, covered by `tests/unit/components/yearEndCloseMessage.test.tsx` (4).
+MEDIUM-2 = **K-113, closed in this branch** — see `docs/audits/remediation/K-113/fix.md`.
+LOW-1: the inactive-account exemption is now pinned by tenant E, which closes a WITHDRAWN revenue
+account and asserts the line is posted; mutation MU-F (adding `is_active = true` to the revenue
+query) turns it red. LOW-2: the already-closed lookup reads the header in any status and branches
+on it — posted means closed, reversed/draft is the new typed refusal `closing_journal_not_posted`
+(a plain `AND status='posted'` would have sent that case to the INSERT and a raw 23505, because
+`uq_gl_je_company_entry_number` has no status predicate). LOW-3: `periodsLocked` is a COUNT read
+back from the lock UPDATE's `RETURNING`, agreed against the table in the tests.
+
+**LOW-4 — migration prefix race.** 627 is free on `origin/master` (`53539623`, highest is 626),
+but several remediation branches are in flight and 624/625 are unclaimed, so the number can be
+taken between now and the merge. **Re-check `git ls-tree origin/master scripts/migrations/sql/`
+at CI time and renumber only if 627 has actually been claimed** — the file, the fix docs and the
+`.claude.md` entry all name 627, so do not renumber speculatively.
+
 **Migration / rollback.** 627 drops and re-adds `gl_journal_entries_source_check` with the live
 list plus `'year_end'`; idempotent, no data change. Rollback = re-apply 509 — safe only while
 no closing journal has been written, since afterwards the constraint would reject existing rows.
