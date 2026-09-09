@@ -1563,7 +1563,7 @@
         "K-041/red.log",
         "K-041/validation.md"
       ],
-      "fixCommit": "18937b56",
+      "fixCommit": "effc7d4d",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -1595,7 +1595,7 @@
         "K-042/red.log",
         "K-042/validation.md"
       ],
-      "fixCommit": "18937b56",
+      "fixCommit": "effc7d4d",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2120,7 +2120,7 @@
         "K-058/red.log",
         "K-058/validation.md"
       ],
-      "fixCommit": "6b887576",
+      "fixCommit": "7cc4c7a5",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2528,7 +2528,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [
         "Transfer-link half fixed by merged K-019; the auto-post sweep block remains"
       ],
@@ -2539,12 +2539,13 @@
         "K-071/red.log",
         "K-071/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "d0765c74",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k071-k074-bank-import-match"
     },
     {
       "id": "K-072",
@@ -2561,7 +2562,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/k072-receipt-entertainment-vat.test.ts"
@@ -2570,12 +2571,13 @@
         "K-072/red.log",
         "K-072/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "44d6a34e",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k072-k075-k076-capture-vat-ocr"
     },
     {
       "id": "K-073",
@@ -2625,7 +2627,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts"
@@ -2634,12 +2636,13 @@
         "K-074/red.log",
         "K-074/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "d0765c74",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k071-k074-bank-import-match"
     },
     {
       "id": "K-075",
@@ -2656,7 +2659,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/k075-ocr-comma-decimal.test.ts"
@@ -2665,12 +2668,13 @@
         "K-075/red.log",
         "K-075/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "44d6a34e",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k072-k075-k076-capture-vat-ocr"
     },
     {
       "id": "K-076",
@@ -2687,7 +2691,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/k076-ocr-label-boundaries.test.ts"
@@ -2697,12 +2701,13 @@
         "K-076/validation.md",
         "K-076/vat-label-probe.txt"
       ],
-      "fixCommit": null,
+      "fixCommit": "44d6a34e",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k072-k075-k076-capture-vat-ocr"
     },
     {
       "id": "K-077",
@@ -3025,7 +3030,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k087-opening-balance-negative-zeroed.int.test.ts"
@@ -3034,12 +3039,13 @@
         "K-087/red.log",
         "K-087/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "cdfcb585",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k087-opening-balance-sign"
     },
     {
       "id": "K-088",
@@ -3160,7 +3166,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k091-cash-flow-reconciliation-bank-subtype.int.test.ts"
@@ -3169,12 +3175,13 @@
         "K-091/red.log",
         "K-091/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "ade12166",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k091-k093-k126-report-figures"
     },
     {
       "id": "K-092",
@@ -3221,7 +3228,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k093-sales-by-customer-legacy-customer-id.int.test.ts"
@@ -3230,12 +3237,13 @@
         "K-093/red.log",
         "K-093/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "ade12166",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k091-k093-k126-report-figures"
     },
     {
       "id": "K-094",
@@ -3566,7 +3574,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k104-k105-invitation-token-encoding.int.test.ts"
@@ -3575,7 +3583,7 @@
         "K-104/red.log",
         "K-104/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "effc7d4d",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3583,7 +3591,8 @@
       "sourceReferences": [
         "inputs/api-admin-auth-billing-portal.md:125"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k041-k042-invitations"
     },
     {
       "id": "K-105",
@@ -3632,7 +3641,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k106-invitation-502-rollback.int.test.ts"
@@ -3641,7 +3650,7 @@
         "K-106/red.log",
         "K-106/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "effc7d4d",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3649,7 +3658,8 @@
       "sourceReferences": [
         "inputs/api-admin-auth-billing-portal.md:174"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k041-k042-invitations"
     },
     {
       "id": "K-107",
@@ -4278,7 +4288,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts"
@@ -4287,7 +4297,7 @@
         "K-126/red.log",
         "K-126/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "ade12166",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4295,7 +4305,8 @@
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:519"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k091-k093-k126-report-figures"
     },
     {
       "id": "K-127",
@@ -9542,7 +9553,7 @@
       "severityRationale": "System-1 invitations have been unusable since RLS was forced on companies.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [
         "Fix on the K-041 branch alongside K-104/K-106"
       ],
@@ -9552,12 +9563,13 @@
       "evidencePaths": [
         "K-105/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "effc7d4d",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "No data impact; invitations could not be accepted through this path.",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k041-k042-invitations"
     },
     {
       "id": "R-031",
