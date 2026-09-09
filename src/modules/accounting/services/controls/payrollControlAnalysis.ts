@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import {UI19_DECLARABLE_STATUSES} from '@/lib/constants/payrollRunStatuses';
 import {buildExactPayrollPlan} from './payrollExactPlan';
 import {canonicalJson,canonicalMoney} from './canonical';
 import {riskHash,type RiskFinding} from './invoiceRiskQueriesResult';
@@ -12,6 +13,10 @@ function journalBuckets(lines:PayrollControlJournal['lines']){
   entry.debit=entry.debit.add(amount(line.debit));entry.credit=entry.credit.add(amount(line.credit));buckets.set(line.glAccountId,entry);}
  return [...buckets].filter(([,v])=>!v.debit.isZero()||!v.credit.isZero()).sort(([a],[b])=>compare(a,b))
   .map(([id,value])=>({id,debit:value.debit.toFixed(),credit:value.credit.toFixed()}));
+}
+function financialRoles(lines:PayrollControlJournal['lines'],accounts:PayrollControlPopulation['accounts']){
+ const expenses=new Set(accounts.filter(account=>account.account_type==='expense').map(account=>String(account.id)));
+ return journalBuckets(lines.map(line=>({...line,glAccountId:expenses.has(line.glAccountId)?'@payroll-expense-role':line.glAccountId})));
 }
 /** Detective comparisons reuse the same exact ledger plan as the controlled writer. */
 export function analysePayrollControls(source:PayrollControlPopulation){
@@ -35,12 +40,17 @@ export function analysePayrollControls(source:PayrollControlPopulation){
    if(/totals|population|UIF|taxable/i.test(error.message))add('payroll_totals_mismatch',run.id,String(run.header.total_gross),'Recorded payroll totals or employee population do not reconcile.','confirmed');
    else missing.push('payroll_expected_ledger_material_unavailable');
   }
+  if(run.journal?.accountOwnershipMissing)missing.push('payroll_journal_account_ownership_unavailable');
   if(!run.journal)missing.push('payroll_journal_evidence_unavailable');
   else if(run.journal.status!=='posted'||run.journal.reversed||run.journal.source!=='auto_payroll'||run.journal.sourceRecordId!==run.id){
    if(['approved','paid'].includes(String(run.header.status)))add('payroll_journal_state_mismatch',run.id,String(run.header.total_net),'Approved payroll lacks an eligible owned unreversed payroll posting.','confirmed');
    else missing.push('payroll_unposted_or_reopened');
-  }else if(plan&&canonicalJson(journalBuckets(plan.lines))!==canonicalJson(journalBuckets(run.journal.lines)))
-   add('payroll_journal_mismatch',run.id,String(run.header.total_gross),'Posted ledger account directions and exact totals differ from the shared payroll plan.','confirmed');
+  }else if(plan&&!run.journal.accountOwnershipMissing&&canonicalJson(journalBuckets(plan.lines))!==canonicalJson(journalBuckets(run.journal.lines))){
+   if(canonicalJson(financialRoles(plan.lines,source.accounts))===canonicalJson(financialRoles(run.journal.lines,source.accounts))){
+    missing.push('historical_payroll_cost_allocation_basis_unavailable');
+    add('payroll_cost_allocation_difference',run.id,String(run.header.total_gross),'Expense allocation differs from current costing; liability accounts, directions and total expense reconcile. Original costing evidence is unavailable.');
+   }else add('payroll_journal_mismatch',run.id,String(run.header.total_gross),'Posted ledger account roles, directions or exact totals differ from the shared payroll plan.','confirmed');
+  }
   const periodStart=`${run.header.period_year}-${String(run.header.period_month).padStart(2,'0')}-01`;
   for(const line of run.lines){
    const employeeId=String(line.employee_id),employee=source.employees.find(e=>e.id===employeeId);
@@ -54,16 +64,18 @@ export function analysePayrollControls(source:PayrollControlPopulation){
  const groupKeys=new Set<string>();
  for(const group of source.beneficiaryGroups){const ids=[...new Set(group)].sort(compare),key=riskHash(ids);if(ids.length>1&&!groupKeys.has(key)){groupKeys.add(key);
   add('payroll_beneficiary_reuse',`${ids[0]}:${key}`,'0','Multiple employees share current bank details. Shared accounts may be legitimate.','candidate',ids);}}
- for(const change of source.componentChanges)add('payroll_component_change',`${change.runId}:${change.eventId}`,'0','Recorded salary component change requires review; a legitimate salary adjustment is possible.','candidate',[change.employeeId]);
+ for(const change of source.componentChanges)add('payroll_component_change',`${change.runId}:${change.eventId}:${change.employeeId}`,'0','Recorded salary component change requires review; a legitimate salary adjustment is possible.','candidate',[change.employeeId]);
  for(const declaration of source.declarations){
-  const runs=source.runs.filter(run=>Number(run.header.period_year)===declaration.year&&Number(run.header.period_month)===declaration.month);
-  if(!runs.length){missing.push('uif_declaration_payroll_source_unavailable');continue;}
+  const periodRuns=source.runs.filter(run=>Number(run.header.period_year)===declaration.year&&Number(run.header.period_month)===declaration.month);
+  if(!periodRuns.length){missing.push('uif_declaration_payroll_source_unavailable');continue;}
+  const runs=periodRuns.filter(run=>(UI19_DECLARABLE_STATUSES as readonly string[]).includes(String(run.header.status)));
   const expected=runs.flatMap(run=>run.lines).reduce((sum,line)=>sum.add(amount(line.uif_employee)).add(amount(line.uif_employer)),new D(0));
   const declared=amount(declaration.employee).add(amount(declaration.employer));
-  if(!expected.eq(declared))add('payroll_uif_declaration_mismatch',runs[0]!.id,declared.toFixed(),'UIF declaration contributions differ from complete payroll lines.','confirmed');
+  if(!expected.eq(declared))add('payroll_uif_declaration_mismatch',periodRuns[0]!.id,declared.toFixed(),'UIF declaration contributions differ from complete payroll lines.','confirmed');
   if(declaration.status==='paid'){
    const journal=declaration.journal;
    if(!journal)missing.push('uif_settlement_journal_unavailable');
+   else if(journal.accountOwnershipMissing)missing.push('uif_settlement_journal_account_ownership_unavailable');
    else{
     const uif=source.accounts.filter(row=>row.account_code==='2150');
     const credited=new Set(journal.lines.filter(line=>amount(line.credit).gt(0)).map(line=>line.glAccountId));
@@ -72,7 +84,7 @@ export function analysePayrollControls(source:PayrollControlPopulation){
     if(uif.length!==1||bank.length!==1)missing.push('uif_settlement_account_mapping_unavailable');
     else if(journal.status!=='posted'||journal.reversed||canonicalJson(journalBuckets(journal.lines))!==canonicalJson(journalBuckets([
      {glAccountId:String(uif[0]!.id),debit:declared.toFixed(),credit:'0'},{glAccountId:String(bank[0]!.id),debit:'0',credit:declared.toFixed()}])))
-     add('payroll_uif_settlement_mismatch',runs[0]!.id,declared.toFixed(),'Recorded UIF settlement journal does not match its declaration.','confirmed');
+     add('payroll_uif_settlement_mismatch',periodRuns[0]!.id,declared.toFixed(),'Recorded UIF settlement journal does not match its declaration.','confirmed');
    }
   }else missing.push('uif_settlement_not_recorded');
  }

@@ -1,5 +1,5 @@
 export type PayrollControlRow=Record<string,unknown>;
-export interface PayrollControlJournal {id:string;status:string;source:string;sourceRecordId:string|null;reversed:boolean;lines:{glAccountId:string;debit:string;credit:string}[]}
+export interface PayrollControlJournal {id:string;status:string;source:string;sourceRecordId:string|null;reversed:boolean;lineCount?:number;accountOwnershipMissing?:boolean;lines:{glAccountId:string;debit:string;credit:string}[]}
 export interface PayrollControlRun {id:string;date:string;version:number|null;header:PayrollControlRow;lines:PayrollControlRow[];journal:PayrollControlJournal|null}
 export interface PayrollControlPopulation {
  sourceTotals:Record<string,string>;currency:string|null;populationCount:number;lineCount:number;employeeCount:number;over:boolean;

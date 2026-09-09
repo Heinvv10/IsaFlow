@@ -74,3 +74,32 @@ it('uses distinct stable finding identities for overlapping beneficiary groups',
  const result=analysePayrollControls(source);expect(new Set(result.findings.map(row=>row.finding.key)).size).toBe(2);
  expect(result.findings.every(row=>new Set(row.finding.entities.map(e=>e.entityId)).size===row.finding.entities.length)).toBe(true);
 });
+it('keeps distinct employee salary changes separately addressable between the same runs',()=>{
+ const source=payrollPopulation();source.componentChanges=[{employeeId:'employee',runId:'run',eventId:'prior'},{employeeId:'other',runId:'run',eventId:'prior'}];
+ const findings=analysePayrollControls(source).findings.filter(f=>f.finding.kind==='payroll_component_change');
+ expect(findings).toHaveLength(2);expect(new Set(findings.map(f=>f.finding.key)).size).toBe(2);
+});
+it.each(['draft','calculated','cancelled'])('excludes %s payroll from the canonical UIF declaration population',status=>{
+ const source=payrollPopulation();source.runs[0].header.status=status;source.runs[0].journal=null;
+ source.declarations=[{id:'declaration',year:2026,month:9,employee:'0.00',employer:'0.00',status:'draft',journal:null}];
+ expect(kinds(source)).not.toContain('payroll_uif_declaration_mismatch');
+});
+it('keeps a current cost-centre change separate from confirmed historic financial discrepancies',()=>{
+ const source=payrollPopulation();source.accounts[0].account_type='expense';source.employees[0].cost_centre_id='new-centre';
+ source.accounts.push({id:'new-expense',account_code:'5201',account_type:'expense',is_active:true});source.mappings=[{cost_centre_id:'new-centre',expense_account_id:'new-expense'}];
+ const result=analysePayrollControls(source);expect(result.findings.map(f=>f.finding.kind)).not.toContain('payroll_journal_mismatch');
+ expect(result.findings.find(f=>f.finding.kind==='payroll_cost_allocation_difference')?.finding.classification).toBe('candidate');
+ expect(result.missing).toContain('historical_payroll_cost_allocation_basis_unavailable');
+ source.runs[0].journal!.lines.find(line=>line.glAccountId==='2140')!.credit='9.00';
+ expect(kinds(source)).toContain('payroll_journal_mismatch');
+});
+it('does not excuse expense-role violations as an unknown allocation change',()=>{
+ const source=payrollPopulation();source.accounts.push({id:'cash',account_code:'1115',account_type:'asset',is_active:true});
+ source.runs[0].journal!.lines[0]!.glAccountId='cash';
+ expect(kinds(source)).toContain('payroll_journal_mismatch');
+});
+it('still confirms nonzero UIF declared against an entirely unapproved payroll population',()=>{
+ const source=payrollPopulation();source.runs[0].header.status='calculated';source.runs[0].journal=null;
+ source.declarations=[{id:'declaration',year:2026,month:9,employee:'1.00',employer:'1.00',status:'draft',journal:null}];
+ expect(kinds(source)).toContain('payroll_uif_declaration_mismatch');
+});
