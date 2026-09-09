@@ -2,6 +2,7 @@ import {actor,bank,customer,fixture,pool,postedCash} from './cashApplicationFixt
 import {seedBankAllocationSupplier} from './bankAllocationSupplierFixture';
 import {approveSupplierInvoice} from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import {getUnappliedPayments} from '@/modules/accounting/services/ap/unappliedPaymentService';
+import {planSupplierPaymentApplication} from '@/modules/accounting/services/ap/supplierPaymentApplicationService';
 import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
 import {confirmCustomerPayment,cancelCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import {getUnappliedReceipts} from '@/modules/accounting/services/ar/unappliedReceiptService';
@@ -152,6 +153,8 @@ it('cancels direct receipt after approved unapplication without subtracting reta
  const inverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),inverse.operation));
  await actor(()=>decideOperationApproval(requireControlTx(),inverseApproval.id,'approved'),'u2');
  await actor(()=>executeCashApplicationReversal(requireControlTx(),inverse.intentId,{approvalId:inverseApproval.id}));
+ const legacyAgain=await actor(()=>planReceiptApplication(fixture.companyA,paymentId,[{invoiceId:invoice,amount:115}]));
+ expect(legacyAgain.lines[0]!.amount).toBe(115);
  const again=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId,accountingDate:'2026-09-11',applications:[{invoiceId:invoice,amount:'115.00'}]}));
  const againApproval=await actor(()=>requestOperationApproval(requireControlTx(),again.operation));
  await actor(()=>decideOperationApproval(requireControlTx(),againApproval.id,'approved'),'u2');
@@ -188,6 +191,8 @@ it('applies and reverses supplier bank cash and reports immutable accounting dat
  const inverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),inverse.operation));
  await actor(()=>decideOperationApproval(requireControlTx(),inverseApproval.id,'approved'),'u2');
  await actor(()=>executeCashApplicationReversal(requireControlTx(),inverse.intentId,{approvalId:inverseApproval.id}));
+ const legacyAgain=await actor(()=>planSupplierPaymentApplication(fixture.companyA,posted.paymentId!,[{invoiceId:supplier.invoice,amount:115}]));
+ expect(legacyAgain.lines[0]!.amount).toBe(115);
  for(const [asAt,expected] of [['2026-09-09',115],['2026-09-10',0],['2026-09-11',115]] as const){
   const report=await actor(()=>getUnappliedPayments(fixture.companyA,{asAt,limit:500}));
   expect(report.rows.find(row=>row.paymentId===posted.paymentId)?.unappliedAmount??0).toBe(expected);

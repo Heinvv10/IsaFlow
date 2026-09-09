@@ -131,6 +131,7 @@ async function fetchBillCandidates(
              FROM payment_allocations pa
              WHERE pa.invoice_id = si.id
                AND pa.payment_id = ${paymentId}::UUID
+               AND pa.reversed_at IS NULL
            ), 0) AS already_allocated
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
