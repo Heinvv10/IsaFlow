@@ -24,7 +24,8 @@ beforeAll(async()=>{
  process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
  process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
  vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('External requests are disabled in synthetic release tests');}));
- fixture=await provisionForensicFixture(config);accounts=await seedApAccounts(pool,fixture.companyA);
+ fixture=await provisionForensicFixture(config);
+ await pool.query("UPDATE companies SET name='Synthetic release' WHERE id=$1",[fixture.companyA]);accounts=await seedApAccounts(pool,fixture.companyA);
  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
  VALUES($1,$2,'Synthetic release September',9,2026,'2026-09-01','2026-09-30','open')`,[randomUUID(),fixture.companyA]);
 });
