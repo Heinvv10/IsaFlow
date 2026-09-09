@@ -42,7 +42,8 @@ vi.mock('@/modules/accounting/services/gl/reclassification/lineLock', () => ({
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   getAccountById: vi.fn(async (_c: string, id: string) => ({
     id, accountCode: id === 'src' ? '49775627' : '5100', accountName: 'Fixture',
-    accountType: 'expense', accountSubtype: null, isActive: true,
+    // `level` feeds the header-account guard (K-052); a leaf level skips its query.
+    accountType: 'expense', accountSubtype: null, isActive: true, level: 3,
   })),
 }));
 vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
