@@ -1,0 +1,44 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-044-recurring-autopost-forbidden-status.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/recurring-transactions-execute","timestamp":"2026-09-09T09:16:21.648Z","component":"API","requestId":"01M22Q8E8E7G4Z6AGR78PRM891","data":{"type":"request","method":"POST","url":"/api/accounting/recurring-transactions-execute","query":{},"body":{"templateId":"c37715c1-7fd8-4fa4-b29c-9d2f930d0e97"}}}
+{"level":"error","message":"Recurring execute failed","timestamp":"2026-09-09T09:16:21.674Z","component":"recurring-execute-api","requestId":"01M22Q8E8E7G4Z6AGR78PRM891","data":{"templateId":"c37715c1-7fd8-4fa4-b29c-9d2f930d0e97","error":{"length":221,"name":"error","severity":"ERROR","code":"23514","schema":"public","table":"customer_invoices","constraint":"customer_invoices_status_check","file":"execMain.c","line":"2109","routine":"ExecConstraints","message":"new row for relation \"customer_invoices\" violates check constraint \"customer_invoices_status_check\"","stack":"error: new row for relation \"customer_invoices\" violates check constraint \"customer_invoices_status_check\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:107:19)\n    at executeRecurring (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/core/recurringTransactionService.ts:191:27)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/recurring-transactions-execute.ts:24:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:207:25\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:216:9"}}}
+{"level":"warn","message":"Bad request","timestamp":"2026-09-09T09:16:21.695Z","component":"ApiResponse","requestId":"01M22Q8E8E7G4Z6AGR78PRM891","data":{"message":"new row for relation \"customer_invoices\" violates check constraint \"customer_invoices_status_check\"","stack":"error: new row for relation \"customer_invoices\" violates check constraint \"customer_invoices_status_check\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:107:19)\n    at executeRecurring (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/core/recurringTransactionService.ts:191:27)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/recurring-transactions-execute.ts:24:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:207:25\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:216:9"}}
+{"level":"info","message":"API Response: POST /api/accounting/recurring-transactions-execute - 400 (48ms)","timestamp":"2026-09-09T09:16:21.695Z","component":"API","requestId":"01M22Q8E8E7G4Z6AGR78PRM891","data":{"type":"response","method":"POST","url":"/api/accounting/recurring-transactions-execute","statusCode":400,"duration":"48ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:16:21.698Z","component":"http","requestId":"01M22Q8E8E7G4Z6AGR78PRM891","data":{"event":"request_completed","route":"/api/accounting/recurring-transactions-execute","method":"POST","status":400,"durationMs":51,"userId":"987b47e1-48d4-4f88-8759-eb81bcc7d353","companyId":"690caf76-b553-4426-8584-0850112fd4cd","outcome":"client_error"}}
+ ❯ tests/integration/k-044-recurring-autopost-forbidden-status.int.test.ts (1 test | 1 failed) 290ms
+   × auto-posts a recurring customer invoice to a legal status with a journal behind it 114ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-044-recurring-autopost-forbidden-status.int.test.ts > auto-posts a recurring customer invoice to a legal status with a journal behind it
+AssertionError: expected { leftover: [], status: 400, …(1) } to match object { leftover: [], status: 200 }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "leftover": [],
+-   "status": 200,
++   "status": 400,
+  }
+
+ ❯ tests/integration/k-044-recurring-autopost-forbidden-status.int.test.ts:74:6
+     72|     'SELECT status, gl_journal_entry_id FROM customer_invoices WHERE c…
+     73|   expect({ leftover: rows, status: result.state.statusCode, body: resu…
+     74|     .toMatchObject({ leftover: [], status: 200 });
+       |      ^
+     75| });
+     76|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:16:19
+   Duration  1.95s (transform 834ms, setup 0ms, import 1.38s, tests 290ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
