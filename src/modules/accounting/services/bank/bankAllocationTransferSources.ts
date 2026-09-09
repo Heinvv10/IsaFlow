@@ -14,9 +14,10 @@ async function bankRow(ctx:ControlTx,id:string){
  if(rows.length!==1)throw new Error('Owned transfer bank transaction unavailable');return rows[0]!;
 }
 /** Authority -> company policy -> unordered pair, before any bank/account row lock. */
-export async function lockBankTransferPair(ctx:ControlTx,sourceBankTransactionId:string,counterpartyAccountId:string):Promise<void>{
+export async function lockBankTransferPair(ctx:ControlTx,sourceBankTransactionId:string,counterpartyAccountId:string,options:{authority:'read'|'write'}={authority:'write'}):Promise<void>{
  assertControlTx(ctx);const input=parse({bankTransactionId:sourceBankTransactionId,counterpartyAccountId});
- await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ if(options.authority==='read')await assertEffectivePermission(ctx,'read:bank-tx');
+ else{await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');}
  const company=ctx.principal.companyId;
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${company}`},0))`;
  const bank=await bankRow(ctx,input.bankTransactionId),account=String(bank.bank_account_id);
@@ -26,9 +27,9 @@ export async function lockBankTransferPair(ctx:ControlTx,sourceBankTransactionId
  if((await bankRow(ctx,input.bankTransactionId)).bank_account_id!==account)throw new Error('Transfer source account changed');
 }
 /** Bounded transaction-held candidate material; never selects, links or posts a transfer. */
-export async function readBankTransferCandidates(ctx:ControlTx,raw:unknown){
+export async function readBankTransferCandidates(ctx:ControlTx,raw:unknown,options:{authority:'read'|'write'}={authority:'write'}){
  assertControlTx(ctx);const input=parse(raw),company=ctx.principal.companyId;
- await lockBankTransferPair(ctx,input.bankTransactionId,input.counterpartyAccountId);
+ await lockBankTransferPair(ctx,input.bankTransactionId,input.counterpartyAccountId,options);
  const observed=await bankRow(ctx,input.bankTransactionId),signed=new D(String(observed.amount));
  if(!signed.isFinite()||signed.isZero()||!signed.mul(100).isInteger()||signed.abs().gte('100000000000000000000'))throw new Error('Transfer source must be nonzero exact cents');
  const opposite=await ctx.sql`SELECT *,amount::text,transaction_date::text FROM bank_transactions
