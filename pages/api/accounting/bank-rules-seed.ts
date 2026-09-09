@@ -12,7 +12,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withRole, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql, transaction } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import {createRule} from '@/modules/accounting/services/bank/bankRulesService';
 import { log } from '@/lib/logger';
 
 const CategoryMapEntrySchema = z.object({
@@ -92,21 +93,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     // Batch INSERT all new rules in a single transaction
     if (toInsert.length > 0) {
-      await transaction((txSql) =>
-        toInsert.map((r) =>
-          txSql`
-            INSERT INTO bank_categorisation_rules (
-              rule_name, match_field, match_type, match_pattern,
-              gl_account_id, auto_create_entry, priority, created_by,
-              company_id
-            ) VALUES (
-              ${r.ruleName}, 'description', 'contains', ${r.pattern},
-              ${r.glAccountId}::UUID, false, 100, ${userId},
-              ${companyId}
-            )
-          `
-        )
-      );
+      await withSavepoint('bank_rules_seed',async()=>{
+        for(const rule of toInsert)await createRule(companyId,{ruleName:rule.ruleName,matchField:'description',matchType:'contains',matchPattern:rule.pattern,
+          glAccountId:rule.glAccountId,autoCreateEntry:false,priority:100},userId);
+      });
     }
 
     const created = toInsert.length;

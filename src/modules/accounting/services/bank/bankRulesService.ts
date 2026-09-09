@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import {detachRuleInput,withBankRuleChange,recordBankRuleChange} from './bankRuleChangeControl';
 import { log } from '@/lib/logger';
 import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
@@ -34,6 +35,9 @@ export async function createRule(
   input: RuleCreateInput,
   userId: string
 ): Promise<BankCategorisationRule> {
+  input=detachRuleInput(input);
+  if(typeof userId!=='string')throw new Error('Rule caller assertion required');
+  return withBankRuleChange(companyId,[],async(ctx)=>{
   const vatCode = input.vatCode || 'none';
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -48,8 +52,10 @@ export async function createRule(
       ${input.priority || 100}, ${input.autoCreateEntry === true}, ${vatCode}, ${userId}
     ) RETURNING *
   `) as Record<string, unknown>[];
+  await recordBankRuleChange(ctx,String(rows[0]!.id),null,rows[0]!, 'created');
   log.info('Created bank rule', { id: rows[0]!.id, ruleName: input.ruleName }, 'accounting');
   return mapRuleRow(rows[0]!);
+  },userId);
 }
 
 export async function updateRule(
@@ -57,6 +63,10 @@ export async function updateRule(
   id: string,
   input: Partial<RuleCreateInput> & { isActive?: boolean }
 ): Promise<BankCategorisationRule> {
+  input=detachRuleInput(input);
+  return withBankRuleChange(companyId,[id],async(ctx,[before])=>{
+  const fields={ruleName:'rule_name',matchField:'match_field',matchType:'match_type',matchPattern:'match_pattern',glAccountId:'gl_account_id',supplierId:'supplier_id',clientId:'client_id',descriptionTemplate:'description_template',priority:'priority',autoCreateEntry:'auto_create_entry',vatCode:'vat_code',isActive:'is_active'} as const;
+  if(Object.entries(fields).every(([key,column])=>{const value=input[key as keyof typeof input];return value==null||value===before![column];}))return mapRuleRow(before!);
   // Use ?? not || so legitimately-zero priorities and false booleans are not
   // dropped by COALESCE. Fields with min(1) (ruleName, matchPattern) and enums
   // can't be empty strings, so ?? matches the schema invariants.
@@ -77,29 +87,31 @@ export async function updateRule(
     WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID RETURNING *
   `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Rule ${id} not found`);
+  await recordBankRuleChange(ctx,String(before!.id),before!,rows[0], 'updated');
   return mapRuleRow(rows[0]);
+  });
 }
 
 export async function deleteRule(companyId: string, id: string): Promise<void> {
-  await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID`;
+  await deleteRules(companyId,[id]);
 }
 
 export async function deleteRules(companyId: string, ids: string[]): Promise<number> {
-  if (ids.length === 0) return 0;
-  const rows = await sql`
-    DELETE FROM bank_categorisation_rules
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
-    RETURNING id
-  ` as { id: string }[];
-  return rows.length;
+  return withBankRuleChange(companyId,ids,async(ctx,rows)=>{
+    if(!rows.length)return 0;
+    await ctx.sql`DELETE FROM bank_categorisation_rules WHERE company_id=${companyId}::uuid AND id=ANY(${rows.map(row=>row.id)}::uuid[])`;
+    for(const row of rows)await recordBankRuleChange(ctx,String(row.id),row,null,'deleted');
+    return rows.length;
+  });
 }
 
 export async function toggleRule(companyId: string, id: string, isActive: boolean): Promise<void> {
-  await sql`
-    UPDATE bank_categorisation_rules
-    SET is_active = ${isActive}
-    WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID
-  `;
+  if(typeof isActive!=='boolean')throw new Error('Invalid rule activation');
+  await withBankRuleChange(companyId,[id],async(ctx,[before])=>{
+    if(before!.is_active===isActive)return;
+    const [after]=await ctx.sql`UPDATE bank_categorisation_rules SET is_active=${isActive} WHERE company_id=${companyId}::uuid AND id=${id}::uuid RETURNING *` as Record<string,unknown>[];
+    await recordBankRuleChange(ctx,String(before!.id),before!,after!,'toggled');
+  });
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

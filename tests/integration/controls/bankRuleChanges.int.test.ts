@@ -9,7 +9,7 @@ const input=()=>({ruleName:'Synthetic rule',matchField:'description' as const,ma
 const create=()=>f.actor(()=>createRule(f.f.companyA,input(),f.f.u1.id));
 async function history(id:string){
  const rows=(await f.pool.query("SELECT e.*,p.key_id,p.envelope_version,p.ciphertext FROM control_change_events e JOIN control_protected_evidence p ON p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND p.entity_id=e.entity_id WHERE e.company_id=$1 AND e.entity_type='bank_categorisation_rule' AND e.entity_id=$2 ORDER BY e.new_version",[f.f.companyA,id])).rows;
- return rows.map(row=>({...row,exact:openProtectedChange({version:row.envelope_version,keyId:row.key_id,ciphertext:row.ciphertext})}));
+ return rows.map(row=>({...row,new_version:Number(row.new_version),previous_version:row.previous_version===null?null:Number(row.previous_version),exact:openProtectedChange({version:row.envelope_version,keyId:row.key_id,ciphertext:row.ciphertext})}));
 }
 const row=async(id:string)=>(await f.pool.query('SELECT * FROM bank_categorisation_rules WHERE company_id=$1 AND id=$2',[f.f.companyA,id])).rows[0];
 it('captures exact create/update/toggle/delete versions and suppresses meaningful no-ops',async()=>{
@@ -38,6 +38,9 @@ it('serializes concurrent updates into contiguous versions and bulk delete is di
 });
 it('refuses foreign/missing references, changed user assertions and revoked authority without a partial bulk mutation',async()=>{
  const rule=await create(),before=await row(rule.id),events=await history(rule.id);
+ const foreign=randomUUID();await f.pool.query("INSERT INTO bank_categorisation_rules(id,company_id,rule_name,match_field,match_type,match_pattern,created_by) VALUES($1,$2,'Legacy foreign rule','description','contains','FOREIGN',$3)",[foreign,f.f.companyB,f.f.u3.id]);
+ await expect(f.actor(()=>deleteRules(f.f.companyA,[rule.id,foreign]))).rejects.toThrow();
+ expect((await f.pool.query('SELECT id FROM bank_categorisation_rules WHERE company_id=$1 AND id=$2',[f.f.companyB,foreign])).rows).toHaveLength(1);
  await expect(f.actor(()=>deleteRules(f.f.companyA,[rule.id,randomUUID()]))).rejects.toThrow();
  await expect(f.actor(()=>toggleRule(f.f.companyB,rule.id,false))).rejects.toThrow();
  await expect(f.actor(()=>createRule(f.f.companyA,input(),f.f.u2.id))).rejects.toThrow();
