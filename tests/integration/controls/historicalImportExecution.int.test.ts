@@ -57,7 +57,7 @@ it('posts a genuinely evidenced independently approved historical invoice once a
  const results=await Promise.all([actor('u1',ctx=>executeHistoricalImport(ctx,ref,approval.id)),actor('u1',ctx=>executeHistoricalImport(ctx,ref,approval.id))]);
  expect(results[0]).toEqual(results[1]);const result=results[0]!;expect(result).toMatchObject({importId:ref.entityId,amount:'115',currency:'ZAR',accountingDate:'2023-02-28'});
  expect((await pool.query('SELECT status FROM fiscal_periods WHERE company_id=$1 AND id=$2',[fixture.companyA,period])).rows[0].status).toBe('closed');
- expect((await pool.query('SELECT status,source,source_record_id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,result.journalEntryId])).rows[0]).toMatchObject({status:'posted',source:'auto_migration',source_record_id:ref.entityId});
+ expect((await pool.query('SELECT status,source,source_record_id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,result.journalEntryId])).rows[0]).toMatchObject({status:'posted',source:'auto_gl_import',source_record_id:ref.entityId});
  expect((await pool.query('SELECT status,total_amount::text,amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,result.documentId])).rows[0]).toMatchObject({status:'approved',total_amount:'115.00',amount_paid:'0.00'});
  expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='historical_import.post'",[fixture.companyA,ref.entityId])).rows).toHaveLength(1);
  expect(await actor('u1',ctx=>executeHistoricalImport(ctx,ref))).toEqual(result);
@@ -117,4 +117,9 @@ it('rolls back a real journal prefix when a caught subledger SQL failure occurs,
  expect((await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,ref.entityId])).rows).toHaveLength(0);
  expect((await pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[fixture.companyA,id])).rows[0].status).toBe('approved');
  expect((await actor('u1',ctx=>executeHistoricalImport(ctx,ref,id))).documentId).toBeTruthy();
+});
+
+it('records actual PAT provenance on the historical journal, without caller-supplied human actor metadata',async()=>{
+ const ref=await prepared(),id=await approved(ref),result=await actor('u1',ctx=>executeHistoricalImport(ctx,ref,id),true);
+ expect((await pool.query('SELECT actor_type,actor_token_jti,posting_agent,source_document_hash FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,result.journalEntryId])).rows[0]).toMatchObject({actor_type:'agent',actor_token_jti:fixture.u1.tokens[1]!.id,posting_agent:'mcp:historical_import:v1',source_document_hash:expect.stringMatching(/^[a-f0-9]{64}$/)});
 });
