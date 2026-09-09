@@ -6,7 +6,8 @@ import {assertControlTx} from './context';
 import {canonicalJson} from './canonical';
 import {protectChangeValues,openProtectedChange,type ProtectedChange} from './changeProtection';
 import {recordCommittedChange} from './changeEventService';
-import {extractHistoricalArtifactGroup,type HistoricalCsvArtifact} from './historicalImportArtifact';
+import {extractHistoricalArtifactGroup,type HistoricalArtifact} from './historicalImportArtifact';
+import {assertCurrentSageHistoricalSnapshot} from './historicalImportSageSnapshotService';
 import {assertHistoricalImportAuthority} from './historicalImportAuthority';
 import type {ControlTx} from './contracts';
 export const historicalHash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
@@ -22,7 +23,7 @@ export function decodeHistoricalImportSource(ctx:ControlTx,row:Row){
   const normalized=extractHistoricalArtifactGroup(bytes,String(row.mime_type),body.artifact);
   if(normalized.records.length!==row.record_count||historicalHash(canonicalJson(normalized))!==row.normalized_hash
    ||canonicalJson(normalized)!==canonicalJson(body.normalized))throw new Error('normalization');
-  return{bytes,mimeType:String(row.mime_type),normalized,contentHash:String(row.content_hash),normalizedHash:String(row.normalized_hash),sourceId:String(row.id)};
+  return{bytes,mimeType:String(row.mime_type),normalized,contentHash:String(row.content_hash),normalizedHash:String(row.normalized_hash),sourceId:String(row.id),...(body.artifact?{artifact:body.artifact as unknown as HistoricalArtifact}:{})};
  }catch{throw new Error('Historical source evidence unavailable or changed');}
 }
 export async function readHistoricalImportSource(ctx:ControlTx,sourceId:string){
@@ -32,15 +33,17 @@ export async function readHistoricalImportSource(ctx:ControlTx,sourceId:string){
  if(rows.length!==1)throw new Error('Historical source evidence unavailable or changed');
  const source=decodeHistoricalImportSource(ctx,rows[0]!);
  await assertHistoricalImportAuthority(ctx,source.normalized.kind,'read');
+ if(source.artifact?.extractor.id==='sage_columns')await assertCurrentSageHistoricalSnapshot(ctx,source.bytes,source.sourceId);
  return source;
 }
 /** Actual protected source artifact; no caller-provided normalized financial body is accepted. */
-export async function storeHistoricalImportSource(ctx:ControlTx,input:{bytes:Buffer;mimeType:string;artifact?:HistoricalCsvArtifact}){
+export async function storeHistoricalImportSource(ctx:ControlTx,input:{bytes:Buffer;mimeType:string;artifact?:HistoricalArtifact}){
  assertControlTx(ctx);await assertEffectivePermission(ctx,'write:imports');
  if(!Buffer.isBuffer(input.bytes))throw new Error('Historical source artifact bytes required');
- const artifact=input.artifact?JSON.parse(canonicalJson(input.artifact)) as HistoricalCsvArtifact:undefined;
+ const artifact=input.artifact?JSON.parse(canonicalJson(input.artifact)) as HistoricalArtifact:undefined;
  const bytes=Buffer.from(input.bytes),normalized=extractHistoricalArtifactGroup(bytes,input.mimeType,artifact);
  await assertHistoricalImportAuthority(ctx,normalized.kind,'write');
+ if(artifact?.extractor.id==='sage_columns')await assertCurrentSageHistoricalSnapshot(ctx,bytes);
  const id=randomUUID(),contentHash=historicalHash(bytes),normalizedHash=historicalHash(canonicalJson(normalized));
  const envelope=protectChangeValues('historical_import_source',null,{companyId:ctx.principal.companyId,sourceId:id,bodyBase64:bytes.toString('base64'),contentHash,normalizedHash,mimeType:input.mimeType,normalized,...(artifact?{artifact}:{})}).protectedPayload;
  return withSavepoint('historical_import_source',async()=>{
