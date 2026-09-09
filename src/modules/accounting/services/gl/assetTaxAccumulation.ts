@@ -25,6 +25,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
 /** Currency, to the cent. Float sums of numerics drift otherwise. */
@@ -93,11 +94,23 @@ export async function lockAssetTaxBase(
 }
 
 /**
- * Writes the asset's cached tax accumulation and book value.
+ * Writes the asset's cached tax accumulation and book value, clamped to cost.
  *
  * Safe as an absolute SET only because `lockAssetTaxBase` holds the row lock for
  * the rest of the transaction and `total` was derived from a subledger read
  * taken after it was granted.
+ *
+ * `total` can EXCEED cost on damaged history. Before this defect was fixed the
+ * opening was always the un-accumulating asset column, so `remaining = cost -
+ * opening` never fell to zero and a full month was charged for as many periods
+ * as the run was made — any asset with more posted periods than its tax life in
+ * months carries that history. Unclamped, `cost - total` then writes a NEGATIVE
+ * `tax_book_value`: an asset with 70 periods of 2 000 against a 120 000 cost
+ * lands at -20 000, which reaches the FAR report, while `dispose.ts` values
+ * recoupment off an accumulation larger than the asset ever cost. Nothing may
+ * be depreciated below nil for tax, so both are bounded — and warned about,
+ * because a total above cost means the subledger is corrupt and someone has to
+ * look rather than read a plausible zero.
  */
 export async function writeAssetTaxAccumulation(
   companyId: string,
@@ -105,10 +118,16 @@ export async function writeAssetTaxAccumulation(
   cost: number,
   total: number,
 ): Promise<void> {
+  const capped = Math.min(round2(total), round2(cost));
+  if (round2(total) > round2(cost)) {
+    log.warn('Tax accumulated depreciation exceeds cost — capping', {
+      assetId, companyId, cost: round2(cost), charged: round2(total),
+    }, 'accounting');
+  }
   await sql`
     UPDATE assets SET
-      tax_accumulated_depreciation = ${round2(total)},
-      tax_book_value = ${round2(cost - total)},
+      tax_accumulated_depreciation = ${capped},
+      tax_book_value = ${Math.max(0, round2(cost - capped))},
       updated_at = NOW()
     WHERE id = ${assetId}::UUID AND company_id = ${companyId}::UUID
   `;
