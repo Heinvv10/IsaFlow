@@ -111,6 +111,13 @@ it.each([true,false])('binds exact existing invoice and allocated settlement; re
  expect(canonicalJson((await read()).observedSources[0]!.facts)).toContain(paymentJournal);
  try{await pool.query('UPDATE gl_journal_entries SET reversed_at=NOW() WHERE company_id=$1 AND id=$2',[company,paymentJournal]);await expect(read()).rejects.toThrow('Historical settlement');}
  finally{await pool.query('UPDATE gl_journal_entries SET reversed_at=NULL WHERE company_id=$1 AND id=$2',[company,paymentJournal]);}
+ const beforeHeader=canonicalJson((await read()).binding);
+ try{await pool.query(ar?'UPDATE customer_invoices SET amount_paid=99 WHERE company_id=$1 AND id=$2':'UPDATE supplier_invoices SET amount_paid=99 WHERE company_id=$1 AND id=$2',[company,invoice]);
+  expect(canonicalJson((await read()).binding)).not.toBe(beforeHeader);}
+ finally{await pool.query(ar?'UPDATE customer_invoices SET amount_paid=0 WHERE company_id=$1 AND id=$2':'UPDATE supplier_invoices SET amount_paid=0 WHERE company_id=$1 AND id=$2',[company,invoice]);}
+ try{await pool.query(ar?'UPDATE customer_invoices SET gl_journal_entry_id=$3 WHERE company_id=$1 AND id=$2':'UPDATE supplier_invoices SET gl_journal_entry_id=$3 WHERE company_id=$1 AND id=$2',[company,invoice,paymentJournal]);
+  await expect(read()).rejects.toThrow('prior journal');}
+ finally{await pool.query(ar?'UPDATE customer_invoices SET gl_journal_entry_id=$3 WHERE company_id=$1 AND id=$2':'UPDATE supplier_invoices SET gl_journal_entry_id=$3 WHERE company_id=$1 AND id=$2',[company,invoice,journal]);}
  const extraJournal=randomUUID(),extraPayment=randomUUID();
  await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,status,source,created_by) VALUES($1,$2,$3,'2023-02-28','posted','auto_migration',$4)",[extraJournal,company,number+'-EXTRA',user]);
  await pool.query('INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit) VALUES($1,$2,$3,$5,$6),($1,$2,$4,$6,$5)',[company,extraJournal,control,bank,ar?0:25,ar?25:0]);
