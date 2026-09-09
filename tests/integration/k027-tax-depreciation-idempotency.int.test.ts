@@ -16,6 +16,8 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { loadDepreciationAssets, planDepreciationRun } from '@/modules/accounting/services/items/depreciationRunPlan';
 import { executeDepreciationRun } from '@/modules/accounting/services/items/depreciationRunService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { lockAssetTaxBase, writeAssetTaxAccumulation } from '@/modules/accounting/services/gl/assetTaxAccumulation';
+import { als } from '@/lib/als';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -135,7 +137,7 @@ it('re-running that period does NOT double the tax accumulation', async () => {
   expect(await journalCount('A-K027-EX')).toBe(0);
 });
 
-it('posting February then January leaves the asset on the LATEST period', async () => {
+it('back-posting January after February keeps BOTH periods in the accumulation', async () => {
   await pool.query(
     `INSERT INTO assets(id,company_id,asset_number,name,purchase_date,purchase_price,
        useful_life_years,tax_useful_life_years,salvage_value,status)
@@ -146,24 +148,139 @@ it('posting February then January leaves the asset on the LATEST period', async 
   await runPeriod('2026-02-28');
   expect((await assetTax(outOfOrder)).acc).toBeCloseTo(MONTHLY_TAX_DEP, 2);
 
-  // Back-posting January must not regress the column to January's closing.
+  // Back-posting January must neither regress the column to January's closing
+  // nor drop January's charge. Both periods were charged, so both must show.
   await runPeriod('2026-01-31');
   const a = await assetTax(outOfOrder);
-  expect(a.acc).toBeCloseTo(MONTHLY_TAX_DEP, 2);
-  expect(a.bv).toBeCloseTo(COST - MONTHLY_TAX_DEP, 2);
+  expect(a.acc).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
+  expect(a.bv).toBeCloseTo(COST - MONTHLY_TAX_DEP * 2, 2);
+
+  // January opens at 0, not on February's balance: the opening comes from the
+  // subledger periods BEFORE it, of which there are none.
+  const { rows } = await pool.query(
+    `SELECT tax_opening_acc_dep::float8 AS opening FROM asset_period_ledger
+       WHERE asset_id=$1 AND yyyymm='202601'`,
+    [outOfOrder],
+  );
+  expect(rows[0].opening).toBeCloseTo(0, 2);
 
   // One journal per period, no more.
   expect(await journalCount('A-K027-OOO')).toBe(2);
 });
 
-it('March then opens on February closing, not on a doubled balance', async () => {
+it('March opens on the subledger total, and the asset equals every charge made', async () => {
   await runPeriod('2026-03-31');
   const { rows } = await pool.query(
-    `SELECT tax_opening_acc_dep::float8 AS opening, tax_closing_acc_dep::float8 AS closing
-       FROM asset_period_ledger WHERE asset_id=$1 AND yyyymm='202603'`,
+    `SELECT yyyymm, tax_opening_acc_dep::float8 AS opening, tax_current_dep::float8 AS current
+       FROM asset_period_ledger WHERE asset_id=$1 ORDER BY yyyymm`,
     [outOfOrder],
   );
-  expect(rows[0].opening).toBeCloseTo(MONTHLY_TAX_DEP, 2);
-  expect(rows[0].closing).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
-  expect((await assetTax(outOfOrder)).acc).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
+  // Three periods posted Feb, Jan, Mar. March opens on the SUM of the two
+  // already charged, not on whatever the asset column last happened to hold.
+  expect(rows.map((r) => r.yyyymm)).toEqual(['202601', '202602', '202603']);
+  expect(rows[2].opening).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
+
+  const charged = rows.reduce((n, r) => n + r.current, 0);
+  expect(charged).toBeCloseTo(MONTHLY_TAX_DEP * 3, 2);
+
+  // The invariant that was broken: the cached column must equal what the
+  // subledger actually charged. It read 4 000 against 6 000 charged before the
+  // opening moved off the asset column.
+  const a = await assetTax(outOfOrder);
+  expect(a.acc).toBeCloseTo(charged, 2);
+  expect(a.bv).toBeCloseTo(COST - charged, 2);
+});
+
+/** Run fn on its own client inside a transaction the caller closes. */
+async function begin() {
+  const c = await pool.connect();
+  await c.query('BEGIN');
+  return c;
+}
+function on<T>(client: Awaited<ReturnType<typeof pool.connect>>, fn: () => Promise<T>): Promise<T> {
+  return als.run({ client, userId: user, companyId: company, claims: {} } as never, fn);
+}
+
+async function insertLedger(
+  client: Awaited<ReturnType<typeof pool.connect>>,
+  asset: string, periodDate: string, yyyymm: string, opening: number,
+) {
+  await client.query(
+    `INSERT INTO asset_period_ledger(company_id,asset_id,period_date,yyyymm,
+       policy_cost,policy_opening_acc_dep,policy_current_dep,policy_closing_acc_dep,
+       policy_carrying_amount,policy_dep_rate,tax_cost,tax_opening_acc_dep,
+       tax_current_dep,tax_closing_acc_dep,tax_carrying_amount,deferred_tax)
+     VALUES($1,$2,$3::date,$4,$5,0,1000,1000,$5,0.1,$5,$6,$7,$8,$9,0)`,
+    [company, asset, periodDate, yyyymm, COST, opening, MONTHLY_TAX_DEP,
+      opening + MONTHLY_TAX_DEP, COST - (opening + MONTHLY_TAX_DEP)],
+  );
+}
+
+/**
+ * The property the write-back rests on, proved through the production functions
+ * rather than through raw SQL that takes its own lock.
+ *
+ * Re-reading the subledger inside the transaction is NOT enough on its own: the
+ * subquery runs under the reader's own snapshot and cannot see a row the other
+ * transaction has not committed. Without `FOR UPDATE` both sessions read the
+ * same opening, both write an absolute figure, and the later commit drops the
+ * earlier period's charge — the column ends a period behind while both journals
+ * exist.
+ */
+it('two concurrent sessions posting different periods both keep their charge', async () => {
+  const asset = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO assets(id,company_id,asset_number,name,purchase_date,purchase_price,
+       useful_life_years,tax_useful_life_years,salvage_value,status)
+     VALUES($1,$2,'A-K027-CC','K027 Concurrent plant','2025-12-15',$3,10,5,0,'available')`,
+    [asset, company, COST],
+  );
+
+  const a = await begin();
+  const b = await begin();
+  try {
+    const baseA = await on(a, () => lockAssetTaxBase(company, asset, '202601'));
+    expect(baseA.openingForPeriod).toBeCloseTo(0, 2);
+    expect(baseA.accumulatedElsewhere).toBeCloseTo(0, 2);
+
+    // B asks for the same asset and must WAIT rather than read past A.
+    let bSettled = false;
+    const contender = on(b, () => lockAssetTaxBase(company, asset, '202602'))
+      .then((r) => { bSettled = true; return r; });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(bSettled).toBe(false);
+
+    await insertLedger(a, asset, '2026-01-31', '202601', baseA.openingForPeriod);
+    await on(a, () => writeAssetTaxAccumulation(
+      company, asset, COST, baseA.accumulatedElsewhere + MONTHLY_TAX_DEP,
+    ));
+    await a.query('COMMIT');
+
+    // Released. B now reads a snapshot that includes A's committed period.
+    const baseB = await contender;
+    expect(baseB.openingForPeriod).toBeCloseTo(MONTHLY_TAX_DEP, 2);
+    expect(baseB.accumulatedElsewhere).toBeCloseTo(MONTHLY_TAX_DEP, 2);
+
+    await insertLedger(b, asset, '2026-02-28', '202602', baseB.openingForPeriod);
+    await on(b, () => writeAssetTaxAccumulation(
+      company, asset, COST, baseB.accumulatedElsewhere + MONTHLY_TAX_DEP,
+    ));
+    await b.query('COMMIT');
+  } finally {
+    a.release();
+    b.release();
+  }
+
+  // Neither charge was lost: 2 000 + 2 000, and the column agrees with them.
+  const { rows } = await pool.query(
+    `SELECT a.tax_accumulated_depreciation::float8 AS acc,
+            a.tax_book_value::float8 AS bv,
+            (SELECT COALESCE(SUM(tax_current_dep),0)::float8 FROM asset_period_ledger
+               WHERE company_id=a.company_id AND asset_id=a.id) AS charged
+       FROM assets a WHERE a.id=$1 AND a.company_id=$2`,
+    [asset, company],
+  );
+  expect(rows[0].charged).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
+  expect(rows[0].acc).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
+  expect(rows[0].bv).toBeCloseTo(COST - MONTHLY_TAX_DEP * 2, 2);
 });
