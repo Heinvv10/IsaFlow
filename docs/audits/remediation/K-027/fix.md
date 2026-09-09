@@ -46,13 +46,14 @@ subledger row to two months of wear in one calendar month.
 
 **Files.**
 - `src/modules/accounting/services/gl/assetTaxAccumulation.ts` — NEW. The locked
-  read and the write, with the reasoning for both.
+  read and the clamped write, with the reasoning for both. Listed in the
+  module's `.claude.md`; `AGENTS.md` mirror regenerated.
 - `src/modules/accounting/services/gl/assetDepreciationPosting.ts` (269 lines)
 - `src/modules/accounting/services/items/depreciationRunPlan.ts` (300 lines)
 - `src/lib/mcp/tools/writeDepreciation.ts` — the `run_depreciation` description
   claimed re-runs were safe "by entry number", which was the false half.
 
-**Tests.** 11 passing against real Postgres, in two files.
+**Tests.** 12 passing against real Postgres, in two files.
 - `tests/integration/k027-tax-depreciation-carry-forward.int.test.ts` (6): two
   consecutive periods open and close correctly; re-posting a period with a
   journal does not double; a dry run writes nothing; a second company is
@@ -65,7 +66,9 @@ subledger row to two months of wear in one calendar month.
   every charge made; and two concurrent sessions, driven through
   `lockAssetTaxBase` / `writeAssetTaxAccumulation` on separate clients, both
   keep their charge — the second blocks on the row lock rather than reading
-  past the first.
+  past the first; and a subledger that over-charged (70 periods of 2 000 against
+  a 120 000 cost) caps the cache at cost with a book value of zero rather than
+  -20 000.
 
 `tests/unit/services/dualDepreciationAtomicity.test.ts` was updated in the same
 direction: it pinned the ledger upsert as the FIRST statement in the savepoint,
@@ -74,8 +77,9 @@ and now asserts that the row lock precedes it.
 Mutation checks, all recorded in `green.log`: reverting the first commit's
 change turns 4 of the first file's 6 red; reverting to `71c70ece` turns 3 of the
 second file's red; reverting the posting file to `762b8cc4` turns both
-back-posting tests red at 2 000 where 4 000 is correct; and deleting only the
-`FOR UPDATE` line turns the concurrency test red.
+back-posting tests red at 2 000 where 4 000 is correct; deleting only the
+`FOR UPDATE` line turns the concurrency test red; and removing the clamp turns
+the over-charge test red at 140 000 where 120 000 is the bound.
 
 **Migration / rollback.** None. Rollback is reverting all three commits.
 
@@ -138,7 +142,24 @@ Deferred-tax movements already posted to the GL, and disposal recapture already
 computed from the nil balance, need separate review before any figures move.
 
 **Limits.**
-- No existing row is repaired by any of the three commits.
+- No existing subledger ROW is repaired by any of these commits, but the
+  going-forward accumulation SELF-HEALS. The opening is now
+  `base + sum(charges before this period)`, and every K-027-damaged row carries a
+  correct `tax_current_dep`, so the first post-fix run recovers the true
+  accumulation without a backfill. Measured on three seeded rows each reading
+  opening 0 / closing 2 000 with the asset column at 0: the next run opened at
+  6 000, charged 2 000, closed at 8 000 and set the asset to 8 000. The ordered
+  backfill below is therefore needed only to restate historical REPORT rows, not
+  to correct the balance the next run will produce.
+- Where the damaged history over-charged — pre-fix, the opening never
+  accumulated, so `remaining = cost - opening` never fell to zero and a full
+  month was charged for every period run — the cached figures are clamped to
+  cost and floored at zero, with a `log.warn` naming the asset and both
+  amounts. Unclamped it wrote a negative `tax_book_value` (-20 000 on a 120 000
+  asset with 70 charged periods) into the FAR report, and gave `dispose.ts` an
+  accumulation larger than the asset ever cost to compute recoupment from. The
+  clamp bounds the cache; it does not repair the subledger rows that caused it,
+  which is what the warning is for.
 - A back-posted period does not RECOMPUTE the subledger rows that were written
   after it. Posting February, then January, then March now leaves the asset at
   6 000, equal to the three charges made, and March opening at 4 000 — both
@@ -156,5 +177,15 @@ computed from the nil balance, need separate review before any figures move.
   is computed from a balance another session is concurrently changing. A run
   that cannot take the lock within 5s fails that asset loudly as `glFailed`
   rather than proceeding on a stale read.
-- The POLICY side is untouched by these commits. Its write-back is an in-SQL
-  increment on the locked row and was never subject to either defect.
+- The policy ASSET COLUMN is untouched by these commits and was never subject to
+  either defect: its write-back is an in-SQL increment on the locked row. The
+  policy columns IN `asset_period_ledger` still are subject to both, because
+  `policy_opening_acc_dep` still comes from the pre-transaction snapshot.
+  Measured: back-posting February, January, March stores policy openings of
+  1 000 / 0 / 2 000, non-monotonic in the same way the tax side used to be; two
+  concurrent periods both store opening 0 / closing 1 000 while the asset column
+  correctly holds 2 000. `deferred_tax` is computed from
+  `policyCarryingAmount`, so it inherits the error on those rows. Pre-existing
+  and out of scope for K-027 — the same remedy applies, and the fix is to route
+  the policy opening through `assetTaxAccumulation.ts` the way the tax side now
+  is.

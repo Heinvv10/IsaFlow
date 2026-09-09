@@ -201,6 +201,19 @@ function on<T>(client: Awaited<ReturnType<typeof pool.connect>>, fn: () => Promi
   return als.run({ client, userId: user, companyId: company, claims: {} } as never, fn);
 }
 
+async function insertLedgerRaw(
+  asset: string, periodDate: string, yyyymm: string, opening: number,
+) {
+  await pool.query(
+    `INSERT INTO asset_period_ledger(company_id,asset_id,period_date,yyyymm,
+       policy_cost,policy_opening_acc_dep,policy_current_dep,policy_closing_acc_dep,
+       policy_carrying_amount,policy_dep_rate,tax_cost,tax_opening_acc_dep,
+       tax_current_dep,tax_closing_acc_dep,tax_carrying_amount,deferred_tax)
+     VALUES($1,$2,$3::date,$4,$5,0,1000,1000,$5,0.1,$5,$6,$7,$8,0,0)`,
+    [company, asset, periodDate, yyyymm, COST, opening, MONTHLY_TAX_DEP, opening + MONTHLY_TAX_DEP],
+  );
+}
+
 async function insertLedger(
   client: Awaited<ReturnType<typeof pool.connect>>,
   asset: string, periodDate: string, yyyymm: string, opening: number,
@@ -283,4 +296,36 @@ it('two concurrent sessions posting different periods both keep their charge', a
   expect(rows[0].charged).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
   expect(rows[0].acc).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
   expect(rows[0].bv).toBeCloseTo(COST - MONTHLY_TAX_DEP * 2, 2);
+});
+
+/**
+ * The pre-fix damage shape. With the opening pinned at an un-accumulating 0,
+ * `remaining = cost - opening` never fell to zero, so a full month was charged
+ * for as many periods as the run was made. Any asset with more posted periods
+ * than its tax life in months carries a subledger that has charged MORE than
+ * the asset cost — and the cache is derived from that sum.
+ */
+it('caps the cached figures on a subledger that over-charged, and warns', async () => {
+  const asset = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO assets(id,company_id,asset_number,name,purchase_date,purchase_price,
+       useful_life_years,tax_useful_life_years,salvage_value,status)
+     VALUES($1,$2,'A-K027-OVER','K027 Over-charged plant','2019-12-15',$3,10,5,0,'available')`,
+    [asset, company, COST],
+  );
+  // 70 periods of 2 000 = 140 000 charged against a 120 000 cost.
+  for (let i = 0; i < 70; i += 1) {
+    const y = 2020 + Math.floor(i / 12);
+    const m = String((i % 12) + 1).padStart(2, '0');
+    await insertLedgerRaw(asset, `${y}-${m}-28`, `${y}${m}`, i * MONTHLY_TAX_DEP);
+  }
+
+  await runPeriod('2026-01-31');
+
+  const a = await assetTax(asset);
+  // Capped at cost, never negative — this reaches the FAR report, and
+  // dispose.ts values recoupment off the accumulation.
+  expect(a.acc).toBeCloseTo(COST, 2);
+  expect(a.bv).toBeCloseTo(0, 2);
+  expect(a.bv).toBeGreaterThanOrEqual(0);
 });

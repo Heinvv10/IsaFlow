@@ -71,3 +71,27 @@ AssertionError: expected 2000 to be close to 4000, received difference is 2000, 
 -- full unit suite, no fixture env: 9320 passed, 0 failed (784 files).
    dualDepreciationAtomicity.test.ts updated: it pinned the ledger upsert as
    the first savepoint statement; now asserts the row lock precedes it.
+
+================================================================
+== Round-3 follow-up: negative tax_book_value clamp            ==
+================================================================
+
+-- Both k027 suites, real Postgres --
+{"level":"warn","message":"Tax accumulated depreciation exceeds cost — capping","timestamp":"2026-09-09T07:11:19.524Z","component":"accounting","data":{"assetId":"44ce87e1-f16e-47d5-8c02-d29c3cf27cdd","companyId":"260ef2c5-630d-401d-bad3-95cb2b6fd7e4","cost":120000,"charged":140000}}
+ Test Files  2 passed (2)
+      Tests  12 passed (12)
+
+-- MUTATION: clamp removed from writeAssetTaxAccumulation --
+   × caps the cached figures on a subledger that over-charged, and warns 348ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 140000 to be close to 120000, received difference is 20000, but expected 0.005
+      Tests  1 failed | 5 passed (6)
+
+-- restored. tsc --noEmit, eslint and agent-docs:check clean.
+-- tests/unit/mcp/runDepreciationDb.test.ts: 15/15 against isaflow_dev, the
+   suite the round-3 reviewer could not run (its guard rejects the fixture
+   name). Every case runs in BEGIN ... ROLLBACK, so no dev row persisted.
+-- full unit suite, no fixture env: 9320 passed / 0 failed on a quiet box.
+   A later run under parallel load showed 6 failures in bankAllocationService,
+   bankAllocationUnwind and cashFlowReport — all 21 of those pass in isolation,
+   and none touches a changed file.
