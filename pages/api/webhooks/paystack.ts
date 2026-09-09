@@ -90,30 +90,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // The event row is written on the pool (outside the processing transaction)
   // so the raw payload and any processing_error survive a rollback. ON CONFLICT
   // makes the insert safe against two concurrent redeliveries of one body.
-  const inserted = await sql<{ id: string; processed: boolean }>`
+  const inserted = await sql<{ id: string }>`
     INSERT INTO paystack_webhook_events (body_sha256, event_type, reference, payload)
     VALUES (${bodyHash}, ${eventType}, ${reference}, ${event as unknown as string}::jsonb)
     ON CONFLICT (body_sha256) DO NOTHING
-    RETURNING id, processed
+    RETURNING id
   `;
-  let record = inserted[0];
-  if (!record) {
-    const existing = await sql<{ id: string; processed: boolean }>`
-      SELECT id, processed FROM paystack_webhook_events WHERE body_sha256 = ${bodyHash} LIMIT 1
+  let eventLogId = inserted[0]?.id;
+  if (!eventLogId) {
+    const existing = await sql<{ id: string }>`
+      SELECT id FROM paystack_webhook_events WHERE body_sha256 = ${bodyHash} LIMIT 1
     `;
-    record = existing[0];
-    // Only a SUCCESSFULLY processed event may be acked as a duplicate. An
-    // earlier delivery that threw left processed = FALSE and rolled its writes
-    // back, so Paystack's redelivery must be processed rather than discarded.
-    if (record?.processed) return res.status(200).json({ duplicate: true });
+    eventLogId = existing[0]?.id;
   }
-  const eventLogId = record?.id;
   if (!eventLogId) {
     return res.status(500).json({ error: 'Failed to persist webhook event' });
   }
 
   try {
-    await processEventInTransaction(eventLogId, eventType, event);
+    const duplicate = await processEventInTransaction(eventLogId, eventType, event);
+    if (duplicate) return res.status(200).json({ duplicate: true });
     return res.status(200).json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -132,19 +128,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
  * ALS-bound client, so every `sql` call they make joins it. A throw rolls the
  * whole event back — including the `paystack_payment_requests` status change —
  * leaving the row states that let Paystack's redelivery reprocess it.
+ *
+ * The `processed` check lives INSIDE the transaction behind a `FOR UPDATE` on
+ * the event row: the insert above auto-commits, so without the lock two
+ * concurrent redeliveries both read `processed = false` and both process, each
+ * blind to the other's uncommitted writes. Returns true when the lock showed
+ * the event was already processed and nothing was done.
  */
 async function processEventInTransaction(
   eventLogId: string,
   eventType: string,
   event: PaystackWebhookEvent,
-): Promise<void> {
-  await withPublicRouteTransaction('paystack-webhook', async () => {
+): Promise<boolean> {
+  return withPublicRouteTransaction('paystack-webhook', async () => {
+    const locked = await sql<{ processed: boolean }>`
+      SELECT processed FROM paystack_webhook_events WHERE id = ${eventLogId} FOR UPDATE
+    `;
+    // Only a SUCCESSFULLY processed event may be acked as a duplicate. An
+    // earlier delivery that threw left processed = FALSE and rolled its writes
+    // back, so Paystack's redelivery must be processed rather than discarded.
+    if (locked[0]?.processed) return true;
+
     await processEvent(eventType, event);
     await sql`
       UPDATE paystack_webhook_events
-      SET processed = TRUE, processed_at = now()
+      SET processed = TRUE, processed_at = now(), processing_error = NULL
       WHERE id = ${eventLogId}
     `;
+    return false;
   });
 }
 
