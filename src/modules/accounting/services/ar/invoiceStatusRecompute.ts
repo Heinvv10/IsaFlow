@@ -71,7 +71,7 @@ export type InvoiceKind = 'customer' | 'supplier';
  *
  * Statuses NOT touched: anything outside this set is preserved by the CASE.
  */
-const BALANCE_DERIVED = ['approved', 'sent', 'overdue', 'partially_paid', 'paid'];
+export const BALANCE_DERIVED = ['approved', 'sent', 'overdue', 'partially_paid', 'paid'];
 
 export async function recomputeInvoiceStatus(
   companyId: string,
