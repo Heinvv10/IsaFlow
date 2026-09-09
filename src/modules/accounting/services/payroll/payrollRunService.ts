@@ -15,12 +15,8 @@ import {
   yearsOfService,
   type TerminationReason,
 } from './payrollTerminationService';
-import {
-  applyLoanToRun,
-  listActiveLoansForRun,
-  type ApplyLoanResult,
-} from './payrollLoanService';
-import { reverseLoanApplicationsForRun } from './payrollLoanReversal';
+import type { ApplyLoanResult } from './payrollLoanService';
+import { applyRunLoans } from './payrollRunLoanApplication';
 
 
 type Row = DbRow;
@@ -154,20 +150,18 @@ export async function calculatePayrollRun(
 
   const lineInserts: LineInsert[] = [];
 
-  // Undo the loan deductions THIS run already applied. Without it a second
-  // calculation finds every schedule row flagged paid, injects no LOAN
-  // deduction, and leaves the balance reduced for a repayment the payslip no
-  // longer takes. The forward path below then re-applies identically.
-  await reverseLoanApplicationsForRun(companyId, runId);
-
-  const activeLoans = await listActiveLoansForRun(companyId, period.year, period.month);
-  const loansByEmployee = new Map<string, string[]>();
-  for (const row of activeLoans) {
-    const list = loansByEmployee.get(row.employeeId) ?? [];
-    list.push(row.loanId);
-    loansByEmployee.set(row.employeeId, list);
-  }
-  const officialRate = Number(process.env.SARS_OFFICIAL_RATE ?? 0.085);
+  // Undo the loan deductions THIS run already applied, then re-apply the
+  // instalments due — one locked transaction, so a recalculation reproduces
+  // the same payslip instead of dropping the deduction while keeping the
+  // reduced balance. See payrollRunLoanApplication.ts.
+  const loansByEmployee = await applyRunLoans({
+    companyId,
+    runId,
+    periodYear: period.year,
+    periodMonth: period.month,
+    officialRate: Number(process.env.SARS_OFFICIAL_RATE ?? 0.085),
+    journalEntryId: run.journal_entry_id == null ? null : String(run.journal_entry_id),
+  });
 
   for (const employee of employees) {
     const components = await getEmployeeComponents(employee.id, companyId, periodDate);
@@ -178,19 +172,7 @@ export async function calculatePayrollRun(
       period,
     );
 
-    const loanIds = loansByEmployee.get(employee.id) ?? [];
-    const loanApplications: ApplyLoanResult[] = [];
-    for (const loanId of loanIds) {
-      const applied = await applyLoanToRun({
-        loanId,
-        companyId,
-        runId,
-        periodYear: period.year,
-        periodMonth: period.month,
-        officialRate,
-      });
-      if (applied) loanApplications.push(applied);
-    }
+    const loanApplications: ApplyLoanResult[] = loansByEmployee.get(employee.id) ?? [];
     const componentsWithLoans = await appendLoanComponents(
       companyId,
       componentsWithTermination,

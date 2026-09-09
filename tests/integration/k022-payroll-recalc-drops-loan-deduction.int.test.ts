@@ -140,6 +140,10 @@ async function snapshot(runId = run, loanId = loan) {
     'SELECT gross_pay, net_pay, component_breakdown FROM payroll_run_lines WHERE run_id=$1', [runId]);
   const l = await pool.query(
     'SELECT outstanding_balance, total_principal_paid, status FROM payroll_loans WHERE id=$1', [loanId]);
+  // Guarded: a regression that writes no payslip line must fail on the
+  // assertion below, not on a TypeError reading rows[0].
+  expect(line.rows).toHaveLength(1);
+  expect(l.rows).toHaveLength(1);
   const breakdown = line.rows[0].component_breakdown as Array<Record<string, unknown>>;
   return {
     netPay: Number(line.rows[0].net_pay),

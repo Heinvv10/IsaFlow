@@ -1,13 +1,41 @@
-$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts"
+K-022 — verification of the review-remediation commit
+=====================================================
 
- RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-022
+1. Integration tests (disposable fixture DB, production schema)
+   $ bun run test:integration -- tests/integration/k022
+   Test Files  2 passed (2)
+        Tests  10 passed (10)
+   - k022-payroll-recalc-drops-loan-deduction.int.test.ts   4 tests
+   - k022-payroll-loan-reversal-edge-cases.int.test.ts      6 tests
 
+2. Full unit suite, NO fixture env sourced (DATABASE_URL etc. unset)
+   $ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL -u GOTRUE_URL \
+         -u JWT_SECRET -u ENCRYPTION_KEY -u ISAFLOW_DISPOSABLE_AUTH_TEST \
+         -u DATABASE_SSL bunx vitest run
+   files: 820  success: True
+   numPassed 9320  numFailed 0  numPending 234
+   (An earlier run of the same command on a loaded box reported 7 failures,
+   all 10s-timeout flakes in cashFlowReport / bankAllocationUnwind and none
+   in payroll; the clean run above is the recorded result.)
 
- Test Files  1 passed (1)
-      Tests  4 passed (4)
-   Start at  05:48:37
-   Duration  683ms (transform 133ms, setup 0ms, import 202ms, tests 336ms, environment 0ms)
+3. Mutation checks — production change reverted, tests re-run, then restored
+   a. reversal call removed from calculatePayrollRun (first commit)   4 failed / 4
+   b. journal_entry_id guard disabled                                 1 failed
+   c. payroll_loan_payment_reversals tombstone INSERT removed         2 failed
+   d. stranded `run_id IS NULL` clause removed                        1 failed
+   e. LEAST(principal, ...) restore clamp removed                     1 failed
+   f. withTransaction wrapper removed (statements autocommitted)      2 failed,
+      2 failed, 2 failed over three runs — both concurrency tests red
+   g. FOR UPDATE removed, transaction kept                            10 passed
+      NOT killed by any test. The transaction boundary carries the
+      correctness here; the lock is defence-in-depth. Disclosed in fix.md.
 
+4. Gates
+   $ bunx tsc --noEmit                                        exit 0
+   $ bunx eslint <changed src files>                          clean
+   $ bun run agent-docs:check     OK: 74 mirrors match canonical sources
+   $ bun scripts/audit-migration-naming.ts   No new duplicate prefixes found
+   $ bun scripts/ci/check-migration-rls.ts   OK: every company_id table under RLS
 
---- Mutation check: reversal call commented out in payrollRunService.ts ---
-Tests 4 failed (4) — all four assertions are sensitive to the production change; restored afterwards.
+5. Migration 620 applied to the fixture DB and re-applied to prove idempotence.
+   Not run against production.
