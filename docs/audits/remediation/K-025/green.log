@@ -38,3 +38,14 @@ Unit tests/unit/services/payroll/: 32 files, 337 passed, 2 skipped, 0 failed.
 Mutation: narrowing the supersede predicate back to `effective_to IS NULL`
 turns "in the same month supersedes the first apply instead of paying the
 once-off twice" RED. Service restored afterwards.
+
+--- Round 4 (supersede boundaries + cancellation warning) ---
+Integration: 17 passed.
+tests/unit/services/payroll/: 32 files passed | 1 skipped (33); 339 passed | 2 skipped (341), 0 failed.
+  (The round-3 line above recorded 337/2 from before the final test additions.)
+Full unit suite (DATABASE_URL unset):
+ Test Files  787 passed | 36 skipped (823)
+      Tests  9340 passed | 234 skipped (9574)   — 0 failed
+Mutation: deleting the warn block turns "warns, naming the rows, when the apply
+cancels an assignment it fully overlaps" RED; service restored afterwards.
+tsc exit 0, eslint exit 0, agent-docs 74 mirrors OK.
