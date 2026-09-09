@@ -1,4 +1,4 @@
--- Migration 620: audit trail for reversed payroll loan payments (K-022)
+-- Migration 621: audit trail for reversed payroll loan payments (K-022)
 --
 -- Recalculating a payroll run now undoes the loan instalments it applied
 -- before re-applying them, so payroll_loan_payments rows are deleted on the

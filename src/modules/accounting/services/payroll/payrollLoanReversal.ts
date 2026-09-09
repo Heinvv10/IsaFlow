@@ -20,7 +20,7 @@
  *
  * The rows are hard-deleted (the unique key on (loan_id, period_year,
  * period_month) leaves no room for a compensating row), so what was deleted is
- * tombstoned on payroll_loan_payment_reversals first (migration 620).
+ * tombstoned on payroll_loan_payment_reversals first (migration 621).
  */
 
 import { sql } from '@/lib/neon';

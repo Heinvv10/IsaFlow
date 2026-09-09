@@ -22,7 +22,7 @@ optional `TxSql` executor so the whole sequence stays on one connection.
   to undo, directing the caller to `reversePayrollRunJournal` first.
 - **MEDIUM-1** a loan closed between calculations is reversed but not re-applied. The delete is no
   longer traceless: each removed payment is tombstoned on `payroll_loan_payment_reversals`
-  (migration 620) with `reapplied` set true only when the forward path retook it, and a
+  (migration 621) with `reapplied` set true only when the forward path retook it, and a
   `log.warn` names the loans it did not.
 - **MEDIUM-2** reverse and re-apply now run in one transaction under `FOR UPDATE` with a 5s
   `lock_timeout`, raising `PayrollLoanLockTimeoutError` on contention.
@@ -42,7 +42,7 @@ optional `TxSql` executor so the whole sequence stays on one connection.
 - `src/modules/accounting/services/payroll/payrollLoanReversal.ts` (new, 136 lines)
 - `src/modules/accounting/services/payroll/payrollLoanService.ts` (executor param, `ORDER BY`)
 - `src/modules/accounting/services/payroll/payrollRunService.ts` (call site)
-- `scripts/migrations/sql/620_payroll_loan_payment_reversals.sql` (new)
+- `scripts/migrations/sql/621_payroll_loan_payment_reversals.sql` (new)
 - module `.claude.md` and its generated `AGENTS.md` mirror
 
 ## Tests
@@ -55,10 +55,11 @@ transaction boundary is what the concurrency tests prove; the lock is defence-in
 
 ## Migration / rollback
 
-Migration 620 creates `payroll_loan_payment_reversals` with `IF NOT EXISTS`, RLS enabled and forced,
+Migration 621 creates `payroll_loan_payment_reversals` with `IF NOT EXISTS`, RLS enabled and forced,
 and a `tenant_isolation` policy. Applied twice to the fixture DB to prove idempotence; not run
-against production. Prefix 620 was free across every active worktree when chosen, but peers already
-hold 619 twice, so re-check before merging. Rollback: revert the commit and
+against production. Prefix 620 was taken by the K-035 branch after this work started, so the file
+was renamed to 621; re-check the prefix again before merging, as peers keep claiming numbers in this
+range. Rollback: revert the commit and
 `DROP TABLE payroll_loan_payment_reversals`.
 
 ## Historical-data impact
