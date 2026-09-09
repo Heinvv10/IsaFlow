@@ -27,6 +27,7 @@ the still-due subscription generating a second charge.
 — 6 passed against the disposable production schema, Paystack mocked. The validator's 2 RED
 assertions plus 4 adjacent cases: settlement advances; double-settle (cron then webhook) does not
 advance twice; settlement lifts `past_due`; a second tenant's subscription is untouched.
+Full unit suite with `DATABASE_URL` unset: 784 files / 9321 tests passed, 0 failed.
 Mutation check (`green.log`): restoring the premature advance → 3 red; dropping the `past_due`
 call → 2 red; dropping the advance-on-settle call → 2 red; restored → 6 green.
 

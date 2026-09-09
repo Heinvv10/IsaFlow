@@ -29,7 +29,7 @@ beforeEach(() => {
 });
 
 describe('generateDueCharges', () => {
-  it('creates one queued charge per due subscription and rolls the period forward', async () => {
+  it('creates one queued charge per due subscription and leaves the period alone', async () => {
     const now = new Date('2026-05-01T00:00:00Z');
     const due = {
       company_id: 'co-1',
@@ -48,7 +48,7 @@ describe('generateDueCharges', () => {
       .mockResolvedValueOnce([] as never)          // existing charge check — none
       .mockResolvedValueOnce([{ id: 'mandate-1' }] as never) // active paystack mandate
       .mockResolvedValueOnce([] as never)          // INSERT charge
-      .mockResolvedValueOnce([] as never);         // UPDATE subscription period
+      .mockResolvedValueOnce([] as never);         // close out cancel_at_period_end subs — none
 
     const result = await generateDueCharges(now);
 
@@ -87,7 +87,8 @@ describe('generateDueCharges', () => {
         discount_percent: 0, monthly_price_cents: 10000, annual_price_cents: 0,
       }] as never)
       .mockResolvedValueOnce([] as never)           // no existing charge
-      .mockResolvedValueOnce([] as never);          // no active mandate
+      .mockResolvedValueOnce([] as never)           // no active mandate
+      .mockResolvedValueOnce([] as never);          // close out — none
 
     const result = await generateDueCharges(now);
     expect(result).toEqual({ created: 0, skipped: 1 });
@@ -102,7 +103,18 @@ describe('generateDueCharges', () => {
         current_period_end: '2026-05-01T00:00:00Z',
         discount_percent: 0, monthly_price_cents: 10000, annual_price_cents: 0,
       }] as never)
-      .mockResolvedValueOnce([{ id: 'existing-charge' }] as never);
+      .mockResolvedValueOnce([{ id: 'existing-charge' }] as never)
+      .mockResolvedValueOnce([] as never);          // close out — none
+
+    const result = await generateDueCharges(now);
+    expect(result).toEqual({ created: 0, skipped: 1 });
+  });
+
+  it('counts a subscription closed out at period end as skipped', async () => {
+    const now = new Date('2026-05-01T00:00:00Z');
+    mockSql
+      .mockResolvedValueOnce([] as never)                  // no due subs — the flagged one is filtered out
+      .mockResolvedValueOnce([{ id: 'sub-cancelled' }] as never); // close out
 
     const result = await generateDueCharges(now);
     expect(result).toEqual({ created: 0, skipped: 1 });

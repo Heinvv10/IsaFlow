@@ -4,7 +4,9 @@
  *   generateDueCharges()  — for every active subscription whose
  *                           current_period_end is ≤ today and has no
  *                           unsettled charge for that period, create a
- *                           queued charge row.
+ *                           queued charge row. Subscriptions flagged
+ *                           cancel_at_period_end are not renewed — once their
+ *                           period ends they are closed out as 'cancelled'.
  *
  *   runQueuedCharges()    — for every queued / failed (retry-eligible)
  *                           charge, call Paystack chargeAuthorization()
@@ -56,6 +58,7 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
     FROM subscriptions s
     JOIN plans p ON p.id = s.plan_id
     WHERE s.status IN ('active','past_due')
+      AND COALESCE(s.cancel_at_period_end, false) = false
       AND s.current_period_end IS NOT NULL
       AND s.current_period_end <= ${now}
   `;
@@ -133,7 +136,22 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
     created++;
   }
 
-  return { created, skipped };
+  // A subscription flagged to cancel at period end has reached that end and was
+  // excluded from the due query above — close it out rather than leaving it
+  // 'active' on an expired period forever.
+  const closed = await sql<{ id: string }>`
+    UPDATE subscriptions
+    SET status = 'cancelled',
+        cancelled_at = COALESCE(cancelled_at, now()),
+        updated_at = now()
+    WHERE status IN ('active','past_due')
+      AND COALESCE(cancel_at_period_end, false) = true
+      AND current_period_end IS NOT NULL
+      AND current_period_end <= ${now}
+    RETURNING id
+  `;
+
+  return { created, skipped: skipped + closed.length };
 }
 
 export interface RunChargesResult {
