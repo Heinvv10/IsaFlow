@@ -38,6 +38,8 @@ const packageEmployee = crypto.randomUUID();
 const payPackage = crypto.randomUUID();
 const packageOnceOff = crypto.randomUUID();
 const packageRecurring = crypto.randomUUID();
+const reapplyEmployee = crypto.randomUUID();
+const laterApplyEmployee = crypto.randomUUID();
 const otherEmployee = crypto.randomUUID();
 const bonusComponent = crypto.randomUUID();
 const allowanceComponent = crypto.randomUUID();
@@ -96,6 +98,8 @@ beforeAll(async () => {
   await addEmployee(backdatedEmployee, company, 'E-K025-7');
   await addEmployee(forwardDatedEmployee, company, 'E-K025-8');
   await addEmployee(packageEmployee, company, 'E-K025-9');
+  await addEmployee(reapplyEmployee, company, 'E-K025-10');
+  await addEmployee(laterApplyEmployee, company, 'E-K025-11');
   await addEmployee(otherEmployee, otherCompany, 'E-K025-6');
   await addComponent(bonusComponent, company, 'March bonus', '3605');
   await addComponent(allowanceComponent, company, 'Standing allowance', '3713');
@@ -140,6 +144,15 @@ beforeAll(async () => {
   // The third writer to payroll_employee_components: a package whose row is
   // flagged once-off must not become an open-ended assignment either.
   await applyPackageToEmployee(company, payPackage, packageEmployee, '2025-03-01', user);
+  // Re-applying the same package in the same month — the obvious way a user
+  // corrects a mistyped effective date. The second apply must supersede the
+  // first, including the once-off row, which is inserted already closed.
+  await applyPackageToEmployee(company, payPackage, reapplyEmployee, '2025-03-01', user);
+  await applyPackageToEmployee(company, payPackage, reapplyEmployee, '2025-03-15', user);
+  // Re-applying in a LATER month must leave the earlier once-off row intact:
+  // it was already paid and closed inside its own month.
+  await applyPackageToEmployee(company, payPackage, laterApplyEmployee, '2025-03-01', user);
+  await applyPackageToEmployee(company, payPackage, laterApplyEmployee, '2025-05-01', user);
   // Second tenant, same shape — must be untouched by any of the above.
   await postOne(otherCompany, { batchType: 'component_values', componentId: otherComponent, isRecurring: false, month: 3 },
     { employeeId: otherEmployee, value: 400, effectiveFrom: new Date('2025-03-01') });
@@ -149,7 +162,8 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM payroll_employee_components WHERE employee_id = ANY($1::uuid[])',
       [[onceOffEmployee, recurringEmployee, explicitEndEmployee, travelEmployee, monthEndEmployee,
-        backdatedEmployee, forwardDatedEmployee, packageEmployee, otherEmployee]]);
+        backdatedEmployee, forwardDatedEmployee, packageEmployee, reapplyEmployee,
+        laterApplyEmployee, otherEmployee]]);
     await pool.query('DELETE FROM payroll_batch_lines WHERE batch_id = ANY($1::uuid[])', [batchIds]);
     await pool.query('DELETE FROM pay_package_components WHERE package_id=$1', [payPackage]);
     await pool.query('DELETE FROM pay_packages WHERE id=$1', [payPackage]);
@@ -270,6 +284,34 @@ describe('pay packages use the same close rule', () => {
     expect(april.map(c => c.amount)).toEqual([30000]);
     const later = await getEmployeeComponents(packageEmployee, company, periodDate(2026, 6));
     expect(later.map(c => c.amount)).toEqual([30000]);
+  });
+});
+
+describe('re-applying a pay package', () => {
+  it('in the same month supersedes the first apply instead of paying the once-off twice', async () => {
+    const march = await getEmployeeComponents(reapplyEmployee, company, periodDate(2025, 3));
+    // The package defines R12 000 once-off + R30 000 recurring. Two applies in
+    // one month must still pay exactly that, not double the once-off.
+    expect(march.map(c => c.amount).sort((a, b) => a - b)).toEqual([12000, 30000]);
+    // Both rows from the first apply — the recurring one AND the already-closed
+    // once-off one — are end-dated the day before the second apply.
+    const rows = await assignments(reapplyEmployee);
+    expect(rows).toHaveLength(4);
+    const superseded = rows.filter(r => new Date(r.effective_to).toISOString().slice(0, 10) === '2025-03-14');
+    expect(superseded.map(r => Number(r.amount)).sort((a, b) => a - b)).toEqual([12000, 30000]);
+  });
+
+  it('in a later month leaves the earlier once-off row intact and pays it once', async () => {
+    const march = await getEmployeeComponents(laterApplyEmployee, company, periodDate(2025, 3));
+    expect(march.map(c => c.amount).sort((a, b) => a - b)).toEqual([12000, 30000]);
+    // April: the March once-off is closed, the recurring row runs on.
+    expect((await getEmployeeComponents(laterApplyEmployee, company, periodDate(2025, 4))).map(c => c.amount))
+      .toEqual([30000]);
+    // May: the second apply's once-off is paid, exactly once.
+    expect((await getEmployeeComponents(laterApplyEmployee, company, periodDate(2025, 5))).map(c => c.amount).sort((a, b) => a - b))
+      .toEqual([12000, 30000]);
+    expect((await getEmployeeComponents(laterApplyEmployee, company, periodDate(2025, 6))).map(c => c.amount))
+      .toEqual([30000]);
   });
 });
 

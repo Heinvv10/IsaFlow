@@ -166,6 +166,13 @@ describe('applyPackageToEmployee', () => {
     expect(inserts[0]!.sql).toContain('effective_to');
     expect(inserts[0]!.values).toContain(null);          // recurring stays open-ended
     expect(inserts[1]!.values).toContain('2026-05-31');  // once-off closes at month end
+    // The supersede must reach the already-closed once-off row too, or a second
+    // apply in the same month leaves two overlapping windows and pays it twice.
+    const supersedes = sqlCalls.filter(c => c.sql.includes('UPDATE payroll_employee_components'));
+    expect(supersedes).toHaveLength(2);
+    for (const call of supersedes) {
+      expect(call.sql).toContain('effective_to IS NULL OR effective_to >=');
+    }
   });
 
   it('propagates a failure so the surrounding transaction unwinds', async () => {
