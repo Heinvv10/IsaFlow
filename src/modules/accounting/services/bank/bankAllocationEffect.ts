@@ -1,4 +1,6 @@
 import {randomUUID} from 'node:crypto';
+import type {PostingActorOpts} from '../gl/journalEntryMeta';
+import {bankAllocationActor} from './bankAllocationActor';
 import type {ControlTx} from '../controls/contracts';
 import {assertControlledEffectPermit,type ControlledEffectPermit} from '../controls/approvalExecutionService';
 import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
@@ -6,16 +8,17 @@ import {postJournalEntry} from '../gl/journalEntryPostingService';
 import {loadBankAllocationIntent} from './bankAllocationMaterial';
 import {loadBankAllocationSources} from './bankAllocationSources';
 import {applyBankAllocationChildren,recordBankAllocationChild} from './bankAllocationChildEffect';
-export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,permit:ControlledEffectPermit){
+export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,permit:ControlledEffectPermit,options?:PostingActorOpts){
  const parent={entityType:'bank_allocation_intent',entityId:intentId,operation:'bank_allocation.post' as const};
  assertControlledEffectPermit(ctx,permit,parent);
  const {intent,plan,sources,effect}=await loadBankAllocationIntent(ctx,intentId);
  if(effect||sources.bank.status!=='imported')throw new Error('Bank allocation already executed');
  if(sources.periods[0]!.status!=='open')throw new Error('Open bank accounting period required');
  const company=ctx.principal.companyId,id=randomUUID();
+ const actor=bankAllocationActor(ctx.principal,options);
  const source=plan.kind==='customer'?'auto_payment':plan.kind==='supplier'?'auto_supplier_payment':'auto_bank_recon';
- await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent)
-  VALUES(${id}::uuid,${company}::uuid,${permit.accountingDate}::date,${sources.periods[0]!.id}::uuid,${plan.description??'Bank allocation'},${source},${plan.bankTransactionId}::uuid,'draft',${ctx.principal.personId}::uuid,${`human:${ctx.principal.personId}`})`;
+ await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent,actor_type,actor_token_jti)
+  VALUES(${id}::uuid,${company}::uuid,${permit.accountingDate}::date,${sources.periods[0]!.id}::uuid,${plan.description??'Bank allocation'},${source},${plan.bankTransactionId}::uuid,'draft',${ctx.principal.personId}::uuid,${actor.postingAgent},${actor.actorType},${actor.actorTokenJti})`;
  for(const line of sources.lines)await ctx.sql`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description,vat_type,cost_center_id,bu_id)
   VALUES(${company}::uuid,${id}::uuid,${line.accountId}::uuid,${line.debit}::numeric,${line.credit}::numeric,${line.description},${line.vatType},${line.cc1Id}::uuid,${line.buId}::uuid)`;
  const parentControl={parent,permit};await registerGeneratedJournal(ctx,parentControl,id,'journal.post');

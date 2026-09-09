@@ -1,4 +1,4 @@
-import Decimal from 'decimal.js';
+import {assertAllocationOutstanding} from './bankAllocationPlan';
 import type {ControlTx} from '../controls/contracts';
 import {assertControlledEffectPermit,type ControlledEffectPermit} from '../controls/approvalExecutionService';
 import {recordCommittedChange} from '../controls/changeEventService';
@@ -24,7 +24,7 @@ export async function applyBankAllocationChildren(ctx:ControlTx,permit:Controlle
  for(const application of plan.applications){
   const rows=plan.kind==='customer'?await ctx.sql`SELECT * FROM customer_invoices WHERE company_id=${company}::uuid AND id=${application.invoiceId}::uuid FOR UPDATE`
    :await ctx.sql`SELECT * FROM supplier_invoices WHERE company_id=${company}::uuid AND id=${application.invoiceId}::uuid FOR UPDATE`;
-  const before=(rows as Row[])[0];if(!before||new Decimal(String(before.amount_paid)).add(application.amount).gt(String(before.total_amount)))throw new Error('Allocation exceeds current invoice outstanding');
+  const before=(rows as Row[])[0];if(!before)throw new Error('Allocation invoice disappeared');assertAllocationOutstanding(String(before.total_amount),String(before.amount_paid),application.amount);
   if(plan.kind==='customer')await ctx.sql`INSERT INTO customer_payment_allocations(payment_id,invoice_id,amount_allocated) VALUES(${payment.id}::uuid,${application.invoiceId}::uuid,${application.amount}::numeric)`;
   else await ctx.sql`INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES(${payment.id}::uuid,${application.invoiceId}::uuid,${application.amount}::numeric)`;
   const updates=plan.kind==='customer'?await ctx.sql`UPDATE customer_invoices SET amount_paid=amount_paid+${application.amount}::numeric,

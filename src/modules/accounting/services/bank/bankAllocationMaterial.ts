@@ -1,3 +1,4 @@
+import {materializeBankAllocationReversal} from './bankAllocationReversalMaterial';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
 import {readControlEntityVersion} from '../controls/operationVersions';
@@ -24,6 +25,7 @@ export async function loadBankAllocationIntent(ctx:ControlTx,id:string){
  return{intent,plan,sources,effect};
 }
 export async function materializeBankAllocationOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
+ if(ref.entityType==='bank_allocation_reversal_intent'&&ref.operation==='bank_allocation.reverse')return materializeBankAllocationReversal(ctx,ref);
  if(ref.entityType!=='bank_allocation_intent'||ref.operation!=='bank_allocation.post')throw new Error('Unsupported bank allocation operation');
  const material=await loadBankAllocationIntent(ctx,ref.entityId),prior=await readControlEntityVersion(ctx,ref);
  const facts={intent:material.intent,source:material.sources};

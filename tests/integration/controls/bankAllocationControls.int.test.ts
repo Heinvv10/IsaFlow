@@ -3,6 +3,7 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
+import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
 import {prepareBankAllocation,executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
 import {requireControlTx,withControlRequest} from '@/modules/accounting/services/controls/context';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
@@ -23,13 +24,13 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO bank_accounts(company_id,account_name,gl_account_id,currency) VALUES($1,'Synthetic allocation bank',$2,'ZAR')",[fixture.companyA,bank]);
 });
 afterAll(async()=>{await pool.end();});
-async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u2'='u1'){
+async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u2'='u1',bearer=false){
  const client=await pool.connect(),user=fixture[person];
  try{
   await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
   const claims={sub:user.id,role:'authenticated',company_id:fixture.companyA};
   await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),fixture.companyA]);
-  const result=await withControlRequest({client,userId:user.id,companyId:fixture.companyA,claims},{personId:user.id,companyId:fixture.companyA,authMethod:'cookie'},fn);
+  const result=await withControlRequest({client,userId:user.id,companyId:fixture.companyA,claims},{personId:user.id,companyId:fixture.companyA,authMethod:bearer?'pat':'cookie',...(bearer?{connectionId:user.tokens[0]!.id,grantId:user.tokens[0]!.id,grantedScopes:['write:bank-tx','write:post','write:approvals']}: {})},fn);
   await client.query('COMMIT');return result;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
@@ -107,4 +108,30 @@ it('refuses a receipt replay after the generated journal monetary lines changed'
  const prepared=await approvedReceipt(),posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:prepared.approvalId}));
  await pool.query('UPDATE gl_journal_lines SET debit=debit*2,credit=credit*2 WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,posted.journalEntryId]);
  await expect(actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId))).rejects.toThrow('changed');
+});
+
+it('reverses an approved bank receipt in an explicit open later period while retaining original provenance',async()=>{
+ const prepared=await approvedReceipt(),posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:prepared.approvalId}));
+ await pool.query("INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,'Synthetic October reversal',10,2026,'2026-10-01','2026-10-31','open')",[randomUUID(),fixture.companyA]);
+ await pool.query("UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND period_number=9",[fixture.companyA]);
+ try{
+  const reversal=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:prepared.intentId,reversalDate:'2026-10-01',reason:'Synthetic correction'}));
+  const approval=await actor(()=>requestOperationApproval(requireControlTx(),reversal.operation));
+  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+  const result=await actor(()=>executeBankAllocationReversal(requireControlTx(),reversal.intentId,{approvalId:approval.id}));
+  expect(result.originalJournalEntryId).toBe(posted.journalEntryId);
+  expect(await actor(()=>executeBankAllocationReversal(requireControlTx(),reversal.intentId))).toEqual(result);
+  expect((await pool.query('SELECT status,gl_journal_entry_id FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0]).toEqual({status:'cancelled',gl_journal_entry_id:posted.journalEntryId});
+  expect((await pool.query('SELECT entry_date::text,reversal_of_id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,result.reversalJournalEntryId])).rows[0]).toEqual({entry_date:'2026-10-01',reversal_of_id:posted.journalEntryId});
+ }finally{await pool.query("UPDATE fiscal_periods SET status='open' WHERE company_id=$1 AND period_number=9",[fixture.companyA]);}
+});
+
+it('records actual PAT actor and token provenance on the financial journal',async()=>{
+ const tx=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',67.89,'Synthetic PAT receipt','imported')",[tx,fixture.companyA,bank]);
+ const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}),'u1',true);
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation),'u1',true);
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ const posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approval.id,postingAgent:'mcp:allocate_bank_transaction:v1',actorType:'human',actorTokenJti:'forged'}),'u1',true);
+ expect((await pool.query('SELECT actor_type,actor_token_jti,posting_agent FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.journalEntryId])).rows[0]).toEqual({actor_type:'agent',actor_token_jti:fixture.u1.tokens[0]!.id,posting_agent:'mcp:allocate_bank_transaction:v1'});
 });
