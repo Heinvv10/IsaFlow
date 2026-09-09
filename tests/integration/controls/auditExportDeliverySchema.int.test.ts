@@ -46,3 +46,15 @@ it('requires a generation-owned result for success and refuses appending after c
  await expect(actor('u1',({client})=>client.query("INSERT INTO control_audit_export_chunks(company_id,job_id,generation,lease_id,file_ordinal,chunk_ordinal,protected_chunk) VALUES($1,$2,1,$3,0,2,'{}')",[fixture.companyA,job,lease]))).rejects.toMatchObject({code:'42501'});
  await expect(actor('u1',({client})=>client.query('UPDATE control_audit_jobs SET result_snapshot_id=$2 WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job]))).rejects.toMatchObject({code:'23514'});
 });
+
+it('cannot publish another job result at the same tenant and generation',async()=>{
+ const second=randomUUID();
+ await pool.query("INSERT INTO control_audit_job_intents(company_id,id,requester_person_id,kind,idempotency_key,request_hash,protected_request) VALUES($1,$2,$3,'audit_export',$5,$4,'{}')",[fixture.companyA,second,fixture.u1.id,'a'.repeat(64),second]);
+ await pool.query("INSERT INTO control_audit_jobs(company_id,job_id,state,attempts,generation,lease_id,lease_expires_at) VALUES($1,$2,'running',1,1,$3,clock_timestamp()+interval '60 seconds')",[fixture.companyA,second,randomUUID()]);
+ try{
+  await expect(actor('u1',({client})=>client.query("UPDATE control_audit_jobs SET state='succeeded',result_export_id=$3,lease_id=NULL,lease_expires_at=NULL,completed_at=clock_timestamp() WHERE company_id=$1 AND job_id=$2",[fixture.companyA,second,job]))).rejects.toMatchObject({code:'23514'});
+ }finally{
+  // Restore the synthetic old-schema success so applying the corrected invariant can validate existing rows.
+  await pool.query("UPDATE control_audit_jobs SET state='failed',result_export_id=NULL,lease_id=NULL,lease_expires_at=NULL,completed_at=clock_timestamp() WHERE company_id=$1 AND job_id=$2",[fixture.companyA,second]);
+ }
+});
