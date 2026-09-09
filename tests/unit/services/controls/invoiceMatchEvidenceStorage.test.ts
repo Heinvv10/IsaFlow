@@ -36,3 +36,13 @@ it('preserves authority or SQL failures after the shared deadline',async()=>{
  const failure=new Error('Current authority denied');vi.mocked(loadOwnedCapturedEvidence).mockImplementation(async()=>{controller.abort();throw failure;});
  await expect(check([ref])).rejects.toBe(failure);
 });
+it('uses one cancellation signal for the complete batch',async()=>{
+ const second={...ref,evidenceId:'33333333-3333-4333-8333-333333333333'};
+ await check([ref,second]);
+ expect(vi.mocked(loadOwnedCapturedEvidence).mock.calls).toHaveLength(2);
+ expect(vi.mocked(loadOwnedCapturedEvidence).mock.calls[0]![3]).toBe(vi.mocked(loadOwnedCapturedEvidence).mock.calls[1]![3]);
+});
+it('rejects invalid later references before any evidence IO',async()=>{
+ await expect(check([ref,{...ref,entityId:companyId}])).rejects.toThrow();
+ expect(query).not.toHaveBeenCalled();expect(loadOwnedCapturedEvidence).not.toHaveBeenCalled();
+});
