@@ -168,29 +168,34 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // else: pr named a mandate that no longer resolves. Answering with the
   // company's newest row would re-introduce the mis-attribution 651 retired,
   // so this reference reports no mandate at all.
-  const m = fresh[0];
+  // A row is only THIS reference's mandate when the payment request linked it
+  // (migration 651), or when nothing went wrong. A fallback resolution that
+  // ended in a failure landed on some OTHER checkout's row: naming it — or
+  // reporting its bank, card and ceiling, which identify it just as well — is
+  // the mis-attribution 651 exists to retire.
+  const own = !failureReason || mandate?.linked ? fresh[0] : undefined;
 
-  // A recorded failure_reason outranks the mandate row: the row may well be
-  // 'active' (it belongs to an EARLIER checkout) while this reference's payment
-  // attached to nothing.
+  // A recorded failure_reason outranks the mandate row, which may well be
+  // 'active' because it belongs to an EARLIER checkout while this reference's
+  // payment attached to nothing. It does NOT outrank this reference's OWN
+  // mandate being active: failure_reason is durable and payer-visible, so it
+  // must never survive the transition it was written about — a webhook that
+  // lands after the reason was written still leaves a mandate that is active
+  // and chargeable, and the payer must be told so.
   const publicStatus =
-    failureReason ? 'failed'
-    : m?.status === 'active' ? 'active'
-    : m?.status === 'failed' ? 'failed'
+    own?.status === 'active' ? 'active'
+    : failureReason ? 'failed'
+    : own?.status === 'failed' ? 'failed'
     : 'pending';
 
   return apiResponse.success(res, {
     status: publicStatus,
-    // A row is only named when it IS this reference's mandate: either the
-    // payment request linked it (migration 651), or nothing went wrong. A
-    // fallback resolution that ended in a failure landed on some OTHER
-    // checkout's row, and naming it is the mis-attribution 651 retired.
-    mandateId: !failureReason || mandate?.linked ? (m?.id ?? null) : null,
-    failureReason: failureReason ?? undefined,
-    bankName: m?.bank_name ?? undefined,
-    cardLast4: m?.card_last4 ?? undefined,
-    cardBrand: m?.card_brand ?? undefined,
-    maxAmountCents: m?.max_amount_cents ? Number(m.max_amount_cents) : undefined,
+    mandateId: own?.id ?? null,
+    failureReason: publicStatus === 'failed' ? (failureReason ?? undefined) : undefined,
+    bankName: own?.bank_name ?? undefined,
+    cardLast4: own?.card_last4 ?? undefined,
+    cardBrand: own?.card_brand ?? undefined,
+    maxAmountCents: own?.max_amount_cents ? Number(own.max_amount_cents) : undefined,
   });
 }
 
