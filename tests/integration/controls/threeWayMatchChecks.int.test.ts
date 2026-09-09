@@ -92,3 +92,38 @@ it('keeps supplier-order prices usable while refusing to invent GRN provenance f
  expect(result.missingSources).toContain('supplier_po_accepted_receipt_provenance_unavailable');
  expect(result.findings[0]?.message).toContain('price');
 });
+it('keeps rejected-only receipts out of accepted capacity and excludes deleted invoices',async()=>{
+ const data=await flatCase();await pool.query("UPDATE goods_received_notes SET status='rejected' WHERE company_id=$1 AND purchase_order_id=$2",[fixture.companyA,data.po]);
+ const rejected=await actor(ctx=>queryThreeWayMatch(ctx,{}));expect(rejected.results.every(r=>r.match?.grnMatch===false)).toBe(true);
+ await pool.query("UPDATE goods_received_notes SET status='accepted' WHERE company_id=$1 AND purchase_order_id=$2",[fixture.companyA,data.po]);
+ await pool.query('UPDATE supplier_invoice_items SET unit_price=999 WHERE supplier_invoice_id=$1',[data.invoices[0]]);
+ await pool.query('UPDATE supplier_invoices SET deleted_at=clock_timestamp() WHERE company_id=$1 AND id=$2',[fixture.companyA,data.invoices[0]]);
+ const result=await actor(ctx=>checkThreeWayMatchExceptions(ctx,{}));expect(result.findingCount).toBe(0);expect(result.excludedCount).toBe(1);
+});
+it('retains owned invoices with foreign PO parents as unknown without exposing the foreign PO',async()=>{
+ const data=await flatCase(),foreign=randomUUID(),otherSupplier=randomUUID();
+ await pool.query("INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,'Foreign synthetic')",[otherSupplier,fixture.companyB]);
+ await pool.query(`INSERT INTO purchase_orders(id,company_id,po_number,supplier_id,status) VALUES($1::uuid,$2,$1::text,$3,'approved')`,[foreign,fixture.companyB,otherSupplier]);
+ await pool.query('UPDATE supplier_invoices SET purchase_order_id=$1 WHERE company_id=$2 AND id=ANY($3::uuid[])',[foreign,fixture.companyA,data.invoices]);
+ const result=await actor(ctx=>checkThreeWayMatchExceptions(ctx,{}));expect(result.populationCount).toBe(2);expect(result.status).toBe('unknown');
+ expect(result.missingSources).toContain('owned_purchase_order_line_material_unavailable');expect(JSON.stringify(result)).not.toContain(foreign);
+});
+it('rolls back every match cache write when the caller catches a later cache failure and commits',async()=>{
+ const data=await flatCase(),constraint=`synthetic_match_${randomUUID().replaceAll('-','')}`;
+ // A company-owned fixture row alone is rejected; no production data or external service is used.
+ await pool.query(`ALTER TABLE supplier_invoices ADD CONSTRAINT ${constraint} CHECK(id <> '${data.invoices[0]}'::uuid OR match_status <> 'fully_matched') NOT VALID`);
+ try{
+  await actor(async()=>{try{await performThreeWayMatch(fixture.companyA,data.invoices[0]!);}catch(error){expect(String(error)).toContain(constraint);}});
+  expect((await pool.query('SELECT match_computed_at FROM supplier_invoice_items WHERE supplier_invoice_id=$1',[data.invoices[0]])).rows[0].match_computed_at).toBeNull();
+ }finally{await pool.query(`ALTER TABLE supplier_invoices DROP CONSTRAINT ${constraint}`);}
+});
+it('reports unresolved receipt evidence even alongside enough accepted receipts',async()=>{
+ const data=await flatCase(),grn=randomUUID();
+ await pool.query(`INSERT INTO goods_received_notes(id,company_id,grn_number,purchase_order_id,received_date,received_by,status)
+ VALUES($1::uuid,$2,$1::text,$3,'2026-09-09',$4,'draft')`,[grn,fixture.companyA,data.po,fixture.u1.id]);
+ await pool.query(`INSERT INTO grn_items(grn_id,po_item_id,quantity_received,quality_status) VALUES($1,$2,2,'pending')`,[grn,data.line]);
+ const result=await actor(ctx=>checkThreeWayMatchExceptions(ctx,{}));
+ expect(result.missingSources).toContain('unresolved_receipt_acceptance_evidence');expect(result.status).toBe('unknown');
+ const cached=await actor(()=>performThreeWayMatch(fixture.companyA,data.invoices[0]!));
+ expect(cached.matchStatus).not.toBe('fully_matched');
+});

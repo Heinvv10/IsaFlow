@@ -18,8 +18,9 @@ export async function performThreeWayMatch(companyId:string,invoiceId:string){
   const itemResults:ThreeWayMatchItemResult[]=[];
   for(const result of population.results){
    if(!result.row.item_id)continue;
-   const match=result.match??{status:'unmatched' as const,quantityMatch:false,priceMatch:false,grnMatch:false,
+   const calculated=result.match??{status:'unmatched' as const,quantityMatch:false,priceMatch:false,grnMatch:false,
     mismatches:[],missing:result.missing,qtyVariancePct:0,priceVariancePct:0};
+   const match=result.missing.length?{...calculated,status:'unmatched' as const,missing:result.missing}:calculated;
    const item={itemId:result.row.item_id,itemDescription:result.row.description??'',lineMatchStatus:match.status,
     qtyVariancePct:match.qtyVariancePct,priceVariancePct:match.priceVariancePct,match};
    // Cache columns have NUMERIC(6,2) bounds; refuse overflow rather than persisting a misleading clipped variance.
