@@ -14,6 +14,7 @@ import {
   startReconciliation,
   updateReconciledBalance,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { insertPreConstraintRow } from './helpers/preConstraintRow';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID();
@@ -47,7 +48,11 @@ async function seedEntry(
      VALUES($1,$2,$3::date,'K020 seed',$4,$5,$6,${posted ? 'NOW()' : 'NULL'},${posted ? '$5' : 'NULL'})`,
     [id, co, date, status, byUser, fiscalPeriod],
   );
-  await pool.query(
+  // `co` is deliberately the OTHER tenant for one seed while the accounts stay
+  // this company's — the cross-company shape migration 660 now refuses, and the
+  // pre-660 shape this test exists to prove is not counted.
+  await insertPreConstraintRow(
+    pool,
     `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
      VALUES($1,$2,$3,$4,$5,0),($6,$2,$3,$7,0,$5)`,
     [bankLineId, co, id, bank, amount, crypto.randomUUID(), contra],

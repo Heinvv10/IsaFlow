@@ -155,32 +155,52 @@ describe('propose_reclassification', () => {
     expect(out.isError).toBe(true);
     expect(planReclassification).not.toHaveBeenCalled();
   });
+});
 
+describe('post_reclassification_batch', () => {
   it('renders a GL account lock timeout as the refusal that names the account', async () => {
-    // Both of the plan's locks are taken before anything is posted, so a
-    // timeout on either is write-free and belongs in the pre-write catch.
-    // Uncaught, `registry.call` renders it as GENERIC_FAILURE — "the operation
-    // failed" — and the wording that tells the agent WHICH account is busy, and
-    // that a retry is the answer, is discarded. `writeMergeGlAccounts` matches
-    // the same code for the same reason.
+    // ON THE WRITE TOOL, because it is the only caller that can reach it.
+    // `planFromArgs` takes both locks only when `lockCandidateLines` is true,
+    // and `propose_reclassification` always passes false — so neither error
+    // code can arise on the preview tool in production, and a catch test driven
+    // through it asserts nothing about the path that runs.
+    //
+    // Uncaught, `registry.call` renders the timeout as GENERIC_FAILURE — "the
+    // operation failed" — and the wording that tells the agent WHICH account is
+    // busy, and that a retry is the answer, is discarded. Both locks are taken
+    // before anything is posted, and each runs in its own savepoint, so the
+    // transaction is usable when this returns; `reclassificationSavepoint.int.test.ts`
+    // proves that end-to-end against a real database, which is what this unit
+    // test cannot see.
     planReclassification.mockRejectedValue(new GlAccountLockTimeoutError(TGT));
-    const out = await proposeReclassificationTool.handler(
-      { source_account_id: SRC, target_account_id: TGT }, CTX,
+    const out = await postReclassificationBatchTool.handler(
+      { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k-lock' }, CTX,
     );
     expect(out.isError).toBe(true);
     expect(out.content[0]!.text).toContain(TGT);
     expect(out.content[0]!.text).toContain('retry');
+    expect(postReclassBatch).not.toHaveBeenCalled();
+  });
+
+  it('renders a candidate-line lock timeout the same way', async () => {
+    planReclassification.mockRejectedValue(
+      Object.assign(new Error('Journal lines are being reclassified by another request — retry in a moment.'),
+        { code: 'RECLASS_LINE_LOCKED' }),
+    );
+    const out = await postReclassificationBatchTool.handler(
+      { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k-lines' }, CTX,
+    );
+    expect(out.isError).toBe(true);
+    expect(out.content[0]!.text).toContain('retry');
+    expect(postReclassBatch).not.toHaveBeenCalled();
   });
 
   it('still rethrows a failure that is not one of the two known write-free locks', async () => {
     planReclassification.mockRejectedValue(new Error('connection terminated'));
-    await expect(proposeReclassificationTool.handler(
-      { source_account_id: SRC, target_account_id: TGT }, CTX,
+    await expect(postReclassificationBatchTool.handler(
+      { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k-boom' }, CTX,
     )).rejects.toThrow('connection terminated');
   });
-});
-
-describe('post_reclassification_batch', () => {
   it('is a posting tool and takes both mutation arguments', () => {
     expect(postReclassificationBatchTool.write).toBe(true);
     expect(postReclassificationBatchTool.requiresPost).toBe(true);

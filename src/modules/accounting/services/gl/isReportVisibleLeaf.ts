@@ -18,13 +18,20 @@
  * expense target is refusing something that loses nothing, which is why
  * `LEAF_RULE_ACCOUNT_TYPES` exists rather than a bare level test.
  *
- * `validateLeafAccount` is deliberately STRICTER than this file and stays that
- * way: it refuses posting to any parent account, of any type and any level
- * (migration 484). The two are not in conflict — a direct post is a choice the
+ * `validateLeafAccount` is deliberately STRICTER than this file where it runs —
+ * it refuses posting to any parent account, of any type and any level
+ * (migration 484). The two are not in conflict: a direct post is a choice the
  * user makes line by line and "pick a leaf account" is cheap advice at that
  * moment, whereas these three guards decide whether a bulk move of existing
  * lines may proceed at all, and refusing one costs the accountant a chart tidy
  * that loses nothing. Where the reports cannot lose the money, these admit it.
+ *
+ * BUT IT IS NOT A GENERAL SAFETY NET, and no comment here may lean on it as
+ * one. It has exactly two call sites, both in
+ * `pages/api/accounting/expense-claims/[id]/post.ts`. There is no trigger on
+ * `gl_journal_lines` enforcing it, and neither `createJournalEntry` nor the MCP
+ * journal tools call it — ordinary journal posting to a header account is
+ * refused nowhere. So these guards are the control, not a second line of one.
  */
 import { sql } from '@/lib/neon';
 

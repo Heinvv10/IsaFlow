@@ -88,9 +88,11 @@ export async function assertParentUsable(
   // safer-looking rule and the wrong one: converting a used level-3 account
   // into a header and posting to its children is ordinary chart maintenance
   // (Sage-imported charts arrive that way), and refusing it would have broken
-  // the Add Account dialog for a case that loses nothing. `validateLeafAccount`
-  // still stops anyone POSTING to the parent afterwards — that is an explicit
-  // refusal at post time, not silent loss, and it is the accountant's call.
+  // the Add Account dialog for a case that loses nothing — the reports carry
+  // a level-3 account whether or not it has children, so nothing disappears.
+  // That is the whole justification. `validateLeafAccount` is NOT a second one:
+  // it runs on the expense-claim posting route and nowhere else, so a later
+  // post to the parent through any other path is not refused.
   if (isSubjectToLeafRule(Number(parent.level), parent.account_type)) {
     // LOCKED BEFORE THE READ, and this is what makes the verdict hold.
     //
@@ -111,6 +113,14 @@ export async function assertParentUsable(
     // MCP bearer pipeline) — every production caller of `createAccount` and
     // `reclassifyAccount` runs inside one.
     await lockGlAccountsForUpdate(companyId, [parentId]);
+    // `company_id` is LOAD-BEARING, not habit. Until migration 660 a journal
+    // line could name this company's account while carrying another company's
+    // `company_id` — `POST /api/accounting/journal-entries` wrote exactly that
+    // — and rows from before it still can. `balanceSheetService` filters
+    // `jl.company_id`, `ga.company_id` AND `je.company_id`, so such a line is
+    // invisible to the report this guard protects; reading it here would refuse
+    // a chart edit that loses nothing. Guard and reader must agree, and
+    // `k051-cross-company-journal-line.int.test.ts` is what pins that.
     const posted = (await sql`
       SELECT 1 FROM gl_journal_lines
        WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID

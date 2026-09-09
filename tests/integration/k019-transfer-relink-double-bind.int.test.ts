@@ -8,6 +8,7 @@ import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { getPoolForTests } from '@/lib/neon';
 import { relinkTransferCounterparts } from '@/modules/accounting/services/bank/bankTransferLinkService';
+import { insertPreConstraintRow } from './helpers/preConstraintRow';
 import {
   AMOUNT, DAY, addAccount, addSecondLegToJournal, cleanup, rowsOn, seedScenario,
 } from './helpers/k019TransferFixture';
@@ -235,8 +236,11 @@ describe('K-019 relinkTransferCounterparts', () => {
        VALUES($1,$2,DATE '${DAY}','K019 their transfer','posted',$3)`,
       [theirJe, other, user],
     );
-    // Their journal carries a leg on OUR target bank account.
-    await pool.query(
+    // Their journal carries a leg on OUR target bank account — the
+    // cross-company shape migration 660 now refuses, kept here because rows
+    // written before it still exist and this test is about ignoring them.
+    await insertPreConstraintRow(
+      pool,
       `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
        VALUES($1,$3,$4,$5,0,${AMOUNT}),($2,$3,$4,$6,${AMOUNT},0)`,
       [theirSrcLine, theirTargetLine, other, theirJe, theirBank, s.targetBank],

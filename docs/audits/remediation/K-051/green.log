@@ -112,3 +112,59 @@ Second pass, 2026-09-09: blind-review findings in scratchpad/review-k051.md (4 M
 
 18. LOW-3b (company_id on assertParentUsable's posted-lines read) is kept and recorded as
     unproven in fix.md, with the argument. Everything else in round 3 is fixed.
+
+═══════════════════════════════════════════════════════════════════════════════
+ROUND 5 — 2026-09-09
+═══════════════════════════════════════════════════════════════════════════════
+
+K-051 + K-052 suites (disposable Postgres isaflow_schema_fixture):
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k051-*.int.test.ts tests/integration/k052-*.int.test.ts
+  -> Test Files 5 passed (5) | Tests 30 passed (30)
+     k051-account-merge-into-header-hides-balance      9
+     k051-account-merge-header-concurrency (new split) 3
+     k051-cross-company-journal-line       (new)       4
+     k052-reclassification-onto-header-account        12
+     k052-reclassification-lock-savepoint  (new)       2
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  -> Test Files 792 passed | 36 skipped (828)
+     Tests 9437 passed | 234 skipped (9671)
+  (First run failed 11 tests in journalEntryService.test.ts +
+   journalEntryFiscalPeriodWiring.test.ts: the new ownership query shifted the
+   positional sql mock queue, and clearAllMocks does not drain a once-queue so
+   the residue leaked into the postJournalEntry tests. Both files now queue the
+   accountsBelongToCompany answer explicitly.)
+
+FULL INTEGRATION SWEEP (migration 660 blast-radius check):
+  bunx vitest run --config vitest.integration.config.ts
+  -> 27 files / 8 tests failed, ALL environmental and pre-existing:
+     13x "DATABASE_URL names isaflow_schema_fixture, not isaflow_dev/isaflow_test"
+     3x SUPABASE_SERVICE_ROLE_KEY unset, 2x MIGRATION_ADMIN_DATABASE_URL/JWT,
+     ECONNREFUSED :3200 (no dev server), missing seeded demo tenant.
+  -> grep "gl_journal_lines_account_company_fk" on the full log: 0 hits.
+
+MUTATIONS (round 5)
+  M7  remove withSavepoint around lockGlAccountsForUpdate (planGuards.ts:224)
+      -> k052-reclassification-lock-savepoint FAILS with
+         "current transaction is aborted, commands ignored until end of
+          transaction block" — the exact 25P02 the reviewer proved. RESTORED.
+  M8  remove the accountsBelongToCompany check from createJournalEntry
+      -> k051-cross-company-journal-line "refuses a journal whose line names
+         another company GL account" FAILS. RESTORED.
+  M9  remove "AND company_id = ${companyId}::UUID" from assertParentUsable's
+      posted-lines read (the reviewer's M6, which was alive in round 4)
+      -> k051-cross-company-journal-line "judges a level-2 asset parent on THIS
+         company lines only" FAILS. RESTORED. M6 is now dead.
+
+MIGRATION 660 applied to the fixture DB and proved:
+  INSERT gl_journal_lines(company_id=A, gl_account_id=B's account)
+  -> ERROR 23503 gl_journal_lines_account_company_fk. (Transaction rolled back.)
+
+GATES
+  bunx tsc --noEmit                                  -> exit 0
+  eslint (6 changed src files)                       -> exit 0
+  eslint on tests/**: "not found by the project service" — pre-existing for every
+  integration test (tsconfig excludes tests/**); reproduced on an untouched file.
+  All changed/added files under the 300-line ceiling (max 261).
