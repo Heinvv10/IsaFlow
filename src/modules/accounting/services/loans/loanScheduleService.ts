@@ -35,17 +35,18 @@ export interface PortfolioSummary {
 }
 
 /**
- * FOR SHARE pins the terms for the caller's transaction. Without it a concurrent
- * updateLoan can land between this read and the cache-hit computed_at touch
- * below, and the touch then promotes a run built on the superseded terms over
- * the run the edit produced — the same defect the touch exists to prevent, with
- * the operands swapped. Callers must be inside a transaction (withAuth opens
+ * `forShare` pins the terms for the caller's transaction. Without it a concurrent
+ * updateLoan can land between this read and the cache-hit computed_at touch, and
+ * the touch then promotes a run built on the superseded terms over the run the
+ * edit produced — the same defect the touch exists to prevent, with the operands
+ * swapped. Only getOrComputeSchedule needs it; previewSchedule writes nothing and
+ * must not block edits. The caller must be inside a transaction (withAuth opens
  * one) or the lock is released at statement end and the window reopens.
  */
-async function fetchLoanData(companyId: string, loanId: string) {
-  const loans = (await sql`
-    SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId} FOR SHARE
-  `) as Row[];
+async function fetchLoanData(companyId: string, loanId: string, forShare = false) {
+  const loans = (await (forShare
+    ? sql`SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId} FOR SHARE`
+    : sql`SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId}`)) as Row[];
   if (loans.length === 0) throw new Error(`Loan ${loanId} not found`);
   return loans[0]!;
 }
@@ -96,7 +97,7 @@ export async function getOrComputeSchedule(
   companyId: string,
   loanId: string,
 ): Promise<ScheduleResult> {
-  const loanRow = await fetchLoanData(companyId, loanId);
+  const loanRow = await fetchLoanData(companyId, loanId, true);
   const eventRows = await fetchEvents(companyId, loanId);
   const pointRows = await fetchRatePoints(loanRow.curve_id as string | null);
 
@@ -147,18 +148,24 @@ export async function getOrComputeSchedule(
   const run = runRows[0]!;
   const runId = String(run.id);
 
-  // Persist rows
-  for (const r of scheduleRows) {
-    await sql`
-      INSERT INTO loan_schedule_rows
-        (run_id, period, date, opening, rate, installment, interest, principal,
-         lump, skip_flag, payment, closing, st_liability, extrapolated, nca_flagged)
-      VALUES
-        (${runId}, ${r.period}, ${r.date}, ${r.opening}, ${r.rate}, ${r.installment},
-         ${r.interest}, ${r.principal}, ${r.lump}, ${r.skip}, ${r.payment},
-         ${r.closing}, ${r.stLiability}, ${r.extrapolated}, ${r.nca_flagged})
-    `;
-  }
+  // Persist rows in ONE statement. The loan is share-locked until this
+  // transaction commits, so a per-period round trip (360 on a 30-year term) made
+  // every concurrent loan edit wait out the whole loop.
+  const col = <T,>(f: (r: ScheduleRow) => T): T[] => scheduleRows.map(f);
+  await sql`
+    INSERT INTO loan_schedule_rows
+      (run_id, period, date, opening, rate, installment, interest, principal,
+       lump, skip_flag, payment, closing, st_liability, extrapolated, nca_flagged)
+    SELECT ${runId}::uuid, * FROM unnest(
+      ${col((r) => r.period)}::int[], ${col((r) => r.date)}::date[],
+      ${col((r) => r.opening)}::numeric[], ${col((r) => r.rate)}::numeric[],
+      ${col((r) => r.installment)}::numeric[], ${col((r) => r.interest)}::numeric[],
+      ${col((r) => r.principal)}::numeric[], ${col((r) => r.lump)}::numeric[],
+      ${col((r) => r.skip)}::boolean[], ${col((r) => r.payment)}::numeric[],
+      ${col((r) => r.closing)}::numeric[], ${col((r) => r.stLiability)}::numeric[],
+      ${col((r) => r.extrapolated)}::boolean[], ${col((r) => r.nca_flagged)}::boolean[]
+    )
+  `;
 
   log.info('Computed and cached schedule', { loanId, runId, periods: scheduleRows.length }, 'loans');
   return {

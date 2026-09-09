@@ -140,3 +140,32 @@ them, and the unit test now imports the pure module and needs no `@/lib/neon` mo
 
 **Tests.** 8 integration (real Postgres, two of them two-client concurrency) and 18
 unit across the two loan schedule files.
+
+---
+
+# Round 4 — the two liveness findings on 1257632e
+
+**R3-1 (LOW) — the preview took a lock it has no use for.** `previewSchedule`
+persists nothing and never touches `computed_at`, so it has no stake in the window
+`FOR SHARE` exists to close, yet it shared `fetchLoanData` and so blocked edits on
+the loan for the whole request. `fetchLoanData` now takes a `forShare` flag that
+only `getOrComputeSchedule` sets. Test: inside a request transaction with a preview
+open, a concurrent edit on another connection succeeds. Making the preview lock
+again turns exactly that test red.
+
+**R3-2 (LOW) — the editor waited out a per-period insert loop.** The share lock is
+held until the request commits, and the persist was one round trip per period, so
+an edit could queue behind a whole schedule. The rows now go in as a single
+`unnest` INSERT. Measured on the fixture database, 195-period schedule, three runs
+each: 39, 45 and 55 ms against 773, 806 and 783 ms. That shortens the window rather
+than bounding it, so a very large compute can still make an edit wait; the
+alternative the reviewer offered, `SET LOCAL lock_timeout` on the `updateLoan`
+path, is not done here because it changes a different service's failure mode and
+belongs with whoever owns that call.
+
+**Tests.** 10 integration (real Postgres) and 18 unit. The new bulk-insert case
+reads the persisted rows back through a cache hit and compares every period, date,
+opening, interest, principal, closing and skip flag against what the engine
+returned, which is the risk the rewrite carries. It is a correctness guard, not a
+guard on the statement count: reverting to the loop leaves it green, and the
+liveness claim rests on the measurement above, not on an assertion.

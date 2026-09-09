@@ -77,3 +77,17 @@ pre-existing nondeterministic set seen before this change, all passing in isolat
 none of them touched here. NOTE: running that suite with DATABASE_URL pointing at the
 schema-only fixture instead adds 6 unrelated failures in
 reports/incomeStatementDisclosureDb.test.ts, which expects a populated ledger.
+
+=== Round 4 (R3-1 preview lock, R3-2 bulk insert) ===
+GREEN: integration 10 passed (10); unit 18 passed (18) across the two loan files.
+Mutation E: previewSchedule made to lock again -> "does not block a loan edit while
+  a dry-run preview is open" alone goes red (1 failed | 9 passed).
+Persist timing, fixture DB, 195-period schedule, three runs each:
+  unnest single statement   39 ms / 45 ms / 55 ms
+  per-period insert loop   773 ms / 806 ms / 783 ms
+tsc clean; eslint clean on both src files; agent-docs:check OK 74 mirrors.
+loanScheduleService.ts 251 lines.
+
+Full tests/unit/services/ (no DATABASE_URL): 1 failed | 4373 passed | 101 skipped.
+The one is cashFlowReport, from the same pre-existing nondeterministic set; it passes
+in isolation and is untouched here.
