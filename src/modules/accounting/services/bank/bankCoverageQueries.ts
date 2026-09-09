@@ -102,6 +102,7 @@ export async function fetchCoverageAccounts(
             AND bt.transaction_date <= ${asAt}::DATE
      WHERE ga.company_id      = ${companyId}::UUID
        AND ga.account_subtype = 'bank'
+       AND ga.account_type    = 'asset'
        AND (${bankAccountId ?? null}::UUID IS NULL OR ga.id = ${bankAccountId ?? null}::UUID)
      GROUP BY ga.id, ga.account_code, ga.account_name, ga.is_active,
               ga.bank_opening_balance, ga.bank_opening_balance_date

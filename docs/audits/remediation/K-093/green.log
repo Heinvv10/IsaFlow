@@ -56,3 +56,42 @@ FULL UNIT SUITE, fixture env unset (env -u DATABASE_URL bunx vitest run):
 $ bunx tsc --noEmit   -> clean
 $ bunx eslint cashBalanceService.ts quotePdfBuilder.ts invoicePdfBuilder.ts sales-by-customer.ts
                       -> clean
+
+================================================================================
+Round-2 review remediation (5 findings from the blind review of 3d8ad9ba)
+================================================================================
+
+$ bun run test:integration -- k091 k091b k093 k126 k126b k126c
+ Test Files  6 passed (6)
+      Tests  26 passed (26)
+   (K-091 4, K-091b 3, K-093 5, K-126 6, K-126b 5, K-126c 3)
+
+MUTATION MATRIX:
+ M13 delete the asset guard from bankGlAccountBelongsToCompany
+       -> k091b: 1 failed | 2 passed (3)   [overdraft accepted for import]
+ M14 delete the asset guard from fetchCoverageAccounts
+       -> k091b: 1 failed | 2 passed (3)   [overdraft listed in coverage]
+ M15 delete the asset guard from cash-flow-export.ts
+       -> k091b: 1 failed | 2 passed (3)   [opening balance 5900.00, not 5000.00]
+ M16 invoice totals label back to "mixed ? 'VAT' : header rate"
+       -> k126:  1 failed | 5 passed (6)   [uniform zero-rated lines labelled 15%]
+ M17 quote totals label, same mutation
+       -> k126b: 1 failed | 4 passed (5)
+ M18 quote line cell back to Number(line.tax_rate || 15)      [LOW-6]
+       -> k126b: 1 failed | 4 passed (5)   [NULL line rate printed 15%, not 20%]
+ M19 restore the bare try/catch on credit_note_items          [LOW-7]
+       -> k126c: 1 failed | 2 passed (3)   [transaction aborted, COMMIT dead]
+ M20 restore COALESCE(cn.client_id, cn.customer_id)
+       -> k126c: 3 failed (3)              [42703 on every call]
+All eight restored and re-run green.
+
+FULL UNIT SUITE, fixture env unset:
+ First run at load average 169 reported 9 failed across 4 files. All four files
+ pass in isolation and none of them references anything changed on this branch;
+ several failures were exactly the 10000ms vitest timeout. Re-run with
+ --maxWorkers=4 --testTimeout=30000 at load average 135:
+ Test Files  793 passed | 36 skipped (829)
+      Tests  9447 passed | 234 skipped (9681)
+
+$ bunx tsc --noEmit  -> clean
+$ bunx eslint <all 9 changed production files>  -> clean

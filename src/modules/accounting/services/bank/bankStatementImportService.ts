@@ -75,6 +75,7 @@ export async function bankGlAccountBelongsToCompany(
     WHERE id = ${bankAccountId}::UUID
       AND company_id = ${companyId}::UUID
       AND account_subtype = 'bank'
+      AND account_type = 'asset'
       AND is_active = true
     LIMIT 1
   `) as Array<{ id: string }>;

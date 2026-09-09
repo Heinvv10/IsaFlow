@@ -84,3 +84,39 @@ WHERE ga.account_subtype IN ('cash','cash_on_hand','petty_cash','bank_account','
 GROUP BY ga.company_id, ga.account_code, ga.account_name, ga.account_type;
 ```
 Any row this returns was previously being counted as cash and no longer will be.
+
+---
+
+## Round-2 review of 3d8ad9ba — MEDIUM-2 and MEDIUM-4 (both fixed)
+
+**MEDIUM-2 (fixed).** Round 1's asset guard was right for `getCashBalance`'s aggregate but gave the
+two per-account consumers a worse answer. What counts as a bank account for them is decided
+elsewhere — `bankGlAccountBelongsToCompany` and `fetchCoverageAccounts` filtered on
+`account_subtype = 'bank'` alone — so a liability overdraft was still accepted and still listed,
+while its GL balance now read 0 through the `?? 0` fallback instead of its real value.
+`bank_statement_coverage` then reported the whole statement balance as unexplained, and
+`perform_bank_reconciliation`'s dry run reported `gl_balance: 0`.
+
+Both predicates now carry `account_type = 'asset'`, so a non-asset account is never offered to
+those paths at all and the three agree on one definition. The `?? 0` comment in
+`bankStatementCoverageService` claimed something that stopped being true in round 1; it now says
+the fallback is a floor against future drift rather than an honest zero.
+
+**MEDIUM-4 (fixed).** `pages/api/accounting/cash-flow-export.ts:46` was the twelfth CASH_SUBTYPES
+reader and the only one still unguarded. Worse than merely unguarded: its opening-cash expression
+is `CASE WHEN ga.normal_balance = 'debit' THEN debit - credit ELSE credit - debit END`, so a
+credit-normal card contributed its balance as a POSITIVE addition to opening cash. Pre-existing at
+the merge base, but it is the last member of the set round 1 claimed to converge, and the CSV
+disagreed with the on-screen cash flow it exports. Guard added; the round-1 comment's claim about
+"every other reader" is narrowed to the readers it actually names.
+
+**Tests.** New `tests/integration/k091b-bank-account-definition.int.test.ts`, 3 tests on real
+Postgres against a liability overdraft typed `liability` with subtype `bank`: refused by
+`bankGlAccountBelongsToCompany`, absent from `fetchCoverageAccounts`, and excluded from the
+exported opening balance (R5,000, not the R5,900 the unguarded CASE produced). Mutations M13, M14
+and M15 delete one guard each and turn exactly the matching test red.
+
+**Historical-data impact.** No stored row changes. Any GL account typed other than `asset` with
+subtype `bank` stops being selectable for statement import, disappears from the coverage report,
+and stops contributing to the exported opening balance. The round-1 impact query in this file
+finds every such account; the same rows are the ones affected here.
