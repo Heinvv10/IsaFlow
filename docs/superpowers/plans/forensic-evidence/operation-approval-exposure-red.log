@@ -1,0 +1,31 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-approval-20260909
+
+ ❯ tests/integration/controls/operationApproval.int.test.ts (11 tests | 1 failed | 10 skipped) 156ms
+   × retains separate beneficiary and currency exposure for one parent batch 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/controls/operationApproval.int.test.ts > retains separate beneficiary and currency exposure for one parent batch
+error: duplicate key value violates unique constraint "control_policy_exposure_company_id_policy_id_operation_enti_key"
+ ❯ ../mcp-forensic-integration-20260909/node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:107:19
+    105|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    106|       assertTxUsable();
+    107|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    108|       return res.rows as T[];
+    109|     }
+ ❯ tests/integration/controls/operationApproval.int.test.ts:197:7
+ ❯ src/modules/accounting/services/controls/context.ts:101:22
+ ❯ request tests/integration/controls/operationApproval.int.test.ts:25:20
+ ❯ tests/integration/controls/operationApproval.int.test.ts:195:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 skipped (11)
+   Start at  09:34:31
+   Duration  601ms (transform 195ms, setup 0ms, import 266ms, tests 156ms, environment 0ms)
+

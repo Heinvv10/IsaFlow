@@ -1,0 +1,36 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-approval-20260909
+
+ ❯ tests/integration/controls/operationApproval.int.test.ts (12 tests | 1 failed | 11 skipped) 1778ms
+   × serializes concurrent policy update and material inspection without a row/advisory deadlock 1510ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/controls/operationApproval.int.test.ts > serializes concurrent policy update and material inspection without a row/advisory deadlock
+AssertionError: expected [ 'fulfilled', 'rejected' ] to deeply equal [ 'fulfilled', 'fulfilled' ]
+
+- Expected
++ Received
+
+  [
+    "fulfilled",
+-   "fulfilled",
++   "rejected",
+  ]
+
+ ❯ tests/integration/controls/operationApproval.int.test.ts:230:56
+    228|     expect(waiting).toBe(true);
+    229|   } finally { continueInspection(); }
+    230|   expect((await results).map(result => result.status)).toEqual(['fulfi…
+       |                                                        ^
+    231| });
+    232|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 skipped (12)
+   Start at  09:35:18
+   Duration  3.82s (transform 1.07s, setup 0ms, import 1.28s, tests 1.78s, environment 0ms)
+

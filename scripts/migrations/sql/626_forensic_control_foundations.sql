@@ -8,6 +8,8 @@ BEGIN
     OR p_person IS DISTINCT FROM auth.uid()::text THEN
     RAISE EXCEPTION 'Control principal unavailable' USING ERRCODE = '42501';
   END IF;
+  -- All control authority readers enter before person locks to avoid participant inversion.
+  PERFORM pg_advisory_xact_lock(hashtextextended('control-authority:' || p_company::text,0));
   RETURN QUERY
     SELECT cu.role::text, u.id::text, u.is_active, u.status::text, u.suspended_at,
       c.status::text, c.suspended_at
