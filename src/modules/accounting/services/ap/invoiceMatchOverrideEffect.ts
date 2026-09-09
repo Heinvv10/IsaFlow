@@ -1,3 +1,4 @@
+import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import type {ControlTx} from '../controls/contracts';
 import {executeControlledOperation,assertControlledEffectPermit,type ControlledEffectPermit} from '../controls/approvalExecutionService';
 import {replayKnownOperationEffect} from '../controls/operationReceiptReplay';
@@ -12,6 +13,7 @@ export async function executeInvoiceMatchOverrideEffect(ctx:ControlTx,intentId:s
   reason:state.intent.reason,evidenceRefs:state.evidence,status:'annotated' as const};
 }
 export async function executeInvoiceMatchOverride(ctx:ControlTx,intentId:string,approvalId?:string){
+ await assertEffectivePermission(ctx,'write:invoices');
  return withInvoiceMatchSourceLocks(ctx,async()=>{
   const state=await loadInvoiceMatchOverride(ctx,intentId);
   if(state.intent.requester_person_id!==ctx.principal.personId)throw new Error('Invoice match override requester required');
