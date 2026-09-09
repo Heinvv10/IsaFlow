@@ -1,0 +1,20 @@
+== GREEN with the fix ==
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k027-tax-depreciation-carry-forward.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-027
+
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  05:48:20
+   Duration  701ms (transform 230ms, setup 0ms, import 316ms, tests 236ms, environment 0ms)
+
+
+== MUTATION: production change reverted, same tests ==
+   × the run writes the tax accumulation back to the asset 4ms
+   × February opens on January closing tax accumulated depreciation, not on zero 26ms
+   × re-running a posted period does not double the tax accumulation 3ms
+   × a dry run (plan without execute) writes nothing 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)

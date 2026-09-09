@@ -231,6 +231,19 @@ export async function postDualDepreciationToLedger(
           deferred_tax            = EXCLUDED.deferred_tax,
           updated_at              = NOW()
       `;
+      // The tax side of the carry-forward. `loadDepreciationAssets` reads the
+      // next period's opening balance from `assets.tax_accumulated_depreciation`
+      // (depreciationRunPlan.ts), and nothing else writes it — so without this
+      // every period after the first opened at the seeded value and the tax
+      // column never accumulated. SET, not increment: it mirrors the ledger row
+      // the upsert just wrote, so it stays correct if a period is re-posted.
+      await sql`
+        UPDATE assets SET
+          tax_accumulated_depreciation = ${tax.closingTaxAccDep},
+          tax_book_value = ${tax.taxCarryingAmount},
+          updated_at = NOW()
+        WHERE id = ${assetId} AND company_id = ${companyId}::UUID
+      `;
       return postAssetDepreciationToGLThrows(
         companyId, assetId, policy.monthlyDep, userId, input.periodDate,
       );
