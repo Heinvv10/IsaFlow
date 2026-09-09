@@ -1,20 +1,21 @@
 import type {Pool} from 'pg';
 import {als,type RequestContext} from '@/lib/als';
 import {log} from '@/lib/logger';
+import {acquireAuditWorkerConnection,cancelAuditWorkerBackend} from './auditWorkerConnection';
 export interface AuditWorkerIdentity {companyId:string;personId:string;jobId:string}
 /** Cold transaction boundary. Cancellation completes before its backend can return to the pool. */
 export async function withAuditWorkerTransaction<T>(pool:Pool,identity:AuditWorkerIdentity,isolation:'read committed'|'repeatable read',
  deadlineAt:number,signal:AbortSignal|undefined,work:(store:RequestContext)=>Promise<T>):Promise<T>{
  if(als.getStore())throw new Error('Audit worker requires a cold transaction');
  signal?.throwIfAborted();
- const client=await pool.connect();let cancellation:Promise<void>|undefined,backend:number|undefined;
+ const client=await acquireAuditWorkerConnection(pool,deadlineAt,signal);let cancellation:Promise<void>|undefined,backend:number|undefined,destroyed=false;
  const cancel=()=>{
   if(backend===undefined||cancellation)return;
   const pid=backend;
-  cancellation=(async()=>{
-   const connection=await pool.connect();
-   try{await connection.query('SELECT pg_cancel_backend($1)',[pid]);}finally{connection.release();}
-  })().catch(()=>{log.warn('Audit worker cancellation request failed',{},'audit-worker');});
+  cancellation=cancelAuditWorkerBackend(pool,pid).catch(()=>{
+   log.warn('Audit worker cancellation request failed; closing its work connection',{},'audit-worker');
+   destroyed=true;client.release(true);
+  });
  };
  try{
   signal?.throwIfAborted();
@@ -34,10 +35,10 @@ export async function withAuditWorkerTransaction<T>(pool:Pool,identity:AuditWork
   await client.query('COMMIT');return value;
  }catch(error){
   await cancellation;
-  try{await client.query('ROLLBACK');}catch{log.warn('Audit worker rollback failed',{},'audit-worker');}
+  if(!destroyed){try{await client.query('ROLLBACK');}catch{log.warn('Audit worker rollback failed',{},'audit-worker');}}
   throw error;
  }finally{
   signal?.removeEventListener('abort',cancel);
-  await cancellation;backend=undefined;client.release();
+  await cancellation;backend=undefined;if(!destroyed)client.release();
  }
 }
