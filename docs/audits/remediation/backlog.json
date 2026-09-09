@@ -680,25 +680,29 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "879692c0",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "PR open; GitHub checks pending"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/integration/k018-open-banking-fabricated-transactions.int.test.ts"
    ],
    "evidencePaths": [
+    "K-018/ci.log",
+    "K-018/fix.md",
+    "K-018/green.log",
     "K-018/red.log",
     "K-018/validation.md"
    ],
-   "fixCommit": "879692c0",
+   "fixCommit": "6b195d01;473cc573",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/361",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k018-open-banking-providers",
-   "reviewRounds": 2
+   "reviewRounds": 2,
+   "mergeCommit": "28403b18"
   },
   {
    "id": "K-019",
