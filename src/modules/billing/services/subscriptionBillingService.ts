@@ -12,6 +12,10 @@
  *                           a paystack_payment_requests row so the webhook
  *                           can settle it.
  *
+ * The period moves forward only when a charge settles (here or in the Paystack
+ * webhook), never when it is queued; a charge that burns every attempt leaves
+ * the subscription 'past_due'.
+ *
  * All writes are company-scoped. The mandate must be 'active' AND have a
  * paystack_authorization_code captured for the company to be billed;
  * otherwise the charge moves to 'failed' with reason='no_mandate'.
@@ -21,8 +25,12 @@ import { randomBytes } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { chargeAuthorization } from './paystackClient';
+import {
+  MAX_ATTEMPTS,
+  advancePeriodForSettledCharge,
+  markPastDueIfExhausted,
+} from './subscriptionPeriod';
 
-const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_HOURS = 24;
 
 export interface GenerateResult {
@@ -122,14 +130,6 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
       )
     `;
 
-    await sql`
-      UPDATE subscriptions
-      SET current_period_start = ${nextStart.toISOString()},
-          current_period_end = ${nextEnd.toISOString()},
-          updated_at = now()
-      WHERE id = ${sub.subscription_id}
-    `;
-
     created++;
   }
 
@@ -159,10 +159,11 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     mandate_status: string;
     user_email: string | null;
     period_start: Date | string;
+    period_end: Date | string;
   }>`
     SELECT c.id, c.company_id, c.mandate_id, c.amount_cents,
            c.paystack_reference, c.external_reference, c.attempt_count, c.status,
-           c.period_start,
+           c.period_start, c.period_end,
            m.paystack_authorization_code, m.paystack_customer_code,
            m.status AS mandate_status,
            u.email AS user_email
@@ -194,6 +195,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
             last_attempt_at = now()
         WHERE id = ${c.id}
       `;
+      await markPastDueIfExhausted(c.company_id, c.attempt_count);
       skipped++;
       continue;
     }
@@ -245,6 +247,10 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
         WHERE id = ${c.id}
       `;
 
+      if (localStatus === 'settled') {
+        await advancePeriodForSettledCharge(c.id, c.company_id);
+      }
+
       submitted++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -256,6 +262,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
             last_attempt_at = now()
         WHERE id = ${c.id}
       `;
+      await markPastDueIfExhausted(c.company_id, c.attempt_count);
       failed++;
       log.error(
         'Subscription debit failed',
