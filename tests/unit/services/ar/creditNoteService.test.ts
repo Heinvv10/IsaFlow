@@ -1,6 +1,7 @@
 // Isolated business-rule regressions; actual authority and rollback are covered by arSharedWriters.int.test.ts.
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 const control=vi.hoisted(()=>({accountingDate:'2026-07-04'}));
+vi.mock('@/modules/accounting/services/ar/creditTargetEligibility',()=>({assertPostedCreditTarget:vi.fn()}));
 vi.mock('@/modules/accounting/services/ar/arControlBoundary',()=>({
  requireArControl:()=>({}),
  runArControlled:async(_company:string,_person:string,_ref:unknown,_opts:unknown,effect:(permit:unknown)=>Promise<unknown>)=>effect({accountingDate:control.accountingDate}),

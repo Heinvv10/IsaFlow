@@ -39,6 +39,18 @@ export async function materializeArCreditOperation(ctx:ControlTx,ref:OperationRe
  const money=deriveArCreditMoney(header,linked?(supplier?linked.currency:linked.currency_code):null,accounts.ledgerCurrency);
  let amount=money.amount,accountingDate=fmtDate(header.credit_date);
  const facts:Record<string,unknown>={...data,accounts:accounts.facts};const observed:ObservedSource[]=[];
+ const addSources=(sources:ObservedSource[])=>{for(const source of sources){
+  const prior=observed.find(existing=>existing.entityType===source.entityType&&existing.entityId===source.entityId);
+  if(prior&&prior.fingerprint!==source.fingerprint)throw new Error('Conflicting credit source observation');
+  if(!prior)observed.push(source);
+ }};
+ const bindTargetJournal=async(invoice:ArRow,key:string)=>{
+  if(!invoice.gl_journal_entry_id)return;
+  const journal=await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:String(invoice.gl_journal_entry_id),operation:'journal.post'});
+  facts[key]=journal.observedSources[0]!.facts;
+  addSources(journal.observedSources);
+ };
+ if(linked)await bindTargetJournal(linked,'linkedInvoiceJournal');
  if(application){
   const target=await lockArInvoiceSources(ctx,String(intent!.customer_invoice_id));
   if(header.type!=='customer'||target.header.owned_customer_id!==header.client_id||target.header.currency_code!==money.currency)throw new Error('Credit application target does not match');
@@ -46,9 +58,10 @@ export async function materializeArCreditOperation(ctx:ControlTx,ref:OperationRe
   // Already-applied material preserves the immutable applied amount for after-effect evidence.
   amount=(header.status==='applied'&&header.customer_invoice_id===intent!.customer_invoice_id?new Money(String(header.applied_amount)):Money.min(amount,available)).toFixed();
   facts.intent=intent;facts.target=target;observed.push(await observeArSource(ctx,'credit_note',String(header.id),data),await observeArSource(ctx,'customer_invoice',String(intent!.customer_invoice_id),target));
+  await bindTargetJournal(target.header,'targetInvoiceJournal');
  }
  if(header.gl_journal_entry_id){const journal=await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:String(header.gl_journal_entry_id),operation:reverse?'journal.reverse':'journal.post',
-  ...(ref.reversalDate===undefined?{}:{reversalDate:ref.reversalDate})});facts.journal=journal.observedSources[0]!.facts;observed.push(...journal.observedSources);if(reverse)accountingDate=journal.binding.accountingDate!;}
+  ...(ref.reversalDate===undefined?{}:{reversalDate:ref.reversalDate})});facts.journal=journal.observedSources[0]!.facts;addSources(journal.observedSources);if(reverse)accountingDate=journal.binding.accountingDate!;}
  const periods=await ctx.sql`SELECT id,start_date::text,end_date::text,status FROM fiscal_periods WHERE company_id=${company}::uuid
  AND start_date<=${accountingDate}::date AND end_date>=${accountingDate}::date ORDER BY id FOR SHARE` as ArRow[];
  if(periods.length!==1)throw new Error('Credit note target period is missing or ambiguous');facts.targetPeriod=periods[0]!;facts.accountingDate=accountingDate;

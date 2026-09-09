@@ -20,7 +20,7 @@ export async function mutateArRelatedEntity<T>(ctx:ControlTx,entityType:RelatedE
  const before=await read(ctx,entityType,id);
  const prior=await readControlEntityVersion(ctx,{entityType,entityId:id}),version=prior?.version??1;
  const common={entityType,entityId:id,accountingDate:parentControl.permit.accountingDate,bindingHash:null,protectedEvidenceRef:null,operationId:parentControl.permit.operationId};
- if(!prior)await recordCommittedChange(ctx,{...common,previousVersion:0,newVersion:1,action:'baseline_observed',before:null,after:before});
+ if(!prior)await recordCommittedChange(ctx,{...common,previousVersion:null,newVersion:1,action:'baseline_observed',before:null,after:before});
  const result=await mutation();
  await recordCommittedChange(ctx,{...common,previousVersion:version,newVersion:version+1,action,before,after:await read(ctx,entityType,id)});
  return result;

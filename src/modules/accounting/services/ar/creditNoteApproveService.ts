@@ -12,6 +12,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import {mutateArRelatedEntity} from './arRelatedEntityEffect';
+import {assertPostedCreditTarget} from './creditTargetEligibility';
 import {resolveArAccounts} from '../controls/arControlAccounts';
 import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
 import {requireArControl,runArControlled,type ArApprovalOptions} from './arControlBoundary';
@@ -48,6 +49,8 @@ async function approveCreditNoteEffect(
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
 
     const ctx=requireArControl(companyId,userId);
+    const linkedTarget=cn.type==='customer'?cn.customer_invoice_id:cn.supplier_invoice_id;
+    if(linkedTarget)await assertPostedCreditTarget(ctx,cn.type==='customer'?'customer':'supplier',String(linkedTarget));
     const accounts=await resolveArAccounts(ctx,String(cn.type)==='customer'?['default_revenue','receivable','vat_output']:['payable','default_expense','vat_input']);
     let lines: JournalLineInput[];
 

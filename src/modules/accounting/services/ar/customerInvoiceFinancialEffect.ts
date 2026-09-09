@@ -15,7 +15,7 @@ export async function postCustomerInvoiceFinancialEffect(companyId:string,invoic
  const ctx=requireArControl(companyId,userId);assertControlledEffectPermit(ctx,parentControl.permit,parentControl.parent);
  const {header,lines:items}=await lockArInvoiceSources(ctx,invoiceId);
  if(header.status==='cancelled')throw new Error('Cannot post a cancelled invoice to GL');
- if(header.gl_journal_entry_id)return String(header.gl_journal_entry_id);
+ if(header.gl_journal_entry_id)throw new Error('Existing invoice journal cannot be adopted by a new posting effect');
  const accounts=await resolveArAccounts(ctx,['receivable','default_revenue','vat_output']);
  const money=deriveArInvoiceMoney(header,items,accounts.ledgerCurrency);
  const lines:JournalLineInput[]=[
