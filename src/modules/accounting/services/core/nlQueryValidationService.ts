@@ -4,6 +4,7 @@
  */
 
 import { validateQueryRelations } from './nlQueryRelations';
+import { validateQueryFunctions } from './nlQueryFunctions';
 
 export interface SQLValidation {
   valid: boolean;
@@ -102,6 +103,11 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
   const relationError = validateQueryRelations(sql, ALLOWED_TABLES);
   if (relationError) {
     return { valid: false, error: relationError, sanitizedSQL: '' };
+  }
+
+  const functionError = validateQueryFunctions(sql);
+  if (functionError) {
+    return { valid: false, error: functionError, sanitizedSQL: '' };
   }
 
   let sanitizedSQL = sql.trim().replace(/;$/, '');
