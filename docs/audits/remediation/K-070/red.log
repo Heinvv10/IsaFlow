@@ -1,0 +1,12 @@
+    157|
+    158|     // ...and the customer's open invoice moved.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:22:39
+   Duration  941ms (transform 316ms, setup 0ms, import 456ms, tests 229ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

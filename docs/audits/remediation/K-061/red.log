@@ -1,0 +1,39 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/customer-merge","timestamp":"2026-09-09T09:19:26.534Z","component":"API","requestId":"01M22QE2T5STMYSGJGX0F1XZN3","data":{"type":"request","method":"POST","url":"/api/accounting/customer-merge","query":{},"body":{"source_id":"1fccd14f-fbe3-406f-957e-580d5b55833c","target_id":"7bce1101-1170-4f22-a687-42adb1f87a2d"}}}
+{"level":"error","message":"withTransaction rolled back","timestamp":"2026-09-09T09:19:26.555Z","component":"DB","requestId":"01M22QE2T5STMYSGJGX0F1XZN3","data":{"message":"column \"customer_id\" does not exist"}}
+{"level":"error","message":"customer-merge POST failed","timestamp":"2026-09-09T09:19:26.557Z","requestId":"01M22QE2T5STMYSGJGX0F1XZN3","data":{"error":"column \"customer_id\" does not exist","module":"accounting"}}
+{"level":"error","message":"Internal Server Error","timestamp":"2026-09-09T09:19:26.563Z","component":"ApiResponse","requestId":"01M22QE2T5STMYSGJGX0F1XZN3","data":{"message":"column \"customer_id\" does not exist","stack":"error: column \"customer_id\" does not exist\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at tx (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:364:19)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/customer-merge.ts:62:7\n    at withTransaction (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:368:20)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/customer-merge.ts:39:5)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k061-customer-merge-nonexistent-column.int.test.ts:66:3"}}
+{"level":"info","message":"API Response: POST /api/accounting/customer-merge - undefined (30ms)","timestamp":"2026-09-09T09:19:26.563Z","component":"API","requestId":"01M22QE2T5STMYSGJGX0F1XZN3","data":{"type":"response","method":"POST","url":"/api/accounting/customer-merge","duration":"30ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:19:26.563Z","component":"http","requestId":"01M22QE2T5STMYSGJGX0F1XZN3","data":{"event":"request_completed","route":"/api/accounting/customer-merge","method":"POST","durationMs":30,"userId":null,"companyId":"446b81e2-734e-4a22-bf21-e792c2c0f33f","outcome":"ok"}}
+ ❯ tests/integration/k061-customer-merge-nonexistent-column.int.test.ts (1 test | 1 failed) 156ms
+   × merges the duplicate customer and re-parents its receipts 35ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k061-customer-merge-nonexistent-column.int.test.ts > merges the duplicate customer and re-parents its receipts
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ tests/integration/k061-customer-merge-nonexistent-column.int.test.ts:68:28
+     66|   await mergeHandler(req, res);
+     67|
+     68|   expect(state.statusCode).toBe(200);
+       |                            ^
+     69|   const { rows } = await pool.query('SELECT client_id FROM customer_pa…
+     70|   expect(rows[0].client_id).toBe(target);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:19:25
+   Duration  996ms (transform 210ms, setup 0ms, import 533ms, tests 156ms, environment 0ms)
+
