@@ -145,18 +145,7 @@ export async function listBureauCompanies(bureauId: string): Promise<BureauCompa
   }));
 }
 
-/** Add a company to a bureau. Idempotent. */
-export async function linkCompanyToBureau(opts: {
-  bureauId: string;
-  companyId: string;
-  addedBy: string;
-}): Promise<void> {
-  await sql`
-    INSERT INTO bureau_companies (bureau_id, company_id, added_by)
-    VALUES (${opts.bureauId}, ${opts.companyId}, ${opts.addedBy})
-    ON CONFLICT (bureau_id, company_id) DO NOTHING
-  `;
-}
+export { linkCompanyToBureau } from './bureauCompanyLinkService';
 
 /** Remove a company from a bureau. Does NOT delete the company. */
 export async function unlinkCompanyFromBureau(opts: {

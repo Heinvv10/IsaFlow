@@ -1,0 +1,5 @@
+# Existing bureau links
+
+The old path could persist unauthorized links and disclose financial metrics. Correcting future inserts does not remove those links or undo past reads. historical-impact.sql is a scoped read-only review query; current membership and bureau ownership cannot establish historical consent. It has not been run against production and no count of affected real clients is claimed.
+
+Before any repair: choose the authorized company scope, preserve each exact link and its added_at/added_by, and obtain company-owner approval evidence. Classify confirmed consent, confirmed unapproved and unresolved separately. Do not delete links just because the original grantor left the company or bureau changed owner. For confirmed unapproved links, prepare a reviewed transaction deleting only the exact bureau/company/added_at/added_by tuple and recording an audit entry; retain a rollback snapshot. Re-running such a deletion must affect zero rows once removed. Restore only from that exact snapshot under explicit approval and re-verify client-home/list denial or authorized access. No repair execution or external notification is authorized by the remediation task.

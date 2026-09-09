@@ -64,11 +64,14 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     if (!(await isBureauOwner(userId, parsed.data.bureauId))) {
       return apiResponse.forbidden(res, 'Only the bureau owner can link clients');
     }
-    await linkCompanyToBureau({
+    const authorized = await linkCompanyToBureau({
       bureauId: parsed.data.bureauId,
       companyId: parsed.data.companyId,
       addedBy: userId,
     });
+    if (!authorized) {
+      return apiResponse.forbidden(res, 'Company management authority is required to link clients');
+    }
     return apiResponse.success(res, { linked: true });
   }
 
