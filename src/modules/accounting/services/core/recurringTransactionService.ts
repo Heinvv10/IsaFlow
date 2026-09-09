@@ -4,11 +4,15 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { computeFingerprint } from '../capture/captureDeduplicationService';
-import { insertWithReservedNumber } from './documentNumberRetry';
-import { RecurringTemplateNotFoundError } from './recurringTransactionErrors';
+import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError } from './recurringTransactionErrors';
+import { lockRecurringTransactionTemplate } from './recurringTemplateLock';
+import {
+  mintRecurringCustomerInvoice,
+  mintRecurringSupplierInvoice,
+} from './recurringTransactionInvoices';
 
 
 export interface RecurringTemplate {
@@ -135,12 +139,21 @@ export async function executeRecurring(
   templateId: string,
   userId: string,
 ): Promise<{ entityType: string; entityId: string; posted: boolean }> {
-  const rows = (await sql`
-    SELECT * FROM recurring_transaction_templates
-    WHERE id = ${templateId}::UUID AND company_id = ${companyId} AND is_active = true
-  `) as DbRow[];
-  if (!rows[0]) throw new RecurringTemplateNotFoundError(templateId);
-  const template = mapRow(rows[0]!);
+  const row = await lockRecurringTransactionTemplate(companyId, templateId);
+  if (!row) throw new RecurringTemplateNotFoundError(templateId);
+  // THE SCHEDULE IS THE IDEMPOTENCY KEY. Without this check `executeRecurring`
+  // ran whenever it was called: it advanced next_run_date at the end but never
+  // read it at the start. What used to stop a repeat run was the month-constant
+  // RINV-<slug>-<YYYYMM> number colliding on uq_customer_invoices_company_number
+  // — an accident, and one that also broke genuine daily templates. Numbers now
+  // come from the company sequence, so a double-click, a client retry or a
+  // re-POST would otherwise mint a SECOND real invoice or bill, silently. The
+  // row lock above is what makes the check-then-act safe: a concurrent run
+  // blocks here, then re-reads the advanced date and is refused.
+  if (!row.is_due) {
+    throw new RecurringTemplateNotDueError(templateId, fmtDate(row.next_run_date));
+  }
+  const template = mapRow(row);
 
   let entityId: string;
   let posted = false;
@@ -162,103 +175,9 @@ export async function executeRecurring(
       posted = true;
     }
   } else if (template.entityType === 'customer_invoice') {
-    // BL-56: populate invoice_number, customer_id, created_by (all NOT-NULL)
-    const data = template.templateData as Record<string, unknown>;
-    // THE NUMBER COMES FROM THE COMPANY SEQUENCE. It used to be
-    // `RINV-<slug>-<YYYYMM>` — the period token is the calendar month, so a
-    // daily or weekly template minted the SAME number on every run after the
-    // first and died on uq_customer_invoices_company_number (23505). The type
-    // is 'customer_invoice', the SAME sequence every other writer of this
-    // table uses: a second type would leave the counter in company settings
-    // failing to account for invoices this runner created.
-    const clientIdCI = data.clientId ? String(data.clientId) : null;
-    entityId = await insertWithReservedNumber(
-      companyId, 'customer_invoice', 'rec_txn_inv_', async (invoiceNumberCI) => {
-        const ciRows = (await sql`
-          INSERT INTO customer_invoices (
-            company_id, invoice_number, client_id, customer_id, invoice_date, due_date,
-            notes, subtotal, tax_amount, total_amount, status, created_by
-          ) VALUES (
-            ${companyId}::UUID,
-            ${invoiceNumberCI},
-            ${clientIdCI},
-            ${clientIdCI},
-            CURRENT_DATE,
-            CURRENT_DATE::DATE + INTERVAL '30 days',
-            ${String(data.notes || template.name)},
-            ${Number(data.subtotal || 0)},
-            ${Number(data.vatAmount || 0)},
-            ${Number(data.totalAmount || 0)},
-            'draft',
-            ${userId}::UUID
-          ) RETURNING id
-        `) as DbRow[];
-        return String(ciRows[0]?.id);
-      });
-    if (template.autoPost) {
-      const postResult = (await sql`UPDATE customer_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID RETURNING id`) as DbRow[];
-      if (postResult.length === 0) throw new Error(`Customer invoice not found for auto-post: ${entityId}`);
-      posted = true;
-    }
+    ({ entityId, posted } = await mintRecurringCustomerInvoice(companyId, template, userId));
   } else {
-    // BL-57: populate invoice_number, created_by (NOT-NULL)
-    const data = template.templateData as Record<string, unknown>;
-    // Same month-constant number as the customer side above, but supplier
-    // invoices had NO unique index, so instead of failing the AP template
-    // minted an identical bill — same number, same duplicate_fingerprint —
-    // on every run, inflating payables and input VAT. Migration 646 adds
-    // uq_supplier_invoices_supplier_number, and the number now comes from the
-    // company sequence. It therefore RETRIES like the customer side: the
-    // number is one this system chose, so a clash means only that some bill
-    // already holds SIV0000042, not that this bill is already captured. Without
-    // the retry one such bill wedged that company's AP templates permanently,
-    // because the failed reservation rolls back with the request and the next
-    // run reserves the very same number again.
-    const recSupplierId = String(data.supplierId || '');
-    const recTotal = Number(data.totalAmount || 0);
-
-    // Fetch supplier vat_number for fingerprint
-    let recVatNumber: string | null = null;
-    if (recSupplierId) {
-      const [recSupRow] = (await sql`
-        SELECT vat_number FROM suppliers
-        WHERE id = ${recSupplierId}::UUID AND company_id = ${companyId}::UUID
-      `) as DbRow[];
-      recVatNumber = recSupRow?.vat_number ?? null;
-    }
-
-    entityId = await insertWithReservedNumber(
-      companyId, 'supplier_invoice', 'rec_txn_bill_', async (invoiceNumberSI) => {
-        // The fingerprint carries the number, so it is rebuilt per attempt.
-        const recFingerprint = computeFingerprint(recVatNumber, invoiceNumberSI, recTotal);
-        const siRows = (await sql`
-          INSERT INTO supplier_invoices (
-            company_id, invoice_number, supplier_id, invoice_date, due_date,
-            reference, notes, subtotal, tax_amount, total_amount, status, created_by,
-            duplicate_fingerprint
-          ) VALUES (
-            ${companyId}::UUID,
-            ${invoiceNumberSI},
-            ${recSupplierId},
-            CURRENT_DATE,
-            CURRENT_DATE::DATE + INTERVAL '30 days',
-            ${String(data.reference || 'AUTO-REC')},
-            ${String(data.notes || data.description || template.name)},
-            ${Number(data.subtotal || 0)},
-            ${Number(data.vatAmount || 0)},
-            ${recTotal},
-            'draft',
-            ${userId}::UUID,
-            ${recFingerprint}
-          ) RETURNING id
-        `) as DbRow[];
-        return String(siRows[0]?.id);
-      });
-    if (template.autoPost) {
-      const postResult = (await sql`UPDATE supplier_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID RETURNING id`) as DbRow[];
-      if (postResult.length === 0) throw new Error(`Supplier invoice not found for auto-post: ${entityId}`);
-      posted = true;
-    }
+    ({ entityId, posted } = await mintRecurringSupplierInvoice(companyId, template, userId));
   }
 
   // Advance schedule

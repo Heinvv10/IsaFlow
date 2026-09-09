@@ -12,7 +12,8 @@
  *    the partial predicate on the index is for.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
+import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { executeRecurring } from '../../src/modules/accounting/services/core/recurringTransactionService';
 import { ensureDocumentNumbers } from '../../src/modules/accounting/services/core/companySettingsService';
@@ -25,6 +26,34 @@ const customer = crypto.randomUUID();
 const supplierA = crypto.randomUUID(), supplierB = crypto.randomUUID();
 const otherCustomer = crypto.randomUUID();
 const arTemplate = crypto.randomUUID(), apTemplate = crypto.randomUUID(), otherTemplate = crypto.randomUUID();
+
+/**
+ * Run inside a real request transaction, exactly as withAuth does. The service
+ * now takes FOR UPDATE on the template and refuses without one, because outside
+ * a transaction that lock is released the instant the SELECT returns.
+ */
+async function inTx<T>(target: string, fn: () => Promise<T>): Promise<T> {
+  const client: PoolClient = await pool.connect();
+  const ctx = { client, userId: user, companyId: target, claims: {} } as unknown as Parameters<typeof als.run>[0];
+  try {
+    await client.query('BEGIN');
+    const out = await als.run(ctx, fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** The next run date arriving, without waiting a week for it. */
+async function makeDue(target: string, templateId: string) {
+  await pool.query(
+    'UPDATE recurring_transaction_templates SET next_run_date = CURRENT_DATE WHERE id=$1 AND company_id=$2',
+    [templateId, target]);
+}
 
 async function seedBill(id: string, supplier: string, number: string, deletedAt: string | null = null) {
   await pool.query(
@@ -67,6 +96,8 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM recurring_transaction_templates WHERE company_id=ANY($1)', [[company, other]]);
+    await pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id=ANY($1))', [[company, other]]);
+    await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id=ANY($1))', [[company, other]]);
     await pool.query('DELETE FROM supplier_invoices WHERE company_id=ANY($1)', [[company, other]]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id=ANY($1)', [[company, other]]);
     await pool.query('DELETE FROM suppliers WHERE company_id=ANY($1)', [[company, other]]);
@@ -85,10 +116,13 @@ it('mints both entity types from the company sequence and leaves the other tenan
   const apBefore = await nextNumber(company, 'supplier_invoice');
   const otherBefore = await nextNumber(other, 'customer_invoice');
 
-  await executeRecurring(company, arTemplate, user);
-  await executeRecurring(company, arTemplate, user);
-  await executeRecurring(company, apTemplate, user);
-  await executeRecurring(other, otherTemplate, user);
+  await inTx(company, () => executeRecurring(company, arTemplate, user));
+  // The second AR run is a genuinely due one a week later, not a double-click:
+  // the schedule guard refuses a repeat while next_run_date is still ahead.
+  await makeDue(company, arTemplate);
+  await inTx(company, () => executeRecurring(company, arTemplate, user));
+  await inTx(company, () => executeRecurring(company, apTemplate, user));
+  await inTx(other, () => executeRecurring(other, otherTemplate, user));
 
   const ar = await pool.query(
     'SELECT invoice_number FROM customer_invoices WHERE company_id=$1 ORDER BY invoice_number', [company]);
@@ -129,4 +163,79 @@ it('lets a soft-deleted bill number be captured again', async () => {
     (err: unknown) => (err as { code?: string }).code ?? String(err),
   );
   expect(recaptured).toBe('accepted');
+});
+
+/**
+ * Line items. `executeRecurring` used to mint a bare header — a receivable in
+ * AR, a payable in AP, with no detail behind it — and those headers now consume
+ * the main INV/SIV sequence alongside real documents. A template that carries
+ * `lines` writes them, and what it writes must FOOT against the header it was
+ * posted from. Templates that predate the field carry only the aggregate and
+ * must still run, so an absent `lines` array is not an error.
+ */
+const linedAr = crypto.randomUUID(), linedAp = crypto.randomUUID();
+const LINES = [
+  { description: 'Retainer hours', quantity: 2, unitPrice: 100, taxRate: 15, lineTotal: 200 },
+  { description: 'Support', quantity: 1, unitPrice: 100, taxRate: 15, lineTotal: 100 },
+];
+
+it('writes lines that foot against the AR header, and still runs a template with none', async () => {
+  await pool.query(
+    `INSERT INTO recurring_transaction_templates(id,company_id,name,entity_type,template_data,frequency,created_by)
+     VALUES($1,$2,'Lined retainer','customer_invoice',$3,'weekly',$4)`,
+    [linedAr, company, JSON.stringify({
+      clientId: customer, subtotal: 300, vatAmount: 45, totalAmount: 345, lines: LINES,
+    }), user]);
+
+  const run = await inTx(company, () => executeRecurring(company, linedAr, user));
+  const foot = await pool.query(
+    `SELECT ci.subtotal::numeric AS header_subtotal, ci.tax_amount::numeric AS header_tax,
+            ci.total_amount::numeric AS header_total,
+            COALESCE(sum(it.amount),0)::numeric AS line_subtotal,
+            COALESCE(sum(it.amount * it.tax_rate / 100),0)::numeric AS line_tax,
+            count(it.id)::int AS n
+       FROM customer_invoices ci
+       LEFT JOIN customer_invoice_items it ON it.invoice_id = ci.id
+      WHERE ci.id=$1 AND ci.company_id=$2
+      GROUP BY ci.id, ci.subtotal, ci.tax_amount, ci.total_amount`,
+    [run.entityId, company]);
+  const r = foot.rows[0];
+  expect.soft(r.n).toBe(2);
+  expect.soft(Number(r.line_subtotal)).toBeCloseTo(Number(r.header_subtotal), 2);
+  expect.soft(Number(r.line_tax)).toBeCloseTo(Number(r.header_tax), 2);
+  expect.soft(Number(r.header_total)).toBeCloseTo(Number(r.header_subtotal) + Number(r.header_tax), 2);
+
+  // The pre-`lines` template shape: aggregate only, and it must still run.
+  await makeDue(company, arTemplate);
+  const legacy = await inTx(company, () => executeRecurring(company, arTemplate, user));
+  const legacyLines = await pool.query(
+    'SELECT count(*)::int AS n FROM customer_invoice_items WHERE invoice_id=$1', [legacy.entityId]);
+  expect(legacyLines.rows[0].n).toBe(0);
+});
+
+it('writes lines that foot against the AP header', async () => {
+  await pool.query(
+    `INSERT INTO recurring_transaction_templates(id,company_id,name,entity_type,template_data,frequency,created_by)
+     VALUES($1,$2,'Lined supply','supplier_invoice',$3,'weekly',$4)`,
+    [linedAp, company, JSON.stringify({
+      supplierId: supplierA, subtotal: 300, vatAmount: 45, totalAmount: 345, lines: LINES,
+    }), user]);
+
+  const run = await inTx(company, () => executeRecurring(company, linedAp, user));
+  const foot = await pool.query(
+    `SELECT si.subtotal::numeric AS header_subtotal, si.tax_amount::numeric AS header_tax,
+            si.total_amount::numeric AS header_total,
+            COALESCE(sum(it.line_total),0)::numeric AS line_subtotal,
+            COALESCE(sum(it.tax_amount),0)::numeric AS line_tax,
+            count(it.id)::int AS n
+       FROM supplier_invoices si
+       LEFT JOIN supplier_invoice_items it ON it.supplier_invoice_id = si.id
+      WHERE si.id=$1 AND si.company_id=$2
+      GROUP BY si.id, si.subtotal, si.tax_amount, si.total_amount`,
+    [run.entityId, company]);
+  const r = foot.rows[0];
+  expect.soft(r.n).toBe(2);
+  expect.soft(Number(r.line_subtotal)).toBeCloseTo(Number(r.header_subtotal), 2);
+  expect.soft(Number(r.line_tax)).toBeCloseTo(Number(r.header_tax), 2);
+  expect(Number(r.header_total)).toBeCloseTo(Number(r.header_subtotal) + Number(r.header_tax), 2);
 });

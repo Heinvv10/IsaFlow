@@ -13,3 +13,19 @@ export class RecurringTemplateNotFoundError extends Error {
     this.name = 'RecurringTemplateNotFoundError';
   }
 }
+
+/**
+ * The template's schedule has not come round yet.
+ *
+ * This is what makes a double-click, a client retry or a re-POST a no-op: the
+ * first run advances `next_run_date` past today under the row lock taken in
+ * recurringTemplateLock, so the second run sees a future date and is refused.
+ * Nothing has been written when it is raised, so the route may answer 409.
+ */
+export class RecurringTemplateNotDueError extends Error {
+  readonly code = 'RECURRING_TEMPLATE_NOT_DUE';
+  constructor(templateId: string, public readonly nextRunDate: string) {
+    super(`Recurring template ${templateId} is not due until ${nextRunDate}.`);
+    this.name = 'RecurringTemplateNotDueError';
+  }
+}

@@ -10,7 +10,8 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
-import { RecurringTemplateNotFoundError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -33,6 +34,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // reservation so the next run failed identically forever.
     if (err instanceof RecurringTemplateNotFoundError) {
       return apiResponse.notFound(res, 'Active recurring template', templateId);
+    }
+    // Both of these are raised by the row lock, before the first INSERT, so the
+    // 4xx COMMIT is a commit of nothing. NOT_DUE is the double-click / retry /
+    // re-POST answer: the previous run already advanced the schedule.
+    if (err instanceof RecurringTemplateNotDueError) {
+      return apiResponse.conflict(res, err.message, { nextRunDate: err.nextRunDate });
+    }
+    if (err instanceof RecurringTemplateLockTimeoutError) {
+      return apiResponse.conflict(res, err.message);
     }
     throw err;
   }

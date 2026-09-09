@@ -14,7 +14,8 @@
  * still refused BEFORE any write — the only failure a 4xx may answer.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
+import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { executeRecurring } from '../../src/modules/accounting/services/core/recurringTransactionService';
 import { RecurringTemplateNotFoundError } from '../../src/modules/accounting/services/core/recurringTransactionErrors';
@@ -26,6 +27,27 @@ const company = crypto.randomUUID();
 const user = crypto.randomUUID();
 const supplier = crypto.randomUUID();
 const apTemplate = crypto.randomUUID();
+
+/**
+ * Run inside a real request transaction, exactly as withAuth does. The service
+ * now takes FOR UPDATE on the template and refuses without one, because outside
+ * a transaction that lock is released the instant the SELECT returns.
+ */
+async function inTx<T>(fn: () => Promise<T>): Promise<T> {
+  const client: PoolClient = await pool.connect();
+  const ctx = { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0];
+  try {
+    await client.query('BEGIN');
+    const out = await als.run(ctx, fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 async function apNext(): Promise<number> {
   const r = await pool.query(
@@ -64,7 +86,7 @@ it('takes the next free number when a bill already holds the one the sequence of
     [crypto.randomUUID(), company, taken, supplier, user]);
 
   const before = await apNext();
-  const first = await executeRecurring(company, apTemplate, user);
+  const first = await inTx(() => executeRecurring(company, apTemplate, user));
   expect.soft(first.entityType).toBe('supplier_invoice');
 
   const minted = await pool.query('SELECT invoice_number FROM supplier_invoices WHERE id=$1', [first.entityId]);
@@ -76,7 +98,12 @@ it('takes the next free number when a bill already holds the one the sequence of
 });
 
 it('runs again the next day instead of wedging on the same number', async () => {
-  const second = await executeRecurring(company, apTemplate, user);
+  // The next day arriving. Without this the schedule guard refuses the run —
+  // that direction is covered in k107-recurring-invoice-number-collision.
+  await pool.query(
+    'UPDATE recurring_transaction_templates SET next_run_date = CURRENT_DATE WHERE id=$1 AND company_id=$2',
+    [apTemplate, company]);
+  const second = await inTx(() => executeRecurring(company, apTemplate, user));
   const bills = await pool.query(
     'SELECT count(*)::int AS n, count(DISTINCT invoice_number)::int AS distinct_numbers FROM supplier_invoices WHERE company_id=$1',
     [company]);
@@ -88,7 +115,7 @@ it('runs again the next day instead of wedging on the same number', async () => 
 
 it('refuses a missing template before writing anything, which is the only failure a 4xx may answer', async () => {
   const before = await apNext();
-  await expect(executeRecurring(company, crypto.randomUUID(), user))
+  await expect(inTx(() => executeRecurring(company, crypto.randomUUID(), user)))
     .rejects.toBeInstanceOf(RecurringTemplateNotFoundError);
   expect(await apNext()).toBe(before);
 });
