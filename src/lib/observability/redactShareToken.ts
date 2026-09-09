@@ -1,15 +1,7 @@
-/** A 43-character base64url run is a share token wherever it sits after a
- *  `/share/` path segment or in a query parameter whose NAME contains `token`.
- *  Both forms are redacted; a 43-character segment anywhere else is left alone,
- *  because uuids and ids of other shapes must stay readable in logs.
- *
- *  Case-insensitive, and tolerant of repeated slashes, because a proxy or a
- *  hand-typed link can present `/SHARE//<token>` and Next.js will still route
- *  it — a redactor that only matched the canonical form would pass the token
- *  straight through to the log. The parameter name is matched loosely
- *  (`token`, `share_token`, `t_token`) for the same reason. */
+/** Share path credentials and token-named query values must never reach logs.
+ * Query names may be percent-encoded; redact their entire value regardless of shape. */
 const TOKEN_IN_PATH = /(\/share\/+)[A-Za-z0-9_-]{43}/gi;
-const TOKEN_IN_QUERY = /([?&][^=&#]*token[^=&#]*=)[A-Za-z0-9_-]{43}/gi;
+const QUERY_VALUE = /([?&])([^=&#]+)=([^&#]*)/g;
 
 /** THE rule for "is this parameter name a token?", so the URL redactor above
  *  and the parsed-query redactor below cannot disagree. They did: this module
@@ -31,7 +23,12 @@ export function isTokenParamName(name: string): boolean {
  *  `@/lib/observability/redactShareToken` directly. */
 export function redactShareToken(url: string): string {
   if (!url) return url;
-  return url.replace(TOKEN_IN_PATH, '$1[token]').replace(TOKEN_IN_QUERY, '$1[token]');
+  return url.replace(TOKEN_IN_PATH, '$1[token]').replace(QUERY_VALUE, (match, separator: string, name: string) => {
+    let decoded: string;
+    try { decoded = decodeURIComponent(name.replace(/\+/g, ' ')); }
+    catch { decoded = name; }
+    return isTokenParamName(decoded) ? `${separator}${name}=[token]` : match;
+  });
 }
 
 /** Redact every token-named parameter of an already-parsed query object.

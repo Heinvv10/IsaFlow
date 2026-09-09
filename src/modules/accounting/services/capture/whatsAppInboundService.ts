@@ -71,8 +71,10 @@ type Row = Record<string, unknown>;
 
 export async function ingestTwilioPayload(
   payload: TwilioInboundPayload,
+  binding?: { companyId: string; inboxId: string; tokenHash: string },
 ): Promise<IngestResult> {
-  // 1. Resolve company via the To address → capture_inboxes
+  if (!binding) return { rejected: 'destination verification required' };
+  // Recheck the verified binding before any ingestion effects.
   const toNumber = stripWaPrefix(payload.To);
   if (!toNumber) {
     log.warn(
@@ -86,7 +88,9 @@ export async function ingestTwilioPayload(
   const inboxRows = (await sql`
     SELECT id, company_id
     FROM capture_inboxes
-    WHERE btrim(address) = ${toNumber}
+    WHERE company_id = ${binding.companyId}::uuid AND id = ${binding.inboxId}::uuid
+      AND webhook_token_hash = ${binding.tokenHash} AND provider_verified_at IS NOT NULL
+      AND btrim(address) = ${toNumber}
       AND channel = 'whatsapp'
       AND is_active = true
     LIMIT 2
