@@ -1,0 +1,18 @@
+=== GREEN (fix in place) ===
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+=== MUTATION 1: restore the premature period advance in generateDueCharges ===
+     × must not roll the period forward while the debit is still unsettled 66ms
+     × advances the period onto the charge it settled 38ms
+     × settlement lifts the past_due raised by the earlier failed attempts 56ms
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+=== MUTATION 2: drop markPastDueIfExhausted from the declined path ===
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+=== MUTATION 3: drop advancePeriodForSettledCharge from the settled path ===
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+=== RESTORED ===
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
