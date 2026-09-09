@@ -27,7 +27,6 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { VAT_TAX_SUBTYPES } from './vatBoxBasis';
 
 /** Both spellings of a killed document are in use across AR and the credit notes. */
 const CANCELLED_STATUSES: readonly string[] = ['cancelled', 'void', 'voided'];
@@ -71,11 +70,24 @@ export async function getNilRatedSupplies(
 ): Promise<NilRatedSupplies> {
   const rows = (await sql`
     WITH taxed_entries AS (
+      -- Journals whose base deriveVatBoxes puts on a TAXED output box, which
+      -- is the only case where field 1 must give the nil-rated share back.
+      -- The test is the OUTPUT control leg's own VAT code, not its amount:
+      --   * a wholly zero-rated invoice posting a R0.00 leg coded zero_rated
+      --     has one output type, so the whole base goes to box 2 - no deduction,
+      --     and deducting made field 1 render minus the export turnover;
+      --   * the same invoice posting a R0.00 leg coded standard has one TAXED
+      --     type, so the whole base goes to box 1 - the deduction is required,
+      --     or the R20 000 is declared in both field 1 and field 2;
+      --   * a mixed journal's nil-rated type takes a pro-rata share of nil, so
+      --     its base sits on box 1 whatever the nil-rated leg is worth.
+      -- A leg with no code at all defaults to standard there, so it is taxed.
       SELECT DISTINCT jl.journal_entry_id AS id
       FROM gl_journal_lines jl
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE jl.company_id = ${companyId}::UUID
-        AND COALESCE(ga.account_subtype, '') = ANY(${VAT_TAX_SUBTYPES as unknown as string[]}::TEXT[])
+        AND COALESCE(ga.account_subtype, '') = 'vat_output'
+        AND (jl.vat_type IS NULL OR jl.vat_type <> ALL(${NIL_RATED_TYPES as string[]}::TEXT[]))
     ),
     cancelled_entries AS (
       SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
