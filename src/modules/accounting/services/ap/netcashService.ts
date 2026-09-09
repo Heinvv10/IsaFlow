@@ -5,7 +5,7 @@
  * Auth: ServiceKey header
  *
  * NOTE: This service requires valid Netcash API credentials.
- * Without credentials it returns structured mock responses.
+ * Submission is owned by the immutable payment release dispatcher.
  * Register at https://www.netcash.co.za to obtain keys.
  */
 
@@ -46,60 +46,11 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
-/**
- * Submit an EFT batch payment to Netcash.
- * Returns a mock response when API keys are absent (sandbox/dev mode).
- */
+/** Legacy primitive is closed: only the committed release dispatcher may transmit money. */
 export async function submitEftBatch(
-  serviceKey: string,
-  payoutsKey: string,
-  payments: NetcashPayment[],
+  _serviceKey: string, _payoutsKey: string, _payments: NetcashPayment[],
 ): Promise<NetcashSubmitResult> {
-  if (!serviceKey || !payoutsKey) {
-    log.warn('Netcash EFT submit called without API keys — returning mock response', {}, 'netcash');
-    return {
-      success: true,
-      batchReference: `MOCK-${Date.now()}`,
-      mock: true,
-    };
-  }
-
-  const body = {
-    serviceKey,
-    payoutsKey,
-    payments: payments.map(p => ({
-      accountHolder: p.accountHolder,
-      bankCode: p.bankCode,
-      accountNumber: p.accountNumber,
-      amountCents: p.amount,
-      reference: p.reference,
-    })),
-  };
-
-  try {
-    const res = await fetchWithTimeout(`${NETCASH_BASE_URL}/v1/eft/submit`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ServiceKey': serviceKey,
-      },
-      body: JSON.stringify(body),
-    });
-
-    const json = await res.json() as Record<string, unknown>;
-
-    if (!res.ok) {
-      log.error('Netcash EFT submit failed', { status: res.status, body: json }, 'netcash');
-      return { success: false, error: String(json.message ?? 'Netcash API error') };
-    }
-
-    log.info('Netcash EFT batch submitted', { batchReference: json.batchReference, count: payments.length }, 'netcash');
-    return { success: true, batchReference: String(json.batchReference ?? '') };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Network error';
-    log.error('Netcash EFT submit exception', { error: msg }, 'netcash');
-    return { success: false, error: msg };
-  }
+  throw new Error('A committed authorized payment release is required');
 }
 
 /**
@@ -110,8 +61,7 @@ export async function getSubmissionStatus(
   batchReference: string,
 ): Promise<NetcashStatusResult> {
   if (!serviceKey) {
-    log.warn('Netcash status poll called without service key — returning mock', {}, 'netcash');
-    return { status: 'processing', detail: 'Mock status — no API key configured', mock: true };
+    return { status: 'unknown', detail: 'Provider credentials are unavailable' };
   }
 
   try {

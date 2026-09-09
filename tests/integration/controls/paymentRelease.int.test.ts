@@ -1,0 +1,143 @@
+import {afterAll,beforeAll,expect,it,vi} from 'vitest';
+import {randomUUID,randomBytes} from 'node:crypto';
+import {Pool} from 'pg';
+import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
+import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
+import {seedApAccounts} from './apSyntheticAccounts';
+import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
+import {finalizeRequestTransaction} from '@/lib/auth/transactionFinalization';
+import {voidSupplierPayment} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {seedReleaseSupplier} from './paymentReleaseFixture';
+import {createBatch,approveBatch,processBatch} from '@/modules/accounting/services/ap/batchPaymentService';
+import {createPaymentReleaseIntent,enqueuePaymentRelease} from '@/modules/accounting/services/ap/paymentReleaseService';
+import {schedulePaymentReleaseDispatch,closePaymentReleasePool} from '@/modules/accounting/services/ap/paymentReleaseDispatcher';
+import {getReleasedEftFile} from '@/modules/accounting/services/ap/paymentReleaseFile';
+import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
+import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
+process.env.DATABASE_URL=target.connectionString;process.env.DATABASE_SSL='disable';
+const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3});
+let fixture:ForensicFixture,accounts:Awaited<ReturnType<typeof seedApAccounts>>;
+beforeAll(async()=>{
+ process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
+ process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
+ vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('External requests are disabled in synthetic release tests');}));
+ fixture=await provisionForensicFixture(config);accounts=await seedApAccounts(pool,fixture.companyA);
+ await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+ VALUES($1,$2,'Synthetic release September',9,2026,'2026-09-01','2026-09-30','open')`,[randomUUID(),fixture.companyA]);
+});
+afterAll(async()=>{await closePaymentReleasePool();await pool.end();vi.unstubAllGlobals();});
+async function actor<T>(action:(ctx:ControlTx)=>Promise<T>,person:'u1'|'u2'='u1'){
+ const client=await pool.connect(),user=fixture[person];
+ try{
+  await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
+  await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",
+   [JSON.stringify({sub:user.id,role:'authenticated',company_id:user.companyId}),user.companyId]);
+  const value=await withControlRequest({client,userId:user.id,companyId:user.companyId,claims:{}},
+   {personId:user.id,companyId:user.companyId,authMethod:'cookie'},()=>action(requireControlTx()));
+  await finalizeRequestTransaction(client,false);return value;
+ }catch(error){await finalizeRequestTransaction(client,true);throw error;}finally{client.release();}
+}
+it('refuses individual reversal of a one-child batch before journal or settlement changes',async()=>{
+ const supplier=randomUUID(),batch=randomUUID(),payment=randomUUID();
+ await pool.query('INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,$3)',[supplier,fixture.companyA,'Synthetic batch supplier']);
+ await pool.query(`INSERT INTO supplier_payment_batches(id,company_id,batch_number,batch_date,total_amount,payment_count,payment_method,status,created_by)
+  VALUES($1,$2,$3,'2026-09-09',115,1,'eft','processed',$4)`,[batch,fixture.companyA,batch,fixture.u1.id]);
+ await pool.query(`INSERT INTO supplier_payments(id,company_id,supplier_id,payment_number,payment_date,total_amount,status,batch_id,created_by)
+  VALUES($1,$2,$3,$4,'2026-09-09',115,'processed',$5,$6)`,[payment,fixture.companyA,supplier,payment,batch,fixture.u1.id]);
+ await expect(actor(()=>voidSupplierPayment(fixture.companyA,payment,fixture.u1.id))).rejects.toThrow('batch');
+ const result=await pool.query('SELECT status FROM supplier_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,payment]);
+ expect(result.rows[0].status).toBe('processed');
+ const effects=await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,payment]);
+ expect(effects.rowCount).toBe(0);
+});
+
+it('posts one aggregate journal and consumes independent release approval into immutable reservations',async()=>{
+ const {supplier,batch}=await postedBatch();
+ const journals=await pool.query("SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source='auto_batch_payment' AND source_record_id=$2",[fixture.companyA,batch.id]);
+ expect(journals.rowCount).toBe(1);
+ const payments=await pool.query('SELECT id,status,gl_journal_entry_id FROM supplier_payments WHERE company_id=$1 AND batch_id=$2',[fixture.companyA,batch.id]);
+ expect(payments.rows).toHaveLength(1);expect(payments.rows[0].gl_journal_entry_id).toBe(journals.rows[0].id);
+ const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ const approval=await actor(ctx=>requestOperationApproval(ctx,{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch'}));
+ await expect(actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'))).rejects.toThrow();
+ await actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');
+ await actor(ctx=>enqueuePaymentRelease(ctx,intent.intentId,approval.id));
+ const reserved=await pool.query('SELECT payment_id FROM control_payment_release_reservations WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
+ expect(reserved.rows).toEqual([{payment_id:payments.rows[0].id}]);
+ await expect(actor(async ctx=>{await schedulePaymentReleaseDispatch(ctx,intent.intentId);throw new Error('Synthetic rollback');})).rejects.toThrow('Synthetic rollback');
+ const rolled=await pool.query('SELECT state FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
+ expect(rolled.rows[0].state).toBe('ready');
+ await actor(ctx=>schedulePaymentReleaseDispatch(ctx,intent.intentId));
+ const exported=await pool.query('SELECT state FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
+ expect(exported.rows[0].state).toBe('exported');
+ const file=await actor(ctx=>getReleasedEftFile(ctx,intent.intentId));expect(file.content).toContain(supplier.bank.accountNumber);
+ await actor(ctx=>schedulePaymentReleaseDispatch(ctx,intent.intentId));
+ const attempts=await pool.query("SELECT id FROM control_change_events WHERE company_id=$1 AND entity_id=$2 AND action='payment_release.attempting'",[fixture.companyA,intent.intentId]);
+ expect(attempts.rowCount).toBe(1);
+});
+
+async function postedBatch(){
+ const supplier=await seedReleaseSupplier(pool,fixture,(person,fn)=>actor(fn,person));
+ const invoice=randomUUID();
+ await pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,tax_rate,tax_amount,total_amount,currency,status,created_by)
+ VALUES($1,$2,$3,$4,'2026-09-09',100,15,15,115,'ZAR','approved',$5)`,[invoice,fixture.companyA,supplier.supplier,invoice,fixture.u1.id]);
+ await pool.query(`UPDATE gl_accounts SET bank_account_number='00123456789',bank_branch_code='001234',bank_account_type='current'
+ WHERE company_id=$1 AND id=$2`,[fixture.companyA,accounts.bank]);
+ const batch=await actor(()=>createBatch(fixture.companyA,{batchDate:'2026-09-09',paymentMethod:'eft',bankAccountId:accounts.bank,
+ payments:[{supplierId:supplier.supplier,invoiceAllocations:[{invoiceId:invoice,amount:115}]}]},fixture.u1.id));
+ await actor(()=>approveBatch(fixture.companyA,batch.id,fixture.u1.id));
+ await actor(()=>processBatch(fixture.companyA,batch.id,fixture.u1.id));
+ return{supplier,batch};
+}
+
+it.each(['unknown','accepted'] as const)('commits attempting before fake Netcash transport and never retransmits %s outcome',async expected=>{
+ const {batch}=await postedBatch();
+ await pool.query("UPDATE companies SET netcash_enabled=true,netcash_service_key='synthetic-service-key',netcash_payouts_key='synthetic-payout-key' WHERE id=$1",[fixture.companyA]);
+ const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'netcash'}));
+ const approval=await actor(ctx=>requestOperationApproval(ctx,{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch'}));
+ await actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');
+ await actor(ctx=>enqueuePaymentRelease(ctx,intent.intentId,approval.id));
+ let observedState:unknown,observedAttempt:unknown;
+ const transport=vi.fn(async()=>{
+  const visible=await pool.query('SELECT state,attempt_id FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
+  observedState=visible.rows[0]?.state;observedAttempt=visible.rows[0]?.attempt_id;
+  return expected==='accepted'?new Response(JSON.stringify({batchReference:'synthetic-confirmed'}),{status:200}):new Response('uncertain',{status:503});
+ });
+ vi.stubGlobal('fetch',transport);
+ await actor(ctx=>schedulePaymentReleaseDispatch(ctx,intent.intentId));
+ const result=await pool.query('SELECT state FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
+ expect(result.rows[0].state).toBe(expected);expect(transport).toHaveBeenCalledTimes(1);
+ expect(observedState).toBe('attempting');expect(observedAttempt).toBeTruthy();
+ await actor(ctx=>schedulePaymentReleaseDispatch(ctx,intent.intentId));
+ expect(transport).toHaveBeenCalledTimes(1);
+});
+it('concurrent independently approved intents cannot reserve the same payment twice',async()=>{
+ const {batch}=await postedBatch();
+ const intents=[];
+ for(let i=0;i<2;i++){
+  const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+  const approval=await actor(ctx=>requestOperationApproval(ctx,{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch'}));
+  await actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');intents.push({intentId:intent.intentId,approvalId:approval.id});
+ }
+ const results=await Promise.allSettled(intents.map(intent=>actor(ctx=>enqueuePaymentRelease(ctx,intent.intentId,intent.approvalId))));
+ expect(results.filter(result=>result.status==='fulfilled')).toHaveLength(1);
+ expect(results.filter(result=>result.status==='rejected')).toHaveLength(1);
+ const reservations=await pool.query('SELECT intent_id FROM control_payment_release_reservations WHERE company_id=$1 AND intent_id=ANY($2::uuid[])',[fixture.companyA,intents.map(intent=>intent.intentId)]);
+ expect(reservations.rowCount).toBe(1);
+ const outboxes=await pool.query('SELECT intent_id FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=ANY($2::uuid[])',[fixture.companyA,intents.map(intent=>intent.intentId)]);
+ expect(outboxes.rowCount).toBe(1);
+});
+it('rechecks revoked approver authority before taking a queued dispatch claim',async()=>{
+ const {batch}=await postedBatch();
+ const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ const approval=await actor(ctx=>requestOperationApproval(ctx,{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch'}));
+ await actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');
+ await actor(ctx=>enqueuePaymentRelease(ctx,intent.intentId,approval.id));
+ await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);
+ try{
+  await actor(ctx=>schedulePaymentReleaseDispatch(ctx,intent.intentId));
+  const row=await pool.query('SELECT state,attempt_id FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
+  expect(row.rows[0]).toEqual({state:'ready',attempt_id:null});
+ }finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);}
+});
