@@ -30,6 +30,7 @@ export const OAUTH_SCOPES = [
   'write:audit',
   'write:controls',
   'write:locks',
+  'write:release',
   'read:payroll-sensitive',
   'offline_access',
 ] as const;

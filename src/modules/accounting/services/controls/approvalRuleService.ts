@@ -8,6 +8,7 @@ export interface ApprovalRuleRow {
   id: string; document_type: string; condition_field: string; condition_operator: string;
   condition_value: string; approver_role: string; control_version: number; is_active: boolean;
   aggregate_window_days: number | null; aggregate_by: string | null;
+  mandatory?: boolean;
 }
 
 export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: string | null,
@@ -34,7 +35,7 @@ export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: st
       || (rule.condition_operator === 'greater_than' && tested!.gt(threshold))
       || (rule.condition_operator === 'greater_equal' && tested!.gte(threshold))) {
       matches.push({ policyId: rule.id, policyVersion: rule.control_version,
-        approverRole: rule.approver_role, mandatory: false });
+        approverRole: rule.approver_role, mandatory: rule.mandatory === true });
     }
   }
   return matches;
@@ -50,5 +51,20 @@ export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType
       AND document_type=${documentType} AND is_active=true ORDER BY id LIMIT 101 FOR SHARE
   ` as ApprovalRuleRow[];
   if (rows.length > 100) throw new Error('Approval policy population exceeds execution limit');
-  return rows.map(row => ({ ...row, control_version: Number(row.control_version) }));
+  const rules = rows.map(row => ({ ...row, control_version: Number(row.control_version) }));
+  if (documentType === 'payment_release') {
+    const policies = await ctx.sql`
+      SELECT id,version AS control_version,approver_role
+      FROM control_mandatory_release_policies WHERE company_id=${ctx.principal.companyId}::uuid
+    ` as { id: string; control_version: number | string; approver_role: string }[];
+    const policy = policies[0];
+    if (policies.length !== 1 || !policy || Number(policy.control_version) !== 1 || policy.approver_role !== 'admin') {
+      throw new Error('Mandatory release policy is unavailable');
+    }
+    rules.push({ id: policy.id, document_type: documentType, condition_field: 'amount',
+      condition_operator: 'any', condition_value: '0', approver_role: policy.approver_role,
+      control_version: Number(policy.control_version), is_active: true, aggregate_window_days: null,
+      aggregate_by: null, mandatory: true });
+  }
+  return rules;
 }
