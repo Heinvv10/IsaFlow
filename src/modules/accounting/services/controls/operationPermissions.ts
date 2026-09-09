@@ -35,4 +35,7 @@ function definition(operation:string){
 export function operationPermission(operation:string,access:'read'|'write'):string{return definition(operation)[access];}
 export function operationRuleType(operation:string){return definition(operation).rule;}
 
-export function operationRequiresPosting(operation:string):boolean{return definition(operation).write!=='write:locks'&&operation!=='payment_release.dispatch';}
+export function operationRequiresPosting(operation:string):boolean{
+  const write=definition(operation).write;
+  return operation==='year.close'||(write!=='write:locks'&&operation!=='payment_release.dispatch');
+}

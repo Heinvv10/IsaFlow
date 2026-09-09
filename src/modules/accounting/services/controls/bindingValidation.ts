@@ -1,7 +1,7 @@
 import { CONTROL_OPERATIONS, type OperationBinding } from './contracts';
 
 const NONMONETARY = new Set<string>([
-  'fiscal_period.close', 'fiscal_period.lock', 'fiscal_period.reopen', 'year.close', 'year.periods_close',
+  'fiscal_period.close', 'fiscal_period.lock', 'fiscal_period.reopen', 'year.periods_close',
   'company_lockdown.change', 'vat_period.lock', 'beneficiary.propose', 'beneficiary.verify',
   'beneficiary.activate', 'payroll_run.reopen',
 ]);
