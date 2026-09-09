@@ -42,8 +42,10 @@ vi.mock('@/modules/accounting/services/gl/reclassification/lineLock', () => ({
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   getAccountById: vi.fn(async (_c: string, id: string) => ({
     id, accountCode: id === 'src' ? '49775627' : '5100', accountName: 'Fixture',
-    // `level` feeds the header-account guard (K-052); a leaf level skips its query.
-    accountType: 'expense', accountSubtype: null, isActive: true, level: 3,
+    // asset + level 3: the header guard (K-052) applies to this type, and the
+    // leaf level is what makes it skip its child query and its row lock.
+    // Drop either and the mock falls through to a live DB read.
+    accountType: 'asset', accountSubtype: null, isActive: true, level: 3,
   })),
 }));
 vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({

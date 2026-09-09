@@ -19,9 +19,7 @@
  */
 import { sql } from '@/lib/neon';
 import { reportingClassFor } from './accountReportingClass';
-import {
-  BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, hasChildAccounts,
-} from './isReportVisibleLeaf';
+import { hasChildAccounts, isSubjectToLeafRule } from './isReportVisibleLeaf';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
   findConfigurationReferences,
@@ -161,8 +159,7 @@ async function hasJournalLines(companyId: string, accountId: string): Promise<bo
 export async function assertTargetStaysOnTheReports(
   companyId: string, source: MergeAccount, target: MergeAccount,
 ): Promise<void> {
-  if (!LEAF_RULE_ACCOUNT_TYPES.has(target.accountType)) return;
-  if (target.level >= BALANCE_SHEET_LEAF_LEVEL) return;
+  if (!isSubjectToLeafRule(target.level, target.accountType)) return;
 
   const sourceHasChildren = await hasChildAccounts(companyId, source.id);
   const targetHasChildren = await hasChildAccounts(companyId, target.id);

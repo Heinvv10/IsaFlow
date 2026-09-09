@@ -17,6 +17,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { als } from '../../src/lib/als';
 import { getPoolForTests } from '../../src/lib/neon';
 import { mergeAccounts } from '../../src/modules/accounting/services/gl/accountMergeService';
+import { assertParentUsable } from '../../src/modules/accounting/services/gl/accountParentRules';
 import { getBalanceSheet } from '../../src/modules/accounting/services/reports/balanceSheetService';
 
 assertDisposable();
@@ -39,6 +40,8 @@ const ancGrand = crypto.randomUUID();
 const linedSource = crypto.randomUUID();
 const raceTarget = crypto.randomUUID(), raceSource = crypto.randomUUID();
 const raceIntruder = crypto.randomUUID();
+const sageTarget = crypto.randomUUID(), sageSource = crypto.randomUUID();
+const postedExpenseParent = crypto.randomUUID(), postedAssetParent = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 
 async function postJournal(entryNumber: string, legs: [string, number, number][]) {
@@ -122,6 +125,16 @@ beforeAll(async () => {
      VALUES($1,$2,'K051-1900','K051 Bonds (level 2 leaf)','asset','debit',2,true,NULL),
             ($3,$2,'K051-1950','K051 Bond deposits','asset','debit',3,true,NULL)`,
     [raceTarget, company, raceSource]);
+  // A Sage-shaped chart: the leaves sit at level 1, so an ordinary merge lands a
+  // real balance on a CHILDLESS level-1 target and must still run. Plus the two
+  // posted parents `assertParentUsable` judges — same level, different type.
+  await pool.query(
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
+     VALUES($1,$2,'K051-2000','K051 Sage cashbook (level 1 leaf)','asset','debit',1,true,NULL),
+            ($3,$2,'K051-2050','K051 Sage petty cash','asset','debit',3,true,NULL),
+            ($4,$2,'K051-6700','K051 Admin expenses (posted, level 2)','expense','debit',2,true,NULL),
+            ($5,$2,'K051-2100','K051 Deposits paid (posted, level 2)','asset','debit',2,true,NULL)`,
+    [sageTarget, company, sageSource, postedExpenseParent, postedAssetParent]);
   // The expense journal below gives the company a non-zero current-year result,
   // and `balanceSheetService` then resolves the retained-earnings role.
   await pool.query(
@@ -146,6 +159,12 @@ beforeAll(async () => {
   await postJournal('K051-JE-PETTY', [[linedSource, 75, 0], [equity, 0, 75]]);
   await postJournal('K051-JE-EXPENSE', [[expenseSource, 90, 0], [equity, 0, 90]]);
   await postJournal('K051-JE-RACE', [[raceSource, 60, 0], [equity, 0, 60]]);
+  // crossSource needs a balance, or the guard's harmless-source exemption
+  // returns before the cross-tenant child read the test below is about.
+  await postJournal('K051-JE-CROSS', [[crossSource, 40, 0], [equity, 0, 40]]);
+  await postJournal('K051-JE-SAGE', [[sageSource, 120, 0], [equity, 0, 120]]);
+  await postJournal('K051-JE-PARENTS',
+    [[postedExpenseParent, 110, 0], [postedAssetParent, 130, 0], [equity, 0, 240]]);
 });
 
 afterAll(async () => {
@@ -162,8 +181,8 @@ afterAll(async () => {
   } finally { await pool.end(); }
 });
 
-/** 500 + 1000 source + 300 leafSource + 250 deepSource + 75 linedSource + 60 raceSource. */
-const OPENING_ASSETS = 2185;
+/** 500 + 1000 + 300 leaf + 250 deep + 75 lined + 60 race + 40 cross + 120 sage + 130 parent. */
+const OPENING_ASSETS = 2475;
 
 it('refuses a merge that would turn the target into a header account', async () => {
   expect(await assetsOnBalanceSheet()).toBeCloseTo(OPENING_ASSETS, 2);
@@ -236,6 +255,27 @@ it('admits a level-2 EXPENSE header target — the income statement has no level
 it('reports the CYCLE, not the header rule, when the target descends from the source', async () => {
   await expect(runMerge(ancSource, ancTarget))
     .rejects.toMatchObject({ code: 'target_is_descendant_of_source' });
+});
+
+it('merges a Sage level-1 leaf target — a childless target loses nothing', async () => {
+  // The shape `isReportVisibleLeaf`'s docstring promises keeps working: the
+  // target is level 1 and CHILDLESS, so both reports still select it and the
+  // R120 lands there. Without this the branch that admits it is unexecuted.
+  const before = await assetsOnBalanceSheet();
+  const result = await runMerge(sageSource, sageTarget);
+  expect(result.sourceDeactivated).toBe(true);
+  expect(await assetLine('K051-2000')).toBeCloseTo(120, 2);
+  expect(await assetLine('K051-2050')).toBeCloseTo(0, 2);
+  expect(await assetsOnBalanceSheet()).toBeCloseTo(before, 2);
+});
+
+it('lets a posted level-2 EXPENSE parent take a child, and refuses the asset one', async () => {
+  // `assertParentUsable` guards the third write path — createAccount and
+  // reclassifyAccount. It carried the same false reason the merge guard did.
+  await expect(assertParentUsable(company, postedExpenseParent, 'expense'))
+    .resolves.toEqual({ childLevel: 3 });
+  await expect(assertParentUsable(company, postedAssetParent, 'asset'))
+    .rejects.toThrow(/journal lines posted to it/);
 });
 
 it("ignores another tenant's child when judging a level-1 leaf target", async () => {
