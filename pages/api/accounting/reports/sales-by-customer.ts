@@ -24,19 +24,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rows = await sql`
       SELECT
         COALESCE(ci.client_id, ci.customer_id) AS client_id,
-        c.name AS client_name,
+        COALESCE(c.name, 'Unknown customer') AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0)::numeric AS total_sales,
-        COALESCE(SUM(ci.amount_paid), 0)::numeric AS payments_received,
-        COALESCE(SUM(ci.total_amount - ci.amount_paid), 0)::numeric AS outstanding
+        COALESCE(SUM(COALESCE(ci.amount_paid, 0)), 0)::numeric AS payments_received,
+        COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0)::numeric AS outstanding
       FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-                      AND c.company_id = ci.company_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+                           AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
         AND ci.status != 'cancelled'
-      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), COALESCE(c.name, 'Unknown customer')
       ORDER BY total_sales DESC
     `;
 
