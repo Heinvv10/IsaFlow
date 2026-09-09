@@ -1,8 +1,3 @@
-/**
- * Supplier Statement Detail Page
- * Full AP transaction history with running balance for a single supplier
- */
-
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -10,7 +5,8 @@ import Link from 'next/link';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { TypeBadge, getTransactionUrl } from '@/components/accounting/supplierStatementParts';
 
 interface Transaction {
   id: number | string;
@@ -24,7 +20,7 @@ interface Transaction {
 }
 
 interface SupplierInfo {
-  id: number;
+  id: string;
   name: string;
   email: string | null;
   phone: string | null;
@@ -38,32 +34,6 @@ interface Summary {
 }
 
 type TypeFilter = 'all' | 'invoice' | 'payment' | 'debit_note';
-
-function getTransactionUrl(txn: Transaction): string | null {
-  switch (txn.type) {
-    case 'invoice': return `/accounting/supplier-invoices/${txn.id}`;
-    case 'payment': return `/accounting/supplier-payments/${txn.id}`;
-    default: return null;
-  }
-}
-
-function TypeBadge({ type }: { type: string }) {
-  const styles: Record<string, string> = {
-    invoice: 'bg-blue-500/10 text-blue-400',
-    payment: 'bg-teal-500/10 text-teal-400',
-    debit_note: 'bg-amber-500/10 text-amber-400',
-  };
-  const labels: Record<string, string> = {
-    invoice: 'Invoice',
-    payment: 'Payment',
-    debit_note: 'Debit Note',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[type] || ''}`}>
-      {labels[type] || type}
-    </span>
-  );
-}
 
 export default function SupplierStatementDetailPage() {
   const router = useRouter();
@@ -83,6 +53,7 @@ export default function SupplierStatementDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}`);
+      await assertOk(res, 'Failed to load supplier statement');
       const json = await res.json();
       const data = json.data || json;
       setSupplier(data.supplier || null);
