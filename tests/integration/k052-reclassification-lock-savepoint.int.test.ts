@@ -29,7 +29,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID(), user = crypto.randomUUID();
 const source = crypto.randomUUID(), target = crypto.randomUUID();
-const equity = crypto.randomUUID();
+const equity = crypto.randomUUID(), lineTarget = crypto.randomUUID();
 
 const CTX = {
   companyId: company, userId: user,
@@ -48,8 +48,9 @@ beforeAll(async () => {
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
      VALUES($1,$2,'K052S-1900','K052S Bonds (level 2 leaf)','asset','debit',2,true),
             ($3,$2,'K052S-1950','K052S Bond deposits','asset','debit',3,true),
-            ($4,$2,'K052S-3000','K052S Retained earnings','equity','credit',3,true)`,
-    [target, company, source, equity]);
+            ($4,$2,'K052S-3000','K052S Retained earnings','equity','credit',3,true),
+            ($5,$2,'K052S-1960','K052S Bond deposits (other)','asset','debit',3,true)`,
+    [target, company, source, equity, lineTarget]);
   await pool.query(
     `INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
      VALUES($1,'K052S Mar 2026',3,2026,'2026-03-01','2026-03-31','open')`, [company]);
@@ -130,4 +131,68 @@ it('nothing was written, so the idempotency key stays free for the retry', async
     'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE company_id=$1 AND gl_account_id=$2',
     [company, target]);
   expect(lines.rows[0].n).toBe(0);
+});
+
+it('does the same for the LINE lock: the savepoint around it is what keeps the tx usable', async () => {
+  // The other call site, three files away. `lockReclassLinesForUpdate` in
+  // `plan.ts` runs in its own `withSavepoint` for exactly the reason
+  // `lockGlAccountsForUpdate` does, and nothing else in the suite goes red if
+  // that wrap is removed: the test above is refused at the ACCOUNT lock and
+  // never reaches the candidate lines, and the unit tests either mock
+  // `planReclassification` out entirely or call the lock helper directly, with
+  // no transaction to poison.
+  //
+  // `lineTarget` is a CHILDLESS LEVEL-3 asset, so `isSubjectToLeafRule` is
+  // false and the account lock is skipped — the line lock is the first lock the
+  // request takes, and the only one contended here.
+  const holder = await pool.connect();
+  const runner = await getPoolForTests().connect();
+  try {
+    await holder.query('BEGIN');
+    const held = await holder.query(
+      'SELECT id FROM gl_journal_lines WHERE company_id=$1 AND gl_account_id=$2 FOR UPDATE',
+      [company, source]);
+    expect(held.rowCount).toBe(1);
+
+    await runner.query('BEGIN');
+    const { out, afterwards } = await als.run(
+      { client: runner, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0],
+      async () => {
+        const result = await withSavepoint(
+          savepointNameFor('post_reclassification_batch'),
+          () => postReclassificationBatchTool.handler(
+            {
+              source_account_id: source, target_account_id: lineTarget,
+              idempotency_key: 'k052s-lock-2',
+            },
+            CTX,
+          ),
+        );
+        const probe = (await sql`SELECT 1 AS ok`) as { ok: number }[];
+        return { out: result, afterwards: probe.length };
+      },
+    );
+    await runner.query('COMMIT');
+
+    expect(out.isError).toBe(true);
+    expect(out.content[0]!.text).toContain('retry');
+    // 25P02's wording, which is what a missing savepoint produces here.
+    expect(out.content[0]!.text).not.toContain('aborted');
+    expect(afterwards).toBe(1);
+  } finally {
+    await holder.query('ROLLBACK').catch(() => undefined);
+    holder.release();
+    await runner.query('ROLLBACK').catch(() => undefined);
+    (runner as PoolClient).release();
+  }
+}, 30_000);
+
+it('the line-lock refusal posted nothing either', async () => {
+  const { rows } = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM reclassification_batches WHERE company_id=$1', [company]);
+  expect(rows[0].n).toBe(0);
+  const moved = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE company_id=$1 AND gl_account_id=$2',
+    [company, lineTarget]);
+  expect(moved.rows[0].n).toBe(0);
 });

@@ -118,3 +118,17 @@ catch tests onto the write tool — the only caller that can reach either code �
 with `current transaction is aborted`.
 
 **Migration / historical data.** None for K-052.
+
+## Round-6 (blind re-review `31ae8c7da`)
+
+- **MED-3 — the LINE lock's savepoint was unguarded.** `k052-reclassification-lock-savepoint.int.test.ts`
+  gains a third case: a second connection holds the seeded `gl_journal_lines` row, the target is a
+  childless level-3 asset so `isSubjectToLeafRule` is false and the account lock is skipped, and the
+  contended lock is the one in `plan.ts`. Same three assertions: `isError`, `'retry'` in the text,
+  `SELECT 1` still returning on the runner transaction. Unwrapping `plan.ts:145` fails it with
+  `current transaction is aborted`. 4 tests, 10.8s (two real 5s `lock_timeout`s).
+- **LOW-5 — the census in `validation.md` omitted `account_type`.** `isSubjectToLeafRule` applies to
+  `asset`/`liability`/`equity` only, so the census reported revenue/expense header batches as
+  historically impacted when nothing was lost. Filter added; it now matches K-051's.
+- **LOW-4 — a comment in `tests/unit/mcp/reclassificationTools.test.ts` named a file that does not
+  exist.** Corrected to `k052-reclassification-lock-savepoint.int.test.ts`.

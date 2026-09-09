@@ -9,9 +9,24 @@
  * is what those guards exist for.
  *
  * `session_replication_role = 'replica'` suppresses the FK trigger for ONE
- * transaction (superuser-only; the disposable fixture DB connects as one), and
- * `SET LOCAL` reverts it at COMMIT — so the constraint governs every other
- * writer, including the code under test.
+ * transaction, and `SET LOCAL` reverts it at COMMIT — so the constraint governs
+ * every other writer, including the code under test.
+ *
+ * TWO THINGS THIS IS NOT:
+ *
+ * 1. It is not "the same INSERT, minus one constraint". `replica` suppresses
+ *    EVERY user trigger on the table, and `gl_journal_lines` carries
+ *    `trg_gl_jl_balance_update` (AFTER INSERT/UPDATE/DELETE →
+ *    `update_account_balances()`). A row written through here therefore does
+ *    NOT maintain `gl_account_balances`. Assert on `gl_journal_lines`, or
+ *    re-run the balance maintenance yourself; never assert a balance that this
+ *    row was supposed to have moved.
+ * 2. It is not available to every role. `session_replication_role` is
+ *    SUSET-context: superuser, or a role explicitly `GRANT SET`-ed the
+ *    parameter. The disposable fixture DB connects as `postgres`, so it works
+ *    there; on a database whose integration role is not a superuser the four
+ *    fixtures that call this fail loudly, with the message below rather than a
+ *    bare `permission denied`.
  */
 import type { Pool } from 'pg';
 
@@ -23,7 +38,21 @@ export async function insertPreConstraintRow(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query("SET LOCAL session_replication_role = 'replica'");
+    try {
+      await client.query("SET LOCAL session_replication_role = 'replica'");
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === '42501') {
+        throw new Error(
+          'insertPreConstraintRow needs a superuser (or a role GRANT SET on ' +
+            'session_replication_role): it writes a row that migration 664 ' +
+            'refuses, on purpose. Point the integration suite at the disposable ' +
+            'fixture database, which connects as postgres.',
+          { cause: err },
+        );
+      }
+      throw err;
+    }
     await client.query(text, values);
     await client.query('COMMIT');
   } catch (err) {

@@ -168,3 +168,29 @@ GATES
   eslint on tests/**: "not found by the project service" — pre-existing for every
   integration test (tsconfig excludes tests/**); reproduced on an untouched file.
   All changed/added files under the 300-line ceiling (max 261).
+
+ROUND 6 (review 31ae8c7da: 0 HIGH, 3 MEDIUM, 5 LOW — all eight fixed)
+  k051-cross-company-journal-line.int.test.ts          7 passed (was 4; +foreign cc, +foreign project, +own cc)
+  k052-reclassification-lock-savepoint.int.test.ts     4 passed (was 2; +line lock, +nothing-written) 10.8s
+                                                       (two real 5s lock_timeouts, nothing simulated)
+  k019 x2 / k020 / opening-balances (preConstraintRow) 4 files, 41 passed
+  k051 merge x2 / k052 header                          3 files, 24 passed
+  reclassificationTools / reclassificationLineLock /
+    journalEntryService (unit)                         56 passed, 4 skipped
+  FULL unit suite, DATABASE_URL UNSET                  792 files passed, 36 skipped; 9437 tests passed, 234 skipped
+
+  MUTATIONS
+    plan.ts: unwrap withSavepoint around lockReclassLinesForUpdate
+      -> k052 line-lock test FAILS: "current transaction is aborted" at RELEASE SAVEPOINT (neon.ts:426). Restored.
+    journalLineOwnership.ts: drop the cost-centre check
+      -> k051 foreign-cost-centre test FAILS on /cost centre outside this company/. Restored.
+
+  GATES
+    bunx tsc --noEmit                       -> exit 0
+    eslint (both changed src files)         -> exit 0
+    bun run lint                            -> 0 errors, 11 pre-existing warnings (none in changed files)
+    audit-migration-naming                  -> 339 files, no new duplicate prefixes
+    check-migration-rls                     -> OK
+    check-gl-journal-lines-scope            -> OK
+    664 re-applied to the fixture DB        -> index NOTICE skip + DO block, idempotent
+    journalEntryCrudService.ts              -> 300 lines exactly; journalLineOwnership.ts 66

@@ -38,6 +38,8 @@ const otherCompany = crypto.randomUUID(), otherUser = crypto.randomUUID();
 const own = crypto.randomUUID(), equity = crypto.randomUUID();
 const foreign = crypto.randomUUID();
 const scopeParent = crypto.randomUUID();
+const ownCc = crypto.randomUUID(), foreignCc = crypto.randomUUID();
+const foreignProject = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 const FK = 'gl_journal_lines_account_company_fk';
 
@@ -77,6 +79,14 @@ beforeAll(async () => {
   await pool.query(
     `INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
      VALUES($1,'K051X Mar 2026',3,2026,'2026-03-01','2026-03-31','open')`, [company]);
+  // The three dimensions on a line carry NO foreign key of any kind, so they
+  // need the service check on their own — 664 says nothing about them.
+  await pool.query(
+    `INSERT INTO cost_centres(id,company_id,code,name) VALUES($1,$2,'K051X-CC','K051X own cc'),($3,$4,'K051X-CCF','K051X other cc')`,
+    [ownCc, company, foreignCc, otherCompany]);
+  await pool.query(
+    "INSERT INTO projects(id,company_id,project_number,name) VALUES($1,$2,'K051X-P1','K051X other project')",
+    [foreignProject, otherCompany]);
 });
 
 afterAll(async () => {
@@ -87,6 +97,8 @@ afterAll(async () => {
     await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id=ANY($1))', [ids]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1)', [ids]);
     await pool.query('DELETE FROM fiscal_periods WHERE company_id=ANY($1)', [ids]);
+    await pool.query('DELETE FROM cost_centres WHERE company_id=ANY($1)', [ids]);
+    await pool.query('DELETE FROM projects WHERE company_id=ANY($1)', [ids]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1)', [ids]);
     await pool.query('DELETE FROM users WHERE id=ANY($1)', [[user, otherUser]]);
   } finally { await pool.end(); }
@@ -173,4 +185,61 @@ it('judges a level-2 asset parent on THIS company lines only, and the balance sh
   expect(admitted).toEqual({ childLevel: 3 });
   // R4,000 of another tenant's money never reached this company's assets.
   expect(ownAssets).toBeCloseTo(0, 2);
+});
+
+it('refuses a line tagged to another company cost centre, and writes nothing', async () => {
+  // Same INSERT, a different caller-supplied id. `cost_center_id` has no FK at
+  // all, so the row was stored: a ledger line permanently tagged to a cost
+  // centre this company cannot see, invisible to every cost-centre filter and
+  // to `costCentreService`'s company-scoped usage guard — which lets the OWNING
+  // tenant delete it out from under this ledger.
+  await expect(inRequestTx(() => createJournalEntry(
+    company,
+    {
+      entryDate: '2026-03-15',
+      description: 'K051X foreign cost centre',
+      lines: [
+        { glAccountId: own, debit: 700, credit: 0, costCenterId: foreignCc },
+        { glAccountId: equity, debit: 0, credit: 700 },
+      ],
+    },
+    user,
+  ))).rejects.toThrow(/cost centre outside this company/);
+
+  const { rows } = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE cost_center_id=$1', [foreignCc]);
+  expect(rows[0].n).toBe(0);
+});
+
+it('refuses a line tagged to another company project too', async () => {
+  await expect(inRequestTx(() => createJournalEntry(
+    company,
+    {
+      entryDate: '2026-03-15',
+      description: 'K051X foreign project',
+      lines: [
+        { glAccountId: own, debit: 700, credit: 0, projectId: foreignProject },
+        { glAccountId: equity, debit: 0, credit: 700 },
+      ],
+    },
+    user,
+  ))).rejects.toThrow(/project outside this company/);
+});
+
+it('accepts a line tagged to THIS company cost centre', async () => {
+  // The other direction: a guard that refuses everything is not a guard. The
+  // ordinary dimension-tagged journal still posts.
+  const entry = await inRequestTx(() => createJournalEntry(
+    company,
+    {
+      entryDate: '2026-03-15',
+      description: 'K051X own cost centre',
+      lines: [
+        { glAccountId: own, debit: 700, credit: 0, costCenterId: ownCc },
+        { glAccountId: equity, debit: 0, credit: 700 },
+      ],
+    },
+    user,
+  ));
+  expect(entry.id).toBeTruthy();
 });
