@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
-import { buildTakeOnLines, resolveTakeOnClearingAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
+import { buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
 import { matchContact } from './migrationContactMatch';
 import type { DbRow } from '@/types/db';
 
@@ -128,6 +128,9 @@ export async function importARInvoices(
   const warnings: MigrationError[] = [];
   let imported = 0;
   let skipped = 0;
+
+  // Before any read: the idempotency check below is a read-then-write.
+  await lockMigrationImport(companyId);
 
   // No default_revenue and no vat_output: a take-on document posts neither. See
   // migrationPostingSupport for why re-declaring the VAT is the deciding reason.

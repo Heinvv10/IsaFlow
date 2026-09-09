@@ -7,10 +7,9 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
 
 
  Test Files  4 passed (4)
-      Tests  37 passed (37)
-   Start at  11:46:35
-   Duration  4.12s (transform 3.64s, setup 0ms, import 5.75s, tests 4.77s, environment 3ms)
-
+      Tests  38 passed (38)
+   Start at  11:59:19
+   Duration  7.69s (transform 6.29s, setup 0ms, import 10.89s, tests 7.34s, environment 0ms)
 
 ## Mutation checks — take-on posting
 
@@ -28,8 +27,15 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
  T5. the completeSession clearing-residual check removed
        -> r001: 1 failed | 8 passed  ["records the clearing residual on the session ..."]
 
+ T6. lockMigrationImport reduced to a no-op
+       -> r001: 1 failed | 9 passed  ["serialises two simultaneous imports of the same file
+          into one set of documents" — two rows instead of one]
+          NOTE: the first version of this test drove AR and passed WITHOUT the lock, because
+          the AR insert's ON CONFLICT already blocks on uq_customer_invoices_company_number.
+          Retargeted at AP, which has no unique constraint and is the only racy path.
+
 Earlier rounds' checks are in previous revisions of this file. All mutations restored;
-the run above is 37/37 green across four files.
+the run above is 38/38 green across four files.
 
 ## What the take-on tests assert on the real database
 

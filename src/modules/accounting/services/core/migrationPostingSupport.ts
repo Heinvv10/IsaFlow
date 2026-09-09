@@ -24,6 +24,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 
 export interface TakeOnLine {
@@ -64,6 +65,28 @@ export function buildTakeOnLines(
     description: `Opening balance equity — ${documentNumber}`,
   };
   return side === 'receivable' ? [control, clearing] : [clearing, control];
+}
+
+/**
+ * Serialise the wizard's document steps for one company.
+ *
+ * The steps are idempotent by lookup, not by constraint: `duplicate_fingerprint`
+ * cannot carry a unique index (production holds groups of 55-79 live invoices
+ * sharing one value), and `customer_invoices` is unique on the invoice number
+ * only. A read-then-write is safe against a re-run and NOT against two runs at
+ * the same instant — two imports of one file would each find nothing and both
+ * insert.
+ *
+ * A transaction-scoped advisory lock closes that: the second request blocks
+ * here until the first commits, and then its lookup sees the rows the first
+ * wrote. `withAuth` gives the request exactly one transaction, so the lock is
+ * released on COMMIT or ROLLBACK with no unlock to forget. Re-entrant, so a
+ * step that takes it twice is fine.
+ *
+ * Keyed on the company: two different tenants never wait on each other.
+ */
+export async function lockMigrationImport(companyId: string): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(hashtext(${companyId + ':migration-import'}))`;
 }
 
 /**

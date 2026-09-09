@@ -323,6 +323,70 @@ describeIfDb('take-on posting for imported documents', () => {
     }
   }, 60000);
 
+  it('serialises two simultaneous imports of the same file into one set of documents', async () => {
+    // AP, deliberately. The AR insert names ON CONFLICT (company_id,
+    // invoice_number) against uq_customer_invoices_company_number, so a second
+    // inserter already blocks on that index — AR was never the race. AP has no
+    // unique constraint at all (duplicate_fingerprint cannot carry one, see
+    // migration 625), so its idempotency is a bare read-then-write and two
+    // concurrent runs would each find nothing and both insert. These two
+    // transactions overlap deliberately: B starts while A is still open.
+    const a = await pool.connect();
+    const b = await pool.connect();
+    const number = `${TAG}-race`;
+    try {
+      await a.query('BEGIN');
+      await b.query('BEGIN');
+
+      const resultA = await run(a, () => importAPInvoices(COMPANY, sessionId, [
+        apRow({ invoiceNumber: number, amountPaid: 0 }),
+      ], USER));
+      expect(resultA.imported).toBe(1);
+
+      // B starts while A is still uncommitted. It must block on the advisory
+      // lock rather than read past A and insert a second copy.
+      let bSettled = false;
+      const rowB = run(b, () => importAPInvoices(COMPANY, sessionId, [
+        apRow({ invoiceNumber: number, amountPaid: 0 }),
+      ], USER)).then(r => { bSettled = true; return r; });
+
+      await new Promise(r => setTimeout(r, 250));
+      expect(bSettled).toBe(false);
+
+      await a.query('COMMIT');
+      const resultB = await rowB;
+
+      // B now sees A's row and skips it.
+      expect(resultB.imported).toBe(0);
+      expect(resultB.skipped).toBe(1);
+      await b.query('COMMIT');
+
+      const rows = (await sql`
+        SELECT COUNT(*)::INT AS n FROM supplier_invoices
+        WHERE company_id = ${COMPANY}::UUID AND invoice_number = ${number}
+      `) as { n: number }[];
+      expect(rows[0]!.n).toBe(1);
+
+      const entries = (await sql`
+        SELECT COUNT(*)::INT AS n FROM gl_journal_entries
+        WHERE company_id = ${COMPANY}::UUID AND description LIKE ${'%' + number + '%'}
+      `) as { n: number }[];
+      expect(entries[0]!.n).toBe(1);
+    } finally {
+      await a.query('ROLLBACK').catch(() => {});
+      await b.query('ROLLBACK').catch(() => {});
+      a.release();
+      b.release();
+      // This test commits, so it cleans up after itself.
+      await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL
+                 WHERE company_id = ${COMPANY}::UUID AND invoice_number = ${number}`;
+      await sql`DELETE FROM gl_journal_lines WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM gl_journal_entries WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM supplier_invoices
+                 WHERE company_id = ${COMPANY}::UUID AND invoice_number = ${number}`;
+    }
+  }, 60000);
+
   it('refuses an opening trial balance that carries a control account', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');
