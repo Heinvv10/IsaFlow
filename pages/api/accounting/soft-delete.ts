@@ -25,7 +25,7 @@ import {
 } from '@/modules/accounting/services/core/softDeleteService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   // ── POST: soft-delete ──────────────────────────────────────────────────────
   if (req.method === 'POST') {
@@ -45,7 +45,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      const result = await softDelete(companyId, entityType, entityId);
+      const result = await softDelete(companyId, entityType, entityId, user.id);
       log.info('Soft delete via API', { entityType, entityId, companyId }, 'accounting');
       return apiResponse.success(res, {
         undoToken: result.undoToken,
@@ -56,7 +56,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (
         message.includes('not found') ||
         message.includes('already deleted') ||
-        message.includes('Cannot delete a posted')
+        message.includes('Cannot delete a posted') ||
+        message.includes('with payments') ||
+        // reverseJournalEntry refuses to date a correction into a closed or
+        // missing period. That is the user's problem to fix, not a 500 — and
+        // withAuth only ROLLBACKs above 4xx, so the savepoint in softDelete is
+        // what keeps this refusal from committing the reversal's draft rows.
+        message.includes('fiscal period') ||
+        message.includes('No fiscal period')
       ) {
         return apiResponse.badRequest(res, message);
       }
@@ -83,7 +90,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      const restored = await undoDelete(companyId, entityType, entityId);
+      const restored = await undoDelete(companyId, entityType, entityId, user.id);
       log.info('Undo delete via API', { entityType, entityId, restored, companyId }, 'accounting');
       return apiResponse.success(res, { restored });
     } catch (err) {

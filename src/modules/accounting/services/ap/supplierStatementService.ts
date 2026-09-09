@@ -121,6 +121,8 @@ export async function fetchSupplierStatementData(
       WHERE supplier_id = ${supplierId}::UUID
         AND company_id = ${companyId}::UUID
         AND status != 'cancelled'
+        -- Same population as apAgingService: a deleted bill is not payable.
+        AND deleted_at IS NULL
         AND invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date
     ` as Promise<Row[]>,

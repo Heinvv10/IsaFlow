@@ -50,6 +50,8 @@ export async function getAPSubledger(
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
+        -- Same population as apAgingService — see arSubledgerService.
+        AND si.deleted_at IS NULL
         AND COALESCE(si.invoice_date, si.created_at::date) <= ${asAtDate}::DATE
         AND (si.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY si.due_date NULLS LAST, si.id

@@ -89,6 +89,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       WHERE client_id   = ${customerId}::UUID
         AND company_id  = ${companyId}::UUID
         AND status     != 'cancelled'
+        -- A deleted invoice is not owed and is not in aging.
+        AND deleted_at IS NULL
         AND invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
       ORDER BY invoice_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
@@ -141,7 +143,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM customer_invoices
           WHERE client_id = ${customerId}::UUID AND company_id = ${companyId}::UUID
-            AND status != 'cancelled' AND invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
+            AND status != 'cancelled' AND deleted_at IS NULL
+            AND invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
           SELECT SUM(pmt_total) FROM (

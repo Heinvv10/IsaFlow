@@ -28,3 +28,33 @@ bunx vitest run
 ## Static gates
 bunx tsc --noEmit                          -> clean (exit 0)
 bunx eslint <3 changed src/pages files>    -> clean (exit 0)
+
+## Round 2 (review findings) — fixture DB
+$ bun run test:integration -- tests/integration/k053-aging-includes-soft-deleted.int.test.ts \
+    tests/integration/k053-aging-soft-delete-adjacent.int.test.ts \
+    tests/integration/k053-soft-delete-gl-tie.int.test.ts \
+    tests/integration/k053-soft-delete-chase-surfaces.int.test.ts
+  Test Files  4 passed (4)
+       Tests  16 passed (16)
+
+### Mutation checks (each reverted, run, restored)
+M1 reverseDocumentJournalForDelete returns null   -> 3 failed | 3 passed (6)  [gl-tie]
+M2 deleted_at dropped from ar/apSubledgerService  -> 2 failed | 4 passed (6)  [gl-tie]
+M3 amount_paid guard disabled                     -> 1 failed | 5 passed (6)  [gl-tie]
+M4 deleted_at dropped from statementEmailService,
+   dunningService, supplierStatementService,
+   smart-reminder.ts                              -> 4 failed (4)             [chase-surfaces]
+git diff --stat identical to pre-mutation after each restore.
+
+## Full unit suite (DATABASE_URL unset)
+env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+  run A: 1 failed | 791 passed | 36 skipped (828 files) — tests/unit/services/cashFlowReport.test.ts (10778ms, 10s timeout)
+  run B: 1 failed | 788 passed | 36 skipped — tests/unit/services/bank/bankAllocationUnwind.test.ts
+  Both files re-run together in isolation: 2 passed (2), 17 tests passed.
+  Host load average 128.70 during the suite runs; these are timeout flakes, not
+  regressions — neither file imports anything this change touches.
+
+## Static gates
+bunx tsc --noEmit                       -> clean (exit 0)
+bunx eslint <14 changed src/pages files>-> clean (exit 0)
+bun run agent-docs:check                -> OK: 74 mirrors match

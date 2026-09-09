@@ -86,6 +86,9 @@ export async function fetchStatementData(
       WHERE COALESCE(client_id, customer_id) = ${customerId}::UUID
         AND company_id = ${companyId}::UUID
         AND status != 'cancelled'
+        -- The statement is what the customer is asked to pay; a deleted
+        -- invoice is not owed and is not in aging.
+        AND deleted_at IS NULL
         AND invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date
     ` as Promise<Row[]>,

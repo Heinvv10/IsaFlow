@@ -21,6 +21,8 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
         WHERE pa.payment_id = sp.id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = sp.supplier_id
           AND si.status NOT IN ('draft', 'cancelled')
+          -- Same population as apAgingService: a deleted bill is not payable.
+          AND si.deleted_at IS NULL
           AND si.invoice_date <= ${asAtDate}::DATE
       ), 0), 0) AS amount
       FROM supplier_payments sp
@@ -33,6 +35,8 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
         WHERE si.id = cn.supplier_invoice_id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = cn.supplier_id
           AND si.status NOT IN ('draft', 'cancelled')
+          -- Same population as apAgingService: a deleted bill is not payable.
+          AND si.deleted_at IS NULL
           AND si.invoice_date <= ${asAtDate}::DATE
       ) THEN cn.applied_amount ELSE 0 END, 0) AS amount
       FROM credit_notes cn
