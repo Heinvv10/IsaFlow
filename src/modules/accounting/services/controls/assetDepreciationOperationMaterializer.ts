@@ -18,6 +18,22 @@ export async function materializeAssetDepreciationOperation(ctx: ControlTx, ref:
   const [intent] = await ctx.sql`SELECT id,requester_person_id,asset_id,period_date::text
     FROM control_asset_depreciation_intents WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid` as Row[];
   if (!company || !intent) throw new Error('Depreciation operation not found');
+  const facts = await loadAssetDepreciationFacts(ctx, company, intent);
+  const currency=String(company.default_currency),date=String(intent.period_date),calculation=facts.calculation;
+  const prior = await readControlEntityVersion(ctx, ref);
+  const observed: ObservedSource = { entityType: ref.entityType, entityId: ref.entityId, version: prior?.version ?? 1,
+    tracked: prior !== null, facts, fingerprint: createHash('sha256').update(canonicalJson(facts)).digest('hex') };
+  if (ref.expectedVersion !== undefined && ref.expectedVersion !== observed.version) throw new Error('Depreciation version changed');
+  return { supplierId: '', observedSources: [observed], versionBasis: prior ? 'recorded_with_current_fingerprint' : 'untracked_current_observation',
+    binding: { companyId, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId, entityVersion: observed.version,
+      accountingDate: date, amount: calculation.policyDep, currency, beneficiaries: [], sourceVersions: [{ entityType: ref.entityType,
+        entityId: ref.entityId, version: observed.version, fingerprint: observed.fingerprint }] } };
+}
+
+/** Shared persisted source calculation for preview and immutable-intent execution. */
+export async function loadAssetDepreciationFacts(ctx:ControlTx,company:Row,intent:Row){
+  assertControlTx(ctx);
+  const companyId=ctx.principal.companyId;
   const currency = company.default_currency, date = intent.period_date;
   if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency) || typeof date !== 'string' || !isRealCalendarDate(date)) {
     throw new Error('Asset ledger currency or period unavailable');
@@ -62,13 +78,5 @@ export async function materializeAssetDepreciationOperation(ctx: ControlTx, ref:
     { glAccountId: String(expense[0]!.id), debit: calculation.policyDep, credit: '0' },
     { glAccountId: String(accumulated[0]!.id), debit: '0', credit: calculation.policyDep },
   ];
-  const facts = { company, intent, asset, category: category ?? null, ledgers, input, calculation, accounts, period: periods[0]!, plan };
-  const prior = await readControlEntityVersion(ctx, ref);
-  const observed: ObservedSource = { entityType: ref.entityType, entityId: ref.entityId, version: prior?.version ?? 1,
-    tracked: prior !== null, facts, fingerprint: createHash('sha256').update(canonicalJson(facts)).digest('hex') };
-  if (ref.expectedVersion !== undefined && ref.expectedVersion !== observed.version) throw new Error('Depreciation version changed');
-  return { supplierId: '', observedSources: [observed], versionBasis: prior ? 'recorded_with_current_fingerprint' : 'untracked_current_observation',
-    binding: { companyId, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId, entityVersion: observed.version,
-      accountingDate: date, amount: calculation.policyDep, currency, beneficiaries: [], sourceVersions: [{ entityType: ref.entityType,
-        entityId: ref.entityId, version: observed.version, fingerprint: observed.fingerprint }] } };
+  return { company, intent, asset, category: category ?? null, ledgers, input, calculation, accounts, period: periods[0]!, plan };
 }

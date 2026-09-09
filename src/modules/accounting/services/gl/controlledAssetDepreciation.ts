@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { depreciationEntryNumber } from '../items/depreciationRunPlan';
 import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
 import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
 import { withSavepoint } from '@/lib/neon';
@@ -72,8 +73,8 @@ export async function executeAssetDepreciation(companyId:string,userId:string,in
   let journalEntryId:string|null=null;
   if(facts.plan.length){
    journalEntryId=randomUUID();
-   await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent)
-    VALUES(${journalEntryId}::uuid,${companyId}::uuid,${permit.accountingDate}::date,${facts.period.id}::uuid,
+   await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent)
+    VALUES(${journalEntryId}::uuid,${companyId}::uuid,${depreciationEntryNumber(String(facts.asset.asset_number),permit.accountingDate)},${permit.accountingDate}::date,${facts.period.id}::uuid,
      'Asset depreciation','auto_depreciation',${intentId}::uuid,'draft',${userId}::uuid,${`human:${userId}`})`;
    for(const line of facts.plan)await ctx.sql`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description)
     VALUES(${companyId}::uuid,${journalEntryId}::uuid,${line.glAccountId}::uuid,${line.debit},${line.credit},'Asset depreciation')`;

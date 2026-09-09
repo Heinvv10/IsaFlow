@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { randomUUID, randomBytes } from 'node:crypto';
+import { previewDepreciationJournals } from '@/modules/accounting/services/items/depreciationRunPreview';
+import type { DepreciationPlan } from '@/modules/accounting/services/items/depreciationRunPlan';
 import { postDualDepreciationToLedger } from '@/modules/accounting/services/gl/assetDepreciationPosting';
 import { prepareAssetDepreciation, executeAssetDepreciation } from '@/modules/accounting/services/gl/controlledAssetDepreciation';
 import { prepareBankTransfer, executeBankTransfer } from '@/modules/accounting/services/bank/bankTransferPostingService';
@@ -56,6 +58,9 @@ const hash=(m:Awaited<ReturnType<typeof materializeBankTransferOperation>>)=>ope
 it('reads exact bank and depreciation material as an independent approver without financial writes',async()=>{
  expect((await actor('u2',ctx=>materializeBankTransferOperation(ctx,bankRef))).binding).toMatchObject({amount:'100.01',currency:'ZAR'});
  expect((await actor('u2',ctx=>materializeAssetDepreciationOperation(ctx,assetRef))).binding).toMatchObject({amount:'100',currency:'ZAR'});
+ const plan={postable:[{assetId:asset,assetNumber:'SYNTHETIC',name:'Synthetic asset'}],periodDate:'2026-02-28'} as unknown as DepreciationPlan;
+ const preview=await actor('u2',()=>previewDepreciationJournals(fixture.companyA,plan,[{id:asset,cost:999999}]));
+ expect(preview.journals[0]?.totalDebit).toBe(100);
  expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1',[fixture.companyA])).rows).toHaveLength(0);
  expect((await pool.query('SELECT id FROM control_change_events WHERE company_id=$1',[fixture.companyA])).rows).toHaveLength(0);
 });
@@ -107,6 +112,7 @@ it('posts depreciation from persisted asset values and reuses the immutable asse
  expect(prepared.amount).toBe('100');
  const result=await actor('u1',()=>executeAssetDepreciation(fixture.companyA,fixture.u1.id,prepared.intentId));
  expect(result).toMatchObject({policyDep:'100',taxDep:'100'});expect(result.journalEntryId).toBeTruthy();
+ expect((await pool.query('SELECT entry_number FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,result.journalEntryId])).rows[0].entry_number).toBe('DEP-SYNTHETIC-2026-02');
  expect(await actor('u1',()=>executeAssetDepreciation(fixture.companyA,fixture.u1.id,prepared.intentId))).toEqual(result);
  const current=(await pool.query('SELECT accumulated_depreciation::text,tax_accumulated_depreciation::text FROM assets WHERE company_id=$1 AND id=$2',[fixture.companyA,asset])).rows[0];
  expect(current).toEqual({accumulated_depreciation:'100.00',tax_accumulated_depreciation:'100.00'});
