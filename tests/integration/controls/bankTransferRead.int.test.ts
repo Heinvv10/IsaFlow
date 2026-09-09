@@ -44,3 +44,9 @@ it('genuine legacy transfer remains explicit unknown',async()=>{
  await f.pool.query("UPDATE bank_transactions SET status='matched',matched_journal_line_id=$3 WHERE company_id=$1 AND id=$2",[f.f.companyA,bank,line]);
  expect((await f.read(bank)).body.data).toMatchObject({currentOriginalIntentId:null,legacyProvenanceUnavailable:true});
 });
+
+it('actual reader refuses changed journal VAT classification on otherwise intact transfer',async()=>{
+ const p=await f.posted();expect((await f.read(p.bank)).status).toBe(200);
+ await f.pool.query("UPDATE gl_journal_lines SET vat_type='standard' WHERE company_id=$1 AND journal_entry_id=$2 AND gl_account_id=$3",[f.f.companyA,p.effect.journalEntryId,f.to]);
+ expect((await f.read(p.bank)).status).toBeGreaterThanOrEqual(400);
+});
