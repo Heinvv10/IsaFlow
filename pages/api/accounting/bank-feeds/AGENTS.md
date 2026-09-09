@@ -27,7 +27,7 @@ All routes use `apiResponse.success` / `.badRequest` / `.notFound`. Creation ret
 
 ## Business rules / gotchas
 
-- Valid providers: `extension | manual_csv`. Any other provider (including the never-implemented `basiq | tink | plaid`) → 400. Syncing a legacy `basiq`/`tink`/`plaid` connection fails with "provider is not implemented" instead of importing fabricated rows (K-018).
+- Valid providers: `extension | manual_csv`. Any other provider (including the never-implemented `basiq | tink | plaid`) → 400. Syncing a legacy `basiq`/`tink`/`plaid` connection returns **400**, not 500, carrying "provider is not implemented" — `syncBankFeed` throws `BankFeedProviderNotImplementedError` and `[id]/sync.ts` maps it. The status matters: `withAuth` ROLLBACKs on >= 500, so a 500 would discard the failed sync log and `last_sync_error` the service just wrote (K-018).
 - `config` is a free-form JSON object; structure depends on provider.
 - DELETE is a soft-delete — the service sets an inactive flag; it does not hard-delete.
 - Sync logs are capped server-side at 50 per call regardless of `?limit`.
