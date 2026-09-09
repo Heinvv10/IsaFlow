@@ -27,6 +27,8 @@ R1 000 of standard-rated base that no supply gave rise to.
   suppressed, so the legacy Brightsphere row is unaffected.
 - The walk is `WITH RECURSIVE`, so reversing the reversal by hand no longer
   re-admits the cancelled document's VAT. `UNION` dedupes, so a cycle terminates.
+- Both arms walk POSTED journals only. A draft reversal has no GL effect, so it
+  neither frees its original nor passes suppression on to its own reversal.
 
 **Files.** `src/modules/accounting/services/reports/vatBoxBasisQuery.ts`,
 `scripts/migrations/sql/623_gl_je_reversal_of_index.sql` (partial index on
@@ -35,15 +37,23 @@ and no index existed).
 
 **Tests.** `k-032-cancelled-credit-note-vat201.int.test.ts` (1, the validator's
 RED case, tax and base now asserted independently with `expect.soft`) and
-`k-032-cancelled-reversal-adjacent.int.test.ts` (6: original stands in period N,
-credit taken in N+1, reversal-of-reversal, never-reversed note, June totals,
-cross-tenant `reversal_of_id`). 7 passed on the disposable PostgreSQL fixture.
-Five separate mutations recorded in `green.log`; the only predicate no test
-kills is `rev.company_id`, which the company-scoped base CTE and
-`parent.company_id` already make unreachable.
+`k-032-cancelled-reversal-adjacent.int.test.ts` (8: original stands in period N,
+credit taken in N+1, reversal-of-reversal, never-reversed note, draft reversal,
+draft reversal in a later period, June totals, cross-tenant `reversal_of_id`).
+9 passed on the disposable PostgreSQL fixture. Seven separate mutations recorded
+in `green.log`; the only predicate no test kills is `rev.company_id`, which the
+company-scoped base CTE, `parent.company_id` and the outer `je.company_id`
+filter make unreachable — no observable output can differ, so no test for it can
+exist.
 
 **Migration / rollback.** 623 is a `CREATE INDEX IF NOT EXISTS`, applied to the
 fixture DB; drop the index and revert the commit to roll back. No data changes.
+The prefix gap at 619-622 is deliberate: prefixes are being assigned across
+parallel branches, and 623 was allocated to this one. Nothing is missing.
+Deploy note: `apply-migrations.ts` wraps each file in a transaction, so
+`CONCURRENTLY` is not available and the build takes a SHARE lock on
+`gl_journal_entries` for its duration. Deploy outside business hours, which the
+existing gate already requires.
 
 **Historical data.** No rows change; this is a read path. Periods holding a
 cancelled credit note recompute: same-period reversals now net to nothing,

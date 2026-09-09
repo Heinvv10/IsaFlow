@@ -116,7 +116,9 @@ export async function getVatPeriodLines(
     -- falls outside this period is not suppressed either, while a cancelled
     -- document that was never reversed still is.
     -- Recursive because reversing the reversal by hand would otherwise re-admit
-    -- the cancelled document's VAT; UNION dedupes, so a cycle terminates.
+    -- the cancelled document's VAT; UNION dedupes, so a cycle terminates. Both
+    -- arms walk POSTED journals only: a draft reversal has no GL effect, so it
+    -- neither frees its original nor carries suppression on to its own reversal.
     , cancelled_entries AS (
       SELECT b.id FROM cancelled_entries_base b
         WHERE NOT EXISTS (
@@ -132,6 +134,7 @@ export async function getVatPeriodLines(
         JOIN gl_journal_entries parent ON parent.id = rev.reversal_of_id
         JOIN cancelled_entries ce ON ce.id = parent.id
         WHERE rev.company_id = ${companyId}::UUID
+          AND rev.status = 'posted'
           AND parent.company_id = ${companyId}::UUID
           AND parent.entry_date >= ${periodStart}::DATE
           AND parent.entry_date <= ${periodEnd}::DATE

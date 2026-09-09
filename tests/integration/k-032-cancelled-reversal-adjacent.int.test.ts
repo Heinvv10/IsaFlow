@@ -14,6 +14,8 @@
  * 3. A cancelled credit note that was never reversed stays suppressed.
  * 4. Company B's journal pointing at company A's cancelled original must
  *    survive in B's boxes.
+ * 5. A DRAFT reversal carries no suppression on to its own reversal, and a
+ *    draft dated into a later period does not free its original either.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -45,6 +47,13 @@ const legacyNote = crypto.randomUUID();
 const foreignOriginal = crypto.randomUUID();
 const foreignNote = crypto.randomUUID();
 const crossReversal = crypto.randomUUID();
+const draftOriginal = crypto.randomUUID();
+const draftReversal = crypto.randomUUID();
+const draftRereversal = crypto.randomUUID();
+const draftNote = crypto.randomUUID();
+const outDraftOriginal = crypto.randomUUID();
+const outDraftReversal = crypto.randomUUID();
+const outDraftNote = crypto.randomUUID();
 
 const JUNE: [string, string] = ['2026-06-01', '2026-06-30'];
 const JULY: [string, string] = ['2026-07-01', '2026-07-31'];
@@ -55,12 +64,13 @@ async function journal(
   entryNumber: string,
   entryDate: string,
   reversalOf: string | null,
+  status: 'posted' | 'draft' = 'posted',
 ) {
   await pool.query(
     `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,
        status,source,created_by,reversal_of_id)
-     VALUES($1,$2,$3,$4,$5,'posted','manual',$6,$7)`,
-    [id, owner, entryNumber, entryDate, `K-032 ${entryNumber}`, user, reversalOf],
+     VALUES($1,$2,$3,$4,$5,$8,'manual',$6,$7)`,
+    [id, owner, entryNumber, entryDate, `K-032 ${entryNumber}`, user, reversalOf, status],
   );
 }
 async function line(
@@ -140,6 +150,26 @@ beforeAll(async () => {
   await cancelledNote(foreignNote, company, 'K032A-4', '2026-06-19', foreignOriginal);
   await journal(crossReversal, other, 'K032A-CROSS', '2026-06-19', foreignOriginal);
   await reversedLegs(crossReversal, other, otherRevenue, otherVatOutput, null);
+
+  // 5. Cancelled note whose reversal was left in DRAFT, with a posted journal
+  //    reversing that draft. The draft has no GL effect, so it neither frees
+  //    the original nor passes suppression on to its own reversal.
+  await journal(draftOriginal, company, 'K032A-DRAFT', '2026-06-21', null);
+  await creditNoteLegs(draftOriginal, company, revenue, vatOutput, receivable);
+  await journal(draftReversal, company, 'K032A-DRAFT-REV', '2026-06-21', draftOriginal, 'draft');
+  await reversedLegs(draftReversal, company, revenue, vatOutput, receivable);
+  await journal(draftRereversal, company, 'K032A-DRAFT-REV2', '2026-06-22', draftReversal);
+  await creditNoteLegs(draftRereversal, company, revenue, vatOutput, receivable);
+  await cancelledNote(draftNote, company, 'K032A-5', '2026-06-21', draftOriginal);
+
+  //    Same again with the draft dated into July: an unposted reversal is not
+  //    the later correction the out-of-period escape exists for, so the
+  //    original stays suppressed in June.
+  await journal(outDraftOriginal, company, 'K032A-ODRAFT', '2026-06-23', null);
+  await creditNoteLegs(outDraftOriginal, company, revenue, vatOutput, receivable);
+  await journal(outDraftReversal, company, 'K032A-ODRAFT-REV', '2026-07-12', outDraftOriginal, 'draft');
+  await reversedLegs(outDraftReversal, company, revenue, vatOutput, receivable);
+  await cancelledNote(outDraftNote, company, 'K032A-6', '2026-06-23', outDraftOriginal);
 });
 
 afterAll(async () => {
@@ -195,12 +225,32 @@ it('still suppresses a cancelled credit note that was never reversed', async () 
   expect(legacy.every((l) => l.cancelledSource === true)).toBe(true);
 });
 
-it('nets June to the standing original plus the reversed pair only', async () => {
+it('does not carry suppression through a draft reversal', async () => {
+  const { lines } = await boxes(company, JUNE);
+  // The draft itself never reaches the query at all.
+  expect(lines.every((l) => l.journalEntryId !== draftReversal)).toBe(true);
+  const original = lines.filter((l) => l.journalEntryId === draftOriginal);
+  const rereversal = lines.filter((l) => l.journalEntryId === draftRereversal);
+  expect(original.length).toBeGreaterThan(0);
+  expect(rereversal.length).toBeGreaterThan(0);
+  expect(original.every((l) => l.cancelledSource === true)).toBe(true);
+  expect(rereversal.every((l) => l.cancelledSource === false)).toBe(true);
+});
+
+it('does not let a draft reversal in a later period free its original', async () => {
+  const { lines } = await boxes(company, JUNE);
+  const original = lines.filter((l) => l.journalEntryId === outDraftOriginal);
+  expect(original.length).toBeGreaterThan(0);
+  expect(original.every((l) => l.cancelledSource === true)).toBe(true);
+});
+
+it('nets June to the journals that survive suppression', async () => {
   const { basis } = await boxes(company, JUNE);
-  // lateOriginal stands (a credit note debits output VAT); the twice-reversed
-  // trio and the cross-tenant original are suppressed.
-  expect.soft(basis.outputTax).toBeCloseTo(-150, 2);
-  expect.soft(basis.outputBase).toBeCloseTo(-1000, 2);
+  // lateOriginal and draftRereversal stand, each debiting R150 of output VAT
+  // against R1 000 of base; the twice-reversed trio, the cross-tenant original
+  // and draftOriginal are suppressed.
+  expect.soft(basis.outputTax).toBeCloseTo(-300, 2);
+  expect.soft(basis.outputBase).toBeCloseTo(-2000, 2);
 });
 
 it('does not suppress company B lines that name company A journals', async () => {

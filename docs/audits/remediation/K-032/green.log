@@ -1,41 +1,54 @@
 === GREEN (fix in place) ===
  Test Files  2 passed (2)
-      Tests  7 passed (7)
+      Tests  9 passed (9)
 
 === M-A: whole cancelled_entries pairing reverted to origin/master ===
-   × nets a cancelled credit note and its reversal to nothing in the VAT201 boxes 40ms
-   × keeps the original in its own period when the reversal is dated into the next 30ms
-   × does not re-admit the cancelled VAT when the reversal is itself reversed 3ms
-   × nets June to the standing original plus the reversed pair only 3ms
+   × nets a cancelled credit note and its reversal to nothing in the VAT201 boxes 82ms
+   × keeps the original in its own period when the reversal is dated into the next 61ms
+   × does not re-admit the cancelled VAT when the reversal is itself reversed 5ms
+   × nets June to the journals that survive suppression 7ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
  Test Files  2 failed (2)
-      Tests  4 failed | 3 passed (7)
+      Tests  4 failed | 5 passed (9)
 
 === M-B: drop rev.company_id from the recursive arm ===
-1
  Test Files  2 passed (2)
-      Tests  7 passed (7)
+      Tests  9 passed (9)
 
 === M-C: drop the parent-in-period bound ===
-   × takes the credit in the period the reversal is dated into 9ms
+   × takes the credit in the period the reversal is dated into 28ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
  Test Files  1 failed | 1 passed (2)
-      Tests  1 failed | 6 passed (7)
+      Tests  1 failed | 8 passed (9)
 
 === M-D: one level only (recursive ref -> base) ===
-   × does not re-admit the cancelled VAT when the reversal is itself reversed 17ms
-   × nets June to the standing original plus the reversed pair only 5ms
+   × does not re-admit the cancelled VAT when the reversal is itself reversed 31ms
+   × nets June to the journals that survive suppression 5ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
  Test Files  1 failed | 1 passed (2)
-      Tests  2 failed | 5 passed (7)
+      Tests  2 failed | 7 passed (9)
 
 === M-E: drop the NOT EXISTS out-of-period escape ===
-   × keeps the original in its own period when the reversal is dated into the next 46ms
-   × nets June to the standing original plus the reversed pair only 21ms
+   × keeps the original in its own period when the reversal is dated into the next 95ms
+   × nets June to the journals that survive suppression 23ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
  Test Files  1 failed | 1 passed (2)
-      Tests  2 failed | 5 passed (7)
+      Tests  2 failed | 7 passed (9)
+
+=== M-F: drop rev.status = posted from the recursive arm ===
+   × does not carry suppression through a draft reversal 11ms
+   × nets June to the journals that survive suppression 11ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 7 passed (9)
+
+=== M-G: drop out_rev.status = posted from the escape ===
+   × does not let a draft reversal in a later period free its original 13ms
+   × nets June to the journals that survive suppression 33ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 7 passed (9)
 
 === RESTORED ===
  Test Files  2 passed (2)
-      Tests  7 passed (7)
+      Tests  9 passed (9)
