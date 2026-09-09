@@ -16,5 +16,6 @@ way `pages/api/invite/[token].ts:29-33` already does. Anyone holding the link ca
 the invitee already knows their own address. Covered by the R-030 test; mutation M3 in `green.log` removes
 the masking and the test fails.
 
-**Migration / rollback.** None for this item.
+**Migration / rollback.** None for this item. The `companies` exposure that fixing R-030 introduced is
+narrowed to a single column by migration 648 — see `docs/audits/remediation/R-030/fix.md`.
 **Historical impact.** None. No stored data was wrong on account of this claim.

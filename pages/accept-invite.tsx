@@ -12,12 +12,24 @@ export default function AcceptInvitePage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // The accept endpoint refuses to reset the password of an address that
+  // already has an IsaFlow login (K-041); that person must type their EXISTING
+  // password. The server tells us with SIGN_IN_REQUIRED, so relabel the field
+  // rather than leaving them to guess from the error text.
+  const [needsExistingPassword, setNeedsExistingPassword] = useState(false);
 
   useEffect(() => {
     if (!token) return;
     (async () => {
       const r = await fetch(`/api/invitations/${token}`);
       const body = await r.json();
+      // An invitation created by the other invitation system has no GoTrue user
+      // to set a password on. It is accepted at /invite/<token> by a signed-in
+      // user; /register?invite= and /login?invite= both land here, so forward.
+      if (body.error?.code === 'WRONG_INVITE_FLOW') {
+        void router.replace(`/invite/${encodeURIComponent(token)}`);
+        return;
+      }
       if (!body.success) { setError(body.error?.message ?? 'Invalid invitation'); setLoading(false); return; }
       setInvite(body.data);
       setLoading(false);
@@ -27,7 +39,7 @@ export default function AcceptInvitePage() {
       setError('Network error — could not load the invitation. Check your connection and refresh.');
       setLoading(false);
     });
-  }, [token]);
+  }, [token, router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,7 +52,10 @@ export default function AcceptInvitePage() {
         body: JSON.stringify({ password, firstName, lastName }),
       });
       const body = await r.json();
-      if (!body.success) { setError(body.error?.message ?? 'Failed to accept'); setSubmitting(false); return; }
+      if (!body.success) {
+        if (body.error?.code === 'SIGN_IN_REQUIRED') setNeedsExistingPassword(true);
+        setError(body.error?.message ?? 'Failed to accept'); setSubmitting(false); return;
+      }
       // Not awaited: a router abort would land in the catch below and show
       // "could not submit" for an accept that already succeeded server-side.
       void router.push('/accounting/dashboard');
@@ -57,7 +72,12 @@ export default function AcceptInvitePage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-md bg-white rounded-lg shadow p-8">
         <h1 className="text-2xl font-semibold mb-2">Join {invite.company_name}</h1>
-        <p className="text-gray-600 mb-6">Invited as <strong>{invite.role}</strong> with email <strong>{invite.email}</strong>. Set your password to accept.</p>
+        <p className="text-gray-600 mb-6">
+          Invited as <strong>{invite.role}</strong> with email <strong>{invite.email}</strong>.{' '}
+          {needsExistingPassword
+            ? 'This address already has an IsaFlow account. Enter that account\u2019s password to accept.'
+            : 'Set your password to accept.'}
+        </p>
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
@@ -70,7 +90,9 @@ export default function AcceptInvitePage() {
             </label>
           </div>
           <label className="block">
-            <span className="text-sm">Password (at least 10 characters)</span>
+            <span className="text-sm">
+              {needsExistingPassword ? 'Your existing IsaFlow password' : 'Password (at least 10 characters)'}
+            </span>
             <input type="password" className="w-full border rounded p-2" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} />
           </label>
           {error && <div className="text-red-600 text-sm">{error}</div>}

@@ -27,9 +27,12 @@ function pool(): pg.Pool {
 }
 
 export interface InviteTokenRequest extends NextApiRequest {
-  /** The token exactly as it appeared in the mailed link. */
-  inviteToken: string;
-  /** What `company_invitations.token` actually holds. Compare against this. */
+  /**
+   * What `company_invitations.token` actually holds. Compare against this.
+   * The raw token from the link is deliberately not exposed: every consumer
+   * matches on the digest, and handing the raw secret to handlers invites it
+   * back into a query or a log line.
+   */
   inviteTokenHash: string;
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,7 +45,6 @@ export function withInviteToken(handler: Handler): NextApiHandler {
       return res.status(400).json({ success: false, error: { code: 'BAD_TOKEN', message: 'Invite token missing' } });
     }
     const tokenHash = hashInviteToken(rawToken);
-    (req as InviteTokenRequest).inviteToken = rawToken;
     (req as InviteTokenRequest).inviteTokenHash = tokenHash;
 
     const client = await pool().connect();

@@ -39,5 +39,12 @@ WHERE gotrue_user_id IS NOT NULL AND accepted_at IS NULL AND expires_at > now()
 GROUP BY company_id;
 ```
 
+**Side effect the blind review caught (H1).** Unifying the encoding made `userInvitationService`'s
+invitations match these two routes for the first time, and that path never writes `gotrue_user_id`.
+Accepting one PUT a password to `/admin/users/null`, and the NULL also defeated K-041's own guard, because
+`id = NULL` matches no `users` row. Both routes now require `gotrue_user_id IS NOT NULL`; the lookup
+answers 409 `WRONG_INVITE_FLOW` and `/accept-invite` forwards to `/invite/<token>`, which is the flow that
+completes those invitations. See `docs/audits/remediation/R-030/fix.md` for all nine dispositions.
+
 **Limits.** Outstanding system-1 links are invalidated by design; those invitees must be re-invited. Raw
 tokens already sitting in database backups cannot be scrubbed by a migration.
