@@ -9715,7 +9715,7 @@
       "sourceLabel": "",
       "sourceIds": [],
       "correctedTrigger": "",
-      "severityRationale": "",
+      "severityRationale": "A financial control that is documented and configurable but has no enforcement path at all.",
       "auditedSha": "",
       "currentSha": "",
       "status": "confirmed",
@@ -9729,10 +9729,10 @@
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": null,
-      "title": "checkApproval has no caller on the posting path, so a document requiring approval can still be posted without one",
-      "severity": "high",
+      "title": "Approvals are not enforced anywhere: checkApproval and requestApproval have no caller, so any document posts under an active owner-only rule with no approval ever requested",
+      "severity": "critical",
       "source": "Raised by the K-043 fixer while closing review-k043-r3 M2; recorded 2026-09-09",
-      "processNotes": "K-043 enforces WHO may decide an approval; nothing enforces THAT one happened before posting. Out of scope for K-043's diff, needs its own item. Under adjudication by the K-043 r4 reviewer, who was asked to verify the no-caller claim by grep and state what an operator can do today."
+      "processNotes": "Confirmed by the K-043 r4 blind reviewer, who grepped every caller: checkApproval and requestApproval have NO caller at all -- not in the five posting services, not in the UI. K-043 enforces WHO may decide an approval that exists; nothing creates one and nothing blocks posting without one. Today an operator can post any invoice, bill, payment, journal or credit note of any amount under an active owner-only rule with no approval request ever existing, i.e. the approvals feature is decorative in production and any control relying on it is not operating. The reviewer ruled deferring this out of K-043 defensible -- it spans five posting services and needs a document-level approval_status -- but it must not be left implicit. K-043's module doc and fix.md are being corrected to say only the DECIDE path is enforced. HEIN: if approvals are being represented to anyone as a control, that representation is currently false."
     },
     {
       "id": "R-036",
