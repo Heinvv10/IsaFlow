@@ -9,8 +9,23 @@ vi.mock('@/modules/accounting/services/controls/auditSnapshotIndexRead',()=>({re
 vi.mock('@/modules/accounting/services/controls/auditSnapshotPageService',()=>({getAuditSnapshotPage:mocks.page,readAuditSnapshotChunk:mocks.snapshotChunk}));
 vi.mock('@/modules/accounting/services/controls/auditExportReadService',()=>({getAuditExportFiles:mocks.files,readAuditExportChunk:mocks.exportChunk}));
 import {auditDeliveryTools} from '@/lib/mcp/tools/auditDelivery';
+import {validateToolArguments} from '@/lib/mcp/inputValidation';
 const id='11111111-1111-4111-8111-111111111111',ctx={userId:'user',companyId:'company',scopes:['read:reports'],tokenJti:'token',oauthAppId:null};
 async function call(name:string,args:Record<string,unknown>){return auditDeliveryTools.find(tool=>tool.name===name)!.handler(args,ctx);}
+const valid=[{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotency_key:'retry'},
+ {snapshot_id:id,idempotency_key:'retry'},{job_id:id},{snapshot_id:id},{snapshot_id:id,section:'records'},
+ {snapshot_id:id,section:'records',ordinal:0,chunk_ordinal:0},{job_id:id},{job_id:id,file_ordinal:0,chunk_ordinal:0}];
+it('admits every actual tool contract through the registry input gate',()=>{
+ auditDeliveryTools.forEach((tool,index)=>expect(validateToolArguments(tool,valid[index])).toMatchObject({ok:true}));
+});
+it('accepts only a matching registry company assertion without forwarding it as business authority',async()=>{
+ for(let index=0;index<2;index++){
+  const tool=auditDeliveryTools[index]!,args={...valid[index],company_id:ctx.companyId};
+  await expect(tool.authorize!(args,ctx)).resolves.toBeUndefined();
+  expect((await tool.handler(args,ctx)).isError).not.toBe(true);
+  await expect(tool.authorize!({...args,company_id:'other'},ctx)).rejects.toThrow();
+ }
+});
 it('declares bounded explicit contracts for enqueue and retained delivery',()=>{
  expect(auditDeliveryTools.map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence','audit_job_status','audit_snapshot_manifest','audit_snapshot_items','audit_snapshot_chunk','audit_export_files','audit_export_chunk']);
  for(const tool of auditDeliveryTools){expect(tool.scope).toBe('read:reports');expect(tool.inputSchema.additionalProperties).toBe(false);expect(tool.requiresPost).not.toBe(true);}
