@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {assertControlTx} from './context';
 import {UUID_RE} from '@/lib/validation';
 import {assertHistoricalImportAuthority} from './historicalImportAuthority';
+import {readHistoricalImportSource} from './historicalImportSourceService';
 import {materializeHistoricalImportOperation} from './historicalImportMaterializer';
 import {executeControlledOperation} from './approvalExecutionService';
 import {registerGeneratedJournal} from './generatedJournalPermit';
@@ -12,10 +13,10 @@ import type {ControlTx,OperationRef} from './contracts';
 import type {HistoricalImportKind,HistoricalImportMode,HistoricalImportNormalized} from './historicalImportTypes';
 import type {loadHistoricalImportCurrentFacts} from './historicalImportCurrentFacts';
 type Row=Record<string,unknown>;
-type Facts=Awaited<ReturnType<typeof loadHistoricalImportCurrentFacts>>&{source:{normalized:HistoricalImportNormalized;contentHash:string}};
+type Facts=Awaited<ReturnType<typeof loadHistoricalImportCurrentFacts>>&{source:{sourceId:string;normalized:HistoricalImportNormalized;contentHash:string}};
 export interface HistoricalImportEffect {
  importId:string;kind:HistoricalImportKind;mode:HistoricalImportMode;journalEntryId:string;documentId?:string;
- amount:string;currency:'ZAR';accountingDate:string;
+ amount:string;currency:'ZAR';accountingDate:string;sageSourceRecordIds?:string[];
 }
 function postingActor(ctx:ControlTx){
  assertControlTx(ctx);const principal=ctx.principal;
@@ -59,6 +60,8 @@ export async function executeHistoricalImport(ctx:ControlTx,ref:OperationRef,app
   if(previous.length)throw new Error('Historical source already executed');
   const material=await materializeHistoricalImportOperation(ctx,ref),facts=material.observedSources[0]!.facts as unknown as Facts;
   const source=facts.source.normalized;
+  const sageSourceRecordIds=source.sourceSystem==='sage'&&(await readHistoricalImportSource(ctx,facts.source.sourceId)).artifact?.extractor.id==='sage_columns'
+   ?source.records.map(record=>record.recordId):undefined;
   if(permit.accountingDate!==source.accountingDate||permit.amount!==source.amount||permit.currency!==source.currency)throw new Error('Historical permit differs from exact source');
   let journalEntryId=source.existingJournalId;
   if(source.mode==='post_journal'){
@@ -73,6 +76,6 @@ export async function executeHistoricalImport(ctx:ControlTx,ref:OperationRef,app
   }
   if(!journalEntryId)throw new Error('Historical exact journal is unavailable');
   const documentId=source.document?await writeHistoricalImportDocument(ctx,permit,ref,source,journalEntryId):undefined;
-  return{importId:ref.entityId,kind:source.kind,mode:source.mode,journalEntryId,...(documentId?{documentId}:{}),amount:source.amount,currency:source.currency,accountingDate:source.accountingDate};
+  return{importId:ref.entityId,kind:source.kind,mode:source.mode,journalEntryId,...(sageSourceRecordIds?{sageSourceRecordIds}:{}),...(documentId?{documentId}:{}),amount:source.amount,currency:source.currency,accountingDate:source.accountingDate};
  });
 }

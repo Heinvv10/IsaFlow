@@ -1,20 +1,31 @@
 import {parseHistoricalImportArtifact} from './historicalImportExactPlan';
 import {extractHistoricalCsvGroups,type HistoricalCsvExtraction} from './historicalImportCsvAdapter';
 import {canonicalJson} from './canonical';
+import {extractHistoricalSageGroups} from './historicalImportSageAdapter';
 export interface HistoricalCsvArtifact {
  artifactVersion:2;extractor:{id:'gl_csv';version:1};evidenceKind:'original_upload';extraction:{options:HistoricalCsvExtraction;groupKey:string};
 }
+export interface HistoricalSageArtifact {artifactVersion:2;extractor:{id:'sage_columns';version:1};evidenceKind:'persisted_sage_columns';extraction:{options:{sourceKey:string;companyId:string};groupKey:string}}
+export type HistoricalArtifact=HistoricalCsvArtifact|HistoricalSageArtifact;
 /** Extractor identity is versioned and immutable. Unknown versions never fall back to another parser. */
 export function extractHistoricalArtifactGroup(bytes:Buffer,mimeType:string,artifact?:unknown){
  if(artifact===undefined)return parseHistoricalImportArtifact(bytes,mimeType);
  canonicalJson(artifact);
  if(!artifact||typeof artifact!=='object'||Array.isArray(artifact))throw new Error('Invalid historical extractor contract');
- const value=artifact as HistoricalCsvArtifact;
+ const value=artifact as HistoricalArtifact;
  if(Object.keys(value).some(key=>!['artifactVersion','extractor','evidenceKind','extraction'].includes(key))
-  ||value.artifactVersion!==2||value.extractor?.id!=='gl_csv'||value.extractor.version!==1||value.evidenceKind!=='original_upload'
-  ||Object.keys(value.extractor).some(key=>!['id','version'].includes(key))||mimeType!=='text/csv'
+  ||value.artifactVersion!==2||!['gl_csv','sage_columns'].includes(value.extractor?.id)||value.extractor.version!==1
+  ||Object.keys(value.extractor).some(key=>!['id','version'].includes(key))
   ||!value.extraction||typeof value.extraction.groupKey!=='string'||Object.keys(value.extraction).some(key=>!['options','groupKey'].includes(key)))throw new Error('Unsupported historical extractor contract');
- const groups=extractHistoricalCsvGroups(bytes,value.extraction.options),group=groups.groups.find(group=>group.groupKey===value.extraction.groupKey);
+ let groups;
+ if(value.extractor.id==='gl_csv'){
+  if(value.evidenceKind!=='original_upload'||mimeType!=='text/csv')throw new Error('Historical artifact provenance differs');
+  groups=extractHistoricalCsvGroups(bytes,(value as HistoricalCsvArtifact).extraction.options);
+ }else{
+  if(value.evidenceKind!=='persisted_sage_columns'||mimeType!=='application/json')throw new Error('Historical artifact provenance differs');
+  groups=extractHistoricalSageGroups(bytes,(value as HistoricalSageArtifact).extraction.options);
+ }
+ const group=groups.groups.find(group=>group.groupKey===value.extraction.groupKey);
  if(!group?.normalized)throw new Error('Historical selected source group is missing or invalid');
  return group.normalized;
 }
