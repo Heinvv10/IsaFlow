@@ -63,8 +63,16 @@ executor so the whole sequence stays on one connection.
   `applyLoanToRun` subtracted, clamp included. Both operands are cast `::numeric` — `LEAST` over two
   untyped bind parameters deduces text, and `numeric + text` has no operator.
 - **MEDIUM-1** `dry_run` on `calculate_pay_run` promised a recost that the live call would refuse.
-  Both paths now call `runHasLoanWork`, so the dry run reports the refusal in `skipped` and leaves
-  `effects` empty. It only reads the loans when a journal is actually posted.
+  Both paths now go through the same guard, so the dry run reports the refusal in `skipped` and
+  leaves `effects` empty. It only reads the loans when a journal is actually posted.
+
+## Fourth review (1 LOW), fixed
+
+- **LOW-1** the guard condition was written twice: once in `runHasLoanWork` for the dry run, once
+  inline in `applyRunLoans`. They agreed, but two copies of one rule is how the parity gap opened in
+  the first place. `readRunLoanWork` now returns the reversible rows, the loans due this period and
+  the boolean; `applyRunLoans` takes the rows it needs from it and `runHasLoanWork` is a one-line
+  view of the same read.
 
 ## Files
 
@@ -77,7 +85,7 @@ executor so the whole sequence stays on one connection.
 
 15 integration tests across the two K-022 files, plus 4 route tests in
 `tests/unit/api/payrollCalculateRefusals.test.ts` and 5 added to `tests/unit/mcp/payRunLifecycle.test.ts`.
-`green.log` lists every mutation check; all eight kill, including `FOR UPDATE`, the absolute-restore
+`green.log` lists every mutation check; all nine kill, including `FOR UPDATE`, the absolute-restore
 regression and the dry-run guard.
 
 ## Migrations / rollback

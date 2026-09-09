@@ -30,7 +30,11 @@ import {
   listLoansWithInstalmentDue,
   type ApplyLoanResult,
 } from './payrollLoanService';
-import { listReversibleLoanPayments, reverseLoanApplicationsForRun } from './payrollLoanReversal';
+import {
+  listReversibleLoanPayments,
+  reverseLoanApplicationsForRun,
+  type ReversibleLoanPayment,
+} from './payrollLoanReversal';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -72,15 +76,48 @@ async function setLocalLockTimeout(tx: TxSql, value: string): Promise<string> {
   return String(rows[0]?.previous ?? '0');
 }
 
+export interface RunLoanWork {
+  /** Payments this run would undo, including any reclaimed from a deleted run. */
+  reversible: ReversibleLoanPayment[];
+  /** Active loans with an instalment scheduled this period, ignoring paid_flag. */
+  dueThisPeriod: Array<{ loanId: string; employeeId: string }>;
+  /** True when either side has something, i.e. a live GL journal must block. */
+  hasWork: boolean;
+}
+
 /**
- * Would a live GL journal block the loan work on this run? The live path and
- * the MCP dry run must answer this the same way, so both call this rather than
- * re-deriving the condition — `dry_run` has to run every row-state guard the
- * live path runs, or it promises an action the real call refuses.
+ * Everything the journal guard needs to decide, read once. The live path and
+ * the MCP dry run must answer the same way, so both go through here rather
+ * than each writing the condition out: `dry_run` has to run every row-state
+ * guard the live path runs, and two copies of one rule is how that parity was
+ * lost the first time. The live path also needs the `reversible` rows for the
+ * reversal that follows, which is why this returns them rather than a bare
+ * boolean.
  *
  * Reads with the caller's executor: inside applyRunLoans that is the locked
  * transaction; from a dry run it is the request client.
  */
+export async function readRunLoanWork(
+  companyId: string,
+  runId: string,
+  periodYear: number,
+  periodMonth: number,
+  db: TxSql = sql,
+): Promise<RunLoanWork> {
+  const reversible = await listReversibleLoanPayments(
+    companyId, runId, periodYear, periodMonth, db,
+  );
+  const dueThisPeriod = await listLoansWithInstalmentDue(
+    companyId, periodYear, periodMonth, db,
+  );
+  return {
+    reversible,
+    dueThisPeriod,
+    hasWork: reversible.length > 0 || dueThisPeriod.length > 0,
+  };
+}
+
+/** The dry run's view of the same read. */
 export async function runHasLoanWork(
   companyId: string,
   runId: string,
@@ -88,12 +125,7 @@ export async function runHasLoanWork(
   periodMonth: number,
   db: TxSql = sql,
 ): Promise<boolean> {
-  const reversible = await listReversibleLoanPayments(
-    companyId, runId, periodYear, periodMonth, db,
-  );
-  if (reversible.length > 0) return true;
-  const due = await listLoansWithInstalmentDue(companyId, periodYear, periodMonth, db);
-  return due.length > 0;
+  return (await readRunLoanWork(companyId, runId, periodYear, periodMonth, db)).hasWork;
 }
 
 export interface RunLoanInput {
@@ -167,22 +199,20 @@ export async function applyRunLoans(
       throw err;
     }
 
-    const reversible = await listReversibleLoanPayments(
+    // Both sides read before anything is touched: a live journal blocks taking
+    // a NEW instalment just as surely as undoing an old one. The forward side
+    // ignores paid_flag, because the paid_flag-filtered list below is empty on
+    // a recalculation until the reversal has run and would hide exactly the
+    // work being guarded. Same helper the dry run calls, so the two cannot
+    // drift apart.
+    const work = await readRunLoanWork(
       input.companyId, input.runId, input.periodYear, input.periodMonth, tx,
     );
-    // Read both sides before touching anything: a live journal blocks taking a
-    // NEW instalment just as surely as undoing an old one. The forward side is
-    // read with listLoansWithInstalmentDue, which ignores paid_flag — the
-    // paid_flag-filtered list below is empty on a recalculation until the
-    // reversal has run, and would hide exactly the work being guarded.
-    const dueThisPeriod = await listLoansWithInstalmentDue(
-      input.companyId, input.periodYear, input.periodMonth, tx,
-    );
-    if (input.journalEntryId != null && (reversible.length > 0 || dueThisPeriod.length > 0)) {
+    if (input.journalEntryId != null && work.hasWork) {
       throw new PayrollRunJournalPostedError(input.runId);
     }
 
-    await reverseLoanApplicationsForRun(input.companyId, input.runId, reversible, tx);
+    await reverseLoanApplicationsForRun(input.companyId, input.runId, work.reversible, tx);
 
     const active = await listActiveLoansForRun(
       input.companyId, input.periodYear, input.periodMonth, tx,
@@ -212,7 +242,7 @@ export async function applyRunLoans(
     const reapplied = new Set(
       Array.from(byEmployee.values()).flat().map(a => a.loanId),
     );
-    for (const payment of reversible) {
+    for (const payment of work.reversible) {
       if (!reapplied.has(payment.loanId)) continue;
       await tx`
         UPDATE payroll_loan_payment_reversals
@@ -225,7 +255,7 @@ export async function applyRunLoans(
            AND reapplied = false
       `;
     }
-    const notReapplied = reversible.filter(p => !reapplied.has(p.loanId));
+    const notReapplied = work.reversible.filter(p => !reapplied.has(p.loanId));
     if (notReapplied.length > 0) {
       log.warn(
         'Loan payments reversed without re-application — loan no longer active for this period',
