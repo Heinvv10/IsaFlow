@@ -46,6 +46,8 @@ export interface MappedARInvoice {
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
+  /** Already settled at the source (Sage `Total - AmountDue`). */
+  amountPaid?: number;
   reference?: string;
   sageId?: number;
 }
@@ -58,6 +60,8 @@ export interface MappedAPInvoice {
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
+  /** Already settled at the source (Sage `Total - AmountDue`). */
+  amountPaid?: number;
   reference?: string;
   sageId?: number;
 }
