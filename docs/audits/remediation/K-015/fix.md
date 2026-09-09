@@ -209,3 +209,90 @@ with the fixture env unset; `tsc`, `eslint`, `agent-docs:check` clean. No migrat
 
 **Historical data.** Unchanged from follow-up 4: forward-only, nothing to repair. The R-020
 change only widens what the wizard accepts, and the residual is recorded, never enforced.
+
+---
+
+# Follow-up 6: fourth blind review (`review-k015b-r2.md`) — 2 HIGH, 3 MEDIUM, 4 LOW
+
+Integration 48 passed (was 42); components 419 passed across 63 files (2 new files, 3 new tests);
+full unit suite 9426 passed with the fixture env unset; `tsc`, `eslint` (src/pages), and
+`agent-docs:check` clean. Five mutations, one per production edit, each red on the test that owns
+it — recorded in `green.log` ("Round 4"). No migration.
+
+- **H1 — the AP wizard page could never reach the import. FIXED.** `ap-invoices.tsx` read
+  `sessionJson.data?.id` while the route answers `apiResponse.success(res, { session })`, so
+  `data.id` was always `undefined` and every Import click threw "No active migration session"
+  before POSTing — making follow-up 5's `InvoiceImportResult` banner unreachable on that page, and
+  its commit message's "both wizard pages" claim false for AP. It now uses the typed
+  `apiJson('/api/accounting/migration/session')` the AR page uses. Proved by rendering the page
+  itself over the real response envelope (`tests/unit/components/apInvoicesWizardPage.test.tsx`):
+  the mutation back to `data?.id` fails with the exact "No active migration session" text.
+- **H2 — a re-run with a corrected total posted the bill twice. FIXED.** AP idempotency keyed on
+  `computeFingerprint(vat, invoiceNumber, totalAmount)`, and the total is part of that key, so the
+  ordinary operator loop (import, spot a wrong total, correct the CSV, re-run) missed the lookup
+  and minted a second `supplier_invoices` row and a second posted take-on journal against the AP
+  control account. The key is now the bill's IDENTITY — `(company_id, supplier_id, invoice_number)`
+  where the number is non-blank, `deleted_at IS NULL` — with the fingerprint kept as the fallback
+  for a blank-numbered row, which has no identity to key on. No migration: a unique index is
+  impossible here (blank invoice numbers legitimately repeat, and 625's unique form was withdrawn
+  at `209f9761` over the production groups of 55-79 degenerate fingerprints, R-025). The lookup is
+  serialised by the existing `lockMigrationImport`, exactly as the fingerprint lookup was.
+  **Tested against production's shape, not the fixture's:** the fixture DB carries
+  `uq_supplier_invoices_supplier_number` (K-107's migration 646, on no origin ref, R-036), which
+  would raise 23505 and mask the defect entirely, so the three new AP tests
+  `DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number` inside their own transaction — DDL is
+  transactional in Postgres, so the `ROLLBACK` in `finally` restores it and no other session's
+  fixture is affected. The test asserts the index is gone before importing.
+- **M1 — `importOpeningBalances` took no lock. FIXED.** It now takes `lockMigrationImport` before
+  reading the session, as both document steps do. Without it an overlapping pair — opening balances
+  carrying a control line, and the matching document step — each read a `steps_completed` map
+  without the other's mark, both passed, and both posted. Proved with two interleaved pool clients.
+- **M2 — the flag recorded "the step ran", not "documents were taken on". FIXED.** The refusal in
+  `importOpeningBalances` is now gated on `{ar,ap}_invoices_imported > 0` rather than on
+  `steps_completed`, which is written even by a run that imported nothing. An operator whose first
+  AP file matched no supplier could otherwise never bring the AP control total in for that session.
+  The step flag itself is unchanged — the hub's progress display and the error-supersede logic both
+  depend on it meaning "the step ran".
+- **M3 — the persisted warnings were read by nobody. FIXED.** The migration hub now renders them:
+  `src/components/accounting/migration/SessionIssues.tsx`, mounted on
+  `pages/accounting/migration/index.tsx`. Warnings first, then errors, each labelled with its step
+  and one-based row. This is the honest closure of follow-up 5's M4 and makes the durability claim
+  in both `.claude.md` files true rather than aspirational.
+- **L1 — the residual and the resolver disagreed. FIXED.** `recordClearingResidual` now applies the
+  same `is_system_account = true AND is_active = true` predicates `getSystemAccountId` resolves the
+  clearing account by, so a second, non-system Opening Balance Equity account on the chart no longer
+  pulls lines the take-on never posted to into the residual.
+- **L2 — `computeFingerprint` scale vs migration 412's backfill. DISPUTED, registered.** The
+  mismatch is real (`1150` vs `1150.00`) and pre-dates this branch in the capture path. It is NOT
+  fixed here: `computeFingerprint` feeds four services (`captureDeduplicationService`,
+  `supplierInvoiceService`, `sageImportService`, `recurringTransactionService`) and every
+  `duplicate_fingerprint` already stored by application code; changing its scale invalidates that
+  whole corpus and needs a re-backfill, which is a data migration in its own right. H2 also removes
+  the wizard's dependence on it for any numbered bill. Register item, unchanged from follow-up 3's.
+- **L3 — `sageImportService.ts` is 539 lines. DISPUTED, registered.** Pre-existing: 526 lines at
+  the merge base, grown by the 13 lines of savepoint wrapper this branch's fix required. Splitting
+  it cannot reach the 300-line ceiling without also breaking up `importLedgerTransactions`, a
+  289-line function this branch does not otherwise touch — an adjacent refactor of a ledger-posting
+  path, in a fix PR, which the fixer brief forbids and the reviewer himself judged would widen the
+  diff. Recorded rather than done.
+- **L4 — the PR head is behind the local branch. NOT FIXABLE FROM HERE.** `origin/...` still carries
+  `625_supplier_invoice_duplicate_fingerprint_unique.sql`, the withdrawn UNIQUE index that aborts
+  the deploy on real data. This session is barred from pushing. **The branch must be pushed before
+  PR #373 is read or merged.** Escalated to the team lead.
+
+**Historical data.** Still forward-only; nothing stored can be wrong under H2, because before this
+branch the AP wizard imported nothing at all (the `balance_due` defect). Read-only check for any
+tenant that ran a corrected re-run against a build carrying the fingerprint key:
+```sql
+SELECT company_id, supplier_id, invoice_number, COUNT(*), SUM(total_amount)
+  FROM supplier_invoices
+ WHERE deleted_at IS NULL AND invoice_number <> ''
+   AND gl_journal_entry_id IN (SELECT id FROM gl_journal_entries WHERE source = 'auto_migration')
+ GROUP BY 1, 2, 3
+HAVING COUNT(*) > 1;
+```
+
+**Limits.** The wizard pages are proven by rendering the real page components over the real
+response envelopes, not by a browser load against a running dev server — no dev server was
+available in this worktree. That crosses the envelope → page state → banner seam H1 lived in, but
+not CSS, layout, or the live auth/company header path.

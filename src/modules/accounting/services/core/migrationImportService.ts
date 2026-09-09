@@ -51,15 +51,32 @@ export async function importOpeningBalances(
 
   // R-020 is a rule about DOUBLE counting, not about control accounts. A trial
   // balance may bring the AR or AP control total in INSTEAD of the documents —
-  // a summary-only take-on. It may not do both. So: refuse the control line if
-  // the matching document step has already run, otherwise accept it and record
-  // it on the session, where the document step reads it and refuses in turn.
+  // a summary-only take-on. It may not do both. So: refuse the control line once
+  // the matching side has actually taken documents on, otherwise accept it and
+  // record it on the session, where the document step reads it and refuses.
+  //
+  // The interlock is a read-then-write on the same session row the document
+  // steps read and write, so it needs the same lock they take — otherwise an
+  // opening-balances request carrying a control line and a document request
+  // overlap, each reads a session without the other's mark, both pass, and both
+  // post. Transaction-scoped and re-entrant; `withAuth` gives the request one
+  // transaction, so the window without it is the whole request.
+  await lockMigrationImport(companyId);
+
   const sessRows = (await sql`
-    SELECT COALESCE(steps_completed, '{}'::JSONB) AS steps
+    SELECT ar_invoices_imported, ap_invoices_imported
     FROM migration_sessions
     WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  const steps = (sessRows[0]?.steps ?? {}) as Record<string, boolean>;
+  // Gate on documents actually TAKEN ON, not on "the step ran". The step flag is
+  // written even by a run that imported nothing (every supplier unmatched, say),
+  // and gating on it permanently barred an operator whose first file failed from
+  // ever bringing the control total in — with nothing imported there is nothing
+  // to double count.
+  const documentsTakenOn: Record<string, boolean> = {
+    ar_invoices: Number(sessRows[0]?.ar_invoices_imported ?? 0) > 0,
+    ap_invoices: Number(sessRows[0]?.ap_invoices_imported ?? 0) > 0,
+  };
   const controlTotals: Record<string, boolean> = {};
 
   const totalDebit  = balances.reduce((s, b) => s + (b.debit ?? 0), 0);
@@ -89,7 +106,7 @@ export async function importOpeningBalances(
     const subtype = String(acctRows[0]!.account_subtype ?? '');
     if (subtype === 'receivable' || subtype === 'payable') {
       const documentStep = subtype === 'receivable' ? 'ar_invoices' : 'ap_invoices';
-      if (steps[documentStep]) {
+      if (documentsTakenOn[documentStep]) {
         throw new Error(
           `Opening trial balance carries ${bal.accountCode}, a ${subtype} control account, and the ${subtype === 'receivable' ? 'customer' : 'supplier'} invoice step has already taken those documents on, one line per outstanding document. Importing the control total as well posts the same money a second time. Remove the control account rows from the trial balance.`,
         );

@@ -504,6 +504,118 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
+  it('a re-run with a corrected total does not post the same bill twice', async () => {
+    // The operator loop this exists for: import, notice a wrong total, fix the
+    // CSV, re-run. The old key was the fingerprint, which carries the total, so
+    // the corrected row missed the lookup and minted a SECOND bill and a SECOND
+    // take-on journal against the AP control account.
+    //
+    // The fixture DB carries uq_supplier_invoices_supplier_number — K-107's
+    // migration 646, on no origin ref and NOT in production — which would raise
+    // 23505 and mask the defect entirely. It is dropped inside this
+    // transaction, so the test runs against production's shape and the ROLLBACK
+    // in `finally` puts it back.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query('DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number');
+      const gone = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM pg_indexes
+          WHERE tablename = 'supplier_invoices'
+            AND indexname = 'uq_supplier_invoices_supplier_number'`,
+      )).rows[0];
+      expect(gone.n).toBe(0);
+
+      const first = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-corrected`, subtotal: 100, taxAmount: 15, totalAmount: 115 }),
+      ], USER));
+      expect(first.imported).toBe(1);
+
+      // Same supplier, same invoice number, corrected total.
+      const second = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-corrected`, subtotal: 110, taxAmount: 16.5, totalAmount: 126.5 }),
+      ], USER));
+      expect(second.imported).toBe(0);
+      expect(second.skipped).toBe(1);
+      expect(second.errors).toHaveLength(1);
+      expect(second.errors[0]!.field).toBe('invoiceNumber');
+      expect(second.errors[0]!.message).toContain(`${TAG}-corrected`);
+
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM supplier_invoices
+          WHERE company_id = $1 AND invoice_number = $2 AND deleted_at IS NULL`,
+        [COMPANY, `${TAG}-corrected`],
+      )).rows[0];
+      expect(rows.n).toBe(1);
+
+      // And the control account carries the one bill's outstanding balance only.
+      const payable = (await c.query(
+        `SELECT COALESCE(SUM(l.credit - l.debit), 0) AS net
+           FROM gl_journal_lines l
+           JOIN gl_accounts a ON a.id = l.gl_account_id
+          WHERE l.company_id = $1 AND a.account_subtype = 'payable'
+            AND l.journal_entry_id IN (
+              SELECT id FROM gl_journal_entries
+               WHERE company_id = $1 AND description LIKE $2)`,
+        [COMPANY, `%${TAG}-corrected%`],
+      )).rows[0];
+      expect(Number(payable.net)).toBe(115);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('without the borrowed index, a blank-numbered bill still de-duplicates on its fingerprint', async () => {
+    // A row with no invoice number has no identity to key on, so the
+    // fingerprint remains its only guard — and it has to keep working with the
+    // fixture's unique index gone (that index exempts invoice_number = '').
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query('DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number');
+
+      const first = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: '', subtotal: 200, taxAmount: 30, totalAmount: 230 }),
+      ], USER));
+      expect(first.imported).toBe(1);
+
+      const second = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: '', subtotal: 200, taxAmount: 30, totalAmount: 230 }),
+      ], USER));
+      expect(second.imported).toBe(0);
+      expect(second.skipped).toBe(1);
+      expect(second.errors[0]!.message).toContain('Already imported');
+
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM supplier_invoices
+          WHERE company_id = $1 AND invoice_number = '' AND deleted_at IS NULL`,
+        [COMPANY],
+      )).rows[0];
+      expect(rows.n).toBe(1);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('the same invoice number for a DIFFERENT supplier is still imported', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query('DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number');
+      const result = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-cross`, supplierName: `ACME ${TAG}` }),
+        bill({ invoiceNumber: `${TAG}-cross`, supplierName: `BETA ${TAG}` }),
+      ], USER));
+      expect(result.errors).toEqual([]);
+      expect(result.imported).toBe(2);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
   it('a soft-deleted bill does not block re-importing a corrected one', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');
