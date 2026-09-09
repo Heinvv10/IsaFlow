@@ -34,6 +34,15 @@ with a transfer case pinning the other boundary.
 (SELECT id FROM gl_journal_lines WHERE journal_entry_id = je.id)` with
 `AND bt.allocation_rule_id IS NOT NULL`. Verified to run; existing journals are not corrected.
 
+**A transfer rule is still not RECORDED as a transfer — named, not fixed.** The amounts are now
+right (`gl/bankContraVat.ts` drops the VAT code on a `bank`-subtype contra, and both rule forms stop
+offering one), but `bank_categorisation_rules` has no transfer column, so the sweep posts such a rule
+with `source: 'auto_bank_recon'` and `allocation_type = 'account'`, with no `counterparty_account_id`
+and no `transfer_journal_entry_id`, and it does not run the duplicate-transfer guard that
+`allocateTransaction`'s transfer arm has. The same movement can therefore still be posted a second
+time from the counterparty bank's own feed. Pre-existing and untouched by this branch; giving rules a
+transfer shape is a schema change and its own piece of work, not part of a VAT correction.
+
 **Limits.** Rules whose `vat_code` was set deliberately change behaviour on the next sweep — the
 intent. Existing rule ROWS are not rewritten by any migration, so a `vat_code` stored before this
 change still shows on the rules list until someone edits that rule. BOTH authoring forms are fixed:

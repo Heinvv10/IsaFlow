@@ -256,8 +256,13 @@ export async function applyRules(
             // want when the sweep DID resolve it and the account has no name.
             ruleGlAccountName: ruleGlAccountId
               ? ruleAccountNames.get(ruleGlAccountId) ?? null : null,
+            // No `?? false`. `bankContraVat` states that absent from the map
+            // means "not asked about", never "not a bank", and coalescing here
+            // would skip the guard instead of falling back to the per-line
+            // lookup — the same reason `ruleGlAccountName` above uses `?? null`
+            // for its OWN meaning of absent rather than borrowing this one.
             ruleGlAccountIsBank: ruleGlAccountId
-              ? ruleAccountIsBank.get(ruleGlAccountId) ?? false : false,
+              ? ruleAccountIsBank.get(ruleGlAccountId) : false,
             bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
             supplierName, supplierId: ruleSupplierId ?? null, customerName,
           }));

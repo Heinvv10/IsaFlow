@@ -83,6 +83,18 @@ async function assertAllBalanced(): Promise<void> {
   for (const r of rows) expect(r.dr).toBeCloseTo(r.cr, 2);
 }
 
+async function acct(
+  code: string, name: string, type: string, subtype: string, normal: string,
+): Promise<string> {
+  const rows = (await sql`
+    INSERT INTO gl_accounts
+      (company_id, account_code, account_name, account_type, account_subtype,
+       normal_balance, is_active, is_system_account)
+    VALUES (${COMPANY}::UUID, ${code}, ${name}, ${type}, ${subtype}, ${normal}, true, true)
+    RETURNING id`) as { id: string }[];
+  return rows[0]!.id;
+}
+
 async function newTx(amount: number, description: string): Promise<string> {
   const rows = (await sql`
     INSERT INTO bank_transactions
@@ -108,15 +120,6 @@ describeIfDb('K-016/K-017 settlement VAT — adjacent cases', () => {
     customer = ((await sql`
       INSERT INTO customers (name, company_id) VALUES (${'CUST ' + TAG}, ${COMPANY}::UUID)
       RETURNING id`) as { id: string }[])[0]!.id;
-    const acct = async (code: string, name: string, type: string, subtype: string, normal: string) => {
-      const rows = (await sql`
-        INSERT INTO gl_accounts
-          (company_id, account_code, account_name, account_type, account_subtype,
-           normal_balance, is_active, is_system_account)
-        VALUES (${COMPANY}::UUID, ${code}, ${name}, ${type}, ${subtype}, ${normal}, true, true)
-        RETURNING id`) as { id: string }[];
-      return rows[0]!.id;
-    };
     expenseAccount = await acct('6000', 'K016A Expense', 'expense', 'default_expense', 'debit');
     await acct('2100', 'K016A AP', 'liability', 'payable', 'credit');
     await acct('1100', 'K016A AR', 'asset', 'receivable', 'debit');
@@ -180,6 +183,37 @@ describeIfDb('K-016/K-017 settlement VAT — adjacent cases', () => {
     // 230 / 1.15 = 200.00 net, 30.00 input tax — unchanged by the fix.
     expect((await leg('1140')).dr - before.dr).toBeCloseTo(30, 2);
     expect((await leg('6000')).dr).toBeCloseTo(300, 2); // 100 from the case above + 200
+    await assertAllBalanced();
+  }, 60000);
+
+  // The transfer guard, end to end. A transfer RULE has nowhere to say it is
+  // one — `bank_categorisation_rules` has no transfer column — so it stores the
+  // counterparty BANK in `gl_account_id` and reaches the sweep as an ordinary
+  // `account` line, the one arm that still splits. The name-based non-supply
+  // guard cannot catch it, which is why this is judged on `account_subtype`
+  // against a real `gl_accounts` row rather than in a mock.
+  it('sweeps a transfer rule gross, touching no VAT account', async () => {
+    const contraBank = await acct('1010', 'K016A FNB Cheque', 'asset', 'bank', 'debit');
+    await newTx(-345, `INTERACCOUNT ${TAG} F`);
+    await sql`
+      INSERT INTO bank_categorisation_rules
+        (company_id, rule_name, match_field, match_type, match_pattern,
+         gl_account_id, vat_code, auto_create_entry, is_active, priority)
+      VALUES (${COMPANY}::UUID, ${'transfer rule ' + TAG}, 'description', 'contains',
+              ${`INTERACCOUNT ${TAG}`}, ${contraBank}::UUID, 'standard', true, true, 1)`;
+
+    const vatBefore = await leg('1140');
+    const result = await inTx(() => applyRules(COMPANY, bankAccount, USER));
+    expect(result.entries.length).toBe(1);
+
+    // Two lines, gross, and the counterparty bank carries the whole R345.
+    expect((await leg('1010')).dr).toBeCloseTo(345, 2);
+    expect((await leg('1140')).dr - vatBefore.dr).toBeCloseTo(0, 2);
+    const lines = (await sql`
+      SELECT COUNT(*)::int AS n FROM gl_journal_lines
+      WHERE company_id = ${COMPANY}::UUID
+        AND journal_entry_id = ${result.entries[0]!.journalEntryId}::UUID`) as { n: number }[];
+    expect(lines[0]!.n).toBe(2);
     await assertAllBalanced();
   }, 60000);
 

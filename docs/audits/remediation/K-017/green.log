@@ -115,3 +115,56 @@ and writeBankBulkAllocate mock the batched fetches; each gained the third one.
 provisionalPostingService drives the REAL resolver with a positional sql queue
 and gained one row for the subtype lookup — which only happens because its
 line survives both statutory guards, the exact case the new check is for.
+
+================================================================
+ROUND-3 RE-REVIEW — 4 LOW, on f82f9e88
+================================================================
+
+L1 a transfer rule is not RECORDED as a transfer — NAMED, NOT FIXED.
+   The reviewer's own recommendation ("Fix: none here — worth its own finding").
+   `bank_categorisation_rules` has no transfer column, so the sweep writes
+   source 'auto_bank_recon' / allocation_type 'account' with no
+   counterparty_account_id, no transfer_journal_entry_id and no
+   duplicate-transfer guard. Amounts are right, shape is not. Giving rules a
+   transfer shape is a schema change and its own work, not part of a VAT
+   correction — doing it inside this commit would be the wrong call. Written
+   up in K-017 fix.md and in the bank/.claude.md recent-changes entry so it
+   cannot be lost.
+L2 the batched caller converted "absent" into "not a bank" — FIXED.
+   bankRulesMatchingService now passes `ruleAccountIsBank.get(id)` unchanged.
+   NO TEST ASSERTS THIS, deliberately: the map is built from the same id list,
+   so an id can only be absent when the account does not exist for the company,
+   and the journal insert then fails on the FK first. It is a contract
+   alignment with no reachable behaviour change, and a test would prove
+   nothing. The contract it aligns TO is reachable at the MCP prefetch and is
+   tested there — 'falls back when only the bank fact is missing from the
+   prefetch' in allocationVatGuardBatch.test.ts.
+L3 BankRuleForm still offered a treatment for a TRANSFER rule — FIXED.
+   `accountSubtype` now flows from the chart of accounts through
+   useBankRuleRefData into GLAccountOption, and `postsNoVat` covers the bank
+   contra as well as the two settlement shapes. Wording differs per case, and
+   a rule that is both a settlement and a bank contra says settlement, because
+   a supplier rule ignores its GL account entirely.
+L4 the bank-contra guard had no real-database test — FIXED.
+   New case in k016-k017-settlement-vat-adjacent.int.test.ts drives the real
+   `applyRules` over a rule pointing at a second gl_accounts row with
+   account_subtype = 'bank': one entry, two lines, R345 gross on the
+   counterparty bank, vat_input untouched, journal balanced.
+
+=== mutation, this round ===
+bankContraVat BANK_SUBTYPE changed so it never matches
+  -> the new INTEGRATION case goes RED against the real database (it went red
+     as a unit test in round 2; this is the end-to-end proof round 2 lacked).
+BankRuleForm `postsNoVat = isSettlementRule` (drop the transfer half)
+  -> 3 of 11 component tests RED: the N/A case, the stale-code-on-load case,
+     and the switch-back-to-an-expense-account case.
+Both restored; both suites green again.
+
+=== gates, after the round-3 re-review ===
+bunx tsc --noEmit                                     clean
+bun run test:unit (no DATABASE_URL)   784 files, 9339 passed | 234 skipped
+bun run test:components                57 files,  401 passed
+integration (real DB, fixture)          3 files,    8 passed
+bun scripts/ci/check-vat-guard-coverage.ts  OK, 13 allowlisted
+bun run agent-docs:check                    OK, 74 mirrors match
+Both suites run with --testTimeout=45000; see the flake note above.
