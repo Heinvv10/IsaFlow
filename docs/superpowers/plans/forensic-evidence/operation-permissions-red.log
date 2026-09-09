@@ -1,0 +1,24 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/operationPermissions.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts [ tests/unit/services/controls/operationPermissions.test.ts ]
+Error: Cannot find package '@/modules/accounting/services/controls/operationPermissions' imported from /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/services/controls/operationPermissions.test.ts
+ ❯ tests/unit/services/controls/operationPermissions.test.ts:2:1
+      1| import {expect,it} from 'vitest';
+      2| import {operationPermission,operationRuleType} from '@/modules/account…
+       | ^
+      3| it.each([
+      4|  ['supplier_invoice.post','read:invoices','write:invoices','supplier_i…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  09:54:22
+   Duration  233ms (transform 16ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+
