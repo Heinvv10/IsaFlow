@@ -163,7 +163,12 @@ export function buildBankTxActions(deps: ActionDeps) {
       });
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to mark as reviewed');
-      notify.success(`${json.data?.accepted ?? selectedIds.size} transaction(s) marked as reviewed`);
+      const accepted: number = json.data?.accepted ?? selectedIds.size;
+      if (accepted < selectedIds.size) {
+        notify.warning(`${accepted} of ${selectedIds.size} transaction(s) marked as reviewed`, `${selectedIds.size - accepted} were already reviewed or no longer eligible`);
+      } else {
+        notify.success(`${accepted} transaction(s) marked as reviewed`);
+      }
       setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to mark as reviewed'); }
   };

@@ -13,6 +13,14 @@ import { sql } from '@/lib/neon';
 /** A pg foreign-key violation; the FKs migration 649 made RESTRICT raise this. */
 export const FK_VIOLATION = '23503';
 
+/**
+ * A refusal written for the operator, not an internal failure. The action route
+ * genericises every other error to 'Action failed' (pentest H16), which would
+ * throw away the counted message this guard exists to produce, so the messages
+ * that are safe to read carry this type instead of being matched by string.
+ */
+export class CostCentreActionError extends Error {}
+
 export const CANNOT_DELETE_PREFIX = 'Cannot delete cost centre that is used by ';
 const CANNOT_DELETE_SUFFIX = '. Deactivate instead.';
 
@@ -31,6 +39,12 @@ export function cannotDeleteMessage(parts: string[]): string {
  * because a mapping has no meaning without its centre. capture_events
  * .resolved_cost_centre_id is absent too — it is an unposted classification
  * hint, so losing it re-triggers classification rather than stranding a posting.
+ * The archive_* tables (archive_gl_journal_entries.cost_center_id,
+ * archive_gl_journal_lines.cost_center_id, archive_supplier_invoices
+ * .cost_center_id) are absent as well: archived history is read-only and is
+ * never re-reported by cost centre, so a delete strands attribution there
+ * rather than corrupting a live posting. Counting them would make a centre
+ * undeletable forever once any period was archived.
  */
 export async function assertCostCentreUnused(companyId: string, id: string): Promise<void> {
   const usage = (await sql`
@@ -65,6 +79,9 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
       + (SELECT COUNT(*) FROM expense_claim_lines ecl
           WHERE ecl.cost_centre_id = ${id}::UUID AND ecl.company_id = ${companyId}::UUID)
       ) AS documents,
+      (SELECT COUNT(*) FROM bank_transactions bt
+        WHERE (bt.cc1_id = ${id}::UUID OR bt.cc2_id = ${id}::UUID)
+          AND bt.company_id = ${companyId}::UUID) AS bank_transactions,
       (
         (SELECT COUNT(*) FROM supplier_coding_rules scr
           WHERE scr.default_cost_centre_id = ${id}::UUID AND scr.company_id = ${companyId}::UUID)
@@ -82,11 +99,12 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
     ['assets', 'asset(s)'],
     ['children', 'child cost centre(s)'],
     ['documents', 'document(s)'],
+    ['bank_transactions', 'bank transaction(s)'],
     ['coding_rules', 'coding rule(s)'],
   ];
   const used = labels
     .map(([key, label]) => [Number(row[key] ?? 0), label] as const)
     .filter(([count]) => count > 0)
     .map(([count, label]) => `${count} ${label}`);
-  if (used.length > 0) throw new Error(cannotDeleteMessage(used));
+  if (used.length > 0) throw new CostCentreActionError(cannotDeleteMessage(used));
 }

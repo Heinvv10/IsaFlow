@@ -49,3 +49,41 @@ applies; running the file through bare psql warns and is expected.
 
 LOW-4: agent-docs:generate run, agent-docs:check OK (74 mirrors).
 LOW-5: partially addressed, disposition recorded in fix.md.
+
+=== Review round 3 (2026-09-09) ===
+Integration (fixture DB, vitest.integration.config.ts): 7 files, 28 tests passed
+  k110-cost-centre-guard-coverage (7), k110-cost-centre-delete-adjacent (5),
+  k110-cost-centre-delete-unassigns (1), k111-bulk-accept-row-count (5),
+  k111-merge-and-timesheet-row-counts (2), k111-row-count-adjacent (5),
+  k111-trial-extension-row-count (3)
+Components (vitest.components.config.ts): 69 files, 448 tests passed
+Full unit suite, fixture env UNSET: 801 passed | 40 skipped (841 files), 9556 passed | 243 skipped (9799 tests)
+bunx tsc --noEmit: clean (exit 0)
+bunx eslint on all changed src/pages files: clean. The two new tests/** files report
+  "not found by the project service" — pre-existing for every file under tests/**
+  (tsconfig excludes it); reproduced on untouched tests/unit/components/bankRuleFormVatTreatment.test.tsx.
+bun run agent-docs:check: OK, 74 mirrors match.
+bunx tsx scripts/ci/check-migration-rls.ts: OK.
+
+Mutation proof (production change reverted, test re-run, then restored):
+ 1 doAction res.ok check removed          -> costCentreDeleteRefusal 2 of 4 FAIL
+ 2 bank_transactions count removed        -> guard-coverage 1 FAIL
+ 3 not-found throw removed                -> guard-coverage + adjacent 3 FAIL
+ 4 rows.length -> companyIds.length       -> trial-extension 3 of 3 FAIL
+ 5 mig 660 FK reverted to SET NULL        -> guard-coverage 1 FAIL (cross-tenant child)
+ 6 route CostCentreActionError branch cut -> adjacent 1 FAIL (body message)
+ 7 partial-result toast reverted          -> bankTxBulkAcceptToast 2 of 3 FAIL
+
+Migration 660 applied to the fixture DB; cost_centres_parent_id_fkey confdeltype now 'r'.
+Orphan pre-check proven: inside BEGIN/ROLLBACK with the FK dropped and one orphan parent_id,
+660 raised "Migration 660: 1 cost_centres row(s) carry a parent_id with no cost_centres row."
+
+Browser proof (HIGH-1): dev server started from this worktree on :3200 against isaflow_dev
+(no dev server was running; none belonging to another worktree was touched — the process
+killed afterwards had /proc/<pid>/cwd = this worktree). Session minted administratively via
+GoTrue admin generate_link + email_otp for reporting-qa@isaflow.dev; headless Chromium with
+those cookies. Delete on cost centre CC-K110 (held by one payroll employee, seeded in
+isaflow_dev and deleted afterwards) rendered:
+  "Cannot delete cost centre that is used by 1 employee(s). Deactivate instead."
+in the page's red banner, HTTP 400, row still listed. Screenshot: browser-delete-refusal.png.
+Before the route fix the same run showed "Action failed"; before the envelope fix, "Failed".

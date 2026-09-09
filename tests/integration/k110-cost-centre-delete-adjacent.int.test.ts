@@ -63,14 +63,21 @@ afterAll(async () => {
 });
 
 it('refuses a centre that only fixed assets reference, and names the count', async () => {
-  // The route maps any service error to a generic 400, so the counted message
-  // is asserted at the service boundary that produces it.
   await expect(deleteCostCentre(company, assetCentre)).rejects.toThrow('1 asset(s)');
   const result = await callDelete(assetCentre);
   const rows = await pool.query('SELECT id FROM cost_centres WHERE id=$1', [assetCentre]);
   const asset = await pool.query('SELECT cost_centre_id FROM assets WHERE company_id=$1', [company]);
   expect({ status: result.state.statusCode, kept: rows.rows.length, stillAssigned: asset.rows[0].cost_centre_id })
     .toEqual({ status: 400, kept: 1, stillAssigned: assetCentre });
+});
+
+it('sends the counted refusal in the response body, not a generic Action failed', async () => {
+  // badRequestFromError replaces err.message with the public string, so the
+  // guard's whole point died at the route until CostCentreActionError was
+  // recognised. Browser-confirmed against a dev server; asserted here.
+  const result = await callDelete(assetCentre);
+  const body = result.state.body as { error?: { message?: string } };
+  expect(body.error?.message).toBe('Cannot delete cost centre that is used by 1 asset(s). Deactivate instead.');
 });
 
 it('still deletes a centre that nothing references', async () => {
@@ -85,7 +92,9 @@ it('leaves the second tenant untouched and cannot delete its centre', async () =
   const emp = await pool.query('SELECT cost_centre_id FROM payroll_employees WHERE id=$1', [otherEmployee]);
   expect({ kept: rows.rows.length, assignment: emp.rows[0].cost_centre_id })
     .toEqual({ kept: 1, assignment: otherCentre });
-  expect(result.state.statusCode).toBe(200); // scoped delete matched no row for this company
+  // The scoped DELETE matches no row, and RETURNING id turns that into a 400
+  // rather than the { deleted: true } it used to report.
+  expect(result.state.statusCode).toBe(400);
 });
 
 it('the database refuses the delete even when the guard is bypassed', async () => {

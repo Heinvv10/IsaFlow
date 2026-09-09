@@ -14,6 +14,31 @@
 -- payroll_employees and assets behind a pending lock request.
 SET LOCAL lock_timeout = '5s';
 
+-- An orphan cost_centre_id (a value with no cost_centres row) is the only thing
+-- that can make the ADD CONSTRAINT below fail. The raw FK error names one key
+-- and no counts, so report the scale of the problem before the ALTERs run.
+DO $$
+DECLARE
+  orphan_employees BIGINT;
+  orphan_assets    BIGINT;
+BEGIN
+  SELECT COUNT(*) INTO orphan_employees
+    FROM payroll_employees pe
+   WHERE pe.cost_centre_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM cost_centres cc WHERE cc.id = pe.cost_centre_id);
+
+  SELECT COUNT(*) INTO orphan_assets
+    FROM assets a
+   WHERE a.cost_centre_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM cost_centres cc WHERE cc.id = a.cost_centre_id);
+
+  IF orphan_employees > 0 OR orphan_assets > 0 THEN
+    RAISE EXCEPTION
+      'Migration 649: % payroll_employees and % assets row(s) carry a cost_centre_id with no cost_centres row. Clear or repoint them, then re-run.',
+      orphan_employees, orphan_assets;
+  END IF;
+END $$;
+
 ALTER TABLE payroll_employees
   DROP CONSTRAINT IF EXISTS payroll_employees_cost_centre_id_fkey;
 
