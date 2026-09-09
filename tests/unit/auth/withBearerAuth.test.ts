@@ -122,7 +122,7 @@ beforeEach(() => {
     if (typeof text === 'string' && text.includes('company_users')) {
       return { rows: membershipRows };
     }
-    return { rows: [] };
+    return { rows: [], command: String(text).trim().split(/\s+/)[0]!.toUpperCase() };
   });
 });
 

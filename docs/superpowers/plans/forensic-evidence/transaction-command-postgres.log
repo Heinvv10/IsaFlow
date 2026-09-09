@@ -1,0 +1,9 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  10:02:21
+   Duration  892ms (transform 265ms, setup 0ms, import 351ms, tests 280ms, environment 0ms)
+

@@ -1,0 +1,41 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/auth/withPlatformAdmin.pools") call in "/home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/als") call in "/home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/logger") call in "/home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/neon") call in "/home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+{"level":"warn","message":"withUserAuth: invalid token","timestamp":"2026-09-09T08:21:26.993Z","component":"Auth","data":{"message":"Invalid Compact JWS"}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-09T08:21:27.030Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-09T08:21:27.031Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-09T08:21:27.032Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-09T08:21:27.037Z","component":"extensionJwt","data":{}}
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-09T08:21:27.038Z","component":"Admin","data":{"admin":"admin-user","target":"target-user"}}
+{"level":"warn","message":"end-impersonation ownership mismatch","timestamp":"2026-09-09T08:21:27.042Z","component":"Admin","data":{"callerId":"unrelated-user","stashAdmin":"admin-user","stashTarget":"target-user"}}
+{"level":"warn","message":"withPlatformAdmin: invalid token","timestamp":"2026-09-09T08:21:27.398Z","component":"Auth","data":{"message":"Invalid Compact JWS"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T08:21:27.719Z","component":"Auth","data":{"requestPath":"/api/auth/login","activeCompanyId":"00000000-0000-0000-0000-000000000cc1"}}
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-09T08:21:27.790Z","component":"Admin","data":{"admin":"00000000-0000-0000-0000-000000000ad1","target":"00000000-0000-0000-0000-000000000ab1"}}
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-09T08:21:27.794Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"commit failed: serialization"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-09T08:21:27.801Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-09T08:21:27.813Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-09T08:21:27.827Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-09T08:21:27.876Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"Database transaction did not finish with the expected outcome"}}
+
+ Test Files  46 passed (46)
+      Tests  357 passed (357)
+   Start at  10:21:24
+   Duration  3.70s (transform 45.38s, setup 0ms, import 56.00s, tests 11.26s, environment 9ms)
+

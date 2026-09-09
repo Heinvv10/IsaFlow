@@ -122,7 +122,7 @@ beforeEach(() => {
   membershipImpl = async () => ({ rows: [{ role: 'member', account_user_id: USER_ID, is_active: true, status: 'active', suspended_at: null }] });
   h.clientQuery.mockImplementation(async (text: unknown) => {
     if (typeof text === 'string' && text.includes('company_users')) return membershipImpl();
-    return { rows: [] };
+    return { rows: [], command: String(text).trim().split(/\s+/)[0]!.toUpperCase() };
   });
 });
 
@@ -212,7 +212,7 @@ describe('commit-before-flush (Gate A P1)', () => {
     h.clientQuery.mockImplementation(async (text: unknown) => {
       if (typeof text === 'string' && text.includes('company_users')) return membershipImpl();
       if (text === 'COMMIT') throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
-      return { rows: [] };
+      return { rows: [], command: String(text).trim().split(/\s+/)[0]!.toUpperCase() };
     });
 
     const res = makeRes();

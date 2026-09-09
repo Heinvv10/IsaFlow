@@ -43,6 +43,7 @@ function makeClient(opts: {
   events: string[];
   membershipRows?: Array<{ role: string; account_user_id: string | null; is_active: boolean | null; status: string | null; suspended_at: Date | null }>;
   commitThrows?: boolean;
+  commitRollsBack?: boolean;
 }): MockClient {
   // Default: an active member. The membership lookup now LEFT JOINs
   // public.users, so the row must carry the account-standing columns or
@@ -62,7 +63,7 @@ function makeClient(opts: {
       if (verb === 'BEGIN' || verb === 'COMMIT' || verb === 'ROLLBACK') {
         opts.events.push(verb);
       }
-      return { rows: [] };
+      return { rows: [], command: verb === 'COMMIT' && opts.commitRollsBack ? 'ROLLBACK' : verb };
     }),
     release: vi.fn(),
   };
@@ -253,6 +254,17 @@ describe('withAuth — commit-before-respond ordering', () => {
     const verb=status===200?'COMMIT':'ROLLBACK',outcome=status===200?'committed':'rolled_back';
     expect(events.indexOf(`OBSERVED_${outcome}`)).toBeGreaterThan(events.indexOf(verb));
     expect(events.indexOf(`OBSERVED_${outcome}`)).toBeLessThan(events.indexOf('FLUSH'));
+  });
+
+  it('reports an aborted COMMIT as rollback and replaces the buffered success',async()=>{
+    const events:string[]=[];currentClient=makeClient({events,commitRollsBack:true});const {res}=makeRes(events);
+    const {withAuth}=await import('@/lib/auth/withAuth');
+    const {observeControlTransaction}=await import('@/modules/accounting/services/controls/transactionObservers');
+    await withAuth(async (_req:unknown,r:NextApiResponse)=>{
+      observeControlTransaction(outcome=>{events.push(`OBSERVED_${outcome}`);});r.status(200).json({success:true});
+    })(mkReq(await makeToken('user-1'),COMPANY_ID),res);
+    expect(res.statusCode).toBe(500);expect(events).toContain('OBSERVED_rolled_back');
+    expect(events).not.toContain('OBSERVED_committed');
   });
 
 });

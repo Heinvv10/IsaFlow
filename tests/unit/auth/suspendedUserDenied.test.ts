@@ -44,7 +44,7 @@ function makeClient(rows: MembershipRow[], events: string[]): MockClient {
       const verb = t.trim().split(/\s+/)[0]!.toUpperCase();
       if (/FROM company_users/i.test(t)) return { rows };
       if (verb === 'BEGIN' || verb === 'COMMIT' || verb === 'ROLLBACK') events.push(verb);
-      return { rows: [] };
+      return { rows: [], command: verb };
     }),
     release: vi.fn(),
   };
