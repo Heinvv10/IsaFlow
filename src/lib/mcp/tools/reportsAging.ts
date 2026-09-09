@@ -35,6 +35,7 @@ import { getARAging, getARAgingDetail } from '@/modules/accounting/services/ar/a
 import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 import { getUnappliedReceipts } from '@/modules/accounting/services/ar/unappliedReceiptService';
 import { getUnappliedPayments } from '@/modules/accounting/services/ap/unappliedPaymentService';
+import type { CashHistoryCoverage } from '@/modules/accounting/services/shared/unappliedCashHistory';
 import { getLedgerPostedThrough } from '@/modules/accounting/services/reports/postedThroughService';
 import type { AgingBucket, AgingInvoice } from '@/modules/accounting/types/ap.types';
 import {
@@ -114,12 +115,13 @@ interface AgingSide {
   };
 }
 
-/** The two fields `runAging` needs from either unapplied-cash service. */
+/** Recognized cash and completeness from the shared historical cash calculation. */
 interface UnappliedSummary {
   rowsTotal: number;
   unattributed: readonly unknown[];
   totalUnapplied: number;
   totalUnattributed: number;
+  historyCoverage: CashHistoryCoverage;
 }
 
 async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult> {
@@ -217,6 +219,7 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
     [side.unapplied.key]: {
       count: unapplied.rowsTotal + unapplied.unattributed.length,
       total: round2(unapplied.totalUnapplied + unapplied.totalUnattributed),
+      historyCoverage: unapplied.historyCoverage,
     },
   });
 }
