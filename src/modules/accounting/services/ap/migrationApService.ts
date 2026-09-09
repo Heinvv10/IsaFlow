@@ -10,7 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
-import { resolveSettlementAccountId, rethrowIfDuplicateIndexMissing } from '../core/migrationPostingSupport';
+import { resolveSettlementAccountId, rethrowIfConflictTargetMissing } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 type Row = DbRow;
 
@@ -164,7 +164,12 @@ export async function importAPInvoices(
         // already accounts for. The account is resolved once for the whole
         // step, so a company without one fails the step with a single message
         // instead of failing once per part-paid row.
-        if (amountPaid > 0 && settlementAccountId) {
+        if (amountPaid > 0) {
+          if (!settlementAccountId) {
+            // Unreachable: settlementAccountId is resolved from this same array.
+            // Fail loudly rather than skip the leg H1 exists to guarantee.
+            throw new Error('Settlement account was not resolved for a part-paid invoice');
+          }
           const settlement = await createJournalEntry(companyId, {
             entryDate: inv.invoiceDate,
             description: `Migrated AP invoice ${inv.invoiceNumber} — settled before cutover`,
@@ -180,7 +185,7 @@ export async function importAPInvoices(
       });
       if (rowImported) imported++; else skipped++;
     } catch (err) {
-      rethrowIfDuplicateIndexMissing(err);
+      rethrowIfConflictTargetMissing(err, 'uq_supplier_invoices_supplier_fingerprint (migration 625)');
       const msg = err instanceof Error ? err.message : String(err);
       errors.push({ step: 'ap_invoices', row: i, message: msg });
       skipped++;

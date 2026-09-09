@@ -32,6 +32,8 @@ import { sql } from '@/lib/neon';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { importAPInvoices } from '@/modules/accounting/services/ap/migrationApService';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { updateSession } from '@/modules/accounting/services/core/migrationService';
+import { insertNamingDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -253,6 +255,61 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
         [sessionId, COMPANY],
       )).rows[0];
       expect(third.errors.map((e: { step: string }) => e.step)).toEqual(['suppliers']);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('keeps the other steps\' errors when a new error carries no step key', async () => {
+    // The supersede filter used a negated IN. An incoming error without a
+    // `step` key put a NULL in that list, which made the predicate NULL for
+    // every non-matching row and deleted every other step's errors — the exact
+    // loss the expression exists to prevent.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await run(c, () => updateSession(sessionId, COMPANY, {
+        // No stepsCompleted, and the error has no `step`.
+        errors: [{ row: 2, message: 'a caller that omitted the step' } as never],
+      }));
+
+      const sess = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      const steps = sess.errors.map((e: { step?: string }) => e.step ?? null);
+      expect(steps).toContain('suppliers');
+      expect(steps).toContain(null);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('names the duplicate for the other paths that stamp a fingerprint', async () => {
+    // recurringTransactionService and sageImportService INSERT a fingerprint
+    // directly. Migration 625 can now refuse them, and they went through the
+    // same translator so the operator gets the message, not a bare 23505.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const supplierId = (await c.query(
+        `SELECT id FROM suppliers WHERE company_id = $1 AND name = $2`,
+        [COMPANY, `ACME ${TAG}`],
+      )).rows[0].id;
+
+      const insert = () => c.query(
+        `INSERT INTO supplier_invoices
+           (company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, status, created_by, duplicate_fingerprint)
+         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'draft', $4, $5)`,
+        [COMPANY, supplierId, `${TAG}-rec`, USER, `no-vat|${TAG}-rec|115`],
+      );
+
+      await run(c, () => insertNamingDuplicate(`${TAG}-rec`, insert));
+      await expect(run(c, () => insertNamingDuplicate(`${TAG}-rec`, insert)))
+        .rejects.toThrow(/already has an invoice/);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();

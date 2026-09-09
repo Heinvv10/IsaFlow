@@ -10,7 +10,12 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
-import { resolveSettlementAccountId } from './migrationPostingSupport';
+import { resolveSettlementAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
+import { matchContact } from './migrationContactMatch';
+
+// Re-exported: migrationApService and the wizard's unit tests have imported
+// matchContact from here since before it moved to its own module.
+export { matchContact };
 import type { DbRow } from '@/types/db';
 
 
@@ -231,7 +236,12 @@ export async function importARInvoices(
         // already accounts for. The account is resolved once for the whole
         // step, so a company without one fails the step with a single message
         // instead of failing once per part-paid row.
-        if (amountPaid > 0 && settlementAccountId) {
+        if (amountPaid > 0) {
+          if (!settlementAccountId) {
+            // Unreachable: settlementAccountId is resolved from this same array.
+            // Fail loudly rather than skip the leg H1 exists to guarantee.
+            throw new Error('Settlement account was not resolved for a part-paid invoice');
+          }
           const settlement = await createJournalEntry(companyId, {
             entryDate: inv.invoiceDate,
             description: `Migrated AR invoice ${inv.invoiceNumber} — settled before cutover`,
@@ -247,6 +257,7 @@ export async function importARInvoices(
       });
       if (rowImported) imported++; else skipped++;
     } catch (err) {
+      rethrowIfConflictTargetMissing(err, 'uq_customer_invoices_company_number');
       const msg = err instanceof Error ? err.message : String(err);
       errors.push({ step: 'ar_invoices', row: i, message: msg });
       skipped++;
@@ -256,29 +267,4 @@ export async function importARInvoices(
   await updateSession(sessionId, companyId, { arInvoicesImported: imported, stepsCompleted: { ar_invoices: true }, errors });
   log.info('AR invoices imported', { companyId, imported, skipped }, 'migration');
   return { imported, skipped, errors };
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-export function matchContact(name: string, candidates: DbRow[]): string | null {
-  const normalized = name.toLowerCase().trim();
-  const exact = candidates.find(c => String(c.name).toLowerCase().trim() === normalized);
-  if (exact) return String(exact.id);
-  let best: { id: string; score: number } | null = null;
-  for (const c of candidates) {
-    const score = diceCoefficient(normalized, String(c.name).toLowerCase().trim());
-    if (score >= 0.7 && (!best || score > best.score)) best = { id: String(c.id), score };
-  }
-  return best?.id ?? null;
-}
-
-function diceCoefficient(a: string, b: string): number {
-  if (a === b) return 1;
-  if (a.length < 2 || b.length < 2) return 0;
-  const ba = new Set<string>(), bb = new Set<string>();
-  for (let i = 0; i < a.length - 1; i++) ba.add(a.substring(i, i + 2));
-  for (let i = 0; i < b.length - 1; i++) bb.add(b.substring(i, i + 2));
-  let n = 0;
-  for (const g of ba) { if (bb.has(g)) n++; }
-  return (2 * n) / (ba.size + bb.size);
 }

@@ -19,7 +19,7 @@ import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
-import { computeFingerprint } from '../capture/captureDeduplicationService';
+import { computeFingerprint, insertNamingDuplicate } from '../capture/captureDeduplicationService';
 
 
 // ── Ledger Transaction Import ───────────────────────────────────────────────
@@ -417,7 +417,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
         );
 
         // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
-        const newInv = (await sql`
+        const newInv = (await insertNamingDuplicate(invNumber, async () => (await sql`
           INSERT INTO supplier_invoices (
             company_id, invoice_number, supplier_id, purchase_order_id, project_id,
             invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
@@ -433,7 +433,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
             ${inv.sage_invoice_id}, ${reference}, ${userId},
             ${dupFingerprint}
           ) RETURNING id
-        `) as DbRow[];
+        `) as DbRow[]));
 
         const newInvoiceId = String(newInv[0]!.id);
 
