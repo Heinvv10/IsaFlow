@@ -22,9 +22,11 @@
 -- forced onto one row by UNIQUE(company_id, email). The application now hashes
 -- on every write and every lookup, so rows still holding a raw token can never
 -- match again — they would sit in the Users list as pending forever. Expire
--- them so they read as expired and can be resent. Deliberately cross-tenant:
--- this retires a platform-wide encoding change, not one company's data, and it
--- is scoped to invitations that were never accepted.
+-- them so they read as expired and can be resent. Deliberately cross-tenant
+-- (round-4 L6, a recorded deviation from the company_id-on-every-DML rule, not
+-- an omission): this retires a platform-wide encoding change, not one
+-- company's data, so there is no company to scope it to, and it is bounded to
+-- invitations that were never accepted and are not yet expired.
 
 -- gotrue_user_id IS NOT NULL marks the rows POST /api/invitations wrote; that
 -- column is set by no other path. Only unaccepted, not-yet-expired ones need
@@ -42,6 +44,27 @@ SET expires_at = now(),
 WHERE gotrue_user_id IS NOT NULL
   AND accepted_at IS NULL
   AND expires_at > now()
+  -- Round-4 M1. The sweep has no way to tell a raw token from a sha256 digest:
+  -- both are 64 hex characters. It is therefore correct exactly ONCE per
+  -- database -- at the moment the new encoding ships, when every open
+  -- invitation still holds a raw token. On a database that already ran this
+  -- file under 643 or 660, every invitation minted since carries the NEW
+  -- encoding and is perfectly valid, and a second run under a third number
+  -- would expire all of them. The note-text guard below does not cover those
+  -- rows (the earlier run never touched them), and POST /api/invitations
+  -- clears email_error on every resend, so it cannot be the only defence.
+  --
+  -- schema_migrations.name is the durable record of that first run, and it
+  -- survives the renumbering: the runner matches applied migrations by
+  -- filename, so a renumbered file is simply applied again, but the OLD name
+  -- stays in the table. Matching the suffix catches every number this file has
+  -- worn. The runner inserts a file's own tracking row only AFTER the file's
+  -- statements have run (scripts/apply-migrations.ts:applyOne), so this does
+  -- not block the run that is executing it.
+  AND NOT EXISTS (
+    SELECT 1 FROM public.schema_migrations sm
+    WHERE sm.name LIKE '%\_invite\_token\_encoding\_retire\_stale.sql'
+  )
   -- Idempotent: a re-apply must not append a second copy of the note. Every
   -- wording this file has ever written is excluded, not just the current one --
   -- a database that ran it under 643 or 660 carries that number in the note.

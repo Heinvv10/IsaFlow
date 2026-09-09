@@ -247,12 +247,6 @@ export default function LoginPage() {
 
   const inviteToken =
     typeof router.query.invite === 'string' ? router.query.invite : null;
-  // Forwarded from /invite/<token>?signup=1, itself set only by
-  // /accept-invite's WRONG_INVITE_FLOW verdict. Keeps "Create one" out of the
-  // /register -> /accept-invite -> /invite loop for tokens that flow can never
-  // accept, without changing routing for any other invitation.
-  const wrongFlowSuffix = router.query.signup === '1' ? '&signup=1' : '';
-
   const isAdminHost =
     typeof window !== 'undefined' && window.location.hostname === 'admin.isaflow.co.za';
   const defaultRedirect = isAdminHost ? '/' : '/accounting';
@@ -658,7 +652,7 @@ export default function LoginPage() {
           <p className="mt-6 text-center text-sm text-white/75">
             Don&apos;t have an account?{' '}
             <Link
-              href={inviteToken ? `/register?invite=${inviteToken}${wrongFlowSuffix}` : '/register'}
+              href={inviteToken ? `/register?invite=${inviteToken}` : '/register'}
               className="font-semibold text-teal-100 transition-colors hover:text-white"
             >
               {inviteToken ? 'Create one' : 'Start your free trial'}

@@ -18,6 +18,11 @@
  * handling in it — registering their own tenant while the invitation stayed
  * pending.
  *
+ * Round-4 L1: with the verdict server-side the flag had no reader left, so the
+ * pages no longer set or propagate it. These tests pin that: the forward and
+ * the signup CTA carry the token alone, and /register still ignores a flag an
+ * attacker appends by hand.
+ *
  * Rendered, not grepped: every behaviour here is a conditional inside a page.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -112,7 +117,7 @@ describe('/register invitation routing', () => {
 describe('/accept-invite WRONG_INVITE_FLOW forward', () => {
   beforeEach(() => { replace.mockClear(); });
 
-  it('carries the verdict to /invite/<token> as ?signup=1', async () => {
+  it('forwards to /invite/<token> without re-advertising the retired flag', async () => {
     query = { token: 'invite-flow-token' };
     vi.stubGlobal('fetch', vi.fn(async () => new Response(
       JSON.stringify({ success: false, error: { code: 'WRONG_INVITE_FLOW', message: 'wrong flow' } }),
@@ -121,9 +126,10 @@ describe('/accept-invite WRONG_INVITE_FLOW forward', () => {
 
     render(<AcceptInvitePage />);
 
-    // Without the flag the forwarded page's signup CTA bounces straight back
-    // here, and the invitee never reaches a form that can create their account.
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/invite/invite-flow-token?signup=1'));
+    // Round-4 L1: the verdict is the SERVER's now. /register re-asks and reads
+    // the 409, so carrying ?signup=1 along changed nothing and kept an
+    // attacker-settable flag in circulation.
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/invite/invite-flow-token'));
     vi.unstubAllGlobals();
   });
 });
@@ -141,7 +147,7 @@ describe('/invite/<token> signup CTA', () => {
     }));
   }
 
-  it('propagates the flag so the CTA does not bounce back to /accept-invite', async () => {
+  it('does not append ?signup=1 even when the incoming URL carries it', async () => {
     query = { token: 'invite-flow-token', signup: '1' };
     stubLoad();
 
@@ -149,11 +155,11 @@ describe('/invite/<token> signup CTA', () => {
 
     const cta = await findByText('Create an Account');
     expect(cta.closest('a')!.getAttribute('href'))
-      .toBe('/register?invite=invite-flow-token&signup=1');
+      .toBe('/register?invite=invite-flow-token');
     vi.unstubAllGlobals();
   });
 
-  it('leaves an invitation opened straight from an email on the old routing', async () => {
+  it('leaves an invitation opened straight from an email on the same routing', async () => {
     query = { token: 'accept-flow-token' };
     stubLoad();
 
