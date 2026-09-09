@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateGeneratedSQL } from '@/modules/accounting/services/core/nlQueryValidationService';
+import { ALLOWED_TABLES, validateGeneratedSQL } from '@/modules/accounting/services/core/nlQueryValidationService';
 
 const own = "WHERE company_id = '11111111-1111-1111-1111-111111111111'";
 
@@ -47,6 +47,20 @@ describe('R-004 review follow-ups', () => {
     "SELECT repeat('a', 400000000)",
     "SELECT lpad('a', 400000000, 'b')",
   ])('rejects %s', (sql) => {
+    expect(validateGeneratedSQL(sql).valid).toBe(false);
+  });
+});
+
+describe('R-004 allowlist boundaries', () => {
+  it('keeps webhook_endpoints outside the relation allowlist', () => {
+    expect(ALLOWED_TABLES.has('webhook_endpoints')).toBe(false);
+  });
+  it.each([
+    "SELECT json_agg(name), array_to_string(array_agg(name), ','), md5(name), width_bucket(total_amount, 0, 1000, 10), corr(total_amount, amount_paid), format('%s', name), regexp_matches(name, 'a') FROM customer_invoices ci JOIN customers c ON c.id = ci.customer_id WHERE ci.company_id = '11111111-1111-1111-1111-111111111111' AND c.company_id = '11111111-1111-1111-1111-111111111111'",
+  ])('accepts common analytical additions %s', (sql) => {
+    expect(validateGeneratedSQL(sql)).toMatchObject({ valid: true });
+  });
+  it.each(['SELECT version()', "SELECT current_setting('x')", "SELECT xmlexists('/a' PASSING BY REF '<a/>')", 'SELECT random()', 'SELECT clock_timestamp()'])('still rejects %s', (sql) => {
     expect(validateGeneratedSQL(sql).valid).toBe(false);
   });
 });

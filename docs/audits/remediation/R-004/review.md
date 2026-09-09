@@ -8,3 +8,5 @@ Findings and resolution (all addressed in the follow-up commit):
 - MEDIUM: repeat/lpad/rpad unbounded memory. Removed from the allowlist.
 - LOW: current_user/session_user/user keyword nodes leaked the role name. Rejected at the keyword node.
 - LOW: allowlist gaps for common analytical SQL — see the reviewer's list below and the allowlist additions.
+
+Reviewer's full continuation is preserved in review-remaining.md. Follow-up applied: the safe analytical functions listed there were added (format with its reasoning comment; random/clock_timestamp/timeofday left out; set-returning functions left out because the scope guard rejects them in FROM anyway), a test pins webhook_endpoints outside ALLOWED_TABLES, and the duplicated node type guard is now shared from nlQueryRelations. Not done: single-parse refactor (three parses per request retained; noted for the next change on this path). The integration tests run only when DATABASE_URL is set in CI; the unit tests are the mutation-proof gate.
