@@ -2574,7 +2574,7 @@
         "K-072/red.log",
         "K-072/validation.md"
       ],
-      "fixCommit": "44d6a34e",
+      "fixCommit": "4b2854b0",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2671,7 +2671,7 @@
         "K-075/red.log",
         "K-075/validation.md"
       ],
-      "fixCommit": "44d6a34e",
+      "fixCommit": "4b2854b0",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2704,7 +2704,7 @@
         "K-076/validation.md",
         "K-076/vat-label-probe.txt"
       ],
-      "fixCommit": "44d6a34e",
+      "fixCommit": "4b2854b0",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4176,7 +4176,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k122-dunning-portal-link-404.int.test.ts"
@@ -4185,7 +4185,7 @@
         "K-122/red.log",
         "K-122/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "e26ed208",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4193,7 +4193,8 @@
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:346"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k122-k127-ar-portal-disputes"
     },
     {
       "id": "K-123",
@@ -4208,7 +4209,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k123-list-disputes-total.int.test.ts"
@@ -4217,7 +4218,7 @@
         "K-123/red.log",
         "K-123/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "e26ed208",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4225,7 +4226,8 @@
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:512"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k122-k127-ar-portal-disputes"
     },
     {
       "id": "K-124",
@@ -4240,7 +4242,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k124-dispute-credit-legacy-customer-id.int.test.ts"
@@ -4249,7 +4251,7 @@
         "K-124/red.log",
         "K-124/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "e26ed208",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4257,7 +4259,8 @@
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:546"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k122-k127-ar-portal-disputes"
     },
     {
       "id": "K-125",
@@ -4272,7 +4275,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [
         "Latent: no writer produces NULL amount_paid; severity hinges on production rows (read-only SQL in validation.md)"
       ],
@@ -4283,7 +4286,7 @@
         "K-125/red.log",
         "K-125/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "e26ed208",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4291,7 +4294,8 @@
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:539"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k122-k127-ar-portal-disputes"
     },
     {
       "id": "K-126",
@@ -4339,7 +4343,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts"
@@ -4348,7 +4352,7 @@
         "K-127/red.log",
         "K-127/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "e26ed208",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4356,7 +4360,8 @@
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:431"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k122-k127-ar-portal-disputes"
     },
     {
       "id": "K-128",
