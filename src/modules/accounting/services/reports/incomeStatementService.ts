@@ -52,7 +52,8 @@ async function fetchIncomeStatementRows(
       AND je.entry_date <= ${periodEnd}
       AND ga.account_type IN ('revenue', 'expense')
       AND (${projId}::TEXT IS NULL OR jl.project_id = ${projId}::UUID)
-      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
+        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
     GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.account_subtype
     ORDER BY ga.account_code
   `) as DbRow[];
