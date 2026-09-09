@@ -41,7 +41,8 @@ export async function registerGeneratedJournal(ctx: ControlTx, control: ParentJo
     related = await ctx.sql`SELECT je.id FROM gl_journal_entries je JOIN gl_journal_entries p
       ON p.company_id=je.company_id AND p.id=je.reversal_of_id
       WHERE je.company_id=${company}::uuid AND je.id=${journalId}::uuid AND p.id=${parent.entityId}::uuid
-        AND je.status='draft' AND p.status='posted' AND je.source=p.source FOR SHARE OF p,je`;
+        AND je.status='draft' AND p.status='posted' AND je.source=p.source
+        AND je.entry_date=${control.permit.accountingDate}::date FOR SHARE OF p,je`;
   }
   if (related.length !== 1) throw new Error('Generated journal has no authorized parent relationship');
   // A lazy query may have yielded beyond the callback lifetime.
