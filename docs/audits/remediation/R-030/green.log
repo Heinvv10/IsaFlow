@@ -221,23 +221,26 @@ the unconditional form fails loudly (both inside `BEGIN … ROLLBACK`):
 ERROR:  role "role_absent_probe" does not exist
 ```
 
-Applied state after 661:
+Applied state after 663:
 
 ```
 invite_token_company_name|migration_admin|f|t|{"search_path=pg_catalog, public"}|t
 ```
 
-L5 — 660 applied twice inside one transaction against two seeded invitations
-(one with a prior SMTP error), with `expires_at` reset between applications:
+L5 — 662 applied twice inside one transaction against three seeded invitations
+(one clean, one with a prior SMTP error, one already carrying the note in the
+wording this file wrote when it was numbered 660), with `expires_at` reset
+between applications:
 
 ```
-UPDATE 2      <- first application
+UPDATE 2      <- first application; the row already noted under 660 is skipped
 UPDATE 0      <- second application, nothing left to do
- tok660a | Invitation link retired by migration 660 (token encoding change) — please resend
- tok660b | SMTP boom | Invitation link retired by migration 660 (token encoding change) — please resend
+ tok662a | Invitation link retired by migration 662 (token encoding change) — please resend
+ tok662b | SMTP boom | Invitation link retired by migration 662 (token encoding change) — please resend
+ tok662c | Invitation link retired by migration 660 (token encoding change) — please resend
 ```
 
-M2 — policies on `public.companies` on the fixture after 660 → 648 → 661:
+M2 — policies on `public.companies` on the fixture after 662 → 648 → 663:
 
 ```
 companies_admin_update

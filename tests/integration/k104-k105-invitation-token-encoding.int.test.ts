@@ -7,7 +7,7 @@
 //        invite-token session has no JWT, so the join dropped every row and every
 //        valid invitation answered 410 — the whole /accept-invite flow was dead.
 //        Migration 648 exposes the one column the endpoint needs through a
-//        SECURITY DEFINER function; 643 (now 660) originally added a whole-row policy on companies (163
+//        SECURITY DEFINER function; 643 (now 662) originally added a whole-row policy on companies (163
 //        columns, including the Netcash keys and the bank account number) is
 //        dropped. K-105's own claim (email leak, expiry ignored) was a false
 //        positive; the email is masked here for defence in depth and
@@ -226,7 +226,7 @@ it('round-2 L2: the SECURITY DEFINER function pins pg_catalog first and is not o
   // operators. With `public` ahead of the catalog, any role holding CREATE on
   // public could shadow one of those and have it executed with the definer's
   // rights — and 648 created the function as `postgres`, so those rights were
-  // a superuser's. Migration 661 pins the catalog and hands ownership to
+  // a superuser's. Migration 663 pins the catalog and hands ownership to
   // migration_admin, whose rolbypassrls is the only privilege the body needs.
   expect(meta.rows).toEqual([
     { owner: 'migration_admin', superuser: false, config: ['search_path=pg_catalog, public'] },
