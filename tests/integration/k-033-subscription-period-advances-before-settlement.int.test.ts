@@ -21,7 +21,7 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
 const { generateDueCharges, runQueuedCharges } = await import(
   '@/modules/billing/services/subscriptionBillingService'
 );
-const { advancePeriodForSettledCharge } = await import(
+const { advancePeriodForSettledCharge, claimChargeAttempt } = await import(
   '@/modules/billing/services/subscriptionPeriod'
 );
 
@@ -35,6 +35,8 @@ const planCode = `k033-${planId.slice(0, 8)}`;
 /** A second tenant on the same plan, equally due — nothing this test does may touch it. */
 const otherCompanyId = crypto.randomUUID();
 const otherSubscriptionId = crypto.randomUUID();
+/** A SECOND SUBSCRIPTION IN THE SAME COMPANY: one charge must move only its own. */
+const siblingSubscriptionId = crypto.randomUUID();
 
 /** Period ended yesterday, so the cron considers the subscription due. Anchored
  *  to the real clock because the service stamps last_attempt_at with the DB's now(). */
@@ -43,6 +45,8 @@ const originalPeriodEnd = new Date(cronNow.getTime() - 24 * 3600_000);
 const periodStart = new Date(originalPeriodEnd.getTime() - 30 * 24 * 3600_000);
 
 const otherPeriodEnd = new Date(Date.now() - 24 * 3600_000);
+/** Not yet due, so the cron never raises a charge of its own for it. */
+const siblingPeriodEnd = new Date(Date.now() + 20 * 24 * 3600_000);
 
 let cronLock: PoolClient;
 
@@ -71,6 +75,24 @@ beforeAll(async () => {
     [otherSubscriptionId, otherCompanyId, planId, periodStart, otherPeriodEnd],
   );
 });
+
+/** Adds a second, not-yet-due subscription to the company under test. */
+async function addSiblingSubscription() {
+  await pool.query(
+    `INSERT INTO subscriptions(id,company_id,plan_id,status,billing_cycle,
+       current_period_start,current_period_end,cancel_at_period_end,discount_percent)
+     VALUES($1,$2,$3,'active','monthly',$4,$5,false,0)`,
+    [siblingSubscriptionId, companyId, planId, periodStart, siblingPeriodEnd],
+  );
+}
+
+async function readSibling() {
+  const { rows } = await pool.query(
+    'SELECT status, current_period_end FROM subscriptions WHERE id=$1',
+    [siblingSubscriptionId],
+  );
+  return rows[0] as { status: string; current_period_end: Date };
+}
 
 beforeEach(async () => {
   chargeAuthorization.mockReset();
@@ -242,5 +264,75 @@ describe('K-033 subscription period advances before Paystack settles', () => {
     expect(new Date(rows[0].current_period_end).toISOString()).toBe(
       otherPeriodEnd.toISOString(),
     );
+  });
+
+  it('advances only the subscription the settled charge belongs to', async () => {
+    await addSiblingSubscription();
+    await generateDueCharges(cronNow);
+    chargeAuthorization.mockResolvedValue({ status: 'success', reference: 'ref_k033_sib' });
+
+    await runQueuedCharges(new Date());
+
+    expect((await readCharge())?.status).toBe('settled');
+    const sibling = await readSibling();
+    expect(new Date(sibling.current_period_end).toISOString()).toBe(
+      siblingPeriodEnd.toISOString(),
+    );
+    expect(sibling.status).toBe('active');
+  });
+
+  it('past-dues only the subscription whose charge exhausted its attempts', async () => {
+    await addSiblingSubscription();
+    await generateDueCharges(cronNow);
+    chargeAuthorization.mockRejectedValue(new Error('declined'));
+    for (let pass = 0; pass < 3; pass++) {
+      if (pass > 0) {
+        await pool.query(
+          "UPDATE subscription_charges SET last_attempt_at = last_attempt_at - INTERVAL '25 hours' WHERE company_id=$1",
+          [companyId],
+        );
+      }
+      await runQueuedCharges(new Date());
+    }
+
+    expect((await readSubscription()).status).toBe('past_due');
+    expect((await readSibling()).status).toBe('active');
+  });
+
+  it('lets only one of two cron runs holding the same snapshot spend the attempt', async () => {
+    await generateDueCharges(cronNow);
+    const charge = await readCharge();
+
+    // Both runs selected the row before either wrote to it: same id, same
+    // status, same attempt_count. Only one may claim the attempt.
+    const [runA, runB] = await Promise.all([
+      claimChargeAttempt(charge!.id, charge!.status, charge!.attempt_count),
+      claimChargeAttempt(charge!.id, charge!.status, charge!.attempt_count),
+    ]);
+
+    expect([runA, runB].filter((v) => v !== null)).toEqual([1]);
+    expect((await readCharge())!.attempt_count).toBe(1);
+  });
+
+  it('never exceeds MAX_ATTEMPTS across overlapping cron runs', async () => {
+    await generateDueCharges(cronNow);
+    chargeAuthorization.mockRejectedValue(new Error('declined'));
+
+    for (let round = 0; round < 4; round++) {
+      await Promise.all([
+        runQueuedCharges(new Date()),
+        runQueuedCharges(new Date()),
+        runQueuedCharges(new Date()),
+      ]);
+      await pool.query(
+        "UPDATE subscription_charges SET last_attempt_at = last_attempt_at - INTERVAL '25 hours' WHERE company_id=$1",
+        [companyId],
+      );
+    }
+
+    const after = await readCharge();
+    expect(after!.attempt_count).toBe(3);
+    expect(chargeAuthorization.mock.calls.length).toBe(3);
+    expect((await readSubscription()).status).toBe('past_due');
   });
 });

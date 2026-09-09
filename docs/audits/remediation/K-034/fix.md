@@ -50,3 +50,11 @@ No refund or backfill is shipped — reversing a settled debit is a billing deci
 **Limits:** the close-out only covers `status IN ('active','past_due')`; a flagged `trial` or
 `paused` subscription is neither charged nor closed, which matches the pre-existing due query.
 The first commit on this branch (K-033) is what stops the period advancing for these rows.
+
+**Review round 2 (`../K-033/review-fixes.md`):** a charge already queued for a subscription flagged
+to cancel is now voided before the close-out, and the close-out defers while a charge is in flight
+at Paystack — without that, cancelling mid-renewal took the money and granted no period. The
+admin PATCH route now accepts `cancel_at_period_end`, which the only UI offering the option was
+sending into a `.strict()` schema that rejected it, so this path was unreachable in production.
+Clearing the flag now requires a real transition into `active`/`trial`, not an edit that restates
+the current status.

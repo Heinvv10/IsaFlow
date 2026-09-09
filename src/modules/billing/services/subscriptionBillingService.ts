@@ -1,26 +1,21 @@
 /**
  * Subscription billing service — recurring SaaS debits via Paystack.
  *
- *   generateDueCharges()  — for every active subscription whose
- *                           current_period_end is ≤ today and has no
- *                           unsettled charge for that period, create a
- *                           queued charge row. Subscriptions flagged
- *                           cancel_at_period_end are not renewed — once their
- *                           period ends they are closed out as 'cancelled'.
+ *   generateDueCharges()  — queue a charge for every active subscription whose
+ *                           current_period_end has passed and that has no
+ *                           unsettled charge for the next period, then close
+ *                           out subscriptions flagged cancel_at_period_end.
  *
- *   runQueuedCharges()    — for every queued / failed (retry-eligible)
- *                           charge, call Paystack chargeAuthorization()
- *                           against the company's active mandate and record
- *                           a paystack_payment_requests row so the webhook
- *                           can settle it.
+ *   runQueuedCharges()    — claim each retry-eligible charge, call Paystack
+ *                           chargeAuthorization() against the company's active
+ *                           mandate and record a paystack_payment_requests row
+ *                           so the webhook can settle it.
  *
- * The period moves forward only when a charge settles (here or in the Paystack
- * webhook), never when it is queued; a charge that burns every attempt leaves
- * the subscription 'past_due'.
- *
- * All writes are company-scoped. The mandate must be 'active' AND have a
- * paystack_authorization_code captured for the company to be billed;
- * otherwise the charge moves to 'failed' with reason='no_mandate'.
+ * The period moves forward only when a charge settles (see subscriptionPeriod),
+ * never when it is queued; a charge that burns every attempt leaves the
+ * subscription 'past_due'. All writes are company-scoped and keyed on the
+ * charge's subscription_id. The mandate must be 'active' AND have a
+ * paystack_authorization_code, or the charge fails with 'no_mandate'.
  */
 
 import { randomBytes } from 'crypto';
@@ -30,7 +25,10 @@ import { chargeAuthorization } from './paystackClient';
 import {
   MAX_ATTEMPTS,
   advancePeriodForSettledCharge,
+  claimChargeAttempt,
+  closeOutCancelledSubscriptions,
   markPastDueIfExhausted,
+  voidChargesForCancellingSubscriptions,
 } from './subscriptionPeriod';
 
 const RETRY_BACKOFF_HOURS = 24;
@@ -38,6 +36,8 @@ const RETRY_BACKOFF_HOURS = 24;
 export interface GenerateResult {
   created: number;
   skipped: number;
+  /** Subscriptions closed out because their scheduled cancellation came due. */
+  cancelled: number;
 }
 
 export async function generateDueCharges(now = new Date()): Promise<GenerateResult> {
@@ -90,6 +90,7 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
     const existing = await sql<{ id: string }>`
       SELECT id FROM subscription_charges
       WHERE company_id = ${sub.company_id}
+        AND subscription_id = ${sub.subscription_id}
         AND period_start = ${nextStart.toISOString().slice(0, 10)}
         AND period_end = ${nextEnd.toISOString().slice(0, 10)}
         AND status <> 'cancelled'
@@ -121,11 +122,11 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
 
     await sql`
       INSERT INTO subscription_charges (
-        company_id, mandate_id, period_start, period_end,
+        company_id, subscription_id, mandate_id, period_start, period_end,
         amount_cents, currency, gateway,
         external_reference, paystack_reference, status
       ) VALUES (
-        ${sub.company_id}, ${mandate[0].id},
+        ${sub.company_id}, ${sub.subscription_id}, ${mandate[0].id},
         ${nextStart.toISOString().slice(0, 10)},
         ${nextEnd.toISOString().slice(0, 10)},
         ${amountCents}, 'ZAR', 'paystack',
@@ -136,22 +137,13 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
     created++;
   }
 
-  // A subscription flagged to cancel at period end has reached that end and was
-  // excluded from the due query above — close it out rather than leaving it
-  // 'active' on an expired period forever.
-  const closed = await sql<{ id: string }>`
-    UPDATE subscriptions
-    SET status = 'cancelled',
-        cancelled_at = COALESCE(cancelled_at, now()),
-        updated_at = now()
-    WHERE status IN ('active','past_due')
-      AND COALESCE(cancel_at_period_end, false) = true
-      AND current_period_end IS NOT NULL
-      AND current_period_end <= ${now}
-    RETURNING id
-  `;
+  // A charge already queued for a subscription the customer has flagged to
+  // cancel must be voided before the close-out, or the same cron run would
+  // cancel the subscription and still debit the card for it.
+  await voidChargesForCancellingSubscriptions();
+  const cancelled = await closeOutCancelledSubscriptions(now);
 
-  return { created, skipped: skipped + closed.length };
+  return { created, skipped, cancelled };
 }
 
 export interface RunChargesResult {
@@ -200,6 +192,14 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
   let skipped = 0;
 
   for (const c of charges) {
+    // Claim the attempt before spending it, so a concurrent run that read the
+    // same snapshot cannot also charge this card.
+    const attemptCount = await claimChargeAttempt(c.id, c.status, c.attempt_count);
+    if (attemptCount === null) {
+      skipped++;
+      continue;
+    }
+
     if (
       c.mandate_status !== 'active' ||
       !c.paystack_authorization_code ||
@@ -209,11 +209,10 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
         UPDATE subscription_charges
         SET status = 'failed',
             failure_reason = 'mandate_not_active_or_missing_authorization',
-            attempt_count = attempt_count + 1,
-            last_attempt_at = now()
+            updated_at = now()
         WHERE id = ${c.id}
       `;
-      await markPastDueIfExhausted(c.company_id, c.attempt_count);
+      await markPastDueIfExhausted(c.id, c.company_id, attemptCount);
       skipped++;
       continue;
     }
@@ -258,8 +257,6 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
       await sql`
         UPDATE subscription_charges
         SET status = ${localStatus},
-            attempt_count = attempt_count + 1,
-            last_attempt_at = now(),
             settled_at = CASE WHEN ${localStatus} = 'settled' THEN now() ELSE settled_at END,
             updated_at = now()
         WHERE id = ${c.id}
@@ -276,11 +273,10 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
         UPDATE subscription_charges
         SET status = 'failed',
             failure_reason = ${msg.slice(0, 500)},
-            attempt_count = attempt_count + 1,
-            last_attempt_at = now()
+            updated_at = now()
         WHERE id = ${c.id}
       `;
-      await markPastDueIfExhausted(c.company_id, c.attempt_count);
+      await markPastDueIfExhausted(c.id, c.company_id, attemptCount);
       failed++;
       log.error(
         'Subscription debit failed',

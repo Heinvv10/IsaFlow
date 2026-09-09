@@ -14,13 +14,14 @@ import { acquireCronLock, releaseCronLock } from './subscription-cron.lock';
 
 assertDisposable();
 
+const chargeAuthorization = vi.fn(async () => {
+  throw new Error('Paystack must not be reached in this test');
+});
 vi.mock('@/modules/billing/services/paystackClient', () => ({
-  chargeAuthorization: vi.fn(async () => {
-    throw new Error('Paystack must not be reached in this test');
-  }),
+  chargeAuthorization: (...args: unknown[]) => chargeAuthorization(...args),
 }));
 
-const { generateDueCharges } = await import(
+const { generateDueCharges, runQueuedCharges } = await import(
   '@/modules/billing/services/subscriptionBillingService'
 );
 const { cancelSubscription, updateSubscription } = await import(
@@ -196,6 +197,8 @@ describe('K-034 scheduled cancellation ignored at renewal', () => {
 
   it('clears the scheduled cancellation when the subscription is reactivated', async () => {
     await cancelSubscription(subscriptionId, true);
+    // A reactivation is a real transition — the subscription was not active.
+    await pool.query("UPDATE subscriptions SET status='paused' WHERE id=$1", [subscriptionId]);
     await updateSubscription(subscriptionId, { status: 'active' });
 
     const { rows } = await pool.query(
@@ -221,5 +224,77 @@ describe('K-034 scheduled cancellation ignored at renewal', () => {
       [subscriptionId],
     );
     expect(rows[0]).toMatchObject({ cancel_at_period_end: true, status: 'active' });
+  });
+
+  it('voids the queued charge instead of debiting a subscription cancelled mid-flight', async () => {
+    // The renewal charge is raised first; the customer cancels before it runs.
+    await generateDueCharges(cronNow);
+    const queued = await pool.query(
+      'SELECT id, status FROM subscription_charges WHERE company_id=$1',
+      [companyId],
+    );
+    expect(queued.rows[0].status).toBe('queued');
+
+    await cancelSubscription(subscriptionId, true);
+    await generateDueCharges(cronNow);
+
+    const charges = await pool.query(
+      'SELECT status FROM subscription_charges WHERE company_id=$1',
+      [companyId],
+    );
+    expect(charges.rows[0].status).toBe('cancelled');
+
+    const sub = await pool.query('SELECT status FROM subscriptions WHERE id=$1', [subscriptionId]);
+    expect(sub.rows[0].status).toBe('cancelled');
+
+    // The voided charge is invisible to the debit pass, so no money moves.
+    chargeAuthorization.mockClear();
+    const ran = await runQueuedCharges(new Date());
+    expect(ran.submitted).toBe(0);
+    expect(chargeAuthorization).not.toHaveBeenCalled();
+  });
+
+  it('defers the close-out while a charge is still in flight at Paystack', async () => {
+    await generateDueCharges(cronNow);
+    await pool.query(
+      "UPDATE subscription_charges SET status='submitted' WHERE company_id=$1",
+      [companyId],
+    );
+    await cancelSubscription(subscriptionId, true);
+
+    await generateDueCharges(cronNow);
+
+    const charges = await pool.query(
+      'SELECT status FROM subscription_charges WHERE company_id=$1',
+      [companyId],
+    );
+    // Paystack already has the request — voiding it locally would lose the money.
+    expect(charges.rows[0].status).toBe('submitted');
+    const sub = await pool.query('SELECT status FROM subscriptions WHERE id=$1', [subscriptionId]);
+    expect(sub.rows[0].status).toBe('active');
+  });
+
+  it('does not un-cancel when an edit merely restates the current status', async () => {
+    await cancelSubscription(subscriptionId, true);
+    await updateSubscription(subscriptionId, { status: 'active', notes: 'customer called' });
+
+    const { rows } = await pool.query(
+      'SELECT cancel_at_period_end, notes FROM subscriptions WHERE id=$1',
+      [subscriptionId],
+    );
+    expect(rows[0].cancel_at_period_end).toBe(true);
+    expect(rows[0].notes).toBe('customer called');
+  });
+
+  it('clears the flag when the subscription really transitions back from cancelled', async () => {
+    await cancelSubscription(subscriptionId, true);
+    await pool.query("UPDATE subscriptions SET status='paused' WHERE id=$1", [subscriptionId]);
+    await updateSubscription(subscriptionId, { status: 'active' });
+
+    const { rows } = await pool.query(
+      'SELECT cancel_at_period_end, status FROM subscriptions WHERE id=$1',
+      [subscriptionId],
+    );
+    expect(rows[0]).toMatchObject({ cancel_at_period_end: false, status: 'active' });
   });
 });
