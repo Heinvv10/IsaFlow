@@ -82,6 +82,10 @@ export async function getARSubledger(
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}::UUID
         AND ci.status NOT IN ('draft', 'cancelled')
+        -- Same population as arAgingService, deliberately: a soft-deleted
+        -- document is excluded there, and two populations would make
+        -- reconcile_subledger's aged-versus-subledger comparison meaningless.
+        AND ci.deleted_at IS NULL
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtDate}::DATE
         AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY ci.due_date NULLS LAST, ci.id

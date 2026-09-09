@@ -113,6 +113,8 @@ export async function runDunningCron(options: {
             ON cdo.company_id = ci.company_id AND cdo.customer_id = cust.id
          WHERE ci.company_id = ${companyId}::uuid
            AND ci.status NOT IN ('cancelled', 'paid')
+           -- A deleted invoice is out of aging, so it must not be chased.
+           AND ci.deleted_at IS NULL
            AND ci.due_date IS NOT NULL
            AND ci.due_date < CURRENT_DATE
            AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) >= ${minOutstanding}

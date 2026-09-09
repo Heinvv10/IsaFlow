@@ -94,6 +94,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         -- invoice leg did not, so a soft-deleted bill stayed in the ledger
         -- and in its running balance.
         AND si.deleted_at IS NULL
+        -- And the same status set AP aging uses: a draft bill has not been
+        -- issued and a cancelled one has had its journal reversed, so neither
+        -- belongs in a statement or its running balance.
+        AND si.status NOT IN ('draft', 'cancelled')
         AND (${dateFromVal}::date IS NULL OR si.invoice_date >= ${dateFromVal}::date)
         AND (${dateToVal}::date IS NULL OR si.invoice_date <= ${dateToVal}::date)
 
