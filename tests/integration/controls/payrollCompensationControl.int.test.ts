@@ -32,3 +32,19 @@ it('refuses direct compensation closure when the current payroll write grant is 
  await expect(actor(()=>assertEffectivePermission(requireControlTx(),'write:payroll'))).rejects.toThrow(/permissions/);
  await expect(actor(()=>endEmployeeComponent(fixture.companyA,assignment,new Date('2026-09-30T00:00:00Z')))).rejects.toThrow(/permission|approval/i);
 });
+it('prepares immutable compensation without mutating assignments and binds subsequent source changes',async()=>{
+ await pool.query("UPDATE company_user_permissions SET can_write=true WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);
+ try{
+  const {preparePayrollCompensation}=await import('@/modules/accounting/services/controls/payrollCompensationControl');
+  const {loadPayrollCompensationIntent}=await import('@/modules/accounting/services/controls/payrollCompensationMaterial');
+  const before=await pool.query('SELECT count(*)::int count FROM payroll_employee_components WHERE employee_id=$1',[employee]);
+  const prepared=await actor(()=>preparePayrollCompensation(requireControlTx(),{version:1,source:{kind:'manual'},actions:[{kind:'assign',employeeId:employee,componentId:component,amount:'250.01',effectiveFrom:'2026-11-01'}]}));
+  expect((await pool.query('SELECT count(*)::int count FROM payroll_employee_components WHERE employee_id=$1',[employee])).rows).toEqual(before.rows);
+  expect((await actor(()=>loadPayrollCompensationIntent(requireControlTx(),prepared.intentId))).intent.amount).toBe('250.01000000');
+  await pool.query('UPDATE payroll_components SET is_active=false WHERE company_id=$1 AND id=$2',[fixture.companyA,component]);
+  await expect(actor(()=>loadPayrollCompensationIntent(requireControlTx(),prepared.intentId))).rejects.toThrow(/source changed/i);
+ }finally{
+  await pool.query('UPDATE payroll_components SET is_active=true WHERE company_id=$1 AND id=$2',[fixture.companyA,component]);
+  await pool.query("UPDATE company_user_permissions SET can_write=false WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);
+ }
+});
