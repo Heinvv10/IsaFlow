@@ -101,21 +101,63 @@ export function parseClientChatResponse(response: string): ChatResponse | null {
 // SANITIZATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Match SQL statement shapes, not bare English words: "from", "update" and
-// "query" are ordinary vocabulary in a customer reply, and the old keyword
-// patterns deleted everything from such a word to the next sentence end.
-const INTERNAL_PATTERNS = [
-  /\bSELECT\b[^.!?]{0,200}?\bFROM\b[^.!?]*/gi,
-  /\b(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b[^.!?]*/gi,
-  /\b(customer_invoices|supplier_invoices|gl_accounts|bank_transactions|payslips|employees)\b/gi,
-  /\btable\s+\w+/gi,
-  /\bcolumn\s+\w+/gi,
+/**
+ * Replaces a reply that could not be made safe. Never return the raw text on
+ * failure: the case where stripping empties the string is exactly the case
+ * where the whole reply was internal SQL, and this output is customer-facing.
+ */
+export const SANITIZED_FALLBACK =
+  "I'm sorry — I can't answer that here. Please contact your accountant for help with this query.";
+
+/** Zero-width characters can be wedged inside a keyword to slip it past \b. */
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
+
+/**
+ * A sentence matching any of these is dropped whole, never edited in place.
+ * Partial stripping is what leaked fragments verbatim — a column list longer
+ * than the bound, a quoted identifier, or a bare `WHERE company_id = '...'`
+ * survived the edit with the tenant id intact.
+ *
+ * The SELECT rules deliberately do NOT match case-insensitive prose: "Please
+ * select the invoice from the list below" is the most likely sentence on an
+ * invoice portal, so a lower-case select/from pair must also carry SQL
+ * structure (a star, a semicolon, or a following clause keyword) to count.
+ */
+const SQL_SENTENCE_PATTERNS: RegExp[] = [
+  // Statement keywords in caps — how a leaked query is actually written.
+  /\bSELECT\b[\s\S]{0,2000}?\bFROM\b/,
+  /\bINSERT\s+INTO\b/,
+  /\bUPDATE\b[\s\S]{0,200}?\bSET\b/,
+  /\bDELETE\s+FROM\b/,
+  /\bGROUP\s+BY\b|\bORDER\s+BY\b/,
+  /\bJOIN\b[\s\S]{0,200}?\bON\b/,
+  // Lower-case select ... from, but only with SQL structure alongside.
+  /\bselect\b\s*\*/i,
+  /\bselect\b[\s\S]{0,2000}?\bfrom\b[\s\S]{0,400}?(?:\bwhere\b|\bjoin\b|\bgroup\s+by\b|\border\s+by\b|\blimit\b|[*;])/i,
+  // Predicates and internal identifiers, which leak tenant ids on their own.
+  /\bwhere\b[\s\S]{0,200}?[a-z_]+\s*=\s*(?:['"$]|\d)/i,
+  /\b\w+\s*\.\s*\w+\s*=\s*['"$]/,
+  /\b(?:customer_invoices|supplier_invoices|customer_invoice_disputes|gl_accounts|gl_journal_entries|gl_journal_lines|bank_transactions|dunning_sends|credit_notes|captured_documents)\b/i,
+  /\b(?:company_id|customer_id|client_id|invoice_id|supplier_id|deleted_at|amount_paid|total_amount|portal_token|created_by)\b/i,
 ];
 
+function isInternal(sentence: string): boolean {
+  return SQL_SENTENCE_PATTERNS.some(p => p.test(sentence));
+}
+
+/**
+ * Drop every sentence that looks like internal SQL or schema, keep the rest.
+ * Fails CLOSED: if nothing survives, the customer gets SANITIZED_FALLBACK,
+ * never the original text.
+ */
 export function sanitizeClientResponse(text: string): string {
-  let clean = text;
-  for (const pattern of INTERNAL_PATTERNS) {
-    clean = clean.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
-  }
-  return clean || text;
+  const normalized = text.replace(ZERO_WIDTH, '');
+  const kept = normalized
+    .split(/(?<=[.!?])(?=\s)/)
+    .filter(sentence => !isInternal(sentence))
+    .join('')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return kept || SANITIZED_FALLBACK;
 }

@@ -25,3 +25,11 @@ at the default limit of 50; that is a separate UI gap, not fixed here.
 
 **Existing suite.** `tests/unit/services/ar/disputeService.test.ts` mocks `sql`; the two `listDisputes`
 tests now queue a row for the COUNT(*) as well. Full unit suite green: 9563 passed / 243 skipped.
+
+## Round 2 (blind review M5, M7, L3)
+`listDisputes` also returns `openTotal` and `openDisputedAmount` — the queue header's two tiles
+were computed from the current page and under-reported past 50 rows. `pages/accounting/disputes/index.tsx`
+now reads all three from the API and paginates instead of deriving them from `disputes`. The four
+hand-written filter branches collapsed into one NULL-guarded predicate set so the page query and
+the aggregate query cannot drift apart. `COUNT(*) OVER ()` was rejected: it counts the returned
+rows, so a page past the end would report total 0. Full disposition table: `../K-122/fix.md`.

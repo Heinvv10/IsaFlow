@@ -171,25 +171,44 @@ describe('raiseDispute', () => {
 
 describe('listDisputes', () => {
   it('scopes every query by company_id', async () => {
-    mockSql.mockResolvedValueOnce([]);       // page
-    mockSql.mockResolvedValueOnce([{ cnt: 0 }]); // total count
+    mockSql.mockResolvedValueOnce([]);                                   // page
+    mockSql.mockResolvedValueOnce([{ cnt: 0, open_cnt: 0, open_amount: 0 }]); // aggregates
 
     await listDisputes(COMPANY_ID, { status: 'open' });
 
-    const args = mockSql.mock.calls[0]!.slice(1);
-    expect(args).toContain(COMPANY_ID);
-    expect(args).toContain('open');
+    // Every query, not just the first: the aggregate query is the one this
+    // commit added, and asserting only calls[0] would never have checked it.
+    expect(mockSql).toHaveBeenCalledTimes(2);
+    for (const call of mockSql.mock.calls) {
+      expect(call.slice(1)).toContain(COMPANY_ID);
+    }
+    expect(mockSql.mock.calls[0]!.slice(1)).toContain('open');
+    expect(mockSql.mock.calls[1]!.slice(1)).toContain('open');
   });
 
   it('filters by customer_invoice_id when provided', async () => {
-    mockSql.mockResolvedValueOnce([]);       // page
-    mockSql.mockResolvedValueOnce([{ cnt: 0 }]); // total count
+    mockSql.mockResolvedValueOnce([]);                                   // page
+    mockSql.mockResolvedValueOnce([{ cnt: 0, open_cnt: 0, open_amount: 0 }]); // aggregates
 
     await listDisputes(COMPANY_ID, { customerInvoiceId: INVOICE_ID });
 
-    const args = mockSql.mock.calls[0]!.slice(1);
-    expect(args).toContain(COMPANY_ID);
-    expect(args).toContain(INVOICE_ID);
+    for (const call of mockSql.mock.calls) {
+      const args = call.slice(1);
+      expect(args).toContain(COMPANY_ID);
+      expect(args).toContain(INVOICE_ID);
+    }
+  });
+
+  it('reports total and the open aggregates from the aggregate query, not the page', async () => {
+    mockSql.mockResolvedValueOnce([]);  // an empty page (offset past the end)
+    mockSql.mockResolvedValueOnce([{ cnt: 137, open_cnt: 12, open_amount: '4500.50' }]);
+
+    const result = await listDisputes(COMPANY_ID, { offset: 500 });
+
+    expect(result.disputes).toHaveLength(0);
+    expect(result.total).toBe(137);
+    expect(result.openTotal).toBe(12);
+    expect(result.openDisputedAmount).toBeCloseTo(4500.5, 2);
   });
 });
 
@@ -219,7 +238,8 @@ describe('resolveDispute', () => {
 
     mockSql
       .mockResolvedValueOnce([openDispute]) // fetch current dispute
-      .mockResolvedValueOnce([{ client_id: CLIENT_ID }]) // invoice client lookup
+      // A standard 15% VAT invoice: subtotal 10 000 + VAT 1 500 = total 11 500.
+      .mockResolvedValueOnce([{ client_id: CLIENT_ID, subtotal: '10000.00', tax_amount: '1500.00' }])
       .mockResolvedValueOnce([
         {
           ...openDispute,
@@ -248,17 +268,79 @@ describe('resolveDispute', () => {
     const [ccCompany, ccInput, ccUser] = mockCreateCreditNote.mock.calls[0]!;
     expect(ccCompany).toBe(COMPANY_ID);
     expect(ccUser).toBe(USER_ID);
+    // disputed_amount 1 500 is VAT-INCLUSIVE (a slice of total_amount), and
+    // createCreditNote derives tax from a VAT-EXCLUSIVE subtotal. A flat
+    // taxRate 0 would have booked all 1 500 to revenue and nothing to VAT.
     expect(ccInput).toMatchObject({
       type: 'customer',
       clientId: CLIENT_ID,
       customerInvoiceId: INVOICE_ID,
-      subtotal: 1500,
       creditDate: '2026-04-23',
+      taxRate: 15,
     });
+    const { subtotal } = ccInput as { subtotal: number };
+    expect(subtotal).toBeCloseTo(1304.35, 2);
+    // The credit note grosses back up to the disputed amount.
+    expect(subtotal + Math.round(subtotal * 15) / 100).toBeCloseTo(1500, 2);
 
     expect(updated.status).toBe('resolved');
     expect(updated.resolutionMode).toBe('resolve_with_credit');
     expect(updated.creditNoteId).toBe(CREDIT_NOTE_ID);
+  });
+
+  it('uses taxRate 0 for a zero-rated invoice, crediting the disputed amount in full', async () => {
+    const openDispute = {
+      id: DISPUTE_ID,
+      company_id: COMPANY_ID,
+      customer_invoice_id: INVOICE_ID,
+      customer_invoice_line_id: null,
+      status: 'open',
+      disputed_amount: '1500.00',
+    };
+
+    mockSql
+      .mockResolvedValueOnce([openDispute])
+      .mockResolvedValueOnce([{ client_id: CLIENT_ID, subtotal: '10000.00', tax_amount: '0.00' }])
+      .mockResolvedValueOnce([{ ...openDispute, status: 'resolved', credit_note_id: CREDIT_NOTE_ID }]);
+
+    mockCreateCreditNote.mockResolvedValueOnce({ id: CREDIT_NOTE_ID } as never);
+
+    await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
+      mode: 'resolve_with_credit',
+      creditDate: '2026-04-23',
+    });
+
+    expect(mockCreateCreditNote.mock.calls[0]![1]).toMatchObject({ subtotal: 1500, taxRate: 0 });
+  });
+
+  it('resolves a legacy invoice (client_id NULL) at the invoice VAT rate, not zero', async () => {
+    // COALESCE(client_id, customer_id) newly lets these disputes reach the
+    // credit-note path; they must not book gross revenue on the way in.
+    const openDispute = {
+      id: DISPUTE_ID,
+      company_id: COMPANY_ID,
+      customer_invoice_id: INVOICE_ID,
+      customer_invoice_line_id: null,
+      status: 'open',
+      disputed_amount: '2300.00',
+    };
+
+    mockSql
+      .mockResolvedValueOnce([openDispute])
+      // client_id is NULL on the row; COALESCE returns customer_id.
+      .mockResolvedValueOnce([{ client_id: CLIENT_ID, subtotal: '4000.00', tax_amount: '600.00' }])
+      .mockResolvedValueOnce([{ ...openDispute, status: 'resolved', credit_note_id: CREDIT_NOTE_ID }]);
+
+    mockCreateCreditNote.mockResolvedValueOnce({ id: CREDIT_NOTE_ID } as never);
+
+    await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
+      mode: 'resolve_with_credit',
+      creditDate: '2026-04-23',
+    });
+
+    const input = mockCreateCreditNote.mock.calls[0]![1] as { subtotal: number; taxRate: number };
+    expect(input.taxRate).toBe(15);
+    expect(input.subtotal).toBeCloseTo(2000, 2);
   });
 
   it('resolve_no_credit sets status=resolved without creating a credit note', async () => {

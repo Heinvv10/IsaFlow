@@ -31,3 +31,9 @@ nothing to correct beyond future sends.
 **Limits.** This narrows a security filter. A leak that is neither a recognisable statement shape nor a
 known table/column name would now pass; the table-name rule is the remaining guard, and the tests keep
 four genuine-leak regression cases.
+
+## Round 2 (blind review H1, H2, L2)
+The first fix left the headline false positive in place and failed OPEN. The sanitiser now
+classifies whole SENTENCES and drops the offending one rather than editing in place, normalises
+zero-width characters first, and returns `SANITIZED_FALLBACK` — never the raw text — when nothing
+survives. The test asserting the fail-open as correct behaviour is inverted.

@@ -68,6 +68,29 @@ it('reports the same total on a page past the end', async () => {
   expect(page.total).toBe(3);
 });
 
+it('reports the open aggregates for the queue header, whatever the status filter', async () => {
+  await pool.query(
+    "UPDATE customer_invoice_disputes SET status='rejected' WHERE customer_invoice_id=$1",
+    [invoiceIds[2]]);
+  try {
+    // Filtered to one rejected row, but the header still describes what is open.
+    const rejected = await listDisputes(company, { status: 'rejected', limit: 1 });
+    expect(rejected.total).toBe(1);
+    expect(rejected.openTotal).toBe(2);
+    expect(rejected.openDisputedAmount).toBeCloseTo(200, 2);
+
+    // And a page past the end of the open list reports the same aggregates.
+    const past = await listDisputes(company, { status: 'open', limit: 2, offset: 50 });
+    expect(past.disputes).toHaveLength(0);
+    expect(past.total).toBe(2);
+    expect(past.openTotal).toBe(2);
+  } finally {
+    await pool.query(
+      "UPDATE customer_invoice_disputes SET status='open' WHERE customer_invoice_id=$1",
+      [invoiceIds[2]]);
+  }
+});
+
 it('counts a single-invoice filter without leaking the other invoices', async () => {
   const page = await listDisputes(company, { customerInvoiceId: invoiceIds[0]! });
   expect(page.total).toBe(1);

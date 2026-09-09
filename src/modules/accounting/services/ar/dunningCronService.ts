@@ -18,7 +18,7 @@
  *   - customer has email on file
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendDunning } from './dunningService';
@@ -180,14 +180,21 @@ export async function runDunningCron(options: {
           continue;
         }
 
-        const sendResult = await sendDunning({
-          companyId,
-          invoiceId,
-          templateId: String(row.template_id),
-          sentBy: null,
-          triggerSource: 'cron',
-          portalBaseUrl: options.portalBaseUrl,
-        });
+        // One savepoint per invoice. sendDunning writes (portal_token,
+        // dunning_sends, captured_documents), and a PostgreSQL error on any of
+        // them aborts the whole surrounding transaction — the catch below would
+        // otherwise carry on into a run where every remaining invoice fails with
+        // 25P02. Rolling back to the savepoint restores a usable transaction.
+        const sendResult = await withSavepoint('dunning_cron_invoice', () =>
+          sendDunning({
+            companyId,
+            invoiceId,
+            templateId: String(row.template_id),
+            sentBy: null,
+            triggerSource: 'cron',
+            portalBaseUrl: options.portalBaseUrl,
+          }),
+        );
         if (sendResult.emailStatus === 'sent') {
           result.sent += 1;
         } else {

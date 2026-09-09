@@ -1,34 +1,53 @@
-# K-122 GREEN + mutation + suite evidence (branch fix/audit-k122-k127-ar-portal-disputes)
+# K-122/123/124/125/127 GREEN + mutation + suite evidence
+# branch fix/audit-k122-k127-ar-portal-disputes — ROUND 2 (all 13 review findings)
 
-$ source scratchpad/fixture.env
-$ bun run test:integration -- tests/integration/k122-dunning-portal-link-404.int.test.ts \
+$ source scratchpad/fixture.env   # disposable fixture DB, production schema
+$ bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k122-dunning-portal-link-404.int.test.ts \
+    tests/integration/k122b-portal-token-race.int.test.ts \
+    tests/integration/k122c-dunning-cron-savepoint-isolation.int.test.ts \
     tests/integration/k123-list-disputes-total.int.test.ts \
     tests/integration/k124-dispute-credit-legacy-customer-id.int.test.ts \
-    tests/integration/k125-debtors-null-amount-paid.int.test.ts
- Test Files  4 passed (4)
-      Tests  21 passed (21)
+    tests/integration/k125b-null-amount-paid-report-parity.int.test.ts
+ Test Files  6 passed (6)
+      Tests  26 passed (26)
+(run 4x consecutively — stable; fixture rows cleaned up, 0 left behind)
 
-$ bunx vitest run tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts
- Test Files  1 passed (1)
-      Tests  10 passed (10)
+$ bunx vitest run tests/unit/services/ar/{k127-portal-chatbot-sanitiser,disputeService,portalTokenService,dunningService}.test.ts \
+                  tests/unit/benchmark/reporting-tax-compliance.test.ts
+ Test Files  5 passed (5)
+      Tests  150 passed (150)
 
-## Mutation proof (production file reverted to origin/master, test re-run, then restored)
-K-122  dunningService.ts        -> k122 int:  3 failed | 2 passed (5)
-K-125  debtorsManagerService.ts -> k125 int:  4 failed | 2 passed (6)
-K-123  `total: disputes.length` -> k123 int:  3 failed | 2 passed (5)
-K-124  COALESCE joins dropped   -> k124 int:  3 failed | 2 passed (5)
-K-127  portalChatbotService.ts  -> k127 unit: 5 failed | 5 passed (10)
+## Mutation proof — production change reverted in place, test re-run, then restored
+1. portalTokenService  COALESCE dropped from the mint UPDATE
+   -> k122b: 1 failed | 2 passed. Stored token was the service's own mint, not the rival's.
+2. portalChatbotService  `return kept || text` (fail open)
+   -> k127 unit: 4 failed | 16 passed.
+3. disputeResolution  `subtotal: grossDisputed, taxRate: 0`
+   -> k124 int: 1 failed | 5 passed;  disputeService unit: 2 failed | 16 passed.
+4. dunningService  try/catch swallow + always-mint restored
+   -> k122 int: 2 failed | 4 passed.
+5. disputeService  openTotal/openDisputedAmount derived from the page array
+   -> k123 int: 1 failed | 5 passed.
+6. dunningCronService  withSavepoint removed (bare sendDunning call)
+   -> k122c int: 1 failed. Failure text: "current transaction is aborted, commands
+      ignored until end of transaction block" on the SECOND invoice — the exact 25P02
+      cascade H3 describes. Catching without a savepoint is not isolation.
 
-## Full unit suite, DATABASE_URL and ISAFLOW_DISPOSABLE_AUTH_TEST unset
-$ env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+## Full unit suite, DATABASE_URL unset (addendum requirement)
+$ env -u DATABASE_URL -u PGHOST -u PGPORT -u PGUSER -u PGPASSWORD -u PGDATABASE bunx vitest run
  Test Files  801 passed | 40 skipped (841)
-      Tests  9563 passed | 243 skipped (9806)
+      Tests  9580 passed | 243 skipped (9823)
 
-Two pre-existing mocked suites needed their fixtures widened for the new queries
-(they failed before the update, so the addendum check earned its keep):
- - tests/unit/services/ar/disputeService.test.ts  — 2 tests: queue a row for the new COUNT(*).
- - tests/unit/services/ar/dunningService.test.ts  — 1 test: queue the portal_token row and
-   assert the link carries that token.
+$ bunx tsc --noEmit                        -> exit 0
+$ bunx eslint <16 changed src/pages files> -> exit 0
 
-$ bunx tsc --noEmit                 -> exit 0
-$ bunx eslint <the 4 changed src files> -> exit 0
+## Note on a flake that was diagnosed, not re-rolled
+The first combined run showed 1 failure that passed on re-run. Cause found, not retried away:
+mutation run 6 made k122c throw, and its `finally { client.release() }` handed a connection
+with an ABORTED transaction back to the pool, so a later checkout (in this file or the next)
+got a bare 25P02, and afterAll's cleanup failed — leaving a K122c fixture company and 2
+dunning_sends rows in the shared fixture DB. Fixed in the test: the error path now calls
+`client.release(true)` to destroy the connection. Re-verified by re-running mutation 6 —
+still RED, and 0 rows left behind. The orphaned rows were deleted by company_id (only my
+own; K120/K126c fixtures belonging to other agents were left untouched).
