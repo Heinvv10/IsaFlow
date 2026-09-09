@@ -4,31 +4,18 @@
  * Pure business logic — no DB dependencies (fully testable).
  */
 
+// Policy (IAS 16) depreciation moved to `depreciationMethods.ts` when adding the
+// per-asset method pushed this file past the 300-line cap. Re-exported so every
+// existing importer of this module is unchanged.
+export {
+  calculatePolicyDepreciation,
+  toDepreciationMethod,
+  type DepreciationMethod,
+  type PolicyDepreciationInput,
+  type PolicyDepreciationResult,
+} from './depreciationMethods';
+
 // ─── Input / Output types ─────────────────────────────────────────────────────
-
-export interface PolicyDepreciationInput {
-  cost: number;
-  /** Residual value as a fraction of cost (0.10 = 10%). IAS 16: depreciable = cost × (1 − residualPct). */
-  residualPct: number;
-  usefulLifeYears: number;
-  /** ISO date string — used to pro-rate the first month. */
-  purchaseDate: string;
-  /** ISO date string — last day of the period being computed. */
-  periodDate: string;
-  /** Accumulated policy depreciation from all prior periods (default 0). */
-  openingAccDep?: number;
-  /** If set and falls within this period, depreciation = 0 for the period. */
-  disposalDate?: string;
-}
-
-export interface PolicyDepreciationResult {
-  monthlyDep: number;
-  annualDep: number;
-  openingAccDep: number;
-  closingAccDep: number;
-  policyCarryingAmount: number;
-  depRate: number;
-}
 
 export interface TaxDepreciationInput {
   cost: number;
@@ -77,11 +64,6 @@ function parseDate(d: string | Date): Date {
   return typeof d === 'string' ? new Date(d) : d;
 }
 
-/** Days in a given month (year, 0-based month). */
-function daysInMonth(year: number, month: number): number {
-  return new Date(year, month + 1, 0).getDate();
-}
-
 /**
  * Returns true when the disposalDate falls on or before the last day of the
  * period (i.e. disposal occurred during or before this period).
@@ -94,97 +76,6 @@ function disposedInOrBeforePeriod(disposalDate: string | undefined, periodDate: 
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-// ─── Policy Depreciation (IAS 16) ─────────────────────────────────────────────
-
-/**
- * Calculates monthly policy (IAS 16) depreciation for a single period.
- *
- * Rules:
- * - Straight-line on depreciable amount (cost × (1 − residualPct))
- * - Pro-rates the first month based on days remaining after purchase date
- * - Caps at remaining depreciable amount (cannot over-depreciate)
- * - Zero depreciation in any period after disposal
- */
-export function calculatePolicyDepreciation(input: PolicyDepreciationInput): PolicyDepreciationResult {
-  const {
-    cost,
-    residualPct,
-    usefulLifeYears,
-    purchaseDate,
-    periodDate: periodDateStr,
-    openingAccDep = 0,
-    disposalDate,
-  } = input;
-
-  const periodDate = parseDate(periodDateStr);
-
-  if (disposedInOrBeforePeriod(disposalDate, periodDate)) {
-    return {
-      monthlyDep: 0,
-      annualDep: 0,
-      openingAccDep,
-      closingAccDep: openingAccDep,
-      policyCarryingAmount: round2(cost - openingAccDep),
-      depRate: 0,
-    };
-  }
-
-  const depreciableAmount = round2(cost * (1 - residualPct));
-  if (depreciableAmount <= 0 || usefulLifeYears <= 0) {
-    return {
-      monthlyDep: 0,
-      annualDep: 0,
-      openingAccDep,
-      closingAccDep: openingAccDep,
-      policyCarryingAmount: round2(cost - openingAccDep),
-      depRate: 0,
-    };
-  }
-
-  const annualDep = round2(depreciableAmount / usefulLifeYears);
-  const fullMonthlyDep = round2(annualDep / 12);
-  const depRate = round2((annualDep / cost) * 100) / 100;
-
-  // Pro-rate first period if asset was purchased part-way through the month
-  const pd = parseDate(purchaseDate);
-  const periodYear = periodDate.getFullYear();
-  const periodMonth = periodDate.getMonth();
-  const purchaseYear = pd.getFullYear();
-  const purchaseMonth = pd.getMonth();
-
-  let monthlyDep = fullMonthlyDep;
-
-  const isFirstMonth =
-    purchaseYear === periodYear && purchaseMonth === periodMonth;
-
-  if (isFirstMonth) {
-    const totalDays = daysInMonth(periodYear, periodMonth);
-    // Days from purchase day to end of month (inclusive of purchase date)
-    const daysRemaining = totalDays - pd.getDate() + 1;
-    monthlyDep = round2(fullMonthlyDep * (daysRemaining / totalDays));
-  }
-
-  // Cap at remaining depreciable amount
-  const remainingDepreciable = round2(depreciableAmount - openingAccDep);
-  if (remainingDepreciable <= 0) {
-    return {
-      monthlyDep: 0,
-      annualDep,
-      openingAccDep,
-      closingAccDep: openingAccDep,
-      policyCarryingAmount: round2(cost - openingAccDep),
-      depRate,
-    };
-  }
-
-  monthlyDep = round2(Math.min(monthlyDep, remainingDepreciable));
-
-  const closingAccDep = round2(openingAccDep + monthlyDep);
-  const policyCarryingAmount = round2(cost - closingAccDep);
-
-  return { monthlyDep, annualDep, openingAccDep, closingAccDep, policyCarryingAmount, depRate };
 }
 
 // ─── Tax Depreciation (SARS Wear & Tear) ──────────────────────────────────────

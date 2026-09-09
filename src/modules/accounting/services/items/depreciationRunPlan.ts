@@ -103,6 +103,7 @@ export async function loadDepreciationAssets(companyId: string): Promise<DbRow[]
       a.id, a.asset_number, a.name, a.status,
       a.purchase_price                              AS cost,
       a.purchase_date,
+      a.depreciation_method,
       COALESCE(a.below_threshold, false)            AS below_threshold,
       COALESCE(a.accumulated_depreciation, 0)       AS policy_acc_dep,
       COALESCE(a.tax_accumulated_depreciation, 0)   AS tax_acc_dep,

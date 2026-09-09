@@ -9,7 +9,7 @@
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { calculatePolicyDepreciation } from './farDepreciationService';
+import { calculatePolicyDepreciation, toDepreciationMethod } from './farDepreciationService';
 import type { DepreciationPlan } from './depreciationRunPlan';
 import type { DryRunJournal, DryRunSkip } from '@/lib/mcp/contracts';
 
@@ -82,6 +82,7 @@ export async function previewDepreciationJournals(
       purchaseDate: fmtDate(a.purchase_date),
       periodDate: plan.periodDate,
       openingAccDep: Number(a.policy_acc_dep),
+      method: toDepreciationMethod(a.depreciation_method),
       ...(a.disposal_date ? { disposalDate: fmtDate(a.disposal_date) } : {}),
     });
     // The live path posts NO JOURNAL at or below zero — but it still UPSERTs the
