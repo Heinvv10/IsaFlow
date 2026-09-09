@@ -36,3 +36,16 @@ it('observes actual timer abort during complete bundle rendering without returni
  const timer=setTimeout(()=>controller.abort(reason),5);
  try{await expect(renderAuditEvidence(sealed,[],expected,{signal:controller.signal})).rejects.toBe(reason);}finally{clearTimeout(timer);}
 });
+it('observes timers during bounded byte-copy and incremental hashing batches',async()=>{
+ const {copyExportArtifacts,exportByteHash,exportExecution}=await import('@/modules/accounting/services/controls/auditEvidenceExportMaterial');
+ for(const operation of ['copy','hash'] as const){
+  const controller=new AbortController(),reason=new Error(`Synthetic ${operation} cancellation`);
+  const bytes=Buffer.alloc(8*1024*1024,65),execution=exportExecution({signal:controller.signal});
+  const timer=setTimeout(()=>controller.abort(reason),0);
+  try{
+   const pending=operation==='hash'?exportByteHash(bytes,execution):copyExportArtifacts(
+    Array.from({length:128},(_,index)=>({id:`artifact-${index}`,bytes:bytes.subarray(0,65536)})),execution);
+   await expect(pending).rejects.toBe(reason);
+  }finally{clearTimeout(timer);}
+ }
+});
