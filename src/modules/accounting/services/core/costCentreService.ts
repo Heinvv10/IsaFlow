@@ -80,12 +80,28 @@ export async function toggleCostCentre(companyId: string, id: string, isActive: 
 }
 
 export async function deleteCostCentre(companyId: string, id: string): Promise<void> {
-  // Check for usage in journal lines
+  // Check for usage in journal lines, payroll assignments and assets. The
+  // payroll_employees FK was ON DELETE SET NULL before migration 649, so a
+  // delete used to silently unassign every employee on the centre.
   const usage = (await sql`
-    SELECT COUNT(*) as cnt FROM gl_journal_lines jl WHERE (jl.cost_center_id = ${id}::UUID OR jl.cc1_id = ${id}::UUID OR jl.cc2_id = ${id}::UUID) AND jl.company_id = ${companyId}::UUID
+    SELECT
+      (SELECT COUNT(*) FROM gl_journal_lines jl
+        WHERE (jl.cost_center_id = ${id}::UUID OR jl.cc1_id = ${id}::UUID OR jl.cc2_id = ${id}::UUID)
+          AND jl.company_id = ${companyId}::UUID) AS journal_lines,
+      (SELECT COUNT(*) FROM payroll_employees pe
+        WHERE pe.cost_centre_id = ${id}::UUID AND pe.company_id = ${companyId}::UUID) AS employees,
+      (SELECT COUNT(*) FROM assets a
+        WHERE a.cost_centre_id = ${id}::UUID AND a.company_id = ${companyId}::UUID) AS assets
   `) as Record<string, unknown>[];
-  if (Number(usage[0]?.cnt) > 0) {
-    throw new Error('Cannot delete cost centre that is used in journal entries. Deactivate instead.');
+  const used: string[] = [];
+  const journalLines = Number(usage[0]?.journal_lines ?? 0);
+  const employees = Number(usage[0]?.employees ?? 0);
+  const assets = Number(usage[0]?.assets ?? 0);
+  if (journalLines > 0) used.push(`${journalLines} journal line(s)`);
+  if (employees > 0) used.push(`${employees} employee(s)`);
+  if (assets > 0) used.push(`${assets} asset(s)`);
+  if (used.length > 0) {
+    throw new Error(`Cannot delete cost centre that is used by ${used.join(', ')}. Deactivate instead.`);
   }
   await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId}`;
 }
