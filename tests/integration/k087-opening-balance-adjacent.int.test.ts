@@ -7,7 +7,9 @@
  *    signed balance the source stated.
  * 3. The mirror direction: a credit-normal account carrying a debit balance
  *    lands on the debit side, and a zero balance still produces no line at all.
- * 4. A second company's opening balances are untouched by the import.
+ * 4. A second company's already-imported opening balances are untouched when a
+ *    third company imports — the isolation assertion is made against balances
+ *    that exist, not against an empty company.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -21,6 +23,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const companyA = randomUUID();
 const companyB = randomUUID();
+const companyC = randomUUID();
 const user = randomUUID();
 const year = new Date().getUTCFullYear();
 
@@ -56,7 +59,8 @@ beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await company(companyA, 'K087 adjacent A');
   await company(companyB, 'K087 adjacent B');
-  for (const id of [companyA, companyB]) {
+  await company(companyC, 'K087 adjacent C');
+  for (const id of [companyA, companyB, companyC]) {
     await account(id, '1000', 'K087 Trade receivables', 'asset', 'receivable', 'debit');
     await account(id, '1010', 'K087 Bank', 'asset', 'bank', 'debit');
     await account(id, '2000', 'K087 Trade payables', 'liability', 'payable', 'credit');
@@ -65,7 +69,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    for (const id of [companyA, companyB]) {
+    for (const id of [companyA, companyB, companyC]) {
       await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [id]);
       await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [id]);
       await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id=$1)', [id]);
@@ -78,6 +82,20 @@ afterAll(async () => {
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }
 });
+
+/** Signed balance per account code, on each account's own normal side. */
+async function signedByCode(companyId: string) {
+  const { rows } = await pool.query(
+    `SELECT a.account_code,
+            CASE WHEN a.normal_balance = 'debit'
+                 THEN COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0)
+                 ELSE COALESCE(SUM(l.credit),0) - COALESCE(SUM(l.debit),0)
+            END::float8 AS signed
+       FROM gl_journal_lines l JOIN gl_accounts a ON a.id = l.gl_account_id
+      WHERE l.company_id=$1 GROUP BY a.account_code, a.normal_balance
+      ORDER BY a.account_code`, [companyId]);
+  return rows;
+}
 
 async function inTx<T>(companyId: string, fn: () => Promise<T>): Promise<T> {
   const c = await pool.connect();
@@ -130,10 +148,31 @@ it('the posted opening journal balances and each account carries its signed bala
   expect(signed['2000']).toBe(600);
 });
 
-it('the second company is untouched by company A\'s import', async () => {
-  const { rows } = await pool.query(
-    'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE company_id=$1', [companyB]);
-  expect(rows[0].n).toBe(0);
+it('an already-imported company is untouched when another company imports', async () => {
+  // Import a contra-carrying source into C FIRST so the isolation assertion is
+  // made against real balances. Asserting COUNT(*) = 0 on a company nothing has
+  // ever been written to proves nothing and survives a full revert of the fix.
+  await inTx(companyC, () => postOpeningBalances(companyC, user, 'xero', [
+    acct('1000', 'K087 Trade receivables', 'asset', 'debit', 900),
+    acct('1010', 'K087 Bank', 'asset', 'debit', -200),
+    acct('2000', 'K087 Trade payables', 'liability', 'credit', 700),
+  ]));
+  const snapshot = await signedByCode(companyC);
+  expect(snapshot).toEqual([
+    { account_code: '1000', signed: 900 },
+    { account_code: '1010', signed: -200 },
+    { account_code: '2000', signed: 700 },
+  ]);
+
+  // Now import a DIFFERENT source into A, sharing the same account codes.
+  await inTx(companyA, () => postOpeningBalances(companyA, user, 'xero', [
+    acct('1000', 'K087 Trade receivables', 'asset', 'debit', 50),
+    acct('1010', 'K087 Bank', 'asset', 'debit', -50),
+    acct('2000', 'K087 Trade payables', 'liability', 'credit', 0),
+  ]));
+
+  // C's balances are byte-identical to the snapshot: nothing leaked across.
+  expect(await signedByCode(companyC)).toEqual(snapshot);
 });
 
 it('a credit-normal account in debit lands on the debit side, and a zero balance makes no line', async () => {
