@@ -169,7 +169,7 @@ describe('post_reclassification_batch', () => {
     // operation failed" — and the wording that tells the agent WHICH account is
     // busy, and that a retry is the answer, is discarded. Both locks are taken
     // before anything is posted, and each runs in its own savepoint, so the
-    // transaction is usable when this returns; `reclassificationSavepoint.int.test.ts`
+    // transaction is usable when this returns; `k052-reclassification-lock-savepoint.int.test.ts`
     // proves that end-to-end against a real database, which is what this unit
     // test cannot see.
     planReclassification.mockRejectedValue(new GlAccountLockTimeoutError(TGT));

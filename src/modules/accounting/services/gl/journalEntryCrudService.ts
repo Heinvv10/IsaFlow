@@ -11,10 +11,9 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, VatType } from '../../types/gl.types';
-import { accountsBelongToCompany } from './chartOfAccountsService';
-import { defaultHumanMeta } from './journalEntryMeta';
+import { assertJournalLinesOwned } from './journalLineOwnership';
+import { defaultHumanMeta, type JournalEntryMeta } from './journalEntryMeta';
 import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
-import type { JournalEntryMeta } from './journalEntryMeta';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -210,26 +209,7 @@ export async function createJournalEntry(
   try {
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
-
-    // OWNERSHIP, and it was missing here while every MCP write tool had it.
-    //
-    // `validateJournalEntry` is pure — it sees only debits and credits — and
-    // `pages/api/accounting/journal-entries.ts` passes `lines` through from the
-    // request body untouched. `gl_journal_lines_gl_account_id_fkey` is a
-    // SINGLE-column FK to `gl_accounts(id)`, so an account id belonging to
-    // another tenant satisfies it, and the line below then stamps `company_id`
-    // with the SESSION's company: a row whose company disagrees with its own
-    // account's. RI checks bypass RLS, so nothing else stopped it. That is a
-    // cross-tenant write on the ledger — the other company's account acquires a
-    // balance it can see through its own `ga.company_id` joins, and this
-    // company's trial balance carries a line to an account it does not own.
-    // `create_draft_journal` (`writeJournals.ts`) has always refused it; this is
-    // the same refusal on the REST path, at the service both go through.
-    // Migration 664 adds the composite FK that makes it unrepresentable.
-    if (!(await accountsBelongToCompany(companyId, input.lines.map((l) => l.glAccountId)))) {
-      throw new Error('One or more journal lines name a GL account outside this company');
-    }
-
+    await assertJournalLinesOwned(companyId, input.lines); // journalLineOwnership.ts
     let fiscalPeriodId = input.fiscalPeriodId;
     if (!fiscalPeriodId) {
       // Resolves the covering period, CREATING that fiscal year when it does
