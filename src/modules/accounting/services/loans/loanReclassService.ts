@@ -60,7 +60,12 @@ export async function fetchPriorReclass(
   return new Map(rows.map((r) => [String(r.loan_id), parseFloat(String(r.st_liability ?? '0'))]));
 }
 
-/** Record the balance a close just reclassified this loan's current portion to. */
+/**
+ * Record the balance a close just reclassified this loan's current portion to.
+ *
+ * `source = 'app'` marks the row as written by the running application, which
+ * is what keeps migration 659's rebuild from ever deleting it (round-3 M1/M5).
+ */
 export async function recordReclass(
   companyId: string,
   loanId: string,
@@ -69,10 +74,12 @@ export async function recordReclass(
   journalEntryId: string,
 ): Promise<void> {
   await sql`
-    INSERT INTO loan_reclass_postings (company_id, loan_id, yyyymm, st_liability, journal_entry_id)
-    VALUES (${companyId}, ${loanId}, ${yyyymm}, ${stLiability}, ${journalEntryId})
+    INSERT INTO loan_reclass_postings
+      (company_id, loan_id, yyyymm, st_liability, journal_entry_id, source)
+    VALUES (${companyId}, ${loanId}, ${yyyymm}, ${stLiability}, ${journalEntryId}, 'app')
     ON CONFLICT (company_id, loan_id, yyyymm)
     DO UPDATE SET st_liability = EXCLUDED.st_liability,
-                  journal_entry_id = EXCLUDED.journal_entry_id
+                  journal_entry_id = EXCLUDED.journal_entry_id,
+                  source = 'app'
   `;
 }

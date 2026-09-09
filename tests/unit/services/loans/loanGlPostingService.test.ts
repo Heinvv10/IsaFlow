@@ -23,6 +23,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn().mockResolvedValue('bank-acc-0000-0000-0000-000000000099'),
 }));
 
+import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
@@ -171,6 +172,20 @@ describe('buildPeriodJournalInput', () => {
 
 // ── postPeriodJournals ──────────────────────────────────────────────────────
 
+/**
+ * `lockLoanForUpdate` refuses to run outside a request transaction (review L3):
+ * an unbounded `FOR UPDATE` on a pooled connection can be neither timed out nor
+ * rolled back. The stub client only has to absorb the `SET LOCAL lock_timeout`
+ * statements — every read goes through the mocked `sql`.
+ */
+function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
+  const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+  return als.run(
+    { client, userId: USER_ID, companyId: COMPANY_ID, claims: {} } as never,
+    fn,
+  );
+}
+
 describe('postPeriodJournals', () => {
   function makeLoanRow(overrides = {}) {
     return {
@@ -219,7 +234,7 @@ describe('postPeriodJournals', () => {
     createEntryMock.mockResolvedValueOnce({ id: ENTRY_ID, entryNumber: 'JE-2026-001', fiscalPeriodId: 'fp-2026-04' });
     postEntryMock.mockResolvedValueOnce({ id: ENTRY_ID, status: 'posted' });
 
-    const result = await postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID);
+    const result = await inRequestTx(() => postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID));
     expect(result.journalEntryId).toBe(ENTRY_ID);
     expect(result.period).toBe(1);
     expect(createEntryMock).toHaveBeenCalledTimes(1);
@@ -228,14 +243,14 @@ describe('postPeriodJournals', () => {
 
   it('throws when loan not found', async () => {
     sqlMock.mockResolvedValueOnce([]);
-    await expect(postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID)).rejects.toThrow('not found');
+    await expect(inRequestTx(() => postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID))).rejects.toThrow('not found');
   });
 
   it('throws when loan missing required GL accounts', async () => {
     sqlMock.mockResolvedValueOnce([
       makeLoanRow({ interest_expense_account_id: null }),
     ]);
-    await expect(postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID)).rejects.toThrow('account');
+    await expect(inRequestTx(() => postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID))).rejects.toThrow('account');
   });
 
   it('throws when period is locked', async () => {
@@ -245,7 +260,7 @@ describe('postPeriodJournals', () => {
       .mockResolvedValueOnce([makeScheduleDbRow(1)])
       .mockResolvedValueOnce([{ yyyymm: '202604', locked_at: '2026-04-30T00:00:00Z' }]);
 
-    await expect(postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID)).rejects.toThrow('locked');
+    await expect(inRequestTx(() => postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID))).rejects.toThrow('locked');
   });
 
   it('throws when the schedule row is NCA-flagged (in-duplum breach)', async () => {
@@ -253,7 +268,7 @@ describe('postPeriodJournals', () => {
       .mockResolvedValueOnce([makeLoanRow()])
       .mockResolvedValueOnce([{ id: 'run-id-21' }])
       .mockResolvedValueOnce([makeScheduleDbRow(1, { nca_flagged: true })]);
-    await expect(postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID)).rejects.toThrow('NCA');
+    await expect(inRequestTx(() => postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID))).rejects.toThrow('NCA');
   });
 });
 

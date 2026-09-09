@@ -37,15 +37,29 @@ export async function lockLoanForUpdate(
   companyId: string,
   loanId: string,
 ): Promise<Row | null> {
+  // Review L3. Without a request transaction there is no session to bound and
+  // no rollback either: the FOR UPDATE would run unbounded on a pooled
+  // connection, which is the exact failure the bound was added for. A GL write
+  // path outside withAuth is a caller bug, so say so instead of degrading.
   const client = als.getStore()?.client;
-  if (client) {
-    assertTxUsable();
-    await client.query("SET LOCAL lock_timeout = '5s'");
+  if (!client) {
+    throw new Error(
+      'lockLoanForUpdate requires a request transaction (withAuth) — an unbounded FOR UPDATE '
+      + 'on a pooled connection cannot be rolled back or timed out',
+    );
   }
+  assertTxUsable();
+  await client.query("SET LOCAL lock_timeout = '5s'");
   try {
     const rows = (await sql`
       SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId} FOR UPDATE
     `) as Row[];
+    // Review L2. SET LOCAL lives to the end of the request transaction, so
+    // without this every later statement in the request inherits the 5s bound
+    // and an unrelated 55P03 surfaces as a raw 500 rather than a named error.
+    // Only on the success path: any error above has already aborted the
+    // transaction, and a reset there would raise 25P02 over the real cause.
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
     if (typeof err === 'object' && err !== null
@@ -67,6 +81,13 @@ export async function lockLoanForUpdate(
  * rather than silently breaking it.
  */
 export async function assertClosesInOrder(companyId: string, yyyymm: string): Promise<void> {
+  // Review M4. The read below and the loan_period_locks INSERT that satisfies
+  // it are ~60 lines and several journal posts apart, and the table's PK
+  // (company_id, yyyymm) only stops the SAME month twice. Two concurrent
+  // closes of 202603 and 202604 would both read an empty later-lock set and
+  // both proceed. Serialise every close of a company behind one transaction
+  // advisory lock, taken before the read, released at COMMIT.
+  await sql`SELECT pg_advisory_xact_lock(hashtext(${companyId}::text || ':loan_period_close'))`;
   const later = (await sql`
     SELECT yyyymm FROM loan_period_locks
     WHERE company_id = ${companyId} AND yyyymm > ${yyyymm}
