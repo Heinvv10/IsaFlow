@@ -23,8 +23,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
-  const count = await relinkTransferCounterparts(companyId, parsed.data.bankAccountId);
-  return apiResponse.success(res, { linked: count });
+  // `failed` is reported rather than thrown: the pass swallows its error to
+  // keep the import non-fatal, so linked: 0 alone cannot tell the UI apart
+  // from "there was nothing to link".
+  const { linked, failed } = await relinkTransferCounterparts(companyId, parsed.data.bankAccountId);
+  return apiResponse.success(res, { linked, failed });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
