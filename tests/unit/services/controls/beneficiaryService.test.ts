@@ -11,7 +11,7 @@ vi.mock('@/modules/accounting/services/controls/changeEventService', () => ({ re
 vi.mock('@/modules/accounting/services/controls/beneficiaryQueries', () => ({
   lockBank: vi.fn(), latestVersion: vi.fn(), pendingProposal: vi.fn(), validateEvidence: vi.fn(),
   insertProposal: vi.fn(), loadProposal: vi.fn(), lockAuthorities: vi.fn(), activateBank: vi.fn(),
-  insertVersion: vi.fn(), markVerified: vi.fn(), assertPoliciesSupported: vi.fn(),
+  insertVersion: vi.fn(), markVerified: vi.fn(), markTerminal: vi.fn(), assertPoliciesSupported: vi.fn(),
 }));
 const companyId = '11111111-1111-4111-8111-111111111111';
 const ref = { entityType: 'supplier' as const, entityId: '22222222-2222-4222-8222-222222222222' };
@@ -105,4 +105,16 @@ it('concurrent pending proposal and configured unsupported policy cannot silentl
   vi.mocked(q.assertPoliciesSupported).mockRejectedValue(new Error('configured policy'));
   await expect(run('u2', ctx => service.verifyBeneficiaryChange(ctx, proposalId, evidence))).rejects.toThrow('configured policy');
   expect(q.activateBank).not.toHaveBeenCalled();
+});
+
+it('rejection releases the proposal hold without activating banking', async () => {
+  const result = await run('u2', ctx => service.rejectBeneficiaryChange(ctx, proposalId, 'Independent review found incorrect details'));
+  expect(result).toEqual({ proposalId, status: 'rejected' });
+  expect(q.markTerminal).toHaveBeenCalledWith(expect.anything(), proposalId, 'rejected');
+  expect(q.activateBank).not.toHaveBeenCalled();
+});
+it('only the cookie requester can cancel, and cannot self-reject', async () => {
+  await expect(run('u2', ctx => service.cancelBeneficiaryChange(ctx, proposalId, 'withdraw'))).rejects.toThrow('REQUESTER_REQUIRED');
+  await expect(run('u1', ctx => service.rejectBeneficiaryChange(ctx, proposalId, 'reject'))).rejects.toThrow('INDEPENDENT_PERSON_REQUIRED');
+  expect(await run('u1', ctx => service.cancelBeneficiaryChange(ctx, proposalId, 'withdraw'))).toEqual({ proposalId, status: 'cancelled' });
 });

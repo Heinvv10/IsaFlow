@@ -80,8 +80,10 @@ interface Authority extends UserAccountRow {
   person_id: string; role: string; company_status: string | null; company_suspended_at: Date | string | null;
   permissions: Record<string, unknown>[]; grant_valid: boolean; current_scopes: string[] | null;
 }
-export async function lockAuthorities(ctx: ControlTx, proposalId: string): Promise<void> {
+export async function lockAuthorities(ctx: ControlTx, proposalId: string, requireRequester = true): Promise<void> {
   const rows = await ctx.sql`SELECT * FROM public.control_beneficiary_authorities(${ctx.principal.companyId}::uuid,${proposalId}::uuid)` as Authority[];
+  if (!rows.some(r => r.person_id === ctx.principal.personId)) throw new BeneficiaryError('CURRENT_AUTHORITY_REQUIRED');
+  if (!requireRequester) return; // Rejection may terminate an intent whose requester lost authority.
   const proposal = await loadProposal(ctx, proposalId);
   const requester = rows.find(r => r.person_id === proposal.requester_person_id);
   if (!requester || !rows.some(r => r.person_id === ctx.principal.personId) || !isActiveUserAccount(requester)
@@ -98,6 +100,7 @@ export async function lockAuthorities(ctx: ControlTx, proposalId: string): Promi
 }
 /** Configured beneficiary policy evaluation is supplied by the approval facade; never silently skip one. */
 export async function assertPoliciesSupported(ctx: ControlTx): Promise<void> {
+  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
   const rows = await ctx.sql`SELECT id FROM approval_rules WHERE company_id=${ctx.principal.companyId}::uuid
     AND is_active=true AND (document_type LIKE 'beneficiary%' OR document_type IN ('supplier_bank','employee_bank','all','*')) FOR SHARE`;
   if (rows.length) throw new BeneficiaryError('CONFIGURED_POLICY_REQUIRES_APPROVAL_FACADE');
@@ -133,5 +136,11 @@ export async function insertVersion(ctx: ControlTx, p: Proposal, version: number
 export async function markVerified(ctx: ControlTx, proposalId: string): Promise<void> {
   const rows = await ctx.sql`UPDATE control_beneficiary_proposals SET status='verified',verified_by_person_id=${ctx.principal.personId},
     verified_at=clock_timestamp() WHERE company_id=${ctx.principal.companyId}::uuid AND id=${proposalId}::uuid AND status='pending' RETURNING id`;
+  if (rows.length !== 1) throw new BeneficiaryError('STALE_PROPOSAL');
+}
+
+export async function markTerminal(ctx: ControlTx, proposalId: string, status: 'rejected' | 'cancelled'): Promise<void> {
+  const rows = await ctx.sql`UPDATE control_beneficiary_proposals SET status=${status}
+    WHERE company_id=${ctx.principal.companyId}::uuid AND id=${proposalId}::uuid AND status='pending' RETURNING id`;
   if (rows.length !== 1) throw new BeneficiaryError('STALE_PROPOSAL');
 }
