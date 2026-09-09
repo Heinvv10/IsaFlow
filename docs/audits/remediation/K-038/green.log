@@ -28,3 +28,27 @@ Test Files  790 passed | 36 skipped (826)
 
 === bunx tsc --noEmit ===  exit 0
 === bunx eslint src/modules/admin/services/sageMigration{CommitService,Types}.ts ===  exit 0
+
+════════ Review round 2 (findings from scratchpad/review-k038.md) ════════
+
+=== bun run test:integration -- tests/integration/k-038 ===
+Test Files  3 passed (3)
+     Tests  13 passed (13)
+
+=== Mutation check A (original K-038 change reverted to origin/master) ===
+Tests  6 failed | 3 passed (9)   [the 3 green are the invariance cases]
+
+=== Mutation check B (the three new guards disabled: non-finite, negative,
+    AP clamp re-anchored to inv.totalAmount) ===
+Tests  3 failed | 10 passed (13)
+  × a non-numeric source paid amount is refused, never written as NaN
+  × a negative source paid amount is refused, not stored as a balance above the total
+  × a fully settled bill at a NON-ROUND blended VAT rate still lands paid, never a negative balance
+
+=== Full unit suite, DATABASE_URL unset ===
+Test Files  790 passed | 36 skipped (826)
+     Tests  9391 passed | 234 skipped (9625)
+
+=== bunx tsc --noEmit ===  exit 0
+=== bunx eslint (both service files, types, sage-commit route) ===  exit 0
+=== bun run agent-docs:check ===  OK: 74 mirrors match
