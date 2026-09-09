@@ -4,7 +4,7 @@ import { log } from '@/lib/logger';
 import { listPayrollEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
-import { calculateSDL } from './sdlEngine';
+import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
 import { isPayrollRunLocked, PayrollRunLockedError } from './payrollRunLock';
@@ -137,8 +137,6 @@ export async function calculatePayrollRun(
   let totalPaye = 0;
   let totalUifEmployee = 0;
   let totalUifEmployer = 0;
-  let totalSdl = 0;
-  let totalSdlLeviable = 0;
   let totalEti = 0;
   let totalNet = 0;
 
@@ -196,6 +194,7 @@ export async function calculatePayrollRun(
       components: componentsWithLoans,
       period,
       taxYear,
+      annualPayrollEstimate: 'defer',
     });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
@@ -227,24 +226,22 @@ export async function calculatePayrollRun(
     totalPaye += line.paye.monthlyPaye;
     totalUifEmployee += line.uif.employeeContribution;
     totalUifEmployer += line.uif.employerContribution;
-    totalSdlLeviable += line.sdlLeviable;
     totalEti += line.eti.monthlyEti;
     totalNet += line.netPay;
   }
 
   const r = (n: number) => Math.round(n * 100) / 100;
 
-  // SDL leviability belongs to the employer, not to one employee: the levy is
-  // not payable while total remuneration over the next 12 months stays under
-  // R500 000. This run's own leviable remuneration annualised is the only
-  // estimate the run has; the previous headcount x R25 000 x 12 decided the
+  // SDL leviability belongs to the employer, not to one employee, and is
+  // decided on twelve months of remuneration — see sdlLeviabilityService for
+  // the basis. The levy itself is still charged per line on that line's own
+  // leviable amount. The previous headcount x R25 000 x 12 decided the
   // threshold by employee count alone, exempting any single employee however
   // much they earned and levying any two however little.
-  const annualPayrollEstimate = r(totalSdlLeviable) * 12;
-  for (const ins of lineInserts) {
-    ins.sdl = calculateSDL(ins.sdlLeviable, annualPayrollEstimate, taxYear);
-    totalSdl += ins.sdl;
-  }
+  const annualRemuneration = await estimateAnnualRemuneration(
+    companyId, period, r(totalGross),
+  );
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 
   // All DB mutations in one transaction so a partial failure cannot corrupt
   // state — but via `withTransaction`, NEVER raw BEGIN/COMMIT.

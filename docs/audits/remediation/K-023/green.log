@@ -1,4 +1,4 @@
-# K-023 GREEN
+# K-023 GREEN (second round — review findings addressed)
 
 ## Integration (real Postgres fixture)
 $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k023-sdl-invented-salary.int.test.ts" "tests/integration/k023-sdl-threshold-boundary.int.test.ts"
@@ -7,25 +7,42 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
 
 
  Test Files  2 passed (2)
-      Tests  6 passed (6)
-   Start at  09:04:56
-   Duration  2.25s (transform 871ms, setup 0ms, import 1.59s, tests 1.35s, environment 0ms)
+      Tests  8 passed (8)
+   Start at  09:29:04
+   Duration  2.57s (transform 781ms, setup 0ms, import 1.33s, tests 1.61s, environment 0ms)
 
 
-## Full unit suite (DATABASE_URL unset)
- Test Files  787 passed | 36 skipped (823)
-      Tests  9335 passed | 234 skipped (9569)
+## Payroll unit suite (DATABASE_URL unset)
+ Test Files  32 passed | 1 skipped (33)
+      Tests  334 passed | 2 skipped (336)
 
-## Mutation check
-Restored `const annualPayrollEstimate = employees.length * 25_000 * 12;` in
-payrollRunService.ts and re-ran both K-023 integration files:
- Test Files  2 failed (2)
-      Tests  3 failed | 3 passed (6)
-Failing: the two validator RED cases plus "levies the employer one cent a month
-above that boundary". The three that still passed are the exempt single-employee
-cases, which the headcount estimate happens to get right. Production change
-restored afterwards; both files back to 6 passed.
+## Full unit suite (DATABASE_URL unset) — NOT clean, and not clean on the base either
+ Test Files  5 failed | 782 passed | 36 skipped (823)
+      Tests  10 failed | 9325 passed | 234 skipped (9569)
+All 10 are "Test timed out in 10000ms" in tests/unit/services/bankAllocationService.test.ts,
+tests/unit/services/bank/bankAllocationDateShift.test.ts,
+tests/unit/services/bank/bankAllocationUnwind.test.ts,
+tests/unit/services/cashFlowReport.test.ts and
+tests/unit/components/trackerExclusion.test.ts. Reproduced identically twice.
+
+Control: the same command on this branch's unmodified base commit f57f71a7, in a detached
+worktree, gave
+ Test Files  2 failed | 785 passed | 36 skipped (823)
+      Tests  2 failed | 9333 passed | 234 skipped (9569)
+— the same timeout signature in two of the same files. Running the five affected files alone
+on this branch: 27 passed / 27. So the failures track machine load from parallel sessions on
+this box, not this change, and none of them is in payroll.
+
+## Mutation checks — three wrong bases, three different sets of tests catch them
+A. `employees.length * 25_000 * 12` (the original defect): 7 failed | 1 passed of 8.
+B. `r(totalGross) * 12` (this run annualised, no trailing window): 2 failed | 6 passed —
+   exactly "does not let a 13th-cheque month create a levy" and "does not let a short month
+   cancel the levy".
+C. gate on the SDL-leviable subset instead of remuneration: 1 failed | 7 passed — exactly
+   "gates on total remuneration but charges only the SDL-applicable part".
+Production code restored after each; both files back to 8 passed.
 
 ## Static checks
 bunx tsc --noEmit -> exit 0
-bunx eslint payrollRunService.ts payrollCalculator.ts payrollTypes.ts -> exit 0
+bunx eslint payrollRunService.ts payrollCalculator.ts payrollTypes.ts sdlLeviabilityService.ts -> exit 0
+bun run agent-docs:check -> OK: 74 agent document mirror(s) match canonical sources.
