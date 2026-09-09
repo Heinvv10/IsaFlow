@@ -18,7 +18,7 @@ import {
 import { parseOfxStatement } from '../../utils/bankOfxParser';
 import { parseQifStatement } from '../../utils/bankQifParser';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
-import { relinkTransferCounterparts } from './bankTransferLinkService';
+import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
 
 export interface BulkImportContext {
   bulkImportId: string;
@@ -216,65 +216,22 @@ export async function importParsedTransactions(
 
     // Auto-link newly imported transactions that are the opposite leg of an
     // existing transfer allocation on another bank account (same company).
-    try {
-      await sql`
-        WITH new_txs AS (
-          SELECT id, amount, transaction_date, bank_account_id
-          FROM bank_transactions
-          WHERE company_id = ${companyId}::UUID
-            AND import_batch_id = ${batchId}::UUID
-            AND status = 'imported'
-        ),
-        matching AS (
-          SELECT DISTINCT ON (n.id)
-            n.id                            AS new_tx_id,
-            et.id                           AS existing_tx_id,
-            et.transfer_journal_entry_id    AS je_id,
-            et.bank_account_id              AS counterparty_bank_id,
-            jl.id                           AS je_line_id,
-            et.allocated_entity_name        AS entity_name
-          FROM new_txs n
-          JOIN bank_transactions et
-            ON  et.company_id = ${companyId}::UUID
-            AND et.bank_account_id != n.bank_account_id
-            AND et.status = 'allocated'
-            AND et.allocation_type = 'transfer'
-            AND et.transfer_journal_entry_id IS NOT NULL
-            AND ABS(et.amount + n.amount) < 0.01
-            AND et.transaction_date BETWEEN (n.transaction_date::DATE - INTERVAL '2 days')
-                                        AND (n.transaction_date::DATE + INTERVAL '2 days')
-          LEFT JOIN gl_journal_lines jl
-            ON  jl.journal_entry_id = et.transfer_journal_entry_id
-            AND jl.gl_account_id    = n.bank_account_id
-            AND jl.company_id       = ${companyId}::UUID
-          ORDER BY n.id, ABS(et.transaction_date::DATE - n.transaction_date::DATE) ASC
-        )
-        UPDATE bank_transactions bt
-        SET status                    = 'allocated',
-            allocation_type           = 'transfer',
-            transfer_journal_entry_id = m.je_id,
-            matched_journal_line_id   = m.je_line_id,
-            counterparty_account_id   = m.counterparty_bank_id,
-            allocated_entity_name     = m.entity_name,
-            -- Clearing these is redundant today (the WHERE is status='imported',
-            -- which a rule-posted row can never be) but keeps every writer of
-            -- allocated_entity_name symmetrical: the next reuse of this UPDATE on
-            -- an already-allocated row would otherwise leave a stale rule label
-            -- beside a freshly rewritten account.
-            allocation_rule_id = NULL, allocation_rule_name = NULL,
-            updated_at                = NOW()
-        FROM matching m
-        WHERE bt.id         = m.new_tx_id
-          AND bt.company_id = ${companyId}::UUID
-          AND bt.status     = 'imported'
-      `;
-    } catch (linkErr) {
-      log.warn('Auto-link transfer counterparts failed — non-fatal', { batchId, error: linkErr }, 'accounting');
-    }
+    // The pass lives in bankTransferLinkService with the broader one below:
+    // both must honour one-bank-line-per-GL-movement and both must run inside
+    // a savepoint, and keeping two copies of that SQL here is what let this
+    // one keep the defect the other had fixed.
+    const batchLink = await autoLinkImportedBatchTransfers(companyId, batchId);
 
     // Broader re-link pass: catches account-type allocations to bank GL accounts
     // (e.g. user allocated the other leg as 'Account' rather than 'Transfer')
-    await relinkTransferCounterparts(companyId, bankAccountId);
+    const accountLink = await relinkTransferCounterparts(companyId, bankAccountId);
+
+    // Both passes swallow their error to keep the import non-fatal. Reporting a
+    // clean import when the transfer linking failed outright is what left the
+    // failure visible only in a log line, so it joins the import's own errors.
+    const linkErrors = batchLink.failed || accountLink.failed
+      ? [{ row: 0, error: 'Transfer counterpart linking failed — transfers may still show as unallocated. Re-link from the bank transactions page.' }]
+      : [];
 
     // Auto-provisional posting for outflows (best-effort)
     try {
@@ -296,7 +253,7 @@ export async function importParsedTransactions(
     return {
       batchId,
       transactionCount: parseResult.transactions.length,
-      errors: parseResult.errors,
+      errors: [...parseResult.errors, ...linkErrors],
     };
   } catch (err) {
     log.error('Failed to import parsed bank transactions', { error: err }, 'accounting');

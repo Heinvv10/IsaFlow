@@ -95,6 +95,27 @@ function joinSql(call: unknown[]): string {
 beforeEach(() => vi.clearAllMocks());
 
 describe('reverseJournalEntry — semantics', () => {
+  it.each([
+    ['66666666-6666-6666-6666-666666666666', '77777777-7777-7777-7777-777777777777'],
+    [undefined, undefined],
+  ])('preserves each line business unit when reversing (%s, %s)', async (firstBu, secondBu) => {
+    const original = originalEntry();
+    const lines = original.lines.map((line, i) => ({ ...line, buId: i === 0 ? firstBu : secondBu }));
+    mockGetById.mockResolvedValueOnce({ ...original, lines }).mockResolvedValueOnce(contraEntryDraft());
+    mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID });
+    mockSql.mockResolvedValueOnce([{ status: 'open' }]).mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'posted' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
+
+    const input = mockCreate.mock.calls[0]![1] as { lines: typeof lines };
+    expect(input.lines.map(line => line.buId)).toEqual([firstBu, secondBu]);
+    for (let i = 0; i < lines.length; i++) {
+      expect(input.lines[i]!.debit).toBe(lines[i]!.credit);
+      expect(input.lines[i]!.credit).toBe(lines[i]!.debit);
+    }
+  });
+
   it('marks the original with reversed_at metadata and does NOT flip its status', async () => {
     mockGetById
       .mockResolvedValueOnce(originalEntry()) // reverseJournalEntry: load original

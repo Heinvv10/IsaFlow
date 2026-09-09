@@ -1,0 +1,27 @@
+### K-037 disconfirming probe: production schema
+                           Table "public.admin_audit_log"
+    Column     |           Type           | Collation | Nullable |      Default      
+---------------+--------------------------+-----------+----------+-------------------
+ id            | uuid                     |           | not null | gen_random_uuid()
+ admin_user_id | character varying(255)   |           | not null | 
+ action        | character varying(100)   |           | not null | 
+ target_type   | character varying(50)    |           | not null | 
+ target_id     | character varying(255)   |           |          | 
+ details       | jsonb                    |           |          | '{}'::jsonb
+ ip_address    | character varying(45)    |           |          | 
+ created_at    | timestamp with time zone |           |          | now()
+Indexes:
+    "admin_audit_log_pkey" PRIMARY KEY, btree (id)
+    "idx_admin_audit_admin" btree (admin_user_id)
+    "idx_admin_audit_created" btree (created_at DESC)
+    "idx_admin_audit_target" btree (target_type, target_id)
+
+### route write against production schema (no error, tx alive)
+BEGIN
+INSERT 0 1
+ tx_still_alive 
+----------------
+              1
+(1 row)
+
+ROLLBACK
