@@ -87,7 +87,14 @@ function dbPointToEngine(r: Row): RatePoint {
 }
 
 function buildInputsHash(loan: Row, events: Row[], points: Row[]): string {
-  const payload = JSON.stringify({ loan: loan.id, events, points });
+  // Hash every value the engine actually consumes, so editing principal, rate,
+  // term or residual invalidates the cached run instead of returning it.
+  const payload = JSON.stringify({
+    engine: ENGINE_VERSION,
+    loan: loanRowToInputs(loan),
+    events: events.map(dbEventToEngine),
+    points: points.map(dbPointToEngine),
+  });
   return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16);
 }
 
