@@ -13,6 +13,8 @@ import type { OAuthScope } from './oauth';
 // Typed against the OAuth vocabulary: adding a scope to OAUTH_SCOPES without a
 // label here fails tsc.
 export const SCOPE_LABELS: Record<OAuthScope, string> = {
+  'read:assets': 'Read fixed asset records and depreciation control requirements.',
+  'write:assets': 'Prepare and execute fixed asset changes under accounting controls. Depreciation posting also requires write:post.',
   'read:approvals': 'Read approval requirements and request status.',
   'write:approvals': 'Request independent approval of a specific operation. Decisions require a signed-in human.',
   'write:beneficiaries': 'Propose banking changes for independent human verification before use.',
@@ -55,4 +57,3 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   'write:post': 'Post journals, finalize documents, allocate bank transactions, and reverse posted entries in your ledger',
   'offline_access': 'Stay connected (refresh access in the background)',
 };
-
