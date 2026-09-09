@@ -41,6 +41,19 @@ const newInviteId = crypto.randomUUID();
 /** L4: a fourth company, so the attempt-cap test gets its own invitation row. */
 const cappedCompany = crypto.randomUUID();
 const cappedToken = `k041c${'0'.repeat(27)}${existingUser.replace(/-/g, '')}`;
+/**
+ * Round-2 L5: an account provisioned before the 10-character floor existed.
+ * Its owner must be able to accept an invitation by proving ownership of the
+ * password it actually has, not the one our current rule would demand.
+ */
+const shortPwCompany = crypto.randomUUID();
+const shortPwUser = crypto.randomUUID();
+const shortPwEmail = `k041s-${shortPwUser}@test.local`;
+const shortPwToken = `k041s${'0'.repeat(27)}${shortPwUser.replace(/-/g, '')}`;
+const SHORT_PASSWORD = 'short1';
+/** Round-2 L3: a brand-new invitee whose GoTrue call blows up mid-accept. */
+const outageUser = crypto.randomUUID();
+const outageToken = `k041o${'0'.repeat(27)}${outageUser.replace(/-/g, '')}`;
 
 /** company_invitations.token holds sha256 of the token carried by the link. */
 const stored = (raw: string) => createHash('sha256').update(raw).digest('hex');
@@ -67,12 +80,13 @@ beforeAll(async () => {
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'disposable-service-role-key');
   vi.stubEnv('SUPABASE_ANON_KEY', 'disposable-anon-key');
 
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4),($5,$6),($7,$8)',
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4),($5,$6),($7,$8),($9,$10)',
     [invitingCompany, 'K041 inviting company', existingCompany, 'K041 existing company',
-      newInviteeCompany, 'K041 new-invitee company', cappedCompany, 'K041 attempt-cap company']);
+      newInviteeCompany, 'K041 new-invitee company', cappedCompany, 'K041 attempt-cap company',
+      shortPwCompany, 'K041 short-password company']);
   // The victim: an account that already exists and already has a password.
-  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'viewer',true),($3,$4,'admin',true)",
-    [existingUser, email, inviter, `k041-inviter-${inviter}@test.local`]);
+  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'viewer',true),($3,$4,'admin',true),($5,$6,'viewer',true)",
+    [existingUser, email, inviter, `k041-inviter-${inviter}@test.local`, shortPwUser, shortPwEmail]);
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner'),($3,$4,'owner')",
     [existingCompany, existingUser, invitingCompany, inviter]);
   await pool.query(
@@ -81,6 +95,10 @@ beforeAll(async () => {
            ($7,$8,$9,'manager',$4,$10,now()+interval '7 days',$11)`,
     [inviteId, invitingCompany, email, inviter, stored(token), existingUser,
       newInviteId, newInviteeCompany, newEmail, stored(newToken), newInvitee]);
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
+     VALUES($1,$2,'viewer',$3,$4, now()+interval '7 days', $5)`,
+    [shortPwCompany, shortPwEmail, inviter, stored(shortPwToken), shortPwUser]);
 
   vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -90,6 +108,7 @@ beforeAll(async () => {
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     if (url.pathname.startsWith('/admin/users/')) {
       const userId = url.pathname.split('/').pop()!;
+      if (userId === outageUser) throw new Error('disposable gotrue outage');
       passwordPatches.push({ userId, password: body.password });
       return new Response(JSON.stringify({ id: userId, email: userId === existingUser ? email : newEmail }),
         { status: 200, headers: { 'content-type': 'application/json' } });
@@ -98,8 +117,11 @@ beforeAll(async () => {
       // GoTrue answers 400 for a wrong password. The pre-existing account keeps
       // REAL_PASSWORD; the brand-new one accepts whatever accept.ts just set.
       const isExisting = body.email === email;
+      const isShortPw = body.email === shortPwEmail;
       const patched = passwordPatches.find((p) => p.userId === newInvitee)?.password;
-      const ok = isExisting ? body.password === REAL_PASSWORD : body.password === patched;
+      const ok = isExisting ? body.password === REAL_PASSWORD
+        : isShortPw ? body.password === SHORT_PASSWORD
+          : body.password === patched;
       if (!ok) {
         return new Response(JSON.stringify({ error: 'invalid_grant' }),
           { status: 400, headers: { 'content-type': 'application/json' } });
@@ -107,7 +129,7 @@ beforeAll(async () => {
       return new Response(JSON.stringify({
         access_token: 'disposable-access', refresh_token: 'disposable-refresh',
         expires_in: 3600, token_type: 'bearer',
-        user: { id: isExisting ? existingUser : newInvitee, email: body.email },
+        user: { id: isExisting ? existingUser : isShortPw ? shortPwUser : newInvitee, email: body.email },
       }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     return originalFetch(input, init);
@@ -118,12 +140,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
-  const companies = [invitingCompany, existingCompany, newInviteeCompany, cappedCompany];
+  const companies = [invitingCompany, existingCompany, newInviteeCompany, cappedCompany, shortPwCompany];
   try {
     await pool.query('DELETE FROM company_invitations WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[existingUser, inviter, newInvitee]]);
+    await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[existingUser, inviter, newInvitee, shortPwUser]]);
     await pool.query('DELETE FROM rate_limit_counters WHERE key LIKE $1', ['invite-accept:%']);
   } finally { await pool.end(); }
 });
@@ -229,4 +251,70 @@ it('L4: the accept endpoint caps password attempts per invitation token', async 
   const granted = await pool.query('SELECT 1 FROM company_users WHERE company_id=$1 AND user_id=$2',
     [cappedCompany, existingUser]);
   expect(granted.rowCount).toBe(0);
+});
+
+it('L5: an established account whose password predates the 10-character floor can still accept', async () => {
+  const result = response();
+
+  await accept(acceptRequest(shortPwToken, SHORT_PASSWORD, '127.0.0.90'), result.res);
+
+  // The floor is a rule about SETTING a password. Here it is proof of ownership
+  // of an account that already exists, so it must not be applied.
+  expect(result.state.statusCode).toBe(200);
+  expect(passwordPatches.some((p) => p.userId === shortPwUser)).toBe(false);
+  const granted = await pool.query('SELECT role FROM company_users WHERE company_id=$1 AND user_id=$2',
+    [shortPwCompany, shortPwUser]);
+  expect(granted.rows).toEqual([{ role: 'viewer' }]);
+});
+
+it('L5 adjacent: a brand-new invitee is still held to ten characters', async () => {
+  // A second brand-new invitee: the first one's invitation is already accepted.
+  const freshUser = crypto.randomUUID();
+  const freshToken = `k041f${'0'.repeat(27)}${freshUser.replace(/-/g, '')}`;
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
+     VALUES($1,$2,'viewer',$3,$4, now()+interval '7 days', $5)`,
+    [newInviteeCompany, `k041f-${freshUser}@test.local`, inviter, stored(freshToken), freshUser]);
+  const result = response();
+
+  await accept(acceptRequest(freshToken, 'short', '127.0.0.91'), result.res);
+
+  expect(result.state.statusCode).toBe(400);
+  expect(result.state.body).toMatchObject({ error: { code: 'WEAK_PASSWORD' } });
+  expect(passwordPatches.some((p) => p.userId === freshUser)).toBe(false);
+});
+
+it('L4: an unknown token is refused without minting a rate-limit row for it', async () => {
+  const bogus = `k041x${'0'.repeat(27)}${crypto.randomUUID().replace(/-/g, '')}`;
+  const result = response();
+
+  await accept(acceptRequest(bogus, 'attacker-chosen-password-2026', '127.0.0.92'), result.res);
+
+  expect(result.state.statusCode).toBe(410);
+  // The key is a digest of a caller-chosen URL segment, so charging the limiter
+  // before the lookup let an unauthenticated caller insert one row per invented
+  // token. Only a token that resolves to a real invitation may create one.
+  const counters = await pool.query('SELECT 1 FROM rate_limit_counters WHERE key=$1',
+    [`invite-accept:${stored(bogus)}`]);
+  expect(counters.rowCount).toBe(0);
+});
+
+it('L3: an attempt that dies inside GoTrue is still counted against the invitation', async () => {
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
+     VALUES($1,$2,'viewer',$3,$4, now()+interval '7 days', $5)`,
+    [shortPwCompany, `k041o-${outageUser}@test.local`, inviter, stored(outageToken), outageUser]);
+  const result = response();
+
+  await expect(accept(acceptRequest(outageToken, 'outage-password-2026', '127.0.0.93'), result.res))
+    .rejects.toThrow('disposable gotrue outage');
+
+  // checkRateLimit writes through `sql`, which routes onto the invite-token
+  // transaction when one is in flight — and withInviteToken ROLLBACKs that
+  // transaction on a throw, taking the attempt with it. Run on the module pool
+  // the count survives, which is what "counted exactly" has to mean for a
+  // limiter whose whole job is to bound guesses that fail.
+  const counters = await pool.query('SELECT count FROM rate_limit_counters WHERE key=$1',
+    [`invite-accept:${stored(outageToken)}`]);
+  expect(counters.rows).toEqual([{ count: 2 }]);
 });

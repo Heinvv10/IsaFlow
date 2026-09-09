@@ -26,8 +26,13 @@ export default function AcceptInvitePage() {
       // An invitation created by the other invitation system has no GoTrue user
       // to set a password on. It is accepted at /invite/<token> by a signed-in
       // user; /register?invite= and /login?invite= both land here, so forward.
+      // `?signup=1` carries this verdict along: it is the only place that
+      // learns the token belongs to that flow, and downstream it is what lets
+      // /register show its signup form instead of bouncing back here (which
+      // would 409 again — a closed loop with no way for a brand-new invitee to
+      // create the account /invite/<token> requires).
       if (body.error?.code === 'WRONG_INVITE_FLOW') {
-        void router.replace(`/invite/${encodeURIComponent(token)}`);
+        void router.replace(`/invite/${encodeURIComponent(token)}?signup=1`);
         return;
       }
       if (!body.success) { setError(body.error?.message ?? 'Invalid invitation'); setLoading(false); return; }
@@ -43,7 +48,8 @@ export default function AcceptInvitePage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 10) { setError('Password must be at least 10 characters'); return; }
+    if (!needsExistingPassword && password.length < 10) { setError('Password must be at least 10 characters'); return; }
+    if (password.length === 0) { setError('Password is required'); return; }
     setSubmitting(true); setError(null);
     try {
       const r = await fetch(`/api/invitations/${token}/accept`, {
@@ -93,7 +99,10 @@ export default function AcceptInvitePage() {
             <span className="text-sm">
               {needsExistingPassword ? 'Your existing IsaFlow password' : 'Password (at least 10 characters)'}
             </span>
-            <input type="password" className="w-full border rounded p-2" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} />
+            {/* No minLength once the server has told us this address already has
+                a login: that password was set elsewhere and may predate the
+                10-character floor, which is a rule about setting one. */}
+            <input type="password" className="w-full border rounded p-2" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={needsExistingPassword ? undefined : 10} />
           </label>
           {error && <div className="text-red-600 text-sm">{error}</div>}
           <button type="submit" disabled={submitting} className="w-full bg-indigo-600 text-white rounded p-2 disabled:opacity-50">
