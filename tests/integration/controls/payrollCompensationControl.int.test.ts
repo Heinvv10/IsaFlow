@@ -1,12 +1,13 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {Pool} from 'pg';
-import {randomUUID} from 'node:crypto';
+import {randomBytes,randomUUID} from 'node:crypto';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assignComponentToEmployee,endEmployeeComponent} from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
+process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:2});
 let fixture:ForensicFixture;
 const employee=randomUUID(),component=randomUUID(),assignment=randomUUID(),packageId=randomUUID(),batchId=randomUUID();
@@ -45,6 +46,12 @@ it('prepares immutable compensation without mutating assignments and binds subse
   const prepared=await actor(()=>preparePayrollCompensation(requireControlTx(),{version:1,source:{kind:'manual'},actions:[{kind:'assign',employeeId:employee,componentId:component,amount:'250.01',effectiveFrom:'2026-11-01'}]}));
   expect((await pool.query('SELECT count(*)::int count FROM payroll_employee_components WHERE employee_id=$1',[employee])).rows).toEqual(before.rows);
   expect((await actor(()=>loadPayrollCompensationIntent(requireControlTx(),prepared.intentId))).intent.amount).toBe('250.01000000');
+  const {requestOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+  const requested=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));
+  const stored=await pool.query('SELECT binding FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[fixture.companyA,requested.id]);
+  expect(stored.rows[0].binding.operation).toBe('payroll_compensation.change');
+  expect(stored.rows[0].binding.amount).toMatch(/^250\.01(?:0+)?$/);
+  expect(stored.rows[0].binding.policies).toEqual(expect.arrayContaining([expect.objectContaining({mandatory:true,approverRole:'admin'})]));
   await pool.query('UPDATE payroll_components SET is_active=false WHERE company_id=$1 AND id=$2',[fixture.companyA,component]);
   await expect(actor(()=>loadPayrollCompensationIntent(requireControlTx(),prepared.intentId))).rejects.toThrow(/source changed/i);
  }finally{
