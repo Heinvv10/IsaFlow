@@ -13,6 +13,8 @@
  *     than posted onto the company's own account.
  *  6. Under a request transaction the savepoint keeps the transaction usable
  *     after the foreign-key refusal, which is what the loop depends on.
+ *  7. Re-importing the same source after a partial rollback says WHY it will
+ *     not post, naming the released account rather than an import that failed.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -92,7 +94,7 @@ it('retains accounts blocked by a balance row or a bank account, and leaves the 
 it('does not re-tag or overwrite an account when a second source imports the same code', async () => {
   const result = await executeMigration(neighbour, user, 'quickbooks', [parsed('5100', 'Renamed by QuickBooks')], [], []);
   expect(result.errors).toEqual([
-    'Account "5100 Renamed by QuickBooks": code already used by an account not imported from quickbooks — left unchanged',
+    'Account "5100 Renamed by QuickBooks": code already used by an account the quickbooks import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)',
   ]);
   expect(result.accountsImported).toBe(0);
 
@@ -117,8 +119,8 @@ it('refuses the whole opening trial balance when the guard skipped one of its ac
   ], [], []);
 
   expect(result.errors).toEqual([
-    'Account "7000 Cash at bank": code already used by an account not imported from xero — left unchanged',
-    expect.stringContaining('no GL account was created for 7000 Cash at bank'),
+    'Account "7000 Cash at bank": code already used by an account the xero import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)',
+    expect.stringContaining('7000 Cash at bank already exists as an account the xero import does not own'),
   ]);
   expect(result.openingBalancesSet).toBe(0);
 
@@ -161,4 +163,32 @@ it('keeps the request transaction usable after the foreign-key refusal', async (
 
   const survivors = await pool.query('SELECT account_code,imported_from FROM gl_accounts WHERE company_id=$1 ORDER BY account_code', [txCo]);
   expect(survivors.rows).toEqual([{ account_code: '8000', imported_from: null }]);
+});
+
+it('names the released account when the same source is re-imported after a partial rollback', async () => {
+  // txCo has been partially rolled back above: 8000 survived and was untagged.
+  // The natural recovery workflow is to fix the source file and re-import, and
+  // it must say what is actually in the way — the operator still has 8000.
+  const result = await executeMigration(txCo, user, 'xero', [
+    { sourceCode: '8000', sourceName: 'Banked', sourceType: 'Asset', openingBalance: 100,
+      mappedType: 'asset', mappedNormalBalance: 'debit', mappedSubtype: 'current_asset' },
+    { sourceCode: '8100', sourceName: 'Sales', sourceType: 'Revenue', openingBalance: 100,
+      mappedType: 'revenue', mappedNormalBalance: 'credit', mappedSubtype: 'operating_revenue' },
+  ], [], []);
+
+  expect(result.errors).toEqual([
+    expect.stringContaining('code already used by an account the xero import does not own — it was created here, or a partial rollback released it'),
+    'Opening balances: 8000 Banked already exists as an account the xero import does not own — opening balances not imported (renumber the source row, or delete the existing account, then re-run)',
+  ]);
+  expect(result.accountsImported).toBe(1);
+  expect(result.openingBalancesSet).toBe(0);
+
+  // 8100 is re-created and tagged; 8000 is still the company's own, untouched.
+  const after = await pool.query('SELECT account_code,account_name,imported_from FROM gl_accounts WHERE company_id=$1 ORDER BY account_code', [txCo]);
+  expect(after.rows).toEqual([
+    { account_code: '8000', account_name: 'Banked', imported_from: null },
+    { account_code: '8100', account_name: 'Sales', imported_from: 'xero' },
+  ]);
+  const lines = await pool.query('SELECT count(*)::int AS n FROM gl_journal_lines WHERE company_id=$1', [txCo]);
+  expect(lines.rows[0].n).toBe(0);
 });

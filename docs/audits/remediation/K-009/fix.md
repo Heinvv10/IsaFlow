@@ -46,7 +46,20 @@ reliably means "the company's own account".
 - **L11.** A set-based DELETE is attempted first inside one savepoint; the per-account loop runs only
   when that raises 23503, so the common case costs one round trip instead of three per account.
 
-**Files.** `src/modules/accounting/services/core/migrationRollbackService.ts` (new, 109 lines — the
+**After (round 4 — re-review findings M12, L13, L14).**
+- **M12.** The M4 untag and the M7 scoping combined to make the natural recovery workflow — roll back,
+  fix the source file, re-import — refuse the whole opening trial balance whenever anything had been
+  retained, and neither message named the cause. Both refusals now do. `postOpeningBalances`
+  distinguishes "no GL account was created" from "the account exists and this import does not own it",
+  and the upsert's own message says the code may have been released by a partial rollback and what to
+  do about it. Re-adoption is deliberately NOT automatic: an untagged account is indistinguishable
+  from one the company created itself, which is the defect this whole finding started as.
+- **L13.** The set-based fast path no longer assumes it removed every candidate. Rows the DELETE did
+  not return are treated as retained and untagged through the same tail as the loop's, so a
+  concurrent delete or an RLS-hidden row cannot leave an armed tag behind a "clean" report.
+- **L14.** The stale "all three changed source files" line is corrected below.
+
+**Files.** `src/modules/accounting/services/core/migrationRollbackService.ts` (new, 118 lines — the
 rollback moved out of `migrationExecuteService.ts` to stay under the 300-line cap, and is re-exported
 from it so no caller changed), `migrationExecuteService.ts` (229 lines),
 `migrationOpeningBalanceService.ts`, `services/core/.claude.md` + its `AGENTS.md` mirror,
@@ -54,20 +67,23 @@ from it so no caller changed), `migrationExecuteService.ts` (229 lines),
 (comment only), `tests/unit/services/core/migrationExecuteSubtype.test.ts` (mock now mirrors the real
 `transaction` contract, plus a case for the refused upsert).
 
-**Tests.** Real DB 6 passed / 6; mocked unit 7 passed / 7. Full unit suite with no `DATABASE_URL`:
-9319 passed, 2 failed — `bankAllocationUnwind` and `cashFlowReport`, both reproduced by an
-`origin/master` baseline run of the same command and both passing in isolation on either tree
-(`green.log`).
+**Tests.** Real DB 7 passed / 7; mocked unit 8 passed / 8. Full unit suite with no `DATABASE_URL`:
+9322 passed, 0 failed (`green.log`). Earlier rounds saw two order-dependent flakes in
+`bankAllocationUnwind` and `cashFlowReport` that also appear on an `origin/master` baseline run of the
+same command; neither appeared in the round-4 run.
 
-**Mutation checks** (`green.log`, round 3): dropping the M3 conflict guard fails 3; restoring the old
-journal-lines-only DELETE fails 2; dropping the M4 tag clear fails 3; dropping the M7 opening-balance
-scope fails 1; restored passes 6. Two mutants are equivalent by construction and recorded as such
+**Mutation checks** (`green.log`, round 4, against the 7-test real-DB suite): dropping the M3 conflict
+guard fails 4; restoring the journal-lines-only DELETE fails 3; dropping the M4 tag clear fails 4;
+dropping the M7 ownership check fails 2; collapsing the M12 message back into "no GL account was
+created" fails 2; restored passes 7. Two mutants are equivalent by construction and recorded as such
 rather than as passing mutations: re-adding `imported_from = EXCLUDED.imported_from` (unreachable once
 the M3 guard exists) and removing the L11 fast path (a performance path with identical results). The
-L8 zero-row branch is defensive and is NOT covered by a test — reproducing it needs a concurrent
-delete or an RLS session between the candidate SELECT and the DELETE.
+zero-row branches from L8 and L13 are defensive and are NOT covered by a test — reproducing either
+needs a concurrent delete or an RLS session between the candidate SELECT and the DELETE.
 
-**Migration.** None. `tsc --noEmit` and `eslint` clean on all three changed source files.
+**Migration.** None. `tsc --noEmit` clean, and `eslint` clean on every changed source file: the three
+migration services, the wizard component and the API route. `bun run agent-docs:check` reports 74
+mirrors matching.
 
 **Historical-data impact.** Companies that imported over an existing chart may carry mis-stamped
 accounts, and may also carry accounts silently renamed or re-typed by the old upsert. The upsert

@@ -107,7 +107,7 @@ export async function executeMigration(
         if (rows.length > 0) { accountsImported += 1; return; }
         const acct = validAccounts[i]!;
         errors.push(
-          `Account "${acct.sourceCode} ${acct.sourceName}": code already used by an account not imported from ${source} — left unchanged`,
+          `Account "${acct.sourceCode} ${acct.sourceName}": code already used by an account the ${source} import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)`,
         );
       });
     } catch (err) {

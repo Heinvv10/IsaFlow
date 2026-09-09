@@ -59,7 +59,7 @@ afterAll(async () => {
 it('leaves a pre-existing account untagged, unrenamed and undeleted', async () => {
   const result = await executeMigration(clean, user, 'xero', [parsed('4000', 'Sales'), parsed('4100', 'Other sales')], [], []);
   expect(result.errors).toEqual([
-    'Account "4000 Sales": code already used by an account not imported from xero — left unchanged',
+    'Account "4000 Sales": code already used by an account the xero import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)',
   ]);
   expect(result.accountsImported).toBe(1);
 
