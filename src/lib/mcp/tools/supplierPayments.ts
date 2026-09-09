@@ -126,6 +126,7 @@ export const listUnappliedPaymentsTool: McpTool = {
       }),
       totalUnapplied: result.totalUnapplied,
       totalUnattributed: result.totalUnattributed,
+      historyCoverage: result.historyCoverage,
     });
   },
 };

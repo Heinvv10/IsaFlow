@@ -198,6 +198,7 @@ export const listUnappliedReceiptsTool: McpTool = {
       }),
       totalUnapplied: result.totalUnapplied,
       totalUnattributed: result.totalUnattributed,
+      historyCoverage: result.historyCoverage,
       origins: {
         agent: origins.agent,
         system: origins.system,
