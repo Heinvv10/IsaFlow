@@ -1,3 +1,4 @@
+import {loadCashApplicationSources} from '@/modules/accounting/services/shared/cashApplicationSources';
 import {prepareCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
 import {planReceiptApplication,applyReceiptPlan} from '@/modules/accounting/services/ar/receiptApplicationService';
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
@@ -65,4 +66,28 @@ it('prepares an immutable application without changing posted cash or invoice ba
  expect((await pool.query('SELECT kind,payment_id,accounting_date::text,amount::text,currency FROM control_cash_application_intents WHERE company_id=$1 AND id=$2',[fixture.companyA,prepared.intentId])).rows[0]).toMatchObject({kind:'customer',payment_id:posted.paymentId,accounting_date:'2026-09-10',amount:'115.00000000',currency:'ZAR'});
  expect((await pool.query('SELECT amount_paid FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
  expect((await pool.query('SELECT a.id FROM customer_payment_allocations a JOIN customer_payments p ON p.id=a.payment_id WHERE p.company_id=$1 AND p.id=$2',[fixture.companyA,posted.paymentId])).rows).toHaveLength(0);
+});
+
+it('refuses fresh cash source adoption after balanced bank journal and payment amount tampering',async()=>{
+ const {invoice,posted}=await postedCash();
+ await pool.query('UPDATE customer_payments SET total_amount=230 WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId]);
+ await pool.query('UPDATE gl_journal_lines SET debit=debit*2,credit=credit*2 WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,posted.journalEntryId]);
+ await expect(actor(()=>loadCashApplicationSources(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}))).rejects.toThrow(/origin|bank|source|amount/i);
+});
+
+it('refuses fresh cash source adoption after reversing the original bank journal direction',async()=>{
+ const {invoice,posted}=await postedCash();
+ await pool.query('UPDATE gl_journal_lines SET debit=credit,credit=debit WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,posted.journalEntryId]);
+ await expect(actor(()=>loadCashApplicationSources(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}))).rejects.toThrow(/origin|bank|source|lines/i);
+});
+it('accepts unchanged receipt-backed original cash source and exact target facts',async()=>{
+ const {invoice,posted}=await postedCash();
+ const source=await actor(()=>loadCashApplicationSources(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ expect(source.bankOriginProof?.intentId).toBeTruthy();expect(source.payment.id).toBe(posted.paymentId);expect(source.invoices[0]!.invoice.id).toBe(invoice);
+});
+
+it('refuses a target invoice date that no longer agrees with its actual posted journal',async()=>{
+ const {invoice,posted}=await postedCash();
+ await pool.query("UPDATE customer_invoices SET invoice_date='2026-09-10' WHERE company_id=$1 AND id=$2",[fixture.companyA,invoice]);
+ await expect(actor(()=>loadCashApplicationSources(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}))).rejects.toThrow(/date|journal/i);
 });

@@ -13,7 +13,7 @@ export async function recordCashApplicationChild(ctx:ControlTx,permit:Controlled
  if(!['cash_application.apply','cash_application.reverse'].includes(String(permit.operation)))throw new Error('Cash application history parent required');
  const entityId=String(after.id),previous=await readControlEntityVersion(ctx,{entityType,entityId});
  await recordCommittedChange(ctx,{entityType,entityId,previousVersion:previous?.version??null,newVersion:(previous?.version??0)+1,action,
-  accountingDate:permit.accountingDate,before,after,bindingHash:null,protectedEvidenceRef:null});
+  accountingDate:permit.accountingDate,before,after,bindingHash:null,protectedEvidenceRef:null,operationId:permit.operationId});
 }
 export async function executeCashApplicationEffect(ctx:ControlTx,ref:OperationRef,permit:ControlledEffectPermit){
  assertControlledEffectPermit(ctx,permit,ref);
