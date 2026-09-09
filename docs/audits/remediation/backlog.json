@@ -1627,7 +1627,7 @@
         "K-043/red.log",
         "K-043/validation.md"
       ],
-      "fixCommit": "9d8a142e",
+      "fixCommit": "7650d0f4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -1890,7 +1890,7 @@
         "K-051/red.log",
         "K-051/validation.md"
       ],
-      "fixCommit": "466e3fd6",
+      "fixCommit": "2d880da9",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -1925,7 +1925,7 @@
         "K-052/red.log",
         "K-052/validation.md"
       ],
-      "fixCommit": "c7dcbd83",
+      "fixCommit": "2d880da9",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3712,7 +3712,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k108-k109-approval-rules.int.test.ts"
@@ -3721,7 +3721,7 @@
         "K-108/red.log",
         "K-108/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "7650d0f4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3729,7 +3729,8 @@
       "sourceReferences": [
         "inputs/gl-core.md:145"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k043-approval-self-and-role"
     },
     {
       "id": "K-109",
@@ -3744,7 +3745,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k108-k109-approval-rules.int.test.ts"
@@ -3753,7 +3754,7 @@
         "K-109/red.log",
         "K-109/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "7650d0f4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3761,7 +3762,8 @@
       "sourceReferences": [
         "inputs/gl-core.md:152"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k043-approval-self-and-role"
     },
     {
       "id": "K-110",
@@ -9603,6 +9605,60 @@
       "historicalDataImpact": "Read-side residual variance only.",
       "canonicalItem": null,
       "reportedSeverity": "medium"
+    },
+    {
+      "id": "R-032",
+      "claim": "",
+      "area": "gl/approvals",
+      "affectedPaths": [],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": "",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": "",
+      "title": "Approval segregation-of-duties guard is bypassed under platform-admin impersonation; audit row names the impersonated user",
+      "severity": "high",
+      "source": "Raised by blind review of K-043 (review-k043 L7); recorded 2026-09-09",
+      "processNotes": "Raised by blind review of K-043 (review-k043 L7); recorded 2026-09-09"
+    },
+    {
+      "id": "R-033",
+      "claim": "",
+      "area": "gl/approvals",
+      "affectedPaths": [],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": "",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": "",
+      "title": "Self-approval refusal deadlocks a sole-owner company with no explicit exemption",
+      "severity": "medium",
+      "source": "Raised by blind review of K-043 (review-k043 L3); needs an explicit exemption feature, recorded 2026-09-09",
+      "processNotes": "Raised by blind review of K-043 (review-k043 L3); needs an explicit exemption feature, recorded 2026-09-09"
     }
   ],
   "sourceInventory": [
