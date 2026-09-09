@@ -625,10 +625,22 @@ async function assertReversalDatePostable(
   const originalDate = fmtDate(rows[0]!.entry_date as string | Date);
   const reversalDate = await resolveReversalDate(companyId, originalDate, requested);
   const status = await getPeriodStatusForDate(companyId, reversalDate);
-  if (status === 'open') return;
-  throw new Error(status === 'no_period'
-    ? `Cannot reverse: no fiscal period covers ${reversalDate}, so the contra has nowhere to post. Create the fiscal year first.`
-    : `Cannot reverse: the fiscal period covering ${reversalDate} is closed. Re-open it first.`);
+  // `closed` ONLY — `no_period` is deliberately allowed through. createJournalEntry
+  // calls ensureFiscalPeriodForDate, which CREATES the fiscal year on demand for
+  // any year inside the auto-create window, and the only uncovered date that can
+  // reach here is today: resolveReversalDate has already proven an explicit date
+  // open, and its default arm returns either an open original date or today.
+  // Today is always inside that window, so refusing here would turn a reversal
+  // that used to auto-create its year into a 400 — the one outcome
+  // fiscalPeriodAutoCreate.ts was written to avoid. A guard fronting a write must
+  // refuse only what the write itself refuses.
+  if (status !== 'closed') return;
+  // getPeriodStatusForDate reports 'closed' for a LOCKED period too, so the
+  // message names both rather than telling someone to re-open a locked period.
+  throw new Error(
+    `Cannot reverse: the fiscal period covering ${reversalDate} is not open (closed or locked). `
+    + 'Re-open it before reversing.',
+  );
 }
 
 /**
@@ -666,6 +678,13 @@ export async function reverseReconciledTransaction(
   // 400 from the route COMMITs that. Rolling the pair back together is what
   // makes a refusal mean "nothing happened"; the bank-line reset joins them so
   // a failure there cannot strand a reset line either.
+  //
+  // This depends on there BEING a request transaction: withSavepoint degrades to
+  // a bare fn() outside one, and each bare `sql` then auto-commits on its own.
+  // lockBankTransactionForUpdate above throws outside a request transaction, so
+  // no caller can reach this line without one — that refusal is what keeps this
+  // guarantee true, and a future cron caller would hit it rather than silently
+  // getting the pre-fix behaviour back.
   const unwound = await withSavepoint('bank_reverse_reconciled', async () => {
     let result: BankAllocationUnwindResult = {
       invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,

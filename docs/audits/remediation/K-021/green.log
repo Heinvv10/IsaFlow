@@ -30,21 +30,42 @@ AssertionError: expected { bankTxStatus: 'allocated', …(5) } to deeply equal {
 === FULL UNIT SUITE, no DATABASE_URL / fixture env in the shell ===
 $ unset DATABASE_URL PLATFORM_ADMIN_DATABASE_URL ISAFLOW_DISPOSABLE_AUTH_TEST GOTRUE_URL JWT_SECRET ENCRYPTION_KEY DATABASE_SSL
 
-# via the repo's own script (bun run test:unit -> check:routes + vitest run)
- Test Files  784 passed | 36 skipped (820)
-      Tests  9320 passed | 234 skipped (9554)
+The full suite does not give a stable number on this box. Observed across runs:
+  bun run test:unit   ->  0 failed (9320 passed)
+  bun run test:unit   ->  1 failed (cashFlowReport.test.ts)
+  bunx vitest run     -> 10 failed across 5 files
+An earlier note in this file claimed the failures were specific to `bunx` and
+clean under the repo's own script. THAT WAS WRONG, and the blind review caught
+it (L7): the reviewer ran `bun run test:unit` three times at this tip and got
+7, 8 and 7 failures with a DIFFERENT file set each time, and saw a failure on a
+worktree that does not carry this change at all.
 
-# via bunx vitest run (vitest/4.1.2 linux-x64 node-v20.20.1)
- Test Files  5 failed | 779 passed | 36 skipped (820)
-      Tests  10 failed | 9310 passed | 234 skipped (9554)
+The failure mode is `Error: Test timed out in 10000ms`, never an assertion, and
+every file named passes when run on its own. This box runs several parallel
+Claude sessions, so the suite is competing for CPU. Read as load flakiness, not
+as a result attributable to this change. A trustworthy full-suite number needs
+a quiet machine.
 
-# SAME 10 failures on UNMODIFIED origin/master (d0f4f5dc) in a throwaway
-# worktree, byte-identical list, so they are pre-existing suite-isolation
-# flakiness under bunx and not caused by this change:
-#   tests/unit/components/trackerExclusion.test.ts (1)
-#   tests/unit/services/bankAllocationService.test.ts (4)
-#   tests/unit/services/bank/bankAllocationDateShift.test.ts (3)
-#   tests/unit/services/bank/bankAllocationUnwind.test.ts (1, the ordering test)
-#   tests/unit/services/cashFlowReport.test.ts (1)
-# All 5 files pass when run together on their own (27 passed), so the failures
-# are cross-file interference under full-suite concurrency, not assertions.
+Files named in at least one failing run, all green in isolation:
+  tests/unit/services/cashFlowReport.test.ts
+  tests/unit/components/trackerExclusion.test.ts
+  tests/unit/services/bankAllocationService.test.ts
+  tests/unit/services/bank/bankAllocationDateShift.test.ts
+  tests/unit/services/bank/bankAllocationUnwind.test.ts
+  tests/unit/services/paymentVoidService.test.ts
+
+=== TARGETED SUITES (deterministic, run repeatedly) ===
+bunx vitest run tests/unit/services/bank/ tests/unit/services/bankAllocationService.test.ts \
+                tests/unit/services/bankAllocationBatchStamp.test.ts -> 24 files, 221 passed / 1 skipped
+bunx vitest run tests/unit/services/paymentVoidService.test.ts tests/unit/mcp/voidPaymentTools.test.ts -> 25 passed
+bunx tsc --noEmit -> exit 0
+bun run lint -> 0 errors, 11 pre-existing warnings (none in changed files)
+
+=== MUTATION MATRIX, review round (7 integration tests) ===
+M-A  pre-flight refuses no_period too (the MEDIUM regression reinstated)
+     -> 1 failed: "still reverses when NO period covers today"
+M-B  pre-flight call removed
+     -> 1 failed: "refuses BEFORE the unwind when the fallback reversal date has no open period"
+M-C  savepoint removed
+     -> 1 failed: "rolls the unwind back when the contra fails for a reason the pre-flight cannot see"
+RESTORED -> 2 files, 7 tests passed
