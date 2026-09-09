@@ -1,0 +1,32 @@
+=== GREEN: integration, real PostgreSQL (fixture DB, production schema) ===
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k014-supplier-bill-double-gl-post.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-014
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  05:50:28
+   Duration  1.08s (transform 128ms, setup 0ms, import 194ms, tests 769ms, environment 0ms)
+
+
+=== GREEN: unit ===
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-014
+
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  05:50:30
+   Duration  237ms (transform 63ms, setup 0ms, import 81ms, tests 9ms, environment 0ms)
+
+
+=== MUTATION CHECK ===
+Reverted the lock in postSupplierInvoiceToGL (git checkout -- supplierInvoiceWorkflowService.ts) and re-ran the integration file:
+  Test Files  1 failed (1) / Tests  1 failed | 3 passed (4)
+  AssertionError: expected 2 to be 1  (two journals for one bill)
+Production change restored; suite green again above.
+
+=== UNIT SUITE, NO REGRESSION ===
+origin/master baseline (both changed files reverted): 204 failed | 9312 passed | 38 skipped (9554)
+with the fix:                                       204 failed | 9313 passed | 38 skipped (9555)
+Same 204 pre-existing failures; +1 new passing test.
