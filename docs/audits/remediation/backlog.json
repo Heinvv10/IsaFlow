@@ -1565,7 +1565,7 @@
         "K-041/red.log",
         "K-041/validation.md"
       ],
-      "fixCommit": "effc7d4d",
+      "fixCommit": "74a1e7c4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -1597,7 +1597,7 @@
         "K-042/red.log",
         "K-042/validation.md"
       ],
-      "fixCommit": "effc7d4d",
+      "fixCommit": "74a1e7c4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3593,7 +3593,7 @@
         "K-104/red.log",
         "K-104/validation.md"
       ],
-      "fixCommit": "effc7d4d",
+      "fixCommit": "74a1e7c4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3660,7 +3660,7 @@
         "K-106/red.log",
         "K-106/validation.md"
       ],
-      "fixCommit": "effc7d4d",
+      "fixCommit": "74a1e7c4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -9578,7 +9578,7 @@
       "evidencePaths": [
         "K-105/validation.md"
       ],
-      "fixCommit": "effc7d4d",
+      "fixCommit": "74a1e7c4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "No data impact; invitations could not be accepted through this path.",
