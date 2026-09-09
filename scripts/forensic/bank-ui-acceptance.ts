@@ -26,9 +26,9 @@ async function action(page:Page,name:string,actionName:string){
  const [response]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/api/accounting/bank-transactions-action')&&r.request().method()==='POST'&&r.request().postDataJSON()?.action===actionName,{timeout:30000}),page.getByRole('button',{name,exact:true}).click()]);
  const body=await response.json();assert.equal(response.status(),200,JSON.stringify(body));return body.data;
 }
-async function approvalCycle(maker:Page,reviewer:Page,bankId:string,intentId:string,reverse=false,changeSource?:()=>Promise<void>,split=false){
+async function approvalCycle(maker:Page,reviewer:Page,bankId:string,intentId:string,reverse=false,changeSource?:()=>Promise<void>,split=false,alreadyRequested=false){
  const saved=`${origin}/accounting/bank-transactions?bankControlBank=${bankId}&bankControlIntent=${intentId}&account_id=${f.bank}`;
- await maker.getByRole('button',{name:'Request approval',exact:true}).click();
+ if(!alreadyRequested)await maker.getByRole('button',{name:'Request approval',exact:true}).click();
  await expect(maker.getByText('Awaiting independent approval',{exact:true})).toBeVisible({timeout:30000});
  const approvalLink=await maker.getByRole('link',{name:'Open approval',exact:true}).getAttribute('href');assert.ok(approvalLink);
  await expect(maker).toHaveURL(new RegExp(`bankControlIntent=${intentId}`));
@@ -122,6 +122,34 @@ try{
  const supplierBalances=(await f.pool.query('SELECT id,amount_paid::text FROM supplier_invoices WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.fixture.companyA,[supplierOldest,supplierRecent]])).rows;
  assert.equal(Number(supplierBalances.find(row=>row.id===supplierOldest)?.amount_paid),100);assert.equal(Number(supplierBalances.find(row=>row.id===supplierRecent)?.amount_paid),50.23);
  proof.push({prerequisite:'two-person shared beneficiary verification with real local evidence; invoice approvals through cookie REST',...beneficiary});
+ async function prepareTransfer(label:string,amount:string,withOpposite:boolean){
+  const sourceId=await f.source(label,amount),oppositeId=withOpposite?await f.source(`${label} opposite`,String(-Number(amount)),'account',f.otherBank):null;
+  await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.bank}`,{waitUntil:'domcontentloaded'});
+  const row=maker.getByRole('row').filter({hasText:label});await expect(row).toBeVisible();await row.locator('select').first().selectOption('transfer');
+  await row.getByRole('button',{name:'Select Bank Account',exact:true}).click();await row.locator('[data-bank-dropdown]').getByRole('button',{name:/Browser transfer bank/}).click();
+  await row.getByTitle('Accept',{exact:true}).click();const prepared=await action(maker,'Prepare allocation','prepare_allocate');
+  await expect(maker.getByText('Post a new transfer journal',{exact:true})).toBeVisible();
+  const posted=await approvalCycle(maker,reviewer,sourceId,prepared.intentId);assert.ok(posted);assert.equal(posted.paymentId,null);
+  const journalLines=(await f.pool.query('SELECT gl_account_id FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[f.fixture.companyA,posted.journalEntryId])).rows;
+  assert.deepEqual(journalLines.map(row=>row.gl_account_id).sort(),[f.bank,f.otherBank].sort());
+  return{sourceId,oppositeId,prepared,posted};
+ }
+ const transfer=await prepareTransfer('Browser paired transfer','-236.47',true);assert.ok(transfer.oppositeId);
+ await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.otherBank}`,{waitUntil:'domcontentloaded'});
+ const oppositeRow=maker.getByRole('row').filter({hasText:'Browser paired transfer opposite'});await expect(oppositeRow).toBeVisible();await oppositeRow.getByTitle('Undo allocation',{exact:true}).click();
+ await maker.getByLabel('Reversal date').fill('2026-09-10');await maker.getByLabel('Reason for reversal').fill('Synthetic opposite feed inverse');
+ const transferInverse=await action(maker,'Prepare reversal','prepare_reverse');assert.equal(transferInverse.bankTransactionId,transfer.sourceId);
+ await approvalCycle(maker,reviewer,transfer.sourceId,transferInverse.intentId,true);
+ const restored=(await f.pool.query('SELECT status,matched_journal_line_id FROM bank_transactions WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.fixture.companyA,[transfer.sourceId,transfer.oppositeId]])).rows;
+ assert.equal(restored.length,2);assert.ok(restored.every(row=>row.status==='imported'&&row.matched_journal_line_id===null));
+ const lateTransfer=await prepareTransfer('Browser late transfer','-221.19',false),lateId=await f.source('Browser late opposite','221.19','account',f.otherBank);
+ const [relink]=await Promise.all([maker.waitForResponse(response=>new URL(response.url()).pathname==='/api/accounting/bank-relink-transfers'),maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.otherBank}`,{waitUntil:'domcontentloaded'})]);
+ assert.equal(relink.status(),200);const pending=(await relink.json()).data.pending.find((row:{bankTransactionId:string})=>row.bankTransactionId===lateId);assert.ok(pending);
+ await expect(maker.getByText(/transfer instruction.*awaiting approval or execution/)).toBeVisible();
+ await maker.locator(`a[href*="bankControlIntent=${pending.intentId}"]`).click();await expect(maker.getByText('Link to an existing transfer journal',{exact:true})).toBeVisible();
+ const latePosted=await approvalCycle(maker,reviewer,lateId,pending.intentId,false,undefined,false,true);assert.ok(latePosted);assert.equal(latePosted.journalEntryId,lateTransfer.posted.journalEntryId);
+ assert.equal((await f.pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[f.fixture.companyA,latePosted.journalEntryId])).rowCount,1);
+ proof.push({transferOppositeInverse:true,latePendingResume:true,lateLinkReusedJournal:true});
  const staleBankId=await f.source('Browser stale approved source','-115.23');
  await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.bank}`,{waitUntil:'domcontentloaded'});
  const staleRow=maker.getByRole('row').filter({hasText:'Browser stale approved source'});await expect(staleRow).toBeVisible();await staleRow.getByTitle('Accept',{exact:true}).click();
@@ -131,7 +159,7 @@ try{
  assert.equal(foreignRefusal.status(),400);
  await expect(foreign.getByRole('dialog').getByRole('alert')).toContainText('Bank control state unavailable',{timeout:30000});await expect(foreign.getByRole('button',{name:'Execute approved allocation',exact:true})).toHaveCount(0);
  await maker.screenshot({path:`${artifacts}/maker-final.png`,fullPage:true});await reviewer.screenshot({path:`${artifacts}/reviewer-final.png`,fullPage:true});
- await writeFile(`${artifacts}/evidence.json`,JSON.stringify({runId:f.fixture.runId,origin,companyId:f.fixture.companyA,proof,coverage:'actual account VAT request/independent approval/refresh/execute and reversal; both party refund directions; exact split; both party default invoice applications; stale source and foreign-tenant refusal',limitations:'transfer browser cases remain separate; supplier beneficiary prerequisite uses shared service, not browser verification UI'},null,2));
+ await writeFile(`${artifacts}/evidence.json`,JSON.stringify({runId:f.fixture.runId,origin,companyId:f.fixture.companyA,proof,coverage:'actual account VAT request/independent approval/refresh/execute and reversal; both party refund directions; exact split; both party default invoice applications; paired transfer/either-feed inverse and late-link pending resume; stale source and foreign-tenant refusal',limitations:'supplier beneficiary prerequisite uses shared service, not browser verification UI; no production or GoTrue login issuance verification'},null,2));
  process.stdout.write(`PASS actual local bank browser account VAT and reversal workflows; evidence ${artifacts}/evidence.json\n`);
 }catch(error){
  for(const [index,context]of browser.contexts().entries())for(const page of context.pages())await page.screenshot({path:`${artifacts}/failure-context-${index}.png`,fullPage:true}).catch(()=>process.stderr.write('Could not capture browser failure screenshot.\n'));
