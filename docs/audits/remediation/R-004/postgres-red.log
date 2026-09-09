@@ -1,0 +1,40 @@
+
+ FAIL  tests/integration/nl-query-function-capability-postgres.int.test.ts > blocks query_to_xml reading a non-allowlisted own-company relation
+AssertionError: expected '{"success":true,"data":{"intent":"gen…' not to contain 'r004-disposable-secret-7cd063f5-fe21-…'
+
+Expected: "r004-disposable-secret-7cd063f5-fe21-42fa-9063-99fd69967b62"
+Received: "{"success":true,"data":{"intent":"general","question":"Show requested financial records","sql":"SELECT query_to_xml('SELECT secret FROM webhook_endpoints WHERE company_id = ''b93720a1-e680-4ff9-9193-100658f8d139''', true, false, '') LIMIT 100","explanation":"Disposable provider output","rows":[{"query_to_xml":"<table xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n\n<row>\n  <secret>r004-disposable-secret-7cd063f5-fe21-42fa-9063-99fd69967b62</secret>\n</row>\n\n</table>\n"}],"columns":["query_to_xml"],"numericColumns":[],"summary":"Result: <table xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n\n<row>\n  <secret>r004-disposable-secret-7cd063f5-fe21-42fa-9063-99fd69967b62</secret>\n</row>\n\n</table>\n","rowCount":1},"meta":{"timestamp":"2026-09-09T03:36:20.394Z"}}"
+
+ ❯ tests/integration/nl-query-function-capability-postgres.int.test.ts:46:49
+     44|   const result = await ask(`SELECT query_to_xml('SELECT secret FROM we…
+     45|   expect(result.state.statusCode).toBe(200);
+     46|   expect(JSON.stringify(result.state.body)).not.toContain(SECRET);
+       |                                                 ^
+     47|   expect(result.state.body).toMatchObject({ data: { summary: 'Query re…
+     48| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/nl-query-function-capability-postgres.int.test.ts > blocks table_to_xml on a non-allowlisted relation
+AssertionError: expected '{"success":true,"data":{"intent":"gen…' not to contain 'r004-disposable-secret-7cd063f5-fe21-…'
+
+Expected: "r004-disposable-secret-7cd063f5-fe21-42fa-9063-99fd69967b62"
+Received: "{"success":true,"data":{"intent":"general","question":"Show requested financial records","sql":"SELECT table_to_xml('webhook_endpoints', true, false, '') LIMIT 100","explanation":"Disposable provider output","rows":[{"table_to_xml":"<webhook_endpoints xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n\n<row>\n  <id>c30e382b-7da3-47c6-92d5-bf5a5b6ff5bb</id>\n  <company_id>b93720a1-e680-4ff9-9193-100658f8d139</company_id>\n  <name>R004 fixture</name>\n  <url>http://127.0.0.1/unused</url>\n  <secret>r004-disposable-secret-7cd063f5-fe21-42fa-9063-99fd69967b62</secret>\n  <events></events>\n  <is_active>true</is_active>\n  <last_triggered_at xsi:nil=\"true\"/>\n  <failure_count>0</failure_count>\n  <created_at>2026-09-09T03:36:20.352452+00:00</created_at>\n</row>\n\n</webhook_endpoints>\n"}],"columns":["table_to_xml"],"numericColumns":[],"summary":"Result: <webhook_endpoints xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n\n<row>\n  <id>c30e382b-7da3-47c6-92d5-bf5a5b6ff5bb</id>\n  <company_id>b93720a1-e680-4ff9-9193-100658f8d139</company_id>\n  <name>R004 fixture</name>\n  <url>http://127.0.0.1/unused</url>\n  <secret>r004-disposable-secret-7cd063f5-fe21-42fa-9063-99fd69967b62</secret>\n  <events></events>\n  <is_active>true</is_active>\n  <last_triggered_at xsi:nil=\"true\"/>\n  <failure_count>0</failure_count>\n  <created_at>2026-09-09T03:36:20.352452+00:00</created_at>\n</row>\n\n</webhook_endpoints>\n","rowCount":1},"meta":{"timestamp":"2026-09-09T03:36:20.417Z"}}"
+
+ ❯ tests/integration/nl-query-function-capability-postgres.int.test.ts:51:49
+     49| it('blocks table_to_xml on a non-allowlisted relation', async () => {
+     50|   const result = await ask("SELECT table_to_xml('webhook_endpoints', t…
+     51|   expect(JSON.stringify(result.state.body)).not.toContain(SECRET);
+       |                                                 ^
+     52|   expect(result.state.body).toMatchObject({ data: { summary: 'Query re…
+     53| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  05:36:19
+   Duration  696ms (transform 159ms, setup 0ms, import 373ms, tests 190ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

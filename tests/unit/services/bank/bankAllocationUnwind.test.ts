@@ -217,6 +217,10 @@ describe('reverseReconciledTransaction — ordering', () => {
     }));
     vi.doMock('@/modules/accounting/services/gl/journalEntryService', () => ({
       reverseJournalEntry: vi.fn(async () => { order.push('reverse'); }),
+      resolveReversalDate: vi.fn(async () => '2026-08-04'),
+    }));
+    vi.doMock('@/modules/accounting/services/gl/periodStatusService', () => ({
+      getPeriodStatusForDate: vi.fn(async () => 'open'),
     }));
     vi.doMock('@/modules/accounting/services/bank/bankTxLock', () => ({
       lockBankTransactionForUpdate: vi.fn(async () => ({
@@ -224,8 +228,9 @@ describe('reverseReconciledTransaction — ordering', () => {
       })),
     }));
     vi.doMock('@/lib/neon', () => ({
-      sql: vi.fn(async () => [{ journal_entry_id: JOURNAL }]),
+      sql: vi.fn(async () => [{ journal_entry_id: JOURNAL, entry_date: '2026-08-04' }]),
       withTransaction: vi.fn(async (fn: (t: unknown) => Promise<void>) => fn(vi.fn())),
+      withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()),
     }));
 
     const { reverseReconciledTransaction } = await import(
