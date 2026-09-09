@@ -14,7 +14,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { generateVAT201 } from '../../src/modules/accounting/services/reports/vat201Service';
-import { getLedgerVAT201 } from '../../src/modules/accounting/services/reports/vat201LedgerFields';
+import { getLedgerVAT201, evaluateVat201Filability } from '../../src/modules/accounting/services/reports/vat201LedgerFields';
 import { getVatPeriodLines } from '../../src/modules/accounting/services/reports/vatBoxBasisQuery';
 import { deriveVatBoxes } from '../../src/modules/accounting/services/reports/vatBoxBasis';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -41,6 +41,19 @@ const invoice = crypto.randomUUID();
 const creditNote = crypto.randomUUID();
 const julyCreditNote = crypto.randomUUID();
 const bill = crypto.randomUUID();
+const exportJournal = crypto.randomUUID();
+const exemptJournal = crypto.randomUUID();
+const capitalJournal = crypto.randomUUID();
+const exportInvoice = crypto.randomUUID();
+const exemptInvoice = crypto.randomUUID();
+const mixedInvoice = crypto.randomUUID();
+const MIXED_START = '2026-08-01';
+const MIXED_END = '2026-08-31';
+const capitalAsset = crypto.randomUUID();
+const capitalBill = crypto.randomUUID();
+const servicesJournal = crypto.randomUUID();
+const servicesBill = crypto.randomUUID();
+const mixedInvoiceJournal = crypto.randomUUID();
 
 // The other tenant's mirror of the same period — none of it may leak.
 const otherRevenue = crypto.randomUUID();
@@ -85,6 +98,11 @@ beforeAll(async () => {
            ($5,$7,'K031-2100','Trade payables','liability','payable','credit'),
            ($6,$7,'K031-1140','VAT input','asset','vat_input','debit')`,
     [revenue, receivable, vatOutput, expense, payable, vatInput, company],
+  );
+  await pool.query(
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)
+     VALUES($1,$2,'K031-1500','Equipment','asset','fixed_asset','debit')`,
+    [capitalAsset, company],
   );
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)
@@ -142,6 +160,75 @@ beforeAll(async () => {
     [bill, company, supplier, billJournal, user],
   );
 
+  // A zero-rated EXPORT of R20 000. No VAT leg at all — invisible to the
+  // journal-derived basis, which is why field 2 comes from the documents.
+  await journal(exportJournal, company, 'K031-EXP', '2026-06-18');
+  await line(exportJournal, company, receivable, 20000, 0, null);
+  await line(exportJournal, company, revenue, 0, 20000, 'export');
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-EXP-1',$3,'2026-06-18',20000,0,0,20000,'sent',$4,$5)`,
+    [exportInvoice, company, customer, exportJournal, user],
+  );
+
+  // An EXEMPT supply of R5 000. Also no VAT leg.
+  await journal(exemptJournal, company, 'K031-EXM', '2026-06-19');
+  await line(exemptJournal, company, receivable, 5000, 0, null);
+  await line(exemptJournal, company, revenue, 0, 5000, 'exempt');
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-EXM-1',$3,'2026-06-19',5000,0,0,5000,'sent',$4,$5)`,
+    [exemptInvoice, company, customer, exemptJournal, user],
+  );
+
+  // Capital goods purchase R8 000 + R1 200 input VAT — field 6 and its base.
+  await journal(capitalJournal, company, 'K031-CAP', '2026-06-21');
+  await line(capitalJournal, company, capitalAsset, 8000, 0, 'capital_goods');
+  await line(capitalJournal, company, vatInput, 1200, 0, 'capital_goods');
+  await line(capitalJournal, company, payable, 0, 9200, null);
+  await pool.query(
+    `INSERT INTO supplier_invoices(id,company_id,invoice_number,supplier_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-CAP-1',$3,'2026-06-21',8000,1200,15,9200,'approved',$4,$5)`,
+    [capitalBill, company, supplier, capitalJournal, user],
+  );
+
+  // A SERVICES purchase R4 000 + R600, with the line item classification the
+  // journal vocabulary has no word for — the only basis for field 8.
+  await journal(servicesJournal, company, 'K031-SVC', '2026-06-22');
+  await line(servicesJournal, company, expense, 4000, 0, 'standard');
+  await line(servicesJournal, company, vatInput, 600, 0, 'standard');
+  await line(servicesJournal, company, payable, 0, 4600, null);
+  await pool.query(
+    `INSERT INTO supplier_invoices(id,company_id,invoice_number,supplier_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-SVC-1',$3,'2026-06-22',4000,600,15,4600,'approved',$4,$5)`,
+    [servicesBill, company, supplier, servicesJournal, user],
+  );
+  await pool.query(
+    `INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,
+       tax_rate,tax_amount,line_total,vat_classification)
+     VALUES($1,'Consulting',1,4000,15,600,4000,'services')`,
+    [servicesBill],
+  );
+
+  // AUGUST, its own period: ONE journal carrying R1 000 standard (R150 VAT) and
+  // R500 zero-rated. The ledger basis apportions base pro-rata by tax, so the
+  // untaxed R500 lands on field 1 and the 15% check must catch it.
+  await journal(mixedInvoiceJournal, company, 'K031-MIX', '2026-08-10');
+  await line(mixedInvoiceJournal, company, receivable, 1650, 0, null);
+  await line(mixedInvoiceJournal, company, revenue, 0, 1000, 'standard');
+  await line(mixedInvoiceJournal, company, revenue, 0, 500, 'zero_rated');
+  await line(mixedInvoiceJournal, company, vatOutput, 0, 150, 'standard');
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-MIX-1',$3,'2026-08-10',1500,150,15,1650,'sent',$4,$5)`,
+    [mixedInvoice, company, customer, mixedInvoiceJournal, user],
+  );
+
   // The other tenant's June sale — R50 000 + R7 500. Must never appear.
   await journal(otherJournal, otherCompany, 'K031-OTHER', '2026-06-10');
   await line(otherJournal, otherCompany, otherReceivable, 57500, 0, null);
@@ -152,6 +239,10 @@ beforeAll(async () => {
 afterAll(async () => {
   const ids = [company, otherCompany];
   try {
+    await pool.query(
+      'DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = ANY($1))',
+      [ids],
+    );
     await pool.query('DELETE FROM credit_notes WHERE company_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM supplier_invoices WHERE company_id = ANY($1)', [ids]);
@@ -177,14 +268,30 @@ describe('K-031 VAT201 source', () => {
     expect(filed.field1_standardRatedSupplies).toBeCloseTo(9000, 2);
   });
 
-  it('reports input VAT and the net from the ledger, and the input fields foot to the total', async () => {
+  it('reports zero-rated and exempt supplies, which have no VAT leg to derive them from', async () => {
     const filed = await getLedgerVAT201(company, PERIOD_START, PERIOD_END);
 
-    expect(filed.field10_totalInputVAT).toBeCloseTo(300, 2);
+    // Both journals post no VAT control leg, so getVat201Report never selects
+    // them. Reading fields 2 and 3 off its boxes filed R0 of export turnover.
+    expect(filed.field2_zeroRatedSupplies).toBeCloseTo(20000, 2);
+    expect(filed.field3_exemptSupplies).toBeCloseTo(5000, 2);
+    // ...and they must not also be counted as standard-rated.
+    expect(filed.field1_standardRatedSupplies).toBeCloseTo(9000, 2);
+  });
+
+  it('splits input VAT across capital goods, services and other, footing to field10', async () => {
+    const filed = await getLedgerVAT201(company, PERIOD_START, PERIOD_END);
+
+    expect(filed.field6_capitalGoods).toBeCloseTo(1200, 2);   // ledger, box 14
+    expect(filed.field8_services).toBeCloseTo(600, 2);        // documents, line classification
+    expect(filed.field9_imports).toBeCloseTo(0, 2);
+    expect(filed.field4_totalImports).toBeCloseTo(0, 2);
+    expect(filed.field7_otherGoods).toBeCloseTo(300, 2);      // the R2 000 consumables bill
+    expect(filed.field10_totalInputVAT).toBeCloseTo(2100, 2); // 300 + 1200 + 600
     expect(
       filed.field6_capitalGoods + filed.field7_otherGoods + filed.field8_services + filed.field9_imports,
     ).toBeCloseTo(filed.field10_totalInputVAT, 2);
-    expect(filed.field11_vatPayableOrRefundable).toBeCloseTo(1350 - 300, 2);
+    expect(filed.field11_vatPayableOrRefundable).toBeCloseTo(1350 - 2100, 2);
   });
 
   it('leaves the invoice-derived service disagreeing — that gap is the exceptions finding', async () => {
@@ -205,9 +312,42 @@ describe('K-031 VAT201 source', () => {
     const ours = await getLedgerVAT201(company, PERIOD_START, PERIOD_END);
     expect(ours.field1_standardRatedSupplies).toBeCloseTo(9000, 2);   // not 59 000
     expect(ours.field5_outputVAT).toBeCloseTo(1350, 2);               // not 8 850
+    expect(ours.field2_zeroRatedSupplies).toBeCloseTo(20000, 2);
 
     const theirs = await getLedgerVAT201(otherCompany, PERIOD_START, PERIOD_END);
     expect(theirs.field5_outputVAT).toBeCloseTo(7500, 2);
     expect(theirs.field10_totalInputVAT).toBeCloseTo(0, 2);
+    expect(theirs.field2_zeroRatedSupplies).toBeCloseTo(0, 2);
+    expect(theirs.field3_exemptSupplies).toBeCloseTo(0, 2);
+  });
+
+  it('a clean period is filable', async () => {
+    const filed = await getLedgerVAT201(company, PERIOD_START, PERIOD_END);
+    expect(filed.rateCheck.ties).toBe(true);
+    expect(evaluateVat201Filability(filed)).toEqual({ filable: true, reason: null });
+  });
+
+  it('refuses to file a mixed-rate journal that fails SARS\'s 15% check', async () => {
+    const mixed = await getLedgerVAT201(company, MIXED_START, MIXED_END);
+
+    // The pro-rata-by-tax base split puts the untaxed R500 on field 1, so the
+    // return declares R1 500 of standard supplies against R150 of tax.
+    expect(mixed.field1_standardRatedSupplies).toBeCloseTo(1500, 2);
+    expect(mixed.field5_outputVAT).toBeCloseTo(150, 2);
+    expect(mixed.rateCheck.ties).toBe(false);
+
+    const gate = evaluateVat201Filability(mixed);
+    expect(gate.filable).toBe(false);
+    expect(gate.reason).toContain('15%');
+  });
+
+  it('refuses to file a period whose supply values are negative', async () => {
+    // July holds only the R4 000 credit note, so field 1 is -4 000.
+    const july = await getLedgerVAT201(company, '2026-07-01', '2026-07-31');
+    expect(july.field1_standardRatedSupplies).toBeCloseTo(-4000, 2);
+
+    const gate = evaluateVat201Filability(july);
+    expect(gate.filable).toBe(false);
+    expect(gate.reason).toContain('negative');
   });
 });

@@ -29,3 +29,49 @@ Production line restored; suite back to 5 passed (5).
 === Gates ===
 $ bunx tsc --noEmit                                              clean
 $ bunx eslint <3 changed src/pages files>                        clean
+
+================================================================================
+SECOND COMMIT — review findings H1, H2, M1-M4, L1-L4
+================================================================================
+
+=== GREEN — real DB (fixture.env) ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+
+=== GREEN — unit ===
+$ bunx vitest run tests/unit/sars/efiling-submission.test.ts
+      Tests  23 passed (23)
+
+=== FULL unit suite, DATABASE_URL unset (brief addendum) ===
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+ Test Files  5 failed | 779 passed | 36 skipped (820)
+      Tests  10 failed | 9319 passed | 234 skipped (9563)
+
+The same 5 files / 10 tests fail on origin/master's full suite, in a throwaway
+worktree at origin/master with the same node_modules:
+ Test Files  5 failed | 779 passed | 36 skipped (820)
+      Tests  10 failed | 9310 passed | 234 skipped (9554)
+They are trackerExclusion, bankAllocationService, bankAllocationUnwind and
+cashFlowReport — all pass in isolation in BOTH trees (4 files, 24 passed), so it
+is pre-existing full-run module-state interference, and none of them touch
+VAT201. The 9-test delta is exactly the 9 tests added to efiling-submission.
+
+=== MUTATION CHECKS (three, each reverted after) ===
+A. fields 2 and 3 back to the ledger boxes
+   field2_zeroRatedSupplies: nilRated.zeroRated -> boxBase(report, ['2','2A'])
+   field3_exemptSupplies:    nilRated.exempt    -> boxBase(report, ['3'])
+   integration: 2 failed | 7 passed. "expected +0 to be close to 20000".
+B. filability gate disabled (`if (false && ...)` on both arms)
+   unit:        2 failed | 21 passed  (15% check, negative supply value)
+   integration: 2 failed | 7 passed   (mixed-rate journal, negative period)
+C. draft-drift gate disabled (`if (false && drift.length > 0)`)
+   unit:        2 failed | 21 passed  (ledger moved, draft with no figures)
+All three restored from backup; suites back to 9 and 23 passed.
+
+=== Gates ===
+$ bunx tsc --noEmit                                              TSC_CLEAN
+$ bunx eslint <5 changed src/pages files>                        ESLINT_CLEAN
+$ bun run agent-docs:check                                       74 mirrors match
+
+No query was run against the production database.
