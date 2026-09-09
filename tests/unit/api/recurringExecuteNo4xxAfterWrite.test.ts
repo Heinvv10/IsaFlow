@@ -32,6 +32,7 @@ import { executeRecurring } from '@/modules/accounting/services/core/recurringTr
 import {
   RecurringTemplateNotDueError,
   RecurringTemplateNotFoundError,
+  RecurringTemplateTotalsMismatchError,
 } from '@/modules/accounting/services/core/recurringTransactionErrors';
 import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
 import handler from '../../../pages/api/accounting/recurring-transactions-execute';
@@ -87,6 +88,16 @@ describe('recurring-transactions-execute error mapping', () => {
     const res = makeRes();
     await handler(post() as never, res as never);
     expect(res.statusCode).toBe(409);
+  });
+
+  it('answers 400 when the template aggregate disagrees with its lines', async () => {
+    // Asserted by the mint functions before the first INSERT, so this 4xx also
+    // commits nothing — and the operator, not the on-call, is who must act.
+    mockExecute.mockRejectedValueOnce(
+      new RecurringTemplateTotalsMismatchError('t1', 'totals disagree with its lines'));
+    const res = makeRes();
+    await handler(post() as never, res as never);
+    expect(res.statusCode).toBe(400);
   });
 
   it('still succeeds normally', async () => {

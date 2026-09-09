@@ -15,6 +15,12 @@
  *
  * A caller that must REFUSE a duplicate rather than renumber must not use this
  * helper — the point of it is that the number is ours to choose.
+ *
+ * Only a 23505 raised by the NUMBERING index renumbers. The attempt closure now
+ * writes line items too, and any other unique constraint the header or its
+ * lines touch also raises 23505: read as "that number is taken", such a failure
+ * burned four more sequence numbers and then surfaced an error naming the wrong
+ * cause. The caller therefore names the index it is retrying past.
  */
 
 import { withSavepoint } from '@/lib/neon';
@@ -26,6 +32,8 @@ export async function insertWithReservedNumber<T>(
   companyId: string,
   documentType: string,
   savepointPrefix: string,
+  /** The unique index on the document number, e.g. uq_customer_invoices_company_number. */
+  numberConstraint: string,
   insert: (documentNumber: string) => Promise<T>,
 ): Promise<T> {
   let documentNumber = await reserveNextDocumentNumber(companyId, documentType);
@@ -34,8 +42,9 @@ export async function insertWithReservedNumber<T>(
     try {
       return await withSavepoint(`${savepointPrefix}${attempt}`, () => insert(number));
     } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code !== '23505' || attempt === MAX_ATTEMPTS - 1) throw err;
+      const { code, constraint } = err as { code?: string; constraint?: string };
+      if (code !== '23505' || constraint !== numberConstraint) throw err;
+      if (attempt === MAX_ATTEMPTS - 1) throw err;
       documentNumber = await reserveNextDocumentNumber(companyId, documentType);
     }
   }

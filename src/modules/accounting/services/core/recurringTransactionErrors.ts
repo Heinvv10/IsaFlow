@@ -29,3 +29,20 @@ export class RecurringTemplateNotDueError extends Error {
     this.name = 'RecurringTemplateNotDueError';
   }
 }
+
+/**
+ * The template's stored aggregate and its `lines` disagree.
+ *
+ * Raised before the first INSERT of the run (the mint functions assert on the
+ * template data before they touch anything), so the route may answer 4xx.
+ * Refusing beats minting: the header is what the GL is posted from and the
+ * lines are what the customer sees, so a document built from both halves of a
+ * disagreement is wrong on the face of it in one of the two places.
+ */
+export class RecurringTemplateTotalsMismatchError extends Error {
+  readonly code = 'RECURRING_TEMPLATE_TOTALS_MISMATCH';
+  constructor(public readonly templateId: string, message: string) {
+    super(message);
+    this.name = 'RecurringTemplateTotalsMismatchError';
+  }
+}

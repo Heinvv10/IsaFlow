@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { als, assertTxUsable } from '@/lib/als';
 
 // ── Document Numbers ──────────────────────────────────────────────────────────
 
@@ -102,6 +103,28 @@ export function formatDocumentNumber(prefix: string, number: number, padding: nu
   return `${prefix}${String(number).padStart(padding, '0')}`;
 }
 
+/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
+const LOCK_NOT_AVAILABLE = '55P03';
+
+/**
+ * Raised when another request has held this company's counter row for the type
+ * longer than the 5s `lock_timeout`.
+ *
+ * The counter row lock is held until the holder's request COMMITs — that is
+ * inherent to a gapless per-company sequence, and correctness beats throughput
+ * — but the WAIT must be bounded. Nothing sets lock_timeout globally, so a
+ * request that stalls while holding the row blocked every other document
+ * creation for that company indefinitely, with no error and no 409: it simply
+ * hung. A typed error at 5s makes the contention visible and retryable.
+ */
+export class DocumentNumberLockTimeoutError extends Error {
+  readonly code = 'DOCUMENT_NUMBER_LOCK_TIMEOUT';
+  constructor(public readonly documentType: string) {
+    super(`The ${documentType} number sequence is in use by another request — retry in a moment.`);
+    this.name = 'DocumentNumberLockTimeoutError';
+  }
+}
+
 /**
  * Atomically reserve the next number in a company's sequence and return it formatted.
  * Increments next_number under a SQL UPDATE...RETURNING so concurrent calls cannot collide.
@@ -109,6 +132,32 @@ export function formatDocumentNumber(prefix: string, number: number, padding: nu
 export async function reserveNextDocumentNumber(
   companyId: string,
   documentType: string,
+): Promise<string> {
+  // Bounded wait on the counter row (see DocumentNumberLockTimeoutError).
+  // Re-issued every call, never memoised: SET LOCAL is subtransaction-aware and
+  // a savepoint rollback restores it to 0 — no timeout at all — and every
+  // retry attempt in insertWithReservedNumber runs in its own savepoint.
+  // Skipped outside a request transaction, where SET LOCAL affects nothing.
+  const client = als.getStore()?.client;
+  if (client) {
+    assertTxUsable();
+    await client.query("SET LOCAL lock_timeout = '5s'");
+  }
+  try {
+    return await reserveNextDocumentNumberInner(companyId, documentType, client);
+  } catch (err) {
+    if (typeof err === 'object' && err !== null
+      && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE) {
+      throw new DocumentNumberLockTimeoutError(documentType);
+    }
+    throw err;
+  }
+}
+
+async function reserveNextDocumentNumberInner(
+  companyId: string,
+  documentType: string,
+  client: { query: (text: string) => Promise<unknown> } | undefined,
 ): Promise<string> {
   // Hot path: try the UPDATE first. If the row exists (the common case once
   // ensureDocumentNumbers has run for this company even once), we incur a single
@@ -134,6 +183,11 @@ export async function reserveNextDocumentNumber(
   if (rows.length === 0) {
     throw new Error(`No document number config for type ${documentType}`);
   }
+  // Restored on the SUCCESS path only. After a lock timeout the transaction is
+  // aborted and this statement would itself raise 25P02, replacing the typed
+  // error with an opaque one. Left set, the 5s ceiling would leak onto every
+  // later statement in the request.
+  if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
   return formatDocumentNumber(
     String(rows[0]!.prefix),
     Number(rows[0]!.used),

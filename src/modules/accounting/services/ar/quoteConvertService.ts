@@ -44,6 +44,23 @@ export class QuoteNotConvertibleError extends Error {
   }
 }
 
+/**
+ * The invoice-side twin of QuoteNotConvertibleError.
+ *
+ * Separate class rather than a shared one with a `target` field: the two arms
+ * hand back different ids (`converted_order_id` vs `converted_invoice_id`) and
+ * their routes answer with different payload keys.
+ */
+export class QuoteNotInvoiceableError extends Error {
+  constructor(
+    readonly quoteStatus: string,
+    readonly existingInvoiceId: string | null,
+  ) {
+    super(`A quote with status '${quoteStatus}' cannot be converted to an invoice`);
+    this.name = 'QuoteNotInvoiceableError';
+  }
+}
+
 export async function convertToSalesOrder(
   companyId: string,
   id: string,
@@ -131,7 +148,39 @@ export async function convertToInvoice(
   userId?: string,
 ): Promise<{ quote: Quote; invoiceId: string } | null> {
   const quote = await getQuote(companyId, id);
-  if (!quote || quote.status !== 'accepted') return null;
+  if (!quote) return null;
+
+  // CLAIM THE QUOTE BEFORE ANYTHING IS MINTED — the same guard convertToSalesOrder
+  // takes above, for the same reason. `quote.status !== 'accepted'` was a
+  // check-then-act: two concurrent calls (two tabs, a client retry, or the API
+  // called directly) both read 'accepted', both reserved an invoice number and
+  // both inserted a full customer invoice with the quote's lines. The counter
+  // row lock serialises the numbering but does not stop the second mint — the
+  // loser simply waits for the winner to commit and then bills the customer a
+  // second time, with converted_invoice_id pointing at only one of the two, so
+  // the duplicate is invisible from the quote screen. The status-predicated
+  // UPDATE is the guard: the first caller moves the quote out of 'accepted' and
+  // every later one sees zero rows and stops here, before the sequence is
+  // touched and before any line is written.
+  const claimed = (await sql`
+    UPDATE customer_quotes
+    SET status = 'converted', updated_at = NOW()
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+      AND status = 'accepted'
+    RETURNING id
+  `) as Row[];
+  if (claimed.length === 0) {
+    // Re-read rather than trusting the row read before the UPDATE: the loser of
+    // a double-click needs the winner's invoice id, which did not exist then.
+    const [current] = (await sql`
+      SELECT status, converted_invoice_id FROM customer_quotes
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+    `) as Row[];
+    throw new QuoteNotInvoiceableError(
+      String(current?.status ?? quote.status),
+      current?.converted_invoice_id ? String(current.converted_invoice_id) : null,
+    );
+  }
 
   // Use the SAME sequence as customer-invoices-create ('customer_invoice').
   // The old inline counter used a SEPARATE document_type ('invoice', 'INV-'
@@ -140,7 +189,7 @@ export async function convertToInvoice(
   // 2026-07-05). Same savepoint-isolated retry as the create path: a clash
   // with a legacy number must not poison the request transaction.
   const invoiceId = await insertWithReservedNumber(
-    companyId, 'customer_invoice', 'quote_conv_inv_', async (invoiceNumber) => {
+    companyId, 'customer_invoice', 'quote_conv_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const invRows = (await sql`
         INSERT INTO customer_invoices (
           company_id, invoice_number, client_id, customer_id,
@@ -163,7 +212,8 @@ export async function convertToInvoice(
     `;
   }
 
-  await sql`UPDATE customer_quotes SET status = 'converted', converted_invoice_id = ${invoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
+  // Status was already set by the claim above; only the link is left to write.
+  await sql`UPDATE customer_quotes SET converted_invoice_id = ${invoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
 
   log.info('Quote converted to invoice', { quoteId: id, invoiceId });
   return { quote: (await getQuote(companyId, id))!, invoiceId };
