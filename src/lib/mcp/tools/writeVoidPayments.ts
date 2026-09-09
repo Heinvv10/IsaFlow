@@ -44,19 +44,26 @@ function voidTool(
       type: 'object',
       properties: {
         [idKey]: { type: 'string' },
+        approval_id: { type: 'string', format: 'uuid', description: 'Approval bound to this exact cancellation or bank inverse.' },
+        intent_id: { type: 'string', format: 'uuid', description: 'Prepared bank reversal intent; required for bank-backed documents.' },
+        reason: { type: 'string', minLength: 1, maxLength: 500 },
         ...REVERSAL_DATE_PROPERTY,
         idempotency_key: { type: 'string' },
       },
-      required: [idKey, 'idempotency_key'],
+      required: [idKey, 'approval_id', 'idempotency_key'],
       additionalProperties: false,
     },
     handler: async (args, ctx) => {
       const paymentId = strArg(args, idKey);
       if (!paymentId) return toolError(`${idKey} is required`);
-      const bad = guardCastableArgs(args, { uuid: [idKey], date: ['reversal_date'] });
+      const approvalId = strArg(args, 'approval_id');
+      if (!approvalId) return toolError('approval_id is required');
+      const bad = guardCastableArgs(args, { uuid: [idKey, 'approval_id', 'intent_id'], date: ['reversal_date'] });
       if (bad) return bad;
 
       const reversalDate = strArg(args, 'reversal_date');
+      const intentId = strArg(args, 'intent_id');
+      const reason = strArg(args, 'reason');
 
       // No catch. Every refusal below is answered from a READ, before the first
       // write; anything that throws after that must reach the registry's
@@ -70,6 +77,9 @@ function voidTool(
         ctx.userId,
         {
           ...mcpPostingOpts(ctx, name),
+          ...{ approvalId },
+          ...(intentId === undefined ? {} : { intentId }),
+          ...(reason === undefined ? {} : { reason }),
           ...(reversalDate === undefined ? {} : { reversalDate }),
         },
       );
@@ -115,7 +125,7 @@ export const voidReceiptTool = voidTool(
   'Void a customer receipt (CP document): takes the cash back off every invoice it was applied to, '
   + 'reverses its journal, and cancels the document. If the receipt settled a bank line, that line returns to unallocated too. '
   + 'Use to correct a receipt captured in error — the original and its reversal both remain in the audit trail. '
-  + 'Requires the write:post permission. Already-cancelled documents are refused.',
+  + 'Requires write:post and an approval bound to the cancellation; bank-backed documents also need the prepared inverse intent. Already-cancelled documents are refused.',
 );
 
 export const voidPaymentTool = voidTool(
@@ -125,5 +135,5 @@ export const voidPaymentTool = voidTool(
   'Void a supplier payment: takes the cash back off every bill it was applied to, '
   + 'reverses its journal, and cancels the document. If the payment settled a bank line, that line returns to unallocated too. '
   + 'Use to correct a payment captured in error — the original and its reversal both remain in the audit trail. '
-  + 'Requires the write:post permission. Already-cancelled documents are refused.',
+  + 'Requires write:post and an approval bound to the cancellation; bank-backed documents also need the prepared inverse intent. Already-cancelled documents are refused.',
 );
