@@ -20,7 +20,9 @@ savepoint.
 **Tests.** `tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts` (2),
 `tests/integration/k120-invoice-sequence-adjacent.int.test.ts` (3 — two consecutive numbers with
 the other tenant's counter untouched, retry past a legacy-held number without poisoning the
-transaction, recurring runner on the same sequence). Mutation proof in `green.log` (M2, M3).
+transaction, recurring runner on the same sequence),
+`tests/integration/k120-invoice-number-concurrency.int.test.ts` (1 — two open transactions on two
+pool clients). Mutation proof in `green.log` (M2, M3, M7).
 
 **Migration.** None.
 
@@ -40,6 +42,18 @@ HAVING MAX(CAST(SUBSTRING(ci.invoice_number FROM '[0-9]+$') AS INTEGER)) >= d.ne
 ```
 Advance `next_number` past `max_used` once per affected company.
 
-**Limits.** The validator could not demonstrate the concurrent-23505 race (the harness serialises
-both conversions on one pooled connection). The retry loop is the guard for it, exercised here
-against a pre-existing number rather than a true race.
+**Concurrency, now proven.** The original validation could not demonstrate the race because the
+harness serialised both conversions on one pooled connection. Two clients in two open transactions
+show the real behaviour: `reserveNextDocumentNumber`'s `UPDATE ... RETURNING` takes a row lock, so
+the second reservation BLOCKS for as long as the first transaction stays open and then takes the
+next number. The concurrent collision is closed outright, not retried past; the retry loop exists
+only for a clash with a number some legacy row already holds.
+
+**Limits.** Both paths now hold the `company_document_numbers` row lock for the rest of the
+request, where the old `MAX()` read blocked nothing. This matches what `customerInvoiceCreateService`
+already did, so it is consistent rather than novel — but it serialises conversions per company, and
+a future bulk-conversion feature has to account for that.
+
+**Shared helper.** The reserve-and-retry loop lives in
+`src/modules/accounting/services/core/documentNumberRetry.ts`, used by both paths here and by the
+recurring-transaction runner (K-107), rather than copied three times.

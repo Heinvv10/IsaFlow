@@ -4,11 +4,11 @@
  * CRUD lives in salesOrderService.ts.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSalesOrder } from './salesOrderService';
-import { reserveNextDocumentNumber } from '../core/companySettingsService';
+import { insertWithReservedNumber } from '../core/documentNumberRetry';
 
 type Row = DbRow;
 
@@ -47,37 +47,24 @@ export async function convertSalesOrderToInvoice(
   // 23505 retry as quoteConvertService.convertToInvoice, so a clash with a
   // legacy number costs one more number instead of poisoning the request
   // transaction.
-  let invoiceId = '';
-  let invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      invoiceId = await withSavepoint(`so_conv_inv_${attempt}`, async () => {
-        const invRows = (await sql`
-          INSERT INTO customer_invoices (
-            company_id, invoice_number, customer_id, client_id,
-            invoice_date, due_date,
-            subtotal, tax_amount, total_amount,
-            notes, status, created_by
-          ) VALUES (
-            ${companyId}, ${invoiceNumber},
-            ${order.customerId || null}, ${order.customerId || null},
-            ${order.orderDate}, ${order.deliveryDate || order.orderDate},
-            ${order.subtotal}, ${order.taxAmount}, ${order.totalAmount},
-            ${'Converted from ' + order.orderNumber}, 'draft', ${userId}
-          ) RETURNING id
-        `) as Row[];
-        return String(invRows[0]!.id);
-      });
-      break;
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code === '23505' && attempt < 4) {
-        invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
-        continue;
-      }
-      throw err;
-    }
-  }
+  const invoiceId = await insertWithReservedNumber(
+    companyId, 'customer_invoice', 'so_conv_inv_', async (invoiceNumber) => {
+      const invRows = (await sql`
+        INSERT INTO customer_invoices (
+          company_id, invoice_number, customer_id, client_id,
+          invoice_date, due_date,
+          subtotal, tax_amount, total_amount,
+          notes, status, created_by
+        ) VALUES (
+          ${companyId}, ${invoiceNumber},
+          ${order.customerId || null}, ${order.customerId || null},
+          ${order.orderDate}, ${order.deliveryDate || order.orderDate},
+          ${order.subtotal}, ${order.taxAmount}, ${order.totalAmount},
+          ${'Converted from ' + order.orderNumber}, 'draft', ${userId}
+        ) RETURNING id
+      `) as Row[];
+      return String(invRows[0]!.id);
+    });
 
   for (const item of order.items || []) {
     await sql`
