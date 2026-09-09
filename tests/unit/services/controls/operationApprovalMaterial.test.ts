@@ -20,3 +20,12 @@ it('retains explicit reversal dates and reconstructs them from a persisted bindi
   expect(canonicalOperationRef({...ref,accountingDate:'2026-09-10'} as typeof ref)).toMatchObject({reversalDate:'2026-09-10'});
   expect(()=>canonicalOperationRef({...ref,reversalDate:'2026-02-31'})).toThrow();
 });
+it.each([
+  ['supplier_payment.void','supplier_payment'],['supplier_invoice.cancel','supplier_invoice'],
+] as const)('binds the reversal target for %s', (operation,entityType)=>{
+  const ref={operation,entityType,entityId:'11111111-1111-4111-8111-111111111111',reversalDate:'2026-09-10'};
+  expect(canonicalOperationRef(ref)).toMatchObject({reversalDate:'2026-09-10'});
+  const {reversalDate:_date,...stored}=ref;
+  expect(canonicalOperationRef({...stored,accountingDate:'2026-09-10'} as typeof stored))
+    .toMatchObject({reversalDate:'2026-09-10'});
+});

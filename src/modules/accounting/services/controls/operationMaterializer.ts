@@ -15,8 +15,9 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
     : ref.entityType === 'supplier_payment' ? ['supplier_payment.process', 'supplier_payment.void']
       : ref.entityType === 'journal_entry' ? ['journal.post','journal.reverse'] : [];
   if (!operations.includes(ref.operation)) throw new Error('Unsupported controlled operation');
-  const reversalDate = ref.reversalDate ?? (ref.operation === 'journal.reverse' && 'accountingDate' in ref ? ref.accountingDate : undefined);
-  if (reversalDate !== undefined && (ref.operation !== 'journal.reverse' || typeof reversalDate !== 'string' || !isRealCalendarDate(reversalDate))) throw new Error('Invalid reversal date');
+  const reverses = ['journal.reverse','supplier_payment.void','supplier_invoice.cancel'].includes(ref.operation);
+  const reversalDate = ref.reversalDate ?? (reverses && 'accountingDate' in ref ? ref.accountingDate : undefined);
+  if (reversalDate !== undefined && (!reverses || typeof reversalDate !== 'string' || !isRealCalendarDate(reversalDate))) throw new Error('Invalid reversal date');
   return { entityType: ref.entityType, entityId: ref.entityId,
     ...(ref.expectedVersion === undefined ? {} : { expectedVersion: ref.expectedVersion }),
     ...(reversalDate === undefined ? {} : { reversalDate }),
