@@ -10,6 +10,12 @@
  * Separate from the receipt's own idempotency on purpose: the portal verify
  * route banks the receipt but carries no fee, and it exists to beat the webhook,
  * so the fee arrives on a delivery that finds the receipt already there.
+ *
+ * Being a separate entry also means `cancelCustomerPayment` does not reverse it:
+ * it reverses only the receipt's own `gl_journal_entry_id`. That is deliberate
+ * and correct — Paystack keeps its fee whether or not the receipt is cancelled,
+ * so the expense and its bank credit should survive. Reverse it by hand in the
+ * rare case where the gateway actually refunded the fee too.
  */
 
 import { sql } from '@/lib/neon';
@@ -49,11 +55,19 @@ export async function postGatewayFee(
   const description = `Paystack fee ${receipt.reference}`;
   // Its own idempotency, because this now runs on the dedupe path too: the
   // verify route banks the receipt, then the webhook arrives with the fee.
+  // Keyed on the reference COLUMN plus this service's posting agent, not on the
+  // description: a free-text match would let any journal a person happened to
+  // describe the same way suppress the fee, and would break silently the day the
+  // wording changed. The receipt's own journal carries the same agent with a NULL
+  // reference, so it cannot collide. IS DISTINCT FROM because status is nullable
+  // and `NULL <> 'reversed'` is NULL — the row would escape the guard and the fee
+  // would post twice.
   const existing = await sql<{ id: string }>`
     SELECT id FROM gl_journal_entries
     WHERE company_id = ${receipt.companyId}::UUID
-      AND description = ${description}
-      AND status <> 'reversed'
+      AND reference = ${receipt.reference}
+      AND posting_agent = ${GATEWAY_RECEIPT_AGENT}
+      AND status IS DISTINCT FROM 'reversed'
     LIMIT 1
   `;
   if (existing[0]) return;
@@ -76,6 +90,7 @@ export async function postGatewayFee(
       entryDate: paymentDate,
       description,
       source: 'auto_payment',
+      reference: receipt.reference,
       lines: [
         { glAccountId: expenseAccountId, debit: fee, credit: 0, description: 'Paystack transaction fee' },
         { glAccountId: bankAccountId, debit: 0, credit: fee, description: 'Paystack transaction fee' },

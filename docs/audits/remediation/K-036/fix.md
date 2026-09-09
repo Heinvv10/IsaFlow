@@ -41,8 +41,10 @@ actual deposit. See review-fixes.md for the account-choice caveat.
 `src/lib/publicRouteTx.ts` (new, shared with K-035), `pages/api/webhooks/paystack.ts`,
 `pages/api/portal/payments/paystack/verify.ts`.
 
-**Tests.** `tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts` — 19
-passed against the disposable production schema (was 2 failed / 2). Each asserts the
+**Tests.** `tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts` — 21
+passed against the disposable production schema (was 2 failed / 2). Cancelling a gateway
+receipt reverses the receipt journal only; the fee journal stands, because the gateway keeps
+its fee either way. Each asserts the
 journal balances, that DR Bank and CR Receivable each equal the invoice's `amount_paid`,
 and that the fiscal period is set. Adjacent cases: webhook + verify both firing, webhook
 redelivery, part-payment, and another tenant untouched. Paystack is mocked; `chargeAuthorization`

@@ -620,6 +620,54 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     expect(rows[0].today).toBe(true);
   });
 
+  it('keys fee idempotency on the reference, not on a look-alike description', async () => {
+    // A person can describe a journal anything. Before the lookup moved to the
+    // reference column plus the posting agent, a decoy like this suppressed the
+    // fee silently and the bank leg stayed gross.
+    const reference = 'k036_feekey_ref';
+    const feeRand = 17.0;
+    await pool.query(
+      `INSERT INTO gl_journal_entries(company_id,entry_date,description,source,status,created_by)
+       VALUES($1,CURRENT_DATE,$2,'manual','posted',$3)`,
+      [companyId, `Paystack fee ${reference}`, userId],
+    );
+    await seedPaymentRequest(reference);
+
+    const result = await deliverWebhook(reference, { fees: Math.round(feeRand * 100) });
+    expect(result.state.statusCode).toBe(200);
+
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM gl_journal_entries
+       WHERE company_id=$1 AND reference=$2 AND posting_agent='system:paystack-receipt:v1'`,
+      [companyId, reference],
+    );
+    expect(rows[0].n).toBe(1);
+
+    const { rows: feeLines } = await pool.query(
+      `SELECT COALESCE(sum(jl.debit),0)::float8 AS d FROM gl_journal_lines jl
+       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+       WHERE je.company_id=$1 AND je.reference=$2 AND jl.gl_account_id=$3`,
+      [companyId, reference, expenseAccountId],
+    );
+    expect(feeLines[0].d).toBeCloseTo(feeRand, 2);
+  });
+
+  it('still books the fee when an earlier fee journal was reversed', async () => {
+    // status is nullable, so `<> 'reversed'` would let a NULL-status row escape
+    // the guard entirely. Prove the guard reads a real reversal.
+    const reference = 'k036_feerev_ref';
+    const feeRand = 8.0;
+    await seedPaymentRequest(reference);
+    await deliverWebhook(reference, { fees: Math.round(feeRand * 100) });
+
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM gl_journal_entries
+       WHERE company_id=$1 AND reference=$2 AND status IS DISTINCT FROM 'reversed'`,
+      [companyId, reference],
+    );
+    expect(rows[0].n).toBe(1);
+  });
+
   it('does not touch another tenant\'s invoice with the same reference', async () => {
     const otherCompanyId = crypto.randomUUID();
     const reference = 'k036_tenant_ref';

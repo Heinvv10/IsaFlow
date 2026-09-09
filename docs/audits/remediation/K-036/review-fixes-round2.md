@@ -59,3 +59,29 @@ to nobody, draft receipt leaves no room, unparseable `paid_at`. Reverting the th
 to 7179f208 turns 5 of the 6 red (the sixth, fee-not-twice, passes there because the old path
 posted a fee at all only in the webhook-alone case). Totals: K-035 6, K-036 19,
 public-route-tx 4 — 29 passed.
+
+---
+
+## Round-3 review (cffa35e4) — three LOW, all fixed
+
+**R1** — the fee lookup's `status <> 'reversed'` had the same NULL trap the receipt dedupe and
+migration 620 had already been moved off: `gl_journal_entries.status` is nullable and
+`NULL <> 'reversed'` is NULL, so such a row escapes the guard and the fee posts twice. Now
+`IS DISTINCT FROM`.
+
+**R2** — the fee's idempotency keyed on `description = 'Paystack fee <reference>'`, a free-text
+comparison standing in for a key. Any journal a person happened to describe that way suppressed
+the fee silently, and rewording the string later would have broken idempotency without failing
+anything. The fee journal now carries the Paystack reference in `gl_journal_entries.reference`
+and the lookup matches that column plus `posting_agent = 'system:paystack-receipt:v1'`. The
+receipt's own journal carries the same agent with a NULL reference, so the two cannot collide.
+
+**R3** — `cancelCustomerPayment` reverses only the receipt's own `gl_journal_entry_id`, so
+cancelling a gateway receipt leaves the fee journal standing. That is the right accounting —
+Paystack keeps its fee whether or not the receipt is cancelled — but it was an accident of the
+two-journal design rather than a stated choice. Now stated in `gatewayFeeService`'s header,
+including the manual reversal for the rare case where the gateway refunded the fee too.
+
+**Tests.** 2 new real-DB cases: a decoy journal with the old look-alike description no longer
+suppresses the fee, and the reversal guard reads a real reversal. Both red on cffa35e4
+(2 failed / 19 passed). Totals: K-035 6, K-036 21, public-route-tx 4 — 31 passed.
