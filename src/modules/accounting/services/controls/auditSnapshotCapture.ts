@@ -8,6 +8,7 @@ import {canonicalJson} from './canonical';
 import {AUDIT_JOB_LIMITS,auditSnapshotPermissions,parseAuditSnapshotRequest,type AuditSnapshotRequest} from './auditJobContract';
 import type {AuditSnapshotData} from './auditSnapshotSeal';
 import {ledgerSnapshotSources} from './auditSnapshotCaptureQueries';
+import {sageInvoiceSnapshotSources} from './auditSnapshotSageInvoiceQueries';
 import {invoiceSnapshotSources} from './auditSnapshotInvoiceQueries';
 import {payrollSnapshotSources} from './auditSnapshotPayrollQueries';
 import {captureSnapshotChecks} from './auditSnapshotCheckCapture';
@@ -35,7 +36,7 @@ export async function captureAuditSnapshot(ctx:ControlTx,input:{snapshotId:strin
   coverage:['current_values_at_accounting_cutoff_not_historical_database_state','explicit_accounting_fields_only',
    'names_tokens_tax_identifiers_bank_details_and_freeform_text_excluded','retained_reversed_allocations_are_history_not_current_balance'],
   missingSources:['retained_evidence_not_attached']};
- const sources=[...ledgerSnapshotSources,...invoiceSnapshotSources,...payrollSnapshotSources].filter(s=>request.sources.includes(s.family));
+ const sources=[...ledgerSnapshotSources,...invoiceSnapshotSources,...sageInvoiceSnapshotSources,...payrollSnapshotSources].filter(s=>request.sources.includes(s.family));
  let retainedBytes=0;
  for(const source of sources){
   await queryBudget();const counts=await source.counts(ctx,request.cutoff);budget();

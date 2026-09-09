@@ -1,3 +1,4 @@
+import {discoverSnapshotEvidence} from '@/modules/accounting/services/controls/auditSnapshotEvidenceQueries';
 import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeEach,expect,it} from 'vitest';
 import {randomUUID,createHash} from 'node:crypto';
@@ -77,7 +78,7 @@ it('captures every requested source family and seals actual detective results wi
  await journal();
  const result=await actor(ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),request:{...request,sources:['journals','ar','ap','bank','payroll'],
   checks:['duplicate_invoice_checks','payment_risk_checks','three_way_match_exceptions','journal_risk_checks','bank_statement_completeness','payroll_control_checks']}}));
- expect(result.populations).toHaveLength(15);expect(result.checks).toHaveLength(6);
+ expect(result.populations).toHaveLength(16);expect(result.checks).toHaveLength(6);
  expect(result.records.find(r=>r.source==='payroll_run_line')?.data).toMatchObject({employee_id:employee,gross_pay:'100.00'});
  expect(JSON.stringify(result)).not.toMatch(/Private name|Never retain this|component_breakdown/);
  expect(result.missingSources).toContain('retained_evidence_not_attached');expect(()=>sealAuditSnapshot(result)).not.toThrow();
@@ -131,7 +132,7 @@ it('materializes actual AR/AP children and bank source amounts with owned eviden
  await capturedStorage().seed(pool,fixture.companyA,document,bytes);
  await pool.query("INSERT INTO bank_statement_imports(company_id,bank_account_id,source_document_id,period_start,period_end,opening_balance,closing_balance,row_count,status,created_by) VALUES($1,$2,$3,'2026-09-01','2026-09-09',0,100,1,'committed',$4)",[fixture.companyA,debit,document,fixture.u1.id]);
  const result=await actor(ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),request:{...request,sources:['ar','ap','bank']}}));
- expect(result.populations.filter(p=>p.source!=='bank_statement_attestation_intent').every(p=>p.count===1)).toBe(true);expect(result.records).toHaveLength(10);
+ expect(result.populations.filter(p=>!['bank_statement_attestation_intent','sage_supplier_invoice'].includes(p.source)).every(p=>p.count===1)).toBe(true);expect(result.records).toHaveLength(10);
  expect(result.coverage).toContain('population_total:supplier_payment_allocation:amount_allocated:ZAR:100');
  expect(result.coverage).toContain('population_total:bank_transaction:amount:ZAR:100');
  expect(JSON.stringify(result)).not.toMatch(/Private customer|Private supplier|Private description/);
@@ -259,4 +260,17 @@ for(const kind of ['customer','supplier'] as const)it(`retains ${kind} applicati
  expect(data).toMatchObject({application_intent_id:application,reversal_intent_id:reversal,application_accounting_date:'2026-09-01',reversal_accounting_date:'2026-09-15'});
  expect(String(data.application_accounting_date)<=result.cutoff&&String(data.reversal_accounting_date)>result.cutoff).toBe(true);
  expect(()=>sealAuditSnapshot(result)).not.toThrow();
+});
+
+it('captures unmapped Sage records and discovers their actual procurement parents through public services',async()=>{
+ const staging=randomUUID(),document=randomUUID();
+ await pool.query("INSERT INTO sage_supplier_invoices(id,company_id,invoice_date,total_amount) VALUES($1,$2,'2026-09-09',98.76)",[staging,fixture.companyA]);
+ await pool.query("INSERT INTO procurement_documents(id,entity_type,entity_id,is_active) VALUES($1,'supplier_invoice',$2,true)",[document,staging]);
+ await actor(async ctx=>{
+  const result=await captureAuditSnapshot(ctx,{snapshotId:randomUUID(),request:{...request,sources:['ap']}});
+  expect(result.records.find(row=>row.source==='sage_supplier_invoice'&&row.id===staging)?.data).toMatchObject({total_amount:'98.76',amount_currency_unavailable:true,staging_population_not_additive_to_native:true});
+  expect(result.populations.find(row=>row.source==='sage_supplier_invoice')?.count).toBe(1);
+  const evidence=await discoverSnapshotEvidence(ctx,result);
+  expect(evidence.relations).toContainEqual({store:'procurement',documentId:document,parentSource:'sage_supplier_invoice',parentId:staging,relation:'document_parent'});
+ });
 });

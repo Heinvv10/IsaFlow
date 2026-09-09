@@ -57,7 +57,7 @@ export async function readRetainedAuditSnapshot(ctx:ControlTx,id:string){
  const snapshot=verifyAuditSnapshot(retained.sealed as SealedAuditSnapshot,{companyId:ctx.principal.companyId,snapshotId:id});
  const sealed=sealAuditSnapshot(snapshot);
  if(sealed.canonicalHash!==row.canonical_hash)throw new Error('Retained snapshot hash changed');
- assertSnapshotRequest(snapshot,saved.request);
+ assertSnapshotRequest(snapshot,saved.request,'retained');
  const stored=await ctx.sql`SELECT artifact_id,protected_artifact FROM control_audit_snapshot_artifacts
   WHERE company_id=${ctx.principal.companyId}::uuid AND snapshot_id=${id}::uuid ORDER BY artifact_id LIMIT 100001` as {artifact_id:string;protected_artifact:ProtectedChange}[];
  const artifacts=stored.map(artifact=>{
