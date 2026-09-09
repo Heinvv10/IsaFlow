@@ -18,6 +18,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import {
   buildIrp5File,
   buildCertificateNumber,
@@ -63,8 +64,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
   const { companyId } = req as CompanyAuthedRequest;
-  const taxYear = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
+  // Pentest M17: bound numeric query params — reject year 9999 / -1 / NaN.
+  const taxYearRaw = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
+  if (!Number.isInteger(taxYearRaw) || taxYearRaw < 2000 || taxYearRaw > 2100) {
+    return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
+  }
+  const taxYear = taxYearRaw;
   const startMonth = 3, startYear = taxYear - 1, endMonth = 2, endYear = taxYear;
+  // Only approved/paid runs exist in the general ledger; a calculated or
+  // cancelled run declared here would over-state remuneration to SARS.
+  const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
   const [companyRows, empRows, aggRows] = await Promise.all([
     sql`
@@ -95,6 +104,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       WHERE prh.company_id = ${companyId}::uuid
+        AND prh.status = ANY(${declarableStatuses}::text[])
         AND (
           (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
           OR

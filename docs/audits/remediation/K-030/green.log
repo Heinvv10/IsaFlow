@@ -1,0 +1,93 @@
+=== GREEN (both rounds of the fix in place) ===
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+
+=== Mutation A: production file reset to origin/master (export kept so tests compile) ===
+   × recomputes the schedule after the principal and rate are edited 308ms
+   × recomputes when only the residual changes 190ms
+   × leaves the reverted run newest, so GL posting reads the current terms 254ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+     × changes when the principal is edited 4ms
+     × changes when fixed_rate is edited 1ms
+     × changes when term_months is edited 0ms
+     × changes when residual is edited 0ms
+     × changes when start_date is edited 0ms
+     × changes when day_count is edited 0ms
+     × keeps same-date rows in the order the totally ordered fetch returned them 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  7 failed | 3 passed (10)
+
+=== Mutation B: only the H1 cache-hit computed_at touch removed ===
+   × leaves the reverted run newest, so GL posting reads the current terms 458ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+
+=== Mutation C: only the M1 hash sort removed ===
+     × keeps same-date rows in the order the totally ordered fetch returned them 11ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+
+Production file restored after every mutation.
+
+=== Existing unit suite ===
+tests/unit/services/loans/loanScheduleService.test.ts  8 passed (8)
+  ('returns cached schedule when hash matches' now mocks the computed_at touch
+   and asserts it; without the touch mock the queue underflows.)
+
+Full tests/unit/services/ run: 3 files fail, and WHICH files fail changes between
+identical runs (cashFlowReport, bankAllocationUnwind, bankAllocationService seen
+across three runs; all pass in isolation, and the same instability reproduces with
+this change's test file removed). Pre-existing cross-file mock pollution, not
+introduced here.
+
+bun run lint: 0 errors, 11 warnings, exit 0.
+bunx tsc --noEmit: clean.
+bun run agent-docs:check: OK, 74 mirrors match.
+
+=== Round 3 (N1 lock + N2 fixture/name) ===
+GREEN:
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+ Test Files  2 passed (2)
+      Tests  18 passed (18)
+
+=== Mutation D: FOR SHARE removed from the loan read (N1) ===
+   × holds the loan row against a concurrent edit until the touch commits 251ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 7 passed (8)
+
+Production file restored after the mutation.
+
+Round 3 gates:
+  bunx tsc --noEmit           clean
+  bunx eslint (both src files) clean, 0 warnings
+  bun run agent-docs:check    OK, 74 mirrors match
+  loanScheduleService.ts      244 lines; loanScheduleInputs.ts 82 lines (both under the cap)
+
+Full tests/unit/services/ (no DATABASE_URL): 3 failed | 4371 passed | 101 skipped.
+The three are cashFlowReport (x2) and bank/bankAllocationUnwind — the same
+pre-existing nondeterministic set seen before this change, all passing in isolation,
+none of them touched here. NOTE: running that suite with DATABASE_URL pointing at the
+schema-only fixture instead adds 6 unrelated failures in
+reports/incomeStatementDisclosureDb.test.ts, which expects a populated ledger.
+
+=== Round 4 (R3-1 preview lock, R3-2 bulk insert) ===
+GREEN: integration 10 passed (10); unit 18 passed (18) across the two loan files.
+Mutation E: previewSchedule made to lock again -> "does not block a loan edit while
+  a dry-run preview is open" alone goes red (1 failed | 9 passed).
+Persist timing, fixture DB, 195-period schedule, three runs each:
+  unnest single statement   39 ms / 45 ms / 55 ms
+  per-period insert loop   773 ms / 806 ms / 783 ms
+tsc clean; eslint clean on both src files; agent-docs:check OK 74 mirrors.
+loanScheduleService.ts 251 lines.
+
+Full tests/unit/services/ (no DATABASE_URL): 1 failed | 4373 passed | 101 skipped.
+The one is cashFlowReport, from the same pre-existing nondeterministic set; it passes
+in isolation and is untouched here.

@@ -314,6 +314,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       duplicateCount,
       totalParsed: parseResult.transactions.length,
       appliedRules: appliedRuleCount,
+      // Non-fatal problems the import swallowed to stay non-fatal — today, a
+      // transfer counterpart pass that failed. Reported so the user is not told
+      // the import was clean when part of it was not.
+      warnings: result.errors.map((e) => e.error),
     });
   } catch (insertErr) {
     if (isPayg && didDebit) {
