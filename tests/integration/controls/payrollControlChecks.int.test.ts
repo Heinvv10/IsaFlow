@@ -4,6 +4,9 @@ import {randomUUID} from 'node:crypto';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
+import {setEmployeeCostAllocations} from '@/modules/accounting/services/payroll/payrollCostAllocationService';
+import {loadPayrollControlPopulation} from '@/modules/accounting/services/controls/payrollControlQueries';
+import {generateUifDeclaration} from '@/modules/accounting/services/payroll/uifDeclarationService';
 import {checkPayrollControls} from '@/modules/accounting/services/controls/payrollControlChecks';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
@@ -103,4 +106,53 @@ it('keeps complete source totals and counts when bounded material requires an as
   expect(result.missingSources).toContain('async_scan_required:payroll_population_exceeds_10000');expect(result.coverage).toContain('source_employee_count:10002');
   expect(result.coverage).toContain('source_total:headerGross:100.00');expect(result.coverage).toContain('source_total:lineNet:91.00');
  }finally{await pool.query("DELETE FROM payroll_employees WHERE company_id=$1 AND employee_number LIKE 'BOUNDED-%'",[fixture.companyA]);}
+});
+
+it('keeps separately changed employee components distinct across the same actual run pair',async()=>{
+ const prior=randomUUID(),current=randomUUID(),component=randomUUID();
+ try{
+  for(const [id,month,pay] of [[prior,10,100],[current,11,110]] as const){
+   await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_taxable,total_paye,total_uif,total_sdl,total_eti,total_net,employee_count) VALUES($1,$2,$3,2026,'calculated',$4,$4,16,4,2,0,$5,2)",[id,fixture.companyA,month,pay*2,pay*2-18]);
+   for(const person of [employee,otherEmployee])await pool.query('INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,taxable_income,paye,uif_employee,uif_employer,sdl,eti,net_pay,component_breakdown) VALUES($1,$2,$3,$3,8,1,1,1,0,$4,$5::jsonb)',[id,person,pay,pay-9,JSON.stringify([{componentId:component,amount:pay}])]);
+  }
+  const findings=(await actor(ctx=>checkPayrollControls(ctx))).findings.filter(f=>f.kind==='payroll_component_change');
+  expect(findings).toHaveLength(2);expect(new Set(findings.map(f=>f.key)).size).toBe(2);
+ }finally{await pool.query('DELETE FROM payroll_run_lines WHERE run_id=ANY($1::uuid[])',[[prior,current]]);await pool.query('DELETE FROM payroll_run_headers WHERE company_id=$1 AND id=ANY($2::uuid[])',[fixture.companyA,[prior,current]]);}
+});
+it('agrees with the actual UIF declaration generator for an unapproved run',async()=>{
+ await pool.query("UPDATE payroll_run_headers SET status='calculated',journal_entry_id=NULL WHERE company_id=$1 AND id=$2",[fixture.companyA,run]);
+ try{
+  const generated=await actor(()=>generateUifDeclaration(fixture.companyA,2026,9,fixture.u1.id));expect(generated.totalUif).toBe(0);
+  const result=await actor(ctx=>checkPayrollControls(ctx));expect(result.findings.map(f=>f.kind)).not.toContain('payroll_uif_declaration_mismatch');
+ }finally{await pool.query('DELETE FROM uif_declarations WHERE company_id=$1 AND period_year=2026 AND period_month=9',[fixture.companyA]);await pool.query("UPDATE payroll_run_headers SET status='approved',journal_entry_id=$3 WHERE company_id=$1 AND id=$2",[fixture.companyA,run,journal]);}
+});
+it('reports foreign-account journal material as missing coverage without disclosing foreign IDs',async()=>{
+ const foreign=randomUUID(),legs=[randomUUID(),randomUUID()];
+ await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,is_active,level) VALUES($1,$2,'FOREIGN-PAYROLL','Foreign synthetic','expense','debit',true,3)",[foreign,fixture.companyB]);
+ try{
+  await pool.query('INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit) VALUES($1,$3,$4,$5,50,0),($2,$3,$4,$5,0,50)',[...legs,fixture.companyA,journal,foreign]);
+  const result=await actor(ctx=>checkPayrollControls(ctx));expect(result.missingSources).toContain('payroll_journal_account_ownership_unavailable');
+  expect(JSON.stringify(result)).not.toContain(foreign);
+  const source=await actor(ctx=>loadPayrollControlPopulation(ctx,null));expect(source.runs[0]!.journal).toMatchObject({lineCount:7,accountOwnershipMissing:true});
+ }finally{await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1 AND id=ANY($2::uuid[])',[fixture.companyA,legs]);await pool.query('DELETE FROM gl_accounts WHERE company_id=$1 AND id=$2',[fixture.companyB,foreign]);}
+});
+
+it('preserves correct historic journal totals after a legitimate current allocation update',async()=>{
+ const centre=randomUUID(),expense=randomUUID();
+ await pool.query("INSERT INTO cost_centres(id,company_id,code,name,is_active) VALUES($1,$2,'REVIEW-CENTRE','Synthetic review centre',true)",[centre,fixture.companyA]);
+ await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,is_active,level) VALUES($1,$2,'5201','New labour allocation','expense','debit',true,3)",[expense,fixture.companyA]);
+ await pool.query('INSERT INTO cost_centre_gl_mappings(company_id,cost_centre_id,expense_account_id) VALUES($1,$2,$3)',[fixture.companyA,centre,expense]);
+ try{
+  await actor(()=>setEmployeeCostAllocations(fixture.companyA,employee,[{costCentreId:centre,percentage:100}],fixture.u1.id));
+  const result=await actor(ctx=>checkPayrollControls(ctx));expect(result.findings.map(f=>f.kind)).not.toContain('payroll_journal_mismatch');
+  expect(result.findings.find(f=>f.kind==='payroll_cost_allocation_difference')?.classification).toBe('candidate');
+  expect(result.missingSources).toContain('historical_payroll_cost_allocation_basis_unavailable');
+  await pool.query('UPDATE gl_journal_lines SET credit=9 WHERE company_id=$1 AND journal_entry_id=$2 AND gl_account_id=$3',[fixture.companyA,journal,accounts.find(a=>a.code==='2140')!.id]);
+  expect((await actor(ctx=>checkPayrollControls(ctx))).findings.map(f=>f.kind)).toContain('payroll_journal_mismatch');
+ }finally{
+  await pool.query('UPDATE gl_journal_lines SET credit=8 WHERE company_id=$1 AND journal_entry_id=$2 AND gl_account_id=$3',[fixture.companyA,journal,accounts.find(a=>a.code==='2140')!.id]);
+  await pool.query('DELETE FROM payroll_employee_cost_allocations WHERE company_id=$1 AND employee_id=$2',[fixture.companyA,employee]);
+  await pool.query('DELETE FROM cost_centre_gl_mappings WHERE company_id=$1 AND cost_centre_id=$2',[fixture.companyA,centre]);
+  await pool.query('DELETE FROM cost_centres WHERE company_id=$1 AND id=$2',[fixture.companyA,centre]);await pool.query('DELETE FROM gl_accounts WHERE company_id=$1 AND id=$2',[fixture.companyA,expense]);
+ }
 });

@@ -23,6 +23,9 @@ export async function loadPayrollControlPopulation(ctx:ControlTx,cutoff:string|n
   AND (make_date(d.period_year,d.period_month,1)+interval '1 month - 1 day')::date<=COALESCE(${cutoff}::date,'infinity'::date) ORDER BY d.id LIMIT 10000),
  journal_ids AS(SELECT journal_entry_id AS id FROM runs UNION SELECT journal_entry_id FROM declarations),
  journals AS(SELECT j.id,j.status,j.source,j.source_record_id::text AS "sourceRecordId",(j.reversed_at IS NOT NULL) AS reversed,
+  (SELECT count(*) FROM gl_journal_lines raw WHERE raw.company_id=j.company_id AND raw.journal_entry_id=j.id) AS "lineCount",
+  EXISTS(SELECT 1 FROM gl_journal_lines raw LEFT JOIN gl_accounts a ON a.company_id=raw.company_id AND a.id=raw.gl_account_id
+   WHERE raw.company_id=j.company_id AND raw.journal_entry_id=j.id AND a.id IS NULL) AS "accountOwnershipMissing",
   COALESCE((SELECT jsonb_agg(x ORDER BY x.id) FROM(SELECT l.id,l.gl_account_id AS "glAccountId",l.debit::text,l.credit::text FROM gl_journal_lines l
    JOIN gl_accounts a ON a.company_id=l.company_id AND a.id=l.gl_account_id
    WHERE l.company_id=j.company_id AND l.journal_entry_id=j.id ORDER BY l.id LIMIT 10001)x),'[]'::jsonb) AS lines
@@ -58,7 +61,7 @@ export async function loadPayrollControlPopulation(ctx:ControlTx,cutoff:string|n
    OR (SELECT count(*) FROM cost_centre_gl_mappings WHERE company_id=${company}::uuid)>10000
    OR (SELECT count(*) FROM uif_declarations WHERE company_id=${company}::uuid)>10000
    OR (SELECT count(*) FROM shared_banks)>10000 OR (SELECT count(*) FROM changes)>10000
-   OR EXISTS(SELECT 1 FROM journals WHERE jsonb_array_length(lines)>10000)),
+   OR EXISTS(SELECT 1 FROM journals WHERE "lineCount">10000 OR jsonb_array_length(lines)>10000)),
   'employees',COALESCE((SELECT jsonb_agg(e ORDER BY e.id) FROM employees e),'[]'::jsonb),
   'accounts',COALESCE((SELECT jsonb_agg(a ORDER BY a.id) FROM accounts a),'[]'::jsonb),
   'allocations',COALESCE((SELECT jsonb_agg(a ORDER BY a.employee_id,a.cost_centre_id) FROM allocations a),'[]'::jsonb),
