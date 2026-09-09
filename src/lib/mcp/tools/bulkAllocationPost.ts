@@ -10,7 +10,7 @@ import { withSavepoint } from '@/lib/neon';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
-import { prefetchAllocationVatFacts } from './allocationVatGuard';
+import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocationVatGuard';
 import { postAllocationLine } from './allocationLine';
 import type { McpToolContext } from '../types';
 
@@ -18,7 +18,7 @@ export interface PostedLine {
   transaction_id: string;
   journal_entry_id: string;
   /** Present only when a guard changed this line's VAT code before posting. */
-  vat_coerced?: { from: string; to: string; reason: 'input_tax_denied' | 'no_supply' };
+  vat_coerced?: { from: string; to: string; reason: VatCoercionReason };
 }
 
 /** One line whose VAT claim a guard dropped before it posted. */
@@ -27,8 +27,13 @@ export interface CoercedVatLine {
   transaction_id: string;
   from: string;
   to: string;
-  /** `input_tax_denied` = s17(2)(a) entertainment. `no_supply` = no supply can arise. */
-  reason: 'input_tax_denied' | 'no_supply';
+  /**
+   * `input_tax_denied` = s17(2)(a) entertainment. `no_supply` = no supply can
+   * arise on the account. `settlement` = the line settles a bill or an invoice
+   * that already accounted for the VAT. Aliased, not restated, so a new reason
+   * cannot be added to the guard and forgotten here.
+   */
+  reason: VatCoercionReason;
 }
 
 export interface PostedBatch {

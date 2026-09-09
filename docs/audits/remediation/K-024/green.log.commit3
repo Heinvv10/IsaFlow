@@ -1,0 +1,51 @@
+K-024 / R-005 review follow-up (commit 3) — remaining annual surfaces
+
+Findings from the blind review at scratchpad/review-k024.md: 2 HIGH, 1 MEDIUM, 1 LOW.
+All four addressed in one commit; nothing amended.
+
+HIGH 1  pages/api/payroll/irp5/summary.ts had NO status predicate, so after commit 1 the
+        review screen showed gross 1 210 000 while the file it previews wrote 3601,10000.
+HIGH 2  pages/api/payroll/year-end/status.ts carried IN ('approved','posted','calculated')
+        on all three of its payroll_run_headers queries — a second EMP501 balance check
+        disagreeing with the reconciliation, and the source of certificatesReady.
+MEDIUM  Both fix.md files claimed a completeness that did not hold. Rewritten: K-024/fix.md
+        now enumerates every declaration surface by call site with its state, names the two
+        bureau queries deliberately left alone, and its historical-impact query was widened
+        from NOT IN ('approved','paid') to IN ('draft','calculated','cancelled','paid') so
+        it covers the dropped-paid direction too.
+LOW     easyfile-export.ts, reconciliation.ts and year-end/status.ts lacked the
+        Number.isInteger taxYear guard their siblings have; ?taxYear=abc was a 500 (22P02).
+        year-end/status.ts was not in the review's list but has the same gap and was already
+        being edited, so it is fixed here as well.
+
+Tests: tests/integration/k024b-annual-surfaces-declarable-status.int.test.ts
+  Test Files 1 passed (1) / Tests 3 passed (3)
+  1. IRP5 summary aggregates 30 000 (approved 10 000 + paid 20 000) and its gross equals
+     the 3601 field the e@syFile export writes for the same employee.
+  2. year-end checklist reports monthsCovered 2 / totalPaye 3 000 and its EMP501 totals
+     equal the reconciliation route's, tested against each other.
+  3. ?taxYear=abc and ?taxYear=9999 are 400 on all three previously-unguarded routes.
+
+Mutations, each applied alone and then restored:
+  A  summary predicate -> AND TRUE                       : test 1 FAILED
+  B  year-end -> IN ('approved','posted','calculated')    : test 2 FAILED
+  C  the three taxYear guards deleted                     : test 3 FAILED
+  restored: 3 files / 7 tests passed (k024, k024b, r005 together).
+
+bunx tsc --noEmit — exit 0, no output.
+bunx eslint on all five changed routes — exit 0, no output.
+Full unit suite, DATABASE_URL unset: see the totals appended below.
+
+Full unit suite, DATABASE_URL unset:
+  Test Files  4 failed | 783 passed | 36 skipped (823)
+  Tests       7 failed | 9328 passed | 234 skipped (9569)
+The four failing files (bankAllocationUnwind, trackerExclusion, bankAllocationService,
+cashFlowReport) are the same 10s+ timeouts seen before this commit, under parallel-agent
+load on this box; the failing set has differed across every run of this tree (5 files, then
+2, now 4). Re-run in isolation on this branch: Test Files 4 passed (4) / Tests 24 passed
+(24). Not caused by this change and not cleared by it.
+
+Reviewer note answered: the review says "no change to any validator test exists in either
+commit". The 4102 correction is inside the test file, which commit 1efb0959 ADDS whole, so
+it shows as an addition rather than a modification. The reviewer independently confirmed
+`4102,1000.00` is the shape the service emits.
