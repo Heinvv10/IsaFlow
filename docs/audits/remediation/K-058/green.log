@@ -108,3 +108,67 @@ Review follow-up (tenant-scoped joins + the four LOWs)
       Tests      9434 passed | 234 skipped (9668)   0 FAILED
     The §8 flakiness did NOT reproduce on this run. It was contention in the
     shared worktree, as suspected there; the suite is clean with this change in.
+
+──────────────────────────────────────────────────────────────────────────────
+10. ROUND-3 review of 7cc4c7a5 (scratchpad/review-k058-r3.md): 3 LOW, all addressed.
+
+    LOW 1 — the outer join re-opens a debtors-vs-aging disagreement in the
+    OPPOSITE direction: arAgingService.ts:49 still joins customers with an
+    unscoped INNER JOIN, so an id matching no customers row anywhere is now
+    listed by the debtors dashboard and still dropped by aging.
+    DOCUMENTED, NOT ALIGNED — and asserted, which the review offered as the
+    alternative. Reason for not aligning: arAgingService.ts is K-053's
+    affectedPath in docs/audits/remediation/backlog.json
+    ("src/modules/accounting/services/ar/arAgingService.ts:53") and two K-053
+    fixers are editing it on parallel branches right now. Editing the same
+    statement from K-058's branch would conflict at integration and take another
+    item's scope. Recorded in fix.md Limits AND pinned by a new test so a future
+    change to either surface fails rather than drifting silently.
+
+    LOW 2 — "the debtors summary agrees with AR aging" never called getARAging;
+    it compared a sum against a hardcoded constant. FIXED: the test now calls
+    getARAging(COMPANY), sums the buckets and compares the two surfaces, then
+    keeps the constant as a second assertion so a change that moves BOTH
+    surfaces together is still caught.
+
+    LOW 3 — two different un-nameable debtors both rendered "Unknown customer",
+    indistinguishable in the table and in the dashboard's clientName search
+    (pages/accounting/debtors-manager/index.tsx:143). FIXED as suggested:
+    COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id,
+    ci.customer_id)::text, 8)) on both projections. The inner COALESCE is the
+    summary's own grouping expression, so GROUP BY is unaffected.
+
+10a. Integration, real schema, fixture DB:
+     $ bun run test:integration -- tests/integration/k058-debtors-drops-null-client-id.int.test.ts
+       Test Files 1 passed (1) | Tests 11 passed (11)   (was 9)
+     New fixture: a third company holding two un-nameable debtors — one orphan
+     client_id (no customers row anywhere), one customer_id naming company B's
+     customer. It is deliberately a SEPARATE company so the debtors-vs-aging
+     agreement above is still asserted on a book with no orphan in it, rather
+     than being weakened to accommodate one.
+     Measured divergence on that third book: debtors R1,200, aging R800, gap
+     R400 = exactly the orphan row. That is LOW 1, reproduced and pinned.
+
+10b. Mutation proof, five mutations, each reverted; file byte-identical to the
+     committed one afterwards (diff -q clean):
+       LEFT JOIN -> JOIN                                7 failed | 4 passed
+       COALESCE(client_id, customer_id) -> client_id    6 failed | 5 passed
+       drop `AND c.company_id = ci.company_id` (both)   2 failed | 9 passed
+       drop the id fragment from the placeholder        2 failed | 9 passed
+       COUNT(DISTINCT ...) -> COUNT(...) on clientCount 2 failed | 9 passed
+     All five RED. The placeholder mutation is the one that pins LOW 3.
+
+10c. $ bunx tsc --noEmit                                              exit 0
+     $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts
+                                                         exit 0, no output
+     File is 299 lines (<= 300). Two lines of headroom left; any further edit
+     to this file needs an extraction first.
+
+10d. Full unit suite, DATABASE_URL unset, two runs:
+       run 1   790 passed | 2 failed   (cashFlowReport, bankAllocationUnwind)
+       run 2   792 passed | 0 failed   Tests 9434 passed | 234 skipped
+     Run 1's two failures are the §8 flakiness again, not this change: neither
+     file imports debtorsManagerService (grep, no match), both pass in isolation
+     ($ bunx vitest run <the two files> -> 2 passed | 17 tests), and the host
+     load average was 90 at the time of run 1 against 48 for the clean run at
+     7cc4c7a5. Run 2 on the identical tree is clean.

@@ -24,9 +24,11 @@ and made OUTER. Neither `client_id` (no FK at all) nor `customer_id` (FK to `cus
 not tenant-scoped) is constrained to the invoice's own company, so an id pointing at another
 company's customer previously joined and rendered that customer's NAME on this company's
 dashboard. Coalescing widened the class of rows that could do it, since NULL-`client_id`
-rows now join on `customer_id`. The `LEFT JOIN` plus `COALESCE(c.name, 'Unknown customer')`
-withholds the foreign name — the actual leak — while keeping the row and its amount, which
-is this company's own AR, visible. Dropping the row instead would have re-created the very
+rows now join on `customer_id`. The `LEFT JOIN` plus a `COALESCE` on the name withholds the
+foreign name — the actual leak — while keeping the row and its amount, which is this
+company's own AR, visible. The placeholder carries the first 8 characters of the unresolved
+id, so two debtors that cannot be named stay distinguishable in the table and in the
+dashboard's client-side name search, without disclosing anything about either. Dropping the row instead would have re-created the very
 defect K-058 is about: money not shown, not totalled, not reported as excluded. The outer
 join also re-admits orphan `client_id` values, same argument. `clientCount` is a plain
 `COUNT(DISTINCT COALESCE(ci.client_id, ci.customer_id))`: with an outer join every debtor
@@ -38,18 +40,22 @@ group is listed, the collection-stats `WHERE` is identical to the summary `WHERE
   `getDebtorsSummary` projection/join/GROUP BY, `getDebtorDetail` predicate,
   `getOverdueInvoices` projection/join, `getCollectionStats` `COUNT(DISTINCT ...)`;
   plus `AND c.company_id = ci.company_id` on both `customers` joins, both joins made
-  `LEFT JOIN`, and both name projections wrapped in `COALESCE(..., 'Unknown customer')`.
+  `LEFT JOIN`, and both name projections wrapped in
+  `COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id, ci.customer_id)::text, 8))`.
 
-**Tests.** `tests/integration/k058-debtors-drops-null-client-id.int.test.ts` — 9 tests
-against the real schema (2 pre-existing RED + 1 control, plus 6 adjacent cases:
+**Tests.** `tests/integration/k058-debtors-drops-null-client-id.int.test.ts` — 11 tests
+against the real schema. Two pre-existing RED + 1 control, plus 8 adjacent cases:
 `client_id` precedence over `customer_id`, drill-down by the summary's `clientId`,
 collection-stats customer count, second-company isolation, a company-A invoice whose
-`customer_id` points at company B's customer — the row and its money must appear while the
-name must not — and stat-tile/table agreement on both count and total). 9/9 pass. Three
-mutations recorded in `green.log` §9b, each restored: `LEFT JOIN` back to `JOIN` turns 5
-RED, dropping the tenant predicate turns 1 RED, reverting `COALESCE(client_id, customer_id)`
-to `client_id` turns 5 RED. Full unit suite with `DATABASE_URL` unset: 9434 passed, 0
-failed.
+`customer_id` points at company B's customer (row and money visible, name not),
+stat-tile/table agreement on both count and total, two un-nameable debtors of a third
+company rendering distinguishably, and the aging divergence recorded under Limits below,
+asserted rather than only written down. The debtors-vs-aging test calls `getARAging` and
+compares the two totals; it no longer compares against a constant. 11/11 pass. Five
+mutations recorded in `green.log` §10b, each restored, file byte-identical afterwards:
+`LEFT JOIN`→`JOIN` 7 RED, `COALESCE(client_id, customer_id)`→`client_id` 6 RED, tenant
+predicate dropped 2 RED, id fragment removed from the placeholder 2 RED, `DISTINCT` dropped
+from `clientCount` 2 RED. Full unit suite with `DATABASE_URL` unset: 9434 passed, 0 failed.
 
 **Migration / rollback.** None. Read-side only; revert the commit to roll back.
 
@@ -68,12 +74,20 @@ GROUP BY company_id;
 ```
 
 **Limits.**
-- A row naming a foreign customer renders as `Unknown customer` rather than being
+- A row naming a foreign customer renders as `Unknown customer <id8>` rather than being
   dropped, so the debtors table, the overdue list and `getCollectionStats` all agree on
-  the same money. `getARAging` still joins `customers` unscoped, so that surface would
-  still render the foreign name; scoping it is a change to a different service and was
-  left alone. The placeholder is not an excluded-row alert — an operator sees an unnamed
-  debtor, which is a data-quality signal, not a reconciliation break.
+  the same money. The placeholder is not an excluded-row alert — an operator sees an
+  unnamed debtor, which is a data-quality signal, not a reconciliation break.
+- **The debtors dashboard and AR aging still disagree on one input, in the opposite
+  direction to the original defect.** `arAgingService.ts:49` joins `customers` with an
+  UNSCOPED INNER JOIN. An id matching no `customers` row at all — possible because
+  `client_id` carries no foreign key — is now listed by the debtors dashboard and is still
+  dropped by aging; before this change both surfaces dropped it, so they agreed. Aging also
+  still renders the foreign customer's NAME, since its unscoped join resolves it. Both
+  halves are asserted in the test named "records the one case where debtors and AR aging
+  still disagree", so a future change to either surface fails there rather than drifting
+  silently. Not fixed here: `arAgingService.ts` is K-053's file and is being edited on a
+  parallel branch, so scoping and outer-joining it belongs there, not in this commit.
 - None of the four queries filters `deleted_at`. Adding it here alone would re-open the
   very disagreement this fix closes, because `arAgingService` does not filter it either,
   and the repo's own predicate is `(deleted_at IS NULL OR deleted_at > NOW())`, not a
