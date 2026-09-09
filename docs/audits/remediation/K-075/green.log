@@ -36,3 +36,54 @@ MUTATION PROOF (production change reverted, test re-run, then restored)
 FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u JWT_SECRET bunx vitest run)
  Test Files  795 passed | 36 skipped (831)
       Tests  9459 passed | 234 skipped (9693)
+
+=============================================================================
+ROUND 2 — all 13 blind-review findings (see review-round-2.md for dispositions)
+=============================================================================
+
+$ bunx vitest run tests/unit/services/k07{2,5,6}-*.test.ts
+      Tests  55 passed (55)
+   k072-receipt-entertainment-vat      12
+   k075-ocr-comma-decimal              13
+   k075-bank-csv-comma-decimal          6   (new — the same defect in the CSV parser)
+   k076-ocr-label-boundaries           24
+
+$ source fixture.env; bun run test:integration -- tests/integration/k072-receipt-entertainment-vat.int.test.ts
+      Tests  5 passed (5)
+   New case: a Tashas receipt, which MERCHANT_PATTERNS does not know, coded to an
+   account carrying gl_accounts.vat_input_denied (migration 521's marker). Posted
+   2 legs, 1150 on the expense, nothing on VAT Input, debits = credits.
+   The office receipt's legs now come back vat_type = 'standard'.
+
+$ bun scripts/ci/check-vat-guard-coverage.ts
+[vat-guard] OK — 1909 files scanned, 14 attended/no-claim paths allowlisted.
+   14 = unchanged from origin/master. NO allowlist entry was added.
+   inspectVatGuardCoverage on both routes now returns
+     {"kinds":["vat_field_on_a_posting_path"],"guarded":true}
+   where before it returned null — in scope, and guarded.
+
+$ bunx tsc --noEmit                                          → clean
+$ bunx eslint <4 changed src files + 2 changed routes>        → clean
+File sizes: ocrExtractionService 269, ocrAmountPatterns 153   → both under the 300 cap
+
+MUTATION PROOF (each production change reverted, test re-run, then restored)
+  A. HIGH-1  boundary back to `(?:^|[^A-Za-z])`      → 4 failed | 20 passed
+  B. HIGH-2  bare VAT column pattern deleted          → 2 failed | 22 passed
+  C. MED-4   value test back to /^\d{9,10}$/          → 2 failed | 22 passed
+  D. LOW-7/8 parseAmount back to .replace(',', '.')   → 2 failed | 11 passed
+  E. LOW-10  proved-sum branch deleted                → 1 failed | 23 passed
+  F. MED-3   builder ignores options.accountVatDenied → 1 failed | 11 passed
+  G. LOW-12  inputVatDenied hard-coded false          → 3 failed |  9 passed
+  H. MED-5   every inputVatDenial binding removed from receipt-to-journal.ts,
+             vatType kept                             → GATE EXITS 1:
+               "pages/api/accounting/receipt-to-journal.ts
+                  matched: vat_field_on_a_posting_path"
+             Restored → gate exits 0. The path is no longer invisible to CI.
+
+Two mutations (A and D) silently no-opped on the first attempt and reported a false
+GREEN. Both were caught by asserting the edit landed before running the test, and are
+recorded here because the first run of each looked like a passing mutation check.
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u JWT_SECRET bunx vitest run)
+ Test Files  796 passed | 36 skipped (832)
+      Tests  9493 passed | 234 skipped (9727)

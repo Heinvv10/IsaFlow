@@ -23,6 +23,11 @@ import {
   parseReceiptType,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import {
+  INPUT_VAT_DENIED_ADVICE,
+  resolveVatCodeForAccount,
+  VAT_CODE_STANDARD,
+} from '@/modules/accounting/services/gl/inputVatDenial';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
@@ -82,8 +87,26 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     : null;
   const expenseAccountId = accountSuggestion?.id ?? defaultExpenseAccountId;
 
+  // Ask the account itself before building. `resolveVatCodeForAccount` reads
+  // the `vat_input_denied` marker on the expense account this receipt is being
+  // coded to (company-scoped, one query) and coerces the claim away for an
+  // unattended caller — which this is, since the receipt auto-posts under a
+  // confidence gate with nobody looking at it. The builder ORs that with its
+  // merchant heuristic, so a restaurant the regex does not recognise is still
+  // caught whenever the account carries the flag.
+  const accountDenial = await resolveVatCodeForAccount(
+    companyId,
+    expenseAccountId,
+    VAT_CODE_STANDARD,
+    { documentId, source: 'receipt_to_journal' },
+  );
+
   // Build journal entry
-  const journalInput = buildExpenseJournalFromReceipt(extracted, { expenseAccountId, vatInputAccountId, bankAccountId });
+  const journalInput = buildExpenseJournalFromReceipt(
+    extracted,
+    { expenseAccountId, vatInputAccountId, bankAccountId },
+    { accountVatDenied: accountDenial.denied },
+  );
   const receiptType = parseReceiptType(extracted);
   const autoPost = shouldAutoPostReceipt(extracted.totalAmount || 0, extracted.confidence, { maxAmount: 5000, minConfidence: 0.85 });
 
@@ -117,6 +140,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       debit: l.debit,
       credit: l.credit,
       description: l.description,
+      vatType: l.vatType,
     }));
 
   // Check the extraction actually balances BEFORE calling createJournalEntry.
@@ -166,7 +190,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     accountSuggestion: accountSuggestion ? { code: accountSuggestion.code, name: accountSuggestion.name } : null,
     autoPosted: autoPost,
     amount: extracted.totalAmount,
-    warnings: validation.warnings,
+    inputVatDenied: journalInput.inputVatDenied,
+    warnings: journalInput.inputVatDenied
+      ? [...validation.warnings, INPUT_VAT_DENIED_ADVICE]
+      : validation.warnings,
   });
 }
 

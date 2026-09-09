@@ -25,13 +25,15 @@ const bank = crypto.randomUUID();
 const vatInput = crypto.randomUUID();
 const meals = crypto.randomUUID();
 const office = crypto.randomUUID();
+const flagged = crypto.randomUUID();
 const defaultExpense = crypto.randomUUID();
 
 const mealsDoc = crypto.randomUUID();
 const officeDoc = crypto.randomUUID();
 const derivedDoc = crypto.randomUUID();
 const tenantDoc = crypto.randomUUID();
-const documents = [mealsDoc, officeDoc, derivedDoc, tenantDoc];
+const flaggedDoc = crypto.randomUUID();
+const documents = [mealsDoc, officeDoc, derivedDoc, tenantDoc, flaggedDoc];
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -80,31 +82,58 @@ async function legs(documentId: string) {
   };
 }
 
+/**
+ * Cleanup runs at BOTH ends. `afterAll` alone leaves the tenant rows behind
+ * whenever a run is interrupted or `beforeAll` itself throws, and the fixture
+ * database is shared with every other integration file — a stale `companies`
+ * row from a killed run is somebody else's confusing failure later.
+ */
+async function purge(): Promise<void> {
+  const companies = [company, otherCompany];
+  await pool.query('DELETE FROM captured_documents WHERE id=ANY($1::uuid[])', [documents]);
+  await pool.query('DELETE FROM gl_journal_lines WHERE company_id=ANY($1::uuid[])', [companies]);
+  await pool.query('DELETE FROM gl_journal_entries WHERE company_id=ANY($1::uuid[])', [companies]);
+  await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])',
+    [[bank, vatInput, defaultExpense, meals, office, flagged]]);
+  await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1::uuid[])', [companies]);
+  await pool.query('DELETE FROM fiscal_periods WHERE company_id=ANY($1::uuid[])', [companies]);
+  await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [companies]);
+  await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companies]);
+  await pool.query('DELETE FROM users WHERE id=$1', [user]);
+}
+
 beforeAll(async () => {
+  await purge();
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)',
     [company, 'K072 owner', otherCompany, 'K072 outsider']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)",
     [user, `${user}@test.local`]);
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')",
     [company, user]);
-  // The three system roles the route resolves, plus the two merchant-mapped
-  // expense accounts (5600 meals & entertainment, 5100 office supplies) it
-  // looks up by CODE.
+  // The three system roles the route resolves, plus the merchant-mapped expense
+  // accounts (5600 meals & entertainment, 5100 office supplies) it looks up by
+  // CODE, plus a flagged Staff Welfare account for the account-marker case.
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_system_account,is_active)
-     VALUES($1,$6,'K072B','K072 Bank','asset','bank','debit',true,true),
-           ($2,$6,'1140','K072 VAT Input','asset','vat_input','debit',true,true),
-           ($3,$6,'K072DE','K072 Default expense','expense','default_expense','debit',true,true),
-           ($4,$6,'5600','K072 Meals & entertainment','expense',NULL,'debit',false,true),
-           ($5,$6,'5100','K072 Office supplies','expense',NULL,'debit',false,true)`,
-    [bank, vatInput, defaultExpense, meals, office, company],
+     VALUES($1,$7,'K072B','K072 Bank','asset','bank','debit',true,true),
+           ($2,$7,'1140','K072 VAT Input','asset','vat_input','debit',true,true),
+           ($3,$7,'K072DE','K072 Default expense','expense','default_expense','debit',true,true),
+           ($4,$7,'5600','K072 Meals & entertainment','expense',NULL,'debit',false,true),
+           ($5,$7,'5100','K072 Office supplies','expense',NULL,'debit',false,true),
+           ($6,$7,'5610','K072 Staff welfare','expense',NULL,'debit',false,true)`,
+    [bank, vatInput, defaultExpense, meals, office, flagged, company],
   );
+  // The marker migration 521 sets. The merchant map knows nothing about
+  // "Tashas", so this account flag is the ONLY thing that can deny the claim.
+  await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=$1 AND company_id=$2',
+    [flagged, company]);
   clearSystemAccountCache(company);
 
   await seedDoc(mealsDoc, company, { vendorName: 'Spur Steak Ranches Rosebank', subtotal: 1000, vatAmount: 150, total: 1150 });
   await seedDoc(officeDoc, company, { vendorName: 'Waltons Stationery', subtotal: 1000, vatAmount: 150, total: 1150 });
   await seedDoc(derivedDoc, company, { vendorName: 'Nandos Menlyn', subtotal: null, vatAmount: null, total: 460 });
   await seedDoc(tenantDoc, otherCompany, { vendorName: 'Spur Steak Ranches Sandton', subtotal: 1000, vatAmount: 150, total: 1150 });
+  await seedDoc(flaggedDoc, company, { vendorName: 'Tashas Melrose Arch', subtotal: 1000, vatAmount: 150, total: 1150 });
 
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
@@ -113,17 +142,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    const companies = [company, otherCompany];
-    await pool.query('DELETE FROM captured_documents WHERE id=ANY($1::uuid[])', [documents]);
-    await pool.query('DELETE FROM gl_journal_lines WHERE company_id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM gl_journal_entries WHERE company_id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])',
-      [[bank, vatInput, defaultExpense, meals, office]]);
-    await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM fiscal_periods WHERE company_id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM users WHERE id=$1', [user]);
+    await purge();
   } finally {
     clearSystemAccountCache();
     await pool.end();
@@ -153,8 +172,10 @@ describe('K-072 entertainment input VAT reaches the ledger denied', () => {
 
     const posted = await legs(officeDoc);
     expect(posted.count).toBe(3);
-    expect(posted.byAccount.get(office)).toEqual({ dr: 1000, cr: 0, vatType: null });
-    expect(posted.byAccount.get(vatInput)).toEqual({ dr: 150, cr: 0, vatType: null });
+    // Tagged 'standard' in the ledger, which is also what puts this route
+    // inside the scope of scripts/ci/check-vat-guard-coverage.ts.
+    expect(posted.byAccount.get(office)).toEqual({ dr: 1000, cr: 0, vatType: 'standard' });
+    expect(posted.byAccount.get(vatInput)).toEqual({ dr: 150, cr: 0, vatType: 'standard' });
     expect(posted.byAccount.get(bank)).toEqual({ dr: 0, cr: 1150, vatType: null });
     expect(posted.totalDebit).toBe(posted.totalCredit);
   });
@@ -169,6 +190,24 @@ describe('K-072 entertainment input VAT reaches the ledger denied', () => {
     const posted = await legs(derivedDoc);
     expect(posted.byAccount.get(vatInput)).toBeUndefined();
     expect(posted.byAccount.get(meals)!.dr).toBe(460);
+    expect(posted.totalDebit).toBe(posted.totalCredit);
+  });
+
+  it('denies on the ACCOUNT flag when the merchant map does not know the vendor', async () => {
+    // "Tashas" is not in MERCHANT_PATTERNS, so it maps to the default expense
+    // account and classifies as `general`. Nothing in the builder can deny it.
+    // The route reads gl_accounts.vat_input_denied on the account it resolved,
+    // which is the marker migration 521 exists to set.
+    await pool.query(
+      'UPDATE gl_accounts SET vat_input_denied = true WHERE id=$1 AND company_id=$2',
+      [defaultExpense, company],
+    );
+    const result = await post(flaggedDoc, token, company);
+    expect(result.state.statusCode).toBe(200);
+
+    const posted = await legs(flaggedDoc);
+    expect(posted.byAccount.get(vatInput)).toBeUndefined();
+    expect(posted.byAccount.get(defaultExpense)!.dr).toBe(1150);
     expect(posted.totalDebit).toBe(posted.totalCredit);
   });
 

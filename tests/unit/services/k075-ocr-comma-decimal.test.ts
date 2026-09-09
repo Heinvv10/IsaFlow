@@ -51,3 +51,34 @@ describe('K-075 adjacent cases', () => {
     expect(result.subtotal).toBe(1000);
   });
 });
+
+describe('K-075 the separator is decided by the LAST one in the string', () => {
+  it('reads comma thousands AND a comma decimal', () => {
+    // `.replace(',', '.')` is non-global: "1,234,56" had only its first comma
+    // converted, so parseFloat("1.234,56") stopped at 1.23 — a thousand times
+    // under, silently.
+    expect(extractAmounts('Total Due: R1,234,56').totalAmount).toBe(1234.56);
+  });
+
+  it('reads the European point-thousands form', () => {
+    expect(extractAmounts('Total Due: R1.234,56').totalAmount).toBe(1234.56);
+  });
+
+  it('reads the US comma-thousands form', () => {
+    expect(extractAmounts('Total Due: R1,234.56').totalAmount).toBe(1234.56);
+  });
+
+  it('treats a comma with three digits after it as thousands', () => {
+    expect(extractAmounts('Total Due: 1,234').totalAmount).toBe(1234);
+  });
+
+  it('keeps a single-digit decimal part', () => {
+    expect(extractAmounts('Total Due: 1150.5').totalAmount).toBe(1150.5);
+  });
+
+  it('does not run the capture across a line break into the next figure', () => {
+    // The old class was `[\\d\\s,]*`, and `\\s` matches a newline: a greedy
+    // capture starting at the total swallowed the figure on the line below.
+    expect(extractAmounts('Total Due: 1150.00\n1 234 567').totalAmount).toBe(1150);
+  });
+});

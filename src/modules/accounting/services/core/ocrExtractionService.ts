@@ -5,6 +5,12 @@
  */
 
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import {
+  extractVatAmount,
+  parseAmount,
+  SUBTOTAL_PATTERNS,
+  TOTAL_PATTERNS,
+} from './ocrAmountPatterns';
 
 export interface ExtractedAmounts {
   subtotal: number | null;
@@ -143,68 +149,29 @@ export function extractReferenceNumber(text: string): string | null {
   return null;
 }
 
-/**
- * The comma is the DECIMAL separator in SA ("R1 150,00"); stripping it with the
- * thousands space made that 115000 and posted it. Same rule as
- * `bankCsvParserUtils.parseAmount`: comma + two digits and no point is the
- * decimal point ("1,234.56" stays 1234.56).
- */
-function parseAmount(str: string): number {
-  const decimalComma = !str.includes('.') && /,\d{2}$/.test(str.trim());
-  const cleaned = decimalComma
-    ? str.replace(/[\s\u00A0]/g, '').replace(',', '.')
-    : str.replace(/[\s\u00A0,]/g, '');
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : Math.round(num * 100) / 100;
-}
-
-/** A 9-or-10-digit run with no decimal part: a registration number, not an amount. */
-const REGISTRATION_NUMBER = /^\d{9,10}$/;
-
 export function extractAmounts(text: string): ExtractedAmounts {
   const result: ExtractedAmounts = { subtotal: null, vatAmount: null, totalAmount: null };
 
-  // `(?:^|[^A-Za-z])` is the left boundary the labels never had: "Subtotal"
-  // satisfied them, and `text.match` takes the FIRST match — so a Subtotal
-  // above Total Due became the total, VAT-exclusive.
-  const totalPatterns = [
-    /(?:^|[^A-Za-z])(?:Grand\s*)?Total\s*(?:Due|Amount|Payable)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /(?:^|[^A-Za-z])(?:Amount|Balance)\s*(?:Due|Owing|Payable)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /(?:^|[^A-Za-z])Total\s*(?:Incl(?:uding)?\.?\s*(?:VAT|Tax))?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-  ];
-  for (const pattern of totalPatterns) {
+  for (const pattern of TOTAL_PATTERNS) {
     const match = text.match(pattern);
     if (match && match[1]) { result.totalAmount = parseAmount(match[1]); break; }
   }
 
-  // Every separator after VAT was optional, so a letterhead "VAT 4123456789"
-  // read as an amount; it now needs a rate, separator or currency token.
-  const vatPatterns = [
-    /VAT\s*(?:@|\()\s*\d+(?:[.,]\d+)?\s*%\s*\)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /VAT\s*[:-]\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /VAT\s+(?:ZAR|R)\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /Tax\s*(?:Amount)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-  ];
-  for (const pattern of vatPatterns) {
-    const match = text.match(pattern);
-    if (match && match[1] && !REGISTRATION_NUMBER.test(match[1].replace(/[\s\u00A0]/g, ''))) {
-      result.vatAmount = parseAmount(match[1]);
-      break;
-    }
-  }
-
-  const subtotalPatterns = [
-    /Sub\s*[-\s]?Total\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /Total\s*(?:Excl(?:uding)?\.?\s*(?:VAT|Tax))\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /Nett?\s*(?:Amount|Total)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-  ];
-  for (const pattern of subtotalPatterns) {
+  // Read the subtotal BEFORE the VAT: the VAT selection below cross-checks
+  // candidates against it, so it has to exist by then.
+  for (const pattern of SUBTOTAL_PATTERNS) {
     const match = text.match(pattern);
     if (match && match[1]) { result.subtotal = parseAmount(match[1]); break; }
   }
 
+  result.vatAmount = extractVatAmount(text, result.subtotal, result.totalAmount);
+
   if (result.totalAmount !== null && result.vatAmount !== null && result.subtotal === null) {
-    result.subtotal = Math.round((result.totalAmount - result.vatAmount) * 100) / 100;
+    const derived = Math.round((result.totalAmount - result.vatAmount) * 100) / 100;
+    // A negative subtotal is not a subtotal. It means the VAT candidate was
+    // junk, and passing it on put an expense debit of minus forty-one million
+    // in front of whoever was looking at the capture screen.
+    result.subtotal = derived < 0 ? null : derived;
   }
   if (result.subtotal !== null && result.vatAmount !== null && result.totalAmount === null) {
     result.totalAmount = Math.round((result.subtotal + result.vatAmount) * 100) / 100;
@@ -212,6 +179,7 @@ export function extractAmounts(text: string): ExtractedAmounts {
 
   return result;
 }
+
 
 export function extractLineItems(lines: string[]): RegexLineItem[] {
   const items: RegexLineItem[] = [];
