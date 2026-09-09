@@ -2,6 +2,7 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {exportReadFixture} from '../../../fixtures/auditExportReadFixture';
 import {getAuditExportFiles,readAuditExportChunk} from '@/modules/accounting/services/controls/auditExportReadService';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+import {indexCryptography} from '@/modules/accounting/services/controls/auditSnapshotIndexCrypto';
 const mocks=vi.hoisted(()=>({permission:vi.fn(),sql:vi.fn()}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({assertControlTx:()=>undefined}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:mocks.permission}));
@@ -37,4 +38,19 @@ it('refuses missing descriptors and current source permission denial',async()=>{
  mocks.sql.mockReset();mocks.permission.mockImplementation(async(_ctx,permission)=>{if(permission==='read:payroll')throw Error('Permission refused');});
  mocks.sql.mockResolvedValueOnce([fixture.intentRow]);await expect(getAuditExportFiles(ctx,{jobId:fixture.identity.jobId})).rejects.toThrow(/Permission/);
  expect(mocks.sql).toHaveBeenCalledTimes(1);
+});
+it('refuses changed request kind and authenticated index permission mismatch',async()=>{
+ mocks.sql.mockResolvedValueOnce([{...fixture.intentRow,kind:'audit_snapshot'}]);
+ await expect(getAuditExportFiles(ctx,{jobId:fixture.identity.jobId})).rejects.toThrow(/identity|kind/);
+ const crypto=indexCryptography(),original=crypto.open('header',fixture.indexHeader) as Record<string,unknown>;
+ mocks.sql.mockResolvedValueOnce([fixture.intentRow]).mockResolvedValueOnce([{canonical_hash:fixture.identity.canonicalSnapshotHash,
+  protected_header:crypto.seal('header',{...original,permissions:['read:reports']})}]);
+ await expect(getAuditExportFiles(ctx,{jobId:fixture.identity.jobId})).rejects.toThrow(/source identity/);
+});
+it('refuses missing chunks and noncontiguous descriptors with an otherwise complete row count',async()=>{
+ header();const file=fixture.rows.find(r=>r.kind==='file')!;
+ mocks.sql.mockResolvedValueOnce([{protected_file:file.envelope}]).mockResolvedValueOnce([]);
+ await expect(readAuditExportChunk(ctx,{jobId:fixture.identity.jobId,fileOrdinal:0,chunkOrdinal:0})).rejects.toThrow(/chunk unavailable/);
+ header();mocks.sql.mockResolvedValueOnce([{file_ordinal:1,protected_file:file.envelope}]);
+ await expect(getAuditExportFiles(ctx,{jobId:fixture.identity.jobId,limit:1})).rejects.toThrow(/incomplete/);
 });
