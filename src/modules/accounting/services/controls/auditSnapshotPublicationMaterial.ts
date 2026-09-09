@@ -6,13 +6,15 @@ const actualByteLength=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uin
 const families:Record<AuditSnapshotRequest['sources'][number],readonly string[]>={
  journals:['journal_entry','journal_line'],
  ar:['customer_invoice','customer_invoice_line','customer_payment','customer_payment_allocation'],
- ap:['supplier_invoice','supplier_invoice_line','supplier_payment','supplier_payment_allocation'],
+ ap:['sage_supplier_invoice','supplier_invoice','supplier_invoice_line','supplier_payment','supplier_payment_allocation'],
  bank:['bank_transaction','bank_statement_import','bank_statement_attestation_intent'],payroll:['payroll_run','payroll_run_line'],
 };
-export function assertSnapshotRequest(snapshot:AuditSnapshotData,request:AuditSnapshotRequest){
+export function assertSnapshotRequest(snapshot:AuditSnapshotData,request:AuditSnapshotRequest,mode:'publication'|'retained'='publication'){
  if(snapshot.cutoff!==request.cutoff)throw new Error('Snapshot cutoff differs from request');
  const expected=request.sources.flatMap(source=>families[source]).sort(),actual=snapshot.populations.map(row=>row.source).sort();
- if(canonicalJson(expected)!==canonicalJson(actual))throw new Error('Snapshot population differs from requested sources');
+ const legacy=expected.filter(source=>source!=='sage_supplier_invoice');
+ if(canonicalJson(expected)!==canonicalJson(actual)
+  &&!(mode==='retained'&&canonicalJson(legacy)===canonicalJson(actual)))throw new Error('Snapshot population differs from requested sources');
  if(canonicalJson([...request.checks].sort())!==canonicalJson(snapshot.checks.map(check=>check.checkId).sort()))throw new Error('Snapshot checks differ from request');
 }
 /** Detach bytes before any await; getters and extra metadata never participate in retained evidence. */
