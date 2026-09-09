@@ -3372,11 +3372,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/unit/k098-critical-actions-dead-names.test.ts"
+   ],
+   "evidencePaths": [
+    "K-098/red.log",
+    "K-098/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3398,11 +3403,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k099-platform-admin-commits-on-4xx.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-099/red.log",
+    "K-099/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -5131,7 +5141,7 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "31fc2f10",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [],
    "testNames": [
     "tests/unit/services/capture/k154-statement-match-double-consumption.test.ts"
@@ -5163,7 +5173,7 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "31fc2f10",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [],
    "testNames": [
     "tests/integration/k155-duplicate-detection-ignores-status.int.test.ts"
@@ -5197,7 +5207,7 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "31fc2f10",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [],
    "testNames": [
     "tests/unit/services/capture/k156-imap-cursor-advances-past-failure.test.ts"
@@ -5229,7 +5239,7 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "31fc2f10",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [],
    "testNames": [
     "tests/integration/k157-attach-evidence-poisons-tx.int.test.ts"
@@ -5262,7 +5272,7 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "31fc2f10",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [],
    "testNames": [
     "tests/integration/k158-vat-registration-number-as-vat-code.int.test.ts"
@@ -5294,7 +5304,7 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "31fc2f10",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [],
    "testNames": [
     "tests/unit/services/capture/k159-whatsapp-amount-glue.test.ts"
@@ -5326,7 +5336,7 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "31fc2f10",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [],
    "testNames": [
     "tests/integration/k160-twilio-retry-reingest.int.test.ts"
@@ -5358,7 +5368,7 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "31fc2f10",
-   "status": "candidate",
+   "status": "false-positive",
    "dependencies": [],
    "testNames": [],
    "evidencePaths": [
