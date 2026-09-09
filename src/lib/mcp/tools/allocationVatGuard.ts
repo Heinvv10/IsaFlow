@@ -29,6 +29,7 @@ import {
   fetchVatDenialFlags,
 } from '@/modules/accounting/services/gl/inputVatDenial';
 import { fetchAccountNames } from '@/modules/accounting/services/gl/nonSupplyVatGuard';
+import { fetchBankContraFlags } from '@/modules/accounting/services/gl/bankContraVat';
 import { resolveRuleVatCode } from '@/modules/accounting/services/gl/ruleVatResolution';
 import { VAT_CODE_NONE } from '@/modules/accounting/services/gl/nonSupplyAccounts';
 
@@ -64,6 +65,8 @@ export interface VatCoercion {
 export interface AllocationVatFacts {
   denied: Map<string, boolean>;
   names: Map<string, string>;
+  /** Contra accounts that ARE bank accounts, i.e. transfers. */
+  isBank: Map<string, boolean>;
 }
 
 /** Two queries for the batch, rather than two per line. */
@@ -72,12 +75,13 @@ export async function prefetchAllocationVatFacts(
   accountIds: Array<string | null | undefined>,
 ): Promise<AllocationVatFacts> {
   const ids = [...new Set(accountIds.filter((id): id is string => Boolean(id)))];
-  if (ids.length === 0) return { denied: new Map(), names: new Map() };
-  const [denied, names] = await Promise.all([
+  if (ids.length === 0) return { denied: new Map(), names: new Map(), isBank: new Map() };
+  const [denied, names, isBank] = await Promise.all([
     fetchVatDenialFlags(companyId, ids),
     fetchAccountNames(companyId, ids),
+    fetchBankContraFlags(companyId, ids),
   ]);
-  return { denied, names };
+  return { denied, names, isBank };
 }
 
 export interface ResolvedLineVat {
@@ -106,7 +110,12 @@ export async function resolveLineVatCode(
   const accountId = line.contraAccountId || null;
   const prefetched = facts && accountId
     && facts.denied.has(accountId) && facts.names.has(accountId)
-    ? { denied: facts.denied.get(accountId)!, name: facts.names.get(accountId)! }
+    && facts.isBank.has(accountId)
+    ? {
+      denied: facts.denied.get(accountId)!,
+      name: facts.names.get(accountId)!,
+      isBank: facts.isBank.get(accountId)!,
+    }
     : null;
 
   const guarded = await resolveRuleVatCode({
@@ -116,6 +125,7 @@ export async function resolveLineVatCode(
     glAccountId: accountId,
     ruleGlAccountVatDenied: prefetched?.denied,
     ruleGlAccountName: prefetched?.name,
+    ruleGlAccountIsBank: prefetched?.isBank,
     denialContext: { bankTxId: txId, toolName, source: 'mcp' },
     guardContext: { bankTxId: txId, ruleName: toolName },
   });
