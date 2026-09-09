@@ -67,4 +67,13 @@ Final executed verification after these changes:
 
 Additional local proof logs: `/tmp/evidencegraph-reversal-red.log`, `/tmp/evidencegraph-reversal-pg-red.log`, `/tmp/evidencegraph-procurement-pg-red2.log`, `/tmp/evidencegraph-review-pg-green.log`, `/tmp/evidencegraph-review-unit-green.log`, `/tmp/evidencegraph-review-ts.log`, `/tmp/evidencegraph-review-lint.log`. The first foreign-only PG RED was an error-wording mismatch, not a bypass; only the subsequent same-tenant case establishes wrong-parent acceptance.
 
-Customer invoice/payment allocation and posting-journal families remain a separately assigned follow-up; current supported association families are enumerated above. No programme-wide completion claim is made.
+The separately assigned customer-family completion follows below. No programme-wide completion claim is made.
+
+
+## Customer-family completion
+
+Added exact stored `customer_payment_allocations` associations with both payment and invoice company ownership, customer invoice/payment posting-journal pointers, customer credit-note invoice links and credit-note posting-journal pointers. These reuse the authorized document and reversal traversal. No AR financial writer or state transition changed. Safe `confirmed` payment and `applied` credit-note lifecycle labels are retained rather than collapsed to unknown.
+
+Two lifecycle unit cases failed before the allowlist change and passed afterward. Two real PostgreSQL fixtures, starting respectively from customer invoice and customer payment, initially returned only each root and its directly attached document. After the relationship additions both traverse invoice, payment, customer credit note, all three posting journals, a persisted reversal, matched bank transaction, three separately filed procurement documents and captured journal evidence. Both prove foreign-root refusal and no sensitive payload output. Complete coverage in these fixtures describes their current recorded graph, not historical assurance.
+
+Customer RED/GREEN logs: `/tmp/evidencegraph-customer-unit-red.log`, `/tmp/evidencegraph-customer-unit-green.log`, `/tmp/evidencegraph-customer-pg-red.log`, `/tmp/evidencegraph-customer-pg-green.log`. Final focused units: **35 passed** across six graph/approval suites. TypeScript and source lint clean; test-file lint exclusion unchanged. Final full PostgreSQL suite: **13 passed**, 35.71 s total / 35.06 s tests. Pools closed and DB lease released. Full proof: `/tmp/evidencegraph-customer-full-pg.log`, `/tmp/evidencegraph-customer-unit-full.log`, `/tmp/evidencegraph-customer-ts.log`, `/tmp/evidencegraph-customer-lint.log`.

@@ -5,7 +5,7 @@ import { listApprovalEvidenceNeighbors } from './transactionEvidenceApprovals';
 import { listDocumentEvidenceNeighbors } from './transactionEvidenceDocumentLinks';
 import type { EvidenceIdentity,EvidenceNode,EvidenceNeighbor } from './transactionEvidenceTypes';
 const SAFE_STATUS=new Set(['draft','pending','approved','posted','reversed','processed','paid','partially_paid','cancelled','rejected','consumed',
-  'imported','allocated','reconciled','active','inactive','matched','reviewed','attached','submitted','received','partially_received','accepted']);
+  'imported','allocated','reconciled','active','inactive','matched','reviewed','attached','submitted','received','partially_received','accepted','confirmed','applied']);
 /** Only allowlisted scalar metadata is selected, never descriptions, amounts, URLs or protected values. */
 export async function loadEvidenceNode(ctx:ControlTx,ref:EvidenceIdentity,permissions:ReadonlySet<string>):Promise<EvidenceNode|null>{
   const c=ctx.principal.companyId,t=ref.entityType,id=ref.entityId;
