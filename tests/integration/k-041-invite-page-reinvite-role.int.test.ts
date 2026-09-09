@@ -95,3 +95,54 @@ it('M2 adjacent: an invitation addressed to someone else is refused and changes 
     [company, member]);
   expect(granted.rows).toEqual([{ role: 'manager' }]);
 });
+
+/**
+ * Round-3 L6: the acceptance log line carried the RAW 64-hex token. The whole
+ * point of src/lib/auth/inviteToken.ts is that the secret never leaves the
+ * request — the table holds only its digest — and a log line is exactly where
+ * it must not land. Assert on what the logger was actually handed, not on the
+ * source text.
+ */
+it('L6: accepting an invitation never writes the raw token to the log', async () => {
+  const freshMember = crypto.randomUUID();
+  const freshEmail = `k041l-${freshMember}@test.local`;
+  const freshToken = `k041l${'0'.repeat(27)}${freshMember.replace(/-/g, '')}`;
+  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'viewer',true)",
+    [freshMember, freshEmail]);
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'viewer')",
+    [company, freshMember]);
+  await pool.query(
+    `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at)
+     VALUES($1,$2,'manager',$3,$4, now()+interval '7 days')`,
+    [company, freshEmail, inviter, stored(freshToken)]);
+
+  const { log } = await import('@/lib/logger');
+  const infos: unknown[] = [];
+  const spy = vi.spyOn(log, 'info').mockImplementation((...args: unknown[]) => { infos.push(args); });
+
+  const { SignJWT } = await import('jose');
+  const jwt = await new SignJWT({ sub: freshMember, email: freshEmail, aal: 'aal2' })
+    .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
+    .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const cookies = { 'sb-access-token': jwt, isaflow_csrf: csrf };
+  const handler = (await import('../../pages/api/invite/[token]')).default;
+  const result = response();
+  try {
+    await handler({
+      method: 'POST', url: `/api/invite/${freshToken}`, query: { token: freshToken }, cookies, body: {},
+      headers: {
+        cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; '),
+        'x-csrf-token': csrf,
+      },
+      socket: { remoteAddress: '127.0.0.90' },
+    } as never, result.res);
+  } finally {
+    spy.mockRestore();
+  }
+
+  expect(result.state.statusCode).toBe(200);
+  expect(JSON.stringify(infos)).not.toContain(freshToken);
+  // …and the line is still diagnosable: it names the invitation instead.
+  const invId = await pool.query('SELECT id FROM company_invitations WHERE token=$1', [stored(freshToken)]);
+  expect(JSON.stringify(infos)).toContain(invId.rows[0].id);
+});

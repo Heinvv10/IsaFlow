@@ -7,8 +7,13 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
+// The real sendEmail NEVER throws on a delivery failure: it returns
+// { success: false, error } from its "SMTP not configured" branch and from its
+// own catch. Mocking a throw tested a shape the module cannot produce, and the
+// route passed while production reported emailSent: true for every real
+// failure. This mock returns the contract the module actually has.
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
-  sendEmail: vi.fn(async () => { throw new Error('SMTP unreachable'); }),
+  sendEmail: vi.fn(async () => ({ success: false, error: 'SMTP unreachable' })),
 }));
 const gotrueUserId = crypto.randomUUID();
 vi.mock('@/lib/auth/gotrue', async (importOriginal) => ({
@@ -41,7 +46,7 @@ afterAll(async () => {
   } finally { await pool.end(); }
 });
 
-it('the response after a failed invite email describes what actually survived', async () => {
+it('a resolved send failure is recorded and reported, not read as success', async () => {
   const invitations = (await import('../../pages/api/invitations/index')).default;
   const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST') as never as
     { body: unknown; query: Record<string, string>; url: string };
@@ -73,7 +78,7 @@ it('the response after a failed invite email describes what actually survived', 
 
 it('a successful send reports emailSent true and stamps the row', async () => {
   const emailService = await import('@/modules/accounting/services/core/emailService');
-  vi.mocked(emailService.sendEmail).mockResolvedValueOnce(undefined as never);
+  vi.mocked(emailService.sendEmail).mockResolvedValueOnce({ success: true, messageId: 'k106-ok' });
   const invitations = (await import('../../pages/api/invitations/index')).default;
   const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST') as never as
     { body: unknown; query: Record<string, string>; url: string };
@@ -91,4 +96,29 @@ it('a successful send reports emailSent true and stamps the row', async () => {
     [company, invitee]);
   expect(rows.rows[0].email_sent_at).not.toBeNull();
   expect(rows.rows[0].email_error).toBeNull();
+});
+
+// Adjacent case: sendEmail is not supposed to throw, but a transport or import
+// fault could. The catch must still write email_error and report emailSent
+// false rather than escaping as a 500 (which withAuth would ROLLBACK).
+it('a genuine throw from sendEmail is still recorded, not escaped as a 500', async () => {
+  const emailService = await import('@/modules/accounting/services/core/emailService');
+  vi.mocked(emailService.sendEmail).mockRejectedValueOnce(new Error('nodemailer import failed'));
+  const invitations = (await import('../../pages/api/invitations/index')).default;
+  const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST') as never as
+    { body: unknown; query: Record<string, string>; url: string };
+  req.body = { email: invitee, role: 'viewer' };
+  req.query = {};
+  req.url = '/api/invitations';
+  const result = response();
+  await invitations(req as never, result.res);
+
+  const body = result.state.body as { data?: { emailSent?: boolean; emailError?: string } };
+  expect({ status: result.state.statusCode, emailSent: body.data?.emailSent, emailError: body.data?.emailError })
+    .toEqual({ status: 201, emailSent: false, emailError: 'nodemailer import failed' });
+  const rows = await pool.query(
+    'SELECT email_sent_at, email_error FROM company_invitations WHERE company_id=$1 AND email=$2',
+    [company, invitee]);
+  expect(rows.rows[0].email_sent_at).toBeNull();
+  expect(rows.rows[0].email_error).toBe('nodemailer import failed');
 });

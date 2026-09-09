@@ -1,6 +1,7 @@
 // pages/api/invitations/[token]/index.ts
 import type { NextApiHandler } from 'next';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
+import { withErrorHandler } from '@/lib/api-error-handler';
 import { sql } from '@/lib/neon';
 
 function maskEmail(email: string): string {
@@ -45,4 +46,9 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: { ...invite, email: maskEmail(invite.email) } });
 };
 
-export default withInviteToken(handler);
+// withErrorHandler OUTSIDE withInviteToken: withInviteToken rethrows after its
+// ROLLBACK, and without a handler above it a throw answers a bare Next 500 HTML
+// page. pages/accept-invite.tsx then fails to parse it and shows "Network error"
+// instead of the real failure. Outside, not inside, so the rollback still runs
+// before the JSON error is written.
+export default withErrorHandler(withInviteToken(handler));

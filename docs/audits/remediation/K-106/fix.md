@@ -12,12 +12,24 @@ resend, the Users list showed no pending invitation, and the failure reason was 
 `email_error` survive, so the invitation is visible and diagnosable and a resend has something to resend.
 The success path now also reports `emailSent: true`.
 
+**Round-3 H1 — the failure was reported as success in production.** The first version of this fix
+detected the failure with a `try/catch` alone. `sendEmail` **never throws** on a delivery failure: it
+returns `{ success: false, error }` from its "SMTP not configured" branch and from its own `catch`
+(`src/modules/accounting/services/core/emailService.ts`). So the catch was unreachable, `email_error` was
+never written, `email_sent_at` was stamped anyway, and the caller was told `emailSent: true` for mail no
+SMTP server had accepted. The route now branches on the returned `EmailResult` and keeps the `catch` for a
+genuine throw. The tests mocked a throw — a shape the real module cannot produce — and passed while
+production was wrong; the mocks in `k106`, `k-042` and `k104-k105` now return the real
+`{ success, messageId? }` / `{ success: false, error }` contract.
+
 **Files.** `pages/api/invitations/index.ts`.
 
-**Tests.** `tests/integration/k106-invitation-502-rollback.int.test.ts` — 2 tests, real PostgreSQL, email
-service stubbed to throw. Asserts status 201, one row persisted, `email_sent_at` NULL and `email_error`
-set on the failure; and `emailSent: true` with `email_sent_at` stamped and `email_error` NULL on the
-adjacent success case. Mutation: restoring the 502 fails the test (green.log M4).
+**Tests.** `tests/integration/k106-invitation-502-rollback.int.test.ts` — 3 tests, real PostgreSQL, email
+service stubbed with its real return contract. Asserts status 201, one row persisted, `email_sent_at` NULL
+and `email_error` set when the send RESOLVES a failure; `emailSent: true` with `email_sent_at` stamped and
+`email_error` NULL on the adjacent success case; and the same recorded outcome when `sendEmail` genuinely
+throws. Mutations: restoring the 502 fails the test; ignoring `emailResult.success` (the round-3 defect)
+turns the first test red with `emailSent: true, emailError: undefined`.
 
 **Contract check.** No caller in the repo POSTs `/api/invitations` (`grep` over `pages/` and `src/`), so
 the 201 body change breaks no page. The Users page uses `/api/accounting/company-invitations`.

@@ -23,7 +23,7 @@ guard would never fire.
 **Files.** `pages/api/invitations/[token]/accept.ts` (+47/-15).
 
 **Tests.** `tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts` —
-4 tests, real PostgreSQL fixture, GoTrue stubbed at the fetch boundary: no password patch and
+10 tests, real PostgreSQL fixture, GoTrue stubbed at the fetch boundary: no password patch and
 no membership on a wrong password; membership attached and prior-company membership untouched
 on the correct one; accepted-token replay 410s; a brand-new invitee still gets a password and a
 profile row. Mutation check: restoring the file from `origin/master` fails all 4 (green.log).
@@ -56,6 +56,21 @@ via `als.exit` on the module pool, so a GoTrue outage no longer un-counts the at
 invite-token ROLLBACK (r2 L3), and it is charged after the 410 so an invented token cannot mint a
 `rate_limit_counters` row (r2 L4). `pages/api/invite/[token].ts` got the same `DO UPDATE` as this
 route (r2 M2).
+
+**Round-3 follow-ups.** The `opened` ROLLBACK guard is no longer an untested claim: a spy on
+`pg.Pool.prototype.connect`, installed before the module is imported, records queries per client, and the
+GoTrue-outage test asserts the admin client issued neither `BEGIN` nor `ROLLBACK` (r3 L1 — the round-2
+"no mutation kills this" disclosure is withdrawn). Both anonymous invite routes are now
+`withErrorHandler(withInviteToken(handler))`, outside so the rollback still runs first, so a GoTrue outage
+answers JSON instead of a bare Next HTML 500 that `/accept-invite` reported as "Network error" (r3 L7).
+`/register` takes the signup-form decision from `GET /api/invitations/<token>` rather than from the
+attacker-settable `?signup=1` flag (r3 L3). `pages/api/invite/[token].ts` logs the invitation id, not the
+raw token (r3 L6). The three migrations are renumbered (660, 648, 661) and the whole-row `companies` grant
+is deleted from 660 outright, so no re-apply of any of them can re-open it (r3 M2/M3). The
+`ALTER FUNCTION … OWNER TO migration_admin` in 661 is unconditional (r3 M1). One finding is disputed: r3 L2
+asked for `email_confirmed_at` to count as "established", but `POST /api/invitations` creates every invitee
+with `email_confirm: true`, so that test is true for every brand-new invitee and would refuse all of them —
+evidence and the residual are in `docs/audits/remediation/R-030/fix.md`.
 
 **Limits.** A legitimate invitee who genuinely forgets their password gets ten tries an hour
 against this endpoint and must then use password reset. A brand-new invitee on the

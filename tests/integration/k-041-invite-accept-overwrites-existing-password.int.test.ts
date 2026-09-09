@@ -19,7 +19,7 @@
  */
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
-import { Pool } from 'pg';
+import pg, { Pool } from 'pg';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
 import type { NextApiRequest } from 'next';
 
@@ -57,6 +57,53 @@ const outageToken = `k041o${'0'.repeat(27)}${outageUser.replace(/-/g, '')}`;
 
 /** company_invitations.token holds sha256 of the token carried by the link. */
 const stored = (raw: string) => createHash('sha256').update(raw).digest('hex');
+
+/**
+ * Round-3 L1: accept.ts builds its admin pool privately, which is what made the
+ * `if (opened)` guard on ROLLBACK look untestable. It isn't: a spy on
+ * pg.Pool.prototype.connect — installed here, before the module under test is
+ * imported in beforeAll — sees every client that private pool hands out and
+ * records what each one is asked to run. Grouped per client, so the ROLLBACK
+ * withInviteToken legitimately issues on its OWN transaction is not confused
+ * with one the admin client must never issue.
+ */
+const issued: Array<{ clientId: number; sql: string }> = [];
+let recording = false;
+let nextClientId = 1;
+const CLIENT_ID = Symbol('k041ClientId');
+const realConnect = pg.Pool.prototype.connect;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function instrument(client: any): unknown {
+  if (client && client[CLIENT_ID] === undefined) {
+    client[CLIENT_ID] = nextClientId++;
+    const realQuery = client.query.bind(client);
+    client.query = (...queryArgs: unknown[]) => {
+      if (recording && typeof queryArgs[0] === 'string') {
+        issued.push({ clientId: client[CLIENT_ID], sql: queryArgs[0] });
+      }
+      return realQuery(...queryArgs);
+    };
+  }
+  return client;
+}
+// pg.Pool.connect has two shapes: connect() returns a promise, connect(cb) does
+// not. node-postgres itself uses the callback form internally, so patching only
+// the promise form is not optional — awaiting the callback form yields
+// undefined and every internal checkout throws.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(pg.Pool.prototype as any).connect = function patchedConnect(this: pg.Pool, ...args: unknown[]) {
+  if (args.length > 0) {
+    const [callback, ...rest] = args;
+    return (realConnect as any).apply(this, [
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (err: unknown, client: any, done: unknown) => (callback as any)(err, instrument(client), done),
+      ...rest,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (realConnect as any).apply(this, args).then(instrument);
+};
 
 /** The password the pre-existing account already has. Only GoTrue knows it. */
 const REAL_PASSWORD = 'existing-real-password-2026';
@@ -140,6 +187,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (pg.Pool.prototype as any).connect = realConnect;
   const companies = [invitingCompany, existingCompany, newInviteeCompany, cappedCompany, shortPwCompany];
   try {
     await pool.query('DELETE FROM company_invitations WHERE company_id=ANY($1::uuid[])', [companies]);
@@ -306,8 +355,32 @@ it('L3: an attempt that dies inside GoTrue is still counted against the invitati
     [shortPwCompany, `k041o-${outageUser}@test.local`, inviter, stored(outageToken), outageUser]);
   const result = response();
 
-  await expect(accept(acceptRequest(outageToken, 'outage-password-2026', '127.0.0.93'), result.res))
-    .rejects.toThrow('disposable gotrue outage');
+  issued.length = 0;
+  recording = true;
+  try {
+    await accept(acceptRequest(outageToken, 'outage-password-2026', '127.0.0.93'), result.res);
+  } finally {
+    recording = false;
+  }
+
+  // Round-3 L7: the route is wrapped in withErrorHandler now, so a GoTrue
+  // outage answers JSON rather than escaping as a bare Next HTML 500 that
+  // pages/accept-invite.tsx cannot parse (it reported "Network error" for
+  // every server fault). withErrorHandler sits OUTSIDE withInviteToken, so the
+  // invite-token transaction is still rolled back before this is written.
+  expect(result.state.statusCode).toBe(500);
+  expect(result.state.body).toMatchObject({ success: false, code: 'INTERNAL_SERVER_ERROR' });
+
+  // Round-3 L1: the GoTrue call that threw runs BEFORE the admin client opens a
+  // transaction. Without `if (opened)` this request issues a bare ROLLBACK on a
+  // client with nothing to roll back, logging a WARNING on every GoTrue
+  // failure. The admin client is the one that read `users`.
+  const adminClientId = issued.find((q) => q.sql.includes('FROM users WHERE id'))?.clientId;
+  expect(adminClientId).toBeDefined();
+  const adminSql = issued.filter((q) => q.clientId === adminClientId)
+    .map((q) => q.sql.trim().toUpperCase());
+  expect(adminSql).not.toContain('ROLLBACK');
+  expect(adminSql).not.toContain('BEGIN');
 
   // checkRateLimit writes through `sql`, which routes onto the invite-token
   // transaction when one is in flight — and withInviteToken ROLLBACKs that
