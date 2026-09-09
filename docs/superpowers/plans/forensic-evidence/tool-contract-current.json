@@ -1,0 +1,5373 @@
+{
+  "schemaVersion": 1,
+  "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
+  "historicalInventory": "tool-matrix.json",
+  "counts": {
+    "total": 133,
+    "reads": 71,
+    "writes": 62,
+    "requires_post": 30
+  },
+  "tools": [
+    {
+      "name": "aged_creditors",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; defaults to today"
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Drill into one supplier and return its invoices instead of the bucket summary."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Entities per page. Default 200."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "aged_debtors",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; defaults to today"
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Drill into one customer and return its invoices instead of the bucket summary."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Entities per page. Default 200."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "allocate_bank_transaction",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "description": "Bank transaction UUID. Supply this OR bank_reference, not both."
+          },
+          "bank_reference": {
+            "type": "string",
+            "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction — the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement — no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
+          },
+          "bank_account_id": {
+            "type": "string",
+            "description": "Optional: narrows a bank_reference lookup to one bank account."
+          },
+          "contra_account_id": {
+            "type": "string",
+            "description": "GL account UUID the other side of the transaction is booked to. Required for alloc_type \"account\" (the default); ignored for supplier/customer, which post to the AP/AR control account."
+          },
+          "description": {
+            "type": "string"
+          },
+          "alloc_type": {
+            "type": "string",
+            "enum": [
+              "account",
+              "supplier",
+              "customer"
+            ]
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "invoice_id": {
+            "type": "string"
+          },
+          "vat_code": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "zero_rated",
+              "exempt",
+              "none"
+            ]
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "apply_payment_to_supplier_invoice",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": "An existing PROCESSED supplier payment. Mutually exclusive with bank_transaction_id."
+          },
+          "bank_transaction_id": {
+            "type": "string",
+            "description": "An imported, unallocated bank line for money OUT. Mutually exclusive with payment_id. Posting a journal for the full line is part of this call."
+          },
+          "allocations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "description": "Which supplier invoice this cash settles, and how much of it goes to each.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoice_id": {
+                  "type": "string",
+                  "description": "supplier invoice UUID"
+                },
+                "amount": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Amount applied to this document, to the cent. Never more than its outstanding balance."
+                }
+              },
+              "required": [
+                "invoice_id",
+                "amount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "allocations",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "apply_receipt_to_invoice",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": "An existing customer receipt (customer_payments) whose journal has already posted. Mutually exclusive with bank_transaction_id."
+          },
+          "bank_transaction_id": {
+            "type": "string",
+            "description": "An imported, unallocated bank line. Mutually exclusive with payment_id. Posting a journal for the full line is part of this call."
+          },
+          "allocations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "description": "Which customer invoice this cash settles, and how much of it goes to each.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoice_id": {
+                  "type": "string",
+                  "description": "customer invoice UUID"
+                },
+                "amount": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Amount applied to this document, to the cent. Never more than its outstanding balance."
+                }
+              },
+              "required": [
+                "invoice_id",
+                "amount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "allocations",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "approve_credit_note",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "credit_note_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credit_note_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "approve_pay_run",
+      "scope": "write:payroll",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "run_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "approve_supplier_invoice",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "asset_register",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; defaults to today."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "assign_employee_component",
+      "scope": "write:payroll",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "string"
+          },
+          "component_id": {
+            "type": "string",
+            "description": "From list_payroll_components"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Monthly amount, to the cent"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD"
+          },
+          "effective_to": {
+            "type": "string",
+            "format": "date"
+          },
+          "is_recurring": {
+            "type": "boolean",
+            "description": "Default true"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "employee_id",
+          "component_id",
+          "amount",
+          "effective_from",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "attach_document",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          },
+          "bank_reference": {
+            "type": "string",
+            "description": "Statement reference, as an alternative to transaction_id."
+          },
+          "bank_account_id": {
+            "type": "string",
+            "description": "Narrows bank_reference to one account."
+          },
+          "file_name": {
+            "type": "string",
+            "description": "e.g. \"makro-2026-08-14.pdf\""
+          },
+          "mime_type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "application/pdf"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "description": "Base64 file bytes, or a data:<mime>;base64,… URL."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name",
+          "mime_type",
+          "content",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "audit_trail",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Entry date from, YYYY-MM-DD (inclusive)."
+          },
+          "to": {
+            "type": "string",
+            "description": "Entry date to, YYYY-MM-DD (inclusive)."
+          },
+          "actor_type": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent",
+              "system"
+            ],
+            "description": "Matches recorded actors AND the equivalent legacy posting_agent stamp."
+          },
+          "token_jti": {
+            "type": "string",
+            "description": "Only postings made by one MCP token — the first question after a credential is withdrawn. Recorded postings only."
+          },
+          "acting_company_id": {
+            "type": "string",
+            "description": "Only postings made while acting for this firm. Recorded firms only; rows with no recorded firm never match."
+          },
+          "posted_from_outside_this_company": {
+            "type": "boolean",
+            "description": "Only postings whose recorded acting company DIFFERS from the company whose books these are. Rows with no recorded firm are excluded — they cannot answer the question either way."
+          },
+          "user_id": {
+            "type": "string",
+            "description": "The user the entry is booked against (created_by)."
+          },
+          "source": {
+            "type": "string",
+            "description": "Journal source, e.g. manual, auto_bank_recon, auto_invoice."
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "journal",
+              "source_record",
+              "source_document"
+            ]
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Requires entity_type."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "posted",
+              "reversed"
+            ],
+            "description": "Derived from the entry: reversed beats posted beats draft."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ],
+            "description": "summary returns totals and the attribution census with no rows."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "balance_sheet",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; defaults to today"
+          },
+          "compare_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. Adds a prior-date column and its own two equity figures."
+          },
+          "cost_centre_id": {
+            "type": "string",
+            "description": "Restrict every figure to one cost centre."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bank_accounts_status",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bank_statement_coverage",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "Optional. A bank GL account id. Omit for every bank account."
+          },
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. Everything is bounded at this date. Defaults to today."
+          },
+          "min_gap_days": {
+            "type": "number",
+            "description": "Shortest run of empty days worth reporting. Default 7. Weekends make two-day gaps ordinary, so a low value returns noise."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ],
+            "description": "summary returns the totals only; standard returns one row per account without the month table; full adds months, gaps and duplicate references."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "budget_variance",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive YYYY-MM-DD."
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive YYYY-MM-DD."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bulk_allocate_bank_transactions",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "allocations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "description": "The lines to allocate — at most 500. Each names one transaction and how to book it.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "transaction_id": {
+                  "type": "string",
+                  "description": "Bank transaction UUID. Supply this OR bank_reference, not both."
+                },
+                "bank_reference": {
+                  "type": "string",
+                  "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction — the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement — no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
+                },
+                "bank_account_id": {
+                  "type": "string",
+                  "description": "Optional: narrows a bank_reference lookup to one bank account."
+                },
+                "contra_account_id": {
+                  "type": "string",
+                  "description": "GL account UUID the other side of the transaction is booked to. Required for alloc_type \"account\" (the default); ignored for supplier/customer, which post to the AP/AR control account."
+                },
+                "description": {
+                  "type": "string"
+                },
+                "alloc_type": {
+                  "type": "string",
+                  "enum": [
+                    "account",
+                    "supplier",
+                    "customer"
+                  ]
+                },
+                "entity_id": {
+                  "type": "string"
+                },
+                "invoice_id": {
+                  "type": "string"
+                },
+                "vat_code": {
+                  "type": "string",
+                  "enum": [
+                    "standard",
+                    "zero_rated",
+                    "exempt",
+                    "none"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Validate and resolve every line, report what would post, and write nothing."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allocations",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bulk_approve_credit_notes",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "credit_note_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "description": "Credit note UUID"
+            },
+            "description": "The notes to approve — at most 100, each named once."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Report what would post and what would be skipped, and write nothing."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credit_note_ids",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bulk_approve_supplier_invoices",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "description": "Supplier invoice UUID"
+            },
+            "description": "The bills to approve — at most 100, each named once."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Report what would post and what would be skipped, and write nothing."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_ids",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bulk_create_customer_invoices",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoices": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "properties": {
+                "customer_id": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 200,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "description": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "unit_price": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "description",
+                      "unit_price"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "invoice_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "due_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "tax_rate": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "notes": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "customer_id",
+                "items"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoices",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bulk_create_supplier_invoices",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoices": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "properties": {
+                "supplier_id": {
+                  "type": "string",
+                  "description": "Supplier UUID (from list_suppliers)"
+                },
+                "invoice_number": {
+                  "type": "string",
+                  "description": "The supplier's own invoice number"
+                },
+                "invoice_date": {
+                  "type": "string",
+                  "format": "date",
+                  "description": "YYYY-MM-DD"
+                },
+                "due_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "tax_rate": {
+                  "type": "number",
+                  "description": "Invoice-level VAT %, default 15"
+                },
+                "payment_terms": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": "string"
+                },
+                "lines": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 200,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "description": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "unit_price": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "NET of VAT"
+                      },
+                      "tax_rate": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      "gl_account_id": {
+                        "type": "string",
+                        "description": "Expense GL account UUID"
+                      }
+                    },
+                    "required": [
+                      "description",
+                      "quantity",
+                      "unit_price"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "supplier_id",
+                "invoice_number",
+                "invoice_date",
+                "lines"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoices",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bulk_finalize_invoices",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "description": "Customer invoice UUID"
+            },
+            "description": "The invoices to approve — at most 100, each named once."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Report what would post and what would be skipped, and write nothing."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_ids",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "calculate_pay_run",
+      "scope": "write:payroll",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "From list_pay_runs or create_pay_run"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "run_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "cancel_bank_reconciliation",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reconciliation_id": {
+            "type": "string",
+            "description": "Id from list_bank_reconciliations. Must be in_progress."
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reconciliation_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "cancel_credit_note",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "credit_note_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Recorded on the note as cancel_reason"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credit_note_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "chart_of_accounts_health",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "close_fiscal_period",
+      "scope": "write:journals",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fiscal_period_id": {
+            "type": "string",
+            "description": "Id from list_fiscal_periods."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "fiscal_period_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "company_profile",
+      "scope": null,
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_bank_rule",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rule_name": {
+            "type": "string"
+          },
+          "match_field": {
+            "type": "string",
+            "enum": [
+              "description",
+              "reference",
+              "both"
+            ]
+          },
+          "match_type": {
+            "type": "string",
+            "enum": [
+              "contains",
+              "starts_with",
+              "ends_with",
+              "exact"
+            ]
+          },
+          "match_pattern": {
+            "type": "string"
+          },
+          "gl_account_id": {
+            "type": "string",
+            "description": "GL account the rule posts to"
+          },
+          "supplier_id": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string",
+            "description": "Customer UUID"
+          },
+          "description_template": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Lower runs first. Default 100."
+          },
+          "vat_code": {
+            "type": "string",
+            "enum": [
+              "none",
+              "standard",
+              "zero_rated",
+              "exempt"
+            ]
+          },
+          "auto_create_entry": {
+            "type": "boolean",
+            "description": "TRUE means a match POSTS a journal automatically. Default false."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_name",
+          "match_field",
+          "match_type",
+          "match_pattern",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_credit_note",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "supplier"
+            ]
+          },
+          "client_id": {
+            "type": "string",
+            "description": "Customer UUID — required when type is \"customer\""
+          },
+          "supplier_id": {
+            "type": "string",
+            "description": "Supplier UUID — required when type is \"supplier\""
+          },
+          "customer_invoice_id": {
+            "type": "string",
+            "description": "Invoice this note credits; auto-applied at approve"
+          },
+          "supplier_invoice_id": {
+            "type": "string",
+            "description": "Supplier invoice this note credits; auto-applied at approve"
+          },
+          "credit_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD"
+          },
+          "subtotal": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "NET of VAT"
+          },
+          "tax_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "VAT %, default 15"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "credit_date",
+          "subtotal",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_customer",
+      "scope": "write:contacts",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Trading name. Rejected over 255 characters — it identifies the record."
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "mobile": {
+            "type": "string"
+          },
+          "vat_number": {
+            "type": "string",
+            "description": "SARS VAT registration number."
+          },
+          "registration_number": {
+            "type": "string",
+            "description": "CIPC company registration number."
+          },
+          "billing_address": {
+            "type": "string"
+          },
+          "shipping_address": {
+            "type": "string"
+          },
+          "contact_person": {
+            "type": "string"
+          },
+          "payment_terms": {
+            "type": "number",
+            "description": "Days. Default 30 on create."
+          },
+          "credit_limit": {
+            "type": "number"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "default_vat_type": {
+            "type": "string"
+          },
+          "default_discount": {
+            "type": "number",
+            "description": "Percent."
+          },
+          "auto_allocate_strategy": {
+            "type": "string",
+            "enum": [
+              "off",
+              "oldest",
+              "newest"
+            ],
+            "description": "'off' leaves a payment/receipt unapplied for list_unapplied_payments / list_unapplied_receipts to clear; 'oldest' applies it to the oldest open document first (FIFO), partially settling the last one; 'newest' applies newest first. Supersedes the deprecated boolean below."
+          },
+          "auto_allocate_receipts": {
+            "type": "boolean",
+            "description": "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_draft_invoice",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "unit_price": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "description",
+                "unit_price"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "invoice_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "tax_rate": {
+            "type": "number",
+            "minimum": 0
+          },
+          "notes": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "items",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_draft_journal",
+      "scope": "write:journals",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Entry date, YYYY-MM-DD"
+          },
+          "memo": {
+            "type": "string",
+            "description": "Entry description"
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "properties": {
+                "account_id": {
+                  "type": "string",
+                  "description": "GL account UUID"
+                },
+                "debit": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "credit": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "account_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "lines",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_draft_quote",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_name": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string",
+            "description": "Optional existing customer UUID"
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "unit_price": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "description",
+                "unit_price"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "quote_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "expiry_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_name",
+          "items",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_employee",
+      "scope": "write:payroll",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_number": {
+            "type": "string",
+            "description": "The company's own employee number"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "employment_type": {
+            "type": "string",
+            "enum": [
+              "permanent",
+              "contract",
+              "casual",
+              "director"
+            ]
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD"
+          },
+          "id_number": {
+            "type": "string",
+            "description": "SA ID number, 13 digits"
+          },
+          "tax_number": {
+            "type": "string",
+            "description": "SARS tax reference, 10 digits"
+          },
+          "date_of_birth": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Only for someone who has already left"
+          },
+          "uif_excluded": {
+            "type": "boolean",
+            "description": "Default false. True only where UIF genuinely does not apply."
+          },
+          "medical_aid_main_member": {
+            "type": "boolean"
+          },
+          "medical_aid_dependants_count": {
+            "type": "number",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "employee_number",
+          "first_name",
+          "last_name",
+          "employment_type",
+          "start_date",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_gl_account",
+      "scope": "write:accounts",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_code": {
+            "type": "string",
+            "description": "Unique code within the company, e.g. \"1150\""
+          },
+          "account_name": {
+            "type": "string"
+          },
+          "account_type": {
+            "type": "string",
+            "enum": [
+              "asset",
+              "liability",
+              "equity",
+              "revenue",
+              "expense"
+            ]
+          },
+          "account_subtype": {
+            "type": "string",
+            "enum": [
+              "bank",
+              "receivable",
+              "inventory",
+              "fixed_asset",
+              "accumulated_depreciation",
+              "vat_input",
+              "other_current_asset",
+              "other",
+              "payable",
+              "tax",
+              "vat_output",
+              "other_current_liability",
+              "equity",
+              "retained_earnings",
+              "opening_balance_equity",
+              "revenue",
+              "default_revenue",
+              "other_income",
+              "disposal_profit_loss",
+              "cost_of_sales",
+              "operating_expense",
+              "default_expense",
+              "admin_expense",
+              "depreciation_expense"
+            ],
+            "description": "Required for revenue and expense accounts (the income statement bands on it: cost_of_sales sits above gross profit). Must be valid for the account_type. Subtypes reserved for system accounts (vat_input, receivable, payable, …) are refused."
+          },
+          "parent_account_id": {
+            "type": "string",
+            "description": "GL account UUID. Must be the same account_type and must have no postings of its own."
+          },
+          "description": {
+            "type": "string"
+          },
+          "vat_default": {
+            "type": "string",
+            "enum": [
+              "none",
+              "standard",
+              "zero_rated",
+              "exempt"
+            ],
+            "description": "Default VAT treatment for postings to this account."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_code",
+          "account_name",
+          "account_type",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_job_category",
+      "scope": "write:practice",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "e.g. \"VAT\", \"Payroll\", \"Financial Statements\"."
+          },
+          "reporting_tag": {
+            "type": "string",
+            "description": "Optional grouping label used by practice reports."
+          },
+          "sort_order": {
+            "type": "number"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_pay_run",
+      "scope": "write:payroll",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "number",
+            "description": "Calendar month, 1-12."
+          },
+          "year": {
+            "type": "number",
+            "description": "Calendar year, e.g. 2026."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "month",
+          "year",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_supplier",
+      "scope": "write:contacts",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Trading name. Rejected over 255 characters — it identifies the record."
+          },
+          "registered_name": {
+            "type": "string",
+            "description": "The supplier's registered name, when it differs from its trading name."
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "vat_number": {
+            "type": "string"
+          },
+          "registration_number": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "contact_person": {
+            "type": "string"
+          },
+          "payment_terms": {
+            "type": "number",
+            "description": "Days. Default 30 on create."
+          },
+          "bank_name": {
+            "type": "string"
+          },
+          "bank_account_number": {
+            "type": "string",
+            "description": "What a payment run pays into. Change it deliberately."
+          },
+          "bank_branch_code": {
+            "type": "string"
+          },
+          "bank_account_type": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "auto_allocate_strategy": {
+            "type": "string",
+            "enum": [
+              "off",
+              "oldest",
+              "newest"
+            ],
+            "description": "'off' leaves a payment/receipt unapplied for list_unapplied_payments / list_unapplied_receipts to clear; 'oldest' applies it to the oldest open document first (FIFO), partially settling the last one; 'newest' applies newest first. Supersedes the deprecated boolean below."
+          },
+          "auto_allocate_payments": {
+            "type": "boolean",
+            "description": "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_supplier_invoice",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "supplier_id": {
+            "type": "string",
+            "description": "Supplier UUID (from list_suppliers)"
+          },
+          "invoice_number": {
+            "type": "string",
+            "description": "The supplier's own invoice number"
+          },
+          "invoice_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Defaults from payment_terms when omitted"
+          },
+          "tax_rate": {
+            "type": "number",
+            "description": "Invoice-level VAT %, default 15. Per-line tax_rate overrides it."
+          },
+          "payment_terms": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "unit_price": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "NET of VAT"
+                },
+                "tax_rate": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "gl_account_id": {
+                  "type": "string",
+                  "description": "Expense GL account UUID; defaults to the company default expense account"
+                }
+              },
+              "required": [
+                "description",
+                "quantity",
+                "unit_price"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplier_id",
+          "invoice_number",
+          "invoice_date",
+          "lines",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_work_item",
+      "scope": "write:practice",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_id": {
+            "type": "string",
+            "description": "Job category UUID from list_job_categories."
+          },
+          "name": {
+            "type": "string",
+            "description": "e.g. \"VAT201 submission\", \"Monthly processing\"."
+          },
+          "default_billable": {
+            "type": "boolean",
+            "description": "Defaults to true."
+          },
+          "sort_order": {
+            "type": "number"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category_id",
+          "name",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "customer_statement",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer UUID from list_customers."
+          },
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; defaults to today."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "data_integrity_checks",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "invoices_null_due_date",
+                "vat_displayed_differs_from_posted",
+                "journal_date_differs_from_bank_date",
+                "duplicate_bank_references",
+                "deactivated_accounts_with_balance",
+                "asset_accounts_with_credit_balance",
+                "cost_of_sales_typed_as_expense",
+                "clearing_accounts_not_nil",
+                "duplicate_control_accounts",
+                "documents_outside_open_period",
+                "stale_suggested_transactions",
+                "test_records_in_production",
+                "invoices_without_revenue_line"
+              ]
+            },
+            "description": "Subset to run. Omit for all thirteen."
+          },
+          "as_at": {
+            "type": "string",
+            "format": "date"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Sample rows per check. Never caps count or amount."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "deactivate_gl_account",
+      "scope": "write:accounts",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "disable_bank_rule",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean",
+            "description": "Default false (disable). true re-activates the rule."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "duplicate_invoice_checks",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Finding page size; totals cover the complete supported population. Default 20."
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Cursor from this check. Restart if source facts change."
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive accounting date cutoff, YYYY-MM-DD. Current source values are observed."
+          }
+        }
+      }
+    },
+    {
+      "name": "emp201_status",
+      "scope": "read:payroll",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive YYYY-MM-DD."
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive YYYY-MM-DD."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "end_employee_component",
+      "scope": "write:payroll",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "description": "From list_employee_components"
+          },
+          "effective_to": {
+            "type": "string",
+            "format": "date",
+            "description": "Last date the component applies"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id",
+          "effective_to",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "finalize_invoice",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "general_ledger",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. Required."
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. Required."
+          },
+          "account_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Restrict to these account codes. Preserves runningBalance."
+          },
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Restrict to these account UUIDs. Preserves runningBalance."
+          },
+          "account_types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "asset",
+                "liability",
+                "equity",
+                "revenue",
+                "expense"
+              ]
+            },
+            "description": "Restrict to these account types. Preserves runningBalance."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Journal sources (e.g. manual, auto_invoice). SUPPRESSES runningBalance."
+          },
+          "min_amount": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Only lines whose debit or credit is at least this. SUPPRESSES runningBalance."
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive substring of the entry number or description. SUPPRESSES runningBalance."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Default 200, max 1000."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_bank_rule",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_credit_note",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "credit_note_id": {
+            "type": "string",
+            "description": "Credit note UUID"
+          }
+        },
+        "required": [
+          "credit_note_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_document",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "description": "The attachment id from list_documents (store \"bank_attachment\")."
+          },
+          "include_content": {
+            "type": "boolean",
+            "description": "Return the file bytes as base64. Default false."
+          }
+        },
+        "required": [
+          "document_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_employee",
+      "scope": "read:payroll",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "employee_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_fiscal_period",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fiscal_period_id": {
+            "type": "string",
+            "description": "Id from list_fiscal_periods."
+          }
+        },
+        "required": [
+          "fiscal_period_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_invoice",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_match_candidates",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_opening_balances",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "Optional. Narrow to one bank GL account."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_supplier_invoice",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "import_bank_statement",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string"
+          },
+          "file_type": {
+            "type": "string",
+            "enum": [
+              "ofx",
+              "csv",
+              "qif",
+              "mt940"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "description": "Raw statement text."
+          },
+          "statement_date": {
+            "type": "string",
+            "description": "YYYY-MM-DD — the statement closing date."
+          },
+          "bank_format": {
+            "type": "string",
+            "enum": [
+              "fnb",
+              "standard_bank",
+              "nedbank",
+              "absa",
+              "capitec",
+              "generic",
+              "ofx",
+              "qif",
+              "mt940"
+            ],
+            "description": "Optional hint (e.g. \"fnb\", \"absa\") when CSV auto-detection fails."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Parse and report new/duplicate counts without writing anything."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bank_account_id",
+          "file_type",
+          "content",
+          "statement_date",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "irp5_data",
+      "scope": "read:payroll",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tax_year": {
+            "type": "number",
+            "description": "The calendar year the SA tax year ENDS in, e.g. 2026 for 2025-03-01 to 2026-02-28."
+          },
+          "employee_id": {
+            "type": "string",
+            "description": "Narrow to one payroll employee."
+          },
+          "reveal_identity_numbers": {
+            "type": "boolean",
+            "description": "Return full SA ID and tax numbers instead of the last four digits. Personal information — ask only when you need it."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "tax_year"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "job_cost_report",
+      "scope": "read:practice",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "client",
+              "category",
+              "work_item"
+            ],
+            "description": "Defaults to client."
+          },
+          "practice_client_id": {
+            "type": "string",
+            "description": "Narrow to one practice client."
+          },
+          "date_from": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive entry date, YYYY-MM-DD."
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive entry date, YYYY-MM-DD."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_agent_postings",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "to": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_bank_reconciliations",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "in_progress",
+              "completed"
+            ]
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_bank_rules",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Only rules posting to this GL account UUID"
+          },
+          "active_only": {
+            "type": "boolean",
+            "description": "Default false — inactive rules are returned too, because a disabled rule is still a thing an agent needs to see."
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive match on rule name or match pattern"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_bank_transactions",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string"
+          },
+          "allocation_filter": {
+            "type": "string",
+            "enum": [
+              "all",
+              "unallocated",
+              "suggested",
+              "allocated"
+            ]
+          },
+          "from_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "to_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          },
+          "description_contains": {
+            "type": "string",
+            "description": "Case-insensitive substring of the description or reference."
+          },
+          "fields": {
+            "type": "string",
+            "enum": [
+              "full",
+              "compact"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_companies",
+      "scope": null,
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_credit_notes",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "supplier"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "approved",
+              "applied",
+              "cancelled"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Default 50, max 200"
+          },
+          "offset": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_customers",
+      "scope": "read:contacts",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "Matches name, email, VAT number, or contact person"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_documents",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Transaction date from, YYYY-MM-DD. Bank store only."
+          },
+          "to": {
+            "type": "string",
+            "description": "Transaction date to, YYYY-MM-DD. Bank store only."
+          },
+          "bank_transaction_id": {
+            "type": "string",
+            "description": "Narrows the bank store to one transaction."
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "supplier_invoice",
+              "supplier_payment",
+              "customer_invoice",
+              "customer_payment",
+              "credit_note"
+            ]
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "With entity_type, reads the entity store instead."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Entity store only."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_employee_components",
+      "scope": "read:payroll",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "employee_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_employees",
+      "scope": "read:payroll",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "terminated",
+              "suspended",
+              "on_leave"
+            ],
+            "description": "Omit for every status."
+          },
+          "reveal_identity_numbers": {
+            "type": "boolean",
+            "description": "Return full SA ID and tax numbers instead of the last four digits. Personal information — ask only when you need it."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "description": "Default 50, max 200."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from a previous call."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_fiscal_periods",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fiscal_year": {
+            "type": "number",
+            "description": "e.g. 2027. Omit for every year."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closing",
+              "closed",
+              "locked"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "description": "Default 100, max 500."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page. Loop until it is null."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard"
+            ],
+            "description": "summary returns totals only."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_fixed_assets",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; defaults to today."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "description": "Default 100, max 500."
+          },
+          "offset": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_gl_accounts",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_type": {
+            "type": "string",
+            "enum": [
+              "asset",
+              "liability",
+              "equity",
+              "revenue",
+              "expense"
+            ],
+            "description": "Restrict to one account type"
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive substring of account_code or account_name"
+          },
+          "active_only": {
+            "type": "boolean",
+            "description": "Exclude deactivated accounts. Defaults to true."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Default 200, max 500"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_import_batches",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "gl_accounts.id of the bank account (optional)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_invoices",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Invoice status, or omit for all"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string",
+            "description": "Matches invoice number or customer name"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_items",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Matches item code or description."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "physical",
+              "service"
+            ]
+          },
+          "active": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ]
+          },
+          "category_id": {
+            "type": "string",
+            "description": "Item category UUID."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_job_categories",
+      "scope": "read:practice",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_inactive": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_journals",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD (entry date, inclusive)"
+          },
+          "to_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD (entry date, inclusive)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "posted",
+              "reversed"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "description": "Exact source value, e.g. \"manual\", \"bank\", \"customer_invoice\"."
+          },
+          "account_id": {
+            "type": "string",
+            "description": "gl_accounts.id — only journals touching this account."
+          },
+          "include_lines": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_pay_runs",
+      "scope": "read:payroll",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "number",
+            "description": "Period year, e.g. 2026."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "calculated",
+              "approved",
+              "paid",
+              "cancelled"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "description": "Default 50, max 200."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from a previous call."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_payroll_components",
+      "scope": "read:payroll",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_practice_clients",
+      "scope": "read:practice",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "prospect",
+              "onboarding",
+              "active",
+              "inactive",
+              "archived"
+            ]
+          },
+          "search": {
+            "type": "string",
+            "description": "Matches legal name or trading name."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Default 50, max 200."
+          },
+          "offset": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_quotes",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_supplier_invoices",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "pending_approval",
+              "approved",
+              "partially_paid",
+              "paid",
+              "disputed",
+              "cancelled"
+            ]
+          },
+          "supplier_id": {
+            "type": "string",
+            "description": "Supplier UUID (from list_suppliers)"
+          },
+          "from_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Invoice date >= this day"
+          },
+          "to_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Invoice date <= this day"
+          },
+          "search": {
+            "type": "string",
+            "description": "Free text over invoice number, supplier name and reference"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Default 50, clamped to 200"
+          },
+          "offset": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_suppliers",
+      "scope": "read:contacts",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_time_entries",
+      "scope": "read:practice",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_from": {
+            "type": "string",
+            "description": "Inclusive ISO date, e.g. \"2026-09-01\"."
+          },
+          "date_to": {
+            "type": "string",
+            "description": "Inclusive ISO date."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "submitted",
+              "approved",
+              "billed",
+              "not_billable",
+              "leave",
+              "invoiced"
+            ]
+          },
+          "practice_client_id": {
+            "type": "string"
+          },
+          "all_users": {
+            "type": "boolean",
+            "description": "False (default) restricts to the calling user's entries. True returns every user in the company."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Default 50, max 200."
+          },
+          "offset": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_unapplied_payments",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "Payments dated on or before this day, YYYY-MM-DD. Defaults to today."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard"
+            ],
+            "description": "\"summary\" returns the totals and completeness only, with no rows — use it to see how much unapplied cash there is before deciding to page through it. Default \"standard\"."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Rows per page, max 200. Default 50."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_unapplied_receipts",
+      "scope": "read:invoices",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "Receipts dated on or before this day, YYYY-MM-DD. Defaults to today."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard"
+            ],
+            "description": "\"summary\" returns the totals and completeness only, with no rows — use it to see how much unapplied cash there is before deciding to page through it. Default \"standard\"."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Rows per page, max 200. Default 50."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_unsupported_transactions",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Transaction date from, YYYY-MM-DD."
+          },
+          "to": {
+            "type": "string",
+            "description": "Transaction date to, YYYY-MM-DD."
+          },
+          "min_amount": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Materiality threshold on ABS(amount). Default 0 — everything."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_work_items",
+      "scope": "read:practice",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_id": {
+            "type": "string",
+            "description": "Job category UUID from list_job_categories."
+          },
+          "include_inactive": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "lock_vat_period",
+      "scope": "read:vat",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free text recorded with the lock, e.g. the eFiling reference."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Lock even though the 15% check fails. Records the decision; it does not make the return correct."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "log_time_entry",
+      "scope": "write:practice",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entry_date": {
+            "type": "string",
+            "description": "ISO date (YYYY-MM-DD). Cannot be in the future."
+          },
+          "hours": {
+            "type": "number",
+            "description": "Greater than 0 and at most 24."
+          },
+          "practice_client_id": {
+            "type": "string"
+          },
+          "job_category_id": {
+            "type": "string"
+          },
+          "work_item_id": {
+            "type": "string",
+            "description": "Must belong to job_category_id."
+          },
+          "task_description": {
+            "type": "string",
+            "description": "What was actually done. Max 500 characters."
+          },
+          "notes": {
+            "type": "string"
+          },
+          "billable": {
+            "type": "boolean",
+            "description": "Defaults to true."
+          },
+          "allow_backdating": {
+            "type": "boolean",
+            "description": "Required to book into any month before the previous calendar month. Such a period has usually been invoiced and reported on; the entry would restate those reports, and it carries the rate effective on that date rather than today's."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Validate everything and report the rate that would apply, without writing."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_date",
+          "hours",
+          "practice_client_id",
+          "job_category_id",
+          "work_item_id",
+          "task_description",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "merge_gl_accounts",
+      "scope": "write:accounts",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_account_id": {
+            "type": "string",
+            "description": "The account to merge AWAY. It ends up deactivated with a zero balance. From list_gl_accounts."
+          },
+          "target_account_id": {
+            "type": "string",
+            "description": "The account that keeps the balance and receives the journal lines and child accounts."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "source_account_id",
+          "target_account_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "payment_risk_checks",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Finding page size; totals cover the complete supported population. Default 20."
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Cursor from this check. Restart if source facts change."
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive accounting date cutoff, YYYY-MM-DD. Current source values are observed."
+          }
+        }
+      }
+    },
+    {
+      "name": "perform_bank_reconciliation",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "The bank GL account id, from bank_accounts_status or list_gl_accounts."
+          },
+          "statement_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. The GL balance is taken up to and including this date."
+          },
+          "statement_balance": {
+            "type": "number",
+            "description": "The closing balance printed on the bank statement. Negative if overdrawn."
+          },
+          "auto_match": {
+            "type": "boolean",
+            "description": "Run auto-matching after starting. Default true."
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "Complete the reconciliation if it balances exactly. Default false. Completing marks every matched transaction reconciled and closes the session."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "bank_account_id",
+          "statement_date",
+          "statement_balance",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "period_close_checklist",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fiscal_period_id": {
+            "type": "string",
+            "description": "Id from list_fiscal_periods."
+          }
+        },
+        "required": [
+          "fiscal_period_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "post_journal",
+      "scope": "write:journals",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "journal_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "journal_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "post_payroll_journal",
+      "scope": "write:payroll",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Payroll run UUID from list_pay_runs."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "run_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "post_reclassification_batch",
+      "scope": "write:journals",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_account_id": {
+            "type": "string",
+            "description": "GL account UUID the amounts currently sit on."
+          },
+          "target_account_id": {
+            "type": "string",
+            "description": "GL account UUID they should sit on instead. Must differ from the source."
+          },
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "Only consider source lines whose journal is dated on or after this day (YYYY-MM-DD). Omit for no lower bound. Use from/to to keep a batch under 500 lines."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "Only consider source lines dated on or before this day (YYYY-MM-DD)."
+          },
+          "posting_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date EVERY reclassification journal on this one day instead of on its own source line's date. This is how a closed month is corrected from an open one — and it MOVES THE CHARGE BETWEEN PERIODS: the closed month keeps the original classification and this period carries the correction. Omit it and each journal is dated at its source line, which is period-neutral but skips every line whose own period is closed."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "source_account_id",
+          "target_account_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "profit_and_loss",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. Required."
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. Required."
+          },
+          "compare": {
+            "type": "string",
+            "enum": [
+              "prior_period",
+              "prior_year"
+            ],
+            "description": "Add a comparative computed on the calendar. Ignored when compare_start/compare_end are given."
+          },
+          "compare_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Explicit comparative start."
+          },
+          "compare_end": {
+            "type": "string",
+            "format": "date",
+            "description": "Explicit comparative end."
+          },
+          "cost_centre_id": {
+            "type": "string",
+            "description": "Restrict every figure to one cost centre."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_profitability",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive YYYY-MM-DD."
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive YYYY-MM-DD."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "propose_reclassification",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_account_id": {
+            "type": "string",
+            "description": "GL account UUID the amounts currently sit on."
+          },
+          "target_account_id": {
+            "type": "string",
+            "description": "GL account UUID they should sit on instead. Must differ from the source."
+          },
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "Only consider source lines whose journal is dated on or after this day (YYYY-MM-DD). Omit for no lower bound. Use from/to to keep a batch under 500 lines."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "Only consider source lines dated on or before this day (YYYY-MM-DD)."
+          },
+          "posting_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date EVERY reclassification journal on this one day instead of on its own source line's date. This is how a closed month is corrected from an open one — and it MOVES THE CHARGE BETWEEN PERIODS: the closed month keeps the original classification and this period carries the correction. Omit it and each journal is dated at its source line, which is period-neutral but skips every line whose own period is closed."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ],
+            "description": "summary: totals and warnings only. standard (default): the lines that would move. full: the same, plus every journal that would post."
+          }
+        },
+        "required": [
+          "source_account_id",
+          "target_account_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reconcile_fixed_assets",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "Reporting date, YYYY-MM-DD. Defaults to today."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ],
+            "description": "summary = totals only; standard (default) = reconciling items; full = the journals behind the accounts."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "detail=full only. Default 200."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reconcile_subledger",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subledger": {
+            "type": "string",
+            "enum": [
+              "ar",
+              "ap",
+              "bank",
+              "vat",
+              "payroll",
+              "inventory"
+            ],
+            "description": "Which subledger to reconcile. Required."
+          },
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "Reporting date, YYYY-MM-DD. Defaults to today."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ],
+            "description": "summary = totals only; standard (default) = reconciling items; full = underlying documents."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "detail=full only. Default 200."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "required": [
+          "subledger"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reopen_fiscal_period",
+      "scope": "write:journals",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fiscal_period_id": {
+            "type": "string",
+            "description": "Id from list_fiscal_periods."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "fiscal_period_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reverse_allocations",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "The bank GL account UUID (from bank_accounts_status or list_gl_accounts)."
+          },
+          "from_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive, YYYY-MM-DD"
+          },
+          "to_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive, YYYY-MM-DD"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "true reports what would be reversed and writes nothing. Do this first."
+          },
+          "reversal_date": {
+            "type": "string",
+            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed — which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open — a date in a year with no fiscal periods is refused, not posted."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bank_account_id",
+          "from_date",
+          "to_date",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reverse_bank_allocation",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "description": "Bank transaction UUID. Supply this OR bank_reference, not both."
+          },
+          "bank_reference": {
+            "type": "string",
+            "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction — the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement — no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
+          },
+          "bank_account_id": {
+            "type": "string",
+            "description": "Optional: narrows a bank_reference lookup to one bank account."
+          },
+          "reversal_date": {
+            "type": "string",
+            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed — which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open — a date in a year with no fiscal periods is refused, not posted."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reverse_bank_allocation_batch",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "description": "The batch_id returned by bulk_allocate_bank_transactions."
+          },
+          "reversal_date": {
+            "type": "string",
+            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed — which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open — a date in a year with no fiscal periods is refused, not posted."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "batch_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reverse_journal_entry",
+      "scope": "write:journals",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "journal_entry_id": {
+            "type": "string",
+            "description": "The posted entry to reverse, from list_journals."
+          },
+          "reversal_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. Omit to use the default (the original entry date when its period is open, otherwise today)."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "journal_entry_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "run_depreciation",
+      "scope": "write:assets",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Last day of the period to depreciate, YYYY-MM-DD. Defaults to the last day of the current month."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_gl",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "account_code": {
+            "type": "string"
+          },
+          "from_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "to_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "from_date",
+          "to_date"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_opening_balance",
+      "scope": "write:journals",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "The bank GL account UUID"
+          },
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "The date the balance is stated as at. The journal carries this date, so its fiscal period must exist and be open."
+          },
+          "amount": {
+            "type": "number",
+            "description": "The balance as at that date. Negative for an overdrawn account. Zero is refused — it would post nothing and tell you it succeeded."
+          },
+          "contra_account_id": {
+            "type": "string",
+            "description": "Optional. The other side of the entry. Defaults to the company's Opening Balance Equity account."
+          },
+          "memo": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bank_account_id",
+          "as_at",
+          "amount",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "settle_by_contra",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subledger": {
+            "type": "string",
+            "enum": [
+              "ar",
+              "ap"
+            ],
+            "description": "\"ar\" for a customer invoice, \"ap\" for a supplier bill."
+          },
+          "document_id": {
+            "type": "string",
+            "description": "The customer invoice or supplier invoice UUID."
+          },
+          "contra_account_id": {
+            "type": "string",
+            "description": "The BALANCE-SHEET account the debt is netted against (asset, liability or equity) — from list_gl_accounts. An expense or revenue account is refused: that is a write-off."
+          },
+          "amount": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Amount settled, to the cent. Never more than the outstanding balance."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why this was netted rather than paid. Recorded on the payment document."
+          },
+          "settlement_date": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD. Defaults to today. Must fall in an OPEN fiscal period."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "subledger",
+          "document_id",
+          "contra_account_id",
+          "amount",
+          "reason",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "stock_valuation",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; defaults to today."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "submit_time_entries",
+      "scope": "write:practice",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entry_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Time entry UUIDs from list_time_entries. Max 200."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Report which ids would be submitted, without writing."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_ids",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "suggest_bank_allocation",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+              "type": "string"
+            }
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_ids",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "suggest_receipt_matches",
+      "scope": "read:bank-tx",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_transaction_id": {
+            "type": "string",
+            "description": "The receipt to match, from list_bank_transactions."
+          }
+        },
+        "required": [
+          "bank_transaction_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "supplier_statement",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "supplier_id": {
+            "type": "string",
+            "description": "Supplier UUID from list_suppliers."
+          },
+          "as_at": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; defaults to today."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "supplier_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "trial_balance",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fiscal_period_id": {
+            "type": "string",
+            "description": "Fiscal period UUID; defaults to the period containing today."
+          },
+          "cost_centre_id": {
+            "type": "string",
+            "description": "Restrict to one cost centre."
+          },
+          "include_zero_balances": {
+            "type": "boolean",
+            "description": "Include accounts whose balance AND movement both net to zero. Default false."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Default 200."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "undo_bank_import",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "batch_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "batch_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_bank_rule",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          },
+          "match_field": {
+            "type": "string",
+            "enum": [
+              "description",
+              "reference",
+              "both"
+            ]
+          },
+          "match_type": {
+            "type": "string",
+            "enum": [
+              "contains",
+              "starts_with",
+              "ends_with",
+              "exact"
+            ]
+          },
+          "match_pattern": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "gl_account_id": {
+            "type": "string",
+            "description": "GL account the rule posts to"
+          },
+          "supplier_id": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string",
+            "description": "Customer UUID"
+          },
+          "description_template": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Lower runs first. Default 100."
+          },
+          "vat_code": {
+            "type": "string",
+            "enum": [
+              "none",
+              "standard",
+              "zero_rated",
+              "exempt"
+            ]
+          },
+          "auto_create_entry": {
+            "type": "boolean",
+            "description": "TRUE means a match POSTS a journal automatically. Default false."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_customer",
+      "scope": "write:contacts",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "From list_customers."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Trading name. Rejected over 255 characters — it identifies the record."
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "mobile": {
+            "type": "string"
+          },
+          "vat_number": {
+            "type": "string",
+            "description": "SARS VAT registration number."
+          },
+          "registration_number": {
+            "type": "string",
+            "description": "CIPC company registration number."
+          },
+          "billing_address": {
+            "type": "string"
+          },
+          "shipping_address": {
+            "type": "string"
+          },
+          "contact_person": {
+            "type": "string"
+          },
+          "payment_terms": {
+            "type": "number",
+            "description": "Days. Default 30 on create."
+          },
+          "credit_limit": {
+            "type": "number"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "default_vat_type": {
+            "type": "string"
+          },
+          "default_discount": {
+            "type": "number",
+            "description": "Percent."
+          },
+          "auto_allocate_strategy": {
+            "type": "string",
+            "enum": [
+              "off",
+              "oldest",
+              "newest"
+            ],
+            "description": "'off' leaves a payment/receipt unapplied for list_unapplied_payments / list_unapplied_receipts to clear; 'oldest' applies it to the oldest open document first (FIFO), partially settling the last one; 'newest' applies newest first. Supersedes the deprecated boolean below."
+          },
+          "auto_allocate_receipts": {
+            "type": "boolean",
+            "description": "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_employee",
+      "scope": "write:payroll",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "string"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "employment_type": {
+            "type": "string",
+            "enum": [
+              "permanent",
+              "contract",
+              "casual",
+              "director"
+            ]
+          },
+          "id_number": {
+            "type": "string"
+          },
+          "tax_number": {
+            "type": "string"
+          },
+          "date_of_birth": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Today or earlier terminates; later schedules"
+          },
+          "uif_excluded": {
+            "type": "boolean"
+          },
+          "medical_aid_main_member": {
+            "type": "boolean"
+          },
+          "medical_aid_dependants_count": {
+            "type": "number",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "employee_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_gl_account",
+      "scope": "write:accounts",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "GL account UUID (from list_gl_accounts)"
+          },
+          "account_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "account_subtype": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "bank",
+              "receivable",
+              "inventory",
+              "fixed_asset",
+              "accumulated_depreciation",
+              "vat_input",
+              "other_current_asset",
+              "other",
+              "payable",
+              "tax",
+              "vat_output",
+              "other_current_liability",
+              "equity",
+              "retained_earnings",
+              "opening_balance_equity",
+              "revenue",
+              "default_revenue",
+              "other_income",
+              "disposal_profit_loss",
+              "cost_of_sales",
+              "operating_expense",
+              "default_expense",
+              "admin_expense",
+              "depreciation_expense",
+              null
+            ],
+            "description": "null clears the subtype. Must be valid for the account's existing account_type."
+          },
+          "parent_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "GL account UUID, or null to move the account to the top level."
+          },
+          "vat_default": {
+            "type": "string",
+            "enum": [
+              "none",
+              "standard",
+              "zero_rated",
+              "exempt"
+            ]
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "false deactivates; prefer deactivate_gl_account, which reports why it refused."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_supplier",
+      "scope": "write:contacts",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "supplier_id": {
+            "type": "string",
+            "description": "From list_suppliers."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Trading name. Rejected over 255 characters — it identifies the record."
+          },
+          "registered_name": {
+            "type": "string",
+            "description": "The supplier's registered name, when it differs from its trading name."
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "vat_number": {
+            "type": "string"
+          },
+          "registration_number": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "contact_person": {
+            "type": "string"
+          },
+          "payment_terms": {
+            "type": "number",
+            "description": "Days. Default 30 on create."
+          },
+          "bank_name": {
+            "type": "string"
+          },
+          "bank_account_number": {
+            "type": "string",
+            "description": "What a payment run pays into. Change it deliberately."
+          },
+          "bank_branch_code": {
+            "type": "string"
+          },
+          "bank_account_type": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "auto_allocate_strategy": {
+            "type": "string",
+            "enum": [
+              "off",
+              "oldest",
+              "newest"
+            ],
+            "description": "'off' leaves a payment/receipt unapplied for list_unapplied_payments / list_unapplied_receipts to clear; 'oldest' applies it to the oldest open document first (FIFO), partially settling the last one; 'newest' applies newest first. Supersedes the deprecated boolean below."
+          },
+          "auto_allocate_payments": {
+            "type": "boolean",
+            "description": "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplier_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "vat201_export",
+      "scope": "read:vat",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "sars_payload",
+              "csv"
+            ]
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "vat_reconciliation",
+      "scope": "read:vat",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "vat_status",
+      "scope": "read:vat",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "boxes",
+              "standard",
+              "full"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "void_payment",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string"
+          },
+          "reversal_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date for the reversing journal. Defaults to the original entry's date when that period is open, today when it is closed."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "void_receipt",
+      "scope": "write:invoices",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "receipt_id": {
+            "type": "string"
+          },
+          "reversal_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date for the reversing journal. Defaults to the original entry's date when that period is open, today when it is closed."
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "receipt_id",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "wip_report",
+      "scope": "read:practice",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "practice_client_id": {
+            "type": "string",
+            "description": "Practice client UUID from list_practice_clients."
+          },
+          "partner_id": {
+            "type": "string",
+            "description": "Assigned partner UUID."
+          },
+          "date_from": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive entry date, YYYY-MM-DD."
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive entry date, YYYY-MM-DD."
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "standard",
+              "full"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "year_end_close",
+      "scope": "write:journals",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fiscal_year": {
+            "type": "number",
+            "description": "The fiscal_year label from list_fiscal_periods, e.g. 2027."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen key that makes a retry safe. Reusing a key returns the stored result of the original call instead of writing again. Required on every write."
+          }
+        },
+        "required": [
+          "fiscal_year",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

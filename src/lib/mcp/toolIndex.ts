@@ -1,3 +1,4 @@
+import {duplicateInvoiceChecksTool,paymentRiskChecksTool} from './tools/forensicRiskChecks';
 /**
  * Assembles MCP_TOOLS into the singleton registry the transport dispatches
  * through. Read tools register here (Task 2.6); write/post tools append in
@@ -143,7 +144,8 @@ import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (64)
+  duplicateInvoiceChecksTool,
+  paymentRiskChecksTool,
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -191,15 +193,12 @@ export const MCP_TOOLS = [
   suggestReceiptMatchesTool,
   listUnappliedReceiptsTool,
   listUnappliedPaymentsTool,
-  // Period control and bank completeness (W3). The five reads that let a caller
-  // see the posting lock and prove a bank account's history.
+  // Period control and bank completeness.
   listFiscalPeriodsTool,
   getFiscalPeriodTool,
   periodCloseChecklistTool,
   bankStatementCoverageTool,
   getOpeningBalancesTool,
-  // New domains (W6): payroll, statements, project P&L, WIP, assets, inventory
-  // and job costing. All reads.
   listEmployeesTool,
   getEmployeeTool,
   listPayrollComponentsTool,
@@ -220,9 +219,6 @@ export const MCP_TOOLS = [
   jobCostReportTool,
   budgetVarianceTool,
   proposeReclassificationTool,
-  // write (56) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
-  // (single and batch) additionally require write:post. Import posts nothing, so
-  // it stays off write:post.
   createDraftInvoiceTool,
   createDraftQuoteTool,
   createDraftJournalTool,
