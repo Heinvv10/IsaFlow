@@ -8,6 +8,13 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { approveCustomerInvoice } from './customerInvoiceApprovalService';
+import {
+  assertAggregateAgrees,
+  deriveTotals,
+  parseLineItems,
+  RecurringInvoiceTemplateError,
+} from './recurringInvoiceTemplate';
+import { lockRecurringTemplate, RecurringInvoiceLockTimeoutError } from './recurringInvoiceLock';
 import type {
   RecurringInvoice,
   RecurringInvoiceCreateInput,
@@ -108,14 +115,49 @@ export async function updateRecurringStatus(companyId: string,
   log.info('Updated recurring invoice status', { id, status }, 'accounting');
 }
 
+export { RecurringInvoiceTemplateError, RecurringInvoiceLockTimeoutError };
+
+/** Raised when the template is not yet due; carries the date it next runs. */
+export class RecurringInvoiceNotDueError extends Error {
+  readonly code = 'RECURRING_INVOICE_NOT_DUE';
+  constructor(recurringId: string, nextRunDate: string) {
+    super(
+      `Recurring invoice ${recurringId} is not due until ${nextRunDate} — running it now would `
+      + 'post a second GL journal for a period already invoiced. To bill early, move the '
+      + 'template\'s next run date forward and run it again.',
+    );
+    this.name = 'RecurringInvoiceNotDueError';
+  }
+}
+
+/**
+ * Savepoint names are sequenced, never a constant: Postgres SHADOWS a
+ * re-declared savepoint name, so two live subtransactions sharing one would
+ * make `ROLLBACK TO` unwind the wrong one. Same convention as neon.ts's
+ * `sp_sqltx_${n}`.
+ */
+let genSeq = 0;
+
 export async function generateInvoiceFromRecurring(companyId: string, 
   id: string,
   userId: string
 ): Promise<string> {
-  const rows = (await sql`SELECT * FROM recurring_invoices WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
-  if (!rows[0]) throw new Error('Recurring invoice not found');
-  const ri = rows[0];
+  // FOR UPDATE, because "is it active and due" is a check-then-act. Two
+  // concurrent runs of one template used to collide only by luck, on the
+  // invoice-number unique index.
+  const ri = await lockRecurringTemplate(companyId, id);
+  if (!ri) throw new Error('Recurring invoice not found');
   if (ri.status !== 'active') throw new Error('Recurring invoice is not active');
+
+  // A REPEAT RUN NOW POSTS A REAL JOURNAL, so it has to be refused. Before the
+  // canonical approve path was wired in, running the single-template endpoint
+  // twice minted a duplicate header with no ledger effect; now it would
+  // overstate revenue and VAT output by the invoice total and skip a period.
+  // The first run advances next_run_date past today, so this is what makes a
+  // double-click, a client retry or a re-POST a no-op.
+  if (!ri.is_due) {
+    throw new RecurringInvoiceNotDueError(id, fmtDate(ri.next_run_date));
+  }
 
   const nextDate = advanceDate(String(ri.next_run_date), String(ri.frequency));
   const endDate = ri.end_date ? String(ri.end_date) : null;
@@ -132,19 +174,27 @@ export async function generateInvoiceFromRecurring(companyId: string,
   // The template's lines ARE the invoice. Minting a header with none of them
   // put a receivable in AR with no detail behind it, so refuse rather than
   // generate an empty document (and leave the schedule un-advanced).
-  const lineItems = parseLineItems(ri.line_items);
-  if (lineItems.length === 0) {
-    throw new Error(`Recurring invoice ${id} has no line items — nothing to generate`);
-  }
+  const lineItems = parseLineItems(id, ri.line_items);
   const taxRate = Number(ri.tax_rate ?? 0);
 
-  // ONE SAVEPOINT AROUND HEADER + LINES + APPROVE. The batch runner
-  // (recurring-invoices-run.ts:89) catches per template and carries on, so
-  // without this a template that fails at approval leaves its half-built
-  // invoice inside the request transaction — which the route then COMMITs on
-  // its 200 — and the caught Postgres error would poison every later item with
-  // 25P02. Rolled back here, the catch means what it says.
-  const invoiceId = await withSavepoint('recurring_invoice_gen', async () => {
+  // THE HEADER IS DERIVED FROM THE LINES, not copied from the stored aggregate.
+  // The journal is posted from the header (postCustomerInvoiceToGL reads
+  // subtotal/tax_amount/total_amount) while the lines are computed
+  // independently, so trusting the aggregate would let AR and the invoice
+  // detail disagree — the same divergence this fix exists to close, one level
+  // down. The stored aggregate is still checked, so a template whose totals
+  // have drifted is refused rather than silently re-priced.
+  const totals = deriveTotals(lineItems, taxRate);
+  assertAggregateAgrees(id, totals, ri, lineItems.length);
+
+  // ONE SAVEPOINT AROUND HEADER + LINES + APPROVE + THE SCHEDULE ADVANCE. The
+  // batch runner (recurring-invoices-run.ts) catches per template and carries
+  // on, so anything left outside this block would be COMMITted by the route's
+  // 200 while its error was swallowed, and a Postgres-level failure would
+  // poison every later item with 25P02. Rolled back here, the catch means what
+  // it says.
+  const savepoint = `recurring_invoice_gen_${++genSeq}`;
+  return withSavepoint(savepoint, async () => {
     const inv = (await sql`
       INSERT INTO customer_invoices (
         company_id, invoice_number, client_id, customer_id, project_id,
@@ -154,22 +204,20 @@ export async function generateInvoiceFromRecurring(companyId: string,
         ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
         ${ri.project_id || null},
         CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
-        ${Number(ri.subtotal)}, ${taxRate}, ${Number(ri.tax_amount)}, ${Number(ri.total_amount)},
+        ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
         'draft', ${ri.description || ri.template_name}, ${userId}::UUID
       ) RETURNING id
     `) as Row[];
 
-    const newInvoiceId = String(inv[0]!.id);
+    const invoiceId = String(inv[0]!.id);
 
     for (const li of lineItems) {
-      const qty = Number(li.quantity) || 1;
-      const lineAmount = Math.round(qty * Number(li.unitPrice) * 100) / 100;
       await sql`
         INSERT INTO customer_invoice_items (
           invoice_id, description, unit_price, quantity, amount, tax_rate
         ) VALUES (
-          ${newInvoiceId}::UUID, ${li.description}, ${Number(li.unitPrice)},
-          ${qty}, ${lineAmount}, ${taxRate}
+          ${invoiceId}::UUID, ${li.description}, ${li.unitPrice},
+          ${li.quantity}, ${li.amount}, ${taxRate}
         )
       `;
     }
@@ -179,28 +227,18 @@ export async function generateInvoiceFromRecurring(companyId: string,
     // AR with gl_journal_entry_id NULL — AR and the GL out of agreement by the
     // invoice total. A failure here propagates and rolls the header back with it,
     // and the schedule below is advanced only once the invoice really exists.
-    await approveCustomerInvoice(companyId, newInvoiceId, userId);
-    return newInvoiceId;
+    await approveCustomerInvoice(companyId, invoiceId, userId);
+
+    await sql`
+      UPDATE recurring_invoices
+      SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
+          run_count = run_count + 1, status = ${newStatus}
+      WHERE id = ${id} AND company_id = ${companyId}
+    `;
+
+    log.info('Generated invoice from recurring', { recurringId: id, invoiceId }, 'accounting');
+    return invoiceId;
   });
-
-  await sql`
-    UPDATE recurring_invoices
-    SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
-        run_count = run_count + 1, status = ${newStatus}
-    WHERE id = ${id} AND company_id = ${companyId}
-  `;
-
-  log.info('Generated invoice from recurring', { recurringId: id, invoiceId }, 'accounting');
-  return invoiceId;
-}
-
-type TemplateLineItem = { description: string; quantity: number; unitPrice: number };
-
-function parseLineItems(raw: unknown): TemplateLineItem[] {
-  const arr = Array.isArray(raw)
-    ? raw
-    : typeof raw === 'string' ? JSON.parse(raw) as unknown : [];
-  return Array.isArray(arr) ? arr as TemplateLineItem[] : [];
 }
 
 function advanceDate(dateStr: string, frequency: string): string {

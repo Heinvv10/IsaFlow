@@ -43,3 +43,65 @@ and VAT output landing in closed VAT periods needs a decision before any write.
 `errors[]` array on a 200 response. Routing through the canonical path means a run now fails when
 the fiscal period is closed or a system account is unmapped, where it previously "succeeded"
 silently — that is the intended behaviour change and callers will start seeing those errors.
+
+---
+
+# Review round (blind review of 1ef8c82e — 1 HIGH, 3 MEDIUM, 3 LOW)
+
+All seven addressed. Evidence in `green-review.log`.
+
+**H1 — a repeat run posted a duplicate journal.** `generateInvoiceFromRecurring` now takes
+`FOR UPDATE` on the template row through `recurringInvoiceLock.ts` (5s `lock_timeout`, typed
+`RecurringInvoiceLockTimeoutError`, same shape as bankTxLock), refuses without a request
+transaction rather than holding a lock that releases immediately, and refuses a template whose
+`next_run_date` is in the future with `RecurringInvoiceNotDueError`. A template that is genuinely
+overdue still mints the next owed period per call — that is the schedule catching up, not a
+duplicate. **Behaviour change:** the "Run Now" button on a not-yet-due template is now refused; the
+error names the remedy (move the next run date forward). No force flag was added, since nothing
+calls one.
+
+**M1 — schedule UPDATE outside the savepoint.** Moved inside. The runner and the action route now
+call `assertTxUsable()` in their catch blocks, so a failure that poisoned the shared transaction
+rethrows into a 500 instead of a 200/4xx that withAuth commits while handing back invoice ids that
+will not survive.
+
+**M2 — module doc stated the opposite contract.** `src/modules/accounting/services/ar/.claude.md`
+corrected (the stale `generateDueInvoices` name too) and `bun run agent-docs:generate` run.
+
+**M3 — lines never reconciled with the header.** Header subtotal/tax/total are now DERIVED from the
+parsed lines, so sum(items) + VAT = total = the receivable debit by construction, and the stored
+aggregate is checked against them (`assertAggregateAgrees`, tolerance one cent per line for
+accumulated rounding) so a drifted template is refused rather than silently re-priced.
+
+**L1 — unvalidated JSON cast.** `parseLineItems` validates every element and raises a named
+`RecurringInvoiceTemplateError`: unreadable JSON, empty template, blank description, non-positive or
+non-numeric quantity, missing/negative unit price. `Number(null)` is 0, so a null unit price is
+rejected explicitly rather than billed at zero.
+
+**L2 — fixed savepoint name.** Now sequenced, `recurring_invoice_gen_${n}`, per neon.ts's convention.
+
+**L3 — noted, no action.** Restated in `green-review.log`.
+
+**New files.** `recurringInvoiceLock.ts` (68), `recurringInvoiceTemplate.ts` (114) — split out to
+keep `recurringInvoiceService.ts` at 278 lines, under the 300 limit.
+
+**Tests.** `tests/integration/k013-...int.test.ts` 12 tests (was 4) and
+`tests/unit/services/recurringInvoiceTemplate.test.ts` 14 tests, all passing. Six new mutations
+recorded (N1-N6).
+
+**Historical-data impact — unchanged from above, plus two more populations to inspect** (read-only,
+never run here):
+```sql
+-- templates whose stored totals no longer match their lines: these will now be
+-- refused at run time until re-saved.
+SELECT company_id, id, template_name, total_amount
+FROM recurring_invoices WHERE status = 'active';  -- compare against line_items by hand
+-- templates with an unusable line: blank description, quantity <= 0, or no unitPrice.
+SELECT company_id, id, template_name
+FROM recurring_invoices ri
+WHERE status = 'active' AND EXISTS (
+  SELECT 1 FROM jsonb_array_elements(ri.line_items) li
+  WHERE COALESCE(TRIM(li->>'description'), '') = ''
+     OR COALESCE((li->>'quantity')::numeric, 0) <= 0
+     OR li->>'unitPrice' IS NULL);
+```
