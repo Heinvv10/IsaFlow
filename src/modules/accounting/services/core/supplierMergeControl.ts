@@ -20,6 +20,8 @@ export async function mergeControlledSuppliers(companyId: string, targetId: stri
       SELECT 1 FROM supplier_payments WHERE company_id=${companyId}::uuid AND supplier_id=ANY(${ids}::uuid[])
       UNION ALL SELECT 1 FROM supplier_invoices WHERE company_id=${companyId}::uuid AND supplier_id=ANY(${ids}::uuid[])
       UNION ALL SELECT 1 FROM supplier_purchase_orders WHERE company_id=${companyId}::uuid AND supplier_id=ANY(${ids}::uuid[])
+      UNION ALL SELECT 1 FROM purchase_orders WHERE company_id=${companyId}::uuid AND supplier_id=ANY(${ids}::uuid[])
+      UNION ALL SELECT 1 FROM credit_notes WHERE company_id=${companyId}::uuid AND type='supplier' AND supplier_id=ANY(${ids}::uuid[])
       UNION ALL SELECT 1 FROM control_beneficiary_versions WHERE company_id=${companyId}::uuid AND entity_type='supplier' AND entity_id=ANY(${ids}::uuid[])
       UNION ALL SELECT 1 FROM control_beneficiary_proposals WHERE company_id=${companyId}::uuid AND entity_type='supplier'
         AND entity_id=ANY(${ids}::uuid[]) AND status IN ('pending','verified')

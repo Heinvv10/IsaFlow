@@ -13,3 +13,13 @@ it('refuses affected supplier merges before any payment reparent or contact muta
   ()=>mergeEntities(companyId,'supplier',target,source,'u1'))).rejects.toThrow('SUPPLIER_MERGE_REQUIRES_REVIEW');
  expect(query.mock.calls.some(([text])=>String(text).includes('UPDATE '))).toBe(false);
 });
+it.each(['purchase_orders','credit_notes'])('refuses standalone %s dependencies before deleting either supplier',async table=>{
+ query.mockClear();
+ query.mockImplementation(async(text:string)=>({rows:text.includes('SELECT EXISTS')
+  ?[{blocked:text.includes(`FROM ${table} WHERE company_id=`)}]
+  :text.includes('UPDATE suppliers')?[{id:source}]:[{id:source},{id:target}]}));
+ await expect(withControlRequest({client,userId:'u1',companyId,claims:{}},{personId:'u1',companyId,authMethod:'cookie'},
+  ()=>mergeEntities(companyId,'supplier',target,source,'u1'))).rejects.toThrow('SUPPLIER_MERGE_REQUIRES_REVIEW');
+ expect(query.mock.calls.some(([text])=>String(text).includes('UPDATE suppliers'))).toBe(false);
+ if(table==='credit_notes')expect(query.mock.calls.find(([text])=>String(text).includes('SELECT EXISTS'))![0]).toContain("type='supplier'");
+});
