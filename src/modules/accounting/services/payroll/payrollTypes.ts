@@ -113,7 +113,16 @@ export interface PayrollLineInput {
   components: EmployeeComponent[];
   period: PayrollPeriod;
   taxYear: number;
-  annualPayrollEstimate: number;
+  /**
+   * The employer's estimated annual remuneration, used only to decide SDL
+   * leviability. Pass `'defer'` when costing a whole run: the R500 000
+   * exemption is a property of the employer's total remuneration over twelve
+   * months, which is not known until every line has been costed, so the run
+   * service applies the threshold itself in a second pass over `sdlLeviable`.
+   * Deferring returns `sdl` as 0, and the caller MUST then set it — the value
+   * is spelled out rather than omitted so that forgetting is a type error.
+   */
+  annualPayrollEstimate: number | 'defer';
   priorPeriodCumulativePaye?: number;
 }
 
@@ -133,6 +142,8 @@ export interface PayrollLineResult {
   paye: PayeResult;
   uif: UifResult;
   sdl: number;
+  /** Remuneration this line contributes to the SDL leviable amount. */
+  sdlLeviable: number;
   eti: EtiResult;
   netPay: number;
   componentBreakdown: ComponentBreakdownItem[];

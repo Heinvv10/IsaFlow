@@ -1,0 +1,209 @@
+=== GREEN — real DB (fixture.env, disposable Postgres, production schema) ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+=== Unit suites touching the changed path ===
+$ bunx vitest run tests/unit/sars tests/unit/services/sarsService.test.ts \
+      tests/unit/services/vat201Degraded.test.ts tests/unit/services/vatExceptions
+ Test Files  10 passed (10)
+      Tests  118 passed | 24 skipped (142)
+
+NOT CAUSED BY THIS CHANGE: with fixture.env sourced, the 24 skipped tests run and
+tests/unit/sars/irp5-generation.test.ts fails 11 of them. It reads DB-backed SARS
+source codes (3601/3701/4102/...) which the zero-row schema fixture does not seed.
+Same failure on origin/master; nothing in that file touches VAT201.
+
+=== MUTATION CHECK ===
+Reverted one line of src/modules/accounting/services/reports/vat201LedgerFields.ts:
+  field5_outputVAT: r2(report.totals.outputTax)
+    -> field5_outputVAT: r2(invoiceDerived.field5_outputVAT)
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+      Tests  3 failed | 2 passed (5)
+AssertionError: expected 1500 to be close to 1350, received difference is 150
+Failing: "files the same output VAT the ledger-derived VAT201 reports",
+         "ignores a credit note dated outside the period",
+         "never reads another tenant into the return".
+Production line restored; suite back to 5 passed (5).
+
+=== Gates ===
+$ bunx tsc --noEmit                                              clean
+$ bunx eslint <3 changed src/pages files>                        clean
+
+================================================================================
+SECOND COMMIT — review findings H1, H2, M1-M4, L1-L4
+================================================================================
+
+=== GREEN — real DB (fixture.env) ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+
+=== GREEN — unit ===
+$ bunx vitest run tests/unit/sars/efiling-submission.test.ts
+      Tests  23 passed (23)
+
+=== FULL unit suite, DATABASE_URL unset (brief addendum) ===
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+ Test Files  5 failed | 779 passed | 36 skipped (820)
+      Tests  10 failed | 9319 passed | 234 skipped (9563)
+
+The same 5 files / 10 tests fail on origin/master's full suite, in a throwaway
+worktree at origin/master with the same node_modules:
+ Test Files  5 failed | 779 passed | 36 skipped (820)
+      Tests  10 failed | 9310 passed | 234 skipped (9554)
+They are trackerExclusion, bankAllocationService, bankAllocationUnwind and
+cashFlowReport — all pass in isolation in BOTH trees (4 files, 24 passed), so it
+is pre-existing full-run module-state interference, and none of them touch
+VAT201. The 9-test delta is exactly the 9 tests added to efiling-submission.
+
+=== MUTATION CHECKS (three, each reverted after) ===
+A. fields 2 and 3 back to the ledger boxes
+   field2_zeroRatedSupplies: nilRated.zeroRated -> boxBase(report, ['2','2A'])
+   field3_exemptSupplies:    nilRated.exempt    -> boxBase(report, ['3'])
+   integration: 2 failed | 7 passed. "expected +0 to be close to 20000".
+B. filability gate disabled (`if (false && ...)` on both arms)
+   unit:        2 failed | 21 passed  (15% check, negative supply value)
+   integration: 2 failed | 7 passed   (mixed-rate journal, negative period)
+C. draft-drift gate disabled (`if (false && drift.length > 0)`)
+   unit:        2 failed | 21 passed  (ledger moved, draft with no figures)
+All three restored from backup; suites back to 9 and 23 passed.
+
+=== Gates ===
+$ bunx tsc --noEmit                                              TSC_CLEAN
+$ bunx eslint <5 changed src/pages files>                        ESLINT_CLEAN
+$ bun run agent-docs:check                                       74 mirrors match
+
+No query was run against the production database.
+
+================================================================================
+THIRD COMMIT — re-review findings N1-N5
+================================================================================
+
+=== GREEN — real DB (fixture.env) ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+      Tests  13 passed (13)
+
+=== GREEN — unit ===
+$ bunx vitest run tests/unit/sars/efiling-submission.test.ts
+      Tests  25 passed (25)
+
+=== FULL unit suite, DATABASE_URL unset (brief addendum) ===
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9331 passed | 234 skipped (9565)
+Zero failures this run. The 10 failures recorded against the previous commit
+(trackerExclusion, bankAllocationService, bankAllocationUnwind, cashFlowReport)
+did not reproduce; they also appeared on origin/master's full run and passed in
+isolation in both trees, so they are flaky full-run module-state interference
+and never touched VAT201.
+
+=== MUTATION CHECKS (four, each reverted from backup after) ===
+D. field 1 stops giving back the nil-rated share of a mixed journal
+   `return r2(taxed - nilRatedInside)` -> `return r2(taxed)`
+   integration: 2 failed | 11 passed  (mixed zero-rated, mixed exempt)
+E. nil-rated query stops requiring a posted journal
+   dropped `AND je.status = 'posted'`
+   integration: 1 failed | 12 passed  (unposted document reaches field 2)
+F. input-breakdown contradiction check disabled (`if (false)`)
+   unit:        1 failed | 24 passed
+   integration: 1 failed | 12 passed
+G. proportional 15% tolerance reduced to vatBoxBasis's absolute R1
+   `RATE_CHECK_PROPORTION = 0.005` -> `0`
+   unit:        1 failed | 24 passed  (immaterial variance wrongly blocked)
+   integration: 1 failed | 12 passed
+All four restored; suites back to 13 and 25 passed.
+
+NOTE — a false pass caught while running F. The unit test for the contradiction
+gate asserted `/services/` and still passed with the gate disabled, because the
+draft-drift gate threw a message naming `field8_services`. The test now supplies
+a matching saved draft and asserts the gate's own wording; it goes red under F.
+
+=== Gates ===
+$ bunx tsc --noEmit                                              TSC_CLEAN
+$ bunx eslint <5 changed src/pages files>                        ESLINT_CLEAN
+
+No query was run against the production database.
+
+================================================================================
+FOURTH COMMIT — round-3 finding N6 (zero-value VAT control leg)
+================================================================================
+
+=== GREEN ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+      Tests  16 passed (16)
+$ bunx vitest run tests/unit/sars/efiling-submission.test.ts
+      Tests  25 passed (25)
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9331 passed | 234 skipped (9565)
+
+=== MUTATION CHECKS (three, each reverted from backup after) ===
+The predicate is `account_subtype = 'vat_output'` AND the leg's own VAT code is
+absent or not nil-rated. Each clause is pinned by a fixture, in both directions.
+
+J. drop the VAT-code clause — any vat_output leg makes the journal taxed
+   (this IS the reported defect)
+   integration: 1 failed | 14 passed
+   "expected -19000 to be close to 1000" — November renders minus the export.
+K. gate on the leg AMOUNT instead of its code
+   `AND (vat_type IS NULL OR vat_type <> ALL(nil))` -> `AND debit + credit <> 0`
+   integration: 1 failed | 14 passed
+   "expected 9000 to be close to +0" — December declares the same R9 000 in
+   field 1 and field 2, which is the mirror defect an "ignore R0.00 legs" fix
+   introduces.
+L. let vat_input legs count as well
+   `= 'vat_output'` -> `= ANY(ARRAY['vat_output','vat_input'])`
+   integration: 1 failed | 15 passed
+   "expected -6000 to be close to +0" — a journal carrying an export sale and a
+   purchase deducts a share its output base never received.
+All three restored; suite back to 16 passed.
+
+NOTE — J and K were each run once BEFORE the mirror and input-leg fixtures
+existed, and both survived: the original zero-value-leg fixture was satisfied by
+either clause alone, so the test proved neither. The two fixtures were added for
+exactly that reason.
+
+=== Gates ===
+$ bunx tsc --noEmit                                              TSC_CLEAN
+$ bunx eslint <changed src files>                                ESLINT_CLEAN
+
+No query was run against the production database.
+
+================================================================================
+FIFTH COMMIT — vat-guard-coverage gate
+================================================================================
+
+`bun scripts/ci/check-vat-guard-coverage.ts` failed on the branch:
+  src/modules/accounting/services/reports/vat201LedgerFields.ts
+    matched: rate_constant
+The file imported SA_VAT_RATE from vatBoxBasis, and the rule's RATE_CONSTANTS
+regex matches any `\w*VAT_(RATE|PCT)\w*`.
+
+Fixed by removing the constant rather than allowlisting it. `Vat201Report`
+already carries the rate its own boxes were derived at (`rateCheck.rate`), so
+the filing check now reads that. It cannot run at a rate the boxes were not
+derived at, and the allowlist stays at 13 entries — the script argues that list
+should shrink, not grow, and nothing in this file posts.
+
+$ bun scripts/ci/check-vat-guard-coverage.ts
+[vat-guard] OK — 1905 files scanned, 13 attended/no-claim paths allowlisted.
+
+=== MUTATION CHECK ===
+M. re-hardcode the rate
+   `field1 * vat201.rateCheck.rate` -> `field1 * 0.15`
+   integration: 1 failed | 15 passed
+   The added assertion sets rateCheck.rate to 0 and expects the return to stop
+   being filable; with the rate hardcoded it stays filable.
+
+=== GREEN ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+      Tests  16 passed (16)
+$ bunx vitest run tests/unit/sars/efiling-submission.test.ts
+      Tests  25 passed (25)
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+ Test Files  791 passed | 36 skipped (827)
+      Tests  9407 passed | 234 skipped (9641)
+
+$ bunx tsc --noEmit                                              TSC_CLEAN
+$ bunx eslint src/.../vat201LedgerFields.ts                      ESLINT_CLEAN

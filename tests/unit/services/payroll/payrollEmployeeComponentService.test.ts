@@ -77,6 +77,48 @@ describe('assignComponentToEmployee', () => {
     expect(insertCall).toBeDefined();
   });
 
+  it('closes a once-off assignment on the true last day of the month, in any timezone', async () => {
+    // The month-end was previously derived with local-time accessors and then
+    // rendered with toISOString(), so east of UTC (SAST) it landed a day early
+    // and the assignment died before the month it was captured for ended.
+    mockImpl = (strings) => {
+      const query = strings.join('?');
+      if (query.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMPLOYEE_ID }]);
+      return Promise.resolve([{
+        id: ASSIGNMENT_ID, employee_id: EMPLOYEE_ID, component_id: COMPONENT_ID,
+        amount: '5000.00', effective_from: new Date('2025-03-01'),
+        effective_to: new Date('2025-03-31'), is_recurring: false,
+      }]);
+    };
+
+    await assignComponentToEmployee(
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, new Date('2025-03-01'), undefined, false,
+    );
+
+    const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
+    expect(insertCall!.values).toContain('2025-03-31');
+    expect(insertCall!.values).not.toContain('2025-03-30');
+  });
+
+  it('leaves a recurring assignment open-ended', async () => {
+    mockImpl = (strings) => {
+      const query = strings.join('?');
+      if (query.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMPLOYEE_ID }]);
+      return Promise.resolve([{
+        id: ASSIGNMENT_ID, employee_id: EMPLOYEE_ID, component_id: COMPONENT_ID,
+        amount: '5000.00', effective_from: new Date('2025-03-01'),
+        effective_to: null, is_recurring: true,
+      }]);
+    };
+
+    await assignComponentToEmployee(
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, new Date('2025-03-01'),
+    );
+
+    const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
+    expect(insertCall!.values).toContain(null);
+  });
+
   it('throws when the employee lookup returns empty', async () => {
     mockImpl = (strings) => {
       const query = strings.join('?');

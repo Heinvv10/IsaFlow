@@ -69,3 +69,43 @@ Full unit suite, DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset, 2026-09-09:
              Tests      9438 passed | 234 skipped (9672)  — 0 failed.
   The 9438/0 total is identical to the round-1 run of the same suite on this branch. Treating
   the two as load-induced flakes rests on the clean rerun, not on inspection of the failures.
+
+================================================================================
+Round 3 — merge of origin/master (7749f3fab) into the branch
+================================================================================
+
+Three conflicts, all in this service's area:
+  migrationOpeningBalanceService.ts — master's K-009 work added an ownership guard
+    (`glRows[0].imported_from !== source` -> notOwned, reported alongside unresolved in one
+    throw) in the same hunk as my SIGN CONVENTION comment. Resolved by keeping BOTH: master's
+    guard runs first as a `continue`, then the comment, then my sign expressions. The sign
+    semantics are untouched by master and untouched by me.
+  core/.claude.md — both sides edited the "Migration wizard" bullet. Kept both additions:
+    `migrationOpeningBalanceService.ts` (mine) and `migrationRollbackService.ts` (master's).
+    My all-or-nothing business rule now also names the ownership refusal, so it stays true.
+  core/AGENTS.md — generated; regenerated rather than hand-resolved.
+  docs/audits/remediation/K-087/* kept as ours (no incoming change).
+
+Test-fixture change forced by master: both K-087 integration files seed `gl_accounts` with
+`imported_from = 'xero'`. Without it the new ownership guard reports every seeded account as
+notOwned and nothing posts. This does not weaken the tests — see the mutation rerun below.
+
+Post-merge, real PostgreSQL (isaflow_schema_fixture), 2026-09-09:
+  k087-opening-balance-negative-zeroed.int.test.ts   2 passed / 2
+  k087-opening-balance-adjacent.int.test.ts          4 passed / 4
+  Mutation rerun on the merged file: revert -> 6 failed / 0 passed; side-test inversion ->
+  6 failed / 0 passed; dropping Math.abs -> 6 failed / 0 passed. Restored -> 6 passed / 6.
+
+Static gates after the merge:
+  bunx tsc --noEmit            exit 0
+  bunx eslint <service>        exit 0
+  bun run agent-docs:check     OK: 74 mirrors match canonical sources
+
+Full unit suite after the merge, DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset:
+  Test Files 798 passed | 2 failed | 40 skipped (840)
+  Tests      9551 passed | 2 failed | 243 skipped (9796)   — machine load average 91.
+  Failures: tests/unit/services/cashFlowReport.test.ts and
+            tests/unit/services/bank/bankAllocationUnwind.test.ts.
+  Both pass in isolation on this tree (2 files / 17 tests passed), neither imports
+  migrationOpeningBalanceService, and both are on the known load-flake list from round 1 of
+  this item. Named here rather than hidden behind a green rerun.

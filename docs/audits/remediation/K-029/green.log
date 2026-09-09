@@ -1,0 +1,303 @@
+=== GREEN ===
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+⎯⎯⎯⎯⎯⎯ Failed Tests 15 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 4 passed (5)
+      Tests  15 failed | 71 passed (86)
+=== MUTATION 1: drop depreciation_method from the loader SELECT ===
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { …(15) } to have property "depreciation_method" with value 'reducing_balance'
+AssertionError: expected 1666.67 to be close to 2666.67, received difference is 1000, but expected 0.005
+      Tests  2 failed | 1 passed (3)
+=== MUTATION 2: disable the reducing-balance branch ===
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 1666.67 to be close to 2666.67, received difference is 1000, but expected 0.005
+AssertionError: expected 1666.67 to be close to 2666.67, received difference is 1000, but expected 0.005
+      Tests  2 failed | 1 passed (3)
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 34 passed (37)
+=== MUTATION 3: disable the sum-of-years branch ===
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 1666.67 to be close to 833.33, received difference is 833.34, but expected 0.005
+      Tests  1 failed | 2 passed (3)
+=== RESTORED ===
+      Tests  3 passed (3)
+      Tests  37 passed (37)
+tsc: clean
+
+=== regression: existing depreciation-run DB suite, against isaflow_dev ===
+tests/unit/mcp/runDepreciationDb.test.ts — Test Files 1 passed, Tests 15 passed
+(it refuses the schema fixture DB by its own guard; that guard predates this fix)
+
+=== lint ===
+eslint on all six changed src files — clean
+
+================================================================
+Round 2 — blind review of 01b56039 (1 HIGH, 5 MEDIUM, 3 LOW)
+================================================================
+=== GREEN (final shape) ===
+  int:       Tests  5 passed (5)
+  unit:       Tests  66 passed (66)
+=== M1: loader stops selecting depreciation_method ===
+  int:       Tests  3 failed | 2 passed (5)
+  unit:       Tests  66 passed (66)
+=== M2: reducing-balance branch disabled ===
+  int:       Tests  4 failed | 1 passed (5)
+  unit:       Tests  5 failed | 61 passed (66)
+=== M3: sum-of-years branch disabled ===
+  int:       Tests  2 failed | 3 passed (5)
+  unit:       Tests  4 failed | 62 passed (66)
+=== M4: declining crossover removed (H1) ===
+  int:       Tests  5 passed (5)
+  unit:       Tests  1 failed | 65 passed (66)
+=== M5: final-period true-up removed (M3 pro-rate) ===
+  int:       Tests  5 passed (5)
+  unit:       Tests  6 failed | 60 passed (66)
+=== M6: year clock pinned to year 1 (M2 annual-rate convention) ===
+  int:       Tests  4 failed | 1 passed (5)
+  unit:       Tests  5 failed | 61 passed (66)
+=== M7: assetService stops sharing the schedule (M4) ===
+  int:       Tests  1 failed | 4 passed (5)
+  unit:       Tests  4 failed | 62 passed (66)
+=== M8: ON CONFLICT stops refreshing the rate (L8) ===
+  int:       Tests  1 failed | 4 passed (5)
+  unit:       Tests  66 passed (66)
+=== RESTORED ===
+  int:       Tests  5 passed (5)
+  unit:       Tests  66 passed (66)
+  tsc: clean
+
+Each of the eight mutations turns at least one suite RED; the tree restores GREEN.
+  M1 loader column · M2/M3 the two new branches · M4 declining crossover (HIGH-1)
+  M5 final-period true-up (MEDIUM-3) · M6 the year clock (MEDIUM-2)
+  M7 the shared schedule (MEDIUM-4) · M8 the ledger rate refresh (LOW-8)
+
+=== full unit suite, no fixture env (DATABASE_URL unset) ===
+Test Files  5 failed | 779 passed | 36 skipped (820)
+     Tests  10 failed | 9329 passed | 234 skipped (9573)
+The 5 failing files are trackerExclusion, bankAllocationService,
+bankAllocationDateShift, bankAllocationUnwind and cashFlowReport. None imports
+assetService, farDepreciationService or depreciationMethods (grep found no
+match), and all 5 pass in isolation — 27 passed — so the failures are 10s
+timeouts under the full parallel run, not this change. Re-run in isolation:
+  Test Files  5 passed (5) / Tests 27 passed (27)
+
+=== lint / types ===
+eslint on all 9 changed src + pages files — clean
+tsc --noEmit — clean
+
+================================================================
+Round 3 — follow-up review of cf1b5709 (MEDIUM-5 open, +1 HIGH, +2 LOW)
+================================================================
+=== GREEN (round 3) ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  84 passed (84)
+=== N1: true-up back to >= (HIGH-A) ===
+  int:       Tests  1 failed | 5 passed (6)
+  unit:       Tests  3 failed | 81 passed (84)
+=== N2: lifeExpiredNote always silent (HIGH-A visibility) ===
+  int:       Tests  1 failed | 5 passed (6)
+  unit:       Tests  2 failed | 82 passed (84)
+=== N3: CSV export back to straight line (MEDIUM-5) ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  2 failed | 82 passed (84)
+=== N4: assetService true-up removed (LOW-B) ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  1 failed | 83 passed (84)
+=== N5: schedule trues up on the last DISPLAYED row (LOW-C) ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  1 failed | 83 passed (84)
+=== RESTORED ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  84 passed (84)
+  tsc: clean
+
+Each of the five mutations turns a suite RED; the tree restores GREEN.
+  N1 the >= true-up (HIGH-A) · N2 the life-expired note (HIGH-A visibility)
+  N3 the CSV export method (MEDIUM-5) · N4 the assetService true-up (LOW-B)
+  N5 truing up on the displayed row (LOW-C)
+
+=== full unit suite, no fixture env (DATABASE_URL unset) ===
+Test Files  785 passed | 36 skipped (821)
+     Tests  9357 passed | 234 skipped (9591)
+No failures. The 10 failures recorded in round 2 (bank allocation, cash flow,
+tracker exclusion) did not recur, confirming they were load-related timeouts.
+
+=== lint / types / file sizes ===
+eslint on all 6 changed src + pages files — clean
+tsc --noEmit — clean
+297 / 296 / 58 / 185 / 100 / 266 lines — all under the 300 cap
+
+================================================================
+Round 4 — re-review of c5e566fb (MEDIUM-D + LOW-E/F/G)
+================================================================
+=== GREEN (round 4) ===
+  int:       Tests  7 passed (7)
+  unit:       Tests  148 passed (148)
+=== O1: run result drops the note (MEDIUM-D, live path) ===
+  int:       Tests  1 failed | 6 passed (7)
+  unit:       Tests  148 passed (148)
+=== O2: expired asset back to an anonymous skip (MEDIUM-D, both tracks zero) ===
+  int:       Tests  1 failed | 6 passed (7)
+  unit:       Tests  148 passed (148)
+=== O3: preview back to its generic wording (MEDIUM-D, dry run) ===
+  int:       Tests  1 failed | 6 passed (7)
+  unit:       Tests  148 passed (148)
+=== O4: export truncation marker removed (LOW-E) ===
+  int:       Tests  7 passed (7)
+  unit:       Tests  1 failed | 147 passed (148)
+=== O5: accumulated_depreciation fallback removed (LOW-F) ===
+  int:       Tests  7 passed (7)
+  unit:       Tests  1 failed | 147 passed (148)
+=== O6: the bounded true-up, after the file split (HIGH-A regression) ===
+  int:       Tests  3 failed | 4 passed (7)
+  unit:       Tests  3 failed | 145 passed (148)
+error: pathspec 'src/modules/accounting/services/items/policyDepreciation.ts' did not match any file(s) known to git
+=== RESTORED ===
+  int:       Tests  3 failed | 4 passed (7)
+  unit:       Tests  3 failed | 145 passed (148)
+  tsc: clean
+=== RESTORED (corrected) ===
+  int:       Tests  7 passed (7)
+  unit:       Tests  148 passed (148)
+  tsc: clean
+
+Each of the six mutations turns a suite RED; the tree restores GREEN.
+  O1 the note on the run result · O2 the anonymous both-tracks-zero skip
+  O3 the preview's contradicting wording · O4 the export truncation marker
+  O5 the accumulated_depreciation fallback · O6 the bounded true-up, re-checked
+     after the file split moved it to policyDepreciation.ts
+
+=== full unit suite, no fixture env (DATABASE_URL unset) ===
+Test Files  4 failed | 781 passed | 36 skipped (821)
+     Tests  7 failed | 9353 passed | 234 skipped (9594)
+The 4 failing files are the same load-flaky set seen in round 2 —
+trackerExclusion, bankAllocationService, bankAllocationUnwind, cashFlowReport.
+None imports anything this change touches, and all 4 pass in isolation:
+  Test Files  4 passed (4) / Tests 24 passed (24)
+Round 3 ran the same suite with zero failures, which is what makes these
+timeouts under the parallel run rather than a regression.
+
+=== lint / types / file sizes ===
+eslint on all 9 changed src + pages files — clean
+tsc --noEmit — clean
+138 / 180 / 218 / 91 / 229 / 113 lines — real headroom under the 300 cap now
+
+================================================================
+Round 5 — re-review of 90de5ede (MEDIUM-H/I + LOW-J, all on the page)
+================================================================
+=== GREEN (round 5) ===
+  comp:       Tests  5 passed (5)
+=== P1: life-expired rows back to GL Failed (MEDIUM-H) ===
+  comp:       Tests  1 failed | 4 passed (5)
+=== P2: the note is no longer rendered (MEDIUM-H detail) ===
+  comp:       Tests  1 failed | 4 passed (5)
+=== P3: amount back to the field the API never returns (MEDIUM-I) ===
+  comp:       Tests  1 failed | 4 passed (5)
+=== P4: header back to straight line (LOW-J) ===
+  comp:       Tests  1 failed | 4 passed (5)
+=== P5: Monthly Dep. column back to hard-coded straight line ===
+  comp:       Tests  2 failed | 3 passed (5)
+=== RESTORED ===
+  comp:       Tests  5 passed (5)
+  tsc: clean
+
+Each of the five mutations turns a component test RED; the tree restores GREEN.
+  P1 the two-state ternary (MEDIUM-H) · P2 hiding the note (MEDIUM-H detail)
+  P3 reverting to the `amount` field the API never returns (MEDIUM-I)
+  P4 the straight-line header copy (LOW-J)
+  P5 the inline straight-line Monthly Dep. column (found while editing)
+
+=== component suite (bun run test:components) ===
+Test Files  56 passed (56) / Tests  389 passed (389)
+An earlier run of the same suite showed 2 failures in the two `pages/_app.tsx`
+tests (serviceWorkerExclusion, shareProviderFetches). Both are load flake, not
+this change: they pass in isolation (4/4), two consecutive full runs with the
+new test file present are 56/56 green, and a full run with the new file REMOVED
+still failed shareProviderFetches.
+
+=== full unit suite, no fixture env (DATABASE_URL unset) ===
+Test Files  2 failed | 783 passed | 36 skipped (821)
+     Tests  2 failed | 9358 passed | 234 skipped (9594)
+bankAllocationUnwind and cashFlowReport — a subset of the same load-flaky set
+seen in rounds 2 and 4, neither importing anything this change touches.
+
+=== lint / types / file sizes ===
+eslint on pages/accounting/depreciation/index.tsx — clean
+tsc --noEmit — clean
+286 lines — under the 300 cap
+
+================================================================
+Round 6 — re-review of 9662f5ac (MEDIUM-K + LOW-L/M)
+================================================================
+=== GREEN (round 6) ===
+  comp:       Tests  8 passed (8)
+  unit:       Tests  3 passed (3)
+=== Q1: glFailed no longer takes precedence in the page (MEDIUM-K) ===
+  comp:       Tests  2 failed | 6 passed (8)
+  unit:       Tests  3 passed (3)
+=== Q2: the service stops flagging a rolled-back row (MEDIUM-K, source) ===
+  comp:       Tests  8 passed (8)
+  unit:       Tests  1 failed | 2 passed (3)
+=== Q3: glFailed dropped from the summary line (MEDIUM-K) ===
+  comp:       Tests  1 failed | 7 passed (8)
+  unit:       Tests  3 passed (3)
+=== Q4: missing purchase date back to today (LOW-L) ===
+  comp:       Tests  1 failed | 7 passed (8)
+  unit:       Tests  3 passed (3)
+=== RESTORED ===
+  comp:       Tests  8 passed (8)
+  unit:       Tests  3 passed (3)
+  tsc: clean
+
+Each of the four mutations turns RED the suite that owns it; the tree restores GREEN.
+  Q1 glFailed precedence in the page · Q2 the service setting the flag
+  Q3 the summary-line count · Q4 the pro-rated guess for a null purchase date
+Q2 is why the service test exists: the component fixture supplies its own rows,
+so it cannot catch a service that stops setting the flag.
+
+=== all three suites, this commit ===
+integration  Test Files 1 passed (1)   / Tests    7 passed (7)
+components   Test Files 56 passed (56) / Tests  392 passed (392)
+full unit    Test Files 786 passed | 36 skipped / Tests 9363 passed | 234 skipped
+No failures anywhere.
+
+CORRECTION to the round-5 log and commit message (review LOW-M): the two flaky
+component tests were named there as "the two pages/_app.tsx component tests".
+That is their DESCRIBE title, not their filename. The files are
+tests/unit/components/serviceWorkerExclusion.test.tsx and
+tests/unit/components/shareProviderFetches.test.tsx. The evidence that the flake
+is not from this work stands: a full component run with the round-5 test file
+removed still failed one of them.
+
+=== lint / types ===
+eslint on the page, depreciationRunService.ts and writeDepreciation.ts — clean
+tsc --noEmit — clean
+
+================================================================
+Round 7 — re-review of bd2c51a3 (LOW-N)
+================================================================
+=== GREEN (round 7) ===
+  comp:       Tests  9 passed (9)
+=== R1: summary back to the Processed count (LOW-N) ===
+  comp:       Tests  1 failed | 8 passed (9)
+=== R2: tally stops using runOutcome (LOW-N, drift) ===
+  comp:       Tests  1 failed | 8 passed (9)
+=== RESTORED ===
+  comp:       Tests  9 passed (9)
+  tsc: clean
+
+Both mutations turn the component suite RED; the tree restores GREEN.
+  R1 putting `processed` back at the head of the summary
+  R2 tallying on entryId instead of through runOutcome — the drift the shared
+     helper exists to prevent
+
+=== all three suites, this commit ===
+components   Test Files 56 passed (56) / Tests  393 passed (393)
+integration  Test Files  1 passed (1)  / Tests    7 passed (7)
+full unit    Test Files 786 passed | 36 skipped / Tests 9363 passed | 234 skipped
+No failures anywhere.
+
+=== lint / types ===
+eslint on pages/accounting/depreciation/index.tsx — clean
+tsc --noEmit — clean

@@ -33,10 +33,13 @@ function run<T>(c: PoolClient, fn: () => Promise<T>): Promise<T> {
   return als.run({ client: c, userId: user, companyId: company, claims: {} } as never, fn);
 }
 
+// `imported_from` must name the source: postOpeningBalances refuses to post onto
+// an account the import does not own, so an untagged account would be reported
+// as notOwned and nothing would post.
 async function account(code: string, name: string, type: string, subtype: string, normal: string) {
   await pool.query(
     `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,account_subtype,
-       normal_balance,is_active) VALUES($1,$2,$3,$4,$5,$6,true)`,
+       normal_balance,is_active,imported_from) VALUES($1,$2,$3,$4,$5,$6,true,'xero')`,
     [company, code, name, type, subtype, normal],
   );
 }
