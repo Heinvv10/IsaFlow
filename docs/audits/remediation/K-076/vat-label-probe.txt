@@ -1,0 +1,9 @@
+"VAT No 4123456789" => vat1: null vat2: null
+"VAT No: 4123456789" => vat1: null vat2: null
+"VAT Reg No: 4123456789" => vat1: null vat2: null
+"VAT Registration Number 4123456789" => vat1: null vat2: null
+"VAT: 4123456789" => vat1: "VAT: 4123456789" vat2: null
+"VAT 4123456789" => vat1: "VAT 4123456789" vat2: null
+"Tax Invoice 12345" => vat1: null vat2: null
+"Tax Invoice No 12345" => vat1: null vat2: null
+"VAT@15% 150.00" => vat1: "VAT@15% 150.00" vat2: null

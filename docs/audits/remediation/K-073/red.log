@@ -1,0 +1,10 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k073-customer-invoice-customer-join.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  11:31:33
+   Duration  1.94s (transform 443ms, setup 0ms, import 794ms, tests 294ms, environment 0ms)
+

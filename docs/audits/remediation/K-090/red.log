@@ -1,0 +1,51 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts (2 tests | 2 failed) 173ms
+   × K-088: the supplier-invoice importer reads its own source table 22ms
+   × K-090: the customer-invoice importer reads its own source table 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts > K-088: the supplier-invoice importer reads its own source table
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:107:19
+    105|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    106|       assertTxUsable();
+    107|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    108|       return res.rows as T[];
+    109|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:82:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageImportService.ts:500:5
+ ❯ drive tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts:76:17
+ ❯ tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts:86:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts > K-090: the customer-invoice importer reads its own source table
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:107:19
+    105|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    106|       assertTxUsable();
+    107|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    108|       return res.rows as T[];
+    109|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:82:3
+ ❯ importCustomerInvoices src/modules/accounting/services/core/sageCustomerImportService.ts:134:5
+ ❯ drive tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts:76:17
+ ❯ tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts:91:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:30:43
+   Duration  1.69s (transform 722ms, setup 0ms, import 1.06s, tests 173ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
