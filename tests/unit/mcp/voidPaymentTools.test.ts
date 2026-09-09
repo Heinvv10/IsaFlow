@@ -32,7 +32,8 @@ import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const DOC = '77777777-7777-4777-8777-777777777777';
-const KEY = { idempotency_key: 'k1' };
+const APPROVAL = '99999999-9999-4999-8999-999999999999';
+const KEY = { idempotency_key: 'k1', approval_id: APPROVAL };
 
 function ctx(): McpToolContext {
   return {
@@ -67,6 +68,26 @@ describe('void_receipt / void_payment', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(voidPaymentDocument).mockResolvedValue(VOIDED);
+  });
+
+  it('declares and forwards approved operation identities to the shared void boundary', async () => {
+    for (const [tool, idKey] of [[voidReceiptTool, 'receipt_id'], [voidPaymentTool, 'payment_id']] as const) {
+      expect(tool.inputSchema.required).toContain('approval_id');
+      await tool.handler({ [idKey]: DOC, ...KEY, intent_id: DOC, reason: 'Correct duplicate payment' }, ctx());
+      expect(vi.mocked(voidPaymentDocument).mock.lastCall?.[4]).toMatchObject({
+        approvalId: APPROVAL, intentId: DOC, reason: 'Correct duplicate payment',
+      });
+    }
+  });
+
+  it('rejects missing or malformed approval and inverse identities before dispatch', async () => {
+    expect(errText(await voidReceiptTool.handler({ receipt_id: DOC, idempotency_key: 'k1' }, ctx())))
+      .toBe('approval_id is required');
+    expect(errText(await voidReceiptTool.handler({ receipt_id: DOC, ...KEY, approval_id: 'bad' }, ctx())))
+      .toBe('invalid approval_id');
+    expect(errText(await voidPaymentTool.handler({ payment_id: DOC, ...KEY, intent_id: 'bad' }, ctx())))
+      .toBe('invalid intent_id');
+    expect(voidPaymentDocument).not.toHaveBeenCalled();
   });
 
   it('both require write:post — a void writes a reversing journal', () => {
