@@ -21,6 +21,8 @@ export interface PaystackWebhookEvent {
     currency?: string;
     channel?: string;
     paid_at?: string;
+    /** Gateway fee in cents, deducted from the settlement. */
+    fees?: number;
     gateway_response?: string;
     id?: number;
     customer?: {
@@ -123,6 +125,8 @@ async function handleChargeSuccess(
       invoiceId: pr.customer_invoice_id,
       amountRand: Number(pr.amount_cents) / 100,
       reference,
+      paidAt: event.data.paid_at ?? null,
+      feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,
     });
     return;
   }

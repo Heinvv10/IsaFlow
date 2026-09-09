@@ -11,7 +11,9 @@ without processing. The `paystack_payment_requests` UPDATE had also committed, s
 - Before: first delivery 500, event row `processed=false` and payment request `completed`;
   redelivery `200 {duplicate:true}`, never processed. Event lost.
 - After: the event row is still written on the pool (forensics survive a rollback), but the
-  short-circuit fires only when `processed = TRUE`. `processEvent` plus the `processed` stamp
+  short-circuit fires only when `processed = TRUE`, read under `SELECT … FOR UPDATE` inside
+  the transaction so two concurrent redeliveries serialise instead of both processing.
+  A later success clears any stale `processing_error`. `processEvent` plus the `processed` stamp
   run in ONE transaction on an ALS-bound client, so a throw rolls back the payment-request
   status and every handler write. The redelivery reprocesses; once the cause clears it
   succeeds and is stamped processed. The INSERT is now `ON CONFLICT (body_sha256) DO NOTHING
@@ -44,3 +46,11 @@ Reconcile each against `paystack_payment_requests.status` for the same reference
 
 **Limits.** No automatic re-drive of already-dropped events. Reprocessing correctness still
 depends on each branch's own guard; the transaction is what makes those guards hold.
+
+
+**Review remediation.** See `../K-036/review-fixes.md` for the blind review's findings across
+both defects and what each one changed. From K-035's side: the dedupe check moved inside the
+transaction behind a row lock (M1), `processing_error` is cleared on success (L1), and
+`withPublicRouteTransaction` now destroys a connection whose ROLLBACK failed (M2) and refuses
+to nest inside a request transaction (L2), proved by
+`tests/integration/public-route-tx.int.test.ts` (4 passed).

@@ -19,19 +19,27 @@ balance stopped agreeing with the AR aging.
   (`withPublicRouteTransaction`), so a GL failure cannot leave the invoice marked paid.
 
 **Idempotency.** Guarded on `customer_payments.bank_reference = <paystack reference>`
-(status <> cancelled). Whichever of webhook and verify arrives second records nothing, and
-a webhook redelivery records nothing. A settlement larger than the invoice balance
-allocates the balance and logs a warning; the AR path cannot represent an over-allocation.
+(status <> cancelled), and enforced by migration 619's partial unique index behind it.
+Whichever of webhook and verify arrives second records nothing, and a webhook redelivery
+records nothing. A settlement LARGER than the invoice balance is banked in full: the whole
+receipt is debited to bank and credited to the customer, the invoice absorbs only what it
+owed, and the remainder stays as an unapplied receipt. Truncating it would drop real cash.
 
 **Actor.** `customer_payments.created_by` is NOT NULL and a gateway callback has no user,
-so the invoice's own `created_by` (NOT NULL, company-scoped) is used, with the unattended
-`system:<job>:v1` posting-agent stamp rather than `human:<userId>`.
+so the invoice's own `created_by` is used — resolved through `resolveUserUuid`, because that
+column is `varchar` while the payment's is `uuid` and an imported author would otherwise
+abort the insert. Stamped `system:paystack-receipt:v1`, never `human:<userId>`.
+
+**Dating and fees.** The receipt is dated `paid_at`, not processing time, so a redelivery
+days later still books into the settlement's period. The gateway fee, when the payload
+carries one, is posted as its own DR expense / CR Bank entry so the bank leg nets to the
+actual deposit. See review-fixes.md for the account-choice caveat.
 
 **Files.** `src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts` (new),
 `src/lib/publicRouteTx.ts` (new, shared with K-035), `pages/api/webhooks/paystack.ts`,
 `pages/api/portal/payments/paystack/verify.ts`.
 
-**Tests.** `tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts` — 6
+**Tests.** `tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts` — 13
 passed against the disposable production schema (was 2 failed / 2). Each asserts the
 journal balances, that DR Bank and CR Receivable each equal the invoice's `amount_paid`,
 and that the fiscal period is set. Adjacent cases: webhook + verify both firing, webhook
@@ -40,7 +48,9 @@ throws if called.
 
 **Mutation check.** Reverting both call sites to dd4f854c turns all 6 red.
 
-**Migration / rollback.** None.
+**Migration / rollback.** `scripts/migrations/sql/619_customer_payments_card_reference_unique.sql`
+adds a partial unique index behind the idempotency read. Rollback: `DROP INDEX
+ux_customer_payments_card_reference`.
 
 **Historical-data impact.** The query below was run read-only against production `isaflow`
 once, before the instruction arrived not to query production; it is recorded here rather

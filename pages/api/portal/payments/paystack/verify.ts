@@ -91,6 +91,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               invoiceId: pr.customer_invoice_id,
               amountRand: Number(pr.amount_cents) / 100,
               reference: pr.paystack_reference,
+              // verifyTransaction reports paidAt but no fee; the webhook, which
+              // does carry `fees`, posts the fee leg when it arrives.
+              paidAt: live.paidAt ?? null,
             });
           }
         });

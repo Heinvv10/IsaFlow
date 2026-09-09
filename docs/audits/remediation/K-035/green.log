@@ -16,3 +16,12 @@ re-ran the same file: Tests 3 failed | 3 passed (6). Production file then restor
 --- Full unit suite (DATABASE_URL unset: `env -u DATABASE_URL bunx vitest run`) ---
  Test Files  784 passed | 36 skipped (820)
       Tests  9320 passed | 234 skipped (9554)
+
+--- After the blind-review remediation ---
+bun run test:integration -- k-035 + k-036 + public-route-tx  ->  3 files, 23 passed
+Mutation: reverting the five source files to 9e2fcd95 turns all 8 new cases red
+(2 files failed, 8 failed / 9 passed).
+Full unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run --testTimeout=60000
+--maxWorkers=4):  784 files passed | 36 skipped; 9320 tests passed | 234 skipped.
+tsc --noEmit clean; eslint clean on all five source files; migration-naming, migration-rls
+and agent-docs gates all OK. Migration 619 applied to the fixture DB.

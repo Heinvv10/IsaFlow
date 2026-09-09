@@ -17,6 +17,7 @@ import { createHmac } from 'crypto';
 import { Pool } from 'pg';
 import type { NextApiRequest } from 'next';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
+import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
 
@@ -39,11 +40,12 @@ const customerId = crypto.randomUUID();
 const invoiceId = crypto.randomUUID();
 const bankAccountId = crypto.randomUUID();
 const arAccountId = crypto.randomUUID();
+const expenseAccountId = crypto.randomUUID();
 
 const INVOICE_TOTAL = 1150.0;
 const AMOUNT_CENTS = 115000;
 
-function webhookBody(reference: string) {
+function webhookBody(reference: string, extra: Record<string, unknown> = {}) {
   return JSON.stringify({
     event: 'charge.success',
     data: {
@@ -54,12 +56,13 @@ function webhookBody(reference: string) {
       currency: 'ZAR',
       channel: 'card',
       customer: { email: 'payer@k036.test.local', customer_code: 'CUS_k036' },
+      ...extra,
     },
   });
 }
 
-function deliverWebhook(reference: string) {
-  const body = webhookBody(reference);
+function deliverWebhook(reference: string, extra: Record<string, unknown> = {}) {
+  const body = webhookBody(reference, extra);
   const req = Readable.from([Buffer.from(body)]) as unknown as NextApiRequest;
   (req as { method: string }).method = 'POST';
   (req as { headers: Record<string, string> }).headers = {
@@ -83,12 +86,12 @@ function callVerify(reference: string) {
   return verifyRoute(req, result.res).then(() => result);
 }
 
-async function seedPaymentRequest(reference: string) {
+async function seedPaymentRequest(reference: string, cents = AMOUNT_CENTS) {
   await pool.query(
     `INSERT INTO paystack_payment_requests(company_id,purpose,customer_invoice_id,
        paystack_reference,amount_cents,status)
      VALUES($1,'customer_invoice',$2,$3,$4,'pending')`,
-    [companyId, invoiceId, reference, AMOUNT_CENTS],
+    [companyId, invoiceId, reference, cents],
   );
 }
 
@@ -108,8 +111,9 @@ beforeAll(async () => {
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,
        account_subtype,normal_balance,is_active,is_system_account)
      VALUES($1,$2,'1100','Bank','asset','bank','debit',true,true),
-            ($3,$2,'1120','Accounts Receivable','asset','receivable','debit',true,true)`,
-    [bankAccountId, companyId, arAccountId],
+            ($3,$2,'1120','Accounts Receivable','asset','receivable','debit',true,true),
+            ($4,$2,'6000','Administrative Expenses','expense','admin_expense','debit',true,true)`,
+    [bankAccountId, companyId, arAccountId, expenseAccountId],
   );
 });
 
@@ -160,7 +164,7 @@ afterAll(async () => {
 
 async function ledgerFootprint() {
   const payments = await pool.query(
-    'SELECT id, total_amount, payment_method, bank_reference, status, gl_journal_entry_id FROM customer_payments WHERE company_id=$1',
+    'SELECT id, total_amount, payment_method, bank_reference, status, created_by, gl_journal_entry_id FROM customer_payments WHERE company_id=$1',
     [companyId],
   );
   const journals = await pool.query(
@@ -286,6 +290,164 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
 
     const after = await expectBalancedReceipt(partialCents / 100);
     expect(after.invoice.status).toBe('partially_paid');
+  });
+
+  it('records the receipt when the invoice author is not a UUID', async () => {
+    // customer_invoices.created_by is varchar; customer_payments.created_by is
+    // uuid. An imported author used to abort the insert with 22P02 on every
+    // redelivery, so the settled payment was lost for good.
+    const reference = 'k036_actor_ref';
+    await pool.query('UPDATE customer_invoices SET created_by=$1 WHERE id=$2', ['sage-import', invoiceId]);
+    await seedPaymentRequest(reference);
+
+    const result = await deliverWebhook(reference);
+    expect(result.state.statusCode).toBe(200);
+
+    const after = await expectBalancedReceipt(INVOICE_TOTAL);
+    // The actor fell back to a real user rather than the literal string.
+    const { rows } = await pool.query('SELECT count(*)::int AS n FROM users WHERE id=$1', [
+      after.paymentRow!.created_by,
+    ]);
+    expect(rows[0].n).toBe(1);
+  });
+
+  it('banks the whole settlement when it exceeds the invoice balance', async () => {
+    // R500 more than the invoice owes. The excess is real cash: it must reach
+    // the bank account and sit on the customer as an unapplied receipt, never
+    // be truncated away with a 200 ack.
+    const reference = 'k036_over_ref';
+    const settledRand = INVOICE_TOTAL + 500;
+    await seedPaymentRequest(reference, Math.round(settledRand * 100));
+
+    const result = await deliverWebhook(reference);
+    expect(result.state.statusCode).toBe(200);
+
+    const after = await ledgerFootprint();
+    expect(after.payments).toBe(1);
+    expect(after.journals).toBe(1);
+    expect(Number(after.paymentRow!.total_amount)).toBeCloseTo(settledRand, 2);
+
+    const lines = await journalLines(String(after.journalRow!.id));
+    const bank = lines.find((l) => l.gl_account_id === bankAccountId);
+    const ar = lines.find((l) => l.gl_account_id === arAccountId);
+    // Every rand banked and credited to the customer...
+    expect(bank?.debit).toBeCloseTo(settledRand, 2);
+    expect(ar?.credit).toBeCloseTo(settledRand, 2);
+    // ...but the invoice absorbs only what it owed.
+    expect(Number(after.invoice.amount_paid)).toBeCloseTo(INVOICE_TOTAL, 2);
+    expect(after.invoice.status).toBe('paid');
+
+    const { rows } = await pool.query(
+      `SELECT COALESCE(sum(amount_allocated),0)::float8 AS allocated
+       FROM customer_payment_allocations WHERE payment_id=$1`,
+      [after.paymentRow!.id],
+    );
+    expect(rows[0].allocated).toBeCloseTo(INVOICE_TOTAL, 2);
+  });
+
+  it('dates the receipt at settlement time, not at processing time', async () => {
+    const reference = 'k036_paidat_ref';
+    await seedPaymentRequest(reference);
+
+    const result = await deliverWebhook(reference, { paid_at: '2026-06-30T21:15:00.000Z' });
+    expect(result.state.statusCode).toBe(200);
+
+    const after = await ledgerFootprint();
+    const { rows } = await pool.query(
+      'SELECT payment_date::text AS d FROM customer_payments WHERE id=$1',
+      [after.paymentRow!.id],
+    );
+    expect(rows[0].d).toBe('2026-06-30');
+    const { rows: jRows } = await pool.query(
+      'SELECT entry_date::text AS d FROM gl_journal_entries WHERE id=$1',
+      [after.journalRow!.id],
+    );
+    expect(jRows[0].d).toBe('2026-06-30');
+  });
+
+  it('books the gateway fee so the bank leg nets to the actual deposit', async () => {
+    const reference = 'k036_fee_ref';
+    const feeRand = 23.5;
+    await seedPaymentRequest(reference);
+
+    const result = await deliverWebhook(reference, { fees: Math.round(feeRand * 100) });
+    expect(result.state.statusCode).toBe(200);
+
+    const { rows: jes } = await pool.query(
+      'SELECT id FROM gl_journal_entries WHERE company_id=$1', [companyId],
+    );
+    expect(jes.length).toBe(2);
+
+    let bankNet = 0;
+    let feeDebit = 0;
+    for (const je of jes) {
+      for (const l of await journalLines(String(je.id))) {
+        if (l.gl_account_id === bankAccountId) bankNet += l.debit - l.credit;
+        if (l.gl_account_id === expenseAccountId) feeDebit += l.debit - l.credit;
+      }
+    }
+    // Gross to the customer, net into the bank, fee in the P&L.
+    expect(feeDebit).toBeCloseTo(feeRand, 2);
+    expect(bankNet).toBeCloseTo(INVOICE_TOTAL - feeRand, 2);
+  });
+
+  it('records one receipt when two identical deliveries arrive concurrently', async () => {
+    const reference = 'k036_race_ref';
+    await seedPaymentRequest(reference);
+
+    const [a, b] = await Promise.all([deliverWebhook(reference), deliverWebhook(reference)]);
+    expect([a.state.statusCode, b.state.statusCode]).toEqual([200, 200]);
+    // The FOR UPDATE on the event row means exactly one of them did the work.
+    const acked = [a.state.body, b.state.body].filter(
+      (x) => (x as { duplicate?: boolean } | undefined)?.duplicate === true,
+    );
+    expect(acked.length).toBe(1);
+
+    await expectBalancedReceipt(INVOICE_TOTAL);
+  });
+
+  it('clears processing_error once a redelivery succeeds', async () => {
+    const reference = 'k036_err_ref';
+    await seedPaymentRequest(reference);
+    // No bank system account -> the receipt throws, the event keeps the error.
+    await pool.query('UPDATE gl_accounts SET is_system_account=false WHERE id=$1', [bankAccountId]);
+    clearSystemAccountCache(companyId);
+    const first = await deliverWebhook(reference);
+    expect(first.state.statusCode).toBe(500);
+    const errRow = await pool.query(
+      'SELECT processed, processing_error FROM paystack_webhook_events WHERE reference=$1', [reference],
+    );
+    expect(errRow.rows[0].processed).toBe(false);
+    expect(errRow.rows[0].processing_error).toBeTruthy();
+
+    await pool.query('UPDATE gl_accounts SET is_system_account=true WHERE id=$1', [bankAccountId]);
+    clearSystemAccountCache(companyId);
+    const second = await deliverWebhook(reference);
+    expect(second.state.statusCode).toBe(200);
+
+    const okRow = await pool.query(
+      'SELECT processed, processing_error FROM paystack_webhook_events WHERE reference=$1', [reference],
+    );
+    expect(okRow.rows[0].processed).toBe(true);
+    expect(okRow.rows[0].processing_error).toBeNull();
+  });
+
+  it('refuses a second card payment on the same gateway reference at the database', async () => {
+    const reference = 'k036_unique_ref';
+    await seedPaymentRequest(reference);
+    await deliverWebhook(reference);
+
+    const { rows } = await pool.query(
+      'SELECT client_id, bank_account_id, created_by FROM customer_payments WHERE company_id=$1', [companyId],
+    );
+    await expect(
+      pool.query(
+        `INSERT INTO customer_payments(company_id,client_id,payment_date,total_amount,
+           payment_method,bank_reference,bank_account_id,created_by)
+         VALUES($1,$2,CURRENT_DATE,1,'card',$3,$4,$5)`,
+        [companyId, rows[0].client_id, reference, rows[0].bank_account_id, rows[0].created_by],
+      ),
+    ).rejects.toThrow(/duplicate key value|ux_customer_payments_card_reference/);
   });
 
   it('does not touch another tenant\'s invoice with the same reference', async () => {
