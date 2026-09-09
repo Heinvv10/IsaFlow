@@ -84,10 +84,9 @@ const round2 = (v: number): number => Math.round(v * 100) / 100;
  *   - `buId` — the same argument as project and cost centre, and it was the
  *     only one of the four this file originally forgot.
  *
- * `cc1_id` / `cc2_id` are NOT here because `JournalLineInput` cannot express
- * them at all. A line carrying either is SKIPPED by `candidates.ts` rather than
- * posted with them dropped — the one honest answer available without widening a
- * shared write path used by every journal in the system.
+ * The shared journal writer preserves CC1/CC2, but this reclassification
+ * builder does not yet carry them. `partition.ts` skips lines carrying either
+ * rather than letting this builder drop their attribution.
  */
 function dimensions(line: ReclassSourceLine) {
   return {

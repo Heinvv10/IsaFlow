@@ -9,7 +9,7 @@
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { calculatePolicyDepreciation } from './farDepreciationService';
+import { calculatePolicyDepreciation, toDepreciationMethod } from './farDepreciationService';
 import type { DepreciationPlan } from './depreciationRunPlan';
 import type { DryRunJournal, DryRunSkip } from '@/lib/mcp/contracts';
 
@@ -82,6 +82,7 @@ export async function previewDepreciationJournals(
       purchaseDate: fmtDate(a.purchase_date),
       periodDate: plan.periodDate,
       openingAccDep: Number(a.policy_acc_dep),
+      method: toDepreciationMethod(a.depreciation_method),
       ...(a.disposal_date ? { disposalDate: fmtDate(a.disposal_date) } : {}),
     });
     // The live path posts NO JOURNAL at or below zero — but it still UPSERTs the
@@ -95,10 +96,14 @@ export async function previewDepreciationJournals(
       writesWithoutJournal.push({
         id: row.assetId,
         reason: 'subledger_row_only_no_journal',
-        detail:
+        // A life-expired asset has NOT "no depreciation left" — it has a balance
+        // the run will never charge, which is the opposite reading. Use the
+        // plan's own note when there is one.
+        detail: row.lifeExpiredNote ?? (
           `${row.assetNumber} has no policy depreciation left for this period, so NO GL journal `
           + 'would post — but the live run still writes its asset_period_ledger row, carrying the '
-          + 'tax figures and the closing carrying amounts. This call is not a no-op for it.',
+          + 'tax figures and the closing carrying amounts. This call is not a no-op for it.'
+        ),
       });
       continue;
     }

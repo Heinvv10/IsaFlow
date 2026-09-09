@@ -20,7 +20,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/practice/*`
 - `submitEntry / approveEntry / rejectEntry / markEntriesBilled(companyId, entryIds, invoiceId)`.
 - `getWipByClient(companyId): Promise<WipRow[]>` — approved+unbilled aggregated per client.
 - `generateWipInvoice(companyId, userId, { practiceClientId, timeEntryIds, taxRate }): Promise<{ invoiceId, invoiceNumber, lineCount, subtotal, taxAmount, totalAmount }>` — creates `customer_invoices` row + items, calls `markEntriesBilled`. Requires `practice_clients.link_customer_id`.
-- `resolveRate(companyId, userId, jobCategoryId): Promise<number>` — cascade: staff+category override → staff default → category default → company default.
+- `resolveRate(companyId, userId, clientId, onDate): Promise<number | null>` — cascade: per-client override → staff default → `null`. Reads `COALESCE(rate_per_hour, rate)` and matches on either `staff_user_id` or `user_id`, because `practice_client_rate_overrides` carries two column pairs (mig 372 + mig 395).
 - `createJob(companyId, input) / updateJob / listJobs(companyId, filters)`.
 - `sweepRecurringTasks(): Promise<RecurringSweepResult>` — cron-driven generator.
 
@@ -35,10 +35,11 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/practice/*`
 
 ## Related files
 - `pages/api/accounting/practice/*.ts` — routes.
-- `scripts/migrations/sql/395_practice_client_rate_override.sql`, `*practice_*` migrations.
+- `scripts/migrations/sql/395_practice_client_rate_overrides.sql`, `scripts/migrations/sql/626_practice_rate_override_column_mirror.sql`, `*practice_*` migrations.
 
 ## Recent changes
 - 2026-09-09: K-040 — row-lock the WIP eligibility read; overlapping runs no longer bill the same time entry twice, the invoice-number retry loop can actually retry, and the retry leaves no gap in the invoice sequence (`wipInvoiceNumber.ts`).
+- 2026-09-09: K-039 — `practice_client_rate_overrides` writes and billing reads now use one column pair. Mig 626 adds a BEFORE INSERT/UPDATE trigger mirroring `staff_user_id`↔`user_id` and `rate_per_hour`↔`rate`; never write only one half. The duplicate `createClientRateOverride`/`listClientRateOverrides` in `practiceStaffRateService.ts` are `@deprecated` and unrouted.
 - 2026-04-22: fix 4 Bugsink-surfaced regressions.
 - 2026-04-20: PRD-01 Phase 5A — bulk CSV import/export for clients.
 - 2026-04-19: rate overrides + leave + IRP5 + EMP501 + period close (PRD-01/02/03).

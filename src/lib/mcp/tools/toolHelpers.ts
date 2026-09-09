@@ -4,6 +4,7 @@
  */
 import type { McpToolResult } from '../types';
 import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
+import { isCallerSafeError } from '@/lib/lockTimeout';
 
 export function ok(data: unknown): McpToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -130,11 +131,15 @@ function truncateForMessage(value: unknown): string {
  * validation error (a hand-thrown Error with no SQLSTATE `code`). pg / driver
  * errors always carry a `code` (e.g. '23505', '42703') and could leak schema
  * names — those return the generic fallback instead.
+ *
+ * The typed row-lock timeouts are the one exception, and they matter here more
+ * than anywhere: they are hand-thrown, their message is "retry in a moment",
+ * and an agent is exactly the caller that should hear it. Filtered out with the
+ * driver errors, contention reached the agent as a flat "could not do this",
+ * which does not read as retryable.
  */
 export function safeErrorText(err: unknown, fallback: string): string {
-  if (err instanceof Error && (err as { code?: unknown }).code === undefined) {
-    return err.message;
-  }
+  if (isCallerSafeError(err)) return err.message;
   return fallback;
 }
 
