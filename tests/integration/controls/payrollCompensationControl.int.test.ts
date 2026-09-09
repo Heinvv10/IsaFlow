@@ -180,3 +180,13 @@ it('never exposes a foreign component through an owned legacy assignment to a du
   expect(rows.some(row=>row.componentName==='FOREIGN-PAYROLL-SECRET')).toBe(false);
  }finally{await pool.query('DELETE FROM payroll_employee_components WHERE id=$1',[legacy]);}
 });
+it('never exposes a foreign employee through an owned legacy batch to a dual-company member',async()=>{
+ const foreignEmployee=randomUUID(),legacyBatch=randomUUID();
+ await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin') ON CONFLICT(company_id,user_id) DO NOTHING",[fixture.companyB,fixture.u1.id]);
+ await pool.query("INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status) VALUES($1,$2,'FOREIGN-NUMBER','FOREIGN-EMPLOYEE','SECRET','2020-01-01','active')",[foreignEmployee,fixture.companyB]);
+ await pool.query("INSERT INTO payroll_batches(id,company_id,batch_type,component_id,description,period_year,period_month) VALUES($1,$2,'component_values',$3,'Legacy synthetic cross-link',2026,12)",[legacyBatch,fixture.companyA,component]);
+ await pool.query("INSERT INTO payroll_batch_lines(batch_id,employee_id,value,effective_from) VALUES($1,$2,10,'2026-12-01')",[legacyBatch,foreignEmployee]);
+ const {getBatch}=await import('@/modules/accounting/services/payroll/payrollBatchService');
+ const result=await actor(()=>getBatch(fixture.companyA,legacyBatch));
+ expect(result.lines.some(line=>line.employeeName?.includes('FOREIGN-EMPLOYEE')||line.employeeNumber==='FOREIGN-NUMBER')).toBe(false);
+});

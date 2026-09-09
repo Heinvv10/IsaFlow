@@ -291,7 +291,7 @@ export async function getBatch(
            (e.first_name || ' ' || e.last_name) AS employee_name,
            e.employee_number AS employee_number
       FROM payroll_batch_lines bl
-      JOIN payroll_employees e ON e.id = bl.employee_id
+      JOIN payroll_employees e ON e.id = bl.employee_id AND e.company_id = ${companyId}::uuid
      WHERE bl.batch_id = ${batchId}::uuid
      ORDER BY e.employee_number
   `) as Row[];
