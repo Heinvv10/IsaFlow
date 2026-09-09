@@ -3,13 +3,15 @@ import { canonicalJson } from './canonical';
 import type { ControlTx } from './contracts';
 import type { PayrollRow } from './payrollSourceMaterial';
 type Sources = Record<string, unknown> & { header: PayrollRow; lines: readonly PayrollRow[] };
+// SA payroll engines apply rand-denominated SARS/UIF thresholds; there is no payroll FX model.
+export const PAYROLL_CALCULATION_CURRENCY = 'ZAR';
 export interface PayrollCalculationHashes { input_hash:string;output_hash:string }
 const inputKeys=['employees','components','assignments','allocations','mappings','centres','loans','loanSchedules','loanPayments','leaveTypes','leaveBalances','bankDetails'] as const;
 const outputKeys=['period_month','period_year','total_gross','total_taxable','total_paye','total_uif','total_sdl','total_eti','total_net','employee_count'] as const;
 const digest=(value:unknown)=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 /** Workflow timestamps/status/journal linkage are not calculation outputs. */
 export function payrollCalculationHashes(sources:Sources):PayrollCalculationHashes {
-  return {input_hash:digest(Object.fromEntries(inputKeys.map(key=>[key,sources[key] ?? []]))),
+  return {input_hash:digest({calculationCurrency:PAYROLL_CALCULATION_CURRENCY,inputs:Object.fromEntries(inputKeys.map(key=>[key,sources[key] ?? []]))}),
     output_hash:digest({header:Object.fromEntries(outputKeys.filter(key=>sources.header[key]!==undefined).map(key=>[key,sources.header[key]])),lines:sources.lines})};
 }
 export function assertPayrollCalculationReceipt(sources:Sources,receipt:PayrollCalculationHashes|null):void {

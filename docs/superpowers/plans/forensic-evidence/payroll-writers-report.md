@@ -1,6 +1,6 @@
-# Payroll controls: materializer checkpoint
+# Payroll shared controls and writers
 
-Exact base `d6d8b48f`, isolated branch `feat/mcp-forensic-payroll-writers-20260909`. This checkpoint contains the payroll materializer, exact journal-plan adapter and their tests. Shared writer changes remain uncommitted pending root dispatcher/generated-journal integration and independent core review.
+Exact base `d6d8b48f`, isolated branch `feat/mcp-forensic-payroll-writers-20260909`. The sections below retain core-checkpoint evidence; the final writer checkpoint and its remaining targeted verification are recorded last.
 
 `materializePayrollOperation(ctx, ref)` supports payroll_run.post and payroll_run.reopen and returns the common material shape with supplierId empty. Approval and direct posting will share payroll_run.post. Payroll reopening binds a frozen reversal target date and retains the original journal link through after-effect materialization. No payroll financial effect is performed by this materializer.
 
@@ -25,3 +25,23 @@ Independent review of `71f1c85b` identified that an approval could bind newly ch
 Every source population query now limits to 10,001 rows and refuses any population above 10,000, rather than hashing a truncated set. The oversized regression failed against the checkpoint (`/tmp/payroll-population-red.log`). Receipt unit RED initially failed with the missing helper (`/tmp/payroll-calculation-receipt-red.log`).
 
 Root dependency `c386b8bd` supplies migration631 receipts/fences; it was applied by root to the synthetic fixture. Follow-up core verification: 15 unit tests, five real PostgreSQL tests (`/tmp/payroll-freshness-core-unit.log`, `/tmp/payroll-receipt-pg.log`), focused TypeScript and source ESLint (`/tmp/payroll-freshness-types.log`, `/tmp/payroll-freshness-lint.log`). Synthetic direct-material fixtures explicitly seed known synthetic receipts; application code never invents legacy receipts. The successful calculation writer receipt and concurrent fence proof remain pending writer integration. The five-PG run took 1.07s and its lease was returned.
+
+## Shared writer checkpoint
+
+Root dependencies `bae1cf51`/`f54faaaf`/`14ac0d7d` (period material/dispatch), `c386b8bd` (payroll contracts and 631), and `6a1cb8c8` (payroll dispatch/generated children) are included. Independent named review of 6a found no confirmed issue; actual payroll post/reopen tests exercise it.
+
+Approval and direct journal posting now execute canonical payroll_run.post with one common durable result, adapted to their existing DTO/string return types. They require the authenticated person/company and current payroll/post authority before effects. Journal amounts are inserted as exact decimal text; source is auto_payroll with the real run source_record_id. Generated posting/reversal registers the locked persisted parent relation and frozen accounting date. Reopen reverses the old journal and retains its FK for provenance; corrected repost replaces the run's current link while old journals and their contras remain immutable evidence.
+
+Calculation now holds the shared fence and an authenticated savepoint around loan application, line replacement, totals, encrypted event and calculation receipt. Existing calculation/loan formulas were preserved; RunService was split into bounded calculation and component helpers. Existing loan-service edits remove five sensitive log payload fields only, as explicitly authorized; this pre-existing large file was not otherwise refactored. Generic calculation logs no longer include gross payroll.
+
+SA payroll engines use rand-denominated statutory thresholds and have no FX model. A focused USD-ledger acceptance test was genuinely RED (`/tmp/payroll-currency-red.log`). The calculation receipt now binds the ZAR calculation basis and posting refuses another ledger currency. The read-only getPayrollPostingPreview(ctx,runId) checks current read:payroll and projects the exact plan, version basis, verified calculation marker and period/lockdown/status blockers. It excludes source snapshots, employee identity and bank details; missing/stale calculation refuses. Root owns its MCP adapter wiring.
+
+Verification at this checkpoint:
+
+- 52 focused unit/regression tests passed (`/tmp/payroll-final-unit.log`), covering new controls and preserved loan, labour split and run-line warnings. Original shared writer RED had five failures; calculation/reopen added two genuine unauthenticated-access failures (`/tmp/payroll-writer-red.log`, `/tmp/payroll-calculate-red.log`). Preview missing-module and closed-period blocker REDs are `/tmp/payroll-preview-red.log` and `/tmp/payroll-preview-closed-red.log`.
+- 10 actual PostgreSQL tests passed in 4.90s (`/tmp/payroll-writers-pg.log`): direct authoritative material/freshness/currency checks; real calculation→receipt→independent approval→one post/replay; changed compensation before a new approval; recalculation invalidating the old approval; approved reopen→exact contra→recalculate→new post; outer rollback; restricted generic payroll evidence; and a concurrent component insert observed waiting on the materializer fence, then invalidating its receipt after release. No schema/SQL/auth mocks. DB lease returned.
+- Focused TypeScript and changed-source ESLint passed (`/tmp/payroll-final-types.log`, `/tmp/payroll-final-lint.log`). New and extracted code files are below 300 lines.
+
+The final reopen-reason addition follows that ten-PG run: 5–2000 characters, appended to existing run notes inside the controlled effect, retained in encrypted after-evidence and excluded from generic payroll values. Its oversized-reason unit test was RED then GREEN (`/tmp/payroll-reason-red.log`, included in 52 above). The added PostgreSQL assertions for notes preservation and encrypted reason retention await the next serialized lease. The current ten-PG result must not be presented as proof of this later SQL addition.
+
+Remaining programme coverage: MCP/REST approval-reference and preview adapters, other employee/component and payroll payment writers, and full statutory/ETI eligibility checks are separately owned. Existing validation_results are bound but this task does not certify legal payroll correctness. Current loan recalculation business behavior is unchanged; unmerged 8c1f7fd2 is not assumed integrated. No full CI/build/deployment or production writes occurred.
