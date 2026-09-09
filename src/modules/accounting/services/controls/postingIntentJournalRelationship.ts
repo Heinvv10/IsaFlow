@@ -37,7 +37,7 @@ export async function readPostingIntentJournalRelationship(ctx: ControlTx, contr
         AND je.source='year_end' AND je.entry_number=${`YE-${parent.entityId}`} AND je.status='draft'
         AND p.status='closed' AND je.entry_date=p.end_date AND je.entry_date=${permit.accountingDate}::date
         AND NOT EXISTS(SELECT 1 FROM fiscal_periods other WHERE other.company_id=p.company_id
-          AND other.fiscal_year=p.fiscal_year AND other.status<>'closed')
+          AND other.fiscal_year=p.fiscal_year AND (other.status<>'closed' OR other.end_date>p.end_date))
       FOR SHARE OF je,p`;
   }
   return [];

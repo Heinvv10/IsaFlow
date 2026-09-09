@@ -36,7 +36,7 @@ export async function materializeGlOperation(ctx: ControlTx, ref: OperationRef):
   const [company] = await ctx.sql`SELECT id,default_currency,lockdown_enabled,lockdown_date::text
     FROM companies WHERE id=${companyId}::uuid FOR SHARE` as Row[];
   if (!company || typeof company.default_currency !== 'string' || !/^[A-Z]{3}$/.test(company.default_currency)) throw new Error('Ledger currency unavailable');
-  const [header] = await ctx.sql`SELECT id,entry_date::text,fiscal_period_id,description,source,reference,
+  const [header] = await ctx.sql`SELECT id,entry_number,entry_date::text,fiscal_period_id,description,source,reference,
     source_document_id,source_record_id,status,reversed_at,reversal_of_id
     FROM gl_journal_entries WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid FOR UPDATE` as Row[];
   if (!header || !isRealCalendarDate(String(header.entry_date))) throw new Error('Journal not found or dated incorrectly');
@@ -50,7 +50,7 @@ export async function materializeGlOperation(ctx: ControlTx, ref: OperationRef):
     FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${accountIds}::uuid[]) ORDER BY id FOR SHARE` as Row[];
   if (accounts.length !== accountIds.length) throw new Error('Journal account ownership is invalid');
   const originalDate = String(header.entry_date);
-  const periods = await ctx.sql`SELECT id,start_date::text,end_date::text,status
+  const periods = await ctx.sql`SELECT id,fiscal_year,start_date::text,end_date::text,status
     FROM fiscal_periods WHERE company_id=${companyId}::uuid AND start_date<=${originalDate}::date AND end_date>=${originalDate}::date
     ORDER BY id FOR SHARE` as Row[];
   if (periods.length !== 1 || String(periods[0]!.id) !== String(header.fiscal_period_id)) throw new Error('Journal fiscal period is missing or ambiguous');
@@ -64,7 +64,7 @@ export async function materializeGlOperation(ctx: ControlTx, ref: OperationRef):
     if (!clock || !isRealCalendarDate(clock.day)) throw new Error('Journal execution date unavailable');
     accountingDate = requested ?? (periods[0]!.status === 'open' ? originalDate : clock.day);
   }
-  const targets = accountingDate === originalDate ? periods : await ctx.sql`SELECT id,start_date::text,end_date::text,status
+  const targets = accountingDate === originalDate ? periods : await ctx.sql`SELECT id,fiscal_year,start_date::text,end_date::text,status
     FROM fiscal_periods WHERE company_id=${companyId}::uuid AND start_date<=${accountingDate}::date AND end_date>=${accountingDate}::date
     ORDER BY id FOR SHARE` as Row[];
   if (targets.length !== 1) throw new Error('Target fiscal period is missing or ambiguous');

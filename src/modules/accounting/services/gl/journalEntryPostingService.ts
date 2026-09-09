@@ -8,6 +8,7 @@ import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEnt
 import { runJournalControl, type JournalControlOptions } from './journalControlService';
 import { registerGeneratedJournal } from '../controls/generatedJournalPermit';
 import type { ApMaterial } from '../controls/apOperationMaterializer';
+import { isAuthorizedYearEndPosting } from '../controls/yearEndPostingGuard';
 export { resolveReversalDate } from './journalReversalDate';
 export type { JournalControlOptions } from './journalControlService';
 type Row = DbRow;
@@ -34,9 +35,11 @@ function facts(material: ApMaterial): { header: Row; targetPeriod: Row; company:
   return material.observedSources.find(s => s.entityType === 'journal_entry' && s.entityId === material.binding.entityId)!.facts as
     { header: Row; targetPeriod: Row; company: Row; accounts: Row[] };
 }
-function assertPostingGuards(material: ApMaterial): ReturnType<typeof facts> {
+function assertPostingGuards(material: ApMaterial, authorizedYearEnd = false): ReturnType<typeof facts> {
   const state = facts(material);
-  if (state.targetPeriod.status !== 'open') throw new ClosedFiscalPeriodError(String(state.targetPeriod.status));
+  if (state.targetPeriod.status !== 'open' && !(authorizedYearEnd && state.targetPeriod.status === 'closed')) {
+    throw new ClosedFiscalPeriodError(String(state.targetPeriod.status));
+  }
   if (state.company.lockdown_enabled === true && (!state.company.lockdown_date
     || material.binding.accountingDate! <= String(state.company.lockdown_date))) throw new Error('Journal date is within company lockdown');
   const inactive = state.accounts.filter(a => a.is_active !== true);
@@ -45,8 +48,10 @@ function assertPostingGuards(material: ApMaterial): ReturnType<typeof facts> {
 }
 export async function postJournalEntry(companyId: string, id: string, userId: string, opts?: JournalControlOptions): Promise<JournalEntry> {
   return runJournalControl(companyId, userId, { entityType: 'journal_entry', entityId: id, operation: 'journal.post' }, opts,
-    async (ctx, material) => {
-      const { header } = assertPostingGuards(material);
+    async (ctx, material, parent) => {
+      const state = facts(material);
+      const authorizedYearEnd = isAuthorizedYearEndPosting(ctx, parent, state.header, state.targetPeriod, material.binding.accountingDate!);
+      const { header } = assertPostingGuards(material, authorizedYearEnd);
       if (header.status !== 'draft') throw new Error(`Cannot post entry with status: ${header.status}`);
       const rows = await ctx.sql`UPDATE gl_journal_entries SET status='posted',posted_by=${ctx.principal.personId}::uuid,posted_at=clock_timestamp()
         WHERE company_id=${companyId}::uuid AND id=${id}::uuid AND status='draft' RETURNING *` as Row[];
