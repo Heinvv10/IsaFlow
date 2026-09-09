@@ -35,3 +35,17 @@ it('aborts the owned transaction request on unmount',async()=>{
  const {result,unmount}=renderHook(()=>useBankTransactionsController());act(()=>result.current.setSelectedBank('A'));await waitFor(()=>expect(requests.has('A')).toBe(true));
  const request=requests.get('A')!;unmount();expect(request.signal?.aborted).toBe(true);await act(async()=>request.resolve(response('A')));
 });
+it('does not start a later callback request after the controller unmounts',async()=>{
+ const {result,unmount}=renderHook(()=>useBankTransactionsController());act(()=>result.current.setSelectedBank('A'));await waitFor(()=>expect(requests.has('A')).toBe(true));
+ const reload=result.current.loadTransactions,previous=api.fetch.mock.calls.length;unmount();
+ void reload();expect(api.fetch.mock.calls.length).toBe(previous);
+ await act(async()=>requests.get('A')!.resolve(response('A')));
+});
+it('retained A callbacks refresh current B instead of issuing a newer stale A request',async()=>{
+ const {result}=renderHook(()=>useBankTransactionsController());act(()=>result.current.setSelectedBank('A'));await waitFor(()=>expect(requests.has('A')).toBe(true));
+ const oldReload=result.current.loadTransactions;await act(async()=>requests.get('A')!.resolve(response('A')));
+ act(()=>result.current.setSelectedBank('B'));await waitFor(()=>expect(requests.has('B')).toBe(true));await act(async()=>requests.get('B')!.resolve(response('B')));
+ act(()=>{void oldReload();});
+ const last=api.fetch.mock.calls.at(-1)![0] as string;expect(new URL(last,'http://127.0.0.1').searchParams.get('bank_account_id')).toBe('B');
+ await act(async()=>requests.get('B')!.resolve(response('B')));expect(result.current.selectedBank).toBe('B');expect(result.current.transactions.map(row=>row.id)).toEqual(['B']);
+});
