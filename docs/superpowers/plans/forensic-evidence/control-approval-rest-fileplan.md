@@ -16,5 +16,10 @@ Resolve effective current rights, require read:approvals, derive allowed operati
 - Actual PG creates real operation approval requests; bounded pages, same timestamp ordering, current read:approvals revoked, domain read revoked/hidden rows filtered before pagination, foreign tenant/cursor rejection, malformed/tampered cursor and invalid limits.
 - Actual raw REST handler inside real issued PostgreSQL control context: request -> independent decision, same-person refusal, bearer human-decision refusal, requirements/read list, strict actor/unknown field/malformed reference rejection. Separate wrapper wiring/CSRF validation tests do not claim authentication integration.
 
-## Pending
-RED, root accessor, source implementation, focused PG/units, scoped source TS/lint, independent named review. No production or full HTTP claim.
+## Verification and review handoff
+- Catalogue missing-function RED in control-approval-catalogue-red.log; root accessor340660cf3 cherry-picked as1a45fdce7 and independently reviewed clean. Reader/route missing-module RED in control-approval-reader-route-red.log preceded source.
+- Actual PostgreSQL initial7 cases passed43031. Added explicit current-permission HTTP403 test then actual RED79604 (7pass/1failed) before narrow EffectivePermissionError mapping. Unexpected errors still propagate.
+- Final8 actual PG passed91640, pool closed and lease released: domain filtering before pagination, authority revocation, tenant isolation, authenticated cursor replay/tamper/filter refusal, exact microseconds/UUID ties, actual request/independent decision/self and bearer refusal, no financial execution.
+- Final18 focused units passed; source tsc --noEmit64043 terminal0 and scoped ESLint passed. Logs control-approval-reader-final-{pg,units}.log, control-approval-reader-{ts,lint}.log under forensic artifacts directory.
+- No migrations or financial SQL in route. Existing signing key reused; no new configuration. Cookie-human decisions delegated to existing trusted service.
+- Independent named review pending. Actual PG invokes exported REST handler inside real issued context; CSRF wrapper is unit exercised. Full HTTP authentication/middleware workflow, UI integration and programme-wide CI remain root acceptance work. Existing generic error middleware still maps non-permission domain refusals (including invalid cursors and self-approval) to generic errors; their shared-service refusals are tested. No production verification claimed.
