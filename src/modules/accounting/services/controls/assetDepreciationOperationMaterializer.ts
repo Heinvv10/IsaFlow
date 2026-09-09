@@ -26,9 +26,12 @@ export async function materializeAssetDepreciationOperation(ctx: ControlTx, ref:
     WHERE company_id=${companyId}::uuid AND id=${intent.asset_id}::uuid FOR UPDATE` as Row[];
   if (!asset) throw new Error('Asset not found');
   // asset_categories is a shared global policy catalogue (migration 244), not a tenant table.
-  const [category] = asset.category_id ? await ctx.sql`SELECT id,useful_life_years,residual_pct,tax_life_years,is_active
+  const [category] = asset.category_id ? await ctx.sql`SELECT id,useful_life_years,residual_pct,tax_life_years,is_active,
+    depreciation_method,capitalization_threshold,tax_code,sars_section
     FROM asset_categories WHERE id=${asset.category_id}::uuid FOR SHARE` as Row[] : [];
   if (asset.category_id && !category) throw new Error('Asset category unavailable');
+  if (asset.depreciation_method !== 'straight_line' || asset.tax_depreciation_method !== 'straight_line'
+    || (category && category.depreciation_method !== 'straight_line')) throw new Error('Configured depreciation method is unsupported');
   const ledgers = await ctx.sql`SELECT *,period_date::text FROM asset_period_ledger
     WHERE company_id=${companyId}::uuid AND asset_id=${asset.id}::uuid ORDER BY yyyymm,id LIMIT 10001 FOR SHARE` as Row[];
   if (ledgers.length > 10000) throw new Error('Asset ledger history exceeds synchronous limit');
