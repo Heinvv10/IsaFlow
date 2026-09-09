@@ -6,6 +6,18 @@ import { type BankFeedSyncResult, type Provider } from './openBankingTypes';
 import type { DbRow } from '@/types/db';
 
 
+/**
+ * Thrown when a connection names a provider that has no integration behind it.
+ * The route answers 4xx on this so `withAuth` COMMITs the failed sync log — a
+ * 500 would roll the audit trail back with the rest of the transaction.
+ */
+export class BankFeedProviderNotImplementedError extends Error {
+  constructor(public readonly provider: string) {
+    super(`Bank feed provider "${provider}" is not implemented — no transactions were imported. Use the browser extension or a manual CSV import instead.`);
+    this.name = 'BankFeedProviderNotImplementedError';
+  }
+}
+
 // ── Sync orchestration ────────────────────────────────────────────────────────
 
 async function markSyncComplete(
@@ -100,8 +112,8 @@ export async function syncBankFeed(
   // through to a random sample-transaction generator whose invented rows were
   // INSERTed into the tenant's bank_transactions as 'imported' and reported as
   // a successful sync. Refuse instead — an unimplemented feed imports nothing.
-  const errMsg = `Bank feed provider "${provider}" is not implemented — no transactions were imported. Use the browser extension or a manual CSV import instead.`;
-  await markSyncFailed(logId, connectionId, errMsg);
+  const refusal = new BankFeedProviderNotImplementedError(provider);
+  await markSyncFailed(logId, connectionId, refusal.message);
   log.error('Bank feed sync refused — provider not implemented', { connectionId, provider, companyId }, 'open-banking');
-  throw new Error(errMsg);
+  throw refusal;
 }

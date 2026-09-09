@@ -23,6 +23,7 @@ import { sql } from '@/lib/neon';
 import {
   syncBankFeed,
   createBankFeedConnection,
+  BankFeedProviderNotImplementedError,
 } from '@/modules/accounting/services/bank/openBankingService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -52,6 +53,29 @@ async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     c.release();
   }
+}
+
+/**
+ * Mirrors pages/api/accounting/bank-feeds/[id]/sync.ts inside `withAuth`: the
+ * route catches BankFeedProviderNotImplementedError and answers 400, and
+ * withAuth COMMITs on any status below 500. Returns the status the route would
+ * have sent, so a regression back to an uncaught throw (500) ROLLBACKs here too.
+ */
+async function throughRoute(connectionId: string): Promise<number> {
+  const c: PoolClient = await pool.connect();
+  await c.query('BEGIN');
+  let status = 200;
+  try {
+    await als.run(
+      { client: c, userId: USER, companyId: COMPANY, claims: {} } as never,
+      () => syncBankFeed(COMPANY, connectionId, USER),
+    );
+  } catch (err) {
+    status = err instanceof BankFeedProviderNotImplementedError ? 400 : 500;
+  }
+  await c.query(status >= 500 ? 'ROLLBACK' : 'COMMIT');
+  c.release();
+  return status;
 }
 
 describeIfDb('K-018 unsupported open-banking providers fabricate transactions', () => {
@@ -98,7 +122,6 @@ describeIfDb('K-018 unsupported open-banking providers fabricate transactions', 
       try {
         const result = await inTx(() => syncBankFeed(COMPANY, connections[provider]!, USER));
         // If it does not refuse, it must at least not have invented anything.
-        expect(`${provider} imported`).toBe(`${provider} imported`);
         expect(result.imported).toBe(0);
       } catch {
         refused = true;
@@ -119,36 +142,37 @@ describeIfDb('K-018 unsupported open-banking providers fabricate transactions', 
 
   // ── Adjacent cases ──────────────────────────────────────────────────────────
 
-  // Observed inside the transaction: a route caller gets a 500 and `withAuth`
-  // rolls the whole transaction back, so this is what a non-route caller sees.
-  it('marks the sync log and the connection failed when it refuses', async () => {
-    const seen = await inTx(async () => {
-      await expect(syncBankFeed(COMPANY, connections.basiq!, USER))
-        .rejects.toThrow(/not implemented/);
+  it('answers 400, not 500, so the refusal survives the transaction', async () => {
+    expect(await throughRoute(connections.basiq!)).toBe(400);
 
-      const [conn] = (await sql`
-        SELECT last_sync_status, last_sync_error FROM bank_feed_connections
-        WHERE id = ${connections.basiq!}::UUID AND company_id = ${COMPANY}::UUID`) as
-        { last_sync_status: string; last_sync_error: string }[];
-      const [logRow] = (await sql`
-        SELECT status, transactions_imported FROM bank_feed_sync_logs
-        WHERE connection_id = ${connections.basiq!}::UUID
-          AND company_id = ${COMPANY}::UUID
-        ORDER BY started_at DESC LIMIT 1`) as
-        { status: string; transactions_imported: number }[];
-      return { conn: conn!, logRow: logRow! };
-    });
+    // Read on a different connection, after COMMIT — this is durable state.
+    const [conn] = (await sql`
+      SELECT last_sync_status, last_sync_error FROM bank_feed_connections
+      WHERE id = ${connections.basiq!}::UUID AND company_id = ${COMPANY}::UUID`) as
+      { last_sync_status: string; last_sync_error: string }[];
+    expect(conn!.last_sync_status).toBe('failed');
+    expect(conn!.last_sync_error).toMatch(/not implemented/);
 
-    expect(seen.conn.last_sync_status).toBe('failed');
-    expect(seen.conn.last_sync_error).toMatch(/not implemented/);
-    expect(seen.logRow.status).toBe('failed');
-    expect(Number(seen.logRow.transactions_imported ?? 0)).toBe(0);
+    const [logRow] = (await sql`
+      SELECT status, transactions_imported FROM bank_feed_sync_logs
+      WHERE connection_id = ${connections.basiq!}::UUID
+        AND company_id = ${COMPANY}::UUID
+      ORDER BY started_at DESC LIMIT 1`) as
+      { status: string; transactions_imported: number }[];
+    expect(logRow!.status).toBe('failed');
+    expect(Number(logRow!.transactions_imported ?? 0)).toBe(0);
+  }, 60000);
+
+  it('carries the reason in the error the route puts in the 400 envelope', async () => {
+    await expect(inTx(() => syncBankFeed(COMPANY, connections.plaid!, USER)))
+      .rejects.toThrow(BankFeedProviderNotImplementedError);
+    await expect(inTx(() => syncBankFeed(COMPANY, connections.plaid!, USER)))
+      .rejects.toThrow(/plaid.*not implemented.*no transactions were imported/s);
   }, 60000);
 
   it('retrying the refused sync still imports nothing', async () => {
     for (let i = 0; i < 3; i++) {
-      await expect(inTx(() => syncBankFeed(COMPANY, connections.tink!, USER)))
-        .rejects.toThrow(/not implemented/);
+      expect(await throughRoute(connections.tink!)).toBe(400);
     }
     const [row] = (await sql`
       SELECT count(*)::int AS n FROM bank_transactions
