@@ -87,3 +87,56 @@ it('returns unknown for a bank without independent statements even when imported
  const result=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));expect(result.status).toBe('unknown');expect(result.findingCount).toBe(0);expect(result.populationCount).toBe(1);
  expect(result.missingSources).toContain('source_statement_period_unavailable');
 });
+it('retains source-event amendments during closure after a later reopen and ordinary amendment',async()=>{
+ const id=await journal();
+ await actor(ctx=>recordCommittedChange(ctx,{entityType:'fiscal_period',entityId:period,previousVersion:null,newVersion:1,action:'fiscal_period.close',
+ accountingDate:'2026-09-09',before:{status:'open'},after:{status:'closed'},bindingHash:null,protectedEvidenceRef:null}));
+ await actor(ctx=>recordCommittedChange(ctx,{entityType:'journal_entry',entityId:id,previousVersion:null,newVersion:1,action:'journal.amended',
+ accountingDate:'2026-09-09',before:{amount:'100'},after:{amount:'100'},bindingHash:null,protectedEvidenceRef:null}));
+ await actor(ctx=>recordCommittedChange(ctx,{entityType:'fiscal_period',entityId:period,previousVersion:1,newVersion:2,action:'fiscal_period.reopen',
+ accountingDate:'2026-09-09',before:{status:'closed'},after:{status:'open'},bindingHash:null,protectedEvidenceRef:null}));
+ await actor(ctx=>recordCommittedChange(ctx,{entityType:'journal_entry',entityId:id,previousVersion:1,newVersion:2,action:'journal.amended',
+ accountingDate:'2026-09-09',before:{amount:'100'},after:{amount:'100'},bindingHash:null,protectedEvidenceRef:null}));
+ const result=await actor(ctx=>checkJournalRisks(ctx,{}));expect(result.findings[0]?.message).toContain('change_after_recorded_period_close');
+ expect(result.sourceVersions[0]?.version).toBe(2);
+});
+it('uses actual owned current journal threshold and reports a6000+6000 lead without line double counting',async()=>{
+ const policy=randomUUID();await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
+ VALUES($1,$2,'Synthetic threshold','journal_entry','amount','greater_than','10000','admin',true)`,[policy,fixture.companyA]);
+ const first=await journal('6000');expect((await actor(ctx=>checkJournalRisks(ctx,{}))).findingCount).toBe(0);
+ await journal('6000');const result=await actor(ctx=>checkJournalRisks(ctx,{}));expect(result.findingCount).toBe(2);expect(result.amountTotals).toEqual({ZAR:'12000'});
+ expect(result.findings[0]?.message).toContain(`possible_threshold_split:${policy}:v1`);
+ const reverse=await journal('100');await pool.query('UPDATE gl_journal_entries SET reversal_of_id=$1 WHERE company_id=$2 AND id=$3',[first,fixture.companyA,reverse]);
+ expect((await actor(ctx=>checkJournalRisks(ctx,{}))).findings.find(f=>f.entities[0]?.entityId===reverse)?.entities)
+ .toContainEqual({entityType:'journal_entry',entityId:first});
+});
+it('counts121 statement discrepancies beyond20 and rejects a cursor when equal-value imported identities change',async()=>{
+ await pool.query("UPDATE gl_accounts SET account_subtype='bank' WHERE company_id=$1 AND id=$2",[fixture.companyA,debit]);
+ const bytes=Buffer.from('Synthetic candidate source statement'),hash=createHash('sha256').update(bytes).digest('hex');
+ for(let i=0;i<121;i++){
+  const doc=randomUUID();await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256)
+  VALUES($1,$2,'statement.pdf','pdf','matched',$3,$4)`,[doc,fixture.companyA,bytes,hash]);
+  await pool.query(`INSERT INTO bank_statement_imports(company_id,bank_account_id,source_document_id,period_start,period_end,row_count,opening_balance,closing_balance,status)
+  VALUES($1,$2,$3,'2026-08-01','2026-08-31',10,1000,1500,'committed')`,[fixture.companyA,debit,doc]);
+ }
+ const tx=randomUUID();await pool.query(`INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
+ VALUES($1,$2,$3,'2026-08-09',400,'Synthetic','imported')`,[tx,fixture.companyA,debit]);
+ const first=await actor(ctx=>checkBankStatementCompleteness(ctx,{limit:20}));expect(first.populationCount).toBe(121);expect(first.findingCount).toBe(121);
+ expect(first.findings).toHaveLength(20);expect(first.amountTotals).toEqual({ZAR:'12100'});
+ expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{limit:20,cursor:first.nextCursor!}))).findingCount).toBe(121);
+ await pool.query('UPDATE bank_transactions SET id=$1 WHERE company_id=$2 AND id=$3',[randomUUID(),fixture.companyA,tx]);
+ await expect(actor(ctx=>checkBankStatementCompleteness(ctx,{cursor:first.nextCursor!}))).rejects.toThrow('changed');
+});
+it.each(['account','document'] as const)('retains an owned statement with a corrupt foreign %s parent as unknown without leaking that parent',async kind=>{
+ await pool.query("UPDATE gl_accounts SET account_subtype='bank' WHERE company_id=$1 AND id=$2",[fixture.companyA,debit]);
+ const foreign=randomUUID(),doc=randomUUID(),statement=randomUUID(),bytes=Buffer.from('Synthetic foreign parent source'),hash=createHash('sha256').update(bytes).digest('hex');
+ await pool.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,level)
+ VALUES($1::uuid,$2,left($1::text,12),'Foreign synthetic bank','asset','bank','debit',3)`,[foreign,fixture.companyB]);
+ await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256)
+ VALUES($1,$2,'source.pdf','pdf','matched',$3,$4)`,[doc,kind==='document'?fixture.companyB:fixture.companyA,bytes,hash]);
+ await pool.query(`INSERT INTO bank_statement_imports(id,company_id,bank_account_id,source_document_id,period_start,period_end,row_count,opening_balance,closing_balance,status)
+ VALUES($1,$2,$3,$4,'2026-08-01','2026-08-31',10,1000,1500,'committed')`,[statement,fixture.companyA,kind==='account'?foreign:debit,doc]);
+ const result=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));expect(result.status).toBe('unknown');expect(result.populationCount).toBeGreaterThan(0);
+ expect(result.missingSources).toContain(kind==='account'?'owned_bank_account_unavailable':'source_statement_bytes_unavailable_or_changed');
+ expect(JSON.stringify(result)).not.toContain(kind==='account'?foreign:doc);
+});
