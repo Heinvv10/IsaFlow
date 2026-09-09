@@ -2095,11 +2095,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k059-dunning-chases-non-debts.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-059/red.log",
+    "K-059/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2121,11 +2126,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k060-quote-number-crosses-tenants.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-060/red.log",
+    "K-060/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2147,11 +2157,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k061-customer-merge-nonexistent-column.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-061/red.log",
+    "K-061/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2173,11 +2188,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k062-customer-statement-client-id-only.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-062/red.log",
+    "K-062/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2199,11 +2219,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-063/red.log",
+    "K-063/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2225,11 +2250,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-064/red.log",
+    "K-064/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2251,11 +2281,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k065-supplier-payment-double-process.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-065/red.log",
+    "K-065/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2277,11 +2312,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k066-supplier-payment-foreign-bill.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-066/red.log",
+    "K-066/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2303,11 +2343,18 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "0f16391e",
+   "status": "confirmed",
+   "dependencies": [
+    "Latent: the only EFT caller reads sp.amount and four header columns that do not exist, so every export 400s (R-028); fix truncation first, then the column mismatch"
+   ],
+   "testNames": [
+    "tests/unit/eft/k067-eft-padleft-truncation.test.ts"
+   ],
+   "evidencePaths": [
+    "K-067/red.log",
+    "K-067/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2329,12 +2376,20 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
-   "fixCommit": null,
+   "currentSha": "0f16391e",
+   "status": "already-fixed-verified",
+   "dependencies": [
+    "Fixed by 798082d8 after the audit; current regression proven by k068-supplier-statement-uuid-cast.int.test.ts"
+   ],
+   "testNames": [
+    "tests/integration/k068-supplier-statement-uuid-cast.int.test.ts",
+    "tests/unit/services/ap/supplierStatementDetailApi.test.ts"
+   ],
+   "evidencePaths": [
+    "K-068/red.log",
+    "K-068/validation.md"
+   ],
+   "fixCommit": "798082d8",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -2355,11 +2410,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k069-transfer-reversal-leaves-counterparty.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-069/red.log",
+    "K-069/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2381,11 +2441,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k070-customer-rule-no-ar-subledger.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-070/red.log",
+    "K-070/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -8911,6 +8976,35 @@
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "No wrong rows; no year-end close has ever completed.",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
+  },
+  {
+   "id": "R-028",
+   "claim": "The EFT export route reads sp.amount and four header columns that do not exist on their tables, so every EFT file export fails with 'Amount must be greater than zero'.",
+   "area": "ap",
+   "affectedPaths": [
+    "pages/api/accounting/eft",
+    "src/modules/accounting/services/ap/eftService.ts"
+   ],
+   "sourceLabel": "K-067 validation",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "EFT export has never worked; masks K-067 until fixed.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
+   "dependencies": [
+    "Fix after K-067 truncation so the column fix does not activate the truncation defect"
+   ],
+   "testNames": [],
+   "evidencePaths": [
+    "K-067/validation.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "None; no export ever succeeded.",
    "canonicalItem": null,
    "reportedSeverity": "high"
   }
