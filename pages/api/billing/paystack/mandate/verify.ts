@@ -142,37 +142,31 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
   }
 
-  // Re-read the canonical state — of THIS reference's mandate. Reading the
-  // company's newest row instead reported another checkout's ceiling, card and
-  // id under this reference, which is the mis-attribution migration 651 exists
-  // to retire. Only a pre-651 row with no resolvable link falls back.
-  let fresh: MandateView[] = [];
-  if (mandate) {
-    fresh = await sql<MandateView>`
-      SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents
-      FROM subscription_mandates
-      WHERE id = ${mandate.id} AND company_id = ${req.companyId}
-      LIMIT 1
-    `;
-  } else if (pr.mandate_id === null) {
-    fresh = await sql<MandateView>`
-      SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents
-      FROM subscription_mandates
-      WHERE company_id = ${req.companyId}
-        AND gateway = 'paystack'
-        AND status IN ('active','pending','failed')
-      ORDER BY (status = 'active') DESC, created_at DESC
-      LIMIT 1
-    `;
-  }
-  // else: pr named a mandate that no longer resolves. Answering with the
-  // company's newest row would re-introduce the mis-attribution 651 retired,
-  // so this reference reports no mandate at all.
+  // Re-read the canonical state — of THIS reference's mandate, and of nothing
+  // else. Reading the company's newest row instead reported another checkout's
+  // ceiling, card and id under this reference, which is the mis-attribution
+  // migration 651 exists to retire.
+  //
+  // There is no second, unlinked lookup. resolveAuthorisedMandate already ran
+  // the pre-651 newest-first fallback over the company's pending and active
+  // rows; if it resolved nothing, every remaining row is one no live checkout
+  // owns — a failed or revoked row this reference cannot prove is its own, or a
+  // row a concurrent checkout inserted after that read. Naming any of them (or
+  // reporting its bank, card and ceiling, which identify it just as well) is
+  // exactly the mis-attribution 651 retires. This reference's own failure is on
+  // its own payment request row instead: pr.status and pr.failure_reason.
+  const fresh: MandateView[] = mandate
+    ? await sql<MandateView>`
+        SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents
+        FROM subscription_mandates
+        WHERE id = ${mandate.id} AND company_id = ${req.companyId}
+        LIMIT 1
+      `
+    : [];
+
   // A row is only THIS reference's mandate when the payment request linked it
   // (migration 651), or when nothing went wrong. A fallback resolution that
-  // ended in a failure landed on some OTHER checkout's row: naming it — or
-  // reporting its bank, card and ceiling, which identify it just as well — is
-  // the mis-attribution 651 exists to retire.
+  // ended in a failure landed on some OTHER checkout's row.
   const own = !failureReason || mandate?.linked ? fresh[0] : undefined;
 
   // A recorded failure_reason outranks the mandate row, which may well be
@@ -182,10 +176,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // must never survive the transition it was written about — a webhook that
   // lands after the reason was written still leaves a mandate that is active
   // and chargeable, and the payer must be told so.
+  // pr.status is this reference's own row, so a failed checkout is still
+  // reported as failed once the unattributable mandate row stops standing in
+  // for it — without naming a mandate the request never linked.
   const publicStatus =
     own?.status === 'active' ? 'active'
     : failureReason ? 'failed'
-    : own?.status === 'failed' ? 'failed'
+    : own?.status === 'failed' || pr.status === 'failed' ? 'failed'
     : 'pending';
 
   return apiResponse.success(res, {
