@@ -55,32 +55,54 @@ export interface CloseYearResult {
   message: string;
 }
 
-export interface CloseYearDryRunResult {
+interface CloseYearDryRunBase {
   dryRun: true;
+  /** What THIS call read from the ledger — re-read after the closed-year lookup. */
   netIncome: number;
-  preview: YearEndJournalPreview;
   /**
-   * True when the year already has a posted closing journal (K-113).
-   *
-   * A closed year's aggregates are flat — its own closing journal is what
-   * flattened them — so `netIncome: 0` with an EMPTY preview is exactly what a
-   * company that never traded returns. The dry run is the read a person makes
-   * before authorising the irreversible half, and telling them a year that
-   * traded and was closed is empty is a false statement about the books.
-   */
-  alreadyClosed: boolean;
-  /** The existing closing journal, when `alreadyClosed`. */
-  existingEntry: Record<string, unknown> | null;
-  /**
-   * The same residual `CloseYearResult` carries, and the reason the preview of
-   * an already-closed year is NOT an offer to post. P&L that landed in the year
-   * after its close makes the preview non-empty — it is exactly that movement —
-   * but the live call will never write it, because the entry number is taken.
-   * A dry run that showed the journal without this number would authorise a
-   * posting that cannot happen.
+   * The same residual `CloseYearResult` carries. P&L that landed in the year
+   * AFTER its close makes the residual preview non-empty — it is exactly that
+   * movement — but the live call will never write it, because the entry number
+   * is taken. Zero on an open year.
    */
   unclosedNetIncome: number;
 }
+
+/**
+ * A dry run either OFFERS a journal or reports one it can never write, and the
+ * two are different shapes rather than one shape plus a flag (K-113).
+ *
+ * The distinction used to live in a doc comment: `preview` was populated on
+ * both branches and only the MCP tool nulled it, by hand, under `would_post`.
+ * A comment is not a guard — the next consumer reads a balanced, unpostable
+ * journal as an offer to post. Here `preview` is `null` by construction the
+ * moment `alreadyClosed` is true, and the residual has its own name.
+ *
+ * A closed year's aggregates are flat — its own closing journal is what
+ * flattened them — so `netIncome: 0` with an empty preview is byte-identical to
+ * a company that never traded. `alreadyClosed` is what separates them.
+ */
+export type CloseYearDryRunResult =
+  | (CloseYearDryRunBase & {
+      alreadyClosed: false;
+      existingEntry: null;
+      /** The journal the live call WOULD post. */
+      preview: YearEndJournalPreview;
+      residualPreview?: undefined;
+    })
+  | (CloseYearDryRunBase & {
+      alreadyClosed: true;
+      /** The closing journal the year already has. */
+      existingEntry: Record<string, unknown>;
+      /** Null by construction: no close can write this year again. */
+      preview: null;
+      /**
+       * What is stranded, line by line — NOT an offer. Non-empty only when P&L
+       * landed in the year after it closed; `unclosedNetIncome` is the same
+       * money as a number.
+       */
+      residualPreview: YearEndJournalPreview;
+    });
 
 export type CloseYearError =
   | { error: 'open_periods'; count: number; openPeriods: Array<{ id: string; periodName: string; periodNumber: number }> }

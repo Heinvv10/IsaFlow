@@ -96,7 +96,7 @@ describe('closeFiscalYear — dry run', () => {
 
     expect(writes).toHaveLength(0);
     expect(result).toMatchObject({ dryRun: true, netIncome: 600000 });
-    if (!('preview' in result)) throw new Error('expected a preview');
+    if (!('preview' in result) || result.preview === null) throw new Error('expected a preview');
     expect(result.preview.entryDate).toBe('2027-02-28');
     expect(result.preview.totalDebit).toBe(1000000);
     expect(result.preview.totalCredit).toBe(1000000);
@@ -105,7 +105,7 @@ describe('closeFiscalYear — dry run', () => {
   it('shows every line of the journal, not a count', async () => {
     mockReads();
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
-    if (!('preview' in result)) throw new Error('expected a preview');
+    if (!('preview' in result) || result.preview === null) throw new Error('expected a preview');
 
     expect(result.preview.lines).toEqual([
       { accountId: 'rev-1', accountCode: '4000', accountName: 'Sales', debit: 1000000, credit: 0 },
@@ -128,7 +128,7 @@ describe('closeFiscalYear — dry run', () => {
     retainedEarnings([{ code: '3200' }]);
 
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
-    if (!('preview' in result)) throw new Error('expected a preview');
+    if (!('preview' in result) || result.preview === null) throw new Error('expected a preview');
 
     expect(result.netIncome).toBe(-400);
     expect(result.preview.lines[2]).toMatchObject({ accountId: 're-1', debit: 400, credit: 0 });

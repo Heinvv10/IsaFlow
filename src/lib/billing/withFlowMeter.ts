@@ -110,14 +110,10 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
       const responded4xxOr5xx = statusCode >= 400 && statusCode < 600;
 
       if (handlerError || responded4xxOr5xx || req.flowNoOp) {
+        let refundBalanceAfter: number | null = null;
         try {
-          const refund = await refundFlows(companyId, flowCost, operationCode, null);
-          // Re-stated from the REFUND, not left at the debit. `markFlowNoOp`
-          // makes this branch reachable on a 2xx, which is where the "X Flows
-          // used" toast this header exists for is actually rendered — a client
-          // reading the stale value shows a charge that was reversed.
-          res.setHeader('X-Flow-Balance-After', String(refund.balanceAfter));
-          res.setHeader('X-Flow-Refunded', 'true');
+          refundBalanceAfter = (await refundFlows(companyId, flowCost, operationCode, null))
+            .balanceAfter;
         } catch (refundErr) {
           log.error(
             'flow refund failed after handler error',
@@ -126,6 +122,18 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
               : { refundErr, companyId, operationCode },
             'BILLING',
           );
+        }
+        // Re-state from the REFUND, not the debit — but only while the response
+        // can still carry a header. `markFlowNoOp` makes this branch reachable
+        // on a 2xx, and by then the handler has already flushed: on a real
+        // ServerResponse `setHeader` would throw ERR_HTTP_HEADERS_SENT, and
+        // inside the try above that surfaced as a false "refund failed" ERROR
+        // on a request whose refund had in fact succeeded. A client that has
+        // already been answered keeps the pre-refund balance; the wallet is
+        // still correct, and the next request reads the true figure.
+        if (refundBalanceAfter !== null && !res.headersSent) {
+          res.setHeader('X-Flow-Balance-After', String(refundBalanceAfter));
+          res.setHeader('X-Flow-Refunded', 'true');
         }
         if (handlerError) throw handlerError;
       } else {
