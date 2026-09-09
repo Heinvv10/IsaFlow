@@ -10045,6 +10045,40 @@
       "severity": "medium",
       "source": "Identified by the K-048 r5 reviewer and deliberately scoped out by the K-048 fixer; recorded 2026-09-09",
       "processNotes": "src/modules/accounting/services/ar/recurringInvoiceService.ts:250 carries the same defect K-048 fixed on the GL side. Confirmed live, not speculative. Scoped out deliberately and correctly: different module, different suite, different subledger, and the reviewer asked for it outside K-048's diff -- a cross-module edit would also have collided with the K-107 branch, which owns the recurring paths. Needs its own K-item with its own RED test and its own ledger review round. Do NOT fold it into K-048 or K-107 late; it is the third module of the same class this programme has found (GL recurring, quote/SO convert, practice WIP -- see R-044)."
+    },
+    {
+      "id": "R-046",
+      "claim": "",
+      "area": "accounting/migration",
+      "affectedPaths": [
+        "softDeleteService"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Sub-ledger and GL diverge silently for a deleted take-on document.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-015",
+        "K-053"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-015/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Any already soft-deleted take-on document leaves a posted journal behind.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "softDeleteService does not reverse a take-on journal: its guard only fires on status='posted'",
+      "severity": "medium",
+      "source": "Flagged by the K-015 r3 fixer as out of scope; recorded 2026-09-09",
+      "processNotes": "Soft-deleting a take-on document leaves its take-on journal posted, because softDeleteService's reversal guard only fires on status='posted' and does not cover the take-on path. The document disappears from the sub-ledger while its GL effect remains, so the sub-ledger stops tying to the GL for the affected company. Out of K-015's scope (that branch owns the wizard's import path, not the soft-delete service) and adjacent to K-053, which owns soft-delete/aging semantics -- but K-053's rounds have been about the DATED presence predicate, not about what reversal fires on delete. Needs its own item so it is not assumed covered by either."
     }
   ],
   "sourceInventory": [
