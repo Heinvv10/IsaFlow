@@ -5,7 +5,8 @@ beforeAll(async()=>{f=await bankControlReadFixture();});afterAll(async()=>{if(f)
 async function requested(){const p=await f.prepare(),a=await f.pending(p.operation);expect(a.status).toBe(200);return{...p,approvalId:a.body.data.id};}
 it('independent reviewer can see exact bank plan only through its linked approval',async()=>{
  const p=await requested(),r=await f.read(undefined,undefined,'u2',p.approvalId);
- expect(r.status).toBe(200);expect(r.body.data).toMatchObject({bankTransactionId:p.bankTransactionId,prepared:{total:0},selected:{intentId:p.intentId,plan:{kind:'account',lines:[{accountId:f.contra,amount:'115.23'}]},approval:{id:p.approvalId,status:'pending'},approvalVisibility:'visible'}});
+ expect(r.status).toBe(200);expect(r.body.data).toMatchObject({bankTransactionId:p.bankTransactionId,prepared:{total:0},selected:{intentId:p.intentId,requesterIsCurrentPerson:false,plan:{kind:'account',lines:[{accountId:f.contra,amount:'115.23'}]},approval:{id:p.approvalId,status:'pending'},approvalVisibility:'visible'}});
+ expect((await f.read(p.bankTransactionId,p.intentId)).body.data.selected.requesterIsCurrentPerson).toBe(true);
  expect((await f.read(p.bankTransactionId,p.intentId,'u2')).status).toBe(400);
  expect((await f.read(p.bankTransactionId,undefined,'u2')).body.data.prepared.items).toEqual([]);
 });
