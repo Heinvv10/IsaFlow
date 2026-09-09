@@ -8131,6 +8131,157 @@
    "historicalDataImpact": "No data changed. Prior cross-tenant reads through this path not assessed; nl-query requests are logged with question and company only, not the generated SQL.",
    "canonicalItem": null,
    "reportedSeverity": "high"
+  },
+  {
+   "id": "R-010",
+   "claim": "Cancelled customer and supplier invoices NULL gl_journal_entry_id on cancel, so the VAT201 cancelled_entries CTE never sees them; their original and reversal journals both flow into the boxes and net only when both fall in the same period.",
+   "area": "reports",
+   "affectedPaths": [
+    "src/modules/accounting/services/ar/customerInvoiceCancelService.ts:151",
+    "src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts:315",
+    "src/modules/accounting/services/reports/vatBoxBasisQuery.ts"
+   ],
+   "sourceLabel": "Review of K-032 fix",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during fix or review of the named item; not yet independently reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "d0f4f5dc",
+   "status": "candidate",
+   "dependencies": [
+    "Named by the K-032 reviewer and fixer; whether netting-by-period is acceptable filing behaviour needs a decision before this is treated as a defect"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-011",
+   "claim": "Supplier statement service credits a supplier payment at its allocated amount instead of the amount paid (AP mirror of K-012).",
+   "area": "ap",
+   "affectedPaths": [
+    "src/modules/accounting/services/ap/supplierStatementService.ts:130"
+   ],
+   "sourceLabel": "Review of K-012 fix",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during fix or review of the named item; not yet independently reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "d0f4f5dc",
+   "status": "candidate",
+   "dependencies": [],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
+  },
+  {
+   "id": "R-012",
+   "claim": "resolveReversalDate falls back to today unchecked; paymentVoidService and MCP journal tools only learn of a closed current period from postJournalEntry after earlier writes.",
+   "area": "gl",
+   "affectedPaths": [
+    "src/modules/accounting/services/gl/journalEntryPostingService.ts"
+   ],
+   "sourceLabel": "K-021 fix limits",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during fix or review of the named item; not yet independently reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "d0f4f5dc",
+   "status": "candidate",
+   "dependencies": [
+    "Bank path guarded by the K-021 fix; other callers open"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-013",
+   "claim": "Two concurrent journal postings collide on uq_gl_je_company_entry_number (JE numbering is not concurrency-safe); surfaced when releasing two reversal callers simultaneously.",
+   "area": "gl",
+   "affectedPaths": [
+    "src/modules/accounting/services/gl/journalEntryPostingService.ts"
+   ],
+   "sourceLabel": "K-010 fix discovery",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during fix or review of the named item; not yet independently reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "d0f4f5dc",
+   "status": "candidate",
+   "dependencies": [],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
+  },
+  {
+   "id": "R-014",
+   "claim": "bank_feed_connections.provider has no CHECK constraint and legacy basiq/tink/plaid connection rows remain after K-018; direct SQL can still create an unimplemented provider and the refusal path returns 500 so the failed-sync log is rolled back.",
+   "area": "bank",
+   "affectedPaths": [
+    "src/modules/accounting/services/bank/openBankingSyncService.ts",
+    "scripts/migrations/sql"
+   ],
+   "sourceLabel": "K-018 fix limits",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during fix or review of the named item; not yet independently reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "d0f4f5dc",
+   "status": "candidate",
+   "dependencies": [],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "low"
+  },
+  {
+   "id": "R-015",
+   "claim": "Payroll loan reversal and application on recalculation are not concurrency-guarded; two simultaneous calculations of one run can interleave.",
+   "area": "payroll",
+   "affectedPaths": [
+    "src/modules/accounting/services/payroll/payrollRunService.ts"
+   ],
+   "sourceLabel": "K-022 fix limits",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during fix or review of the named item; not yet independently reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "d0f4f5dc",
+   "status": "candidate",
+   "dependencies": [],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
   }
  ],
  "sourceInventory": [
@@ -9868,5 +10019,8 @@
    ],
    "disposition": "unresolved contradiction between Audit A (dead code, no call sites) and Audit B F22 (assetService methods apparently read by a live run path); retained as-is, no merged finding invented"
   }
+ ],
+ "processNotes": [
+  "Fixers for K-030 and K-036 each ran one read-only SELECT against the production database to size historical impact before the no-production-queries instruction was issued; no writes. Results are disclosed in K-030/fix.md and K-036/fix.md. All later impact SQL is unexecuted text."
  ]
 }
