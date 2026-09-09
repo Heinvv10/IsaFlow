@@ -1,0 +1,28 @@
+=== GREEN (fixed) ===
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Start at  05:46:26
+   Duration  1.04s (transform 582ms, setup 0ms, import 981ms, tests 437ms, environment 2ms)
+
+=== MUTATION 1: restore the allocation-based credit ===
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 5 passed (6)
+   Start at  05:46:28
+   Duration  928ms (transform 508ms, setup 0ms, import 960ms, tests 433ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
+=== MUTATION 2: drop the company_id predicate ===
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  05:46:29
+   Duration  882ms (transform 269ms, setup 0ms, import 426ms, tests 200ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
+=== RESTORED ===
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Start at  05:46:31
+   Duration  862ms (transform 501ms, setup 0ms, import 808ms, tests 384ms, environment 0ms)
+
