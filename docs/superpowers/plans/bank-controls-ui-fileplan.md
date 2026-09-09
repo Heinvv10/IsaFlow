@@ -21,4 +21,6 @@ Preserve normal default invoice application selection, refund gross directions w
 
 ## Evidence
 
-Pending reviewer RED, implementation and verification; root independently reviewing base11dd separately.
+Reviewer tests-first32e3171d4; actual35806 had authorized reviewer400 unsupported approvalId (capability RED), denied-right400 vs403 was old-schema specificity, foreign/mismatch refusal already passed. Implemented approvalId-only owned-bank derivation; optional bank must match, intentId exclusive, server requesterIsCurrentPerson boolean, exact referenced approval summary, original ownlist isolation. Three actual reviewer HTTP/PG50949 pass; source TypeScript and scoped reader ESLint51187 terminal0. Root requested additive current signed bankAmount field separately for plan preview; its tests and implementation remain next.
+
+UI client initial missing-module RED0a5a74→4units e3bcc0; workflow hook missing-module RED2266d1→3component units6a0032. Actual existing accept/batch/reverse handlers3RED91edb4→3GREEN986de6 after delegation to explicit workflow, keeping pending selections and no posted success. Initial reverse test fixture lacked window.confirm; corrected before accepting genuineRED. UI/page/dialog/browser integration remains unverified and uncommitted separately.
