@@ -13,14 +13,15 @@ const accountLine=z.object({accountId:id,amount:money,vatCode:z.enum(['none','st
 const common={version:z.literal(1),bankTransactionId:id,description:z.string().max(1000).optional()};
 const application=z.object({invoiceId:id,amount:money}).strict();
 const schema=z.discriminatedUnion('kind',[
- z.object({...common,kind:z.literal('account'),lines:z.array(accountLine).length(1)}).strict(),
- z.object({...common,kind:z.literal('split'),lines:z.array(accountLine).min(1).max(100)}).strict(),
+ z.object({...common,kind:z.literal('account'),vatAccountId:id.optional(),lines:z.array(accountLine).length(1)}).strict(),
+ z.object({...common,kind:z.literal('split'),vatAccountId:id.optional(),lines:z.array(accountLine).min(1).max(100)}).strict(),
  z.object({...common,kind:z.literal('customer'),partyId:id,applications:z.array(application).max(100)}).strict(),
  z.object({...common,kind:z.literal('supplier'),partyId:id,applications:z.array(application).max(100)}).strict(),
 ]);
 export type BankAllocationPlan=z.infer<typeof schema>;
 export function parseBankAllocationPlan(input:unknown):BankAllocationPlan{
  const plan=schema.parse(input);
+ if('lines' in plan&&plan.vatAccountId&&!plan.lines.some(line=>line.vatCode==='standard'))throw new Error('VAT account requires a taxable allocation');
  if('applications' in plan&&new Set(plan.applications.map(a=>a.invoiceId.toLowerCase())).size!==plan.applications.length)throw new Error('Duplicate allocation invoice');
  return plan;
 }

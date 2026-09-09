@@ -1,3 +1,5 @@
+import {loadBankAllocationSources} from '@/modules/accounting/services/bank/bankAllocationSources';
+import {parseBankAllocationPlan} from '@/modules/accounting/services/bank/bankAllocationPlan';
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
@@ -46,15 +48,19 @@ for(const spent of [true,false])it(`binds legacy ${spent?'1140 input':'2120 outp
  expect(rows).toContainEqual({gl_account_id:bank,debit:spent?'0.00':'115.23',credit:spent?'115.23':'0.00'});
 });
 it('explicit fallback ID is preserved and unrelated or foreign VAT accounts are refused',async()=>{
- const plan=await source();
+ const plan=await source(),foreignVat=randomUUID();
+ await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account) VALUES($1,$2,'SYN-FOREIGN','Synthetic foreign VAT','asset','vat_input','debit',true,true)",[foreignVat,fixture.companyB]);
  const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{...plan,vatAccountId:inputVat}));expect(prepared.intentId).toBeTruthy();
- for(const vatAccountId of [contra,bank,outputVat,randomUUID()])await expect(actor(()=>prepareBankAllocation(requireControlTx(),{...plan,vatAccountId}))).rejects.toThrow(/VAT|account/i);
+ for(const vatAccountId of [contra,bank,outputVat,foreignVat,randomUUID()])await expect(actor(()=>prepareBankAllocation(requireControlTx(),{...plan,vatAccountId}))).rejects.toThrow(/VAT|account/i);
  await expect(actor(()=>prepareBankAllocation(requireControlTx(),{...plan,vatAccountId:inputVat}),'u3')).rejects.toThrow(/owned|not found/i);
 });
 it('zero rated, exempt and none do not choose a VAT account',async()=>{
  for(const code of ['zero_rated','exempt','none']){
   const plan=await source(true,code),p=await actor(()=>prepareBankAllocation(requireControlTx(),plan));
   expect((await pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[fixture.companyA,p.intentId])).rows[0].payload).not.toHaveProperty('vatAccountId');
+  const approvalId=await approval(p.operation),posted=await actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId}));
+  const lines=(await pool.query('SELECT gl_account_id FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,posted.journalEntryId])).rows;
+  expect(lines).toHaveLength(2);expect(lines.map(row=>row.gl_account_id).sort()).toEqual([bank,contra].sort());
  }
 });
 it('changed selected VAT classification invalidates approved source without fallback reselection',async()=>{
@@ -84,7 +90,7 @@ it('bank date and accounting period changes invalidate approval; execution rollb
 });
 it('ambiguous canonical VAT role refuses instead of picking fallback; explicit validated ID is unambiguous',async()=>{
  const ids=[randomUUID(),randomUUID()];
- for(const id of ids)await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account) VALUES($1,$2,$1::uuid::text,'Synthetic duplicate VAT','asset','vat_input','debit',true,true)",[id,fixture.companyA]);
+ for(const id of ids)await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account) VALUES($1,$2,left($1::uuid::text,20),'Synthetic duplicate VAT','asset','vat_input','debit',true,true)",[id,fixture.companyA]);
  try{
   const plan=await source();await expect(actor(()=>prepareBankAllocation(requireControlTx(),plan))).rejects.toThrow(/ambiguous/i);
   expect((await actor(()=>prepareBankAllocation(requireControlTx(),{...plan,vatAccountId:ids[0]}))).intentId).toBeTruthy();
@@ -94,4 +100,26 @@ it('revoked current authority cannot prepare VAT fallback material',async()=>{
  const plan=await source();await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,'banking',false)",[fixture.companyA,fixture.u1.id]);
  try{await expect(actor(()=>prepareBankAllocation(requireControlTx(),plan))).rejects.toThrow(/permission/i);}
  finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='banking'",[fixture.companyA,fixture.u1.id]);}
+});
+
+it('canonical subtype outranks legacy code and retains old-plan source fingerprint interpretation',async()=>{
+ const id=randomUUID();
+ await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account) VALUES($1,$2,'SYN-CANON','Synthetic canonical VAT','asset','vat_input','debit',true,true)",[id,fixture.companyA]);
+ try{
+  const plan=await source();
+  const before=await actor(()=>loadBankAllocationSources(requireControlTx(),parseBankAllocationPlan(plan)));
+  const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),plan));
+  const saved=(await pool.query('SELECT payload,source_fingerprint FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[fixture.companyA,prepared.intentId])).rows[0];
+  expect(saved.payload.vatAccountId).toBe(id);expect(saved.source_fingerprint).toBe(before.fingerprint);
+ }finally{await pool.query('DELETE FROM gl_accounts WHERE company_id=$1 AND id=$2',[fixture.companyA,id]);}
+});
+
+it('split taxable and exempt lines bind one exact VAT account and preserve line rounding',async()=>{
+ const sourcePlan=await source();
+ const plan={...sourcePlan,kind:'split',lines:[{accountId:contra,amount:'60',vatCode:'standard'},{accountId:contra,amount:'55.23',vatCode:'exempt'}]};
+ const p=await actor(()=>prepareBankAllocation(requireControlTx(),plan)),approvalId=await approval(p.operation);
+ const posted=await actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId}));
+ const rows=(await pool.query('SELECT gl_account_id,debit::text,credit::text FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,posted.journalEntryId])).rows;
+ expect(rows).toHaveLength(4);expect(rows).toContainEqual({gl_account_id:inputVat,debit:'7.83',credit:'0.00'});
+ expect(rows).toContainEqual({gl_account_id:contra,debit:'52.17',credit:'0.00'});expect(rows).toContainEqual({gl_account_id:contra,debit:'55.23',credit:'0.00'});
 });
