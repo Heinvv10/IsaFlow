@@ -40,6 +40,8 @@ const packageOnceOff = crypto.randomUUID();
 const packageRecurring = crypto.randomUUID();
 const reapplyEmployee = crypto.randomUUID();
 const laterApplyEmployee = crypto.randomUUID();
+const boundaryEmployee = crypto.randomUUID();
+const futureRowEmployee = crypto.randomUUID();
 const otherEmployee = crypto.randomUUID();
 const bonusComponent = crypto.randomUUID();
 const allowanceComponent = crypto.randomUUID();
@@ -100,6 +102,8 @@ beforeAll(async () => {
   await addEmployee(packageEmployee, company, 'E-K025-9');
   await addEmployee(reapplyEmployee, company, 'E-K025-10');
   await addEmployee(laterApplyEmployee, company, 'E-K025-11');
+  await addEmployee(boundaryEmployee, company, 'E-K025-12');
+  await addEmployee(futureRowEmployee, company, 'E-K025-13');
   await addEmployee(otherEmployee, otherCompany, 'E-K025-6');
   await addComponent(bonusComponent, company, 'March bonus', '3605');
   await addComponent(allowanceComponent, company, 'Standing allowance', '3713');
@@ -153,6 +157,22 @@ beforeAll(async () => {
   // it was already paid and closed inside its own month.
   await applyPackageToEmployee(company, payPackage, laterApplyEmployee, '2025-03-01', user);
   await applyPackageToEmployee(company, payPackage, laterApplyEmployee, '2025-05-01', user);
+  // A hand-made assignment closed exactly the day BEFORE the apply must survive
+  // untouched — the supersede predicate must not reach one place too far.
+  await pool.query(
+    `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring)
+     VALUES($1,$2,777,'2025-01-01','2025-02-28',true)`,
+    [boundaryEmployee, packageRecurring],
+  );
+  await applyPackageToEmployee(company, payPackage, boundaryEmployee, '2025-03-01', user);
+  // A row entirely in the FUTURE is cancelled by an earlier apply, not left to
+  // pay alongside it. Silent cancellation is what the warning covers.
+  await pool.query(
+    `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring)
+     VALUES($1,$2,999,'2025-06-01','2025-06-30',false)`,
+    [futureRowEmployee, packageRecurring],
+  );
+  await applyPackageToEmployee(company, payPackage, futureRowEmployee, '2025-03-15', user);
   // Second tenant, same shape — must be untouched by any of the above.
   await postOne(otherCompany, { batchType: 'component_values', componentId: otherComponent, isRecurring: false, month: 3 },
     { employeeId: otherEmployee, value: 400, effectiveFrom: new Date('2025-03-01') });
@@ -163,7 +183,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM payroll_employee_components WHERE employee_id = ANY($1::uuid[])',
       [[onceOffEmployee, recurringEmployee, explicitEndEmployee, travelEmployee, monthEndEmployee,
         backdatedEmployee, forwardDatedEmployee, packageEmployee, reapplyEmployee,
-        laterApplyEmployee, otherEmployee]]);
+        laterApplyEmployee, boundaryEmployee, futureRowEmployee, otherEmployee]]);
     await pool.query('DELETE FROM payroll_batch_lines WHERE batch_id = ANY($1::uuid[])', [batchIds]);
     await pool.query('DELETE FROM pay_package_components WHERE package_id=$1', [payPackage]);
     await pool.query('DELETE FROM pay_packages WHERE id=$1', [payPackage]);
@@ -311,6 +331,29 @@ describe('re-applying a pay package', () => {
     expect((await getEmployeeComponents(laterApplyEmployee, company, periodDate(2025, 5))).map(c => c.amount).sort((a, b) => a - b))
       .toEqual([12000, 30000]);
     expect((await getEmployeeComponents(laterApplyEmployee, company, periodDate(2025, 6))).map(c => c.amount))
+      .toEqual([30000]);
+  });
+});
+
+describe('supersede boundaries', () => {
+  it('leaves a row that closed the day before the apply exactly as it was', async () => {
+    const rows = await assignments(boundaryEmployee);
+    const preserved = rows.find(r => Number(r.amount) === 777);
+    expect(preserved).toBeDefined();
+    expect(new Date(preserved!.effective_to).toISOString().slice(0, 10)).toBe('2025-02-28');
+    // February still pays it; March pays only the package.
+    expect((await getEmployeeComponents(boundaryEmployee, company, periodDate(2025, 2))).map(c => c.amount)).toEqual([777]);
+    expect((await getEmployeeComponents(boundaryEmployee, company, periodDate(2025, 3))).map(c => c.amount).sort((a, b) => a - b))
+      .toEqual([12000, 30000]);
+  });
+
+  it('cancels a future-dated row rather than paying it alongside the new one', async () => {
+    const rows = await assignments(futureRowEmployee);
+    const cancelledRow = rows.find(r => Number(r.amount) === 999);
+    // Voided by an effective_to before its own effective_from — the idiom this
+    // table already uses for a superseded row. The reader never selects it.
+    expect(new Date(cancelledRow!.effective_to) < new Date(cancelledRow!.effective_from)).toBe(true);
+    expect((await getEmployeeComponents(futureRowEmployee, company, periodDate(2025, 6))).map(c => c.amount))
       .toEqual([30000]);
   });
 });
