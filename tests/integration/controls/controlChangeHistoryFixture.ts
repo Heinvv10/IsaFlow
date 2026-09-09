@@ -13,8 +13,9 @@ export const pool=new Pool({connectionString:target.connectionString,ssl:false,m
 let fixture:ForensicFixture;
 beforeAll(async()=>{fixture=await provisionForensicFixture(config);});afterAll(async()=>{await pool.end();});
 export const historyFixture=()=>fixture;
-export async function actor<T>(fn:(ctx:ControlTx)=>Promise<T>,person:'u1'|'u2'|'u3'='u1',pat=false):Promise<T>{
+export async function actor<T>(fn:(ctx:ControlTx)=>Promise<T>,person:'u1'|'u2'|'u3'='u1',pat=false,observe?:(statement:string)=>void):Promise<T>{
  const user=fixture[person],company=user.companyId,client=await pool.connect();
+ if(observe)client.query=new Proxy(client.query,{apply(target,self,args){if(typeof args[0]==='string')observe(args[0]);return Reflect.apply(target,self,args);}});
  try{await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
   const claims={sub:user.id,company_id:company,role:'authenticated'};
   await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),company]);
