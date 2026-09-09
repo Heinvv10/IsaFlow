@@ -100,13 +100,13 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
   it('the debtors summary agrees with AR aging', async () => {
     const summary = await getDebtorsSummary(COMPANY);
     const total = summary.reduce((s, d) => s + d.totalOutstanding, 0);
-    expect(total).toBeCloseTo(LINKED + LEGACY + SPLIT + LEGACY_ONLY, 2);
+    expect(total).toBeCloseTo(LINKED + LEGACY + SPLIT + LEGACY_ONLY + FOREIGN, 2);
   });
 
   it('the overdue list shows the NULL client_id invoice', async () => {
     const overdue = await getOverdueInvoices(COMPANY);
     expect(overdue.map((i) => i.invoiceNumber).sort()).toEqual(
-      [TAG + '-LEGACY', TAG + '-LEGACYONLY', TAG + '-LINKED', TAG + '-SPLIT'],
+      [TAG + '-FOREIGN', TAG + '-LEGACY', TAG + '-LEGACYONLY', TAG + '-LINKED', TAG + '-SPLIT'],
     );
   });
 
@@ -137,32 +137,50 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
 
   it('collection stats count the legacy invoice customer exactly once', async () => {
     const stats = await getCollectionStats(COMPANY);
-    // FOREIGN is company A's money, so it stays in the total; only the NAME of
-    // company B's customer is withheld, by dropping the row from the table.
     expect(stats.totalOutstanding).toBeCloseTo(LINKED + LEGACY + SPLIT + LEGACY_ONLY + FOREIGN, 2);
-    // customer, billTo and legacyOnly. Before the fix the NULL client_id rows
-    // were invisible to COUNT DISTINCT and legacyOnly went missing entirely.
-    expect(stats.clientCount).toBe(3);
+    // customer, billTo, legacyOnly and the un-nameable foreign id. Before the fix
+    // the NULL client_id rows were invisible to COUNT DISTINCT and legacyOnly went
+    // missing entirely.
+    expect(stats.clientCount).toBe(4);
   });
 
-  it('never renders a customer name owned by another company', async () => {
+  it('withholds a foreign customer name but keeps the row and its money', async () => {
     const summary = await getDebtorsSummary(COMPANY);
     const overdue = await getOverdueInvoices(COMPANY);
     // The FOREIGN invoice belongs to company A but names company B's customer.
-    // The join is tenant-scoped, so the row is dropped rather than rendered with
-    // the foreign name. Fail closed: no name of another company's customer appears.
-    expect(summary.some((d) => d.clientId === otherCustomer)).toBe(false);
+    // The join is tenant-scoped AND outer: the name is withheld, the debt is not.
+    const foreignRow = summary.find((d) => d.clientId === otherCustomer);
+    expect(foreignRow).toBeDefined();
+    expect(foreignRow!.clientName).toBe('Unknown customer');
+    expect(foreignRow!.totalOutstanding).toBeCloseTo(FOREIGN, 2);
     expect(summary.map((d) => d.clientName)).not.toContain('K058 other ' + TAG);
-    expect(overdue.map((i) => i.invoiceNumber)).not.toContain(TAG + '-FOREIGN');
+
+    const foreignInvoice = overdue.find((i) => i.invoiceNumber === TAG + '-FOREIGN');
+    expect(foreignInvoice).toBeDefined();
+    expect(foreignInvoice!.clientName).toBe('Unknown customer');
+    expect(foreignInvoice!.outstanding).toBeCloseTo(FOREIGN, 2);
     expect(overdue.map((i) => i.clientName)).not.toContain('K058 other ' + TAG);
-    // And the stat tile agrees with the table: the foreign id is not a debtor here.
+  });
+
+  it('the stat tile accounts for exactly the debtors the table lists', async () => {
+    const summary = await getDebtorsSummary(COMPANY);
     const stats = await getCollectionStats(COMPANY);
     expect(stats.clientCount).toBe(summary.length);
+    expect(summary.reduce((s, d) => s + d.totalOutstanding, 0)).toBeCloseTo(
+      stats.totalOutstanding,
+      2,
+    );
   });
 
   it('does not leak the other company\'s NULL client_id invoice', async () => {
     const summary = await getDebtorsSummary(COMPANY);
-    expect(summary.some((d) => d.clientId === otherCustomer)).toBe(false);
+    // Company B's OWN invoice is out on ci.company_id. (The foreign id itself can
+    // legitimately appear here, nameless, when company A's invoice points at it —
+    // that case is covered by the "withholds a foreign customer name" test.)
+    expect(summary.reduce((s, d) => s + d.totalOutstanding, 0)).toBeCloseTo(
+      LINKED + LEGACY + SPLIT + LEGACY_ONLY + FOREIGN,
+      2,
+    );
     const overdue = await getOverdueInvoices(COMPANY);
     expect(overdue.some((i) => i.invoiceNumber === TAG + '-OTHER')).toBe(false);
     const other = await getDebtorsSummary(OTHER_COMPANY);

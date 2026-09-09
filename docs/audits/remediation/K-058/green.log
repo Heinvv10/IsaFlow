@@ -67,3 +67,44 @@ Review follow-up (tenant-scoped joins + the four LOWs)
    likely the node_modules symlinked from the shared remediation worktree being
    mutated by a parallel fixer, or scheduler contention exposing mock leakage
    across workers. Flagged, not fixed here.
+
+──────────────────────────────────────────────────────────────────────────────
+9. FOLLOW-UP after the blind re-review of 6b887576 (scratchpad/review-k058-followup.md).
+
+   Review finding (MEDIUM): the tenant-scoped INNER JOIN withheld the foreign
+   customer's name by DISCARDING the whole row, so company A's own R600 of AR
+   vanished from the debtors table and the overdue list while still counting in
+   getCollectionStats.totalOutstanding — i.e. the K-058 defect class reproduced
+   in a narrower slice. Applied the reviewer's recommended form.
+
+   Change: both `JOIN customers c` -> `LEFT JOIN customers c` (tenant predicate
+   kept), projection `c.name` -> `COALESCE(c.name, 'Unknown customer')`, and the
+   `FILTER (WHERE EXISTS ...)` guard on clientCount dropped (no longer needed:
+   with an outer join every debtor group is listed, so a plain COUNT(DISTINCT)
+   equals summary.length — collection-stats WHERE is character-identical to the
+   summary WHERE, and COALESCE(client_id, customer_id) is never NULL because
+   customer_id is NOT NULL).
+
+9a. Integration, real schema, fixture DB:
+    $ bun run test:integration -- tests/integration/k058-debtors-drops-null-client-id.int.test.ts
+      Test Files 1 passed (1) | Tests 9 passed (9)
+
+9b. Mutation proof, three separate mutations, each restored afterwards:
+      LEFT JOIN -> JOIN (undo this follow-up)          5 failed | 4 passed
+      drop `AND c.company_id = ci.company_id` (both)   1 failed | 8 passed
+      COALESCE(client_id, customer_id) -> client_id    5 failed | 4 passed
+    All three RED. The tenant-predicate mutation now fails only the name
+    assertion (1 test) rather than 5, because with an outer join the row and its
+    money stay visible either way — only the NAME leaks. That is the correct
+    narrower blast radius, not a weaker test.
+
+9c. $ bunx tsc --noEmit                                                exit 0
+    $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts
+                                                          exit 0, no output
+    File is 297 lines (<= 300).
+
+9d. Full unit suite, DATABASE_URL unset, in this worktree:
+      Test Files  792 passed | 36 skipped (828)
+      Tests      9434 passed | 234 skipped (9668)   0 FAILED
+    The §8 flakiness did NOT reproduce on this run. It was contention in the
+    shared worktree, as suspected there; the suite is clean with this change in.
