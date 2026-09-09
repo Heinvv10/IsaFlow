@@ -1,3 +1,4 @@
+import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
@@ -19,11 +20,19 @@ import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 process.env.DATABASE_URL=target.connectionString;process.env.DATABASE_SSL='disable';
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3});
+let providerTransport:typeof fetch|undefined;
 let fixture:ForensicFixture,accounts:Awaited<ReturnType<typeof seedApAccounts>>;
 beforeAll(async()=>{
  process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
  process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
- vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('External requests are disabled in synthetic release tests');}));
+ const localFetch=globalThis.fetch;
+ vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=new URL(typeof input==='string'?input:input instanceof URL?input.toString():input.url);
+  if(url.origin===new URL(process.env.SUPABASE_URL!).origin&&url.pathname.startsWith('/storage/v1/object/captured-documents/'))return localFetch(input,init);
+  if(url.href==='https://api.netcash.co.za/v1/eft/submit'&&providerTransport)return providerTransport(input,init);
+  throw new Error('External requests are disabled in synthetic release tests');
+ }));
+ expect(capturedStorage()).toBeDefined();
  fixture=await provisionForensicFixture(config);
  await pool.query("UPDATE companies SET name='Synthetic release' WHERE id=$1",[fixture.companyA]);accounts=await seedApAccounts(pool,fixture.companyA);
  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
@@ -110,7 +119,7 @@ it.each(['unknown','accepted'] as const)('commits attempting before fake Netcash
   observedState=visible.rows[0]?.state;observedAttempt=visible.rows[0]?.attempt_id;
   return expected==='accepted'?new Response(JSON.stringify({batchReference:'synthetic-confirmed'}),{status:200}):new Response('uncertain',{status:503});
  });
- vi.stubGlobal('fetch',transport);
+ providerTransport=transport;
  await actor(ctx=>schedulePaymentReleaseDispatch(ctx,intent.intentId));
  const result=await pool.query('SELECT state FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
  expect(result.rows[0].state).toBe(expected);expect(transport).toHaveBeenCalledTimes(1);

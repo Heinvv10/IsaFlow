@@ -1,3 +1,4 @@
+import {capturedStorage} from './capturedEvidenceTestStorage';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
@@ -27,7 +28,7 @@ async function actor<T>(person: string, fn: (ctx: ControlTx) => Promise<T>, opti
     const token = options.pat === undefined ? null : fixture.u1.tokens[options.pat]!;
     const result = await withControlRequest({ client, userId: person, companyId, claims },
       { personId: person, companyId, authMethod: token ? 'pat' : 'cookie', connectionId: token?.id, grantId: token?.id,
-        grantedScopes: token ? ['write:beneficiaries', 'write:contacts', 'write:bank-tx'] : null }, () => fn(requireControlTx()));
+        grantedScopes: token ? ['write:beneficiaries', 'write:contacts', 'write:bank-tx', 'read:invoices'] : null }, () => fn(requireControlTx()));
     await client.query('COMMIT'); return result;
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
@@ -39,8 +40,8 @@ async function source(company = fixture.companyA) {
     VALUES($1,$2,'Synthetic beneficiary','Synthetic bank',$3,'001234','cheque')`, [supplier,company,oldBank]);
   await pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,created_by)
     VALUES($1,$2,$3,$4,CURRENT_DATE,$5)`, [invoice,company,supplier,`SYN-${invoice}`,fixture.u1.id]);
-  await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,matched_invoice_id,raw_bytes,raw_bytes_sha256)
-    VALUES($1,$2,'synthetic.pdf','pdf','matched',$3,$4,$5)`, [document,company,invoice,bytes,hash]);
+  await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,matched_invoice_id) VALUES($1,$2,'synthetic.pdf','pdf','matched',$3)`,[document,company,invoice]);
+ await capturedStorage().seed(pool,company,document,bytes);
   const ref = { entityType: 'supplier' as const, entityId: supplier };
   const evidence: EvidenceRef[] = [{ store:'captured',evidenceId:document,entityType:'supplier_invoice',entityId:invoice,version:null,hash }];
   return { ref,evidence,document,invoice };
@@ -77,14 +78,14 @@ it('changed bank material and changed evidence invalidate an outstanding proposa
   await pool.query("UPDATE suppliers SET bank_account_number='00111111111' WHERE company_id=$1 AND id=$2",[fixture.companyA,s.ref.entityId]);
   await expect(actor(fixture.u2.id,ctx => verifyBeneficiaryChange(ctx,p.proposalId,s.evidence))).rejects.toThrow('STALE_PROPOSAL');
   await pool.query('UPDATE suppliers SET bank_account_number=$1 WHERE company_id=$2 AND id=$3',[oldBank,fixture.companyA,s.ref.entityId]);
-  await pool.query("UPDATE captured_documents SET raw_bytes=decode('6162','hex') WHERE company_id=$1 AND id=$2",[fixture.companyA,s.document]);
+  capturedStorage().put(fixture.companyA,s.document,Buffer.from('ab'));
   await expect(actor(fixture.u2.id,ctx => verifyBeneficiaryChange(ctx,p.proposalId,s.evidence))).rejects.toThrow('EVIDENCE');
   expect(await current(s.ref.entityId)).toBe(oldBank);
 });
 it('revoked requester membership and persisted PAT scopes cannot be approved by another person', async () => {
   const s = await source();
   const token = fixture.u1.tokens[0]!;
-  await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['write:beneficiaries','write:contacts','write:bank-tx'] WHERE company_id=$1 AND id=$2",[fixture.companyA,token.id]);
+  await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['write:beneficiaries','write:contacts','write:bank-tx','read:invoices'] WHERE company_id=$1 AND id=$2",[fixture.companyA,token.id]);
   const p = await actor(fixture.u1.id,ctx => proposeBeneficiaryChange(ctx,s.ref,bank,s.evidence),{pat:0});
   await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u1.id]);
   try { await expect(actor(fixture.u2.id,ctx => verifyBeneficiaryChange(ctx,p.proposalId,s.evidence))).rejects.toThrow('REQUESTER_REVOKED'); }

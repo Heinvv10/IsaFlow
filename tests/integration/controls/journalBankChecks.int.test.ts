@@ -1,3 +1,4 @@
+import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeEach,expect,it} from 'vitest';
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import {Pool} from 'pg';
@@ -66,8 +67,8 @@ it('uses a recorded close interval and excludes a later reopened interval, not c
 it('compares actual source statement counts and balances and never upgrades OCR metadata to confirmed completeness',async()=>{
  await pool.query("UPDATE gl_accounts SET account_subtype='bank' WHERE company_id=$1 AND id=$2",[fixture.companyA,debit]);
  const doc=randomUUID(),statement=randomUUID(),bytes=Buffer.from('Synthetic independently held August bank statement'),hash=createHash('sha256').update(bytes).digest('hex');
- await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256)
- VALUES($1,$2,'statement.pdf','pdf','matched',$3,$4)`,[doc,fixture.companyA,bytes,hash]);
+ await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status) VALUES($1,$2,'statement.pdf','pdf','matched')`,[doc,fixture.companyA]);
+ await capturedStorage().seed(pool,fixture.companyA,doc,bytes);
  await pool.query(`INSERT INTO bank_statement_imports(id,company_id,bank_account_id,source_document_id,period_start,period_end,row_count,opening_balance,closing_balance,status)
  VALUES($1,$2,$3,$4,'2026-08-01','2026-08-31',10,1000,1500,'committed')`,[statement,fixture.companyA,debit,doc]);
  for(let i=0;i<9;i++)await pool.query(`INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
@@ -75,7 +76,7 @@ it('compares actual source statement counts and balances and never upgrades OCR 
  const result=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));expect(result.findingCount).toBe(1);expect(result.amountTotals).toEqual({ZAR:'100'});
  expect(result.findings[0]?.classification).toBe('candidate');expect(result.findings[0]?.evidence[0]?.hash).toBe(hash);
  expect(result.missingSources).toContain('independent_statement_review_unavailable');
- await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND id=$3',[Buffer.from('tampered'),fixture.companyA,doc]);
+ capturedStorage().put(fixture.companyA,doc,Buffer.from('tampered'));
  const changed=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));expect(changed.status).toBe('unknown');expect(changed.findings).toEqual([]);
  expect(changed.missingSources).toContain('source_statement_bytes_unavailable_or_changed');
  expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}),'u3')).populationCount).toBe(0);
@@ -121,10 +122,11 @@ it('respects strict and inclusive policy boundaries for two exact-threshold jour
 });
 it('counts121 statement discrepancies beyond20 and rejects a cursor when equal-value imported identities change',async()=>{
  await pool.query("UPDATE gl_accounts SET account_subtype='bank' WHERE company_id=$1 AND id=$2",[fixture.companyA,debit]);
- const bytes=Buffer.from('Synthetic candidate source statement'),hash=createHash('sha256').update(bytes).digest('hex');
+ const bytes=Buffer.from('Synthetic candidate source statement'),doc=randomUUID();
+ await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status) VALUES($1,$2,'statement.pdf','pdf','matched')`,[doc,fixture.companyA]);
+ await capturedStorage().seed(pool,fixture.companyA,doc,bytes);
+ //121 roots still prove full-population counts; one object keeps this under the separate100-object scan bound.
  for(let i=0;i<121;i++){
-  const doc=randomUUID();await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256)
-  VALUES($1,$2,'statement.pdf','pdf','matched',$3,$4)`,[doc,fixture.companyA,bytes,hash]);
   await pool.query(`INSERT INTO bank_statement_imports(company_id,bank_account_id,source_document_id,period_start,period_end,row_count,opening_balance,closing_balance,status)
   VALUES($1,$2,$3,'2026-08-01','2026-08-31',10,1000,1500,'committed')`,[fixture.companyA,debit,doc]);
  }
@@ -141,8 +143,8 @@ it.each(['account','document'] as const)('retains an owned statement with a corr
  const foreign=randomUUID(),doc=randomUUID(),statement=randomUUID(),bytes=Buffer.from('Synthetic foreign parent source'),hash=createHash('sha256').update(bytes).digest('hex');
  await pool.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,level)
  VALUES($1::uuid,$2,left($1::text,12),'Foreign synthetic bank','asset','bank','debit',3)`,[foreign,fixture.companyB]);
- await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256)
- VALUES($1,$2,'source.pdf','pdf','matched',$3,$4)`,[doc,kind==='document'?fixture.companyB:fixture.companyA,bytes,hash]);
+ await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status) VALUES($1,$2,'source.pdf','pdf','matched')`,[doc,kind==='document'?fixture.companyB:fixture.companyA]);
+ await capturedStorage().seed(pool,kind==='document'?fixture.companyB:fixture.companyA,doc,bytes);
  await pool.query(`INSERT INTO bank_statement_imports(id,company_id,bank_account_id,source_document_id,period_start,period_end,row_count,opening_balance,closing_balance,status)
  VALUES($1,$2,$3,$4,'2026-08-01','2026-08-31',10,1000,1500,'committed')`,[statement,fixture.companyA,kind==='account'?foreign:debit,doc]);
  const result=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));expect(result.status).toBe('unknown');expect(result.populationCount).toBeGreaterThan(0);

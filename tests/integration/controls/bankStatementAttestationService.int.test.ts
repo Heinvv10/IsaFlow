@@ -1,3 +1,4 @@
+import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeEach,expect,it} from 'vitest';
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import {Pool} from 'pg';
@@ -31,8 +32,8 @@ beforeEach(async()=>{
  await pool.query("UPDATE companies SET default_currency='ZAR' WHERE id=$1",[fixture.companyA]);
  await pool.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,level)
  VALUES($1::uuid,$2,left($1::text,12),'Synthetic statement bank','asset','bank','debit',true,3)`,[account,fixture.companyA]);
- await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256)
- VALUES($1,$2,'synthetic-statement.pdf','pdf','matched',$3,$4)`,[document,fixture.companyA,bytes,hash]);
+ await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status) VALUES($1,$2,'synthetic-statement.pdf','pdf','matched')`,[document,fixture.companyA]);
+ await capturedStorage().seed(pool,fixture.companyA,document,bytes);
 });
 afterAll(()=>pool.end());
 const input=()=>({bankAccountId:account,sourceDocumentId:document,expectedSourceHash:hash,periodStart:'2026-09-01',periodEnd:'2026-09-30',
@@ -49,7 +50,7 @@ it('rejects foreign owner, forged hash and changed actual bytes even when stored
  await expect(actor(ctx=>prepareBankStatementAttestation(ctx,input()),'u3')).rejects.toThrow();
  await expect(actor(ctx=>prepareBankStatementAttestation(ctx,{...input(),expectedSourceHash:'a'.repeat(64)}))).rejects.toThrow();
  const prepared=await actor(ctx=>prepareBankStatementAttestation(ctx,input()));
- await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND id=$3',[Buffer.from('Tampered'),fixture.companyA,document]);
+ capturedStorage().put(fixture.companyA,document,Buffer.from('Tampered'));
  await expect(actor(ctx=>materializeBankStatementAttestation(ctx,prepared.operation))).rejects.toThrow();
 });
 it.each(['account','currency'] as const)('invalidates prepared statement after current %s changes',async kind=>{
@@ -91,7 +92,7 @@ it('commits one independently reviewed annotation under concurrency and replays 
 });
 it.each(['bytes','requester','approver','expiry'] as const)('rejects changed or revoked %s before annotation',async kind=>{
  const data=await approvedStatement(0);
- if(kind==='bytes')await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND id=$3',[Buffer.from('Changed'),fixture.companyA,document]);
+ if(kind==='bytes')capturedStorage().put(fixture.companyA,document,Buffer.from('Changed'));
  if(kind==='requester')await pool.query('UPDATE personal_access_tokens SET revoked_at=clock_timestamp() WHERE id=$1',[fixture.u1.tokens[0]!.id]);
  if(kind==='approver')await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[fixture.companyA,fixture.u2.id]);
  if(kind==='expiry')await pool.query("UPDATE control_operation_approvals SET expires_at=requested_at+interval '1 microsecond' WHERE company_id=$1 AND id=$2",[fixture.companyA,data.approvalId]);
@@ -138,7 +139,7 @@ it('passes a current independently reviewed quiet statement locally without clai
  expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{cutoff:'2026-09-29'}))).status).toBe('unknown');
  expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}),'u3')).populationCount).toBe(0);
 
- await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND id=$3',[Buffer.from('Changed after review'),fixture.companyA,document]);
+ capturedStorage().put(fixture.companyA,document,Buffer.from('Changed after review'));
  expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}))).status).toBe('unknown');
 });
 
