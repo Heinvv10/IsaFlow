@@ -38,7 +38,10 @@ async function runPlan(companyId:string,bankTxId:string,userId:string,input:unkn
 export async function allocateTransaction(companyId:string,bankTxId:string,contraAccountId:string|null,userId:string,
  description?:string,allocType:AllocationType='account',entityId?:string,vatCode?:string,cc1Id?:string,cc2Id?:string,buId?:string,invoiceId?:string,opts?:BankAllocationOptions){
  const ctx=await actor(companyId,userId);
- if(allocType==='transfer')throw new Error('Bank transfers require the dedicated immutable transfer intent');
+ if(allocType==='transfer'){
+  if(!contraAccountId||entityId||invoiceId||cc1Id||cc2Id||buId||opts?.applications?.length||(vatCode&&vatCode!=='none'))throw new Error('Transfer requires a bank counterparty without VAT, dimensions or applications');
+  return runPlan(companyId,bankTxId,userId,{version:1,kind:'transfer',bankTransactionId:bankTxId,counterpartyAccountId:contraAccountId,description},opts);
+ }
  const [bank]=await ctx.sql`SELECT amount::text FROM bank_transactions WHERE company_id=${companyId}::uuid AND id=${bankTxId}::uuid FOR UPDATE` as {amount:string}[];
  if(!bank)throw new Error('Owned bank transaction not found');
  const amount=new D(bank.amount).abs().toFixed();
