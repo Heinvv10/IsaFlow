@@ -585,8 +585,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "5672a828",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k015-ap-migration-balance-due-column.int.test.ts"
@@ -595,12 +595,14 @@
     "K-015/red.log",
     "K-015/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "5672a828",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k015-k089-migration-balance-due",
+   "reviewRounds": 5
   },
   {
    "id": "K-016",
@@ -772,7 +774,7 @@
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k020-reconciled-balance",
-   "reviewRounds": 3
+   "reviewRounds": 4
   },
   {
    "id": "K-021",
@@ -855,8 +857,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "abc3ae3c",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k023-sdl-invented-salary.int.test.ts"
@@ -865,12 +867,14 @@
     "K-023/red.log",
     "K-023/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "abc3ae3c",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k023-sdl-leviable-basis",
+   "reviewRounds": 4
   },
   {
    "id": "K-024",
@@ -925,8 +929,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "24a47b59",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k025-once-off-batch-recurs.int.test.ts"
@@ -935,12 +939,14 @@
     "K-025/red.log",
     "K-025/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "24a47b59",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k025-once-off-batch-close",
+   "reviewRounds": 3
   },
   {
    "id": "K-026",
@@ -956,8 +962,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "637b6609",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k026-below-threshold-expense-repeat.int.test.ts"
@@ -966,12 +972,14 @@
     "K-026/red.log",
     "K-026/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "637b6609",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k026-below-threshold-write-access",
+   "reviewRounds": 1
   },
   {
    "id": "K-027",
@@ -1022,8 +1030,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "7f92a7cb",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/afs-pre-export-checks.int.test.ts",
@@ -1033,12 +1041,14 @@
     "K-028/red.log",
     "K-028/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "7f92a7cb",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Read-side only and the endpoint has no consumer in the repo (reviewer-verified), so no issued AFS note was produced from it; the filed note comes from a separate generator (R-023).",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k028-ppe-additions",
+   "reviewRounds": 2
   },
   {
    "id": "K-029",
@@ -1054,8 +1064,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "de50a3f5",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-029-depreciation-method.int.test.ts"
@@ -1064,12 +1074,14 @@
     "K-029/red.log",
     "K-029/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "de50a3f5",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k029-depreciation-method",
+   "reviewRounds": 6
   },
   {
    "id": "K-030",
@@ -1196,8 +1208,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "9e387b2e",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts"
@@ -1206,12 +1218,14 @@
     "K-033/red.log",
     "K-033/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "9e387b2e",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k033-k034-subscription-lifecycle",
+   "reviewRounds": 5
   },
   {
    "id": "K-034",
@@ -1227,8 +1241,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "9e387b2e",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts"
@@ -1237,12 +1251,14 @@
     "K-034/red.log",
     "K-034/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "9e387b2e",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k033-k034-subscription-lifecycle",
+   "reviewRounds": 5
   },
   {
    "id": "K-035",
@@ -1359,8 +1375,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "ae56895c",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-038-sage-migration-discards-amount-paid.int.test.ts"
@@ -1369,12 +1385,14 @@
     "K-038/red.log",
     "K-038/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "ae56895c",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k038-sage-payment-balances",
+   "reviewRounds": 3
   },
   {
    "id": "K-039",
@@ -1391,8 +1409,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "3db0b88e",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts"
@@ -1401,12 +1419,14 @@
     "K-039/red.log",
     "K-039/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "3db0b88e",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k039-practice-rate-columns",
+   "reviewRounds": 2
   },
   {
    "id": "K-040",
@@ -1423,8 +1443,8 @@
    "correctedTrigger": "withAuth supplies an outer transaction. Validate WIP locking and markEntriesBilled count races; do not claim no transaction.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "091900c5",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts"
@@ -1433,12 +1453,14 @@
     "K-040/red.log",
     "K-040/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "091900c5",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k040-wip-run-lock",
+   "reviewRounds": 1
   },
   {
    "id": "K-041",
@@ -2706,7 +2728,7 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "47ead2b2",
+   "currentSha": "5672a828",
    "status": "in-progress",
    "dependencies": [
     "Independent review rounds complete; full CI, PR and merge pending",
@@ -2719,14 +2741,14 @@
     "K-089/red.log",
     "K-089/validation.md"
    ],
-   "fixCommit": "47ead2b2",
+   "fixCommit": "5672a828",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "high",
    "branch": "fix/audit-k015-k089-migration-balance-due",
-   "reviewRounds": 4
+   "reviewRounds": 5
   },
   {
    "id": "K-090",
@@ -8169,19 +8191,21 @@
    "correctedTrigger": null,
    "severityRationale": "Discovered during validation of the named K item; reachability described in that item's validation.md, not yet independently reproduced.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "candidate",
+   "currentSha": "7f92a7cb",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [],
    "evidencePaths": [
     "K-028/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "7f92a7cb",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "medium"
+   "reportedSeverity": "medium",
+   "branch": "fix/audit-k028-ppe-additions",
+   "reviewRounds": 2
   },
   {
    "id": "R-008",
