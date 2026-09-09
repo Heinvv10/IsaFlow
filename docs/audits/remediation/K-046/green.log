@@ -79,3 +79,16 @@ GATES
   bunx eslint <the five changed src/pages files>     -> exit 0, no output
   bun run agent-docs:generate                        -> only gl/AGENTS.md changed
   migration prefix 627 re-checked against origin/master (53539623) -> still free
+
+POST-MERGE GATE (origin/master 53539623 merged into the branch, LOW-5)
+  bunx tsc --noEmit                                            -> exit 0
+  bunx eslint <the five changed src/pages files>               -> exit 0
+  bun run agent-docs:check                                     -> OK, 74 mirrors match
+  integration (fixture DB): Test Files 2 passed, Tests 9 passed
+  full unit suite (env -u DATABASE_URL, --maxWorkers=4):
+      Test Files  800 passed | 40 skipped (840)
+      Tests       9549 passed | 243 skipped (9792)
+  security guards: check-migration-rls, check-gl-journal-lines-scope,
+      check-vat-guard-coverage, check-raw-transaction-control,
+      audit-user-id-casts, check-is-active-in-balances -> all OK
+  migration prefix 627 still unused on origin/master
