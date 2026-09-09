@@ -7934,12 +7934,14 @@
    "sourceLabel": "Supplemental unnumbered A detail claim",
    "sourceIds": [],
    "correctedTrigger": null,
-   "severityRationale": "Source priority only; impact and reachability not yet validated.",
+   "severityRationale": "Reproduced on the fixed K-015 path and confirmed on the Sage path: subledger and control account disagree by the already-paid amount for every migrated paid document.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [
-    "K-015"
+    "K-015",
+    "K-015 fixed (branch 5672a828): R-001 still reproduces on the fixed path \u2014 a fully paid bill imports with amount_paid 115 and balance 0 while the only journal leaves the payable control at a net credit of 115 with no settlement entry (K-015/fix.md)",
+    "K-038 fixer confirms the Sage path has no opening-balance step; paid cash arrives only as unallocated imported bank rows with no GL leg, so after K-038 the subledger is right and the control account is not (K-038/fix.md)"
    ],
    "testNames": [],
    "evidencePaths": [],
@@ -7953,7 +7955,8 @@
      "path": "inputs/ar-ap-loans-items.md",
      "lines": "651-658"
     }
-   ]
+   ],
+   "reportedSeverity": "high"
   },
   {
    "id": "R-002",
@@ -7968,9 +7971,10 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "status": "confirmed",
    "dependencies": [
-    "K-015"
+    "K-015",
+    "K-015 fixed: still reproduces \u2014 subtotal 33.33 + tax 5.00 vs total 38.34 gives DR 38.33 / CR 38.34, rejected as unbalanced and the document dropped with an error entry (K-015/fix.md)"
    ],
    "testNames": [],
    "evidencePaths": [],
