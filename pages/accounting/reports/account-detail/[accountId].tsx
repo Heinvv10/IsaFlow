@@ -40,6 +40,7 @@ export default function AccountDetailPage() {
   const { accountId } = router.query;
   const from = typeof router.query.from === 'string' ? router.query.from : '';
   const to = typeof router.query.to === 'string' ? router.query.to : '';
+  const costCentreId = typeof router.query.cost_centre_id === 'string' ? router.query.cost_centre_id : '';
   const postedOnly = router.query.posted_only !== 'false';
   const sourceParam = typeof router.query.source === 'string' ? router.query.source : '';
   const pageParam =
@@ -63,6 +64,7 @@ export default function AccountDetailPage() {
         limit: String(PAGE_SIZE),
         offset: String(offset),
       });
+      if (costCentreId) params.set('cost_centre_id', costCentreId);
       if (UUID_RE.test(accountId)) {
         params.set('account_id', accountId);
       } else {
@@ -85,7 +87,7 @@ export default function AccountDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [accountId, from, to, postedOnly, offset]);
+  }, [accountId, from, to, postedOnly, offset, costCentreId]);
 
   useEffect(() => { void load(); }, [load]);
 
