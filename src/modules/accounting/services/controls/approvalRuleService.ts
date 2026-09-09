@@ -45,11 +45,12 @@ export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: st
 /** Lock active policy population; unsupported conditions always fail closed. */
 export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType<typeof operationRuleType>): Promise<ApprovalRuleRow[]> {
   assertControlTx(ctx);
+  const configuredType=documentType==='invoice_match_override'?'supplier_invoice':documentType;
   const rows = await ctx.sql`
     SELECT id,document_type,condition_field,condition_operator,condition_value::text,
       approver_role,control_version,is_active,aggregate_window_days,aggregate_by
     FROM approval_rules WHERE company_id=${ctx.principal.companyId}::uuid
-      AND document_type=${documentType} AND is_active=true ORDER BY id LIMIT 101 FOR SHARE
+      AND document_type=${configuredType} AND is_active=true ORDER BY id LIMIT 101 FOR SHARE
   ` as ApprovalRuleRow[];
   if (rows.length > 100) throw new Error('Approval policy population exceeds execution limit');
   const rules = rows.map(row => ({ ...row, control_version: Number(row.control_version) }));
@@ -66,6 +67,14 @@ export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType
       condition_operator: 'any', condition_value: '0', approver_role: policy.approver_role,
       control_version: Number(policy.control_version), is_active: true, aggregate_window_days: null,
       aggregate_by: null, mandatory: true });
+  }
+  if(documentType==='invoice_match_override'){
+    const policies=await ctx.sql`SELECT id,version AS control_version,approver_role
+      FROM control_mandatory_match_override_policies WHERE company_id=${ctx.principal.companyId}::uuid` as {id:string;control_version:number|string;approver_role:string}[];
+    const policy=policies[0];
+    if(policies.length!==1||!policy||Number(policy.control_version)!==1||policy.approver_role!=='admin')throw new Error('Mandatory match override policy is unavailable');
+    rules.push({id:policy.id,document_type:documentType,condition_field:'amount',condition_operator:'any',condition_value:'0',
+      approver_role:policy.approver_role,control_version:1,is_active:true,aggregate_window_days:null,aggregate_by:null,mandatory:true});
   }
   return rules;
 }
