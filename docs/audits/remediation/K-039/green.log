@@ -1,0 +1,26 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-039
+
+{"level":"info","message":"Creating client rate override","timestamp":"2026-09-09T08:08:35.790Z","component":"Practice","data":{"companyId":"759e5a00-6291-4657-8b9e-a00bd5a74ef5","clientId":"5842d17a-0cdb-481a-b279-43ec0a980f03","staffUserId":"3f6bc98c-e854-46a9-90be-e4fbfa5d853d"}}
+{"level":"info","message":"Creating client rate override","timestamp":"2026-09-09T08:08:35.822Z","component":"Practice","data":{"companyId":"759e5a00-6291-4657-8b9e-a00bd5a74ef5","clientId":"5842d17a-0cdb-481a-b279-43ec0a980f03","staffUserId":"1bbb1acb-eb7c-4d65-8b90-b8272ccbd272"}}
+{"level":"info","message":"Creating client rate override","timestamp":"2026-09-09T08:08:35.842Z","component":"Practice","data":{"companyId":"c4a9106a-f52c-43e5-aa2c-be438620e69c","clientId":"726b859e-49cd-49cd-afa2-0b0a41cfbcd0","staffUserId":"d31a72fc-26b1-4b8d-a99e-76a79b429808"}}
+{"level":"info","message":"Creating client rate override","timestamp":"2026-09-09T08:08:35.850Z","component":"Practice","data":{"companyId":"759e5a00-6291-4657-8b9e-a00bd5a74ef5","clientId":"5842d17a-0cdb-481a-b279-43ec0a980f03","staffUserId":"8b51d9d6-f37f-4ed9-bc03-fa52a3882a82"}}
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  10:08:35
+   Duration  697ms (transform 174ms, setup 0ms, import 268ms, tests 173ms, environment 0ms)
+
+
+=== Mutation checks ===
+A) reverted resolveRate to `SELECT rate ... WHERE user_id = $2` -> 1 failed | 5 passed (6)
+B) reverted the INSERT to the new columns only -> 4 failed | 2 passed (6), 23502 on user_id
+Both restored; 6 passed (6).
+
+=== Full unit suite (no DATABASE_URL) ===
+bunx vitest run -> Test Files 790 passed | 36 skipped (826); Tests 9391 passed | 234 skipped (9625)
+
+=== Gates ===
+bunx tsc --noEmit -> clean
+bunx eslint <both changed services> -> clean

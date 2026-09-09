@@ -96,9 +96,10 @@ export async function createClientRateOverride(
 
   const rows = await sql`
     INSERT INTO practice_client_rate_overrides
-      (company_id, client_id, staff_user_id, rate_per_hour, effective_from, effective_to, notes)
+      (company_id, client_id, staff_user_id, user_id, rate_per_hour, rate, effective_from, effective_to, notes)
     VALUES
-      (${companyId}, ${clientId}, ${input.staffUserId}, ${input.ratePerHour},
+      (${companyId}, ${clientId}, ${input.staffUserId}, ${input.staffUserId},
+       ${input.ratePerHour}, ${input.ratePerHour},
        ${input.effectiveFrom}, ${input.effectiveTo ?? null}, ${input.notes ?? null})
     RETURNING *
   `;
@@ -130,6 +131,7 @@ export async function updateClientRateOverride(
     UPDATE practice_client_rate_overrides
     SET
       rate_per_hour  = COALESCE(${input.ratePerHour ?? null}, rate_per_hour),
+      rate           = COALESCE(${input.ratePerHour ?? null}, rate_per_hour, rate),
       effective_from = COALESCE(${input.effectiveFrom ?? null}, effective_from),
       effective_to   = ${input.effectiveTo !== undefined ? (input.effectiveTo ?? null) : sql`effective_to`},
       notes          = ${input.notes !== undefined ? (input.notes ?? null) : sql`notes`},
