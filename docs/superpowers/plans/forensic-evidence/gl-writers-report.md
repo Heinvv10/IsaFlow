@@ -15,3 +15,9 @@ Evidence on 2026-09-09, Node22.23.1:
 - Source ESLint: exit0 (`/tmp/gl-core-lint.log`).
 
 Checkpoint boundary: existing GL writers are NOT changed in this commit. Four newly authored shared-writer tests are genuinely red against the existing service (unauthenticated access, forged person, missing execution gate); they remain uncommitted until implementation. Root owns canonical dispatch, operation permissions, approval material reload and after-effect dispatch. Full posting/reversal/rollback/approval acceptance is pending the next checkpoint, as are AP parent-child integration tests. No build/full CI/deployment or production operations occurred.
+
+## Generated relationship checkpoint
+
+Registration is now asynchronous and must be awaited. Before branding, it queries an owned journal and actual owned parent: new AP journals require the correct auto supplier source and source_record_id; reversing an existing AP journal requires the parent's gl_journal_entry_id link, allowing legacy absent source_record_id only through that persisted link. A standalone journal reversal's contra requires reversal_of_id referencing its owned posted parent. It revalidates the parent permit after the query, covering callback expiry during an await.
+
+The new missing-relationship regression failed against the synchronous implementation, which returned without checking SQL (`/tmp/gl-relation-red.log`). Updated unit cases pass; the combined in-progress writer/core suite has 21 passing tests (`/tmp/gl-writer-green.log`). Source lint and core focused TypeScript pass. This checkpoint does not claim real PostgreSQL generated-relationship execution proof; that follows with actual shared writers and the root dispatcher. Async registration interface is available for the AP worker now.
