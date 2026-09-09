@@ -39,6 +39,9 @@ const seasonal = newFixture();
 // Two months old, paying R50,000: too young for a missing month to mean no pay,
 // so its remuneration is still extrapolated and the levy is due.
 const firstYear = newFixture();
+// Dormant for a year and a half, then back on R60,000 a month. The one ancient
+// run must not spread this month over twelve empty ones.
+const dormant = newFixture();
 // A second tenant with its own history, calculated after the levied ones.
 const otherTenant = newFixture();
 
@@ -117,6 +120,8 @@ beforeAll(async () => {
   // First run two months back, so only three months of history have elapsed.
   await seed(firstYear, 'K023 first year', [[{ amount: 50000, sdlApplicable: true }]],
     50000, [1, 2]);
+  await seed(dormant, 'K023 resumed after dormancy', [[{ amount: 60000, sdlApplicable: true }]],
+    5000, [18]);
   await seed(otherTenant, 'K023 other tenant', [
     [{ amount: 5000, sdlApplicable: true }],
     [{ amount: 5000, sdlApplicable: true }],
@@ -187,6 +192,14 @@ describe('K-023 SDL threshold boundary', () => {
     // not a month of no pay, so the estimate is R600,000 and the levy is due.
     const summary = await calculatePayrollRun(firstYear.run, firstYear.company);
     expect(summary.totalSdl).toBe(500);
+  });
+
+  it('levies a company resuming payroll after a year of dormancy', async () => {
+    // Nothing inside the trailing window, so there is no history to divide by
+    // and the month annualises to R720,000. Reading the single 18-month-old run
+    // as twelve elapsed months would give R60,000 and wrongly exempt it.
+    const summary = await calculatePayrollRun(dormant.run, dormant.company);
+    expect(summary.totalSdl).toBe(600);
   });
 
   it('reads only its own tenant history and leaves that tenant exempt', async () => {
