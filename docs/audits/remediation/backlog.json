@@ -9760,6 +9760,37 @@
       "severity": "medium",
       "source": "Raised independently by the K-015 and K-043 fixers, 2026-09-09",
       "processNotes": "Two instances found the same day: (1) uq_supplier_invoices_supplier_number exists only in K-107's unmerged migration 646 but was applied ad-hoc to the fixture, so K-015 tests saw a constraint production lacks; (2) a K-043 test read a constraint off the shared fixture while a sibling test dropped and re-added it at auto-commit -- both passed alone, failed together. Fix direction: construct starting state inside the transaction, and give the fixture a known migration high-water mark rather than ad-hoc application."
+    },
+    {
+      "id": "R-037",
+      "claim": "",
+      "area": "accounting/ar-ap",
+      "affectedPaths": [],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unquantified until the count query is run.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Duplicate customer invoices and supplier bills already minted by past recurring double-runs are not cleaned up",
+      "severity": "high",
+      "source": "Raised by the K-107 fixer while closing review-k107-r2 H1; recorded 2026-09-09",
+      "processNotes": "K-107 stops FUTURE double-runs (FOR UPDATE + is_due, 409 before the first write) but does not touch documents already minted. Any tenant that double-clicked a recurring run since the number scheme changed may hold a duplicate real invoice AND supplier bill. A read-only count query is in docs/audits/remediation/K-107/fix.md and has NOT been executed against production. HEIN'S CALL: this is customer-visible AR/AP data, so the count must be run and any correction decided by a human, not by an agent."
     }
   ],
   "sourceInventory": [
