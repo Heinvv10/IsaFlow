@@ -75,14 +75,8 @@ export async function startReconciliation(
   statementBalance: number, userId: string
 ): Promise<BankReconciliation> {
   try {
-    const balRows = (await sql`
-      SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS gl_balance
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE jl.gl_account_id = ${bankAccountId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-        AND je.entry_date <= ${statementDate}`) as DbRow[];
+    const balRows = (await bankGlBalanceAsAt(
+      companyId, sql`${bankAccountId}::UUID`, sql`${statementDate}`)) as DbRow[];
     const glBalance = Number(balRows[0]!.gl_balance);
 
     // INSERT and the subsequent bank_transactions UPDATE must be atomic.
@@ -160,6 +154,17 @@ export async function createAdjustmentEntry(
          { glAccountId: bankAccountId, debit: 0, credit: Math.abs(amount), description }];
     const recon = await getReconciliationById(companyId, reconciliationId);
     if (!recon) throw new Error(`Reconciliation ${reconciliationId} not found`);
+    // A completed reconciliation is an audit artefact: its balances record what
+    // the ledger said at sign-off and must not be rewritten by a later adjustment.
+    if (recon.status === 'completed') {
+      throw new Error('Cannot adjust a completed reconciliation');
+    }
+    // updateReconciledBalance recomputes from the reconciliation's OWN bank
+    // account, so an adjustment posted to a different one would post a journal
+    // and silently leave the difference untouched.
+    if (bankAccountId !== recon.bankAccountId) {
+      throw new Error('Adjustment bank account does not match the reconciliation');
+    }
     const je = await createJournalEntry(companyId, {
       entryDate: recon.statementDate,
       description: `Bank recon adjustment: ${description}`,
@@ -263,17 +268,44 @@ export async function updateReconciledBalance(companyId: string, reconciliationI
   // Single atomic UPDATE — avoids race condition from read-then-write pattern.
   // Both the outer UPDATE and inner SELECT are scoped by company_id to prevent
   // cross-tenant contamination if two tenants share a reconciliation_id UUID.
+  // K-020: recompute the bank GL balance live as at statement_date rather than
+  // adding matched bank amounts to the frozen gl_balance snapshot. Matching only
+  // stamps a bank row against an already-posted line, so that movement is already
+  // inside the GL balance and adding it counted it twice; the adjustment journal
+  // this helper is called to reflect never entered the frozen column at all.
   await sql`
-    UPDATE bank_reconciliations
-    SET reconciled_balance = gl_balance + COALESCE((
-      SELECT SUM(amount) FROM bank_transactions
-      WHERE reconciliation_id = ${reconciliationId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status IN ('matched', 'reconciled')
-    ), 0)
-    WHERE id = ${reconciliationId}::UUID
-      AND company_id = ${companyId}::UUID
+    UPDATE bank_reconciliations br
+    SET (gl_balance, reconciled_balance) = (
+      SELECT bal.gl_balance, bal.gl_balance
+      FROM (${bankGlBalanceAsAt(
+        companyId, sql`br.bank_account_id`, sql`br.statement_date`)}) bal
+    )
+    WHERE br.id = ${reconciliationId}::UUID
+      AND br.company_id = ${companyId}::UUID
   `;
+}
+
+/**
+ * Posted bank-account GL balance as at a date, as a composable fragment.
+ * Both the startReconciliation snapshot and the updateReconciledBalance
+ * recompute build on this one definition so the two cannot drift — drift
+ * between a frozen snapshot and a later figure was defect K-020. The account
+ * and date arrive as fragments because the recompute correlates on the
+ * reconciliation row's own columns while the snapshot binds parameters.
+ */
+function bankGlBalanceAsAt(
+  companyId: string,
+  glAccount: ReturnType<typeof sql>,
+  asAtDate: ReturnType<typeof sql>,
+): ReturnType<typeof sql> {
+  return sql`
+    SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS gl_balance
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    WHERE jl.gl_account_id = ${glAccount}
+      AND jl.company_id = ${companyId}::UUID
+      AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+      AND je.entry_date <= ${asAtDate}`;
 }
 
 function mapReconRow(row: DbRow): BankReconciliation {

@@ -17,7 +17,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };
+  return {
+    sql: vi.fn(),
+    withTransaction: vi.fn(),
+    // Mocked `sql` means there is no transaction to hold a savepoint on; run
+    // the reversal's write block straight through.
+    withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()),
+    fmtDate: actual.fmtDate,
+  };
 });
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -26,6 +33,10 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
   postJournalEntry: vi.fn(),
   reverseJournalEntry: vi.fn(),
+  resolveReversalDate: vi.fn(async () => '2026-08-04'),
+}));
+vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
+  getPeriodStatusForDate: vi.fn(async () => 'open'),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(),
