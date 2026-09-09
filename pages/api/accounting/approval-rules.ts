@@ -8,10 +8,14 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { listRules, createRule, updateRule, deleteRule, isConditionOperator, CONDITION_OPERATORS, ApprovalRoleInvalidError } from '@/modules/accounting/services/gl/approvalService';
+import { withSavepoint } from '@/lib/neon';
+import { listRules, createRule, updateRule, deleteRule, CONDITION_OPERATORS, ApprovalRoleInvalidError, ApprovalOperatorInvalidError } from '@/modules/accounting/services/gl/approvalService';
+import { ApprovalRuleNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
+import { ApprovalRuleAuthorityError, type RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
+import { isUuidParam } from '@/lib/validation';
 
 const OPERATOR_ERROR = `conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')}`;
 
@@ -23,8 +27,28 @@ const OPERATOR_ERROR = `conditionOperator must be one of: ${CONDITION_OPERATORS.
  * deactivating one always works, but a 23514 from any other edit of such a row
  * belongs to the caller, not to the server.
  */
-function badRequestIfConstraintViolation(res: NextApiResponse, error: unknown): boolean {
-  if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '23514') {
+function isConstraintViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '23514';
+}
+
+/**
+ * Every mutation maps the same four outcomes. The service is the one place that
+ * validates, so the route only has to translate.
+ */
+function respondToRuleWriteError(res: NextApiResponse, error: unknown): boolean {
+  if (error instanceof ApprovalRoleInvalidError || error instanceof ApprovalOperatorInvalidError) {
+    apiResponse.badRequest(res, error.message);
+    return true;
+  }
+  if (error instanceof ApprovalRuleAuthorityError) {
+    apiResponse.error(res, ErrorCode.FORBIDDEN, error.message, { reason: error.code });
+    return true;
+  }
+  if (error instanceof ApprovalRuleNotFoundError) {
+    apiResponse.notFound(res, error.message);
+    return true;
+  }
+  if (isConstraintViolation(error)) {
     apiResponse.badRequest(res, `${OPERATOR_ERROR}. This rule was saved with an operator that is no longer accepted; deactivate it or set a valid operator.`);
     return true;
   }
@@ -32,7 +56,9 @@ function badRequestIfConstraintViolation(res: NextApiResponse, error: unknown): 
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
+  // Role and identity come from withAuth's company_users lookup, never the body.
+  const actor: RuleActor = { userId: user.id, role: companyRole, email: user.email };
 
   if (req.method === 'GET') {
     const rules = await listRules(companyId);
@@ -44,16 +70,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!name || !documentType) {
       return apiResponse.badRequest(res, 'name and documentType are required');
     }
-    // Anything checkApproval cannot evaluate must not reach the column.
-    if (conditionOperator !== undefined && !isConditionOperator(conditionOperator)) {
-      return apiResponse.badRequest(res, OPERATOR_ERROR);
-    }
     try {
-      const rule = await createRule(companyId, { name, documentType, conditionField, conditionOperator, conditionValue, approverRole });
+      // Savepoint: a rejected operator is a 23514 that has already aborted the
+      // withAuth transaction, and withAuth COMMITs anything below a 500. Nothing
+      // is lost today because each branch runs one statement, but a write added
+      // above this line would be discarded while the response spoke only about
+      // the operator.
+      const rule = await withSavepoint('approval_rule_write', () => createRule(companyId, {
+        name, documentType, conditionField, conditionOperator, conditionValue, approverRole,
+      }, actor));
       return apiResponse.success(res, rule);
     } catch (error) {
-      if (error instanceof ApprovalRoleInvalidError) return apiResponse.badRequest(res, error.message);
-      if (badRequestIfConstraintViolation(res, error)) return;
+      if (respondToRuleWriteError(res, error)) return;
       throw error;
     }
   }
@@ -61,15 +89,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     const { id, ...updates } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
-    if (updates.conditionOperator !== undefined && !isConditionOperator(updates.conditionOperator)) {
-      return apiResponse.badRequest(res, OPERATOR_ERROR);
-    }
+    // Cast `::UUID` downstream: unchecked, a malformed id is a 22P02 raised
+    // inside the transaction — a 500 and a logged stack for a bad request.
+    if (!isUuidParam(id)) return apiResponse.badRequest(res, 'id must be a UUID');
     try {
-      const rule = await updateRule(companyId, id, updates);
+      const rule = await withSavepoint('approval_rule_write', () => updateRule(companyId, id, updates, actor));
       return apiResponse.success(res, rule);
     } catch (error) {
-      if (error instanceof ApprovalRoleInvalidError) return apiResponse.badRequest(res, error.message);
-      if (badRequestIfConstraintViolation(res, error)) return;
+      if (respondToRuleWriteError(res, error)) return;
       throw error;
     }
   }
@@ -77,8 +104,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'DELETE') {
     const id = req.query.id as string || req.body.id;
     if (!id) return apiResponse.badRequest(res, 'id is required');
-    await deleteRule(companyId, id);
-    return apiResponse.success(res, { deleted: true });
+    if (!isUuidParam(id)) return apiResponse.badRequest(res, 'id must be a UUID');
+    try {
+      const deleted = await withSavepoint('approval_rule_write', () => deleteRule(companyId, id, actor));
+      // An id naming nothing this company owns used to answer `{ deleted: true }`.
+      if (!deleted) return apiResponse.notFound(res, `Approval rule ${id} not found for this company`);
+      return apiResponse.success(res, { deleted: true });
+    } catch (error) {
+      if (respondToRuleWriteError(res, error)) return;
+      throw error;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'PUT', 'DELETE']);

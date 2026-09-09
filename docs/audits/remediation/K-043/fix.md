@@ -112,3 +112,85 @@ malformed request id gets the 404 this document already claimed, a malformed rul
 **L6 — viewer rule satisfied by a non-member.** Covered by M2's refusal.
 **L7 — `mapRequest` turned NULL `rule_id` into `"null"`.** Returns null; `ApprovalRequest.ruleId`
 is `string | null`. No consumer outside the module reads it.
+
+## Round-3 review dispositions (scratchpad/review-k043-r3.md — 2 HIGH / 2 MEDIUM / 4 LOW)
+
+All eight fixed. R-032 (admin impersonation) and R-033 (sole-owner deadlock) stay registered as
+open and were not touched.
+
+**H1 — 647 is idempotent on the constraint NAME, so a database that ran its earlier form keeps
+the unscoped CHECK forever. FIXED by a new migration, not by editing 647 again.**
+`scripts/migrations/sql/658_approval_rules_operator_check_rescope.sql` reads
+`pg_get_constraintdef` and drops whatever constraint of that name does not mention `is_active`,
+then adds the scoped one — idempotent by DEFINITION. 647 is left exactly as committed, because
+editing an applied migration a second time is the defect. Applied out of transaction to the
+disposable fixture in a scratch schema, both directions: a pre-edit (unscoped) constraint is
+rescoped and a second run is a no-op; an already-scoped constraint keeps its `pg_constraint.oid`,
+which proves it was not dropped and re-added. **Operators:** a database that applied the PRE-EDIT
+647 fails `scripts/apply-migrations.ts` on a checksum mismatch for 647 before reaching 658 — clear
+it with `scripts/migrations/resolve-checksum-conflicts.ts` first. A database that ran the older
+`632_` filename has no conflict and diverges silently; 658 repairs it either way. 647 is unique
+across all refs and production has run neither, so the exposure is `isaflow_dev`, the fixture, and
+peer databases.
+
+**H2 — the authority the decide guard reads is editable by the people it constrains. FIXED.**
+`src/modules/accounting/services/gl/approvalRuleGuards.ts` (new): `assertMayEditRule` ranks the
+actor's `company_users.role` against the rule's CURRENT `approver_role` on every PUT and DELETE,
+using the ladder exported from `approvalAuthority` rather than a second copy, so an admin can no
+longer lower an owner-only rule to their own role or deactivate it. An unrecognised
+`approver_role` falls back to `admin`, mirroring the decide path. `auditRuleChange` writes an
+`audit_log` row for create/update/delete through `logAuditOrThrow` — deliberately the throwing
+variant: an unrecorded weakening of a separation-of-duties control is what this exists to prevent.
+Rank, not `allowedRoles: ['owner']`, because ordinary administration of admin- and manager-level
+rules must keep working; a test asserts that it does.
+
+**M1 — three ids reach a `::UUID` cast unvalidated. FIXED.** `isUuidParam` on the PUT and DELETE
+`id` of `approval-rules.ts` and on `documentId` of `approval-requests.ts` `?action=check`. 400,
+not a 500 with a logged stack.
+
+**M2 — nothing enforces the workflow; `checkApproval` has no posting-path caller. NOT FIXED —
+out of K-043's scope, and the overclaim it caused IS fixed.** `services/gl/.claude.md` and its
+`AGENTS.md` mirror now say the DECIDE path is enforced, not the workflow, and state plainly that a
+document requiring approval can still be posted without one. Belongs to its own item.
+
+**L1 — the role census read 2 of the 4 allowlists. FIXED.** `VALID_ROLES` is exported from
+`userAccessService` and `userInvitationService`, and `approverRankLadder.test.ts` enumerates all
+four. `tenantProvisioningService.ts:155`, `pages/api/invitations/[token]/accept.ts:70` and
+`pages/api/invite/[token].ts:117` write `company_users.role` with no allowlist at all — recorded
+here because there is no list a test can read.
+
+**L2 — the operator allowlist lived only at the route. FIXED.** `assertConditionOperator` sits
+beside `assertApproverRole` in `approvalService`, throwing `ApprovalOperatorInvalidError`, which
+the route maps to 400. Any caller of the module is now covered, not just the HTTP route.
+
+**L3 — the 23514 catch answered 400 on an aborted transaction. FIXED.** Every mutation runs inside
+`withSavepoint('approval_rule_write', ...)`, so a caught check violation cannot discard a write
+added above it in the same handler.
+
+**L4 — DELETE reported success for a row it never touched. FIXED.** `deleteRule` returns whether a
+row came back from `RETURNING id`; the route answers 404 otherwise. Another tenant's rule id is a
+404 and that rule is left in place.
+
+**Round-3 tests.** `tests/integration/k-043-r3-rule-authority.int.test.ts` (15: six on the H2
+guard including two legitimate-administration cases and the audit trail, five on M1/L4 ids, four
+on the 658 convergence including the end-to-end legacy-deactivation consequence),
+`tests/unit/services/gl/approvalRuleAuthority.test.ts` (11),
+`tests/unit/services/gl/approvalRuleOperatorGuard.test.ts` (6),
+`tests/unit/api/approvalRulesSavepoint.test.ts` (6). Seven mutations, one per finding, each
+turned the corresponding tests red — see `green.log`.
+
+**Round-3 migration / rollback.** `658_approval_rules_operator_check_rescope.sql`. Rolling back
+means restoring the unscoped CHECK, which reinstates the defect; there is no data to undo.
+
+**Round-3 historical impact.** No rows are rewritten. Rules weakened before this branch left no
+trace, since `approval_rules` had no history — the audit trail starts now. Read-only query for
+rules whose `approver_role` sits below what their pending requests imply, not run here:
+```sql
+SELECT rl.id, rl.company_id, rl.name, rl.approver_role, rl.is_active, rl.updated_at,
+       count(ar.id) FILTER (WHERE ar.status = 'pending') AS pending_requests
+FROM approval_rules rl
+LEFT JOIN approval_requests ar ON ar.rule_id = rl.id AND ar.company_id = rl.company_id
+WHERE rl.updated_at > rl.created_at
+GROUP BY rl.id
+ORDER BY rl.updated_at DESC;
+```

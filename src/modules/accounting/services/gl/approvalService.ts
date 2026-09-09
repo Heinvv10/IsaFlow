@@ -10,7 +10,8 @@ import {
   assertMayDecide, isApproverRole, APPROVER_ROLES,
   ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
-import { mapRule, mapRequest } from './approvalMatching';
+import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
+import { assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 
 // Re-exported so every existing import site keeps working after the
 // checkApproval/mapper split that kept this file under the 300-line ceiling.
@@ -62,6 +63,13 @@ export interface ApprovalCheckResult {
 
 // ── Rule CRUD ────────────────────────────────────────────────────────────────
 
+export class ApprovalOperatorInvalidError extends Error {
+  constructor(operator: string) {
+    super(`conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')} (got ${operator})`);
+    this.name = 'ApprovalOperatorInvalidError';
+  }
+}
+
 export class ApprovalRoleInvalidError extends Error {
   constructor(role: string) {
     super(`approverRole must be one of: ${APPROVER_ROLES.join(', ')} (got ${role})`);
@@ -76,6 +84,19 @@ export class ApprovalRoleInvalidError extends Error {
 function assertApproverRole(role: string | undefined): void {
   if (role !== undefined && !isApproverRole(role)) {
     throw new ApprovalRoleInvalidError(role);
+  }
+}
+
+/**
+ * An operator checkApproval cannot evaluate now fails CLOSED, so writing one
+ * makes the rule demand approval on every document of its type. The route used
+ * to be the only thing stopping that; any other caller of this module — a
+ * script, an MCP tool, the `services/gl/index.ts` re-export — could still write
+ * it, and on a database where the CHECK has not landed the column takes it.
+ */
+function assertConditionOperator(operator: string | undefined): void {
+  if (operator !== undefined && !isConditionOperator(operator)) {
+    throw new ApprovalOperatorInvalidError(operator);
   }
 }
 
@@ -94,8 +115,9 @@ export async function createRule(companyId: string, input: {
   conditionOperator?: string;
   conditionValue?: number;
   approverRole?: string;
-}): Promise<ApprovalRule> {
+}, actor: RuleActor): Promise<ApprovalRule> {
   assertApproverRole(input.approverRole);
+  assertConditionOperator(input.conditionOperator);
   const rows = (await sql`
     INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role)
     VALUES (
@@ -104,6 +126,7 @@ export async function createRule(companyId: string, input: {
       ${input.conditionValue || 0}, ${input.approverRole || 'admin'}
     ) RETURNING *
   `) as Record<string, unknown>[];
+  await auditRuleChange(companyId, actor, 'create', String(rows[0]!.id), null, rows[0]!);
   log.info('Created approval rule', { id: rows[0]!.id, name: input.name }, 'accounting');
   return mapRule(rows[0]!);
 }
@@ -115,8 +138,11 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
   conditionValue: number;
   approverRole: string;
   isActive: boolean;
-}>): Promise<ApprovalRule> {
+}>, actor: RuleActor): Promise<ApprovalRule> {
   assertApproverRole(input.approverRole);
+  assertConditionOperator(input.conditionOperator);
+  const before = await assertMayEditRule(companyId, id, actor);
+  if (!before) throw new ApprovalRuleNotFoundError(id);
   const rows = (await sql`
     UPDATE approval_rules SET
       name = COALESCE(${input.name ?? null}, name),
@@ -128,12 +154,21 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
       updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
   `) as Record<string, unknown>[];
-  if (!rows[0]) throw new Error(`Rule ${id} not found`);
+  if (!rows[0]) throw new ApprovalRuleNotFoundError(id);
+  await auditRuleChange(companyId, actor, 'update', id, before, rows[0]);
   return mapRule(rows[0]);
 }
 
-export async function deleteRule(companyId: string, id: string): Promise<void> {
-  await sql`DELETE FROM approval_rules WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+/** False when the id names no rule this company owns — the route answers 404. */
+export async function deleteRule(companyId: string, id: string, actor: RuleActor): Promise<boolean> {
+  const before = await assertMayEditRule(companyId, id, actor);
+  if (!before) return false;
+  const rows = (await sql`
+    DELETE FROM approval_rules WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id
+  `) as Record<string, unknown>[];
+  if (!rows[0]) return false;
+  await auditRuleChange(companyId, actor, 'delete', id, before, null);
+  return true;
 }
 
 // ── Approval Requests ────────────────────────────────────────────────────────
