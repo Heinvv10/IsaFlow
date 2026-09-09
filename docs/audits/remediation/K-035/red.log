@@ -1,0 +1,63 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST ","timestamp":"2026-09-09T03:38:55.704Z","component":"API","requestId":"01M223YJTQT3ATV835W06WWHAF","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"Paystack webhook processing failed","timestamp":"2026-09-09T03:38:55.736Z","component":"PaystackWebhook","requestId":"01M223YJTQT3ATV835W06WWHAF","data":{"integration":"unset","eventLogId":"f1213055-6d0e-4dd3-a99d-f05e43d426d0","msg":"duplicate key value violates unique constraint \"ux_sub_mandates_company_active\""}}
+{"level":"info","message":"API Response: POST  - 500 (53ms)","timestamp":"2026-09-09T03:38:55.756Z","component":"API","requestId":"01M223YJTQT3ATV835W06WWHAF","data":{"type":"response","method":"POST","url":"","statusCode":500,"duration":"53ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:38:55.757Z","component":"http","requestId":"01M223YJTQT3ATV835W06WWHAF","data":{"event":"request_completed","route":"","method":"POST","status":500,"durationMs":54,"userId":null,"companyId":null,"outcome":"server_error"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-09-09T03:38:55.796Z","component":"API","requestId":"01M223YJXMADYGZQ12Y9C7HH6M","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"Paystack webhook processing failed","timestamp":"2026-09-09T03:38:55.815Z","component":"PaystackWebhook","requestId":"01M223YJXMADYGZQ12Y9C7HH6M","data":{"integration":"unset","eventLogId":"aef042c3-4971-4584-8eb5-3ea605b2d814","msg":"duplicate key value violates unique constraint \"ux_sub_mandates_company_active\""}}
+{"level":"info","message":"API Response: POST  - 500 (37ms)","timestamp":"2026-09-09T03:38:55.833Z","component":"API","requestId":"01M223YJXMADYGZQ12Y9C7HH6M","data":{"type":"response","method":"POST","url":"","statusCode":500,"duration":"37ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:38:55.833Z","component":"http","requestId":"01M223YJXMADYGZQ12Y9C7HH6M","data":{"event":"request_completed","route":"","method":"POST","status":500,"durationMs":37,"userId":null,"companyId":null,"outcome":"server_error"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-09-09T03:38:55.834Z","component":"API","requestId":"01M223YJYTD1QZNBY55YQ0XYBF","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"API Response: POST  - 200 (1ms)","timestamp":"2026-09-09T03:38:55.835Z","component":"API","requestId":"01M223YJYTD1QZNBY55YQ0XYBF","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:38:55.836Z","component":"http","requestId":"01M223YJYTD1QZNBY55YQ0XYBF","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":2,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-09-09T03:38:55.883Z","component":"API","requestId":"01M223YK0BTCP4E63H1M7HPW5H","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"Paystack webhook processing failed","timestamp":"2026-09-09T03:38:55.957Z","component":"PaystackWebhook","requestId":"01M223YK0BTCP4E63H1M7HPW5H","data":{"integration":"unset","eventLogId":"ad26d5c9-4f3e-4eb3-9687-66ae18170678","msg":"duplicate key value violates unique constraint \"ux_sub_mandates_company_active\""}}
+{"level":"info","message":"API Response: POST  - 500 (93ms)","timestamp":"2026-09-09T03:38:55.976Z","component":"API","requestId":"01M223YK0BTCP4E63H1M7HPW5H","data":{"type":"response","method":"POST","url":"","statusCode":500,"duration":"93ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:38:55.976Z","component":"http","requestId":"01M223YK0BTCP4E63H1M7HPW5H","data":{"event":"request_completed","route":"","method":"POST","status":500,"durationMs":93,"userId":null,"companyId":null,"outcome":"server_error"}}
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts (3 tests | 2 failed) 679ms
+     × must process the redelivered event rather than acking it as a duplicate 83ms
+     × leaves the payment request marked completed even though processing failed 138ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > must process the redelivered event rather than acking it as a duplicate
+AssertionError: expected { duplicate: true } to not match object { duplicate: true }
+
+Compared values have no visual difference.
+
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:132:35
+    130|     const second = await deliver();
+    131|
+    132|     expect(second.state.body).not.toMatchObject({ duplicate: true });
+       |                                   ^
+    133|     const event = await readEvent();
+    134|     expect(event?.processed).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > leaves the payment request marked completed even though processing failed
+AssertionError: expected 'completed' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "completed"
+
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:145:28
+    143|     // The UPDATE ... RETURNING at line 206 auto-commits before the th…
+    144|     // retry can never re-enter the branch (`AND status <> 'completed'…
+    145|     expect(rows[0].status).toBe('pending');
+       |                            ^
+    146|   });
+    147| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  05:38:54
+   Duration  1.27s (transform 160ms, setup 0ms, import 410ms, tests 679ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
