@@ -1,0 +1,17 @@
+# Procurement evidence source foundation
+
+Base94572ef8cbecd29cbade31013ef51d8bf312a6bd; isolated owned branch. Root owns retention traversal, publication, scheduling and migrations.
+
+Own procurementEvidenceStorage.ts/procurementEvidenceSource.ts, actual HTTP units and PostgreSQL source tests. Current read:invoices precedes exact original-parent ownership check. Supplier invoice means sage_supplier_invoices; other exact mappings customer invoice/payment, supplier payment, credit note, purchase_order, and GRN aliases to goods_received_notes. A document link alone grants nothing. No company column exists on procurement_documents: enforce company through original parent SQL, not invented schema.
+
+Strict configured VF origin GET /accounting/<originaltype>/<originalUUID>_<filename>. Reject unexpected returned filename namespaces explicitly; no file_url or arbitrary-origin fallback. Stream20MiB bound, recorded-size comparison,10second deadline and propagated caller cancellation. No recorded hash exists: computed sha256 never becomes historical authenticity.
+
+Tests first: missing module RED, actual HTTP correct path/bytes, foreign prefix, traversal, metadata getters/mutation, changed size, redirect,404, chunked overflow and abort. Real PG authorized original parent, foreign original with owned crosslink/dual membership, exact-type UUID collision, denied current permission before HTTP and inactive/missing rows. Root grants serialized DB/TS leases. No production reads.
+
+## Verification and limitations
+
+Local source contract: FF_Next.js fc69fcd3c28f4873bc9ec4008b473f5ff84fa565 docs/ARCHITECTURE_STORAGE.md:69-98 and nginx configuration:70-71 establish direct GET /<path>, without public /storage prefix. IsaFlow94572ef8 documentStorageService:120-121 prefixes original entity UUID to sanitized filename. Actual server filename rewriting is not verified: unexpected namespaces are refused explicitly, never guessed. Supplier invoices resolve only sage_supplier_invoices; purchase_order resolves purchase_orders; grn/goods_received_note/goods_receipt_note resolve goods_received_notes. Original parent row and document are locked through HTTP.
+
+HTTP collection missing-module RED recorded before storage implementation;9 actual local HTTP tests GREEN. Source test initially invoked wrong default unit config (no tests found); corrected integration configuration produced missing-module RED, then6actualPG ran. Initial denial fixture used nonexistent module invoices and resolved; corrected to actual permission-policy module customers, then all6PG GREEN. These are absent-capability REDs, not a claim of reproduced defective existing procurement reader. Source preparation had been drafted before corrected source collection RED; it was restored after the absent-module check. No preexisting shared reader existed.
+
+Real PG6 checks original bytes/unknown authenticity, foreign original despite dual membership plus owned link, exact type mismatch, current denial before HTTP, inactive/foreign path and404. All fixtures roll back and pool.end/process exit confirmed. SourceTS16546 terminal0; scoped ESLint55971 terminal0. Final HTTP9 rerun terminal0. Logs: shared artifacts procurement-storage-red.log, procurement-storage-green.log, procurement-source-red.log, procurement-source-green.log, procurement-source-ts.log, procurement-source-lint.log. No production object retrieval or schema migration; no full replay, retention traversal or async completion claim. All source files below300lines. Root independent named review pending.
