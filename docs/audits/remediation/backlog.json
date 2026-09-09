@@ -1791,7 +1791,7 @@
         "K-048/red.log",
         "K-048/validation.md"
       ],
-      "fixCommit": "52335d08",
+      "fixCommit": "7757cb90",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -1824,7 +1824,7 @@
         "K-049/red.log",
         "K-049/validation.md"
       ],
-      "fixCommit": "52335d08",
+      "fixCommit": "7757cb90",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
