@@ -62,18 +62,41 @@ it('rolls back all new identities on a forced PAT insertion failure and closes f
     (SELECT count(*)::int FROM company_users) memberships,
     (SELECT count(*)::int FROM personal_access_tokens) tokens`)).rows[0];
   const before = await counts();
-  const name = 'forensic_fault_' + crypto.randomUUID().replaceAll('-', '');
-  // Disposable DB only; identifier consists exclusively of generated UUID hex.
-  await pool.query(`CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN IF NEW.name LIKE 'Forensic %' THEN RAISE EXCEPTION 'Synthetic PAT insert failure'; END IF; RETURN NEW; END $$`);
-  await pool.query(`CREATE TRIGGER ${name} BEFORE INSERT ON personal_access_tokens FOR EACH ROW EXECUTE FUNCTION ${name}()`);
-  try {
+  async function withPatFault(run: () => Promise<void>, failSetup = false) {
+    const suffix = crypto.randomUUID().replaceAll('-', '');
+    const name = 'forensic_fault_' + suffix;
+    try {
+      // Disposable DB only; identifiers and marker consist of generated UUID hex.
+      await pool.query(`CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF current_setting('isaflow.fixture_fault',true)=TG_ARGV[0]
+          THEN RAISE EXCEPTION 'Synthetic PAT insert failure'; END IF; RETURN NEW; END $$`);
+      const table = failSetup ? 'missing_forensic_' + suffix : 'personal_access_tokens';
+      await pool.query(`CREATE TRIGGER ${name} BEFORE INSERT ON ${table}
+        FOR EACH ROW EXECUTE FUNCTION ${name}('${suffix}')`);
+      const previousOptions = process.env.PGOPTIONS;
+      process.env.PGOPTIONS = `-c isaflow.fixture_fault=${suffix}`;
+      try { await run(); } finally {
+        if (previousOptions === undefined) delete process.env.PGOPTIONS;
+        else process.env.PGOPTIONS = previousOptions;
+      }
+    } finally {
+      const failures: unknown[] = [];
+      // Attempt both cleanup statements even when the first fails. CASCADE is
+      // bounded to our uniquely named function and its disposable trigger.
+      for (const command of [`DROP TRIGGER IF EXISTS ${name} ON personal_access_tokens`,
+        `DROP FUNCTION IF EXISTS ${name}() CASCADE`]) {
+        try { await pool.query(command); } catch (error) { failures.push(error); }
+      }
+      expect((await pool.query('SELECT to_regproc($1) AS function', [name])).rows[0].function).toBeNull();
+      if (failures.length) throw new AggregateError(failures, 'Disposable fault cleanup failed');
+    }
+  }
+  // Prove cleanup when CREATE FUNCTION succeeded but CREATE TRIGGER fails.
+  await expect(withPatFault(async () => { throw new Error('Must not execute'); }, true)).rejects.toThrow('does not exist');
+  await withPatFault(async () => {
     await expect(provisionForensicFixture(config)).rejects.toThrow('Synthetic PAT insert failure');
     expect(await counts()).toEqual(before);
-  } finally {
-    await pool.query(`DROP TRIGGER ${name} ON personal_access_tokens`);
-    await pool.query(`DROP FUNCTION ${name}()`);
-  }
+  });
   const clients = (await pool.query("SELECT pid FROM pg_stat_activity WHERE application_name='isaflow-forensic-fixture' AND datname=current_database()" )).rows;
   expect(clients).toHaveLength(0);
 });

@@ -40,3 +40,11 @@ node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts te
 ```
 
 First run3/3passed250ms; after adding explicit users-table count assertion final run3/3passed274ms (128ms test time). Latest raw local log /tmp/forensic-fixture-db.log. Successful random synthetic fixture identities are retained in this disposable database for root inspection; the two runs created two independent sets (4companies/6users/8PATs total added). Failed provisioning added zero rows. No production or external endpoints called, no messages sent, no migrations/build/full CI executed. This proves existing fixture compatibility, not historical migration replay or MCP HTTP acceptance.
+
+## Independent review fix: disposable fault cleanup
+
+Reviewed beaf6477 finding confirmed: CREATE FUNCTION/CREATE TRIGGER occurred before try/finally, and a failed trigger drop could skip function cleanup. Moved all setup inside try/finally. Each DROP IF EXISTS is independently attempted; function CASCADE is restricted to the unique generated function and its disposable trigger. Cleanup failures remain surfaced as AggregateError. The real-DB test now deliberately fails CREATE TRIGGER after creating its function and verifies to_regproc returns null after cleanup.
+
+Fault activation now requires a per-test random session GUC marker passed only to the provisioner's fresh connection through temporary PGOPTIONS; prior PGOPTIONS is restored. The trigger no longer intercepts every Forensic-prefixed PAT. Application code/fixture interfaces unchanged.
+
+Focused three-test rerun passed (267ms total,120ms tests); log /tmp/forensic-fixture-cleanup.log. Same dedicated opt-in/URL/runtime disposable password command as above. No broader runs. This additional success run retained one more random synthetic fixture set; forced failures added none. DB lease released after test and cleanup.
