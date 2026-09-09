@@ -110,3 +110,27 @@ describe('advanceDate — other frequencies', () => {
     expect(advanceDate('2026-06-15', 'annually')).toBe('2027-06-15');
   });
 });
+
+describe('advanceDate — a frequency it has not been taught', () => {
+  // The silent `return dateStr` this replaces was the K-048 double-post
+  // restored: the caller claims the run with the returned date, so an
+  // unchanged one leaves `next_run_date = <due>` matching for ever and every
+  // Generate posts another journal on the same day. Unreachable while the
+  // CHECK on recurring_journals.frequency holds — which is why it must fail
+  // loudly the day it does not.
+  it('throws rather than returning the input date unchanged', () => {
+    expect(() => advanceDate('2026-03-31', 'daily')).toThrow(/unsupported recurring frequency 'daily'/);
+  });
+
+  it('throws on an empty frequency', () => {
+    expect(() => advanceDate('2026-03-31', '')).toThrow(/unsupported recurring frequency/);
+  });
+
+  it('does not treat a Object.prototype key as a frequency', () => {
+    // An object-literal lookup resolves these on Object.prototype, so the
+    // guard saw a function rather than undefined and the arithmetic returned
+    // the string 'NaN-NaN-NaN' as a run date. This test found that.
+    expect(() => advanceDate('2026-03-31', 'constructor')).toThrow(/unsupported recurring frequency/);
+    expect(() => advanceDate('2026-03-31', 'toString')).toThrow(/unsupported recurring frequency/);
+  });
+});

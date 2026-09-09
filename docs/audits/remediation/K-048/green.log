@@ -75,3 +75,40 @@ bunx eslint src/modules/accounting/services/gl/recurringJournalService.ts \
             pages/api/accounting/recurring-journals-action.ts \
             pages/accounting/recurring-journals/index.tsx   exit 0
 bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.
+
+═══ ROUND 3 (blind review review-k048-r3.md: 0 HIGH, 1 MEDIUM, 5 LOW) ═══
+
+GREEN, real Postgres fixture (same five files):
+  Test Files  5 passed (5)
+       Tests  22 passed (22)      [was 20; +2 adjacent cases]
+  bunx vitest run tests/unit/services/gl/recurringSchedule.test.ts
+       Tests  23 passed (23)      [was 20; +3 unsupported-frequency cases]
+
+MUTATION CHECKS, round-3 changes:
+  M17 advanceDate throw -> `return dateStr` again      -> unit 3 failed   RED
+  M18 UUID_RE widened to /^/ (shape check inert)       -> int  1 failed   RED
+  M19 404 branch removed from the route                -> int  1 failed   RED
+  M20 assertPostablePeriod read-before-create          -> NOT MADE; see below
+
+  M20 is why the LOW 2 code change was REVERTED rather than kept. A first pass
+  reordered assertPostablePeriod to read the period status first and create the
+  year only on `no_period`, with a test asserting a closed-period refusal writes
+  no fiscal_periods rows. That test passed on the UNMUTATED original too — it
+  proved nothing. The reason is that ensureFiscalPeriodForDate returns early
+  whenever a covering period exists, and its lookup (getFiscalPeriodIdForDate,
+  fiscalPeriodService.ts:110) does NOT filter on status, so the closed path
+  never wrote in the first place. No behaviour separates the two versions on any
+  input, so the change was reverted, the vacuous test deleted, and the doc
+  comment corrected to state the actual reason the invariant holds. Recorded
+  rather than left as an unkillable production change.
+
+FULL UNIT SUITE (no fixture env; DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL /
+ISAFLOW_DISPOSABLE_AUTH_TEST unset):
+  Test Files  793 passed | 36 skipped (829)
+       Tests  9457 passed | 234 skipped (9691)      0 failed
+  (last round's cashFlowReport 10s-timeout flake passed here)
+
+FULL COMPONENT SUITE:  62 files / 421 tests passed
+bunx tsc --noEmit   exit 0
+bunx eslint <the four changed src/pages files>   exit 0
+bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.

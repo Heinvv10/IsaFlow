@@ -14,6 +14,7 @@ import {
   generateJournalFromRecurring,
   RecurringJournalRequestError,
   RecurringJournalLockTimeoutError,
+  RecurringJournalNotFoundError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -54,9 +55,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Contention is the one refusal that is transient, so it answers 409 rather
     // than 400: the same request will succeed once the peer finishes, and a
     // client cannot tell "retry this" from "stop" if both come back the same.
+    // A wrong id — another tenant's included — answers 404 for the same reason:
+    // it is not a malformed request, and no retry or correction of the body
+    // will ever make it succeed. Both branches sit ABOVE the parent class they
+    // extend, because instanceof matches the parent first otherwise.
     if (err instanceof RecurringJournalLockTimeoutError) {
       log.warn('Recurring journal action contended', { message: err.message }, 'accounting-api');
       return apiResponse.conflict(res, err.message);
+    }
+    if (err instanceof RecurringJournalNotFoundError) {
+      log.warn('Recurring journal not found', { id: err.id }, 'accounting-api');
+      return apiResponse.notFound(res, 'Recurring journal', err.id);
     }
     if (err instanceof RecurringJournalRequestError) {
       log.warn('Recurring journal action refused', { message: err.message }, 'accounting-api');

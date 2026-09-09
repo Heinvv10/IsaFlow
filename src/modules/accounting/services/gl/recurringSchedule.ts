@@ -36,19 +36,41 @@ function daysInMonth(year: number, month: number): number {
  * convention for a monthly accrual, so that is the side to be wrong on; giving
  * a template its own anchor day needs a column and a migration.
  */
+/**
+ * How far one interval of each supported frequency moves the date, in months.
+ *
+ * A Map, not an object literal: `frequency` arrives as a plain `string` off a
+ * DB row, and an object index resolves 'constructor' and 'toString' on the
+ * prototype — neither `undefined` nor a number, so the arithmetic below would
+ * produce an Invalid Date and return the string 'NaN-NaN-NaN' as a run date.
+ */
+const MONTHS_PER_INTERVAL = new Map<string, number>([
+  ['monthly', 1],
+  ['quarterly', 3],
+  ['annually', 12],
+]);
+
 export function advanceDate(dateStr: string, frequency: string): string {
   const [year, month, day] = dateStr.split('-').map(Number) as [number, number, number];
-
-  const monthsToAdd = frequency === 'monthly' ? 1
-    : frequency === 'quarterly' ? 3
-    : frequency === 'annually' ? 12
-    : 0;
 
   if (frequency === 'weekly') {
     const d = new Date(Date.UTC(year, month - 1, day + 7));
     return d.toISOString().slice(0, 10);
   }
-  if (monthsToAdd === 0) return dateStr;
+
+  const monthsToAdd = MONTHS_PER_INTERVAL.get(frequency);
+  if (monthsToAdd === undefined) {
+    // Throw, never fall through returning `dateStr`. The caller claims the run
+    // with `next_run_date = <the returned date>`, so an unchanged date leaves
+    // the claim predicate and the due-date guard both matching for ever and
+    // every Generate mints another posted journal on the same day — the K-048
+    // defect restored by the two guards written to close it. Unreachable while
+    // the CHECK on recurring_journals.frequency (migration 206) and the
+    // RecurringFrequency union hold; a 500 that rolls the request back is the
+    // right answer the day one of them gains a value this function has not
+    // been taught.
+    throw new Error(`advanceDate: unsupported recurring frequency '${frequency}'`);
+  }
 
   const target = new Date(Date.UTC(year, month - 1 + monthsToAdd, 1));
   const targetYear = target.getUTCFullYear();
