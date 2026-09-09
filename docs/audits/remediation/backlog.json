@@ -1725,7 +1725,7 @@
         "K-046/red.log",
         "K-046/validation.md"
       ],
-      "fixCommit": "c16abdde",
+      "fixCommit": "e3404654",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -9476,7 +9476,7 @@
         "K-046/validation.md",
         "K-046/red.log"
       ],
-      "fixCommit": "3222d0a6",
+      "fixCommit": "e3404654",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "No wrong rows; no year-end close has ever completed.",
