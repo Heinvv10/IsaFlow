@@ -1,3 +1,4 @@
+import {recomputeInvoiceStatus} from '../ar/invoiceStatusRecompute';
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
 import {bankAllocationActor} from './bankAllocationActor';
 import Decimal from 'decimal.js';
@@ -21,13 +22,15 @@ export async function executeBankAllocationReversalEffect(ctx:ControlTx,intentId
  if('applications' in original.plan){
   for(const item of original.sources.invoices){
    const before=item.invoice as Row,allocation=item.allocation as {invoiceId:string;amount:string};
-   const updates=original.plan.kind==='customer'?await ctx.sql`UPDATE customer_invoices SET amount_paid=amount_paid-${allocation.amount}::numeric,
-    status=CASE WHEN amount_paid-${allocation.amount}::numeric=0 THEN 'approved' WHEN amount_paid-${allocation.amount}::numeric=total_amount THEN 'paid' ELSE 'partially_paid' END
-    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid AND amount_paid>=${allocation.amount}::numeric RETURNING *`
-    :await ctx.sql`UPDATE supplier_invoices SET amount_paid=amount_paid-${allocation.amount}::numeric,
-    status=CASE WHEN amount_paid-${allocation.amount}::numeric=0 THEN 'approved' WHEN amount_paid-${allocation.amount}::numeric=total_amount THEN 'paid' ELSE 'partially_paid' END
-    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid AND amount_paid>=${allocation.amount}::numeric RETURNING *`;
-   const after=(updates as Row[])[0];if(!after)throw new Error('Allocation reversal invoice balance changed');
+   const updates=original.plan.kind==='customer'?await ctx.sql`UPDATE customer_invoices SET amount_paid=amount_paid-${allocation.amount}::numeric
+    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid AND amount_paid>=${allocation.amount}::numeric RETURNING id`
+    :await ctx.sql`UPDATE supplier_invoices SET amount_paid=amount_paid-${allocation.amount}::numeric
+    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid AND amount_paid>=${allocation.amount}::numeric RETURNING id`;
+   if(!(updates as Row[])[0])throw new Error('Allocation reversal invoice balance changed');
+   await recomputeInvoiceStatus(company,original.plan.kind,allocation.invoiceId);
+   const settled=original.plan.kind==='customer'?await ctx.sql`SELECT * FROM customer_invoices WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid`
+    :await ctx.sql`SELECT * FROM supplier_invoices WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid`;
+   const after=(settled as Row[])[0];if(!after)throw new Error('Allocation reversal invoice disappeared');
    await recordBankAllocationChild(ctx,permit,original.plan.kind==='customer'?'customer_invoice':'supplier_invoice',before,after,'bank_allocation.unapplied');
   }
   const before=(original.plan.kind==='customer'?original.sources.receipts:original.sources.disbursements).find(p=>p.id===original.receipt.result.paymentId)!;

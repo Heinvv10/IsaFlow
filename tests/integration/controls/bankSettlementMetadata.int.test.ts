@@ -1,3 +1,4 @@
+import {openProtectedChange} from '@/modules/accounting/services/controls/changeProtection';
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
@@ -66,6 +67,13 @@ async function metadata(kind:Kind,id:string){
  return(kind==='customer'?await pool.query('SELECT status,amount_paid,paid_at FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,id])
   :await pool.query('SELECT status,amount_paid,paid_at,payment_matched,payment_matched_at FROM supplier_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,id])).rows[0];
 }
+async function recordedMetadata(invoice:string,action:string){
+ const result=await pool.query(`SELECT p.key_id,p.envelope_version,p.ciphertext FROM control_protected_evidence p
+  JOIN control_change_events e ON e.company_id=p.company_id AND e.protected_evidence_id=p.id
+  WHERE e.company_id=$1 AND e.entity_id=$2 AND e.action=$3`,[fixture.companyA,invoice,action]);
+ expect(result.rows).toHaveLength(1);
+ const row=result.rows[0];return openProtectedChange({keyId:row.key_id,version:row.envelope_version,ciphertext:row.ciphertext});
+}
 for(const kind of ['customer','supplier'] as const){
  it(`${kind}: full approved bank settlement derives timestamps and preserves them on retry`,async()=>{
   const prepared=await seed(kind);
@@ -73,6 +81,7 @@ for(const kind of ['customer','supplier'] as const){
   const row=await metadata(kind,prepared.invoice);
   expect(row).toMatchObject({status:'paid',amount_paid:'115.00'});
   expect(row.paid_at).toBeInstanceOf(Date);
+  expect((await recordedMetadata(prepared.invoice,'bank_allocation.applied')).after).toMatchObject(JSON.parse(JSON.stringify(row)));
   if(kind==='supplier'){expect(row.payment_matched).toBe(true);expect(row.payment_matched_at).toBeInstanceOf(Date);}
   expect(await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId))).toEqual(posted);
   expect(await metadata(kind,prepared.invoice)).toEqual(row);
@@ -92,6 +101,9 @@ for(const kind of ['customer','supplier'] as const){
   expect((await pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[fixture.companyA,approval.id])).rows[0].status).toBe('approved');
   const result=await actor(()=>executeBankAllocationReversal(requireControlTx(),reverse.intentId,{approvalId:approval.id}));
   expect(await metadata(kind,prepared.invoice)).toEqual({status:'approved',amount_paid:'0.00',paid_at:null,...(kind==='supplier'?{payment_matched:false,payment_matched_at:null}:{})});
+  const evidence=await recordedMetadata(prepared.invoice,'bank_allocation.unapplied');
+  expect(evidence.before).toMatchObject(JSON.parse(JSON.stringify(before)));
+  expect(evidence.after).toMatchObject(JSON.parse(JSON.stringify(await metadata(kind,prepared.invoice))));
   expect(await actor(()=>executeBankAllocationReversal(requireControlTx(),reverse.intentId))).toEqual(result);
   const allocations=kind==='customer'?await pool.query('SELECT a.amount_allocated FROM customer_payment_allocations a JOIN customer_payments p ON p.id=a.payment_id WHERE p.company_id=$1 AND p.id=$2',[fixture.companyA,posted.paymentId])
    :await pool.query('SELECT a.amount_allocated FROM payment_allocations a JOIN supplier_payments p ON p.id=a.payment_id WHERE p.company_id=$1 AND p.id=$2',[fixture.companyA,posted.paymentId]);
