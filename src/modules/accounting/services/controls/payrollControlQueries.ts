@@ -23,7 +23,7 @@ export async function loadPayrollControlPopulation(ctx:ControlTx,cutoff:string|n
   AND (make_date(d.period_year,d.period_month,1)+interval '1 month - 1 day')::date<=COALESCE(${cutoff}::date,'infinity'::date) ORDER BY d.id LIMIT 10000),
  journal_ids AS(SELECT journal_entry_id AS id FROM runs UNION SELECT journal_entry_id FROM declarations),
  journals AS(SELECT j.id,j.status,j.source,j.source_record_id::text AS "sourceRecordId",(j.reversed_at IS NOT NULL) AS reversed,
-  COALESCE((SELECT jsonb_agg(x) FROM(SELECT l.gl_account_id AS "glAccountId",l.debit::text,l.credit::text FROM gl_journal_lines l
+  COALESCE((SELECT jsonb_agg(x ORDER BY x.id) FROM(SELECT l.id,l.gl_account_id AS "glAccountId",l.debit::text,l.credit::text FROM gl_journal_lines l
    JOIN gl_accounts a ON a.company_id=l.company_id AND a.id=l.gl_account_id
    WHERE l.company_id=j.company_id AND l.journal_entry_id=j.id ORDER BY l.id LIMIT 10001)x),'[]'::jsonb) AS lines
   FROM gl_journal_entries j JOIN journal_ids i ON i.id=j.id WHERE j.company_id=${company}::uuid),
@@ -43,6 +43,12 @@ export async function loadPayrollControlPopulation(ctx:ControlTx,cutoff:string|n
   WHERE previous IS NOT NULL AND components IS NOT NULL AND components<>previous ORDER BY run_id,employee_id LIMIT 10001)
  SELECT jsonb_build_object(
   'currency',(SELECT default_currency FROM companies WHERE id=${company}::uuid),
+  'sourceTotals',jsonb_build_object(
+   'headerGross',(SELECT COALESCE(sum(total_gross),0)::text FROM owned_runs),'lineGross',(SELECT COALESCE(sum(gross_pay),0)::text FROM owned_lines),
+   'headerNet',(SELECT COALESCE(sum(total_net),0)::text FROM owned_runs),'lineNet',(SELECT COALESCE(sum(net_pay),0)::text FROM owned_lines),
+   'headerPaye',(SELECT COALESCE(sum(total_paye),0)::text FROM owned_runs),'linePaye',(SELECT COALESCE(sum(paye),0)::text FROM owned_lines),
+   'headerUif',(SELECT COALESCE(sum(total_uif),0)::text FROM owned_runs),'lineUif',(SELECT COALESCE(sum(uif_employee+uif_employer),0)::text FROM owned_lines),
+   'headerSdl',(SELECT COALESCE(sum(total_sdl),0)::text FROM owned_runs),'lineSdl',(SELECT COALESCE(sum(sdl),0)::text FROM owned_lines)),
   'populationCount',(SELECT count(*) FROM owned_runs),'lineCount',(SELECT count(*) FROM owned_lines),
   'employeeCount',(SELECT count(*) FROM payroll_employees WHERE company_id=${company}::uuid),
   'over',((SELECT count(*) FROM owned_runs)>10000 OR (SELECT count(*) FROM owned_lines)>10000
@@ -51,25 +57,26 @@ export async function loadPayrollControlPopulation(ctx:ControlTx,cutoff:string|n
    OR (SELECT count(*) FROM payroll_employee_cost_allocations WHERE company_id=${company}::uuid)>10000
    OR (SELECT count(*) FROM cost_centre_gl_mappings WHERE company_id=${company}::uuid)>10000
    OR (SELECT count(*) FROM uif_declarations WHERE company_id=${company}::uuid)>10000
+   OR (SELECT count(*) FROM shared_banks)>10000 OR (SELECT count(*) FROM changes)>10000
    OR EXISTS(SELECT 1 FROM journals WHERE jsonb_array_length(lines)>10000)),
-  'employees',COALESCE((SELECT jsonb_agg(e) FROM employees e),'[]'::jsonb),
-  'accounts',COALESCE((SELECT jsonb_agg(a) FROM accounts a),'[]'::jsonb),
-  'allocations',COALESCE((SELECT jsonb_agg(a) FROM allocations a),'[]'::jsonb),
-  'mappings',COALESCE((SELECT jsonb_agg(m) FROM mappings m),'[]'::jsonb),
-  'beneficiaryGroups',COALESCE((SELECT jsonb_agg(ids) FROM shared_banks),'[]'::jsonb),
-  'componentChanges',COALESCE((SELECT jsonb_agg(c) FROM changes c),'[]'::jsonb),
+  'employees',COALESCE((SELECT jsonb_agg(e ORDER BY e.id) FROM employees e),'[]'::jsonb),
+  'accounts',COALESCE((SELECT jsonb_agg(a ORDER BY a.id) FROM accounts a),'[]'::jsonb),
+  'allocations',COALESCE((SELECT jsonb_agg(a ORDER BY a.employee_id,a.cost_centre_id) FROM allocations a),'[]'::jsonb),
+  'mappings',COALESCE((SELECT jsonb_agg(m ORDER BY m.cost_centre_id) FROM mappings m),'[]'::jsonb),
+  'beneficiaryGroups',COALESCE((SELECT jsonb_agg(ids ORDER BY ids) FROM shared_banks),'[]'::jsonb),
+  'componentChanges',COALESCE((SELECT jsonb_agg(c ORDER BY c."runId",c."employeeId") FROM changes c),'[]'::jsonb),
   'runs',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',h.id,'date',h.accounting_date::text,'version',v.version,
    'header',jsonb_build_object('employee_count',h.employee_count,'period_year',h.period_year,'period_month',h.period_month,'status',h.status,
     'total_gross',h.total_gross::text,'total_taxable',h.total_taxable::text,'total_paye',h.total_paye::text,'total_uif',h.total_uif::text,
     'total_sdl',h.total_sdl::text,'total_eti',h.total_eti::text,'total_net',h.total_net::text),
    'lines',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',l.id,'employee_id',l.employee_id,'gross_pay',l.gross_pay::text,
     'taxable_income',l.taxable_income::text,'paye',l.paye::text,'uif_employee',l.uif_employee::text,'uif_employer',l.uif_employer::text,
-    'sdl',l.sdl::text,'eti',l.eti::text,'net_pay',l.net_pay::text)) FROM lines l WHERE l.run_id=h.id),'[]'::jsonb),
-   'journal',(SELECT to_jsonb(j) FROM journals j WHERE j.id=h.journal_entry_id))) FROM runs h
+    'sdl',l.sdl::text,'eti',l.eti::text,'net_pay',l.net_pay::text) ORDER BY l.id) FROM lines l WHERE l.run_id=h.id),'[]'::jsonb),
+   'journal',(SELECT to_jsonb(j) FROM journals j WHERE j.id=h.journal_entry_id)) ORDER BY h.id) FROM runs h
    LEFT JOIN control_entity_versions v ON v.company_id=h.company_id AND v.entity_type='payroll_run' AND v.entity_id=h.id::text),'[]'::jsonb),
   'declarations',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',d.id,'year',d.period_year,'month',d.period_month,
    'employee',d.total_employee_contribution::text,'employer',d.total_employer_contribution::text,'status',d.status,
-   'journal',(SELECT to_jsonb(j) FROM journals j WHERE j.id=d.journal_entry_id))) FROM declarations d),'[]'::jsonb)
+   'journal',(SELECT to_jsonb(j) FROM journals j WHERE j.id=d.journal_entry_id)) ORDER BY d.id) FROM declarations d),'[]'::jsonb)
  ) AS population` as {population:PayrollControlPopulation}[];
  if(!rows[0])throw new Error('Payroll population query returned no snapshot');return rows[0].population;
 }

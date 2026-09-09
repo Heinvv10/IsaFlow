@@ -18,7 +18,7 @@ export function analysePayrollControls(source:PayrollControlPopulation){
  const findings:RiskFinding[]=[],missing:string[]=['independent_employee_settlement_evidence_unavailable','paye_sdl_remittance_associations_unavailable','historical_salary_component_coverage_unavailable'];
  const add=(kind:string,id:string,value:string,message:string,classification:'candidate'|'confirmed'='candidate',employeeIds:string[]=[])=>findings.push({
   amount:value,currency:source.currency??'',finding:{key:riskHash({kind,id}),kind,severity:classification==='confirmed'?'high':'medium',classification,
-   entities:[{entityType:kind==='payroll_beneficiary_reuse'?'employee':'payroll_run',entityId:id.split(':')[0]!},...employeeIds.filter(e=>e!==id).map(entityId=>({entityType:'employee',entityId}))],message,evidence:[]}});
+   entities:[{entityType:kind==='payroll_beneficiary_reuse'?'employee':'payroll_run',entityId:id.split(':')[0]!},...employeeIds.filter(e=>e!==id.split(':')[0]).map(entityId=>({entityType:'employee',entityId}))],message,evidence:[]}});
  if(source.over){missing.push('async_scan_required:payroll_population_exceeds_10000');return{findings,missing};}
  if(source.currency!=='ZAR')missing.push('payroll_currency_unsupported_or_missing');
  if(!source.runs.length)missing.push('payroll_run_population_unavailable');
@@ -51,8 +51,9 @@ export function analysePayrollControls(source:PayrollControlPopulation){
     add('payroll_after_termination',`${run.id}:${employeeId}`,String(line.net_pay),'Payroll occurs after the recorded employment end period; final adjustments may be legitimate. Settlement is not established.','candidate',[employeeId]);
   }
  }
- for(const group of source.beneficiaryGroups){const ids=[...new Set(group)].sort(compare);if(ids.length>1)
-  add('payroll_beneficiary_reuse',ids[0]!,'0','Multiple employees share current bank details. Shared accounts may be legitimate.','candidate',ids);}
+ const groupKeys=new Set<string>();
+ for(const group of source.beneficiaryGroups){const ids=[...new Set(group)].sort(compare),key=riskHash(ids);if(ids.length>1&&!groupKeys.has(key)){groupKeys.add(key);
+  add('payroll_beneficiary_reuse',`${ids[0]}:${key}`,'0','Multiple employees share current bank details. Shared accounts may be legitimate.','candidate',ids);}}
  for(const change of source.componentChanges)add('payroll_component_change',`${change.runId}:${change.eventId}`,'0','Recorded salary component change requires review; a legitimate salary adjustment is possible.','candidate',[change.employeeId]);
  for(const declaration of source.declarations){
   const runs=source.runs.filter(run=>Number(run.header.period_year)===declaration.year&&Number(run.header.period_month)===declaration.month);
@@ -65,7 +66,9 @@ export function analysePayrollControls(source:PayrollControlPopulation){
    if(!journal)missing.push('uif_settlement_journal_unavailable');
    else{
     const uif=source.accounts.filter(row=>row.account_code==='2150');
-    const bank=source.accounts.filter(row=>row.account_code==='1110');
+    const credited=new Set(journal.lines.filter(line=>amount(line.credit).gt(0)).map(line=>line.glAccountId));
+    const bank=source.accounts.filter(row=>credited.has(String(row.id))&&row.is_active===true
+     &&(row.account_code==='1110'||(row.account_type==='asset'&&row.account_subtype==='bank')));
     if(uif.length!==1||bank.length!==1)missing.push('uif_settlement_account_mapping_unavailable');
     else if(journal.status!=='posted'||journal.reversed||canonicalJson(journalBuckets(journal.lines))!==canonicalJson(journalBuckets([
      {glAccountId:String(uif[0]!.id),debit:declared.toFixed(),credit:'0'},{glAccountId:String(bank[0]!.id),debit:'0',credit:declared.toFixed()}])))
