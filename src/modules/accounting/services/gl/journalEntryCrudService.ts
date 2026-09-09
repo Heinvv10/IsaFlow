@@ -225,7 +225,7 @@ export async function createJournalEntry(
     // company's trial balance carries a line to an account it does not own.
     // `create_draft_journal` (`writeJournals.ts`) has always refused it; this is
     // the same refusal on the REST path, at the service both go through.
-    // Migration 660 adds the composite FK that makes it unrepresentable.
+    // Migration 664 adds the composite FK that makes it unrepresentable.
     if (!(await accountsBelongToCompany(companyId, input.lines.map((l) => l.glAccountId)))) {
       throw new Error('One or more journal lines name a GL account outside this company');
     }

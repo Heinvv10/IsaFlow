@@ -137,7 +137,7 @@ FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABA
    the residue leaked into the postJournalEntry tests. Both files now queue the
    accountsBelongToCompany answer explicitly.)
 
-FULL INTEGRATION SWEEP (migration 660 blast-radius check):
+FULL INTEGRATION SWEEP (migration 664 blast-radius check):
   bunx vitest run --config vitest.integration.config.ts
   -> 27 files / 8 tests failed, ALL environmental and pre-existing:
      13x "DATABASE_URL names isaflow_schema_fixture, not isaflow_dev/isaflow_test"
@@ -158,7 +158,7 @@ MUTATIONS (round 5)
       -> k051-cross-company-journal-line "judges a level-2 asset parent on THIS
          company lines only" FAILS. RESTORED. M6 is now dead.
 
-MIGRATION 660 applied to the fixture DB and proved:
+MIGRATION 664 applied to the fixture DB and proved:
   INSERT gl_journal_lines(company_id=A, gl_account_id=B's account)
   -> ERROR 23503 gl_journal_lines_account_company_fk. (Transaction rolled back.)
 

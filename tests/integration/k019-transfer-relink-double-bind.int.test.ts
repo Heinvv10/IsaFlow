@@ -237,7 +237,7 @@ describe('K-019 relinkTransferCounterparts', () => {
       [theirJe, other, user],
     );
     // Their journal carries a leg on OUR target bank account — the
-    // cross-company shape migration 660 now refuses, kept here because rows
+    // cross-company shape migration 664 now refuses, kept here because rows
     // written before it still exist and this test is about ignoring them.
     await insertPreConstraintRow(
       pool,

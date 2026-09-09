@@ -164,7 +164,7 @@ it('historical inventory identifies a privileged synthetic foreign-account row w
   // This fixture is inserted by the disposable DB owner, not through the vulnerable route.
   const id=crypto.randomUUID();
   await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_date,created_by,source,reference) VALUES($1,$2,'2026-01-01',$3,'manual','opening_balance')",[id,first,user]);
-  // Migration 660 refuses this pair; the row is the pre-660 shape the inventory exists to find.
+  // Migration 664 refuses this pair; the row is the pre-664 shape the inventory exists to find.
   await insertPreConstraintRow(pool,'INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit) VALUES($1,$2,$3,1,0)',[id,first,foreign]);
   const rows=(await pool.query(readFileSync('docs/audits/remediation/K-006/historical-impact.sql','utf8'),[first])).rows;
   expect(rows.find(row=>row.id===id)).toMatchObject({unowned_account_lines:'1',status:'draft'});

@@ -49,8 +49,8 @@ async function seedEntry(
     [id, co, date, status, byUser, fiscalPeriod],
   );
   // `co` is deliberately the OTHER tenant for one seed while the accounts stay
-  // this company's — the cross-company shape migration 660 now refuses, and the
-  // pre-660 shape this test exists to prove is not counted.
+  // this company's — the cross-company shape migration 664 now refuses, and the
+  // pre-664 shape this test exists to prove is not counted.
   await insertPreConstraintRow(
     pool,
     `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)

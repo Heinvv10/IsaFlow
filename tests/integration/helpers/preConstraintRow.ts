@@ -1,10 +1,10 @@
 /**
- * Write a row that migration 660 makes unrepresentable.
+ * Write a row that migration 664 makes unrepresentable.
  *
  * `gl_journal_lines_account_company_fk` refuses a line whose `company_id`
  * disagrees with its GL account's, and the fixtures that use this helper create
  * exactly that shape ON PURPOSE — to prove that a guard ignores another
- * tenant's line, or that a detector finds one. The rows are real: 660 is
+ * tenant's line, or that a detector finds one. The rows are real: 664 is
  * NOT VALID, so every such row written before it survives in production, which
  * is what those guards exist for.
  *

@@ -14,10 +14,10 @@
  * REST path did not.
  *
  * Two defences, both proved here: the ownership check in `createJournalEntry`,
- * and migration 660's composite FK, which makes the pair unrepresentable.
+ * and migration 664's composite FK, which makes the pair unrepresentable.
  *
  * The third test is why `assertParentUsable`'s posted-lines read carries
- * `company_id`: rows written BEFORE 660 can still hold that shape, and the
+ * `company_id`: rows written BEFORE 664 can still hold that shape, and the
  * guard must judge this company's parent on this company's lines — the same
  * predicate `balanceSheetService` uses.
  */
@@ -129,7 +129,7 @@ it('still creates the journal when every line is this company own account', asyn
   expect(entry.id).toBeTruthy();
 });
 
-it('migration 660 refuses the pair at the storage layer too', async () => {
+it('migration 664 refuses the pair at the storage layer too', async () => {
   // The service check is the message; the constraint is the guarantee. Every
   // other writer of gl_journal_lines is covered by this one whether or not it
   // remembers to ask.
@@ -144,8 +144,8 @@ it('migration 660 refuses the pair at the storage layer too', async () => {
 });
 
 it('judges a level-2 asset parent on THIS company lines only, and the balance sheet agrees', async () => {
-  // The pre-660 shape, which historical rows can still hold: a line on THIS
-  // company's account carrying ANOTHER company's `company_id`. 660 makes it
+  // The pre-664 shape, which historical rows can still hold: a line on THIS
+  // company's account carrying ANOTHER company's `company_id`. 664 makes it
   // unrepresentable, so the row is written with `session_replication_role` set
   // to `replica` for this transaction only — which suppresses the FK trigger
   // without touching the schema — and the transaction is rolled back.
