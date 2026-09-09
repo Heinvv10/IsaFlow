@@ -1,0 +1,36 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-approval-20260909
+
+ ❯ tests/integration/controls/operationApproval.int.test.ts (16 tests | 1 failed | 15 skipped) 437ms
+   × rechecks the original requester token after revocation or scope attenuation 348ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/controls/operationApproval.int.test.ts > rechecks the original requester token after revocation or scope attenuation
+AssertionError: promise resolved "{ accepted: true }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "accepted": true,
+  }
+
+ ❯ tests/integration/controls/operationApproval.int.test.ts:272:106
+    270|     else if (change === 'expired') await pool.query("UPDATE personal_a…
+    271|     else await pool.query("UPDATE personal_access_tokens SET scopes=AR…
+    272|     await expect(request('u1', ctx => executeControlledOperation(ctx, …
+       |                                                                                                          ^
+    273|   }
+    274| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 skipped (16)
+   Start at  09:39:13
+   Duration  1.17s (transform 376ms, setup 0ms, import 413ms, tests 437ms, environment 0ms)
+
