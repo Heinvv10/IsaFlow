@@ -72,6 +72,7 @@ it('fingerprints current employee compensation, employee data, account, period a
     ["UPDATE companies SET default_currency='USD' WHERE id=$1",[fixture.companyA],"UPDATE companies SET default_currency='ZAR' WHERE id=$1"],
   ] as const){try{await pool.query(query,[...values]);
     if(query.includes('payroll_employee'))await expect(read()).rejects.toThrow('recalculate');
+    else if(query.includes('UPDATE companies'))await expect(read()).rejects.toThrow('currency');
     else expect(hash(await read())).not.toBe(original);
   }finally{await pool.query(restore,[...values]);await seedSyntheticReceipt();}}
 });
@@ -96,4 +97,110 @@ it('refuses legacy calculated output without an immutable calculation receipt',a
     VALUES($1,$2,8,2026,'calculated',100,100,1)`,[legacy,fixture.companyA]);
   await pool.query(`INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,net_pay) VALUES($1,$2,100,100)`,[legacy,employee]);
   await expect(actor('u1',ctx=>materializePayrollOperation(ctx,{...ref,entityId:legacy}))).rejects.toThrow('recalculate');
+});
+
+let nextMonth=0;
+async function calculatedRun(){
+  const month=++nextMonth,id=randomUUID(),periodId=randomUUID(),end=new Date(Date.UTC(2026,month,0)).toISOString().slice(0,10);
+  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+    VALUES($1,$2,'Synthetic writer period',$3,2026,$4,$5,'open')`,[periodId,fixture.companyA,month,`2026-${String(month).padStart(2,'0')}-01`,end]);
+  await pool.query(`INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,notes) VALUES($1,$2,$3,2026,'draft','Existing fixture note')`,[id,fixture.companyA,month]);
+  const {calculatePayrollRun}=await import('@/modules/accounting/services/payroll/payrollRunService');
+  await actor('u1',()=>calculatePayrollRun(id,fixture.companyA));
+  return {id,periodId,end,ref:{...ref,entityId:id}};
+}
+async function approve(ref:Parameters<typeof materializePayrollOperation>[1]){
+  const {requestOperationApproval,decideOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+  const request=await actor('u1',ctx=>requestOperationApproval(ctx,ref));
+  await expect(actor('u1',ctx=>decideOperationApproval(ctx,request.id,'approved'))).rejects.toThrow();
+  await actor('u2',ctx=>decideOperationApproval(ctx,request.id,'approved'));return request.id;
+}
+it('calculates a real receipt, gates approval and direct posting, and replays one exact journal effect',async()=>{
+  await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
+    VALUES($1,$2,'Synthetic payroll policy','payroll_run','amount','any',0,'admin')`,[randomUUID(),fixture.companyA]);
+  const current=await calculatedRun();
+  const {approvePayrollRun}=await import('@/modules/accounting/services/payroll/payrollApprovalService');
+  const {postPayrollRunJournal}=await import('@/modules/accounting/services/payroll/payrollJournalPostingService');
+  await expect(actor('u1',()=>approvePayrollRun(fixture.companyA,current.id,fixture.u1.id))).rejects.toThrow('approval');
+  await expect(actor('u1',()=>postPayrollRunJournal(fixture.companyA,current.id,fixture.u1.id))).rejects.toThrow('approval');
+  const approvalId=await approve(current.ref);
+  const result=await actor('u1',()=>approvePayrollRun(fixture.companyA,current.id,fixture.u1.id,{approvalId}));
+  expect(await actor('u1',()=>postPayrollRunJournal(fixture.companyA,current.id,fixture.u1.id,{approvalId}))).toBe(result.journalEntryId);
+  const journals=await pool.query('SELECT id,status FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,current.id]);
+  expect(journals.rows).toEqual([{id:result.journalEntryId,status:'posted'}]);
+  expect((await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,current.id])).rows).toHaveLength(1);
+  expect((await pool.query('SELECT calculation_version FROM control_payroll_calculations WHERE company_id=$1 AND run_id=$2',[fixture.companyA,current.id])).rows).toEqual([{calculation_version:'2'}]);
+  const events=await pool.query('SELECT before_values,after_values FROM control_change_events WHERE company_id=$1 AND entity_type=$2 AND entity_id=$3',[fixture.companyA,'payroll_run',current.id]);
+  expect(JSON.stringify(events.rows)).not.toContain('gross');expect(JSON.stringify(events.rows)).not.toContain('employee');
+});
+it('requires recalculation for changed compensation before a new approval and invalidates old approval after recalculation',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref);
+  const {requestOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+  const {calculatePayrollRun}=await import('@/modules/accounting/services/payroll/payrollRunService');
+  const {approvePayrollRun}=await import('@/modules/accounting/services/payroll/payrollApprovalService');
+  try{
+    await pool.query('UPDATE payroll_employee_components SET amount=101 WHERE id=$1',[assignment]);
+    await expect(actor('u1',ctx=>requestOperationApproval(ctx,current.ref))).rejects.toThrow('recalculate');
+    await actor('u1',()=>calculatePayrollRun(current.id,fixture.companyA));
+    await expect(actor('u1',()=>approvePayrollRun(fixture.companyA,current.id,fixture.u1.id,{approvalId}))).rejects.toThrow('material');
+  }finally{await pool.query('UPDATE payroll_employee_components SET amount=100 WHERE id=$1',[assignment]);}
+});
+it('reopens through one approved contra and retains original provenance, then permits recalculation and a new posting',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref);
+  const {approvePayrollRun}=await import('@/modules/accounting/services/payroll/payrollApprovalService');
+  const {reopenPayrollRun}=await import('@/modules/accounting/services/payroll/payrollRunLock');
+  const {calculatePayrollRun}=await import('@/modules/accounting/services/payroll/payrollRunService');
+  const first=await actor('u1',()=>approvePayrollRun(fixture.companyA,current.id,fixture.u1.id,{approvalId}));
+  const reopenId=await approve({...current.ref,operation:'payroll_run.reopen'});
+  await actor('u1',()=>reopenPayrollRun({companyId:fixture.companyA,runId:current.id,userId:fixture.u1.id,reason:'Synthetic correction',approvalId:reopenId}));
+  expect((await pool.query('SELECT journal_entry_id,status FROM payroll_run_headers WHERE company_id=$1 AND id=$2',[fixture.companyA,current.id])).rows)
+    .toEqual([{journal_entry_id:first.journalEntryId,status:'calculated'}]);
+  expect((await pool.query('SELECT notes FROM payroll_run_headers WHERE company_id=$1 AND id=$2',[fixture.companyA,current.id])).rows[0].notes)
+    .toBe('Existing fixture note\nSynthetic correction');
+  const evidence=(await pool.query(`SELECT e.before_values,e.after_values,p.key_id,p.envelope_version,p.ciphertext
+    FROM control_change_events e JOIN control_protected_evidence p ON p.company_id=e.company_id AND p.id=e.protected_evidence_id
+    WHERE e.company_id=$1 AND e.entity_id=$2 AND e.action='payroll_run.reopen'`,[fixture.companyA,current.id])).rows[0];
+  const {openProtectedChange}=await import('@/modules/accounting/services/controls/changeProtection');
+  expect(JSON.stringify(openProtectedChange({version:evidence.envelope_version,keyId:evidence.key_id,ciphertext:evidence.ciphertext}))).toContain('Synthetic correction');
+  expect(JSON.stringify([evidence.before_values,evidence.after_values])).not.toContain('Synthetic correction');
+  const balance=await pool.query(`SELECT gl_account_id,SUM(debit-credit)::text AS balance FROM gl_journal_lines
+    WHERE company_id=$1 AND journal_entry_id IN(SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2) GROUP BY gl_account_id`,[fixture.companyA,current.id]);
+  expect(balance.rows.every(row=>Number(row.balance)===0)).toBe(true);
+  await actor('u1',()=>calculatePayrollRun(current.id,fixture.companyA));
+  const freshId=await approve(current.ref);
+  const second=await actor('u1',()=>approvePayrollRun(fixture.companyA,current.id,fixture.u1.id,{approvalId:freshId}));
+  expect(second.journalEntryId).not.toBe(first.journalEntryId);
+});
+it('rolls back posted journal, payroll status, effect and child events after outer failure',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref);
+  const {approvePayrollRun}=await import('@/modules/accounting/services/payroll/payrollApprovalService');
+  await expect(actor('u1',async()=>{await approvePayrollRun(fixture.companyA,current.id,fixture.u1.id,{approvalId});throw new Error('synthetic rollback');})).rejects.toThrow('synthetic rollback');
+  expect((await pool.query('SELECT status,journal_entry_id FROM payroll_run_headers WHERE company_id=$1 AND id=$2',[fixture.companyA,current.id])).rows).toEqual([{status:'calculated',journal_entry_id:null}]);
+  expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,current.id])).rows).toHaveLength(0);
+  expect((await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,current.id])).rows).toHaveLength(0);
+});
+it('serializes new employee-component inserts behind a locked material snapshot',async()=>{
+  const current=await calculatedRun(),insertId=randomUUID();
+  let release!:()=>void,ready!:()=>void,writerReady!:()=>void,pid=0;
+  const hold=new Promise<void>(resolve=>{release=resolve;}),locked=new Promise<void>(resolve=>{ready=resolve;}),started=new Promise<void>(resolve=>{writerReady=resolve;});
+  const reading=actor('u1',async ctx=>{await materializePayrollOperation(ctx,current.ref);ready();await hold;});
+  await locked;
+  const writing=actor('u2',async ctx=>{
+    const rows=await ctx.sql`SELECT pg_backend_pid() AS pid` as {pid:number}[];pid=rows[0]!.pid;writerReady();
+    await ctx.sql`INSERT INTO payroll_employee_components(id,employee_id,component_id,amount,effective_from)
+      VALUES(${insertId}::uuid,${employee}::uuid,${component}::uuid,0,'2026-01-01')`;
+  });
+  try{
+    await started;let waiting=false;
+    for(let attempt=0;attempt<30;attempt++){
+      const row=(await pool.query('SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1',[pid])).rows[0];
+      if(row?.wait_event_type==='Lock'){waiting=true;break;}
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    expect(waiting).toBe(true);release();await reading;await writing;
+    await expect(actor('u1',ctx=>materializePayrollOperation(ctx,current.ref))).rejects.toThrow('recalculate');
+  }finally{
+    release();await Promise.allSettled([reading,writing]);
+    await pool.query('DELETE FROM payroll_employee_components WHERE id=$1 AND employee_id=$2',[insertId,employee]);
+  }
 });

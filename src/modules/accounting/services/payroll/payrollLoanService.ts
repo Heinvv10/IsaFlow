@@ -230,7 +230,6 @@ export async function createLoan(input: CreateLoanInput): Promise<PayrollLoan> {
       companyId: input.companyId,
       employeeId: input.employeeId,
       loanNumber: input.loanNumber,
-      principal: input.principal,
       termMonths: input.termMonths,
       method: input.method,
     },
@@ -470,10 +469,6 @@ export async function applyLoanToRun(input: ApplyLoanToRunInput): Promise<ApplyL
       loanId: input.loanId,
       periodYear: input.periodYear,
       periodMonth: input.periodMonth,
-      interest,
-      principal,
-      fringeBenefit,
-      newBalance,
     },
     'payrollLoanService',
   );

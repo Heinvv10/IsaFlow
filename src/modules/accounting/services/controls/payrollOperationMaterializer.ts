@@ -1,4 +1,4 @@
-import { assertPayrollCalculationReceipt, readPayrollCalculationReceipt } from './payrollCalculationReceipt';
+import { assertPayrollCalculationReceipt, readPayrollCalculationReceipt, PAYROLL_CALCULATION_CURRENCY } from './payrollCalculationReceipt';
 import { createHash } from 'node:crypto';
 import { canonicalJson } from './canonical';
 import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
@@ -15,6 +15,7 @@ export async function materializePayrollOperation(ctx: ControlTx, ref: Operation
   const { header, company } = sources;
   if (ref.operation === 'payroll_run.post') assertPayrollCalculationReceipt(sources,await readPayrollCalculationReceipt(ctx,ref.entityId));
   if (typeof company.default_currency !== 'string' || !/^[A-Z]{3}$/.test(company.default_currency)) throw new Error('Payroll ledger currency unavailable');
+  if (company.default_currency !== PAYROLL_CALCULATION_CURRENCY) throw new Error('Payroll calculation currency differs from ledger currency; no bound conversion exists');
   const date = lastDayOfMonthIso(Number(header.period_year), Number(header.period_month));
   if (!isRealCalendarDate(date)) throw new Error('Invalid payroll period');
   const requested = ref.reversalDate;
@@ -32,7 +33,7 @@ export async function materializePayrollOperation(ctx: ControlTx, ref: Operation
     ORDER BY id FOR SHARE` as PayrollRow[];
   if (periods.length !== 1) throw new Error('Payroll fiscal period missing or ambiguous');
   const plan = buildExactPayrollPlan(header,sources.lines,sources.accounts,sources.employees,sources.allocations,sources.mappings);
-  const facts = { ...sources, plan, targetPeriod:periods[0]!, accountingDate,
+  const facts = { ...sources, calculationCurrency:PAYROLL_CALCULATION_CURRENCY, plan, targetPeriod:periods[0]!, accountingDate,
     journal:journal ? journal.observedSources.find(s=>s.entityType==='journal_entry')!.facts : null };
   const prior = await readControlEntityVersion(ctx, ref);
   const observed: ObservedSource = { entityType:ref.entityType,entityId:ref.entityId,version:prior?.version ?? 1,

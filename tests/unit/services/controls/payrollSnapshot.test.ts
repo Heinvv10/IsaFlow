@@ -35,6 +35,7 @@ it('binds current employees, component assignments, ledger settings and fiscal p
     ['companies','default_currency','USD'],['fiscal_periods','status','closed']] as const) {
     const row=state[table]![0] as Record<string,unknown>, prior=row[key];row[key]=value;
     if(table==='payroll_employees' || table==='payroll_employee_components') await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('recalculate');
+    else if(table==='companies') await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('currency');
     else expect((await materializePayrollOperation(ctx,ref)).binding.sourceVersions).not.toEqual(before.binding.sourceVersions);
     row[key]=prior;
   }
@@ -63,4 +64,8 @@ it('refuses oversized source populations instead of hashing a truncated subset',
 
 it('refuses an unverified legacy calculation before requesting approval',async()=>{
   receipt=null;await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('recalculate');
+});
+it('refuses posting SA payroll nominal rand amounts into a different ledger currency',async()=>{
+  (state.companies![0] as Record<string,unknown>).default_currency='USD';
+  await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('currency');
 });
