@@ -24,6 +24,11 @@ import {
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
+  INPUT_VAT_DENIED_ADVICE,
+  resolveVatCodeForAccount,
+  VAT_CODE_STANDARD,
+} from '@/modules/accounting/services/gl/inputVatDenial';
+import {
   createClaim,
   submitClaim,
   type ExpenseClaimLine,
@@ -206,11 +211,23 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Build journal lines from receipt
   const bankAccountId = await getSystemAccountId('bank', companyId);
 
-  const journalInput = buildExpenseJournalFromReceipt(extracted, {
-    expenseAccountId: resolvedGlAccountId,
-    vatInputAccountId,
-    bankAccountId,
-  });
+  // `resolvedGlAccountId` is chosen by the user or a capture rule, NOT by the
+  // merchant map — so the builder's merchant heuristic cannot see a receipt
+  // coded straight to a flagged Entertainment or Staff Welfare account. Read
+  // the account's own `vat_input_denied` marker and hand it in. Unattended:
+  // this branch auto-posts under the same confidence gate.
+  const accountDenial = await resolveVatCodeForAccount(
+    companyId,
+    resolvedGlAccountId,
+    VAT_CODE_STANDARD,
+    { eventId, documentId, source: 'capture_post_expense' },
+  );
+
+  const journalInput = buildExpenseJournalFromReceipt(
+    extracted,
+    { expenseAccountId: resolvedGlAccountId, vatInputAccountId, bankAccountId },
+    { accountVatDenied: accountDenial.denied },
+  );
 
   const jeEntry = await createJournalEntry(
     companyId,
@@ -233,6 +250,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           credit: l.credit,
           description: l.description,
           costCenterId: costCentreId,
+          vatType: l.vatType,
         })),
     },
     userId,
@@ -303,6 +321,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     journalEntry: { id: jeEntry.id, status: jeStatus },
     merchant: extracted.vendorName,
     amount: extracted.totalAmount,
+    inputVatDenied: journalInput.inputVatDenied,
+    warnings: journalInput.inputVatDenied ? [INPUT_VAT_DENIED_ADVICE] : [],
   });
 }
 

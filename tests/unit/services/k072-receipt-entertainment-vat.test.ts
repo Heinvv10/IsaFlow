@@ -105,12 +105,46 @@ describe('K-072 adjacent cases', () => {
       .toBe(journal.lines.find(l => l.accountId === accountIds.bankAccountId)?.credit);
   });
 
+  it('tags no line as a standard-rated claim once the claim is denied', () => {
+    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds);
+    expect(journal.lines.every(l => l.vatType === undefined)).toBe(true);
+  });
+
+  it('reports the denial to the caller instead of only logging it', () => {
+    expect(buildExpenseJournalFromReceipt(receipt(), accountIds).inputVatDenied).toBe(true);
+    const office = receipt({ vendorName: 'Waltons Stationery' });
+    expect(buildExpenseJournalFromReceipt(office, accountIds).inputVatDenied).toBe(false);
+  });
+
   it('denies the claim when the VAT was derived rather than extracted', () => {
     // subtotal and vatAmount absent: the builder computes 400 + 60 from 460.
     const derived = receipt({ subtotal: null, vatAmount: null, totalAmount: 460 });
     const journal = buildExpenseJournalFromReceipt(derived, accountIds);
     expect(journal.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.debit).toBe(0);
     expect(journal.lines.find(l => l.accountId === accountIds.expenseAccountId)?.debit).toBe(460);
+  });
+
+  it('denies on the account flag when the merchant regex does not know the vendor', () => {
+    // MERCHANT_PATTERNS knows Spur and Nandos, not Tashas. The authoritative
+    // input is gl_accounts.vat_input_denied, which the caller resolves.
+    const tashas = receipt({ vendorName: 'Tashas Melrose Arch' });
+    expect(parseReceiptType(tashas)).toBe('general');
+
+    const unflagged = buildExpenseJournalFromReceipt(tashas, accountIds);
+    expect(unflagged.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.debit).toBe(150);
+
+    const flagged = buildExpenseJournalFromReceipt(tashas, accountIds, { accountVatDenied: true });
+    expect(flagged.inputVatDenied).toBe(true);
+    expect(flagged.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.debit).toBe(0);
+    expect(flagged.lines.find(l => l.accountId === accountIds.expenseAccountId)?.debit).toBe(1150);
+  });
+
+  it('keeps the merchant heuristic when the account carries no flag', () => {
+    // The two inputs are OR'd: an explicit false on the account must not
+    // resurrect the claim on a receipt the merchant map already denied.
+    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds, { accountVatDenied: false });
+    expect(journal.inputVatDenied).toBe(true);
+    expect(journal.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.debit).toBe(0);
   });
 
   it('leaves an unclassifiable merchant claiming its input tax', () => {
@@ -121,5 +155,8 @@ describe('K-072 adjacent cases', () => {
     const journal = buildExpenseJournalFromReceipt(unknown, accountIds);
     expect(journal.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.debit).toBe(150);
     expect(journal.lines.find(l => l.accountId === accountIds.expenseAccountId)?.debit).toBe(1000);
+    // Tagged, which is what puts the posting routes inside the CI VAT gate.
+    expect(journal.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.vatType).toBe('standard');
+    expect(journal.lines.find(l => l.accountId === accountIds.expenseAccountId)?.vatType).toBe('standard');
   });
 });

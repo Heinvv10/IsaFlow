@@ -17,17 +17,27 @@ reaches the ledger with two lines and no VAT-input line at all. The denial keys 
 TYPE, not the account code: `travel` and telecoms map to 5600 too and their input tax is
 claimable.
 
-**Files.** `src/modules/accounting/services/bank/receiptToJournalService.ts` only. The two
-routes and `scripts/ci/check-vat-guard-coverage.ts` are untouched — an earlier attempt tagged
-the lines with `vatType`, which pulled both routes into the VAT-guard gate's scope and needed
-two allowlist entries to pass. Tagging is not part of this defect, so it was dropped and the
-gate is unchanged at 14 allowlisted paths.
+**The account marker, added in round 2.** The merchant regex is a heuristic and it does not know
+Tashas, Marble or a corporate caterer; and on `post-expense` the account is chosen by a user or a
+capture rule, not by the merchant map at all. Both routes now call `resolveVatCodeForAccount` on
+the expense account they resolved, reading the `gl_accounts.vat_input_denied` marker that
+migration 521 sets, and the builder ORs that with its heuristic. The authoritative input decides;
+the heuristic only adds to it.
 
-**Tests.** `tests/unit/services/k072-receipt-entertainment-vat.test.ts` (8) and
-`tests/integration/k072-receipt-entertainment-vat.int.test.ts` (4, real Postgres). Adjacent
-cases: a hotel sharing account 5600 keeps its claim, an unclassifiable merchant keeps its
-claim, a meals receipt whose VAT was derived rather than extracted is still denied, and another
-tenant's document writes no journal. Mutation proof in `green.log`.
+**Files.** `receiptToJournalService.ts`, `pages/api/accounting/receipt-to-journal.ts` and
+`pages/api/accounting/capture/[id]/post-expense.ts`. The lines carry `vatType` and both routes
+import and use the denial funnel, so `check-vat-guard-coverage.ts` now sees them as in-scope and
+guarded. The gate file itself is untouched and still lists 14 allowlisted paths — no exemption
+was added. Before this, both routes returned `null` from the inspector: unattended posters the
+gate could not see.
+
+**Tests.** `tests/unit/services/k072-receipt-entertainment-vat.test.ts` (12) and
+`tests/integration/k072-receipt-entertainment-vat.int.test.ts` (5, real Postgres). Adjacent
+cases: a hotel sharing account 5600 keeps its claim, an unclassifiable merchant keeps its claim,
+a merchant the regex does not know is denied on the account flag alone, an explicit
+`accountVatDenied: false` does not resurrect a claim the merchant map denied, a meals receipt
+whose VAT was derived rather than extracted is still denied, and another tenant's document
+writes no journal. Mutation proof in `green.log`.
 
 **Migration.** None. **Rollback.** Revert the commit.
 
@@ -48,7 +58,8 @@ WHERE je.company_id = $1
 Each hit needs a correcting journal and a VAT201 adjustment. The population is small: the
 `auto_expense_receipt` source only became postable at migration 509.
 
-**Limits.** The denial is only as good as `MERCHANT_PATTERNS`. A restaurant the regex does not
-recognise classifies as `general` and keeps its claim. This fix does not consult
-`gl_accounts.vat_input_denied`, so a company that flagged its own entertainment account gets no
-benefit on this path.
+**Limits.** A restaurant that the regex does not know AND whose account carries no
+`vat_input_denied` flag still claims. Setting the flag is a per-company act, so the marker only
+helps a company that has set it; migration 521 sets it for the accounts it can identify by name.
+The denial is also reported to the caller but not blocked — an operator sees the advice in
+`warnings` and must recode the receipt themselves.

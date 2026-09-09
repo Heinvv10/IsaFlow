@@ -7,19 +7,26 @@ also deleted the decimal comma. South Africa prints `R1 150,00`, and the capture
 **Before.** `Total Due R1 150,00` parsed as `115000`; its `VAT @ 15% R150,00` as `15000`. A
 100x amount then fed `buildExpenseJournalFromReceipt` and the capture screens.
 
-**After.** The separator is decided before stripping: comma followed by exactly two digits at
-the end, and no point anywhere, means the comma is the decimal point. Otherwise today's
-behaviour stands, so `1,234.56` still parses as `1234.56`. Non-breaking space (U+00A0, what PDF
-text layers emit) is stripped alongside the ordinary space, which master did not do. Same rule
-as `bankCsvParserUtils.parseAmount`.
+**After.** The separator is decided by the LAST one in the string: followed by one or two digits
+to the end it is the decimal point, anything else is a thousands separator. One rule covers
+`1 150,00`, `1,234.56`, `1.234,56`, `1,234` and `1150.5` with no locale switch. Non-breaking
+space (U+00A0, what PDF text layers emit) is stripped alongside the ordinary space, which master
+did not do.
 
-**Files.** `src/modules/accounting/services/core/ocrExtractionService.ts` (`parseAmount`).
+Round 2 replaced an earlier `.replace(',', '.')`, which is NON-GLOBAL: on `1,234,56` only the
+first comma became a point and `parseFloat` stopped at `1.23`, a thousandfold under-read.
+`bankCsvParserUtils.parseAmount` carried the identical line and is fixed the same way, since a
+bank statement row is imported without anyone re-reading the figure.
 
-**Tests.** `tests/unit/services/k075-ocr-comma-decimal.test.ts` — 7. Adjacent cases:
-non-breaking-space thousands separator, a whole-rand amount with no decimal part, a label with
-no number at all, and the derived subtotal (which runs on the parsed numbers, so a 100x total
-made it wrong too). Mutation proof in `green.log`: reverting `parseAmount` to master takes 4 of
-the 7 red.
+**Files.** `src/modules/accounting/services/core/ocrAmountPatterns.ts` (new — the grammar, split
+out so `ocrExtractionService.ts` stays under the 300-line cap) and
+`src/modules/accounting/utils/bankCsvParserUtils.ts`.
+
+**Tests.** `tests/unit/services/k075-ocr-comma-decimal.test.ts` (13) and
+`tests/unit/services/k075-bank-csv-comma-decimal.test.ts` (6). Adjacent cases: non-breaking-space
+thousands, a whole-rand amount, a label with no number, the derived subtotal, comma thousands with
+a comma decimal, the European point-thousands form, a single-digit decimal part, and a capture
+that must not run across a line break into the next figure. Mutation proof in `green.log`.
 
 **Migration.** None. **Rollback.** Revert the commit.
 
@@ -39,5 +46,6 @@ Only the regex fallback is affected; the VLM path parses its own numbers. Where 
 was posted, `receipt-to-journal.ts` rejects it when subtotal + VAT disagrees with the total, so
 the posted population is smaller than the extracted one.
 
-**Limits.** `1,234` alone is genuinely ambiguous between conventions. The `,\d{2}$` rule is the
-conservative reading and treats it as thousands, as master did.
+**Limits.** `1,234` alone is genuinely ambiguous between conventions. The last-separator rule
+treats it as thousands, which is the conservative reading and what master did. An amount printed
+with three decimal places is read as thousands for the same reason.

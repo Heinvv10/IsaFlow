@@ -9,24 +9,44 @@ separator optional, so `VAT: <number>` read a registration number as an amount.
 back `1000` — the VAT-exclusive figure, silently. On `VAT: 4123456789`, `vatAmount` came back
 `4123456789`.
 
-**After.** Each total pattern is prefixed with `(?:^|[^A-Za-z])`, so a letter before `Total`
-breaks the match. The single loose VAT pattern is split into three that each require a real
-token before the digits — a rate (`@ 15%` or `(15%)`), a separator (`:` or `-`), or a currency
-marker (`R`/`ZAR`) — and a match that is a bare 9-or-10-digit run with no decimal part is
-rejected as a registration number and the loop continues to the next pattern.
+**After.** Each total pattern carries `(?<![A-Za-z])(?<!Sub[-\s])`. Round 2 replaced the first
+attempt, `(?:^|[^A-Za-z])`, which only fixed the JOINED spelling: a space and a hyphen are both
+non-letters, so `Sub Total` and `Sub-Total` still matched and still won on first occurrence. The
+file's own subtotal patterns spell `Sub\s*[-\s]?Total`, which is how the codebase already knew
+both forms occur.
+
+The VAT label is split into forms that each require a real token before the digits — a rate, a
+`:`/`-` separator, or a currency marker — plus a BARE COLUMN form last. That last one is not
+optional: a till slip prints `VAT      0.00` with only whitespace between, and dropping it does
+not merely lose the figure. `buildExpenseJournalFromReceipt` derives 15% whenever `vatAmount` is
+null, so a document stating the VAT is ZERO produced an invented input-tax claim it explicitly
+denies — the K-072 defect, arriving through the K-076 fix. Round 2 restored the form and pinned
+it.
+
+A candidate is rejected as a registration number by VALUE, not by digit count: the tax on a
+document can never exceed the document's own total, and a registration number always does. The
+earlier `^\d{9,10}$` was a shape test that one OCR digit escaped in either direction. Every
+occurrence of a label form is now scanned, not just the first, so a registration number printed
+above the real VAT line no longer consumes the pattern; and where several VAT lines are found,
+they are summed ONLY if `subtotal + sum` equals the stated total, which stops a document printing
+both a per-line and a total VAT from being doubled. A derived subtotal below zero is discarded.
 
 Scope correction carried from validation: the commoner registration layouts (`VAT No:`,
 `VAT Reg No:`, `VAT Registration Number`) never matched on master either, because the letters
 after the optional `R` alternative break the pattern. Only the bare `VAT: <n>` and `VAT <n>`
 forms were affected.
 
-**Files.** `src/modules/accounting/services/core/ocrExtractionService.ts` (`extractAmounts`).
+**Files.** `src/modules/accounting/services/core/ocrAmountPatterns.ts` (new — labels, amount
+grammar and VAT candidate selection) and `ocrExtractionService.ts` (`extractAmounts`, now 269
+lines, under the cap).
 
-**Tests.** `tests/unit/services/k076-ocr-label-boundaries.test.ts` — 6. Adjacent cases: a
-registration number printed ABOVE the real VAT line (the amount must still be found), the
-currency form `VAT R 150,00`, `Total Excluding VAT` not read as the payable total, and a
-document with only a Subtotal. Mutation proof in `green.log`: removing the left boundary takes
-2 red, reverting the VAT patterns takes a different 2 red.
+**Tests.** `tests/unit/services/k076-ocr-label-boundaries.test.ts` — 24. Adjacent cases: all four
+Subtotal spellings, the SA-spaced `Sub Total 1 000,00`, a registration number printed above the
+real VAT line, the currency form, `Total Excluding VAT`, a bare whitespace VAT column, a stated
+VAT of zero, the rate not being read as the amount, 8/9/10/11-digit registration runs, a
+whole-rand VAT smaller than the total, a bare registration number with no total to compare
+against, a negative derived subtotal, and a split VAT summary both when the sum reconciles and
+when it does not. Mutation proof in `green.log`.
 
 **Migration.** None. **Rollback.** Revert the commit.
 
@@ -51,3 +71,7 @@ answers 400 when subtotal + VAT disagrees with the total.
 **Limits.** A document that prints only `Subtotal` and no total line now extracts no total at
 all, where before it got a wrong one. That is the safer failure and it surfaces through
 `computeConfidence` — but it is a behaviour change, deliberately taken.
+
+A negative or refund total still extracts nothing, and `validateReceiptExtraction` then rejects
+the document with a 400. Admitting the minus sign would let the auto-post branch write an
+unattended reversal; a credit note needs its own path. See `review-round-2.md`.

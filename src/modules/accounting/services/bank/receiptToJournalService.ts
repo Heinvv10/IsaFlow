@@ -5,6 +5,7 @@
  */
 
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import type { VatType } from '@/modules/accounting/types/gl.types';
 import { applyVatDenial, VAT_CODE_STANDARD } from '@/modules/accounting/services/gl/inputVatDenial';
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,13 @@ export interface JournalLine {
   debit: number;
   credit: number;
   description: string;
+  /**
+   * Undefined where no input tax is claimed. Tagging matters beyond reporting:
+   * `vatType` is what puts a posting route inside the scope of
+   * `scripts/ci/check-vat-guard-coverage.ts`, and a path this gate cannot see
+   * is a path the next unattended VAT claim can be added to silently.
+   */
+  vatType?: VatType;
 }
 
 export interface JournalEntryInput {
@@ -34,6 +42,13 @@ export interface JournalEntryInput {
   description: string;
   source: string;
   lines: JournalLine[];
+  /**
+   * True when s17(2)(a) took the claim away. Returned rather than left in the
+   * log, because `inputVatDenial` documents the unattended contract as
+   * "coerces to 'none' AND THE CALLER REPORTS IT" — an operator who is never
+   * told cannot correct a misclassified merchant.
+   */
+  inputVatDenied: boolean;
 }
 
 export interface AccountSuggestion {
@@ -115,6 +130,7 @@ export function mapMerchantToExpenseAccount(
 export function buildExpenseJournalFromReceipt(
   extracted: ExtractedDocument,
   accountIds: { expenseAccountId: string; vatInputAccountId: string; bankAccountId: string },
+  options: { accountVatDenied?: boolean } = {},
 ): JournalEntryInput {
   const total = extracted.totalAmount ?? 0;
   const vatRate = extracted.vatRate ?? 15;
@@ -140,8 +156,21 @@ export function buildExpenseJournalFromReceipt(
   // too and their input tax is claimable. Unattended: both callers auto-post
   // under a confidence gate with nobody watching, which is the one shape
   // `applyVatDenial` is allowed to coerce rather than warn about.
+  // Two independent inputs, either of which denies the claim.
+  //
+  // `accountVatDenied` is the authoritative one: the `gl_accounts.vat_input_denied`
+  // marker that migration 521 sets, resolved by the caller against the account
+  // this receipt is actually being coded to. The merchant heuristic below is
+  // the second, and it is a heuristic — MERCHANT_PATTERNS knows Spur and Nandos
+  // and not Tashas, Marble or a corporate caterer. Relying on it alone left the
+  // flag the module calls "the marker" unread, and left post-expense — where a
+  // user or a capture rule picks the account, not the merchant map — claiming
+  // on a flagged Entertainment account.
+  //
+  // Keyed off the receipt TYPE and not the account code: `travel` and telecoms
+  // map to 5600 too and their input tax is claimable.
   const { denied } = applyVatDenial(
-    parseReceiptType(extracted) === 'meals',
+    Boolean(options.accountVatDenied) || parseReceiptType(extracted) === 'meals',
     VAT_CODE_STANDARD,
     { vendorName: extracted.vendorName, source: 'receipt_to_journal' },
   );
@@ -154,16 +183,24 @@ export function buildExpenseJournalFromReceipt(
     entryDate: extracted.date || new Date().toISOString().split('T')[0]!,
     description: `Receipt: ${merchantDesc}${extracted.referenceNumber ? ` (${extracted.referenceNumber})` : ''}`,
     source: 'auto_invoice',
+    inputVatDenied: denied,
     lines: [
       {
         accountId: accountIds.expenseAccountId,
         debit: expenseDebit,
         credit: 0,
         description: denied ? `${merchantDesc} (input VAT denied — s17(2)(a))` : merchantDesc,
+        ...(denied ? {} : { vatType: 'standard' as VatType }),
       },
       // Zero on a denial. Both callers drop zero-value legs before posting, so
       // the entry reaches the ledger with no VAT-input line at all.
-      { accountId: accountIds.vatInputAccountId, debit: denied ? 0 : vatAmount, credit: 0, description: 'VAT Input' },
+      {
+        accountId: accountIds.vatInputAccountId,
+        debit: denied ? 0 : vatAmount,
+        credit: 0,
+        description: 'VAT Input',
+        ...(denied ? {} : { vatType: 'standard' as VatType }),
+      },
       { accountId: accountIds.bankAccountId, debit: 0, credit: total, description: `Payment: ${merchantDesc}` },
     ],
   };
