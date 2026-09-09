@@ -1,5 +1,6 @@
 import {assertStandaloneBankChildReversal} from './bankChildReversalGuard';
 import {historicalImportInvoiceEvidence} from './historicalImportInvoiceEvidence';
+import {assertCashApplicationsUnapplied} from '../shared/cashApplicationCancellation';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from './canonical';
 import {UUID_RE,isRealCalendarDate} from '@/lib/validation';
@@ -41,9 +42,10 @@ export async function materializeArOperation(ctx:ControlTx,ref:OperationRef):Pro
  }else{
   const data=await lockArPaymentSources(ctx,ref.entityId);header=data.header;
   if(reverse)await assertStandaloneBankChildReversal(ctx,ref.entityId,header.gl_journal_entry_id);
+  if(reverse)await assertCashApplicationsUnapplied(ctx,ref.entityId,'customer');
   const explicit=header.bank_account_id?[String(header.bank_account_id)]:[];
   const accounts=await resolveArAccounts(ctx,reverse?[]:explicit.length?['receivable']:['receivable','bank'],reverse?[]:explicit);
-  ({amount,currency}=deriveArSettlementMoney(header.total_amount,header.currency_code,data.allocations.map(a=>({amount:a.amount_allocated,currency:a.invoice_currency})),accounts.ledgerCurrency));
+  ({amount,currency}=deriveArSettlementMoney(header.total_amount,header.currency_code,data.allocations.filter(a=>a.reversed_at==null).map(a=>({amount:a.amount_allocated,currency:a.invoice_currency})),accounts.ledgerCurrency));
   source={...data,accounts:accounts.facts};accountingDate=fmtDate(header.payment_date);
   for(const invoiceHeader of data.invoices)observed.push(await observeArSource(ctx,'customer_invoice',String(invoiceHeader.id),
    {header:invoiceHeader,lines:data.invoiceLines.filter(line=>line.invoice_id===invoiceHeader.id)}));
