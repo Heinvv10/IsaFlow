@@ -10,7 +10,7 @@ export function procurementParentType(type:string):EvidenceEntityType|null {
 export async function loadDocumentRow(ctx:ControlTx,ref:EvidenceIdentity,permissions:ReadonlySet<string>):Promise<EvidenceRow|null>{
   const c=ctx.principal.companyId;
   if(ref.entityType==='captured_document'){
-    const rows=await ctx.sql`SELECT id,status,(to_jsonb(d)->>'raw_bytes_sha256' IS NOT NULL AND to_jsonb(d)->>'raw_bytes' IS NOT NULL) AS hash_available
+    const rows=await ctx.sql`SELECT id,status,COALESCE(raw_bytes_sha256 ~ '^[a-f0-9]{64}$',false) AS hash_available
       FROM captured_documents d WHERE company_id=${c}::uuid AND id=${ref.entityId}::uuid LIMIT 1` as EvidenceRow[];
     return rows[0]??null;
   }

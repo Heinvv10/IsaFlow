@@ -2,6 +2,7 @@ import {currentStatementReview} from './bankStatementReviewValidity';
 import type {ControlTx} from './contracts';
 import {assertStatementRead} from './bankStatementAttestationSource';
 import type {StatementIntent} from './bankStatementAttestationMaterial';
+import {scanCapturedEvidence} from './capturedEvidenceScan';
 interface ReviewRow extends StatementIntent {
  population:string;effect_id:string;approval_id:string|null;version:string|null;
  result:{intentId?:string;sourceHash?:string;sourceFingerprint?:string;bankAccountId?:string;sourceDocumentId?:string;status?:string};
@@ -15,8 +16,7 @@ export async function queryVerifiedBankStatements(ctx:ControlTx,cutoff:string|nu
   COUNT(*) OVER()::text AS population,e.id AS effect_id,e.result,a.id AS approval_id,v.version,
   b.account_type,b.account_subtype,b.is_active,c.default_currency AS current_currency,
   d.id AS document_id,d.status AS document_status,d.raw_bytes_sha256 AS document_hash,
-  COALESCE(d.raw_bytes IS NOT NULL AND octet_length(d.raw_bytes) BETWEEN 1 AND 10485760 AND d.status NOT IN('deleted','rejected')
-   AND encode(digest(d.raw_bytes,'sha256'),'hex')=i.expected_source_hash AND d.raw_bytes_sha256=i.expected_source_hash,false) AS bytes_verified,
+  false AS bytes_verified,
   EXISTS(SELECT 1 FROM control_operation_decisions decision JOIN control_mandatory_statement_policies policy
    ON policy.company_id=decision.company_id AND policy.id::text=decision.policy_id
    WHERE decision.company_id=i.company_id AND decision.approval_id=a.id AND decision.decision='approved'
@@ -33,7 +33,9 @@ export async function queryVerifiedBankStatements(ctx:ControlTx,cutoff:string|nu
   LEFT JOIN control_entity_versions v ON v.company_id=i.company_id AND v.entity_type='bank_statement_attestation_intent' AND v.entity_id=i.id::text
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND (${cutoff}::date IS NULL OR i.period_end<=${cutoff}::date)
   ORDER BY i.id,e.id LIMIT 10001` as ReviewRow[];
- return{populationCount:Number(rows[0]?.population??0),over:rows.length>10000,rows:rows.slice(0,10000).map(row=>{
+ const evidence=await scanCapturedEvidence(ctx,rows.length>10000?[]:rows.map(row=>row.document_id),'read:bank-tx');
+ return{evidenceMissing:evidence.evidenceMissing,populationCount:Number(rows[0]?.population??0),over:rows.length>10000,rows:rows.slice(0,10000).map(row=>{
+  row.bytes_verified=row.document_id!==null&&row.document_hash===row.expected_source_hash&&evidence.verified.get(row.document_id)===row.expected_source_hash;
   const active=currentStatementReview(row,!!row.approval_id&&row.independent_decision&&row.version!==null);
   return{row,active};
  })};

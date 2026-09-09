@@ -4,6 +4,8 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { validateEvidence, assertPoliciesSupported } from '@/modules/accounting/services/controls/beneficiaryQueries';
 import { requireControlTx, withControlRequest } from '@/modules/accounting/services/controls/context';
 import type { EvidenceRef } from '@/modules/accounting/services/controls/contracts';
+import {loadOwnedCapturedEvidence} from '@/modules/accounting/services/controls/capturedEvidenceSource';
+vi.mock('@/modules/accounting/services/controls/capturedEvidenceSource',()=>({loadOwnedCapturedEvidence:vi.fn()}));
 const companyId = '11111111-1111-4111-8111-111111111111';
 const id = '22222222-2222-4222-8222-222222222222';
 const bytes = Buffer.from('synthetic documentary evidence');
@@ -14,17 +16,26 @@ function check(refs: EvidenceRef[], entityType: 'supplier' | 'employee' = 'suppl
   return withControlRequest({ client, userId: 'u1', companyId, claims: {} }, { personId: 'u1', companyId, authMethod: 'cookie' },
     () => validateEvidence(requireControlTx(), { entityType, entityId: id }, refs));
 }
-beforeEach(() => { query.mockReset(); query.mockResolvedValue({ rows: [{ raw_bytes: bytes, raw_bytes_sha256: hash }] }); });
-it('requires exact retrievable bytes and supplier parent ownership', async () => {
+beforeEach(() => {
+  query.mockReset();query.mockResolvedValue({rows:[{id,raw_bytes_sha256:hash}]});
+  vi.mocked(loadOwnedCapturedEvidence).mockReset();
+  vi.mocked(loadOwnedCapturedEvidence).mockResolvedValue({id,status:'matched',bytes,sha256:hash,recordedHashVerified:true,mediaType:'application/pdf'});
+});
+it('requires supplier parent ownership before accepting the shared verified source result', async () => {
   expect(await check([evidence])).toEqual([evidence]);
   const sql = query.mock.calls[0]![0] as string;
   expect(sql).toContain('i.supplier_id='); expect(sql).toContain('i.company_id=d.company_id');
   query.mockResolvedValue({ rows: [] });
   await expect(check([evidence])).rejects.toThrow('EVIDENCE_UNAVAILABLE');
 });
-it('rejects mismatched bytes even when claimed and stored hashes agree', async () => {
-  query.mockResolvedValue({ rows: [{ raw_bytes: Buffer.from('changed'), raw_bytes_sha256: hash }] });
+it('preserves the beneficiary refusal code when the actual source reader reports changed bytes', async () => {
+  // Actual HTTP hash mismatch is covered by capturedEvidenceConsumers411.int.test.ts.
+  vi.mocked(loadOwnedCapturedEvidence).mockRejectedValue(new Error('Captured evidence bytes changed or empty'));
   await expect(check([evidence])).rejects.toThrow('EVIDENCE_UNAVAILABLE_OR_CHANGED');
+});
+it('rejects evidence accessors without invoking them or reading source rows',async()=>{
+  let calls=0;const supplied={...evidence};Object.defineProperty(supplied,'hash',{enumerable:true,get(){calls++;return hash;}});
+  await expect(check([supplied])).rejects.toThrow();expect(calls).toBe(0);expect(query).not.toHaveBeenCalled();
 });
 it('refuses absent, duplicate, unsupported-store and mismatched employee-parent evidence explicitly', async () => {
   await expect(check([])).rejects.toThrow('EVIDENCE_REQUIRED');
