@@ -11,9 +11,9 @@ import { getCompanyMembership, type CompanyMembershipRow } from './companyMember
 import type { NextApiRequest, NextApiResponse } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
-// Register the DATE parser independently of neon.ts import order.
+// Register DATE parsing independently of neon import order.
 import '@/lib/pgTypes';
-import { withControlRequest } from '@/modules/accounting/services/controls/context';
+import { ControlIntegrityError, withControlRequest } from '@/modules/accounting/services/controls/context';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
@@ -131,23 +131,17 @@ export async function runBearerRequest(
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
-    // Synthesize the JWT claims that RLS policies actually read. `sub` keys
-    // policies via auth.uid(); `company_id` is read directly by mig 395
-    // (practice_client_rate_overrides) and mig 396 (payroll_leave_*) — without
-    // it those policies evaluate `NULL = NULL` and silently return zero rows.
+    // RLS reads both user and company from the synthetic authenticated claims.
     const claims = { sub: ctx.userId, role: 'authenticated', company_id: ctx.companyId };
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
     await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [ctx.companyId]);
 
-    // Shared membership lookup denies suspended/deleted tenants under app_user RLS.
-    // Profile LEFT JOIN keeps missing-user data distinct from user suspension.
+    // Missing profile and inactive membership remain distinct refusal reasons.
     let membership: { rows: CompanyMembershipRow[] };
     try {
       membership = await getCompanyMembership(client, ctx.userId, ctx.companyId);
     } catch (err) {
-      // Only treat invalid-UUID casts as 403 (forged or stale token pointing
-      // at a non-UUID company). Real DB errors (timeout, pool exhaustion)
-      // must propagate so they surface as 500, not a misleading FORBIDDEN.
+      // Only malformed UUID means forbidden; infrastructure failures must propagate.
       const code = (err as { code?: string } | null)?.code;
       if (code === PG_INVALID_TEXT_REPRESENTATION) {
         await client.query('ROLLBACK');
@@ -167,8 +161,6 @@ export async function runBearerRequest(
       return;
     }
 
-    // Two distinct refusals — a missing profile is a broken data state, not a
-    // suspension, and must not be reported as one.
     const account = membership.rows[0]!;
     if (account.account_user_id === null) {
       await client.query('ROLLBACK');
@@ -219,14 +211,7 @@ export async function runBearerRequest(
       }
     }
 
-    // ── Defer the response flush until AFTER the transaction is finalised ──
-    // Mirrors withAuth (PR #169): the handler calls res.json/res.end INSIDE the
-    // open tx. If the response flushes before COMMIT, a write tool can report
-    // success to an autonomous agent for a transaction that then fails to commit
-    // (deadlock, timeout, a poisoned audit insert) — a silent financial lie.
-    // Next's res.json funnels through res.end, so buffering the single final
-    // end() captures every response; we COMMIT/ROLLBACK on the resolved status,
-    // then replay (or replace a 2xx with an honest 500 on a failed COMMIT).
+    // Buffer Next's json/end until COMMIT or ROLLBACK, then flush exactly once.
     let bufferedEndArgs: unknown[] | null = null;
     let handlerEnded = false;
     const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
@@ -238,11 +223,23 @@ export async function runBearerRequest(
       return res;
     };
 
-    const runHandler = async () => withControlRequest(
-      { client, userId: ctx.userId, companyId: ctx.companyId, claims },
-      { personId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method,
-        connectionId: ctx.patId ?? ctx.oauthAuthorisationId, grantId: ctx.patId ?? ctx.oauthAuthorisationId,
-        grantedScopes: ctx.scopes }, async () => { await handler(authedReq, res); });
+    const runHandler = async () => {
+      try {
+        await withControlRequest(
+          { client, userId: ctx.userId, companyId: ctx.companyId, claims },
+          { personId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method,
+            connectionId: ctx.patId ?? ctx.oauthAuthorisationId, grantId: ctx.patId ?? ctx.oauthAuthorisationId,
+            grantedScopes: ctx.scopes }, async () => { await handler(authedReq, res); });
+      } catch (error) {
+        if (!(error instanceof ControlIntegrityError)) throw error;
+        const body = JSON.stringify({ success: false, data: null,
+          message: 'An unexpected error occurred', code: 'CONTROL_INTEGRITY_FAILED' });
+        res.statusCode = 500;
+        if (!res.headersSent) res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        if (!res.headersSent) res.setHeader('Content-Length', Buffer.byteLength(body));
+        bufferedEndArgs = res.headersSent ? [] : [body]; handlerEnded = true;
+      } finally { res.end = realEnd as typeof res.end; }
+    };
 
     if (process.env.SENTRY_ENABLED === 'true') {
       await Sentry.withIsolationScope(async () => {

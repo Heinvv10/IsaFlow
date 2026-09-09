@@ -53,9 +53,7 @@ vi.mock('@/lib/auth/oauth', () => ({
   validateOauthAccessToken: vi.fn(),
 }));
 
-vi.mock('@/lib/als', () => ({
-  als: { run: vi.fn((_store: unknown, cb: () => unknown) => cb()) },
-}));
+// Use real ALS so control lifetime/integrity gates are exercised.
 
 vi.mock('@/lib/rateLimit', () => ({
   checkRateLimit: vi.fn(async () => true),
@@ -176,7 +174,7 @@ describe('withBearerAuth — strict Bearer only', () => {
     vi.mocked(validatePat).mockResolvedValue({
       patId: PAT_ID, userId: USER_ID, companyId: COMPANY_ID, scopes: ['read:reports'],
     });
-    const handler = vi.fn(async (_req: unknown, res: FakeRes) => { res.status(200).json({ ok: true } as never); });
+    const handler = vi.fn(async (_req: unknown, res: NextApiResponse) => { res.status(200).json({ ok: true } as never); });
     const req = makeReq({ authorization: `Bearer ${RAW}` });
     const res = makeRes();
     await withBearerAuth(handler)(req as never, res);
@@ -214,4 +212,24 @@ describe('withBearerAuth — strict Bearer only', () => {
       'resource_metadata="http://localhost:3200/.well-known/oauth-protected-resource"',
     );
   });
+});
+
+it('bearer evidence rollback replaces buffered json/end with exactly one safe500', async () => {
+  vi.mocked(validatePat).mockResolvedValue({ patId: PAT_ID, userId: USER_ID, companyId: COMPANY_ID, scopes: [] });
+  const res = makeRes();
+  const flushed: unknown[] = [];
+  res.end = ((value: unknown) => { flushed.push(value); return res; }) as typeof res.end;
+  res.json = ((value: unknown) => res.end(JSON.stringify(value))) as typeof res.json;
+  const { als } = await import('@/lib/als');
+  await withBearerAuth(async (_req, response) => {
+    als.getStore()!.controlWriteFailed = true;
+    response.status(200).json({ success: true, sensitive: 'must not flush' });
+  })(makeReq({ authorization: `Bearer ${RAW}` }) as never, res);
+  const statements = h.clientQuery.mock.calls.map(call => call[0]);
+  expect(statements.filter(statement => statement === 'ROLLBACK')).toHaveLength(1);
+  expect(statements).not.toContain('COMMIT');
+  expect(flushed).toHaveLength(1);
+  expect(String(flushed[0])).not.toContain('must not flush');
+  expect(res.statusCode).toBe(500);
+  expect(h.client.release).toHaveBeenCalledTimes(1);
 });

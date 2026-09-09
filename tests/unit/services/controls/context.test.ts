@@ -16,9 +16,10 @@ describe('transaction-bound control authority', () => {
     expect(() => als.run({ client, userId: 'u2', companyId: 'a', claims: {}, controlPrincipal: principal }, requireControlTx)).toThrow();
     expect(() => als.run({ client, userId: 'u1', companyId: 'b', claims: {}, controlPrincipal: principal }, requireControlTx)).toThrow();
   });
-  it('rejects forged contexts and contexts reused outside their transaction', () => {
+  it('rejects forged contexts and contexts reused outside their transaction', async () => {
     let retained: ReturnType<typeof requireControlTx> | undefined;
-    als.run({ client, userId: 'u1', companyId: 'a', claims: {}, controlPrincipal: principal }, () => {
+    await withControlRequest({ client, userId: 'u1', companyId: 'a', claims: {} },
+      { personId: 'u1', companyId: 'a', authMethod: 'cookie' }, async () => {
       const ctx = requireControlTx(); retained = ctx;
       expect(() => assertControlTx(ctx)).not.toThrow();
       expect(() => assertControlTx({ ...ctx })).toThrow();
@@ -44,4 +45,48 @@ describe('transaction-bound control authority', () => {
       als.getStore()!.controlWriteFailed = true;
     })).rejects.toThrow('evidence');
   });
+});
+
+it('refuses issuing contexts from fabricated ALS even when principal fields match', () => {
+  expect(() => als.run({ client, userId: 'u1', companyId: 'a', claims: {}, controlPrincipal: principal }, requireControlTx)).toThrow();
+});
+it('guards retained query calls and lazy execution after the request exits', async () => {
+  let retained: ReturnType<typeof requireControlTx>;
+  let deferred: ReturnType<ReturnType<typeof requireControlTx>['sql']>;
+  await withControlRequest({ client, userId: 'u1', companyId: 'a', claims: {} },
+    { personId: 'u1', companyId: 'a', authMethod: 'cookie' }, async () => {
+      retained = requireControlTx(); deferred = retained.sql`SELECT 1`;
+    });
+  expect(() => retained!.sql`SELECT 1`).toThrow();
+  await expect(Promise.resolve(deferred!)).rejects.toThrow('Control transaction');
+});
+it('revokes a detached callback inheriting ALS after handler completion', async () => {
+  let resume!: () => void;
+  const barrier = new Promise<void>(resolve => { resume = resolve; });
+  let detached!: Promise<boolean>;
+  await withControlRequest({ client, userId: 'u1', companyId: 'a', claims: {} },
+    { personId: 'u1', companyId: 'a', authMethod: 'cookie' }, async () => {
+      const ctx = requireControlTx();
+      detached = (async () => { await barrier; assertControlTx(ctx); return true; })();
+    });
+  resume();
+  await expect(detached).rejects.toThrow('Control transaction');
+});
+it('executes once on the issuing client and rejects reuse in a different live request', async () => {
+  vi.mocked(client.query).mockResolvedValue({ rows: [{ ok: true }] } as never);
+  let retained!: ReturnType<typeof requireControlTx>;
+  let query!: ReturnType<ReturnType<typeof requireControlTx>['sql']>;
+  await withControlRequest({ client, userId: 'u1', companyId: 'a', claims: {} },
+    { personId: 'u1', companyId: 'a', authMethod: 'cookie' }, async () => {
+      retained = requireControlTx(); query = retained.sql`SELECT ${1}`;
+      expect(await query).toEqual([{ ok: true }]);
+      expect(await query).toEqual([{ ok: true }]);
+    });
+  expect(client.query).toHaveBeenCalledTimes(1);
+  await withControlRequest({ client, userId: 'u1', companyId: 'a', claims: {} },
+    { personId: 'u1', companyId: 'a', authMethod: 'cookie' }, async () => {
+      expect(() => retained.sql`SELECT 1`).toThrow();
+      await expect(Promise.resolve(query)).rejects.toThrow('Control transaction');
+    });
+  expect(client.query).toHaveBeenCalledTimes(1);
 });

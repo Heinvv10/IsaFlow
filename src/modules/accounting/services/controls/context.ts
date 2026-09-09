@@ -4,7 +4,33 @@ import { als, assertTxUsable, type RequestContext } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import type { ControlPrincipal, ControlTx } from './contracts';
 
-const issuedContexts = new WeakMap<ControlTx, PoolClient>();
+interface Lifetime { active: boolean; store: RequestContext; client: PoolClient; principal: ControlPrincipal }
+export class ControlIntegrityError extends Error {
+  constructor() { super('Required control evidence could not be committed'); this.name = 'ControlIntegrityError'; }
+}
+const activeRequests = new WeakMap<RequestContext, Lifetime>();
+const issuedContexts = new WeakMap<ControlTx, Lifetime>();
+
+/** Own thenable: no global LazyQuery escapes and each execution checks its lease. */
+class ControlQuery implements Promise<unknown[]> {
+  readonly [Symbol.toStringTag] = 'ControlQuery';
+  private result?: Promise<unknown[]>;
+  constructor(private ctx: ControlTx, private strings: TemplateStringsArray, private values: unknown[]) {}
+  private run(): Promise<unknown[]> {
+    try {
+      assertControlTx(this.ctx);
+      return this.result ??= sql(this.strings, ...this.values).then(rows => rows);
+    } catch (error) { return Promise.reject(error); }
+  }
+  then<T = unknown[], E = never>(fulfilled?: ((value: unknown[]) => T | PromiseLike<T>) | null,
+    rejected?: ((reason: unknown) => E | PromiseLike<E>) | null): Promise<T | E> {
+    return this.run().then(fulfilled, rejected);
+  }
+  catch<E = never>(rejected?: ((reason: unknown) => E | PromiseLike<E>) | null): Promise<unknown[] | E> {
+    return this.run().catch(rejected);
+  }
+  finally(callback?: (() => void) | null): Promise<unknown[]> { return this.run().finally(callback); }
+}
 type AuthenticatedIdentity = Pick<ControlPrincipal, 'personId' | 'companyId' | 'authMethod'>
   & Partial<Pick<ControlPrincipal, 'connectionId' | 'grantId' | 'grantedScopes' | 'actingFirmId'>>;
 
@@ -30,20 +56,26 @@ export function requireControlTx(): ControlTx {
   assertTxUsable();
   const store = als.getStore();
   const principal = store?.controlPrincipal;
-  if (!store || !principal || principal.personId !== store.userId || principal.companyId !== store.companyId) {
+  const lifetime = store && activeRequests.get(store);
+  if (!store || !principal || !lifetime?.active || lifetime.principal !== principal || lifetime.client !== store.client || principal.personId !== store.userId || principal.companyId !== store.companyId) {
     throw new Error('Authenticated control transaction required');
   }
   const ctx: ControlTx = Object.freeze({ principal,
-    sql: (strings: TemplateStringsArray, ...values: unknown[]) => sql(strings, ...values),
+    sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+      assertControlTx(ctx);
+      return new ControlQuery(ctx, strings, values);
+    },
   });
-  issuedContexts.set(ctx, store.client);
+  issuedContexts.set(ctx, lifetime);
   return ctx;
 }
 
 /** Prevent forged service arguments or a permit surviving its originating transaction. */
 export function assertControlTx(ctx: ControlTx): void {
   const store = als.getStore();
-  if (!store || issuedContexts.get(ctx) !== store.client || ctx.principal !== store.controlPrincipal
+  const lifetime = issuedContexts.get(ctx);
+  if (!store || !lifetime?.active || lifetime.store !== store || activeRequests.get(store) !== lifetime
+    || lifetime.client !== store.client || lifetime.principal !== ctx.principal || ctx.principal !== store.controlPrincipal
     || ctx.principal.companyId !== store.companyId || ctx.principal.personId !== store.userId) {
     throw new Error('Control transaction does not match authenticated request');
   }
@@ -51,7 +83,7 @@ export function assertControlTx(ctx: ControlTx): void {
 }
 
 export function assertControlIntegrity(): void {
-  if (als.getStore()?.controlWriteFailed) throw new Error('Required control evidence could not be committed');
+  if (als.getStore()?.controlWriteFailed) throw new ControlIntegrityError();
 }
 
 /** Wrappers await this before COMMIT, including when a handler catches a refusal. */
@@ -60,10 +92,18 @@ export async function withControlRequest<T>(store: RequestContext, identity: Aut
   if (store.userId !== identity.personId || store.companyId !== identity.companyId) {
     throw new Error('Authenticated identity does not match transaction');
   }
+  if (activeRequests.get(store)?.active) throw new Error('Control request already active');
   store.controlPrincipal = makeControlPrincipal(identity);
+  const lifetime: Lifetime = { active: true, store, client: store.client, principal: store.controlPrincipal };
+  activeRequests.set(store, lifetime);
   return als.run(store, async () => {
-    const result = await handler();
-    if (store.controlWriteFailed) throw new Error('Required control evidence could not be committed');
-    return result;
+    try {
+      const result = await handler();
+      if (store.controlWriteFailed) throw new ControlIntegrityError();
+      return result;
+    } finally {
+      lifetime.active = false;
+      activeRequests.delete(store);
+    }
   });
 }

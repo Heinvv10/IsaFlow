@@ -129,7 +129,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     const { withAuth } = await import('@/lib/auth/withAuth');
     const tok = await makeToken('user-1');
 
-    await withAuth(async (_req: never, r: NextApiResponse) => {
+    await withAuth(async (_req: unknown, r: NextApiResponse) => {
       r.status(200).json({ ok: true });
     })(mkReq(tok, COMPANY_ID), res);
 
@@ -146,7 +146,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     const { withAuth } = await import('@/lib/auth/withAuth');
     const tok = await makeToken('user-1');
 
-    await withAuth(async (_req: never, r: NextApiResponse) => {
+    await withAuth(async (_req: unknown, r: NextApiResponse) => {
       // Mimics withErrorHandler catching an error and responding 500.
       r.status(500).json({ success: false, message: 'boom' });
     })(mkReq(tok, COMPANY_ID), res);
@@ -165,7 +165,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     const { withAuth } = await import('@/lib/auth/withAuth');
     const tok = await makeToken('user-1');
 
-    await withAuth(async (_req: never, r: NextApiResponse) => {
+    await withAuth(async (_req: unknown, r: NextApiResponse) => {
       r.status(200).json({ ok: true });
     })(mkReq(tok, COMPANY_ID), res);
 
@@ -181,7 +181,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     const { withAuth } = await import('@/lib/auth/withAuth');
     const tok = await makeToken('user-1');
 
-    await withAuth(async (_req: never, r: NextApiResponse) => {
+    await withAuth(async (_req: unknown, r: NextApiResponse) => {
       r.status(200).json({ ok: true });
       r.end();
     })(mkReq(tok, COMPANY_ID), res);
@@ -215,7 +215,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     const { withAuth } = await import('@/lib/auth/withAuth');
     const tok = await makeToken('user-1');
 
-    await withAuth(async (_req: never, r: NextApiResponse) => {
+    await withAuth(async (_req: unknown, r: NextApiResponse) => {
       r.status(404).json({ success: false, message: 'not found' });
     })(mkReq(tok, COMPANY_ID), res);
 
@@ -223,4 +223,23 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(events).not.toContain('ROLLBACK');
     expect(res.statusCode).toBe(404);
   });
+  it('rolls back poisoned control evidence and replaces an already buffered success with one safe500', async () => {
+    const events: string[] = [];
+    currentClient = makeClient({ events });
+    const { res, state } = makeRes(events);
+    const { withAuth } = await import('@/lib/auth/withAuth');
+    const { als } = await import('@/lib/als');
+    const tok = await makeToken('user-1');
+    await withAuth(async (_req: unknown, r: NextApiResponse) => {
+      als.getStore()!.controlWriteFailed = true;
+      r.status(200).json({ success: true, sensitive: 'must not flush' });
+    })(mkReq(tok, COMPANY_ID), res);
+    expect(events.filter(event => event === 'ROLLBACK')).toHaveLength(1);
+    expect(events).not.toContain('COMMIT');
+    expect(events.filter(event => event === 'FLUSH')).toHaveLength(1);
+    expect(res.statusCode).toBe(500);
+    expect(String(state.body)).not.toContain('must not flush');
+    expect(currentClient.release).toHaveBeenCalledTimes(1);
+  });
+
 });
