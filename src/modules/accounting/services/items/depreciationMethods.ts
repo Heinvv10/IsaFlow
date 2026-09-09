@@ -245,11 +245,19 @@ export function calculatePolicyDepreciation(input: PolicyDepreciationInput): Pol
     };
   }
 
-  // Final month of the useful life: charge whatever is left, so the schedule
-  // lands exactly on the residual and ends there. Every method loses part of a
-  // month to the first-month pro-rate; sum-of-years and reducing balance both
-  // stop at the life and would otherwise strand it on the register forever.
-  if (monthsElapsed >= Math.round(usefulLifeYears * 12) - 1) monthlyDep = remainingDepreciable;
+  // Final month of the useful life — and ONLY that month: charge whatever is
+  // left, so the schedule lands exactly on the residual and ends there. Every
+  // method loses part of a month to the first-month pro-rate; sum-of-years and
+  // reducing balance both stop at the life and would otherwise strand it on the
+  // register forever.
+  //
+  // The comparison is equality, not >=. An asset already PAST its life with
+  // book value still on it — what a part-migrated register is full of — would
+  // otherwise be handed its entire remaining book value as one month's charge
+  // on the first run after deploy. A catch-up of that size is a prior-period
+  // correction under IAS 8, not this month's depreciation; `planDepreciationRun`
+  // reports it instead (see `lifeExpiredNote`).
+  if (monthsElapsed === Math.round(usefulLifeYears * 12) - 1) monthlyDep = remainingDepreciable;
 
   monthlyDep = round2(Math.min(monthlyDep, remainingDepreciable));
 
@@ -257,4 +265,33 @@ export function calculatePolicyDepreciation(input: PolicyDepreciationInput): Pol
   const policyCarryingAmount = round2(cost - closingAccDep);
 
   return { monthlyDep, annualDep, openingAccDep, closingAccDep, policyCarryingAmount, depRate };
+}
+
+/**
+ * The warning for an asset whose useful life has run out with book value still
+ * on it. Null for the ordinary case.
+ *
+ * A monthly run charges such an asset nothing — `annualPolicyCharge` is zero
+ * past the life and the true-up fires only in the life's last month. Writing
+ * the balance off is a deliberate prior-period correction, so the run names the
+ * amount rather than sweeping it into one month's journal.
+ */
+export function lifeExpiredNote(a: {
+  cost: number;
+  residual: number;
+  usefulLifeYears: number;
+  monthsElapsed: number;
+  policyAccDep: number;
+  periodDate: string;
+}): string | null {
+  if (a.usefulLifeYears <= 0 || a.cost <= 0) return null;
+  if (a.monthsElapsed < Math.round(a.usefulLifeYears * 12)) return null;
+  const remaining = round2(a.cost - a.residual - a.policyAccDep);
+  if (remaining <= 0) return null;
+  return (
+    `Its ${a.usefulLifeYears}-year life ended before ${a.periodDate} with `
+    + `${remaining.toFixed(2)} of policy book value still undepreciated. This run charges `
+    + 'nothing for it — writing the balance off is a prior-period correction, not a month of '
+    + 'depreciation. Its tax track, which may have life left, still posts.'
+  );
 }

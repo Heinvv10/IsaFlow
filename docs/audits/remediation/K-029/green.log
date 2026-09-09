@@ -85,3 +85,45 @@ timeouts under the full parallel run, not this change. Re-run in isolation:
 === lint / types ===
 eslint on all 9 changed src + pages files — clean
 tsc --noEmit — clean
+
+================================================================
+Round 3 — follow-up review of cf1b5709 (MEDIUM-5 open, +1 HIGH, +2 LOW)
+================================================================
+=== GREEN (round 3) ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  84 passed (84)
+=== N1: true-up back to >= (HIGH-A) ===
+  int:       Tests  1 failed | 5 passed (6)
+  unit:       Tests  3 failed | 81 passed (84)
+=== N2: lifeExpiredNote always silent (HIGH-A visibility) ===
+  int:       Tests  1 failed | 5 passed (6)
+  unit:       Tests  2 failed | 82 passed (84)
+=== N3: CSV export back to straight line (MEDIUM-5) ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  2 failed | 82 passed (84)
+=== N4: assetService true-up removed (LOW-B) ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  1 failed | 83 passed (84)
+=== N5: schedule trues up on the last DISPLAYED row (LOW-C) ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  1 failed | 83 passed (84)
+=== RESTORED ===
+  int:       Tests  6 passed (6)
+  unit:       Tests  84 passed (84)
+  tsc: clean
+
+Each of the five mutations turns a suite RED; the tree restores GREEN.
+  N1 the >= true-up (HIGH-A) · N2 the life-expired note (HIGH-A visibility)
+  N3 the CSV export method (MEDIUM-5) · N4 the assetService true-up (LOW-B)
+  N5 truing up on the displayed row (LOW-C)
+
+=== full unit suite, no fixture env (DATABASE_URL unset) ===
+Test Files  785 passed | 36 skipped (821)
+     Tests  9357 passed | 234 skipped (9591)
+No failures. The 10 failures recorded in round 2 (bank allocation, cash flow,
+tracker exclusion) did not recur, confirming they were load-related timeouts.
+
+=== lint / types / file sizes ===
+eslint on all 6 changed src + pages files — clean
+tsc --noEmit — clean
+297 / 296 / 58 / 185 / 100 / 266 lines — all under the 300 cap

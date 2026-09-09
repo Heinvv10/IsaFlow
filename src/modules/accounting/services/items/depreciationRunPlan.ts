@@ -18,6 +18,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { isRealCalendarDate } from '@/lib/validation';
+import { lifeExpiredNote, monthsBetween } from './depreciationMethods';
 
 /** Statuses the run treats as in-service. Anything else is not depreciated. */
 export const IN_SERVICE_STATUSES = ['available', 'assigned', 'in_maintenance'] as const;
@@ -40,6 +41,14 @@ export interface DepreciationPlanRow {
   /** Null when the row would post; set when it would be skipped. */
   skipReason: DepreciationSkipReason | null;
   skipDetail: string | null;
+  /**
+   * Set when the asset's useful life has already expired while policy book
+   * value remains. The row still POSTS — its tax track may have life left — but
+   * the policy charge is zero and the remaining amount will never be charged by
+   * a monthly run. Reported rather than silently swept into one month's
+   * journal; see the equality guard in `calculatePolicyDepreciation`.
+   */
+  lifeExpiredNote?: string;
 }
 
 export type DepreciationBlocker =
@@ -264,7 +273,15 @@ export async function planDepreciationRun(
       continue;
     }
 
-    rows.push({ ...base, skipReason: null, skipDetail: null });
+    const note = purchaseDate === null ? null : lifeExpiredNote({
+      cost,
+      residual: Number(a.residual_pct ?? 0) * cost,
+      usefulLifeYears,
+      monthsElapsed: monthsBetween(new Date(purchaseDate), new Date(periodDate)),
+      policyAccDep: Number(a.policy_acc_dep ?? 0),
+      periodDate,
+    });
+    rows.push({ ...base, skipReason: null, skipDetail: null, ...(note ? { lifeExpiredNote: note } : {}) });
   }
 
   return {

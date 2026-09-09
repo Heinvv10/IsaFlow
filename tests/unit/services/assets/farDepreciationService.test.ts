@@ -11,6 +11,7 @@ import {
   type DeferredTaxInput,
   type CapitalizationInput,
 } from '@/modules/accounting/services/items/farDepreciationService';
+import { lifeExpiredNote } from '@/modules/accounting/services/items/depreciationMethods';
 
 // ─── Policy Depreciation (IAS 16) ────────────────────────────────────────────
 
@@ -437,6 +438,68 @@ describe('calculatePolicyDepreciation — the full life (K-029)', () => {
       expect(afterLife.filter((c) => c > 0)).toEqual([]);
     });
   }
+});
+
+/**
+ * Follow-up review HIGH-A. The final-month true-up used `>=`, so an asset whose
+ * life had already expired with book value on it was handed its ENTIRE
+ * remaining book value as one month's charge on the first run after deploy —
+ * exactly what a part-migrated register is full of.
+ */
+describe('calculatePolicyDepreciation — an asset already past its life (HIGH-A)', () => {
+  // R100 000, 5-year life, no residual, bought 2015-01-31, only R40 000 taken.
+  // Month 140 of a 60-month life; R60 000 still undepreciated.
+  const expired: PolicyDepreciationInput = {
+    cost: 100_000,
+    residualPct: 0,
+    usefulLifeYears: 5,
+    purchaseDate: '2015-01-31',
+    periodDate: '2026-09-30',
+    openingAccDep: 40_000,
+  };
+
+  for (const method of ['straight_line', 'reducing_balance', 'sum_of_years'] as const) {
+    it(`charges nothing rather than dumping the whole balance — ${method}`, () => {
+      const result = calculatePolicyDepreciation({ ...expired, method });
+      expect(result.monthlyDep).toBe(0);
+      // The balance stays where it is; it is not swept into this month.
+      expect(result.closingAccDep).toBeCloseTo(40_000, 2);
+      expect(result.policyCarryingAmount).toBeCloseTo(60_000, 2);
+    });
+  }
+
+  it('still trues up in the final month of the life itself', () => {
+    // Month 59 of a 5-year life: 2015-01-31 + 59 months = 2019-12-31.
+    const result = calculatePolicyDepreciation({ ...expired, periodDate: '2019-12-31' });
+    expect(result.monthlyDep).toBeCloseTo(60_000, 2);
+  });
+});
+
+describe('lifeExpiredNote', () => {
+  const base = {
+    cost: 100_000, residual: 0, usefulLifeYears: 5,
+    monthsElapsed: 140, policyAccDep: 40_000, periodDate: '2026-09-30',
+  };
+
+  it('names the undepreciated balance an expired asset still carries', () => {
+    const note = lifeExpiredNote(base);
+    expect(note).toContain('60000.00');
+    expect(note).toContain('prior-period correction');
+  });
+
+  it('says nothing while the life still has months to run', () => {
+    expect(lifeExpiredNote({ ...base, monthsElapsed: 59 })).toBeNull();
+  });
+
+  it('says nothing once the asset is fully depreciated', () => {
+    expect(lifeExpiredNote({ ...base, policyAccDep: 100_000 })).toBeNull();
+  });
+
+  it('measures the balance against the residual, not against cost', () => {
+    // 10% residual: depreciable is 90 000, of which 90 000 is taken.
+    expect(lifeExpiredNote({ ...base, residual: 10_000, policyAccDep: 90_000 })).toBeNull();
+    expect(lifeExpiredNote({ ...base, residual: 10_000, policyAccDep: 80_000 })).toContain('10000.00');
+  });
 });
 
 describe('toDepreciationMethod', () => {
