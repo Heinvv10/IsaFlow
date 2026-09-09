@@ -307,8 +307,9 @@ describe('K-040 overlapping WIP invoice runs', () => {
       await b.query('COMMIT');
 
       expect(invoiceA.invoiceNumber).toBe('INV-00001');
-      expect(invoiceB.invoiceNumber).not.toBe(invoiceA.invoiceNumber);
-      expect(invoiceB.invoiceNumber).toMatch(/^INV-\d{5}$/);
+      // Contiguous: the retry re-reads MAX(...), which already sees A's committed
+      // number, so B takes the very next one instead of skipping to INV-00003.
+      expect(invoiceB.invoiceNumber).toBe('INV-00002');
 
       const { rows } = await pool.query(
         `SELECT te.id, te.status, te.invoice_id FROM time_entries te

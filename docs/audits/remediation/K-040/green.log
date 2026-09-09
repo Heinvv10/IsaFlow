@@ -90,3 +90,48 @@ reason `bun run lint` is scoped to `eslint src pages`. Repo-wide gate:
   bun run lint -> exit 0, 11 problems (0 errors, 11 warnings), none in the files changed here.
   bunx tsc --noEmit -> clean (it does cover scripts/ and tests/).
   bun run agent-docs:check -> OK: 74 mirrors match.
+
+================================================================
+Review round 3 — a3afc4b4 follow-up: LOW A (gapped invoice number)
+and LOW B (service file at 290/300 lines)
+================================================================
+LOW A: the invoice number is now MAX + 1 on every attempt. The re-read after the
+per-attempt savepoint rollback already sees the peer's committed number, so the
+old `+ attempt` offset skipped one. Confirmed live in the fixture run:
+  warn  Invoice number collision, retrying   {"attempt":0,"invoiceNumber":"INV-00001"}
+  info  Generated WIP invoice                {"invoiceNumber":"INV-00002"}   (was INV-00003)
+LOW B: the header INSERT + retry moved to wipInvoiceNumber.ts.
+  practiceWipService.ts 290 -> 246 lines; wipInvoiceNumber.ts 88 lines.
+
+== integration (real Postgres fixture) ==
+ tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts +
+ tests/integration/k-040-wip-billed-count-rollback.int.test.ts
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+== unit ==
+ tests/unit/services/practice/wipInvoiceNumber.test.ts     5 passed
+ tests/unit/services/practice/practiceWipService.test.ts   9 passed
+
+== full unit suite, DATABASE_URL unset ==
+ Test Files  791 passed | 36 skipped (827)
+      Tests  9399 passed | 234 skipped (9633)
+
+== tsc / eslint / agent-docs ==
+bunx tsc --noEmit: clean (exit 0)
+bunx eslint src/.../wipInvoiceNumber.ts src/.../practiceWipService.ts: clean (exit 0)
+bun run agent-docs:check: OK: 74 mirrors match.
+
+== mutation check 5 (the `+ attempt` offset restored, tests re-run, then reverted) ==
+ unit  tests/unit/services/practice/wipInvoiceNumber.test.ts
+   Tests 2 failed | 3 passed (5)
+   × takes the number immediately after the peer's, leaving no gap in the sequence
+   × stays contiguous across two consecutive collisions
+ integration  k-040-wip-overlapping-runs-double-bill.int.test.ts
+   Tests 1 failed | 5 passed (6)
+   × retries the invoice number when a peer in the same company took it first
+     AssertionError: expected 'INV-00003' to be 'INV-00002'
+ Reverted; both suites re-run green (above).
+The extraction itself is a move, not a behaviour change: it is covered by the nine
+existing practiceWipService tests and the two integration files, all unchanged
+except the INV-00002 assertion.
