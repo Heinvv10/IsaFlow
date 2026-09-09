@@ -619,21 +619,27 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "30b0e8af",
-   "status": "in-progress",
-   "dependencies": [],
+   "status": "code-verified",
+   "dependencies": [
+    "Merged to master; production deployment pending (batch 2)"
+   ],
    "testNames": [
     "tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts"
    ],
    "evidencePaths": [
+    "K-016/ci.log",
+    "K-016/fix.md",
+    "K-016/green.log",
     "K-016/red.log",
     "K-016/validation.md"
    ],
-   "fixCommit": "30b0e8af",
+   "fixCommit": "87bee9d7;e0b1aab1;3dc5f63b;f82f9e88;30b0e8af",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/366",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "mergeCommit": "dd4ae108"
   },
   {
    "id": "K-017",
@@ -650,21 +656,27 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "30b0e8af",
-   "status": "in-progress",
-   "dependencies": [],
+   "status": "code-verified",
+   "dependencies": [
+    "Merged to master; production deployment pending (batch 2)"
+   ],
    "testNames": [
     "tests/integration/k017-bank-rule-vat-net-control-account.int.test.ts"
    ],
    "evidencePaths": [
+    "K-016/ci.log",
+    "K-017/fix.md",
+    "K-017/green.log",
     "K-017/red.log",
     "K-017/validation.md"
    ],
-   "fixCommit": "30b0e8af",
+   "fixCommit": "87bee9d7;e0b1aab1;3dc5f63b;f82f9e88;30b0e8af",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/366",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "mergeCommit": "dd4ae108"
   },
   {
    "id": "K-018",
@@ -768,7 +780,7 @@
     "K-020/validation.md"
    ],
    "fixCommit": "2ff1617e",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/367",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
