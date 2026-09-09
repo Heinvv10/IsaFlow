@@ -280,3 +280,44 @@ LOW-1 MEASUREMENT (the review's premise, checked):
   git show abf06bc6b:.../bank/.claude.md | wc -c      -> 14185   (44 lines, longest bullet 830)
   git show d99dfc505:.../bank/.claude.md | wc -c      -> 52636   (86 lines, longest bullet 3476)
   after restoring the seven dropped rules              -> 16502  (45 lines, longest bullet 893)
+
+=========================== ROUND 6 (review-k071-r5.md) ===========================
+Worktree /home/hein/Workspace/IsaFlow/.worktrees/fix-K-071, branch fix/audit-k071-k074-bank-import-match.
+
+GREEN
+  bun run test:integration -- tests/integration/k071-invoice-lock-concurrency.int.test.ts
+      2 passed (real Postgres fixture)
+  bun run test:integration -- k071-invoice-lock-concurrency + k074-bank-match-confirm-customer
+                            + k074-bank-match-confirm-supplier-balance
+      3 files, 17 passed
+  bunx vitest run tests/unit/mcp/typedRefusalReachesAgent.test.ts        12 passed
+  bunx vitest run tests/unit/services/bank tests/unit/services/ar
+      tests/unit/api/receiptMatchConfirmPartialCommit.test.ts tests/unit/mcp
+      143 files, 1835 passed | 86 skipped
+  FULL unit suite, DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL / ISAFLOW_DISPOSABLE_AUTH_TEST
+  all UNSET (env -u):   796 files passed | 36 skipped — 9474 passed | 234 skipped
+  bunx tsc --noEmit                     clean
+  bunx eslint <8 changed src/pages files>   clean
+  bun run agent-docs:check              OK: 74 mirrors match
+
+MUTATION PROOFS (each reverted, run, restored)
+  1. safeErrorText back to `code === undefined`
+       tests/unit/mcp/typedRefusalReachesAgent.test.ts -> 6 failed | 6 passed
+       (both supplier-payment tool paths and both receipt paths lose their remedy)
+  2. `FOR UPDATE OF ci` removed from fetchInvoiceCandidates
+       k071-invoice-lock-concurrency -> 2 failed
+       race case: AssertionError: expected [ 200, 500 ] to deeply equal [ 200, 400 ]
+       — i.e. exactly the reviewer's LOW-1: without the lock the loser dies on
+         uq_gl_je_company_entry_number and the user gets a bare 500
+       held-lock case: no timeout, the request proceeds
+  3. buildLine's over-outstanding refusal back to a bare `Error`
+       k071-invoice-lock-concurrency -> 1 failed
+       expected [ 200, 500 ] to deeply equal [ 200, 400 ] — the refusal is no
+       longer classified, so the route answers 500
+
+TEST FIXED, NOT SILENCED
+  tests/unit/services/ar/receiptApplicationService.test.ts asserted no
+  /INSERT|UPDATE|DELETE/ text in the planned statements. `FOR UPDATE` matches a
+  bare /UPDATE/, so the guard would have failed on a LOCK. Re-anchored on the
+  write forms (/INSERT INTO|UPDATE \w+ SET|DELETE FROM/), which still catch the
+  real write it exists to catch.

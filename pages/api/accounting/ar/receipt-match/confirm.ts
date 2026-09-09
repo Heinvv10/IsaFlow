@@ -50,6 +50,7 @@ import {
   confirmReceiptMatch,
   validateBankReceiptApplication,
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
+import { isReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 
 const Amount = z.union([z.number(), z.string()])
   .transform(v => Number(v))
@@ -64,15 +65,6 @@ const BodySchema = z.object({
   b => (b.allocations !== undefined) !== (b.customerInvoiceId !== undefined && b.amount !== undefined),
   { message: 'Send either allocations, or customerInvoiceId with amount — not both.' },
 );
-
-/**
- * True for an application-level refusal — a hand-thrown Error with no SQLSTATE
- * `code`. Driver errors always carry one and could leak schema names, so they
- * propagate to the 500 path instead of being handed to the caller.
- */
-function isRefusal(err: unknown): err is Error {
-  return err instanceof Error && (err as { code?: unknown }).code === undefined;
-}
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -95,7 +87,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   try {
     await validateBankReceiptApplication(companyId, bankTxId, allocations);
   } catch (err) {
-    if (isRefusal(err)) {
+    if (isReceiptRefusal(err)) {
       apiResponse.badRequest(res, err.message);
       return;
     }

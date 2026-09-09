@@ -316,7 +316,10 @@ describe('applyReceiptPlan', () => {
     invoiceRows([invoiceRow(INV_A)]);
     await planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]);
 
+    // Anchored on the WRITE forms. A bare /UPDATE/ also matches the `FOR
+    // UPDATE` the invoice lock takes, which reads nothing and writes nothing —
+    // the guard would have passed on a lock and failed on a lock alike.
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    expect(texts.some((t) => /INSERT|UPDATE|DELETE/.test(t))).toBe(false);
+    expect(texts.some((t) => /INSERT INTO|UPDATE \w+ SET|DELETE FROM/.test(t))).toBe(false);
   });
 });

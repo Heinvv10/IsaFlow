@@ -37,24 +37,12 @@ import {
   validateBankReceiptApplication,
 } from '../ar/receiptMatchConfirmService';
 import { EPS, round2 } from '../ar/receiptAllocationLines';
+import { isReceiptRefusal } from '../ar/receiptRefusal';
 
 export type ConfirmCustomerMatchOutcome =
   | { ok: false; kind: 'not_found' }
   | { ok: false; kind: 'refused'; message: string }
   | { ok: true; customerPaymentId: string; allocated: number };
-
-/**
- * An application-level refusal: a hand-thrown `Error` carrying no SQLSTATE
- * `code`. The AR services raise their refusals as bare `Error`s rather than a
- * typed class (unlike `SupplierPaymentRefusal` on the AP side), so this is the
- * same structural test `pages/api/accounting/ar/receipt-match/confirm.ts` makes,
- * for the same reason: a driver error always carries a `code`, and answering one
- * with `badRequest` would put raw Postgres text in front of the user on a status
- * `withAuth` COMMITs — while monitoring a real fault as a client error.
- */
-function isRefusal(err: unknown): err is Error {
-  return err instanceof Error && (err as { code?: unknown }).code === undefined;
-}
 
 /**
  * @param paymentAmount The ABSOLUTE value of the bank line. The caller has
@@ -111,7 +99,11 @@ export async function confirmCustomerInvoiceMatch(
   try {
     await validateBankReceiptApplication(companyId, bankTransactionId, allocations);
   } catch (refusal) {
-    if (!isRefusal(refusal)) throw refusal;
+    // Typed, not "carries no SQLSTATE code": that older test was equally true of
+    // a TypeError raised on the same call, which would then be handed to the
+    // user verbatim as a 400 — a status `withAuth` COMMITs, monitored as their
+    // mistake rather than as the fault it is.
+    if (!isReceiptRefusal(refusal)) throw refusal;
     return { ok: false, kind: 'refused', message: refusal.message };
   }
 

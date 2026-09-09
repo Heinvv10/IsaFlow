@@ -15,6 +15,7 @@ import {
   applyReceiptPlan,
   planReceiptApplication,
 } from '@/modules/accounting/services/ar/receiptApplicationService';
+import { isReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 
 interface AllocationItem {
   invoiceId: string;
@@ -99,9 +100,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       plan = await planReceiptApplication(companyId, paymentId, allocations);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Allocation failed';
+      // Only a typed refusal may be answered with a 400. Catching everything
+      // put a driver error's raw text (schema names included) in front of the
+      // user on a status `withAuth` COMMITs, and monitored a genuine fault as
+      // the user's mistake.
+      if (!isReceiptRefusal(err)) {
+        log.error('Customer allocation failed', { paymentId, error: err });
+        throw err;
+      }
       log.error('Customer allocation refused', { paymentId, error: err });
-      return apiResponse.badRequest(res, message);
+      return apiResponse.badRequest(res, err.message);
     }
 
     // Past this point nothing is caught: a failure must reach withAuth as a 5xx
