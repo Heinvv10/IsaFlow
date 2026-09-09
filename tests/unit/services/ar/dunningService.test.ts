@@ -23,6 +23,8 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlMock,
     withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(sqlMock)),
+    // Outside a request transaction the real one degrades to a plain call.
+    withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
   };
 });
 
@@ -155,13 +157,16 @@ describe('sendDunning', () => {
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);       // outstanding-balance guard
     mockSql.mockResolvedValueOnce([templateRow()]);         // renderTemplate → getTemplate
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);       // renderTemplate → loadInvoiceCtx
+    mockSql.mockResolvedValueOnce([{ portal_token: PORTAL_TOKEN }]);          // portal token
     mockSql.mockResolvedValueOnce([{ id: SEND_ID, message_token: TOKEN }]);   // INSERT dunning_sends
+    mockSql.mockResolvedValueOnce([]);                      // UPDATE email_status
     mockSql.mockResolvedValueOnce([{ id: EVIDENCE_DOC_ID }]);                 // INSERT captured_documents
-    mockSql.mockResolvedValueOnce([]);                      // UPDATE email_status + source_document_id
+    mockSql.mockResolvedValueOnce([]);                      // UPDATE source_document_id
     mockSendEmail.mockResolvedValueOnce({ success: true, messageId: 'msg-1' });
 
     const result = await sendDunning({
       companyId: COMPANY_ID, templateId: TEMPLATE_ID, invoiceId: INVOICE_ID,
+      portalBaseUrl: 'https://app.example.com',
     });
     expect(result.sendId).toBe(SEND_ID);
     expect(result.messageToken).toBe(TOKEN);
@@ -175,13 +180,16 @@ describe('sendDunning', () => {
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
     mockSql.mockResolvedValueOnce([templateRow()]);
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
+    mockSql.mockResolvedValueOnce([{ portal_token: PORTAL_TOKEN }]);
     mockSql.mockResolvedValueOnce([{ id: SEND_ID, message_token: TOKEN }]);
-    mockSql.mockResolvedValueOnce([{ id: EVIDENCE_DOC_ID }]);                 // INSERT captured_documents
+    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([{ id: EVIDENCE_DOC_ID }]);
     mockSql.mockResolvedValueOnce([]);
     mockSendEmail.mockResolvedValueOnce({ success: false, error: 'SMTP down' });
 
     const result = await sendDunning({
       companyId: COMPANY_ID, templateId: TEMPLATE_ID, invoiceId: INVOICE_ID,
+      portalBaseUrl: 'https://app.example.com',
     });
     expect(result.emailStatus).toBe('failed');
     expect(result.emailError).toBe('SMTP down');
@@ -191,27 +199,51 @@ describe('sendDunning', () => {
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
     mockSql.mockResolvedValueOnce([templateRow()]);
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
+    mockSql.mockResolvedValueOnce([{ portal_token: PORTAL_TOKEN }]);
     mockSql.mockResolvedValueOnce([{ id: SEND_ID, message_token: TOKEN }]);
+    mockSql.mockResolvedValueOnce([]);
     mockSql.mockResolvedValueOnce([{ id: EVIDENCE_DOC_ID }]);
     mockSql.mockResolvedValueOnce([]);
     mockSendEmail.mockResolvedValueOnce({ success: true, messageId: 'msg-1' });
 
     await sendDunning({
       companyId: COMPANY_ID, templateId: TEMPLATE_ID, invoiceId: INVOICE_ID,
+      portalBaseUrl: 'https://app.example.com',
     });
 
-    // Call 5 (0-indexed 4) is the captured_documents INSERT — assert the
-    // tagged-template strings carry the document_type='dunning' literal.
-    const captureCall = mockSql.mock.calls[4]!;
+    // The send outcome is recorded BEFORE the evidence row, so a failure while
+    // sealing evidence can never unwind the record of a delivered email.
+    const statusCall = mockSql.mock.calls[5]!;
+    const statusStrings = (statusCall[0] as unknown as string[]).join(' ');
+    expect(statusStrings).toContain('email_status');
+    expect(statusStrings).not.toContain('source_document_id');
+
+    // Then the captured_documents INSERT — assert the tagged-template strings
+    // carry the document_type='dunning' literal.
+    const captureCall = mockSql.mock.calls[6]!;
     const strings = (captureCall[0] as unknown as string[]).join(' ');
     expect(strings).toContain('captured_documents');
     expect(strings).toContain("'dunning'");
 
-    // Call 6 is the dunning_sends UPDATE stamping source_document_id.
-    const updateCall = mockSql.mock.calls[5]!;
+    // …and last the dunning_sends UPDATE stamping source_document_id.
+    const updateCall = mockSql.mock.calls[7]!;
     const updateStrings = (updateCall[0] as unknown as string[]).join(' ');
     expect(updateStrings).toContain('source_document_id');
     expect(updateCall).toContain(EVIDENCE_DOC_ID);
+  });
+
+  it('refuses to send a body that still carries the portal-link placeholder', async () => {
+    // No portalBaseUrl: renderTemplate emits '(portal link unavailable)' and
+    // the customer would get a reminder with no way to pay, recorded as sent.
+    mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
+    mockSql.mockResolvedValueOnce([templateRow()]);
+    mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
+
+    await expect(sendDunning({
+      companyId: COMPANY_ID, templateId: TEMPLATE_ID, invoiceId: INVOICE_ID,
+    })).rejects.toThrow(/portal link could not be resolved/);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockSql).toHaveBeenCalledTimes(3);   // nothing written
   });
 });
 

@@ -184,6 +184,12 @@ export async function getTemplateById(
 
 // ─── Render ─────────────────────────────────────────────────────────────────
 
+/**
+ * Emitted for {{portal_link}} when there is no portal base URL or the invoice
+ * carries no token. sendDunning refuses to email a body containing it.
+ */
+export const PORTAL_LINK_UNAVAILABLE = '(portal link unavailable)';
+
 export interface RenderTemplateOptions {
   /**
    * Mint the invoice's portal_token when it has none. True on the send path.
@@ -223,7 +229,7 @@ export async function renderTemplate(
   // that did survive would email the customer a body carrying the literal
   // '(portal link unavailable)' while recording email_status 'sent'. A failed
   // mint must abort the send.
-  let portalLink = '(portal link unavailable)';
+  let portalLink: string = PORTAL_LINK_UNAVAILABLE;
   if (portalBaseUrl) {
     const token = options.mintPortalToken === false
       ? await getInvoicePortalToken(ctx.invoice_id, companyId)

@@ -31,5 +31,9 @@ tests now queue a row for the COUNT(*) as well. Full unit suite green: 9563 pass
 were computed from the current page and under-reported past 50 rows. `pages/accounting/disputes/index.tsx`
 now reads all three from the API and paginates instead of deriving them from `disputes`. The four
 hand-written filter branches collapsed into one NULL-guarded predicate set so the page query and
-the aggregate query cannot drift apart. `COUNT(*) OVER ()` was rejected: it counts the returned
-rows, so a page past the end would report total 0. Full disposition table: `../K-122/fix.md`.
+the aggregate query cannot drift apart. `COUNT(*) OVER ()` was rejected, though not for the
+reason first written here: it is evaluated BEFORE LIMIT/OFFSET, so it does count the whole matching
+set — but a page past the end returns no rows at all, so there is nowhere to read the window value
+from and the caller sees total 0. The aggregate query is required regardless, because `openTotal`
+and `openDisputedAmount` deliberately ignore the status filter and no window function over the
+filtered page query can produce them. Full disposition table: `../K-122/fix.md`.

@@ -12,7 +12,8 @@
  *   - invoice is not cancelled and not fully paid
  *   - invoice outstanding ≥ company min_outstanding_zar
  *   - invoice days_overdue matches a template's range (active, highest escalation_order)
- *   - invoice has NO open customer_invoice_dispute
+ *   - invoice has NO open customer_invoice_dispute, and no dispute resolved
+ *     with a credit note that is still an unapproved draft
  *   - NO existing dunning_send for (invoice, template) — never re-send same tone
  *   - NO dunning_send for invoice in last 48h — cool-off
  *   - customer has email on file
@@ -44,7 +45,7 @@ interface CandidateRow extends DbRow {
   outstanding: string | number;
   days_overdue: number;
   customer_email: string | null;
-  has_open_dispute: boolean;
+  has_blocking_dispute: boolean;
   template_id: string | null;
   template_send_weekdays_only: boolean | null;
   last_send_for_template_at: string | null;
@@ -69,6 +70,12 @@ export async function runDunningCron(options: {
   portalBaseUrl?: string;
   /** Override for "now" — test-only. */
   now?: Date;
+  /**
+   * Restrict the walk to one company. Test-only: the cron itself walks every
+   * opted-in company, and two test files sharing the fixture database would
+   * otherwise each count the other's invoices.
+   */
+  companyId?: string;
 } = {}): Promise<DunningCronResult> {
   const now = options.now ?? new Date();
   const result: DunningCronResult = {
@@ -85,10 +92,12 @@ export async function runDunningCron(options: {
     return result;
   }
 
+  const onlyCompany = options.companyId ?? null;
   const companies = (await sql`
     SELECT company_id, min_outstanding_zar
     FROM dunning_settings
     WHERE auto_send_enabled = true
+      AND (${onlyCompany}::uuid IS NULL OR company_id = ${onlyCompany}::uuid)
   `) as CompanyRow[];
   result.companiesChecked = companies.length;
 
@@ -151,9 +160,20 @@ export async function runDunningCron(options: {
              m.template_id, m.template_send_weekdays_only,
              EXISTS (
                SELECT 1 FROM customer_invoice_disputes d
+               LEFT JOIN credit_notes cn
+                 ON cn.id = d.credit_note_id AND cn.company_id = d.company_id
                 WHERE d.customer_invoice_id = m.invoice_id
-                  AND d.status = 'open'
-             ) AS has_open_dispute,
+                  AND d.company_id = m.company_id
+                  AND (
+                    d.status = 'open'
+                    -- Resolved with credit, but the credit note is still a
+                    -- draft: nothing has posted to the GL and nothing has been
+                    -- applied to the invoice, so the disputed amount is still
+                    -- sitting in overdue. Chasing it would escalate against a
+                    -- customer whose dispute was already agreed.
+                    OR (d.credit_note_id IS NOT NULL AND cn.status = 'draft')
+                  )
+             ) AS has_blocking_dispute,
              (SELECT MAX(sent_at) FROM dunning_sends
                WHERE customer_invoice_id = m.invoice_id AND template_id = m.template_id)
                AS last_send_for_template_at,
@@ -161,6 +181,9 @@ export async function runDunningCron(options: {
                WHERE customer_invoice_id = m.invoice_id)
                AS last_send_any_at
       FROM matched m
+      -- Deterministic order: without it the run order is heap order, which
+      -- makes "the invoice after the failing one still sent" untestable.
+      ORDER BY m.invoice_number
     `) as CandidateRow[];
 
     for (const row of candidates) {
@@ -169,7 +192,7 @@ export async function runDunningCron(options: {
       try {
         if (!row.template_id) { result.skipped += 1; continue; }
         if (!row.customer_email) { result.skipped += 1; continue; }
-        if (row.has_open_dispute) { result.skipped += 1; continue; }
+        if (row.has_blocking_dispute) { result.skipped += 1; continue; }
         if (row.last_send_for_template_at) { result.skipped += 1; continue; }
         if (row.last_send_any_at) {
           const last = new Date(row.last_send_any_at).getTime();

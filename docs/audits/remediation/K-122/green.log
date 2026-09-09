@@ -51,3 +51,49 @@ dunning_sends rows in the shared fixture DB. Fixed in the test: the error path n
 `client.release(true)` to destroy the connection. Re-verified by re-running mutation 6 —
 still RED, and 0 rows left behind. The orphaned rows were deleted by company_id (only my
 own; K120/K126c fixtures belonging to other agents were left untouched).
+
+════════════════════════════════════════════════════════════════════════
+ROUND 3 — the 12 findings of scratchpad/review-k122-r3.md (0 H / 5 M / 7 L)
+════════════════════════════════════════════════════════════════════════
+
+$ source scratchpad/fixture.env
+$ bun run test:integration -- tests/integration/k122 k123 k124 k125
+ Test Files  9 passed (9)
+      Tests  41 passed (41)          # three consecutive runs, identical
+
+$ bunx vitest run tests/unit/services/ar/
+      Tests  236 passed (236)
+
+$ env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+ Test Files  801 passed | 40 skipped (841)
+      Tests  9591 passed | 243 skipped (9834)
+
+$ bunx tsc --noEmit                                          → exit 0
+$ bunx eslint <8 changed src files>                          → exit 0
+
+Mutation proof (production change reverted, test re-run, then restored;
+every source file byte-compared against its pre-mutation copy afterwards):
+
+  M-1  debtors join back to bare ci.client_id
+       k125b → 2 failed | 3 passed                                  RED
+  M-2  draft-credit clause removed from the cron's dispute gate
+       k122d → 1 failed | 3 passed  (expected 2 to be 1)            RED
+  M-3  `AND status = 'open'` dropped from the claim UPDATE
+       k124b → 2 failed | 2 passed                                  RED
+  L-3  exact taxAmount not passed (createCreditNote re-derives)
+       k124b → 1 failed | 3 passed                                  RED
+  L-4  portal-placeholder refusal removed from sendDunning
+       k122d → 2 failed | 2 passed                                  RED
+  M-5a send outcome recorded only after the evidence row
+       k122d → 1 failed (expected 'pending' to be 'sent')           RED
+  M-5b evidence savepoint removed (plain IIFE)
+       k122d → 1 failed | 3 passed                                  RED
+  M-4/L-7 round-3 sanitiser pattern set restored
+       k127 → 5 failed | 23 passed                                  RED
+
+L-2 (ORDER BY on the cron candidate query) is not mutation-provable: without
+it the test passes on heap order, which is exactly the finding.
+
+Fixture-DB residue after every run: no company, invoice or credit note of
+this branch's own left behind (the K120 / K126c rows present belong to other
+agents' in-flight work, timestamped 14:2x–14:3x).

@@ -19,32 +19,52 @@ export async function resolveDispute(
   userId: string,
   input: ResolveDisputeInput,
 ): Promise<Dispute> {
-  const existing = (await sql`
-    SELECT d.*, ci.client_id
-    FROM customer_invoice_disputes d
-    LEFT JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-    WHERE d.id = ${id}::uuid AND d.company_id = ${companyId}::uuid
-    LIMIT 1
+  if (input.mode === 'resolve_with_credit' && !input.creditDate) {
+    throw new Error('creditDate is required when resolving with credit');
+  }
+
+  const newStatus: DisputeStatus = input.mode === 'rejected' ? 'rejected' : 'resolved';
+
+  // Claim the dispute with a status-predicated UPDATE BEFORE raising any
+  // financial document. Reading the status and then updating on id alone let
+  // two concurrent resolves (the UI racing an MCP call) both see 'open', both
+  // call createCreditNote for the same disputed amount, and the second UPDATE
+  // overwrite credit_note_id — leaving one credit note orphaned and invisible
+  // from the dispute. The loser's UPDATE now matches no row and it throws
+  // before any credit note exists.
+  const claimed = (await sql`
+    UPDATE customer_invoice_disputes
+    SET status = ${newStatus},
+        resolution_mode = ${input.mode},
+        resolution_note = ${input.note ?? null},
+        resolved_at = NOW(),
+        resolved_by = ${userId}
+    WHERE id = ${id}::uuid
+      AND company_id = ${companyId}::uuid
+      AND status = 'open'
+    RETURNING *
   `) as DbRow[];
 
-  if (!existing[0]) {
-    throw new Error(`Dispute ${id} not found`);
-  }
-  if (String(existing[0].status) !== 'open') {
-    throw new Error(`Dispute ${id} is not open (current status: ${existing[0].status})`);
+  if (!claimed[0]) {
+    const current = (await sql`
+      SELECT status FROM customer_invoice_disputes
+      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+      LIMIT 1
+    `) as DbRow[];
+    if (!current[0]) {
+      throw new Error(`Dispute ${id} not found`);
+    }
+    throw new Error(`Dispute ${id} is not open (current status: ${current[0].status})`);
   }
 
+  const dispute = claimed[0];
   let creditNoteId: string | null = null;
 
   if (input.mode === 'resolve_with_credit') {
-    if (!input.creditDate) {
-      throw new Error('creditDate is required when resolving with credit');
-    }
-
     const invoiceRows = (await sql`
       SELECT COALESCE(client_id, customer_id) AS client_id, subtotal, tax_amount
       FROM customer_invoices
-      WHERE id = ${existing[0].customer_invoice_id}::uuid
+      WHERE id = ${dispute.customer_invoice_id}::uuid
         AND company_id = ${companyId}::uuid
       LIMIT 1
     `) as DbRow[];
@@ -63,38 +83,42 @@ export async function resolveDispute(
     const invoiceTax = Number(invoiceRows[0]?.tax_amount ?? 0);
     const taxRate =
       invoiceSubtotal > 0 ? Math.round((invoiceTax / invoiceSubtotal) * 10000) / 100 : 0;
-    const grossDisputed = Number(existing[0].disputed_amount);
+    const grossDisputed = Number(dispute.disputed_amount);
     const creditSubtotal = Math.round((grossDisputed / (1 + taxRate / 100)) * 100) / 100;
+    // Pass the remainder as the tax rather than letting createCreditNote
+    // re-derive it from the rate: rounding both halves independently can leave
+    // subtotal + tax a cent away from the disputed amount (10.00 at 15% splits
+    // to 8.70 + 1.31 = 10.01), which would relieve the debtor by the wrong
+    // figure. No split of a 2-decimal gross at 15% is exact, so the cent goes
+    // to VAT and the total is right by construction.
+    const creditTax = Math.round((grossDisputed - creditSubtotal) * 100) / 100;
 
     const cn = await createCreditNote(
       companyId,
       {
         type: 'customer',
         clientId,
-        customerInvoiceId: String(existing[0].customer_invoice_id),
-        creditDate: input.creditDate,
-        reason: `Dispute resolution: ${existing[0].reason ?? ''}`.slice(0, 500),
+        customerInvoiceId: String(dispute.customer_invoice_id),
+        creditDate: input.creditDate!,
+        reason: `Dispute resolution: ${dispute.reason ?? ''}`.slice(0, 500),
         subtotal: creditSubtotal,
         taxRate,
+        taxAmount: creditTax,
       },
       userId,
     );
     creditNoteId = String(cn.id);
+
+    const linked = (await sql`
+      UPDATE customer_invoice_disputes
+      SET credit_note_id = ${creditNoteId}
+      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+      RETURNING *
+    `) as DbRow[];
+    if (linked[0]) {
+      Object.assign(dispute, linked[0]);
+    }
   }
-
-  const newStatus: DisputeStatus = input.mode === 'rejected' ? 'rejected' : 'resolved';
-
-  const rows = (await sql`
-    UPDATE customer_invoice_disputes
-    SET status = ${newStatus},
-        resolution_mode = ${input.mode},
-        resolution_note = ${input.note ?? null},
-        credit_note_id = ${creditNoteId},
-        resolved_at = NOW(),
-        resolved_by = ${userId}
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-    RETURNING *
-  `) as DbRow[];
 
   log.info(
     'Dispute resolved',
@@ -102,7 +126,7 @@ export async function resolveDispute(
     'dispute',
   );
 
-  return mapRow(rows[0]!);
+  return mapRow(dispute);
 }
 
 export async function withdrawDispute(
