@@ -5,17 +5,12 @@
  * points, so a principal, rate, term or residual edit kept the pre-edit
  * amortisation cached. This unit test guards the key without a database, so the
  * regression is caught by `bun run ci` on a machine with no DATABASE_URL, where
- * the integration suite is skipped.
+ * the integration suite is skipped. loanScheduleInputs.ts is pure, so no mocks.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
-vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: vi.fn() });
-  return { sql: sqlMock, withTransaction: vi.fn() };
-});
-
-import { buildInputsHash } from '@/modules/accounting/services/loans/loanScheduleService';
+import { buildInputsHash } from '@/modules/accounting/services/loans/loanScheduleInputs';
 
 const loan = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -27,10 +22,10 @@ const loan = {
   fixed_rate: '12',
   residual: '0',
   recurring_skip_months: [],
-  day_count: 'ACT_365',
-  reprice_mode: 'INSTALLMENT',
-  skip_mode: 'CAPITALISE',
-  lump_mode: 'REDUCE_TERM',
+  day_count: 'ACTUAL_365',
+  reprice_mode: 'RESOLVE_ON_RATE_CHANGE',
+  skip_mode: 'EXTEND_TERM',
+  lump_mode: 'REDUCE_INSTALLMENT',
 };
 
 describe('buildInputsHash', () => {
@@ -44,7 +39,7 @@ describe('buildInputsHash', () => {
     'changes when %s is edited',
     (field) => {
       const edited = { ...loan, [field]: field === 'start_date' ? '2026-02-28'
-        : field === 'day_count' ? 'ACT_360' : '84' };
+        : field === 'day_count' ? 'ACTUAL_360' : '84' };
       expect(buildInputsHash(edited, [], [])).not.toBe(buildInputsHash(loan, [], []));
     },
   );
@@ -58,9 +53,10 @@ describe('buildInputsHash', () => {
     expect(buildInputsHash(touched, [], [])).toBe(buildInputsHash(loan, [], []));
   });
 
-  it('keeps same-date rows in the order the totally ordered fetch returned them', () => {
-    // fetchEvents/fetchRatePoints order by (date, id), so the array reaching the
-    // hash is deterministic; the date sort here must not reshuffle it.
+  it('normalises rows that arrive out of date order', () => {
+    // The date sort makes the key independent of the order the array arrives in.
+    // fetchEvents/fetchRatePoints also order by (date, id), so same-date ties are
+    // already fixed before they reach here.
     const a = { kind: 'LUMP', event_date: '2026-03-31', amount: '500' };
     const b = { kind: 'LUMP', event_date: '2026-03-31', amount: '900' };
     const c = { kind: 'LUMP', event_date: '2026-01-31', amount: '100' };

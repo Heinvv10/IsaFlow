@@ -96,9 +96,47 @@ alone goes red. Recorded in `green.log`.
 **Still not done.** `updateLoan` still writes no invalidation of its own; the fix
 is entirely on the read path. The cache lookup at `:164` still has no
 `company_id` predicate (unexploitable, `fetchLoanData` already tenant-verified the
-loan). The production impact query still returns 0 rows, so nothing to restate.
+loan). The production impact query was run once, on 2026-09-09 against `isaflow`,
+and returned 0 rows; it has not been re-run since, so that figure is as at that
+date and nothing was restated.
 
 **Known-unstable, unrelated.** A full `tests/unit/services/` run fails 3 files, and
 which files fail changes between identical runs. They all pass in isolation and the
 same instability reproduces with this change's test file removed. Pre-existing
 cross-file mock pollution.
+
+
+---
+
+# Round 3 — the two re-review findings on c51b7bb9
+
+**N1 (MEDIUM) — the touch could itself promote a superseded run.** The loan was
+read without a lock, so a concurrent `updateLoan` could land between that read and
+the cache-hit touch: the touch then moved a run built on the old terms above the
+run the edit had just produced, and the ledger read the old one. The loan read in
+`fetchLoanData` now takes `FOR SHARE`, so an edit blocks until the reading
+transaction (opened by `withAuth`) commits its touch. Proved with two pool clients
+against the real database: inside an `als.run` request transaction the editor's
+`UPDATE` hits `lock_timeout`, and once that transaction ends the same edit
+succeeds and the next read recomputes. Removing only `FOR SHARE` turns exactly
+that test red.
+
+**Caveat, stated rather than hidden.** The lock is only held across statements
+when a transaction is open. The sole caller, `pages/api/accounting/loans/[id]/schedule.ts`,
+runs under `withAuth`, which opens one. A future caller from a script or cron
+would silently fall back to the narrow pre-N1 window, so the requirement is
+written at the function and in the module `.claude.md`.
+
+**N2 (LOW) — misleading unit fixture and test name.** The fixture used enum values
+the schema does not have; it now uses the real unions from
+`src/lib/amortisation/types.ts` (`ACTUAL_365`, `RESOLVE_ON_RATE_CHANGE`,
+`EXTEND_TERM`, `REDUCE_INSTALLMENT`). The ordering case is renamed to "normalises
+rows that arrive out of date order", which is what it asserts.
+
+**File split.** `loanScheduleService.ts` was exactly at the 300-line cap, so the
+pure mappers, `ENGINE_VERSION` and `buildInputsHash` moved to a new
+`loanScheduleInputs.ts` (82 lines); the service is 245. No behaviour moved with
+them, and the unit test now imports the pure module and needs no `@/lib/neon` mock.
+
+**Tests.** 8 integration (real Postgres, two of them two-client concurrency) and 18
+unit across the two loan schedule files.
