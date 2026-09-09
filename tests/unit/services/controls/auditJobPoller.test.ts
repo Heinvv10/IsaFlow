@@ -51,3 +51,21 @@ it('once mode performs one scan and shutdown stops interval waiting',async()=>{
  const controller=new AbortController();vi.mocked(runAuditSnapshotJob).mockImplementation(async()=>{controller.abort();return{state:'not_claimed'};});
  expect(await runAuditJobPoller({companyIds:[company],intervalMs:60000},{pool,signal:controller.signal})).toMatchObject({polls:1});
 });
+it('releases a connection arriving after acquisition is cancelled',async()=>{
+ let deliver:((client:PoolClient)=>void)|undefined;
+ const delayed={connect:()=>new Promise<PoolClient>(resolve=>{deliver=resolve;})} as unknown as Pool;
+ const controller=new AbortController(),pending=createAuditJobPoller({companyIds:[company]},{pool:delayed}).pollOnce(controller.signal);
+ controller.abort(new Error('Shutdown while acquiring'));
+ await expect(pending).rejects.toThrow('Shutdown while acquiring');
+ deliver!(client);await Promise.resolve();expect(release).toHaveBeenCalledTimes(1);expect(query).not.toHaveBeenCalled();
+});
+it('executes the tagged lazy SQL while the private metadata-only ALS context is still active',async()=>{
+ query.mockImplementation(async(text:string)=>{
+  if(text.includes('SELECT j.job_id')){
+   expect(als.getStore()).toMatchObject({client,companyId:company,userId:'audit-queue-poller',claims:{}});
+   expect(als.getStore()?.controlPrincipal).toBeUndefined();
+  }
+  return{rows:[]};
+ });
+ await createAuditJobPoller({companyIds:[company]},{pool}).pollOnce();
+});
