@@ -23,6 +23,14 @@ vi.mock('@/lib/neon', () => {
   return { sql: sqlMock, withTransaction: vi.fn(), withSavepoint: vi.fn() };
 });
 
+// This suite owns strategy SQL only; the real control boundary is tested in beneficiaryWriter* and PostgreSQL suites.
+vi.mock('@/modules/accounting/services/core/supplierBankWriteAdapter', () => ({
+  supplierWrite: (_companyId: string, action: (ctx: unknown) => Promise<unknown>) => action({}),
+  lockSupplier: vi.fn().mockResolvedValue({ id: 'supplier-1', name: 'Test Supplier' }),
+  prepareBankChange: vi.fn().mockResolvedValue(null),
+  finishSupplierWrite: (_ctx: unknown, row: unknown) => row,
+}));
+
 import { sql } from '@/lib/neon';
 import { createSupplier, updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import { ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
@@ -101,8 +109,8 @@ describe('createSupplier — auto_allocate_strategy', () => {
 describe('updateSupplier — auto_allocate_strategy', () => {
   // Position confirmed against the current column order in supplierWriteService.ts:
   // ...category, auto_allocate_strategy, auto_allocate_payments, [updated_at=NOW() has no param], id, company_id
-  const STRATEGY_INDEX = 16;
-  const BOOLEAN_INDEX = 17;
+  const STRATEGY_INDEX = 12;
+  const BOOLEAN_INDEX = 13;
 
   it('updates both columns in sync when a valid strategy is supplied', async () => {
     await updateSupplier(COMPANY_ID, SUPPLIER_ID, { autoAllocateStrategy: 'newest' });
