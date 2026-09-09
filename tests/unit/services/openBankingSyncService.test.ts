@@ -1,11 +1,11 @@
 /**
- * Unit tests for openBankingSyncService — focused on the extension
- * provider guard that prevents the legacy stub generator from running.
+ * Unit tests for openBankingSyncService — the extension provider returns
+ * instructions without touching bank_transactions, and the IDOR guard rejects
+ * a connection belonging to another company.
  *
- * Before this guard, calling syncBankFeed for an `extension`-provider
- * connection would invoke buildSampleTransactions() and insert fake
- * "Office supplies / Fuel / Telkom invoice" rows with no import_batch_id.
- * The guard added in this PR returns early with instructions instead.
+ * The sample-transaction generator these guards were built around is gone
+ * (K-018): the service no longer contains an INSERT into bank_transactions,
+ * and an unimplemented provider now raises BankFeedProviderNotImplementedError.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
