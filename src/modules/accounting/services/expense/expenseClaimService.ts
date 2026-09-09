@@ -25,6 +25,7 @@ import {
   createJournalEntry,
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { deniedVatTypeForLine } from '@/modules/accounting/services/expense/claimVatAdvice';
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 
@@ -479,6 +480,9 @@ export async function postClaimToGl(
     // neither debit nor credit, and the entry still balances without it because
     // the VAT leg below carries the whole amount.
     if (netAmount === 0) continue;
+    // A denial is a recorded classification, not the absence of one — see
+    // `deniedVatTypeForLine` for why only the denial is mapped.
+    const deniedVatType = deniedVatTypeForLine(line.vatCode, Number(line.vatAmount));
     lines.push({
       glAccountId: line.glAccountId,
       // A credit note captured on a claim arrives as a negative amount; posting
@@ -486,6 +490,7 @@ export async function postClaimToGl(
       debit: netAmount > 0 ? netAmount : 0,
       credit: netAmount < 0 ? -netAmount : 0,
       description: line.description ?? claim.claimNumber,
+      ...(deniedVatType ? { vatType: deniedVatType } : {}),
       ...(line.projectId ? { projectId: line.projectId } : {}),
       ...(line.costCentreId ? { costCenterId: line.costCentreId } : {}),
     });

@@ -117,3 +117,62 @@ round keep `vat_type` NULL on a denied expense leg (LOW-1 changes new postings o
 figures genuinely disagree is refused rather than corrected, and `VAT 15% 150.00` without an `@`
 still yields no VAT amount (pre-existing, out of scope). The `Tax`-below-`VAT` ordering fixes the
 ranking; a document printing ONLY a non-VAT levy under a `Tax` label is still read as VAT.
+
+---
+
+## Round 4 — disposition of the eight findings in `review-k072-r3.md`
+
+Both HIGHs were the SAME defect class as round 3's, surviving under different labels. Round 3
+fixed `Sub Total` by making one guard and one pattern spell the same thing; every OTHER label
+meaning "this is not the amount payable" kept its own spelling. So this round replaces the
+hand-spelled regexes with a **label vocabulary**: `SEP`, `EXCL`, `INCL`, `VAT_WORD`, `TAX_WORD`,
+`NET_LABEL`, `NET_PREFIX` in `ocrAmountPatterns.ts`, from which both guards, all three pattern
+lists and the line-item terminator (`SUMMARY_LINE_START`, now imported by
+`ocrExtractionService`) are built. Adding a spelling is one alternative plus one row in
+`k076-ocr-label-vocabulary.test.ts`, not a new regex.
+
+| # | Verdict | What changed |
+|---|---|---|
+| H-1 | FIXED | `Ex VAT` / `Ex. VAT` / `ExVAT` / `Exc VAT`. `NOT_A_TAX_LABEL` is now `(?<![A-Za-z])(?<!\b(?:Ex\|In)(?:c(?:l(?:uding)?)?)?\.?[\s-]*)` — every abbreviation of both markers, with and without the full stop. The inner `\b` is load-bearing: without it `Index VAT 150.00` loses the tax because the word merely ENDS in `ex`. Pinned both ways (`Price Ex VAT` is the net; `Index VAT` is the tax). |
+| H-2 | FIXED | `Nett Total` / `Net Total` / `Nett Amount` / `Net Value` / bare `Nett`. `NOT_A_SUBTOTAL` is now `(?<![A-Za-z])(?<!\b(?:Sub\|Nett?\|S[./])${SEP})` and `NET_LABEL` reads exactly the same set, so guard and pattern cannot drift. The terminator shares the vocabulary too — a `Nett Total` summary line printed in a column was collected as a line item. |
+| M-1 | FIXED | `SEP` is `[\s._/-]*` in BOTH the guard and the pattern, covering `Sub.Total`, `Sub_Total`, `Sub/Total`; `S/Total` and `S.Total` are their own alternative (`S[./]`, never a bare `S`, which would refuse `Sales Total` — pinned). |
+| M-2 | FIXED | `captureRowLock.ts` — `SELECT … FOR UPDATE` with `SET LOCAL lock_timeout = '5s'`, taken before the status check on `captured_documents` (receipt-to-journal) and on `capture_events` (post-expense), same shape as `bankTxLock.ts`. The event row only, not the joined document: locking both would take the two rows in opposite orders on the two routes. Proved by two CONCURRENT posts on the real database — one 200, one 400, one journal, bank credit R1 150. Without the lock both return 200 (mutation recorded in `green-round4.log`). |
+| M-3 | FIXED (both halves) | `deniedVatTypeForLine` (`claimVatAdvice.ts`) tags a denied claim's expense leg `vat_type = 'no_vat'`; observed in real `gl_journal_lines`. Only the denial is mapped — tagging a claim's expense leg `'standard'` would declare the supply on a leg no VAT201 box reads, which is a different change. `claimInputVatWarnings` surfaces `INPUT_VAT_DENIED_ADVICE` on `PATCH .../lines/[lineId]` and on `approve`; its predicate is the AMOUNT as well as the code, because `postClaim` sums `vatAmount` regardless of `vat_code`. |
+| L-1 | FIXED | Both routes now `throw` anything that is not a `MissingSystemAccountError` instead of reporting it as "default accounts not configured", and log the refusal they do answer. The petty-cash branch's unwrapped `getSystemAccountId('bank')` is mapped to the same 400 rather than a 500, so the two paths agree. Covered: an actually-empty role still answers 400 and writes nothing. NOT covered by a test: the rethrow of a transient database fault — it needs an injected fault the fixture cannot produce, so it rests on the `instanceof` narrowing alone. |
+| L-2 | FIXED | `ocrAmountReconciliation.reconcileNetAgainstTotal`. A levy under a printed subtotal no longer refuses the document: where the printed net contradicts `total − VAT`, the derived net wins IF the derived split looks standard-rated (13–17%), and the discrepancy is reported through `ExtractedAmounts.warnings` into the capture screen's warnings. Deliberately NOT unconditional: a mis-read tax line (VAT 12.00 on R1 150 → 1.1%) fails the same reconciliation, and silently rebasing on it would post a wrong claim instead of refusing. Both directions pinned. |
+| L-3 | FIXED | `Total Inc VAT` reads 1150. `TOTAL_PATTERNS[2]` is built from `INCL`, the same alternation the guard refuses, and admits `Total\|Amount\|Price\|Value` in front of it. |
+
+**Files.** `ocrAmountPatterns.ts`, `ocrAmountReconciliation.ts` (new), `ocrExtractionService.ts`,
+`ocrService.ts`, `captureRowLock.ts` (new), `claimVatAdvice.ts` (new), `expenseClaimService.ts`,
+`receipt-to-journal.ts`, `capture/[id]/post-expense.ts`, `expense-claims/[id]/approve.ts`,
+`expense-claims/[id]/lines/[lineId].ts`. Every new/changed file is under the 300-line cap;
+`expenseClaimService.ts` was already 532 lines before this round and grew by 5.
+
+**Tests.** Unit: `k076-ocr-label-vocabulary.test.ts` (new, 60 — the vocabulary table),
+`k076-ocr-subtotal-reconciliation.test.ts` (new, 18), `k076-ocr-label-boundaries.test.ts` (43).
+Real DB: `k072-capture-double-post.int.test.ts` (new, 4 — including the concurrency proof),
+`k072-claim-vat-classification.int.test.ts` (new, 4). Nine mutations proved RED
+(`green-round4.log`). Two pre-existing mocked route tests were adapted, not weakened: they stub
+`@/lib/als` so the new lock can take its client, and one now asserts BOTH `capture_events`
+statements are tenant-scoped rather than the first one found.
+
+**Migration.** None. **Rollback.** Revert the commit.
+
+**Historical data.** Unchanged. The label defects mis-READ documents at capture time and leave no
+marker, so no read-only query can identify affected journals retrospectively — the impact SQL
+above is still the only detection available. A double-posted receipt IS detectable:
+
+```sql
+SELECT source_document_id, COUNT(*) AS journals
+FROM gl_journal_entries
+WHERE company_id = $1 AND source = 'auto_expense_receipt' AND source_document_id IS NOT NULL
+GROUP BY source_document_id HAVING COUNT(*) > 1;
+```
+
+**Limits.** Still a regex over OCR text, not a parser. A document printing ONLY a non-VAT levy
+under a `Tax` label is still read as VAT. The two routes lock different rows, so a receipt posted
+concurrently through BOTH routes is not serialised — no unique constraint backs
+`source_document_id`; the query above detects it. `VAT INCLUDED @ 15% 150.00` (words between the
+label and the rate) still yields no VAT figure and falls back to the derived 15%, which is
+correct for a VAT-inclusive slip; admitting `VAT Inclusive` as a tax label would mis-read
+`TOTAL (VAT INCL) 1150.00` as R1 150 of tax, so it stays out.

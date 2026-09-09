@@ -9,13 +9,17 @@ import {
   extractVatAmount,
   parseAmount,
   SUBTOTAL_PATTERNS,
+  SUMMARY_LINE_START,
   TOTAL_PATTERNS,
 } from './ocrAmountPatterns';
+import { reconcileNetAgainstTotal } from './ocrAmountReconciliation';
 
 export interface ExtractedAmounts {
   subtotal: number | null;
   vatAmount: number | null;
   totalAmount: number | null;
+  /** What the reader could not settle on its own — surfaced on the capture screen. */
+  warnings: string[];
 }
 
 export interface RegexLineItem {
@@ -150,7 +154,7 @@ export function extractReferenceNumber(text: string): string | null {
 }
 
 export function extractAmounts(text: string): ExtractedAmounts {
-  const result: ExtractedAmounts = { subtotal: null, vatAmount: null, totalAmount: null };
+  const result: ExtractedAmounts = { subtotal: null, vatAmount: null, totalAmount: null, warnings: [] };
 
   for (const pattern of TOTAL_PATTERNS) {
     const match = text.match(pattern);
@@ -176,6 +180,11 @@ export function extractAmounts(text: string): ExtractedAmounts {
   if (result.subtotal !== null && result.vatAmount !== null && result.totalAmount === null) {
     result.totalAmount = Math.round((result.subtotal + result.vatAmount) * 100) / 100;
   }
+  // A printed subtotal the document's own total and tax contradict — see
+  // `reconcileNetAgainstTotal` for which figure wins and why it is conditional.
+  const reconciled = reconcileNetAgainstTotal(result.subtotal, result.vatAmount, result.totalAmount);
+  result.subtotal = reconciled.subtotal;
+  if (reconciled.warning) result.warnings.push(reconciled.warning);
 
   return result;
 }
@@ -195,9 +204,10 @@ export function extractLineItems(lines: string[]): RegexLineItem[] {
       if (match) itemsStarted = true;
     }
     if (!itemsStarted) continue;
-    // Same subtotal spelling as ocrAmountPatterns — a summary line the grammar
-    // there recognises must stop item collection here too.
-    if (/^(Sub[\s-]*Total|Total|VAT|Tax|Amount\s*Due|Balance\s*Due|Grand\s*Total)/i.test(line)) break;
+    // The terminator is the vocabulary itself, not a second hand-spelled copy
+    // of it: while this list knew only `Sub[\s-]*Total`, a `Nett Total`
+    // summary line was collected as a line item.
+    if (SUMMARY_LINE_START.test(line)) break;
 
     const fullMatch = lineItemPattern.exec(line);
     if (fullMatch) {

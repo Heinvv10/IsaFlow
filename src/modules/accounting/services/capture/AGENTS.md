@@ -78,6 +78,12 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
   `vat_amount = 0` and `vat_code = 'none'`, and the response returns `inputVatDenied` +
   `INPUT_VAT_DENIED_ADVICE` so the approver is told.
 - 2026-09-09: `pettyCashJournalService` balance-checks before its first write (see above).
+- 2026-09-09: `captureRowLock.ts` — `lockCapturedDocumentForUpdate` / `lockCaptureEventForUpdate`.
+  Both post paths read a status, refuse on the settled value and stamp it only at the end of the
+  request; two concurrent posts therefore both passed and both auto-posted a journal against the
+  same source document (`idx_gl_je_source_document` is a plain index, not unique). Take the lock
+  BEFORE the status check. The post-expense route locks the EVENT only — locking the joined
+  document as well would take the two rows in the opposite order to receipt-to-journal.
 - 2026-06-11: Workstream G — captureBankTxAttachService; document-capture-action null-guard + ::uuid cast hardening (PR #168 review batch).
 - 2026-06-11: Blind-review hardening — tenant ownership preflight + mime re-validation + webhook-retry dedupe in attachReplyMedia; reply_text LEFT(…,10000) cap; SSRF hostname allowlist in twilioMediaFetch; NumMedia capped at 10; migration comment for created_by FK absence.
 - 2026-06-11: Workstream D — bankTxQueryMessage, bankTxQueryService, bankTxQueryReplyService, twilioMediaFetch; inbound webhook reply hook added to whatsAppInboundService; `sid` on whatsAppReplyService SendResult.
