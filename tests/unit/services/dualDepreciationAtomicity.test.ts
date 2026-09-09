@@ -90,9 +90,15 @@ describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
     expect(result.glFailed).toBe(false);
     expect(result.entryId).toBe('je-1');
 
-    // The apl upsert ran INSIDE the savepoint (after withSavepoint was entered).
-    const upsertText = (mockSql.mock.calls[0]![0] as string[]).join('?');
-    expect(upsertText).toMatch(/INSERT INTO asset_period_ledger/i);
+    // Everything ran INSIDE the savepoint (after withSavepoint was entered), and
+    // the asset row lock is taken BEFORE the upsert. Deriving the tax opening
+    // without that lock is what let two concurrent runs for different periods
+    // both read the same balance and drop one period's charge.
+    const texts = mockSql.mock.calls.map((c) => (c[0] as string[]).join('?'));
+    const lockAt = texts.findIndex((t) => /FOR UPDATE/i.test(t));
+    const upsertAt = texts.findIndex((t) => /INSERT INTO asset_period_ledger/i.test(t));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    expect(upsertAt).toBeGreaterThan(lockAt);
   });
 
   it('reports glFailed=true when the GL post throws — nothing silently persists', async () => {

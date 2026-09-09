@@ -1,7 +1,8 @@
 # K-027 fix — depreciation carries forward accumulated tax depreciation
 
-Two commits: `71c70ece` (the carry-forward) and this one, which corrects the
-four defects a blind review found in it. Read them together.
+Three commits: `71c70ece` (the carry-forward), `762b8cc4` (six findings from a
+blind review of it), and this one, which closes the two the re-review found
+still open. Read them together.
 
 **Trigger.** Every depreciation run, from the second period onwards.
 `loadDepreciationAssets` (`depreciationRunPlan.ts`) reads the tax opening
@@ -14,16 +15,24 @@ balance from `assets.tax_accumulated_depreciation`, and no code path wrote it.
 `tax_carrying_amount` stayed at cost minus one period, and `deferred_tax` was
 computed off that wrong carrying amount.
 
-**After.** Inside the existing per-asset savepoint, after the ledger upsert, the
-run sets `assets.tax_accumulated_depreciation` and `tax_book_value` from the
-asset's LATEST subledger row (`ORDER BY yyyymm DESC LIMIT 1`), in SQL, scoped by
-`company_id`. Reading the row back rather than SETting the JavaScript figures is
-what makes it correct under two conditions the first commit got wrong:
-`period_date` is caller-supplied, so back-posting January after February must
-not regress the column to January's closing; and the figure was computed from a
-snapshot taken before the transaction, so two concurrent runs for different
-periods would otherwise both write an absolute value and the later commit would
-drop the earlier one.
+**After.** Inside the existing per-asset savepoint, before anything is computed,
+the run takes `SELECT ... FOR UPDATE` on the asset row (5s `lock_timeout`), then
+derives the period's tax opening balance from the SUBLEDGER — the base carried
+by the earliest `asset_period_ledger` row, plus every charge in a period before
+this one. After the ledger upsert it sets `assets.tax_accumulated_depreciation`
+and `tax_book_value` from the subledger TOTAL: every other period's charge plus
+this one's. All of it scoped by `company_id`.
+
+`assets.tax_accumulated_depreciation` is a CACHE of the subledger, and the two
+rules follow from that. Reading the OPENING from the column was wrong because
+`period_date` is caller-supplied on both the REST route and the MCP tool, so a
+back-posted period opened on a newer balance and its charge never reached the
+accumulation — posting February, then January, then March left the asset at
+4 000 against 6 000 charged. And the read had to be serialised: nothing else
+orders two `run_depreciation` calls, and re-reading inside the transaction does
+NOT help, because the subquery runs under the reader's own snapshot and cannot
+see a row the other transaction has not committed. Two sessions both read the
+same opening and the later commit dropped the earlier period's charge.
 
 The plan additionally skips an asset that already holds an
 `asset_period_ledger` row for the period, under its own reason
@@ -36,28 +45,39 @@ postable for ever and every re-run doubled the tax column and rewrote the
 subledger row to two months of wear in one calendar month.
 
 **Files.**
-- `src/modules/accounting/services/gl/assetDepreciationPosting.ts` (280 lines)
+- `src/modules/accounting/services/gl/assetTaxAccumulation.ts` — NEW. The locked
+  read and the write, with the reasoning for both.
+- `src/modules/accounting/services/gl/assetDepreciationPosting.ts` (269 lines)
 - `src/modules/accounting/services/items/depreciationRunPlan.ts` (300 lines)
 - `src/lib/mcp/tools/writeDepreciation.ts` — the `run_depreciation` description
   claimed re-runs were safe "by entry number", which was the false half.
 
-**Tests.** 10 passing against real Postgres, in two files.
+**Tests.** 11 passing against real Postgres, in two files.
 - `tests/integration/k027-tax-depreciation-carry-forward.int.test.ts` (6): two
   consecutive periods open and close correctly; re-posting a period with a
   journal does not double; a dry run writes nothing; a second company is
   untouched; journal counts asserted at each step.
-- `tests/integration/k027-tax-depreciation-idempotency.int.test.ts` (4): an
+- `tests/integration/k027-tax-depreciation-idempotency.int.test.ts` (5): an
   asset at policy 0 with tax still running posts tax and NO journal; re-running
-  that period changes nothing (skip reason `already_in_subledger`, subledger row
-  still one month); February-then-January leaves the asset on February; March
-  then opens on February's closing.
+  that period changes nothing (`already_in_subledger`, subledger row still one
+  month); back-posting January after February keeps BOTH charges and opens
+  January at 0; March then opens on the subledger total and the asset equals
+  every charge made; and two concurrent sessions, driven through
+  `lockAssetTaxBase` / `writeAssetTaxAccumulation` on separate clients, both
+  keep their charge — the second blocks on the row lock rather than reading
+  past the first.
 
-Mutation checks, both recorded in `green.log`: reverting the first commit's
-production change turns 4 of the first file's 6 red; reverting to `71c70ece`
-turns 3 of the second file's 4 red, at exactly the figures the review measured
-(4 000 where 2 000 is correct).
+`tests/unit/services/dualDepreciationAtomicity.test.ts` was updated in the same
+direction: it pinned the ledger upsert as the FIRST statement in the savepoint,
+and now asserts that the row lock precedes it.
 
-**Migration / rollback.** None. Rollback is reverting both commits.
+Mutation checks, all recorded in `green.log`: reverting the first commit's
+change turns 4 of the first file's 6 red; reverting to `71c70ece` turns 3 of the
+second file's red; reverting the posting file to `762b8cc4` turns both
+back-posting tests red at 2 000 where 4 000 is correct; and deleting only the
+`FOR UPDATE` line turns the concurrency test red.
+
+**Migration / rollback.** None. Rollback is reverting all three commits.
 
 **Historical-data impact.** Wide, and NOT corrected here. For every company that
 has run depreciation more than once: `assets.tax_accumulated_depreciation` and
@@ -118,18 +138,23 @@ Deferred-tax movements already posted to the GL, and disposal recapture already
 computed from the nil balance, need separate review before any figures move.
 
 **Limits.**
-- No existing row is repaired by either commit.
-- Back-posting an OLD period still writes a subledger row whose
-  `tax_opening_acc_dep` came from the asset column, i.e. from the newest period
-  rather than from the period before it. The asset column and every later run
-  are now correct, but that one retro row remains internally inconsistent. This
-  is pre-existing, not introduced here — the opening has always come from the
-  asset column — and fixing it means sourcing the opening from the preceding
-  subledger row, which is a change to the calculator's inputs and out of scope
-  for this ticket. The `worst_gap` query above detects it.
+- No existing row is repaired by any of the three commits.
+- A back-posted period does not RECOMPUTE the subledger rows that were written
+  after it. Posting February, then January, then March now leaves the asset at
+  6 000, equal to the three charges made, and March opening at 4 000 — both
+  correct. But February's stored row still reads opening 0 / closing 2 000,
+  computed when it was the only period. Repairing it means recomputing every
+  later row, which is the ordered backfill above. The `worst_gap` query detects
+  exactly this.
 - Assets seeded with a non-zero `tax_opening_acc_dep` at import still ignore
-  that column; the service reads `tax_accumulated_depreciation` only. Unchanged
-  behaviour.
-- Nothing serialises two concurrent `run_depreciation` calls. The write-back is
-  now atomic in SQL, so neither call can lose the other's update, but the run as
-  a whole takes no advisory lock.
+  that column. The base now comes from the earliest subledger row's own
+  opening, and on a first run from `tax_accumulated_depreciation`. Unchanged
+  behaviour for `tax_opening_acc_dep` itself.
+- The lock is per ASSET, taken inside the per-asset savepoint, and is held to
+  the end of the request transaction. Two runs over the same register still
+  interleave asset by asset; what is guaranteed is that no asset's accumulation
+  is computed from a balance another session is concurrently changing. A run
+  that cannot take the lock within 5s fails that asset loudly as `glFailed`
+  rather than proceeding on a stale read.
+- The POLICY side is untouched by these commits. Its write-back is an in-SQL
+  increment on the locked row and was never subject to either defect.

@@ -42,3 +42,32 @@ AssertionError: expected 4000 to be close to 2000, received difference is 2000, 
 -- full unit suite, no fixture env: 9318 passed, 2 failed — cashFlowReport and
    bankAllocationUnwind, both 10s timeouts under parallel load, both pass in
    isolation, neither touches a changed file.
+
+================================================================
+== Re-review follow-up (H2 partial, M3 open) — FOR UPDATE      ==
+================================================================
+
+-- Both k027 suites, real Postgres --
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+
+-- MUTATION A: FOR UPDATE deleted from assetTaxAccumulation.ts --
+   × two concurrent sessions posting different periods both keep their charge 362ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected true to be false // Object.is equality
+      Tests  1 failed | 4 passed (5)
+
+-- MUTATION B: assetDepreciationPosting.ts reverted to 762b8cc4 --
+   × back-posting January after February keeps BOTH periods in the accumulation 124ms
+   × March opens on the subledger total, and the asset equals every charge made 41ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 2000 to be close to 4000, received difference is 2000, but expected 0.005
+AssertionError: expected 2000 to be close to 4000, received difference is 2000, but expected 0.005
+      Tests  2 failed | 9 passed (11)
+
+-- restored; tsc --noEmit and eslint clean on all four changed src files.
+-- runDepreciationDb.test.ts 15/15 on a disposable clone named isaflow_test.
+
+-- full unit suite, no fixture env: 9320 passed, 0 failed (784 files).
+   dualDepreciationAtomicity.test.ts updated: it pinned the ledger upsert as
+   the first savepoint statement; now asserts the row lock precedes it.
