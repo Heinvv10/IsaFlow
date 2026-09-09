@@ -7,7 +7,7 @@ const id='11111111-1111-1111-1111-111111111111';
 const ref:OperationRef={entityType:'asset_depreciation_intent',entityId:id,operation:'asset_depreciation.post'};
 function context(overrides:Record<string,unknown>={}) {
  const data={company:{id,default_currency:'ZAR'},intent:{id,asset_id:id,period_date:'2026-02-28'},
-  asset:{id,asset_number:'ASSET1',purchase_price:'1200',purchase_date:'2026-01-01',accumulated_depreciation:'0',tax_accumulated_depreciation:'0',useful_life_years:1,tax_useful_life_years:1,deferred_tax_rate:'0.27',status:'available',below_threshold:false},
+  asset:{id,asset_number:'ASSET1',purchase_price:'1200',purchase_date:'2026-01-01',accumulated_depreciation:'0',tax_accumulated_depreciation:'0',useful_life_years:1,tax_useful_life_years:1,deferred_tax_rate:'0.27',status:'available',below_threshold:false,depreciation_method:'straight_line',tax_depreciation_method:'straight_line'},
   ledgers:[],accounts:[{id:'expense',account_type:'expense',account_subtype:'depreciation_expense',is_active:true,is_system_account:true},
    {id:'accumulated',account_type:'asset',account_subtype:'accumulated_depreciation',is_active:true,is_system_account:true}],periods:[{id:'period',status:'open'}],...overrides};
  const sql=vi.fn(async(strings:TemplateStringsArray)=>{
@@ -30,4 +30,14 @@ it('derives depreciation from locked persisted source facts, never a caller amou
 it('refuses unresolved account roles and unbounded ledger history',async()=>{
  await expect(materializeAssetDepreciationOperation(context({accounts:[]}),ref)).rejects.toThrow();
  await expect(materializeAssetDepreciationOperation(context({ledgers:Array.from({length:10001},()=>({}))}),ref)).rejects.toThrow();
+});
+it('refuses configured depreciation methods that the straight-line engine cannot execute',async()=>{
+ for(const depreciation_method of ['reducing_balance','sum_of_years']) {
+  const ctx=context();const original=ctx.sql;
+  const sql=vi.fn(async(strings:TemplateStringsArray,...values:unknown[])=>{
+   const rows=await original(strings,...values);
+   return strings.join('?').includes('FROM assets') ? rows.map(row=>({...row as Record<string,unknown>,depreciation_method})) : rows;
+  });
+  await expect(materializeAssetDepreciationOperation({...ctx,sql},ref)).rejects.toThrow('method');
+ }
 });
