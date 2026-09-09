@@ -113,7 +113,15 @@ export interface PayrollLineInput {
   components: EmployeeComponent[];
   period: PayrollPeriod;
   taxYear: number;
-  annualPayrollEstimate: number;
+  /**
+   * The employer's estimated annual payroll, used only to decide SDL
+   * leviability. Omit it when the caller computes a whole run: the R500 000
+   * exemption is a property of the employer's total remuneration, which is not
+   * known until every line has been costed, so the run service applies the
+   * threshold itself in a second pass over `sdlLeviable`. When omitted, `sdl`
+   * comes back 0 and the caller must derive it.
+   */
+  annualPayrollEstimate?: number;
   priorPeriodCumulativePaye?: number;
 }
 
@@ -133,6 +141,8 @@ export interface PayrollLineResult {
   paye: PayeResult;
   uif: UifResult;
   sdl: number;
+  /** Remuneration this line contributes to the SDL leviable amount. */
+  sdlLeviable: number;
   eti: EtiResult;
   netPay: number;
   componentBreakdown: ComponentBreakdownItem[];

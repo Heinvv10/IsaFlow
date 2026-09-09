@@ -1,0 +1,31 @@
+# K-023 GREEN
+
+## Integration (real Postgres fixture)
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k023-sdl-invented-salary.int.test.ts" "tests/integration/k023-sdl-threshold-boundary.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-023
+
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Start at  09:04:56
+   Duration  2.25s (transform 871ms, setup 0ms, import 1.59s, tests 1.35s, environment 0ms)
+
+
+## Full unit suite (DATABASE_URL unset)
+ Test Files  787 passed | 36 skipped (823)
+      Tests  9335 passed | 234 skipped (9569)
+
+## Mutation check
+Restored `const annualPayrollEstimate = employees.length * 25_000 * 12;` in
+payrollRunService.ts and re-ran both K-023 integration files:
+ Test Files  2 failed (2)
+      Tests  3 failed | 3 passed (6)
+Failing: the two validator RED cases plus "levies the employer one cent a month
+above that boundary". The three that still passed are the exempt single-employee
+cases, which the headcount estimate happens to get right. Production change
+restored afterwards; both files back to 6 passed.
+
+## Static checks
+bunx tsc --noEmit -> exit 0
+bunx eslint payrollRunService.ts payrollCalculator.ts payrollTypes.ts -> exit 0

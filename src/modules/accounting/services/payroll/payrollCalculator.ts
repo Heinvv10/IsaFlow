@@ -61,7 +61,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
-  const sdl = calculateSDL(sdlLeviable, annualPayrollEstimate, taxYear);
+  // Leviability depends on the employer's whole payroll, not on this line, so a
+  // caller costing a full run leaves the estimate out and applies the threshold
+  // once it knows the run's own leviable total.
+  const sdl = annualPayrollEstimate === undefined
+    ? 0
+    : calculateSDL(sdlLeviable, annualPayrollEstimate, taxYear);
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
@@ -84,6 +89,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     paye,
     uif,
     sdl: Math.round(sdl * 100) / 100,
+    sdlLeviable: Math.round(sdlLeviable * 100) / 100,
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,
