@@ -324,8 +324,8 @@
       "correctedTrigger": "Quoted non-allowlisted relation exposes own-company endpoint fields through the authenticated API. Real PostgreSQL reproduction failed; quoted customer and foreign predicate controls passed.",
       "severityRationale": "Confirmed sensitive own-company field exposure outside intended financial relation allowlist; no cross-tenant disclosure demonstrated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "6d42b2ac",
-      "status": "in-progress",
+      "currentSha": "d0c0aa24",
+      "status": "code-verified",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/core/nlQueryRelations.test.ts",
@@ -337,7 +337,9 @@
         "K-008/relations-red.log",
         "K-008/relations-green.log",
         "K-008/green.log",
-        "K-008/review.md"
+        "K-008/review.md",
+        "K-008/ci.log",
+        "K-008/review-regression.log"
       ],
       "fixCommit": "6d42b2ac",
       "pr": null,
