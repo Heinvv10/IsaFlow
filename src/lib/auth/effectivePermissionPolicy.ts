@@ -28,6 +28,8 @@ export const EFFECTIVE_PERMISSION_RULES: Readonly<Record<string, PermissionRule>
   'read:access': rule(['access'], 'canRead', true),
   'read:audit': rule(['audit'], 'canRead'),
   'write:audit': rule(['audit'], 'canWrite', true),
+  'read:imports': rule(['imports'], 'canRead'),
+  'write:imports': rule(['imports'], 'canApprove', true),
   'write:release': rule(['release'], 'canApprove', true),
   'write:locks': rule(['locks'], 'canApprove', true),
   'write:controls': rule(['controls'], 'canApprove', true),
