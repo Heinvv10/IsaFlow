@@ -109,6 +109,8 @@ export async function materializeApOperation(ctx: ControlTx, ref: OperationRef):
   const { beneficiaryFingerprint } = await import('./changeProtection');
   const bankFingerprint = beneficiaryFingerprint(company, supplier);
   const accounts = await resolveApControlAccounts(ctx, ref);
+  // These writers post nominal amounts; no authoritative FX conversion exists here.
+  if (currency !== accounts.ledgerCurrency) throw new Error('AP currency differs from ledger currency; a bound conversion is required');
   const reversal = await resolveApReversalMaterial(ctx, ref, header.gl_journal_entry_id, accountingDate);
   accountingDate = reversal.accountingDate;
   sourceFacts = { ...sourceFacts, accounts: accounts.facts, reversal: reversal.facts };

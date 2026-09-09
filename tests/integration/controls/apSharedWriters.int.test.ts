@@ -8,7 +8,7 @@ import { seedApAccounts } from './apSyntheticAccounts';
 import { withControlRequest, requireControlTx } from '@/modules/accounting/services/controls/context';
 import { requestOperationApproval, decideOperationApproval } from '@/modules/accounting/services/controls/approvalRequestService';
 import { processSupplierPayment, voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
-import { approveSupplierInvoice, postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { approveSupplierInvoice, cancelSupplierInvoice, postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import type { ControlTx, OperationRef } from '@/modules/accounting/services/controls/contracts';
 
 const config = fixtureConfigFromEnv(process.env), target = validateFixtureTarget(config);
@@ -169,4 +169,40 @@ it('binds a closed original period reversal to the open server-day target and re
   await actor('u1', () => voidSupplierPayment(fixture.companyA, doc.payment, fixture.u1.id, { approvalId: id }));
   const contra = await pool.query('SELECT entry_date::text FROM gl_journal_entries WHERE company_id=$1 AND reversal_of_id=$2', [fixture.companyA, processed.glJournalEntryId]);
   expect(contra.rows).toEqual([{ entry_date: today }]);
+});
+it('cancels a closed-period invoice preserving its original journal and replays one committed cancellation', async () => {
+  const originalPeriod = randomUUID(), doc = await document();
+  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+    VALUES($1,$2,'Synthetic July',7,2026,'2026-07-01','2026-07-31','open')`, [originalPeriod, fixture.companyA]);
+  await pool.query("UPDATE supplier_invoices SET invoice_date='2026-07-15' WHERE company_id=$1 AND id=$2", [fixture.companyA, doc.invoice]);
+  const postId = await approval(invoiceRef(doc.invoice));
+  const posted = await actor('u1', () => approveSupplierInvoice(fixture.companyA, doc.invoice, fixture.u1.id, { approvalId: postId }));
+  await pool.query("UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND id=$2", [fixture.companyA, originalPeriod]);
+  const ref: OperationRef = { ...invoiceRef(doc.invoice), operation: 'supplier_invoice.cancel' };
+  const id = await approval(ref);
+  const response = await route(invoiceRoute, { action: 'cancel', invoiceId: doc.invoice, approvalId: id }, '/api/accounting/supplier-invoices-action');
+  expect(response.status).toBe(200);
+  expect(response.body.data).toMatchObject({ status: 'cancelled', glJournalEntryId: posted.glJournalEntryId });
+  const replay = await actor('u1', () => cancelSupplierInvoice(fixture.companyA, doc.invoice, fixture.u1.id, { approvalId: id }));
+  expect(replay).toEqual(response.body.data);
+  const today = (await pool.query("SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day")).rows[0].day;
+  const contra = await pool.query('SELECT entry_date::text FROM gl_journal_entries WHERE company_id=$1 AND reversal_of_id=$2', [fixture.companyA, posted.glJournalEntryId]);
+  expect(contra.rows).toEqual([{ entry_date: today }]);
+  const stored = await pool.query('SELECT status,gl_journal_entry_id FROM supplier_invoices WHERE company_id=$1 AND id=$2', [fixture.companyA, doc.invoice]);
+  expect(stored.rows).toEqual([{ status: 'cancelled', gl_journal_entry_id: posted.glJournalEntryId }]);
+});
+it.each(['invoice', 'payment'])('refuses %s currency without a bound ledger conversion', async kind => {
+  const doc = await document();
+  await pool.query("UPDATE supplier_invoices SET currency='USD' WHERE company_id=$1 AND id=$2", [fixture.companyA, doc.invoice]);
+  const ref = kind === 'invoice' ? invoiceRef(doc.invoice) : paymentRef(doc.payment);
+  await expect(approval(ref)).rejects.toThrow('currency');
+  expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2', [fixture.companyA, ref.entityId])).rows).toHaveLength(0);
+});
+it('refuses a changed ledger currency after approval before posting the nominal amount', async () => {
+  const doc = await document(), id = await approval(invoiceRef(doc.invoice));
+  try {
+    await pool.query("UPDATE companies SET default_currency='USD' WHERE id=$1", [fixture.companyA]);
+    await expect(actor('u1', () => approveSupplierInvoice(fixture.companyA, doc.invoice, fixture.u1.id, { approvalId: id }))).rejects.toThrow();
+    expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2', [fixture.companyA, doc.invoice])).rows).toHaveLength(0);
+  } finally { await pool.query("UPDATE companies SET default_currency='ZAR' WHERE id=$1", [fixture.companyA]); }
 });
