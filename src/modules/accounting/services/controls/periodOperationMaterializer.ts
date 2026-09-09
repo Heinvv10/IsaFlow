@@ -50,7 +50,7 @@ export async function materializePeriodOperation(ctx: ControlTx, ref: OperationR
       AND start_date<=${end}::date AND end_date>=${start}::date ORDER BY id FOR UPDATE` as Row[];
   } else if (ref.entityType === 'company_lockdown_intent') {
     if (!UUID_RE.test(ref.entityId)) throw new Error('Invalid lockdown intent reference');
-    [intent = null] = await ctx.sql`SELECT * FROM control_lockdown_intents WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid FOR SHARE` as Row[];
+    [intent = null] = await ctx.sql`SELECT * FROM control_lockdown_intents WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid` as Row[];
     if (!intent) throw new Error('Operation not found');
     const [clock] = await ctx.sql`SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day` as { day: string }[];
     if (!clock || !isRealCalendarDate(clock.day)) throw new Error('Lockdown operation date unavailable');
