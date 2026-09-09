@@ -34,6 +34,11 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/expense/*`.
 - `scripts/migrations/sql/420_*`, `421_*`, `422_auto_expense_claim_je_source.sql` — expense schema + JE source CHECK.
 
 ## Recent changes
+- 2026-09-09: `claimVatAdvice.ts` — `deniedVatTypeForLine` tags a claim's expense leg
+  `vat_type = 'no_vat'` when the line claims nothing on a `vat_input_denied` account (a denial is
+  a recorded classification, not a NULL); `claimInputVatWarnings` returns `INPUT_VAT_DENIED_ADVICE`
+  for the line-edit and approve routes, since `postClaim` sums `vat_amount` REGARDLESS of
+  `vat_code` — restoring the amount alone is enough to produce the claim.
 - 2026-04-22: mig-422 added `auto_expense_claim` to JE source CHECK.
 - 2026-04-22: post sets `created_by` and `status='posted'` on JE.
 - 2026-04-22: normalise Date/string to `YYYY-MM-DD` in claim + line persistence.

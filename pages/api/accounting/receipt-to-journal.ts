@@ -22,6 +22,11 @@ import {
   shouldAutoPostReceipt,
   parseReceiptType,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
+import {
+  CaptureRowLockTimeoutError,
+  lockCapturedDocumentForUpdate,
+} from '@/modules/accounting/services/capture/captureRowLock';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
   INPUT_VAT_DENIED_ADVICE,
@@ -43,11 +48,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
 
-  // Fetch captured document
-  const [doc] = (await sql`
-    SELECT extracted_data, status FROM captured_documents
-    WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `) as Row[];
+  // Fetch captured document, holding the row for the rest of the request.
+  //
+  // The status check below is a check-then-act: the stamp that settles it is
+  // written at the very end of the handler, so two concurrent requests both
+  // read 'pending', both pass, and both post. Under the lock the second one
+  // blocks here and reads the settled status instead. Nothing has been written
+  // at this point, so a lock timeout is still a safe 4xx.
+  let doc: Row | null;
+  try {
+    doc = (await lockCapturedDocumentForUpdate(companyId, documentId)) as Row | null;
+  } catch (err) {
+    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
   // `status` was selected and never read. The handler stamps the document
@@ -87,7 +101,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       getSystemAccountId('bank', companyId),
       getSystemAccountId('default_expense', companyId),
     ]);
-  } catch {
+  } catch (err) {
+    // Only a MISSING ROLE is a configuration answer. `getSystemAccountId` runs a
+    // real query, so a bare `catch` reported a transient database fault to the
+    // operator as "set up your default accounts" — unlogged, and pointing at the
+    // wrong remedy.
+    if (!(err instanceof MissingSystemAccountError)) throw err;
+    log.warn('Receipt-to-journal refused: default accounts not configured',
+      { companyId, documentId, err: err.message }, 'accounting');
     return apiResponse.badRequest(res, 'Default accounts not configured. Set VAT Input, Bank, and Expense accounts under Accounting > Default Accounts.');
   }
 

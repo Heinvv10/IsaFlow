@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { claimInputVatWarnings } from '@/modules/accounting/services/expense/claimVatAdvice';
 import { deleteLine, getClaim } from '@/modules/accounting/services/expense/expenseClaimService';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,12 +52,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     `) as Array<{ id: string }>;
     if (rows.length === 0) return apiResponse.notFound(res, 'Expense claim line', lineId);
     const refreshed = await getClaim(id, companyId);
-    return apiResponse.success(res, { claim: refreshed });
+    // Restoring the VAT on a line coded to a flagged account is exactly the
+    // edit the s17(2)(a) denial exists for, and it used to happen in silence.
+    const warnings = await claimInputVatWarnings(id, companyId);
+    return apiResponse.success(res, { claim: refreshed, warnings });
   }
 
   if (req.method === 'DELETE') {
     const refreshed = await deleteLine(lineId, id, companyId);
-    return apiResponse.success(res, { claim: refreshed });
+    return apiResponse.success(res, { claim: refreshed, warnings: await claimInputVatWarnings(id, companyId) });
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? '', ['PATCH', 'DELETE']);

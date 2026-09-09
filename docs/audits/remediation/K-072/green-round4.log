@@ -1,0 +1,44 @@
+K-072 / K-075 / K-076 — round 4 evidence
+=========================================
+
+Unit (OCR label vocabulary + reconciliation + boundaries)
+  bunx vitest run tests/unit/services/k076-ocr-label-vocabulary.test.ts \
+                  tests/unit/services/k076-ocr-subtotal-reconciliation.test.ts \
+                  tests/unit/services/k076-ocr-label-boundaries.test.ts
+  -> Tests  138 passed (138)
+
+Real Postgres (disposable fixture, production schema)
+  bun run test:integration -- tests/integration/k072-capture-double-post.int.test.ts \
+      tests/integration/k072-claim-vat-classification.int.test.ts \
+      tests/integration/k072-receipt-entertainment-vat.int.test.ts \
+      tests/integration/k072-post-expense-claim-vat.int.test.ts
+  -> Test Files  4 passed (4) / Tests  18 passed (18)
+  (Two earlier runs timed out in afterAll — pg_stat_activity showed the fixture DB blocked on
+   another agent's LOCK TABLE bank_transactions / recurring_journals FOR UPDATE. Shared-fixture
+   contention, not this branch: re-ran clean once those sessions cleared.)
+
+Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+  -u ISAFLOW_DISPOSABLE_AUTH_TEST -u GOTRUE_URL -u JWT_SECRET bunx vitest run)
+  -> Test Files  798 passed | 36 skipped (834)
+     Tests  9608 passed | 234 skipped (9842)
+
+bunx tsc --noEmit                      -> clean
+bunx eslint <10 changed src/pages>     -> clean
+bun run agent-docs:check               -> OK: 74 mirrors match
+bun scripts/ci/check-vat-guard-coverage.ts -> OK, 1912 files, 14 allowlisted (unchanged)
+
+MUTATION PROOF — every fix reverted in turn, then restored
+  Production regex/logic (unit suite, baseline 138 passed):
+    guard forgets Nett / S.                             -> 9 failed
+    guard requires the letters "cl" (Ex VAT live again) -> 3 failed
+    SEP drops . _ /                                     -> 4 failed
+    NET_LABEL forgets Nett (guard wider than pattern)   -> 5 failed
+    printed subtotal always wins (drop reconciliation)  -> 3 failed
+    terminator reverts to its own spelling              -> 8 failed
+  Posting side (real DB, baseline 4 passed per file):
+    remove the FOR UPDATE lock on captured_documents    -> 1 failed: BOTH concurrent posts
+                                                           returned 200 (the double-post)
+    claim expense leg untagged again                    -> 1 failed (vat_type NULL)
+    line PATCH stops advising                           -> 1 failed
+    approve stops advising                              -> 1 failed
+  All restored; suites green again after each.

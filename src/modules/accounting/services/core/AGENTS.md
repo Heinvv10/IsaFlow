@@ -54,6 +54,19 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 
 ## Recent changes
 
+- 2026-09-09: `ocrAmountPatterns` — the guards and the patterns are now built from ONE LABEL
+  VOCABULARY (`SEP`, `EXCL`, `INCL`, `VAT_WORD`, `TAX_WORD`, `NET_LABEL`, `NET_PREFIX`), because
+  fixing one spelling at a time is how the same money defect came back three rounds running:
+  `Sub Total`, then `Ex VAT` (the net read as the TAX — an R1 000 input-tax claim on an R1 150
+  invoice, balanced and auto-posted), then `Nett Total` (the net read as the payable total).
+  A guard narrower than its pattern LOSES the figure; wider, it MIS-READS it. `SUMMARY_LINE_START`
+  exports the same vocabulary to `ocrExtractionService`'s line-item terminator. Add a spelling as
+  one alternative plus one row in `tests/unit/services/k076-ocr-label-vocabulary.test.ts`.
+- 2026-09-09: `ocrAmountReconciliation` — where a PRINTED subtotal contradicts `total - VAT`
+  (a levy or service charge printed below it), the derived net wins ONLY if the derived split
+  looks standard-rated (13-17%); otherwise the printed figures stand and the caller refuses.
+  Unconditional preference would silently rebase the split on a MIS-READ tax line. Either way the
+  discrepancy is reported through `ExtractedAmounts.warnings`.
 - 2026-09-09: `ocrAmountPatterns` — the label guards are VARIABLE-WIDTH, because the labels are.
   `(?<!Sub[-\s])` was fixed-width-one, so `Sub  Total` (any OCR column with more than one space)
   was still read as the payable total and the journal BALANCED at the VAT-exclusive figure.

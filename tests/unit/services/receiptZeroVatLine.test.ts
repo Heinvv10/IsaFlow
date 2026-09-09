@@ -26,6 +26,14 @@ vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
   withWriteAccess: (fn: unknown) => fn,
 }));
+vi.mock('@/lib/als', () => ({
+  // The route now takes a FOR UPDATE row lock before its status check, which
+  // needs the request transaction's client. These tests mock the database
+  // wholesale, so the store is stubbed; the lock's real behaviour is proven
+  // against Postgres in tests/integration/k072-capture-double-post.int.test.ts.
+  als: { getStore: () => ({ client: { query: vi.fn() } }) },
+  assertTxUsable: vi.fn(),
+}));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 vi.mock('@/lib/apiResponse', () => ({

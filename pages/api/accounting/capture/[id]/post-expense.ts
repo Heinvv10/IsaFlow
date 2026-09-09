@@ -20,6 +20,11 @@ import {
   mapMerchantToExpenseAccount,
   type ReceiptAccountMapping,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
+import {
+  CaptureRowLockTimeoutError,
+  lockCaptureEventForUpdate,
+} from '@/modules/accounting/services/capture/captureRowLock';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
   postReceiptAsPettyCashJournal,
@@ -58,6 +63,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ------------------------------------------------------------------
   // 1. Load event + extracted document (same query shape as post.ts)
   // ------------------------------------------------------------------
+  // Hold the event row first. The `event_status === 'posted'` refusal below is
+  // a check-then-act — the stamp that settles it is written at the end of the
+  // handler — so without the lock a double-click posts the same receipt twice.
+  // Nothing is written before this point, so a lock timeout is a safe 4xx.
+  try {
+    await lockCaptureEventForUpdate(companyId, eventId);
+  } catch (err) {
+    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
+
   const eventRows = await sql`
     SELECT ce.id AS event_id, ce.status AS event_status,
            ce.captured_document_id, cd.extracted_data
@@ -127,7 +143,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   let vatInputAccountId: string;
   try {
     vatInputAccountId = await getSystemAccountId('vat_input', companyId);
-  } catch {
+  } catch (err) {
+    // Only a MISSING ROLE is a configuration answer — `getSystemAccountId` runs
+    // a real query, and a bare `catch` reported a transient database fault as
+    // "set it up in Default Accounts", unlogged and pointing at the wrong fix.
+    if (!(err instanceof MissingSystemAccountError)) throw err;
+    log.warn('Post-expense refused: VAT Input account not configured',
+      { companyId, eventId, err: err.message }, 'capture-post-expense');
     return apiResponse.badRequest(res, 'VAT Input system account not configured — set it up in Default Accounts');
   }
 
@@ -245,6 +267,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     });
   } catch (err) {
     if (err instanceof ReceiptDoesNotBalanceError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    // The service resolves the Bank role as its first statement, before any
+    // write. Left unmapped it 500'd here while the identical condition on the
+    // VAT Input role above answered 400 — the same misconfiguration, two
+    // different answers depending on which account was missing.
+    if (err instanceof MissingSystemAccountError) {
+      log.warn('Post-expense refused: system account not configured',
+        { companyId, eventId, err: err.message }, 'capture-post-expense');
       return apiResponse.badRequest(res, err.message);
     }
     throw err;

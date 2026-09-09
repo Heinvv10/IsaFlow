@@ -27,6 +27,14 @@ vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
   withWriteAccess: (fn: unknown) => fn,
 }));
+vi.mock('@/lib/als', () => ({
+  // The route now takes a FOR UPDATE row lock before its status check, which
+  // needs the request transaction's client. These tests mock the database
+  // wholesale, so the store is stubbed; the lock's real behaviour is proven
+  // against Postgres in tests/integration/k072-capture-double-post.int.test.ts.
+  als: { getStore: () => ({ client: { query: vi.fn() } }) },
+  assertTxUsable: vi.fn(),
+}));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 vi.mock('@/lib/apiResponse', () => ({
@@ -190,11 +198,24 @@ describe('capture post-expense — zero-VAT receipts', () => {
 
     await handler(req(), res());
 
-    const lookup = sqlMock.mock.calls.find(c => {
+    const eventStatements = sqlMock.mock.calls.filter(c => {
       const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
       return text.includes('FROM capture_events');
     });
-    expect(lookup, 'the route must read capture_events').toBeDefined();
+    // The route reads the event TWICE: the FOR UPDATE lock, then the join that
+    // carries the extracted document. Both are the caller's tenant or neither.
+    expect(eventStatements.length, 'the route must read capture_events').toBeGreaterThan(0);
+    for (const statement of eventStatements) {
+      const sqlText = (statement[0] as unknown as string[]).join('');
+      expect(sqlText).toContain('company_id');
+      expect(statement.slice(1)).toContain(COMPANY_ID);
+    }
+
+    const lookup = eventStatements.find(c => {
+      const text = (c[0] as unknown as string[]).join('');
+      return text.includes('JOIN captured_documents');
+    });
+    expect(lookup, 'the route must join the captured document').toBeDefined();
 
     const text = (lookup![0] as unknown as string[]).join('');
     // Both sides of the join are scoped — the document is reachable through the
