@@ -1,10 +1,9 @@
-import {ZodError} from 'zod';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from './context';
 import type {ControlTx} from './contracts';
-import {loadOwnedCapturedEvidence} from './capturedEvidenceSource';
+import {CapturedEvidenceUnavailableError,loadOwnedCapturedEvidence} from './capturedEvidenceSource';
 export function isCapturedEvidenceUnavailable(error:unknown):boolean{
- return error instanceof ZodError||(error instanceof Error&&/^(Captured evidence|Invalid captured evidence)/.test(error.message));
+ return error instanceof CapturedEvidenceUnavailableError;
 }
 /** Bounded source verification, distinct from complete SQL population discovery. */
 export async function scanCapturedEvidence(ctx:ControlTx,documentIds:readonly (string|null)[],permission:'read:invoices'|'read:bank-tx'){
@@ -24,9 +23,9 @@ export async function scanCapturedEvidence(ctx:ControlTx,documentIds:readonly (s
    if(evidence?.recordedHashVerified)verified.set(id,evidence.sha256);
    else missing.add('captured_source_bytes_unavailable_or_unverified');
   }catch(error){
-   if(deadline.aborted){verified.clear();missing.add('async_scan_required:captured_evidence_deadline');break;}
-   // Storage absence/corruption is an evidence gap; authorization and SQL failures must propagate.
    if(!isCapturedEvidenceUnavailable(error))throw error;
+   if(deadline.aborted){verified.clear();missing.add('async_scan_required:captured_evidence_deadline');break;}
+   // Only failures from the storage boundary describe unavailable source bytes.
    missing.add('captured_source_bytes_unavailable_or_changed');
   }
  }

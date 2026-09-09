@@ -71,7 +71,7 @@ export async function validateEvidence(ctx: ControlTx, ref: BeneficiaryRef, evid
       throw new BeneficiaryError('EVIDENCE_UNAVAILABLE_OR_CHANGED');
     }
     const stored=await loadOwnedCapturedEvidence(ctx,row.id,'read:invoices',deadline).catch(error=>{
-      if(isCapturedEvidenceUnavailable(error)||deadline.aborted)throw new BeneficiaryError('EVIDENCE_UNAVAILABLE_OR_CHANGED');
+      if(isCapturedEvidenceUnavailable(error))throw new BeneficiaryError('EVIDENCE_UNAVAILABLE_OR_CHANGED');
       throw error;
     });
     if(!stored?.recordedHashVerified||stored.sha256!==e.hash)throw new BeneficiaryError('EVIDENCE_UNAVAILABLE_OR_CHANGED');
