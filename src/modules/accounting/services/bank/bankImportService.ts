@@ -1,3 +1,4 @@
+import type {PendingTransferLink} from './bankTransferLinkPasses';
 /**
  * PRD-060: FibreFlow Accounting Module — Phase 4
  * Bank Import Service — statement import and persistence
@@ -33,7 +34,7 @@ export async function importBankStatement(
   bankAccountId: string,
   _statementDate: string,
   bankFormat?: BankFormat
-): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
+): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }>; pendingTransfers?:PendingTransferLink[] }> {
   try {
     const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);
     let parseResult;
@@ -156,7 +157,7 @@ export async function importParsedTransactions(
      */
     skipPostImportEffects?: boolean;
   } = {},
-): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
+): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }>; pendingTransfers?:PendingTransferLink[] }> {
   try {
     if (parseResult.transactions.length === 0) {
       return { batchId: '', transactionCount: 0, errors: parseResult.errors };
@@ -254,6 +255,7 @@ export async function importParsedTransactions(
       batchId,
       transactionCount: parseResult.transactions.length,
       errors: [...parseResult.errors, ...linkErrors],
+      pendingTransfers: [...new Map([...(batchLink.pending??[]),...(accountLink.pending??[])].map(item=>[item.intentId,item])).values()],
     };
   } catch (err) {
     log.error('Failed to import parsed bank transactions', { error: err }, 'accounting');

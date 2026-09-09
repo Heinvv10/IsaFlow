@@ -1,246 +1,76 @@
-/**
- * bankTransferLinkService — link bank transactions that are the opposite leg
- * of an already-allocated JE on another bank account.
- *
- * Two passes live here, both invoked by `importParsedTransactions`:
- *   - `autoLinkImportedBatchTransfers` — the rows of one import batch against
- *     existing `allocation_type = 'transfer'` allocations.
- *   - `relinkTransferCounterparts` — every `imported` row on one bank account,
- *     against both 'transfer' and 'account' allocations. Also exposed as a
- *     standalone API so the UI can re-link without re-importing.
- *
- * Both obey the same invariant: **a GL movement is the counterpart of exactly
- * one bank line.** A journal line already referenced by a
- * `bank_transactions.matched_journal_line_id` is excluded outright, and at most
- * one bank line may win any single free line per pass. A runner-up is not lost
- * — the pass repeats until it links nothing, and each repeat re-evaluates the
- * runner-up against the lines still free.
- *
- * Neither pass may mark a row `allocated` without a journal line behind it:
- * that is the state this whole file exists to produce correctly.
- */
-
-import { sql } from '@/lib/neon';
-import { runLinkPasses, type Row, type TransferLinkResult } from './bankTransferLinkPasses';
-
-export type { TransferLinkResult };
-
-/**
- * Link the `imported` rows of one import batch to the JE of an existing
- * `transfer` allocation on another bank account, matching on opposite amount
- * and date (±2 days).
- */
-export async function autoLinkImportedBatchTransfers(
-  companyId: string,
-  batchId: string,
-): Promise<TransferLinkResult> {
-  return runLinkPasses(
-    'Auto-linked transfer counterparts for import batch',
-    'bank_import_autolink',
-    { batchId },
-    () => sql`
-      WITH new_txs AS (
-        SELECT id, amount, transaction_date, bank_account_id
-        FROM bank_transactions
-        WHERE company_id      = ${companyId}::UUID
-          AND import_batch_id = ${batchId}::UUID
-          AND status          = 'imported'
-      ),
-      candidates AS (
-        SELECT
-          n.id                         AS new_tx_id,
-          et.transfer_journal_entry_id AS je_id,
-          et.bank_account_id           AS counterparty_bank_id,
-          jl.id                        AS je_line_id,
-          et.allocated_entity_name     AS entity_name,
-          ABS(et.transaction_date::DATE - n.transaction_date::DATE) AS date_distance
-        FROM new_txs n
-        JOIN bank_transactions et
-          ON  et.company_id = ${companyId}::UUID
-          AND et.bank_account_id != n.bank_account_id
-          AND et.status = 'allocated'
-          AND et.allocation_type = 'transfer'
-          AND et.transfer_journal_entry_id IS NOT NULL
-          AND ABS(et.amount + n.amount) < 0.01
-          AND et.transaction_date BETWEEN (n.transaction_date::DATE - INTERVAL '2 days')
-                                      AND (n.transaction_date::DATE + INTERVAL '2 days')
-        -- INNER, not LEFT: a JE with no leg on this bank account is not the
-        -- counterpart, and a NULL line would mark the row allocated with no GL
-        -- movement behind it. The anti-join cannot catch that case — NOT EXISTS
-        -- is trivially true against a NULL line.
-        JOIN gl_journal_lines jl
-          ON  jl.journal_entry_id = et.transfer_journal_entry_id
-          AND jl.gl_account_id    = n.bank_account_id
-          AND jl.company_id       = ${companyId}::UUID
-        WHERE NOT EXISTS (
-          SELECT 1
-          FROM bank_transactions bt_used
-          WHERE bt_used.company_id              = ${companyId}::UUID
-            AND bt_used.matched_journal_line_id = jl.id
-        )
-      ),
-      ranked AS (
-        SELECT *,
-          ROW_NUMBER() OVER (PARTITION BY new_tx_id ORDER BY date_distance, je_line_id) AS tx_rank,
-          ROW_NUMBER() OVER (PARTITION BY je_line_id ORDER BY date_distance, new_tx_id) AS line_rank
-        FROM candidates
-      ),
-      per_line AS (
-        SELECT DISTINCT ON (je_line_id) *
-        FROM ranked
-        WHERE tx_rank = line_rank
-        ORDER BY je_line_id, date_distance, new_tx_id
-      ),
-      winners AS (
-        SELECT DISTINCT ON (new_tx_id) *
-        FROM per_line
-        ORDER BY new_tx_id, date_distance, je_line_id
-      )
-      UPDATE bank_transactions bt
-      SET status                    = 'allocated',
-          allocation_type           = 'transfer',
-          transfer_journal_entry_id = m.je_id,
-          matched_journal_line_id   = m.je_line_id,
-          counterparty_account_id   = m.counterparty_bank_id,
-          allocated_entity_name     = m.entity_name,
-          -- Clearing these is redundant today (the WHERE is status='imported',
-          -- which a rule-posted row can never be) but keeps every writer of
-          -- allocated_entity_name symmetrical.
-          allocation_rule_id = NULL, allocation_rule_name = NULL,
-          updated_at                = NOW()
-      FROM winners m
-      WHERE bt.id         = m.new_tx_id
-        AND bt.company_id = ${companyId}::UUID
-        AND bt.status     = 'imported'
-      RETURNING bt.id
-    ` as Promise<Row[]>,
-  );
+import {withSavepoint} from '@/lib/neon';
+import {requireControlTx} from '../controls/context';
+import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
+import {getApprovalRequirements,requestOperationApproval} from '../controls/approvalRequestService';
+import {prepareBankAllocation,executeBankAllocation} from './bankAllocationControl';
+import {loadBankAllocationIntent} from './bankAllocationMaterial';
+import type {ControlTx} from '../controls/contracts';
+import type {TransferLinkResult} from './bankTransferLinkPasses';
+export type {TransferLinkResult} from './bankTransferLinkPasses';
+type Selection={batchId?:string;bankAccountId?:string;originalBankId?:string};
+/** Current owned observations select work; only the shared intent service may link a bank leg. */
+async function candidates(ctx:ControlTx,selection:Selection){
+ const company=ctx.principal.companyId;
+ return await ctx.sql`SELECT DISTINCT n.id,n.bank_account_id,o.bank_account_id AS counterparty_account_id,
+  EXISTS(SELECT 1 FROM control_bank_allocation_intents i JOIN control_operation_effects e ON e.company_id=i.company_id
+   AND e.entity_type='bank_allocation_intent' AND e.entity_id=i.id::text AND e.operation='bank_allocation.post'
+   AND e.result->>'journalEntryId'=j.id::text WHERE i.company_id=${company}::uuid AND i.bank_transaction_id=o.id
+    AND j.source='auto_bank_transfer' AND j.source_record_id=o.id
+    AND i.payload->>'kind'='transfer' AND i.payload->'transfer'->>'mode'='post'
+    AND i.payload->'transfer'->'oppositeBankTransactionId'='null'::jsonb) AS controlled
+  FROM bank_transactions n JOIN bank_transactions o ON o.company_id=n.company_id AND o.bank_account_id<>n.bank_account_id
+   AND o.amount=-n.amount AND o.transaction_date BETWEEN n.transaction_date-2 AND n.transaction_date+2
+  JOIN gl_journal_lines ol ON ol.company_id=o.company_id AND ol.id=o.matched_journal_line_id
+  JOIN gl_journal_entries j ON j.company_id=o.company_id AND j.id=ol.journal_entry_id
+  JOIN gl_journal_lines nl ON nl.company_id=j.company_id AND nl.journal_entry_id=j.id AND nl.gl_account_id=n.bank_account_id
+   AND nl.debit-nl.credit=n.amount
+  WHERE n.company_id=${company}::uuid AND n.status='imported' AND n.matched_journal_line_id IS NULL
+   AND o.status IN('allocated','matched','reconciled') AND o.allocation_type IN('transfer','account')
+   AND j.status='posted' AND j.reversed_at IS NULL
+   AND NOT EXISTS(SELECT 1 FROM bank_transactions used WHERE used.company_id=${company}::uuid AND used.matched_journal_line_id=nl.id)
+   AND (${selection.batchId??null}::uuid IS NULL OR n.import_batch_id=${selection.batchId??null}::uuid)
+   AND (${selection.bankAccountId??null}::uuid IS NULL OR n.bank_account_id=${selection.bankAccountId??null}::uuid)
+   AND (${selection.originalBankId??null}::uuid IS NULL OR o.id=${selection.originalBankId??null}::uuid)
+  ORDER BY n.id,o.bank_account_id LIMIT 101` as {id:string;bank_account_id:string;counterparty_account_id:string;controlled:boolean}[];
 }
-
-/**
- * For each 'imported' transaction in `bankAccountId`, find any JE that:
- *   - Has a line for this bank's GL account (i.e. the JE involves this bank)
- *   - Is already linked to another bank account's transaction via
- *     `matched_journal_line_id`
- *   - Has a matching amount (opposite sign) and date (±2 days)
- *
- * Covers both `allocation_type = 'transfer'` and `'account'` (the user picked a
- * bank GL as the contra account).
- */
-export async function relinkTransferCounterparts(
-  companyId: string,
-  bankAccountId: string,
-): Promise<TransferLinkResult> {
-  return runLinkPasses(
-    'Re-linked transfer counterpart transactions',
-    'relink_transfer_counterparts',
-    { bankAccountId },
-    () => sql`
-      WITH source_allocs AS (
-        -- Allocated transactions on OTHER bank accounts whose JE has a line
-        -- for the current bank's GL account (bankAccountId).
-        SELECT DISTINCT ON (bt_src.id)
-          bt_src.id                         AS src_tx_id,
-          bt_src.bank_account_id            AS src_bank_id,
-          bt_src.transaction_date           AS src_date,
-          bt_src.amount                     AS src_amount,
-          bt_src.allocated_entity_name,
-          je.id                             AS target_je_id,
-          jl_mine.id                        AS target_je_line_id
-        FROM bank_transactions bt_src
-        JOIN gl_journal_lines jl_src
-          ON  jl_src.id = bt_src.matched_journal_line_id
-        JOIN gl_journal_entries je
-          ON  je.id = jl_src.journal_entry_id
-          AND je.company_id = ${companyId}::UUID
-        JOIN gl_journal_lines jl_mine
-          ON  jl_mine.journal_entry_id = je.id
-          AND jl_mine.gl_account_id    = ${bankAccountId}::UUID
-        WHERE bt_src.company_id    = ${companyId}::UUID
-          AND bt_src.bank_account_id != ${bankAccountId}::UUID
-          AND bt_src.status          = 'allocated'
-          AND bt_src.matched_journal_line_id IS NOT NULL
-          -- The counterpart leg is only free if no bank line already claims it.
-          AND NOT EXISTS (
-            SELECT 1
-            FROM bank_transactions bt_used
-            WHERE bt_used.company_id              = ${companyId}::UUID
-              AND bt_used.matched_journal_line_id = jl_mine.id
-          )
-        -- DISTINCT ON without an ORDER BY takes an arbitrary row: heap order,
-        -- which moves under VACUUM or a plan change. A journal with two legs on
-        -- this bank offers its lowest free line first; the repeat pass, which
-        -- sees the first claimed, then offers the next.
-        ORDER BY bt_src.id, jl_mine.id
-      ),
-      candidates AS (
-        -- Every compatible (imported row, free counterpart line) pair.
-        SELECT
-          bt_new.id               AS new_tx_id,
-          sa.target_je_id,
-          sa.target_je_line_id,
-          sa.src_bank_id          AS counterparty_bank_id,
-          sa.allocated_entity_name,
-          ABS(bt_new.transaction_date::DATE - sa.src_date::DATE) AS date_distance
-        FROM bank_transactions bt_new
-        JOIN source_allocs sa ON (
-          ABS(bt_new.amount + sa.src_amount) < 0.01
-          AND bt_new.transaction_date BETWEEN
-              (sa.src_date::DATE - INTERVAL '2 days')
-          AND (sa.src_date::DATE + INTERVAL '2 days')
-        )
-        WHERE bt_new.bank_account_id = ${bankAccountId}::UUID
-          AND bt_new.company_id      = ${companyId}::UUID
-          AND bt_new.status          = 'imported'
-      ),
-      ranked AS (
-        -- Rank each pair from both sides. N rows contending for N equally close
-        -- lines rank 1..N identically on both axes, so the diagonal below is a
-        -- full pairing: all N link in this pass rather than one per pass.
-        SELECT *,
-          ROW_NUMBER() OVER (PARTITION BY new_tx_id
-                             ORDER BY date_distance, target_je_line_id) AS tx_rank,
-          ROW_NUMBER() OVER (PARTITION BY target_je_line_id
-                             ORDER BY date_distance, new_tx_id)         AS line_rank
-        FROM candidates
-      ),
-      per_line AS (
-        -- One bank line per GL movement.
-        SELECT DISTINCT ON (target_je_line_id) *
-        FROM ranked
-        WHERE tx_rank = line_rank
-        ORDER BY target_je_line_id, date_distance, new_tx_id
-      ),
-      winners AS (
-        -- ...and one GL movement per bank line. Both directions are enforced,
-        -- so a pass can never claim a row or a line twice.
-        SELECT DISTINCT ON (new_tx_id) *
-        FROM per_line
-        ORDER BY new_tx_id, date_distance, target_je_line_id
-      )
-      UPDATE bank_transactions bt
-      SET status                  = 'allocated',
-          allocation_type         = 'transfer',
-          -- Set alongside the line: the duplicate-transfer guard in
-          -- bankAllocationService selects on transfer_journal_entry_id IS NOT
-          -- NULL, so a relinked row left without it is invisible to the guard
-          -- and a second transfer journal can be posted for the same movement.
-          transfer_journal_entry_id = m.target_je_id,
-          matched_journal_line_id = m.target_je_line_id,
-          counterparty_account_id = m.counterparty_bank_id,
-          allocated_entity_name   = m.allocated_entity_name,
-          -- Clearing these is redundant today (the WHERE is status='imported',
-          -- which a rule-posted row can never be) but keeps every writer of
-          -- allocated_entity_name symmetrical: the next reuse of this UPDATE on
-          -- an already-allocated row would otherwise leave a stale rule label
-          -- beside a freshly rewritten account.
-          allocation_rule_id = NULL, allocation_rule_name = NULL,
-          updated_at              = NOW()
-      FROM winners m
-      WHERE bt.id         = m.new_tx_id
-        AND bt.company_id = ${companyId}::UUID
-        AND bt.status     = 'imported'
-      RETURNING bt.id
-    ` as Promise<Row[]>,
-  );
+async function prepareOrResume(ctx:ControlTx,bankId:string,counterpartyAccountId:string){
+ const saved=await ctx.sql`SELECT i.id,a.id AS approval_id FROM control_bank_allocation_intents i
+  JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.entity_id=i.id::text AND a.entity_type='bank_allocation_intent'
+   AND a.operation='bank_allocation.post' AND a.requester_person_id=i.requester_person_id
+  WHERE i.company_id=${ctx.principal.companyId}::uuid AND i.bank_transaction_id=${bankId}::uuid
+   AND i.requester_person_id=${ctx.principal.personId} AND i.payload->>'kind'='transfer'
+   AND i.payload->>'counterpartyAccountId'=${counterpartyAccountId} AND a.status IN('pending','approved') AND a.expires_at>clock_timestamp()
+   AND NOT EXISTS(SELECT 1 FROM control_operation_effects e WHERE e.company_id=i.company_id AND e.entity_id=i.id::text
+    AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post') ORDER BY a.requested_at DESC,a.id LIMIT 1` as {id:string;approval_id:string}[];
+ const existing=saved[0];
+ if(existing){await loadBankAllocationIntent(ctx,existing.id);return{intentId:existing.id,approvalId:existing.approval_id};}
+ const prepared=await prepareBankAllocation(ctx,{version:1,kind:'transfer',bankTransactionId:bankId,counterpartyAccountId});
+ const requirements=await getApprovalRequirements(ctx,prepared.operation);
+ if(!requirements.requiresApproval)return{intentId:prepared.intentId,approvalId:null};
+ const approval=await requestOperationApproval(ctx,prepared.operation);return{intentId:prepared.intentId,approvalId:approval.id};
 }
+export async function runControlledTransferLinks(companyId:string,selection:Selection):Promise<TransferLinkResult>{
+ const result:TransferLinkResult={linked:0,passes:0,failed:false,pending:[]};
+ try{return await withSavepoint('controlled_transfer_links',async()=>{
+  const ctx=requireControlTx();if(ctx.principal.companyId!==companyId)throw new Error('Transfer tenant mismatch');
+  await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${companyId}`},0))`;
+  const rows=await candidates(ctx,selection);if(rows.length>100)throw new Error('Transfer linking population exceeds bounded batch');
+  const processed=new Set<string>();
+  for(const row of rows){
+   if(processed.has(row.id))continue;processed.add(row.id);
+   if(rows.some(candidate=>candidate.id===row.id&&!candidate.controlled)){result.failed=true;continue;}
+   try{await withSavepoint('controlled_transfer_link',async()=>{
+    const saved=await prepareOrResume(ctx,row.id,row.counterparty_account_id);
+    if(saved.approvalId){
+     const [approval]=await ctx.sql`SELECT status FROM control_operation_approvals WHERE company_id=${companyId}::uuid AND id=${saved.approvalId}::uuid` as {status:string}[];
+     if(approval?.status==='pending'){result.pending.push({bankTransactionId:row.id,intentId:saved.intentId,approvalId:saved.approvalId});return;}
+    }
+    await executeBankAllocation(ctx,saved.intentId,{...(saved.approvalId?{approvalId:saved.approvalId}:{})});result.linked++;
+   });}catch{result.failed=true;}
+  }
+  result.passes=result.linked?1:0;return result;
+ });}catch{return{linked:0,passes:0,failed:true,pending:[]};}
+}
+export function autoLinkImportedBatchTransfers(companyId:string,batchId:string){return runControlledTransferLinks(companyId,{batchId});}
+export function relinkTransferCounterparts(companyId:string,bankAccountId:string){return runControlledTransferLinks(companyId,{bankAccountId});}

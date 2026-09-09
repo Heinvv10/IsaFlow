@@ -26,8 +26,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // `failed` is reported rather than thrown: the pass swallows its error to
   // keep the import non-fatal, so linked: 0 alone cannot tell the UI apart
   // from "there was nothing to link".
-  const { linked, failed } = await relinkTransferCounterparts(companyId, parsed.data.bankAccountId);
-  return apiResponse.success(res, { linked, failed });
+  const { linked, failed, pending } = await relinkTransferCounterparts(companyId, parsed.data.bankAccountId);
+  return apiResponse.success(res, { linked, failed, pending });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
