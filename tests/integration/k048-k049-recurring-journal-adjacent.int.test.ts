@@ -9,8 +9,11 @@ import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import action from '../../pages/api/accounting/recurring-journals-action';
+import { sql } from '@/lib/neon';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { inRequestTx } from './recurringJournalRequestTx.helpers';
 import { generateJournalFromRecurring } from '../../src/modules/accounting/services/gl/recurringJournalService';
+import { businessToday } from '../../src/modules/accounting/services/gl/recurringJournalGuards';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -81,9 +84,12 @@ it('two concurrent generations of the same due run produce exactly one journal',
   const today = new Date().toISOString().slice(0, 10);
   await armTemplate(today);
 
+  // Two real request transactions on two connections, the shape the route
+  // produces — not two calls sharing one, where the claim UPDATE could never
+  // race itself.
   const results = await Promise.allSettled([
-    generateJournalFromRecurring(company, template, admin),
-    generateJournalFromRecurring(company, template, admin),
+    inRequestTx(pool, company, admin, () => generateJournalFromRecurring(company, template, admin)),
+    inRequestTx(pool, company, admin, () => generateJournalFromRecurring(company, template, admin)),
   ]);
   expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
 
@@ -101,7 +107,9 @@ it('another tenant cannot generate this template, and does not advance it', asyn
   const today = new Date().toISOString().slice(0, 10);
   await armTemplate(today);
 
-  await expect(generateJournalFromRecurring(otherCompany, template, admin)).rejects.toThrow(/not found/i);
+  await expect(
+    inRequestTx(pool, otherCompany, admin, () => generateJournalFromRecurring(otherCompany, template, admin)),
+  ).rejects.toThrow(/not found/i);
 
   const { rows } = await pool.query('SELECT run_count, next_run_date, status FROM recurring_journals WHERE id=$1', [template]);
   expect(Number(rows[0].run_count)).toBe(0);
@@ -118,7 +126,8 @@ it('an overdue run posts into the period it was scheduled for, not today', async
   const scheduledDate = scheduled.toISOString().slice(0, 10);
   await armTemplate(scheduledDate);
 
-  const journalId = await generateJournalFromRecurring(company, template, admin);
+  const journalId = await inRequestTx(pool, company, admin,
+    () => generateJournalFromRecurring(company, template, admin));
   const { rows } = await pool.query(
     `SELECT je.entry_date::text AS entry_date, je.status, fp.start_date::text AS period_start
      FROM gl_journal_entries je LEFT JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
@@ -135,15 +144,8 @@ it('an overdue run posts into the period it was scheduled for, not today', async
   expect(Number(sums.rows[0].cr)).toBe(1000);
 });
 
-it('a failure AFTER the journal is written rolls the write back and answers 500', async () => {
-  const today = new Date().toISOString().slice(0, 10);
-  await armTemplate(today);
-  // Deactivating the credit account makes postJournalEntry throw
-  // InactiveAccountError — a fault raised after createJournalEntry has already
-  // INSERTed the entry and its lines. That is the K-049 class beyond the
-  // closed-period instance: it must not be reported as a 400 that commits.
-  await pool.query('UPDATE gl_accounts SET is_active=false WHERE id=$1', [creditAccount]);
-
+/** POST {action:'generate'} through the real route, exactly as the UI does. */
+async function generateViaRoute() {
   const req = request({ 'sb-access-token': adminToken, active_company_id: company }, 'POST') as never as {
     url: string; body: unknown; query: Record<string, string>;
   };
@@ -152,8 +154,23 @@ it('a failure AFTER the journal is written rolls the write back and answers 500'
   req.body = { action: 'generate', id: template };
   const result = response();
   await action(req as never, result.res);
+  return result;
+}
 
-  expect(result.state.statusCode).toBe(500);
+it('a deactivated account is refused 400 naming it, before any write', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  await armTemplate(today);
+  // A template's lines are a JSONB snapshot taken when it was created, so an
+  // account deactivated since then is the ordinary way a working template goes
+  // bad. postJournalEntry raises InactiveAccountError only after
+  // createJournalEntry has INSERTed the entry, so answering from there is
+  // either a 400 that commits the write (K-049) or a 500 reading "an
+  // unexpected error occurred". Read-checked before the first write instead.
+  await pool.query('UPDATE gl_accounts SET is_active=false WHERE id=$1', [creditAccount]);
+
+  const result = await generateViaRoute();
+  expect(result.state.statusCode).toBe(400);
+  expect(JSON.stringify(result.state.body)).toContain('K048A-2000');
 
   const { rows } = await pool.query(
     "SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source='auto_recurring'", [company]);
@@ -161,10 +178,115 @@ it('a failure AFTER the journal is written rolls the write back and answers 500'
   const lineRows = await pool.query('SELECT id FROM gl_journal_lines WHERE company_id=$1', [company]);
   expect(lineRows.rows).toHaveLength(0);
 
-  // The claim is rolled back with it, so the run is still due.
+  // The run was never claimed, so it is still due.
   const tpl = await pool.query('SELECT run_count, next_run_date::text AS next_run_date FROM recurring_journals WHERE id=$1', [template]);
   expect(Number(tpl.rows[0].run_count)).toBe(0);
   expect(tpl.rows[0].next_run_date).toBe(today);
+});
+
+it('a template whose lines no longer balance is refused before any write', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  await armTemplate(today);
+  await pool.query(
+    `UPDATE recurring_journals SET lines = $2::jsonb WHERE id = $1`,
+    [template, JSON.stringify([
+      { glAccountId: debitAccount, debit: 1000, credit: 0, description: 'unbalanced DR' },
+      { glAccountId: creditAccount, debit: 0, credit: 900, description: 'unbalanced CR' },
+    ])],
+  );
+
+  const result = await generateViaRoute();
+  expect(result.state.statusCode).toBe(400);
+  expect(JSON.stringify(result.state.body)).toMatch(/does not balance/i);
+
+  const { rows } = await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1', [company]);
+  expect(rows).toHaveLength(0);
+  const tpl = await pool.query('SELECT run_count FROM recurring_journals WHERE id=$1', [template]);
+  expect(Number(tpl.rows[0].run_count)).toBe(0);
+});
+
+it('a template referencing an account that no longer exists is refused before any write', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  await armTemplate(today);
+  await pool.query(
+    `UPDATE recurring_journals SET lines = $2::jsonb WHERE id = $1`,
+    [template, JSON.stringify([
+      { glAccountId: debitAccount, debit: 1000, credit: 0, description: 'orphan DR' },
+      { glAccountId: crypto.randomUUID(), debit: 0, credit: 1000, description: 'orphan CR' },
+    ])],
+  );
+
+  const result = await generateViaRoute();
+  expect(result.state.statusCode).toBe(400);
+  expect(JSON.stringify(result.state.body)).toMatch(/no longer exist/i);
+
+  const { rows } = await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1', [company]);
+  expect(rows).toHaveLength(0);
+});
+
+it('refuses to run outside a request transaction rather than posting on autocommitting connections', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  await armTemplate(today);
+
+  // No ALS context: withTransaction would take its own pooled connection for
+  // the claim while createJournalEntry took others that autocommit, so a
+  // posting failure would roll the claim back and leave an orphan journal
+  // committed in the GL. Refused instead.
+  await expect(generateJournalFromRecurring(company, template, admin))
+    .rejects.toThrow(/must run inside a request transaction/i);
+
+  const { rows } = await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1', [company]);
+  expect(rows).toHaveLength(0);
+  const tpl = await pool.query('SELECT run_count FROM recurring_journals WHERE id=$1', [template]);
+  expect(Number(tpl.rows[0].run_count)).toBe(0);
+});
+
+it('a contended template answers 409, and the request transaction survives the lock timeout', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  await armTemplate(today);
+
+  const holder = await pool.connect();
+  try {
+    await holder.query('BEGIN');
+    await holder.query('SELECT id FROM recurring_journals WHERE id=$1 FOR UPDATE', [template]);
+
+    // Contention is transient — the same request succeeds once the peer
+    // finishes — so it is a 409, not the 400 that every permanent refusal gets.
+    const result = await generateViaRoute();
+    expect(result.state.statusCode).toBe(409);
+
+    // And the 55P03 did not poison the transaction. Postgres aborts the whole
+    // transaction on a lock timeout, so catching it without a savepoint leaves
+    // an aborted tx that answers the next statement with a bare 25P02.
+    await inRequestTx(pool, company, admin, async () => {
+      await expect(generateJournalFromRecurring(company, template, admin))
+        .rejects.toThrow(/retry in a moment/i);
+      const rows = (await sql`SELECT 1 AS ok`) as { ok: number }[];
+      expect(rows).toHaveLength(1);
+    });
+  } finally {
+    await holder.query('ROLLBACK');
+    holder.release();
+  }
+
+  const { rows } = await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1', [company]);
+  expect(rows).toHaveLength(0);
+}, 40000);
+
+it('"today" is the SAST calendar date, not the UTC one', async () => {
+  const sastNow = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  const sastDate = sastNow.slice(0, 10);
+  // Skew the session clock so CURRENT_DATE is guaranteed to fall on a different
+  // calendar day from SAST whatever time this runs: UTC+14 is 12 hours ahead of
+  // SAST, UTC-12 is 14 hours behind it.
+  const zone = Number(sastNow.slice(11, 13)) >= 12 ? 'Etc/GMT-14' : 'Etc/GMT+12';
+
+  await inRequestTx(pool, company, admin, async () => {
+    await sql`SELECT set_config('TimeZone', ${zone}, true)`;
+    const [current] = (await sql`SELECT CURRENT_DATE::TEXT AS d`) as { d: string }[];
+    expect(current!.d).not.toBe(sastDate);
+    expect(await businessToday()).toBe(sastDate);
+  });
 });
 
 it('a closed period is refused as a 400 BEFORE any write, not a 500 after one', async () => {
@@ -228,12 +350,14 @@ it('the last run before end_date completes the template instead of leaving it ac
   end.setUTCDate(end.getUTCDate() + 5);
   await armTemplate(todayDate, end.toISOString().slice(0, 10));
 
-  await generateJournalFromRecurring(company, template, admin);
+  await inRequestTx(pool, company, admin, () => generateJournalFromRecurring(company, template, admin));
   const { rows } = await pool.query('SELECT status FROM recurring_journals WHERE id=$1', [template]);
   expect(rows[0].status).toBe('completed');
 
   // A completed template refuses a further generate rather than posting again.
-  await expect(generateJournalFromRecurring(company, template, admin)).rejects.toThrow(/not active/i);
+  await expect(
+    inRequestTx(pool, company, admin, () => generateJournalFromRecurring(company, template, admin)),
+  ).rejects.toThrow(/not active/i);
   const posted = await pool.query(
     "SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='auto_recurring'", [company]);
   expect(posted.rows[0].n).toBe(1);

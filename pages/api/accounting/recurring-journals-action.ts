@@ -13,6 +13,7 @@ import {
   updateRecurringJournalStatus,
   generateJournalFromRecurring,
   RecurringJournalRequestError,
+  RecurringJournalLockTimeoutError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -50,6 +51,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // the action had already written before it failed — the caller was told the
     // action failed while its half-finished journal stayed in the books.
     // Anything not of this class is rethrown to withErrorHandler as a 500.
+    // Contention is the one refusal that is transient, so it answers 409 rather
+    // than 400: the same request will succeed once the peer finishes, and a
+    // client cannot tell "retry this" from "stop" if both come back the same.
+    if (err instanceof RecurringJournalLockTimeoutError) {
+      log.warn('Recurring journal action contended', { message: err.message }, 'accounting-api');
+      return apiResponse.conflict(res, err.message);
+    }
     if (err instanceof RecurringJournalRequestError) {
       log.warn('Recurring journal action refused', { message: err.message }, 'accounting-api');
       return apiResponse.badRequest(res, err.message);

@@ -11,6 +11,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { inRequestTx } from './recurringJournalRequestTx.helpers';
 import { generateJournalFromRecurring } from '../../src/modules/accounting/services/gl/recurringJournalService';
 
 assertDisposable();
@@ -62,7 +63,12 @@ afterAll(async () => {
 });
 
 it('refuses to generate a recurring journal whose next_run_date has not arrived', async () => {
-  await expect(generateJournalFromRecurring(company, template, user)).rejects.toThrow();
+  // Matched on the message, not on "some error": an unmatched rejects.toThrow()
+  // here passes on a connection failure or a typo as readily as on the refusal
+  // this test is named for.
+  await expect(
+    inRequestTx(pool, company, user, () => generateJournalFromRecurring(company, template, user)),
+  ).rejects.toThrow(/not due until/i);
 
   const posted = await pool.query(
     "SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='auto_recurring'", [company]);
@@ -74,8 +80,9 @@ it('generates at most one journal per scheduled run, however often it is called'
   await pool.query("DELETE FROM gl_journal_lines WHERE company_id=$1", [company]);
   await pool.query("DELETE FROM gl_journal_entries WHERE company_id=$1", [company]);
 
-  await generateJournalFromRecurring(company, template, user);
-  await generateJournalFromRecurring(company, template, user).catch(() => undefined);
+  await inRequestTx(pool, company, user, () => generateJournalFromRecurring(company, template, user));
+  await inRequestTx(pool, company, user, () => generateJournalFromRecurring(company, template, user))
+    .catch(() => undefined);
 
   const posted = await pool.query(
     "SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='auto_recurring'", [company]);
