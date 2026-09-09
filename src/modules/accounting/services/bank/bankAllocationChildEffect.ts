@@ -1,3 +1,4 @@
+import {recomputeInvoiceStatus} from '../ar/invoiceStatusRecompute';
 import {assertAllocationOutstanding} from './bankAllocationPlan';
 import type {ControlTx} from '../controls/contracts';
 import {assertControlledEffectPermit,type ControlledEffectPermit} from '../controls/approvalExecutionService';
@@ -27,11 +28,15 @@ export async function applyBankAllocationChildren(ctx:ControlTx,permit:Controlle
   const before=(rows as Row[])[0];if(!before)throw new Error('Allocation invoice disappeared');assertAllocationOutstanding(String(before.total_amount),String(before.amount_paid),application.amount);
   if(plan.kind==='customer')await ctx.sql`INSERT INTO customer_payment_allocations(payment_id,invoice_id,amount_allocated) VALUES(${payment.id}::uuid,${application.invoiceId}::uuid,${application.amount}::numeric)`;
   else await ctx.sql`INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES(${payment.id}::uuid,${application.invoiceId}::uuid,${application.amount}::numeric)`;
-  const updates=plan.kind==='customer'?await ctx.sql`UPDATE customer_invoices SET amount_paid=amount_paid+${application.amount}::numeric,
-   status=CASE WHEN amount_paid+${application.amount}::numeric=total_amount THEN 'paid' ELSE 'partially_paid' END WHERE company_id=${company}::uuid AND id=${application.invoiceId}::uuid RETURNING *`
-   :await ctx.sql`UPDATE supplier_invoices SET amount_paid=amount_paid+${application.amount}::numeric,
-   status=CASE WHEN amount_paid+${application.amount}::numeric=total_amount THEN 'paid' ELSE 'partially_paid' END WHERE company_id=${company}::uuid AND id=${application.invoiceId}::uuid RETURNING *`;
-  const after=(updates as Row[])[0];if(!after)throw new Error('Allocation invoice disappeared');
+  const updates=plan.kind==='customer'?await ctx.sql`UPDATE customer_invoices SET amount_paid=amount_paid+${application.amount}::numeric
+   WHERE company_id=${company}::uuid AND id=${application.invoiceId}::uuid RETURNING id`
+   :await ctx.sql`UPDATE supplier_invoices SET amount_paid=amount_paid+${application.amount}::numeric
+   WHERE company_id=${company}::uuid AND id=${application.invoiceId}::uuid RETURNING id`;
+  if(!(updates as Row[])[0])throw new Error('Allocation invoice disappeared');
+  await recomputeInvoiceStatus(company,plan.kind,application.invoiceId);
+  const settled=plan.kind==='customer'?await ctx.sql`SELECT * FROM customer_invoices WHERE company_id=${company}::uuid AND id=${application.invoiceId}::uuid`
+   :await ctx.sql`SELECT * FROM supplier_invoices WHERE company_id=${company}::uuid AND id=${application.invoiceId}::uuid`;
+  const after=(settled as Row[])[0];if(!after)throw new Error('Allocation invoice disappeared');
   await recordBankAllocationChild(ctx,permit,plan.kind==='customer'?'customer_invoice':'supplier_invoice',before,after,'bank_allocation.applied');
  }
  await recordBankAllocationChild(ctx,permit,plan.kind==='customer'?'customer_payment':'supplier_payment',null,payment,'bank_allocation.payment_created');
