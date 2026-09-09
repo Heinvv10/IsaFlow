@@ -17,6 +17,8 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import type { CreditNote } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
+import { withCustomerInvoiceLock } from './customerInvoiceLock';
+import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
@@ -69,13 +71,20 @@ export async function cancelCreditNote(companyId: string,
     if (unapply > 0) {
       const invoiceTable = String(cn.type) === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
       if (String(cn.type) === 'customer' && invoiceTable) {
-        const done = (await sql`
-          UPDATE customer_invoices
-          SET amount_paid = amount_paid - ${unapply}
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${unapply}
-          RETURNING id
-        `) as Record<string, unknown>[];
+        // Bounded like every other invoice row lock in this file: a bare
+        // UPDATE waits on the row for as long as the holder lives, while this
+        // request is itself holding the credit note.
+        const done = await withCustomerInvoiceLock(
+          'cancelCreditNote',
+          `Invoice ${String(invoiceTable)}`,
+          async () => (await sql`
+            UPDATE customer_invoices
+            SET amount_paid = amount_paid - ${unapply}
+            WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+              AND amount_paid >= ${unapply}
+            RETURNING id
+          `) as Record<string, unknown>[],
+        );
         if (done.length === 0) {
           throw new Error(
             `Cannot cancel credit note ${id}: invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
@@ -83,13 +92,17 @@ export async function cancelCreditNote(companyId: string,
         }
         await recomputeInvoiceStatus(companyId, 'customer', String(invoiceTable));
       } else if (String(cn.type) === 'supplier' && invoiceTable) {
-        const done = (await sql`
-          UPDATE supplier_invoices
-          SET amount_paid = amount_paid - ${unapply}
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${unapply}
-          RETURNING id
-        `) as Record<string, unknown>[];
+        const done = await withSupplierInvoiceLock(
+          'cancelCreditNote',
+          String(invoiceTable),
+          async () => (await sql`
+            UPDATE supplier_invoices
+            SET amount_paid = amount_paid - ${unapply}
+            WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+              AND amount_paid >= ${unapply}
+            RETURNING id
+          `) as Record<string, unknown>[],
+        );
         if (done.length === 0) {
           throw new Error(
             `Cannot cancel credit note ${id}: supplier invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
@@ -142,10 +155,21 @@ export async function applyCreditNoteToInvoice(
   if (String(cn.status) !== 'approved') throw new Error('Credit note must be approved before applying');
   if (String(cn.type) !== 'customer') throw new Error('Only customer credit notes can be applied to invoices');
 
-  const invRows = (await sql`
-    SELECT * FROM customer_invoices
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
-  `) as Record<string, unknown>[];
+  // ...and the invoice SECOND, also locked. Without FOR UPDATE, `outstanding`
+  // below is derived from a row another request may already be changing, and
+  // the absolute write erases whatever it wrote: a second credit note or a
+  // receipt allocation applied concurrently vanishes from amount_paid while
+  // still counting as applied. The note-then-invoice order is the one the
+  // comment above establishes, so the lock added here does not create a cycle.
+  const invRows = await withCustomerInvoiceLock(
+    'applyCreditNoteToInvoice',
+    `Invoice ${invoiceId}`,
+    async () => (await sql`
+      SELECT * FROM customer_invoices
+      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
+      FOR UPDATE
+    `) as Record<string, unknown>[],
+  );
   if (invRows.length === 0) throw new Error('Invoice not found');
   const inv = invRows[0]!;
 
@@ -156,10 +180,9 @@ export async function applyCreditNoteToInvoice(
   const applyAmount = Math.min(Number(cn.total_amount), outstanding);
   if (applyAmount <= 0) throw new Error('Invoice has no outstanding balance');
 
-  const newPaid = Number(inv.amount_paid) + applyAmount;
   await sql`
     UPDATE customer_invoices
-    SET amount_paid = ${newPaid}
+    SET amount_paid = COALESCE(amount_paid, 0) + ${applyAmount}
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
   `;
   await recomputeInvoiceStatus(companyId, 'customer', invoiceId);
