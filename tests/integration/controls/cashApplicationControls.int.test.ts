@@ -152,6 +152,14 @@ it('cancels direct receipt after approved unapplication without subtracting reta
  const inverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),inverse.operation));
  await actor(()=>decideOperationApproval(requireControlTx(),inverseApproval.id,'approved'),'u2');
  await actor(()=>executeCashApplicationReversal(requireControlTx(),inverse.intentId,{approvalId:inverseApproval.id}));
+ const again=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId,accountingDate:'2026-09-11',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ const againApproval=await actor(()=>requestOperationApproval(requireControlTx(),again.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),againApproval.id,'approved'),'u2');
+ await actor(()=>executeCashApplication(requireControlTx(),again.intentId,{approvalId:againApproval.id}));
+ const againInverse=await actor(()=>prepareCashApplicationReversal(requireControlTx(),{originalIntentId:again.intentId,reversalDate:'2026-09-12',reason:'Synthetic repeated unapply'}));
+ const againInverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),againInverse.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),againInverseApproval.id,'approved'),'u2');
+ await actor(()=>executeCashApplicationReversal(requireControlTx(),againInverse.intentId,{approvalId:againInverseApproval.id}));
  const cancellation=await actor(()=>requestOperationApproval(requireControlTx(),{entityType:'customer_payment',entityId:paymentId,operation:'customer_payment.cancel',reversalDate:'2026-09-12'}));
  await actor(()=>decideOperationApproval(requireControlTx(),cancellation.id,'approved'),'u2');
  await actor(()=>cancelCustomerPayment(fixture.companyA,paymentId,fixture.u1.id,'Synthetic cancel',{approvalId:cancellation.id,reversalDate:'2026-09-12'}));
@@ -198,12 +206,9 @@ it('requires approved unapplication before cancelling cash with active controlle
  const approval=await actor(()=>requestOperationApproval(requireControlTx(),application.operation));
  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
  await actor(()=>executeCashApplication(requireControlTx(),application.intentId,{approvalId:approval.id}));
- await expect((async()=>{
-  const ref={entityType:'customer_payment',entityId:paymentId,operation:'customer_payment.cancel' as const,reversalDate:'2026-09-12'};
-  const cancellation=await actor(()=>requestOperationApproval(requireControlTx(),ref));
-  await actor(()=>decideOperationApproval(requireControlTx(),cancellation.id,'approved'),'u2');
-  return actor(()=>cancelCustomerPayment(fixture.companyA,paymentId,fixture.u1.id,'Synthetic bypass',{approvalId:cancellation.id,reversalDate:'2026-09-12'}));
- })()).rejects.toThrow(/unapplication|application|controlled/i);
+ const ref={entityType:'customer_payment',entityId:paymentId,operation:'customer_payment.cancel' as const,reversalDate:'2026-09-12'};
+ await expect(actor(()=>requestOperationApproval(requireControlTx(),ref))).rejects.toThrow(/unapplication|application|controlled/i);
+ expect((await pool.query("SELECT id FROM control_operation_approvals WHERE company_id=$1 AND entity_id=$2 AND operation='customer_payment.cancel'",[fixture.companyA,paymentId])).rows).toHaveLength(0);
  expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('50.00');
 });
 
