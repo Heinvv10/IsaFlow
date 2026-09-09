@@ -5,8 +5,9 @@
 
 import { useState, useRef } from 'react';
 import { CheckCircle2, Upload, Loader2, RotateCcw } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import type { MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
+import type { RollbackResult } from '@/modules/accounting/services/core/migrationExecuteService';
 
 type Step = 'upload' | 'mapping' | 'review' | 'verify';
 
@@ -142,33 +143,53 @@ export function VerifyTable({ results }: { results: VerifyEntry[] }) {
 
 export function RollbackButton({ source }: { source: MigrationSource }) {
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
+  const [result, setResult] = useState<RollbackResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleRollback = async () => {
-    if (!confirm(`This will delete all GL accounts imported from ${source}. Continue?`)) return;
+    if (!confirm(`This will delete the GL accounts imported from ${source}, except any already in use. Continue?`)) return;
     setLoading(true);
+    setError(null);
     try {
-      await apiFetch('/api/accounting/migration-rollback', {
+      const res = await apiFetch('/api/accounting/migration-rollback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source }),
       });
-      setDone(true);
+      await assertOk(res, 'Rollback failed');
+      const json = await res.json() as { data: RollbackResult };
+      setResult(json.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rollback failed');
     } finally {
       setLoading(false);
     }
   };
 
-  if (done) return <span className="text-xs text-teal-400">Rollback complete</span>;
+  // A partial rollback must not read as a clean one: accounts other records
+  // still point at are kept, and the operator is told which and why.
+  if (result) {
+    return result.retained === 0
+      ? <span className="text-xs text-teal-400">Rollback complete — {result.deleted} accounts removed</span>
+      : (
+        <span className="text-xs text-amber-400">
+          {result.deleted} accounts removed; {result.retained} kept because they are in use
+          ({result.retainedCodes.join(', ')}). The imported opening-balance journal is not reversed.
+        </span>
+      );
+  }
 
   return (
-    <button
-      onClick={handleRollback}
-      disabled={loading}
-      className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)] hover:text-red-400 disabled:opacity-50"
-    >
-      <RotateCcw className="h-3.5 w-3.5" />
-      {loading ? 'Rolling back...' : 'Rollback import'}
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={handleRollback}
+        disabled={loading}
+        className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)] hover:text-red-400 disabled:opacity-50"
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        {loading ? 'Rolling back...' : 'Rollback import'}
+      </button>
+      {error && <span className="text-xs text-red-400">{error}</span>}
+    </div>
   );
 }
