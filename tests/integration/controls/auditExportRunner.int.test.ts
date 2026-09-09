@@ -53,8 +53,8 @@ it('rechecks revoked source authority before claiming or rendering',async()=>{
  expect((await pool.query('SELECT state,attempts FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows[0]).toEqual({state:'queued',attempts:0});
 });
 it('rolls back staged files and header when chunk storage fails',async()=>{
- const job=await enqueue();
- await pool.query("CREATE OR REPLACE FUNCTION public.forensic_export_chunk_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic export chunk failure'; END $$");
+ const job=await actor(()=>enqueueAuditExport(requireControlTx(),{snapshotId,idempotencyKey:'synthetic-chunk-failure'}));
+ await pool.query("CREATE OR REPLACE FUNCTION public.forensic_export_chunk_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF EXISTS(SELECT 1 FROM control_audit_job_intents i WHERE i.company_id=NEW.company_id AND i.id=NEW.job_id AND i.idempotency_key='synthetic-chunk-failure') THEN RAISE EXCEPTION 'Synthetic export chunk failure'; END IF; RETURN NEW; END $$");
  await pool.query('CREATE TRIGGER forensic_export_chunk_failure BEFORE INSERT ON control_audit_export_chunks FOR EACH ROW EXECUTE FUNCTION public.forensic_export_chunk_failure()');
  try{expect(await runAuditJob(identity(job.id),{pool})).toMatchObject({state:'failed',failureRecorded:true});}
  finally{await pool.query('DROP TRIGGER forensic_export_chunk_failure ON control_audit_export_chunks');await pool.query('DROP FUNCTION public.forensic_export_chunk_failure()');}
