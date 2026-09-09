@@ -60,3 +60,8 @@ GROUP BY pr.company_id;
 **Limits.** A company without a `bank` or `receivable` system account now fails the
 webhook with a 500 instead of silently marking the invoice paid; K-035 makes that a
 retryable delivery rather than a lost one. Historical receipts are not backfilled.
+
+**Follow-up in the same branch.** The route file crossed the 300-line limit once the
+receipt call was added (it was already 329 on master). The four event handlers moved
+verbatim to `src/modules/billing/services/paystackEventHandlers.ts`; route 152 lines,
+handlers 215. No logic change — both suites still 12 passed, full unit suite 9320 passed.
