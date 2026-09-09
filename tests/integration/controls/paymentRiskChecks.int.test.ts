@@ -8,6 +8,7 @@ import {finalizeRequestTransaction} from '@/lib/auth/transactionFinalization';
 import {checkDuplicateInvoices} from '@/modules/accounting/services/controls/duplicateInvoiceChecks';
 import {checkPaymentRisks} from '@/modules/accounting/services/controls/paymentRiskChecks';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+import {seedRiskAttemptHistory} from './paymentRiskAttemptFixture';
 import {seedReleaseSupplier} from './paymentReleaseFixture';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 process.env.DATABASE_URL=target.connectionString;process.env.DATABASE_SSL='disable';
@@ -117,4 +118,17 @@ it('reports unmapped staging imports as unknown and excludes an explicit owned n
  await pool.query("UPDATE sage_supplier_invoices SET gl_supplier_invoice_id=$1,migration_status='imported' WHERE company_id=$2 AND id=$3",[native,fixture.companyA,stage]);
  const linked=await actor(ctx=>checkDuplicateInvoices(ctx,{}));expect(linked.populationCount).toBe(2);expect(linked.excludedCount).toBe(1);expect(linked.findingCount).toBe(0);
  expect(linked.missingSources).not.toContain('unmapped_import_invoice_financial_material_unavailable');
+});
+
+it('reads repeated immutable preparations through actual release joins without inventing duplicate retries',async()=>{
+ const supplier=await seedReleaseSupplier(pool,fixture,(person,fn)=>actor(fn,person));
+ const bill=await invoice(supplier.supplier),history=await seedRiskAttemptHistory(pool,fixture,supplier.supplier,bill);
+ const first=await history.addAttempt();
+ expect((await actor(ctx=>checkPaymentRisks(ctx,{}))).findings.filter(f=>f.kind==='repeated_prepared_release')).toHaveLength(0);
+ const second=await history.addAttempt(),result=await actor(ctx=>checkPaymentRisks(ctx,{}));
+ const repeated=result.findings.filter(f=>f.kind==='repeated_prepared_release');expect(repeated).toHaveLength(1);
+ expect(repeated[0]?.classification).toBe('confirmed');expect(repeated[0]?.entities.map(e=>e.entityId).sort()).toEqual([history.payment,first,second].sort());
+ expect((await actor(ctx=>checkPaymentRisks(ctx,{}))).findings.filter(f=>f.kind==='repeated_prepared_release')).toEqual(repeated);
+ expect((await actor(ctx=>checkPaymentRisks(ctx,{}),'u3')).findings).toEqual([]);
+ expect((await pool.query('SELECT state FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=ANY($2::uuid[])',[fixture.companyA,[first,second]])).rows).toEqual([{state:'attempting'},{state:'attempting'}]);
 });
