@@ -26,7 +26,7 @@ export interface ControlPrincipal {
 }
 export interface ControlTx { sql: TxSql; principal: ControlPrincipal }
 export interface EntityRef { entityType: string; entityId: string }
-export interface OperationRef extends EntityRef { operation: ControlOperation; expectedVersion?: number }
+export interface OperationRef extends EntityRef { operation: ControlOperation; expectedVersion?: number; reversalDate?: string }
 export interface EntityVersionRef extends EntityRef { version: number; fingerprint: string }
 export interface BeneficiaryBinding extends EntityVersionRef {
   entityType: 'supplier' | 'employee';
