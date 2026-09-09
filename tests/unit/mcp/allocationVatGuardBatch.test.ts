@@ -9,14 +9,18 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { fetchVatDenialFlags, fetchAccountNames, resolveRuleVatCode } = vi.hoisted(() => ({
+const {
+  fetchVatDenialFlags, fetchAccountNames, fetchBankContraFlags, resolveRuleVatCode,
+} = vi.hoisted(() => ({
   fetchVatDenialFlags: vi.fn(),
   fetchAccountNames: vi.fn(),
+  fetchBankContraFlags: vi.fn(),
   resolveRuleVatCode: vi.fn(),
 }));
 
 vi.mock('@/modules/accounting/services/gl/inputVatDenial', () => ({ fetchVatDenialFlags }));
 vi.mock('@/modules/accounting/services/gl/nonSupplyVatGuard', () => ({ fetchAccountNames }));
+vi.mock('@/modules/accounting/services/gl/bankContraVat', () => ({ fetchBankContraFlags }));
 vi.mock('@/modules/accounting/services/gl/ruleVatResolution', () => ({ resolveRuleVatCode }));
 
 import {
@@ -29,13 +33,17 @@ const A2 = 'gggggggg-0000-0000-0000-000000000002';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resolveRuleVatCode.mockResolvedValue({ vatCode: 'standard', denied: false, nonSupplyCoerced: false });
+  resolveRuleVatCode.mockResolvedValue({
+    vatCode: 'standard', denied: false, nonSupplyCoerced: false, settlementDropped: false,
+  });
+  fetchBankContraFlags.mockResolvedValue(new Map());
 });
 
 describe('prefetchAllocationVatFacts', () => {
   it('queries once per fact for the whole batch, de-duplicating accounts', async () => {
     fetchVatDenialFlags.mockResolvedValue(new Map([[A1, false], [A2, true]]));
     fetchAccountNames.mockResolvedValue(new Map([[A1, 'Salaries & Wages'], [A2, 'Staff Welfare']]));
+    fetchBankContraFlags.mockResolvedValue(new Map([[A1, false], [A2, false]]));
 
     // 500 lines, two distinct accounts.
     const ids = Array.from({ length: 500 }, (_, i) => (i % 2 ? A1 : A2));
@@ -43,6 +51,7 @@ describe('prefetchAllocationVatFacts', () => {
 
     expect(fetchVatDenialFlags).toHaveBeenCalledTimes(1);
     expect(fetchAccountNames).toHaveBeenCalledTimes(1);
+    expect(fetchBankContraFlags).toHaveBeenCalledTimes(1);
     expect(fetchVatDenialFlags.mock.calls[0]![1], 'must de-duplicate').toHaveLength(2);
     expect(facts.names.get(A1)).toBe('Salaries & Wages');
   });
@@ -51,7 +60,9 @@ describe('prefetchAllocationVatFacts', () => {
     const facts = await prefetchAllocationVatFacts(CO, [undefined, null, '']);
     expect(fetchVatDenialFlags).not.toHaveBeenCalled();
     expect(fetchAccountNames).not.toHaveBeenCalled();
+    expect(fetchBankContraFlags).not.toHaveBeenCalled();
     expect(facts.denied.size).toBe(0);
+    expect(facts.isBank.size).toBe(0);
   });
 });
 
@@ -62,6 +73,7 @@ describe('resolveLineVatCode — using the prefetch', () => {
     const facts = {
       denied: new Map([[A1, false]]),
       names: new Map([[A1, 'Salaries & Wages']]),
+      isBank: new Map([[A1, false]]),
     };
 
     await resolveLineVatCode(CO, 'tx-1', line, 'bulk', facts);
@@ -69,19 +81,44 @@ describe('resolveLineVatCode — using the prefetch', () => {
     expect(resolveRuleVatCode).toHaveBeenCalledWith(expect.objectContaining({
       ruleGlAccountVatDenied: false,
       ruleGlAccountName: 'Salaries & Wages',
+      ruleGlAccountIsBank: false,
     }));
   });
 
   it('falls back to the per-line lookup when the account is missing from the prefetch', async () => {
     // An absent fact means "look it up", never "skip the check" — passing only
     // one of the two would silently run half the guard.
-    const facts = { denied: new Map([[A1, false]]), names: new Map<string, string>() };
+    const facts = {
+      denied: new Map([[A1, false]]),
+      names: new Map<string, string>(),
+      isBank: new Map([[A1, false]]),
+    };
 
     await resolveLineVatCode(CO, 'tx-1', line, 'bulk', facts);
 
     expect(resolveRuleVatCode).toHaveBeenCalledWith(expect.objectContaining({
       ruleGlAccountVatDenied: undefined,
       ruleGlAccountName: undefined,
+      ruleGlAccountIsBank: undefined,
+    }));
+  });
+
+  // THREE facts now, and the same rule governs the third: an account present in
+  // two maps and missing from the bank map is NOT "not a bank", it is "not
+  // asked about", so the whole line falls back to the per-line lookups.
+  it('falls back when only the bank fact is missing from the prefetch', async () => {
+    const facts = {
+      denied: new Map([[A1, false]]),
+      names: new Map([[A1, 'Salaries & Wages']]),
+      isBank: new Map<string, boolean>(),
+    };
+
+    await resolveLineVatCode(CO, 'tx-1', line, 'bulk', facts);
+
+    expect(resolveRuleVatCode).toHaveBeenCalledWith(expect.objectContaining({
+      ruleGlAccountVatDenied: undefined,
+      ruleGlAccountName: undefined,
+      ruleGlAccountIsBank: undefined,
     }));
   });
 
@@ -91,7 +128,11 @@ describe('resolveLineVatCode — using the prefetch', () => {
     // check in shouldWarnOnNonSupply — pinned here so a future change to
     // either side has to keep them agreeing rather than discovering they
     // diverged on a live batch.
-    const facts = { denied: new Map([[A1, false]]), names: new Map([[A1, '']]) };
+    const facts = {
+      denied: new Map([[A1, false]]),
+      names: new Map([[A1, '']]),
+      isBank: new Map([[A1, false]]),
+    };
 
     await resolveLineVatCode(CO, 'tx-1', line, 'bulk', facts);
 
@@ -110,6 +151,7 @@ describe('resolveLineVatCode — using the prefetch', () => {
     expect(resolveRuleVatCode).toHaveBeenCalledWith(expect.objectContaining({
       ruleGlAccountVatDenied: undefined,
       ruleGlAccountName: undefined,
+      ruleGlAccountIsBank: undefined,
     }));
   });
 });

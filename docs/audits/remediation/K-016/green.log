@@ -69,3 +69,49 @@ The posted journal is identical either way — `allocateTransaction` drops it to
 — so this is a reporting change, not a posting one. The test now asserts the
 'none' handed down AND the `vat_coerced` reason, with a new `account`-line case
 alongside it proving a real claim still passes through unreported.
+
+================================================================
+RE-REVIEW ROUND — 1 MEDIUM (M1 half-done) + 1 LOW, on 3dc5f63b
+================================================================
+
+M1b BankRuleForm.tsx — the OTHER rule editor, untouched by 3dc5f63b — FIXED.
+    It is also the EDIT path, so the code is CLEARED on load, not just hidden:
+    hiding alone would submit a pre-K-016 'standard' straight back. This makes
+    the K-017 fix.md sentence "re-saving such a rule clears it" true; it was
+    false when written, and is now corrected to name both forms.
+LOW a transfer RULE still split — FIXED. `bank_categorisation_rules` has no
+    transfer column, so such a rule stores the counterparty BANK in
+    gl_account_id and reaches the sweep as allocType 'account'. New file
+    gl/bankContraVat.ts drops the code on a `bank`-subtype contra, reported as
+    nonSupplyCoerced (which is what it is), third batched fact through the
+    sweep and the MCP prefetch.
+
+=== mutation, this round ===
+BankRuleForm: delete the clearing effect AND force the select to render
+  -> 4 of 7 new component tests RED (both N/A cases, the stale-code-on-load
+  case, and the switch-to-supplier case).
+bankContraVat: change BANK_SUBTYPE so it never matches
+  -> 'looks the subtype up itself when the caller did not resolve it' RED.
+Both restored; both suites green again.
+
+=== gates, after the re-review round ===
+bunx tsc --noEmit                                     clean
+bun run test:unit (no DATABASE_URL)   784 files, 9339 passed | 234 skipped
+bun run test:components                57 files,  397 passed
+integration (real DB, fixture)          3 files,    7 passed
+bun scripts/ci/check-vat-guard-coverage.ts  OK, 1900 files, 13 allowlisted
+bun run agent-docs:check                    OK, 74 mirrors match
+
+NOTE ON FLAKES. The box is running many parallel agents, and both suites
+produce load-induced 10s testTimeout expiries in files unrelated to this
+change (trackerExclusion, serviceWorkerExclusion, shareProviderFetches,
+cashFlowReport, bankAllocationDateShift, bankAllocationService). Every one
+passes in isolation, and the reviewer saw the same set independently on
+e0b1aab1. The counts above are from a run with --testTimeout=45000.
+
+=== five pre-existing test files corrected, none silently ===
+allocationVatGuardBatch, bulkAllocateSkipAllocated, bulkAllocateSkipUnresolved
+and writeBankBulkAllocate mock the batched fetches; each gained the third one.
+provisionalPostingService drives the REAL resolver with a positional sql queue
+and gained one row for the subtype lookup — which only happens because its
+line survives both statutory guards, the exact case the new check is for.

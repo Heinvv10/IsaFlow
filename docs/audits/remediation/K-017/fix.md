@@ -35,9 +35,11 @@ with a transfer case pinning the other boundary.
 `AND bt.allocation_rule_id IS NOT NULL`. Verified to run; existing journals are not corrected.
 
 **Limits.** Rules whose `vat_code` was set deliberately change behaviour on the next sweep — the
-intent. Existing rule ROWS are not rewritten, so a `vat_code` stored before this change still shows
-on the rules list for a supplier or customer rule that ignores it; `CreateRuleModal` no longer lets
-a new one be created that way, and re-saving such a rule clears it. The drop is now reported —
+intent. Existing rule ROWS are not rewritten by any migration, so a `vat_code` stored before this
+change still shows on the rules list until someone edits that rule. BOTH authoring forms are fixed:
+`CreateRuleModal` (the bank screen) and `BankRuleForm` (the rules page, which is also the EDIT
+path — it clears a stale code on load, so re-saving an old rule does now drop it). The drop is now
+reported —
 `RuleVatDecision.settlementDropped`, a `log.info` on both posters, and `reason: 'settlement'` on the
 MCP `vat_coerced` payload — but it raises no sweep counter alongside `autoPostVatDenied` and
 `autoPostNonSupply`, so bulk evidence is in the log rather than in `RuleApplyResult`.

@@ -3,6 +3,7 @@
  * rules page so the page itself stays under the 300-line per-file budget.
  */
 
+import { useEffect } from 'react';
 import {
   NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, shouldWarnOnNonSupply,
 } from '@/modules/accounting/services/gl/nonSupplyAccounts';
@@ -58,11 +59,26 @@ export function BankRuleForm({
   onSubmit,
   onCancel,
 }: BankRuleFormProps) {
-  const vatWarn = form.vatCode === 'standard'
+  // A supplier or customer rule SETTLES a bill or an invoice that already
+  // accounted for the VAT, so the sweep posts it gross and discards the code
+  // (K-016/K-017). This form is the primary authoring surface AND the edit
+  // path, so leaving the select here is what would keep a stale 'standard'
+  // alive on rules created before that change.
+  const isSettlementRule = Boolean(form.supplierId || form.clientId);
+  // Clear it, do not merely hide it. This is the EDIT path too, so a rule saved
+  // with 'standard' before K-016/K-017 loads here with the code still on it;
+  // hiding the select alone would submit it straight back and leave the rules
+  // list showing a treatment the sweep discards. An effect rather than the two
+  // onChange handlers, because loading a rule for edit goes through neither.
+  useEffect(() => {
+    if (isSettlementRule && form.vatCode) setForm(f => ({ ...f, vatCode: '' }));
+  }, [isSettlementRule, form.vatCode, setForm]);
+
+  const vatWarn = !isSettlementRule && form.vatCode === 'standard'
     && accounts.find(a => a.id === form.glAccountId)?.vatInputDenied === true;
   // Second guard, different statute — no supply arises on this account at all.
   // Classified on NAME from the same pure module the sweep and the report use.
-  const nonSupply = vatWarn
+  const nonSupply = vatWarn || isSettlementRule
     ? null
     : shouldWarnOnNonSupply(accounts.find(a => a.id === form.glAccountId)?.accountName, form.vatCode);
 
@@ -178,6 +194,12 @@ export function BankRuleForm({
           {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <div>
+          {isSettlementRule ? (
+            <p className="text-xs italic leading-tight text-[var(--ff-text-tertiary)]">
+              VAT: N/A — settling a bill or an invoice claims no VAT; the
+              document already carried it.
+            </p>
+          ) : (
           <select
             value={form.vatCode}
             onChange={e => setForm(f => ({ ...f, vatCode: e.target.value }))}
@@ -189,6 +211,7 @@ export function BankRuleForm({
             <option value="zero_rated">Zero Rated</option>
             <option value="exempt">Exempt</option>
           </select>
+          )}
           {/* This form produced all 37 rules that claimed input tax on
               restaurants routed to Staff Welfare. A rule runs unattended, so
               the sweep will post gross regardless — say so here rather than

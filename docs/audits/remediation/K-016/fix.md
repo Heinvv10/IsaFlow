@@ -45,7 +45,7 @@ unwinds an affected allocation as posted, which is correct. **A prepayment is kn
 scope**: the predicate covers every supplier/customer allocation, not only those settling an
 existing document, so cash received in advance can no longer carry output tax on any path even
 though s9(1) puts the time of supply at the earlier of invoice or payment. Reach is small — the
-allocation screen and the rules modal both render N/A for these types, leaving only the MCP tools
+allocation screen and both rule forms render N/A for these types, leaving only the MCP tools
 able to express it — and posting a deposit properly needs an advance-payments liability account
 this module does not model. Raise the output tax on the invoice instead. `bankAllocationService.ts`
 also stands at 683 lines against the 300-line cap; it was 673 on master, so this moves the wrong
