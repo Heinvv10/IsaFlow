@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -35,26 +35,31 @@ export default function SupplierStatementDetailPage() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
 
-  const load = useCallback(async () => {
-    if (!supplierId) return;
-    setIsLoading(true);
-    setError('');
-    try {
-      const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}&as_at_date=${encodeURIComponent(asAtDate)}`);
-      await assertOk(res, 'Failed to load supplier statement');
-      const json = await res.json();
-      const data = json.data || json;
-      setSupplier(data.supplier || null);
-      setTransactions(data.transactions || []);
-      setSummary(data.summary || null);
-    } catch {
-      setError('Failed to load supplier statement');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [supplierId, asAtDate]);
-
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!router.isReady) return;
+    let active = true;
+    const load = async () => {
+      if (!supplierId) return;
+      setIsLoading(true);
+      setError('');
+      try {
+        const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}&as_at_date=${encodeURIComponent(asAtDate)}`);
+        await assertOk(res, 'Failed to load supplier statement');
+        const json = await res.json();
+        const data = json.data || json;
+        if (!active) return;
+        setSupplier(data.supplier || null);
+        setTransactions(data.transactions || []);
+        setSummary(data.summary || null);
+      } catch {
+        if (active) setError('Failed to load supplier statement');
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [supplierId, asAtDate, router.isReady]);
 
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;

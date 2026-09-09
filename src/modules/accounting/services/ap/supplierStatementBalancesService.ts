@@ -20,13 +20,21 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
         JOIN supplier_invoices si ON si.id = pa.invoice_id
         WHERE pa.payment_id = sp.id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = sp.supplier_id
+          AND si.status NOT IN ('draft', 'cancelled')
+          AND si.invoice_date <= ${asAtDate}::DATE
       ), 0), 0) AS amount
       FROM supplier_payments sp
       WHERE sp.company_id = ${companyId}::UUID
         AND sp.status NOT IN ('draft', 'cancelled')
         AND sp.payment_date <= ${asAtDate}::DATE
       UNION ALL
-      SELECT cn.supplier_id, GREATEST(cn.total_amount - cn.applied_amount, 0) AS amount
+      SELECT cn.supplier_id, GREATEST(cn.total_amount - CASE WHEN EXISTS (
+        SELECT 1 FROM supplier_invoices si
+        WHERE si.id = cn.supplier_invoice_id AND si.company_id = ${companyId}::UUID
+          AND si.supplier_id = cn.supplier_id
+          AND si.status NOT IN ('draft', 'cancelled')
+          AND si.invoice_date <= ${asAtDate}::DATE
+      ) THEN cn.applied_amount ELSE 0 END, 0) AS amount
       FROM credit_notes cn
       WHERE cn.company_id = ${companyId}::UUID AND cn.type = 'supplier'
         AND cn.status NOT IN ('draft', 'cancelled')

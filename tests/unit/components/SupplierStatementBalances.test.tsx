@@ -1,7 +1,9 @@
-import { render, screen, within } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { render, screen, within, fireEvent, act } from '@testing-library/react';
+import { beforeEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-vi.mock('next/router', () => ({ useRouter: () => ({ query: { as_at_date: '2026-08-31' } }) }));
+const { router } = vi.hoisted(() => ({ router: { isReady: true, query: { as_at_date: '2026-08-31' } } }));
+vi.mock('next/router', () => ({ useRouter: () => router }));
+beforeEach(() => { vi.clearAllMocks(); router.isReady = true; });
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 import { apiFetch } from '@/lib/apiFetch';
@@ -22,4 +24,21 @@ it('shows loading failures without claiming no balances exist',async()=>{
  render(<Page />);
  expect(await screen.findByText('Failed to load supplier balances')).toBeTruthy();
  expect(screen.queryByText('No supplier balances')).toBeNull();
+});
+
+it('ignores an older request that finishes after the selected date request',async()=>{
+ let finishOld!: (res:Response)=>void;
+ const fixture=(name:string)=>new Response(JSON.stringify({data:[{entityId:'s1',entityName:name,current:100,days30:0,days60:0,days90:0,days120Plus:0,total:100,onAccount:25,netBalance:75}]}));
+ vi.mocked(apiFetch).mockImplementationOnce(()=>new Promise(resolve=>{finishOld=resolve;})).mockImplementationOnce(async()=>fixture('New date supplier'));
+ render(<Page />);
+ fireEvent.change(screen.getByLabelText('Statement date'),{target:{value:'2026-07-31'}});
+ expect(await screen.findByRole('link',{name:'New date supplier'})).toBeTruthy();
+ await act(async()=>finishOld(fixture('Old date supplier')));
+ expect(screen.queryByRole('link',{name:'Old date supplier'})).toBeNull();
+ expect(screen.getByRole('link',{name:'New date supplier'}).getAttribute('href')).toContain('2026-07-31');
+});
+it('waits for router readiness before loading a historical URL',()=>{
+ router.isReady=false;
+ render(<Page />);
+ expect(apiFetch).not.toHaveBeenCalled();
 });

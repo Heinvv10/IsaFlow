@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-vi.mock('next/router', () => ({ useRouter: () => ({ query: { supplierId: '8feca858-a00a-41ff-b71d-2b77d0dcfaa5' } }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query: { supplierId: '8feca858-a00a-41ff-b71d-2b77d0dcfaa5' } }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 import { apiFetch } from '@/lib/apiFetch';
