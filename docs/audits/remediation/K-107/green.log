@@ -120,3 +120,43 @@ FULL UNIT SUITE (DATABASE_URL unset, bunx vitest run):
 bunx tsc --noEmit -> clean. bunx eslint <10 changed src/pages files> -> clean.
 File sizes: recurringTransactionService 215, recurringTransactionInvoices 206,
 recurringTemplateLock 88, companySettingsService 212 — all under 300.
+
+=== ROUND 4 (review-k107-r3.md: 1 HIGH, 3 MEDIUM, 3 LOW) ===
+
+GREEN (fixture DB, bunx vitest run --config vitest.integration.config.ts):
+  k121-convert-double-mint.int.test.ts               5 passed
+  k107-recurring-autopost-and-footing.int.test.ts    4 passed
+  k107-document-number-lock-timeout.int.test.ts      2 passed
+  the 9 pre-existing k107/k120/k121 files + k013     44 passed (10 files, no regressions)
+  tests/unit/api/convertActionsNo4xxAfterWrite       4 passed
+  tests/unit/services/core/documentNumberRetry       4 passed
+  tests/unit/api/recurringExecuteNo4xxAfterWrite     6 passed (was 5; totals-mismatch 400 added)
+  tests/unit/services/{,ar/}quoteConvertService      4 passed (mock sequences take the new claim)
+
+  HIGH-1 reproduced and closed against the real DB: two pool clients in two open transactions,
+  B parked on A's claiming UPDATE for the full 300 ms hold (settled === false), then refused with
+  QuoteNotInvoiceableError carrying A's invoice id; exactly 1 invoice for the quote. Same for the
+  sales-order twin. Auto-post asserts status='approved' + non-null gl_journal_entry_id + a balanced
+  journal of 115.00 debit = 115.00 credit for a 100 + 15 document.
+
+MUTATION PROOF, round 4 (change reverted, test re-run, then restored):
+  M14 convertToInvoice claim -> old status read      -> 2 failed | 3 passed (both convert cases:
+        the loser SUCCEEDED, i.e. two real invoices from one quote)
+  M15 convertSalesOrderToInvoice claim -> old read   -> 2 failed | 3 passed (same, SO side)
+  M16 auto-post back to UPDATE ... status='posted'   -> 2 failed | 2 passed (23514 on both entities)
+  M17 headerTotals returns the stored aggregate      -> 2 failed | 2 passed (mismatch not refused;
+        derived header 0/0/0 against 300.00 of lines)
+  M18 documentNumberRetry drops the constraint check -> 1 failed | 3 passed (5 attempts and 5
+        numbers burned for a 23505 the number did not cause)
+  M19 counter-row lock_timeout '5s' -> '0'           -> 2 failed (both hung to the 30 s test
+        timeout — which is the defect: an unbounded wait behind a stuck holder)
+  All restored; the GREEN above is the restored state.
+
+FULL UNIT SUITE (DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL / ISAFLOW_DISPOSABLE_AUTH_TEST unset):
+  Test Files 804 passed | 40 skipped (844)
+  Tests      9565 passed | 243 skipped (9808)   0 failed
+
+bunx tsc --noEmit -> clean. bunx eslint <11 changed src/pages files> -> clean.
+File sizes: recurringTransactionInvoices 176, recurringTemplateLines 132 (new),
+companySettingsService 266, quoteConvertService 221, salesOrderWorkflowService 135,
+documentNumberRetry 53 — all under 300. No migration this round.

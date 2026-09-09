@@ -10,7 +10,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
-import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
 import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -43,6 +43,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     if (err instanceof RecurringTemplateLockTimeoutError) {
       return apiResponse.conflict(res, err.message);
+    }
+    // Also pre-write: the mint functions assert the template's aggregate
+    // against its lines before they touch anything. 400 rather than a 500,
+    // because the operator has to re-save the template — it is not a bug.
+    if (err instanceof RecurringTemplateTotalsMismatchError) {
+      return apiResponse.badRequest(res, err.message);
     }
     throw err;
   }

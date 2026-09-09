@@ -118,10 +118,103 @@ previously asserted the double-execution as correct), `k107-recurring-number-seq
 **Round 3 historical impact.** No migration and no data change. Templates whose `next_run_date` is
 in the past run once and then advance as before; a template with a NULL `next_run_date` still runs
 (the column is nullable and unscheduled templates must stay runnable). Existing duplicate documents
-from past double-runs are not cleaned up by this change — count them read-only with:
+from past double-runs are not cleaned up by this change. The query below is the AUTO-REC SUBSET,
+not the deploy pre-flight for migration 646 — that one is under **Historical impact** above and
+mirrors the index predicate exactly. Read-only:
 ```sql
 SELECT company_id, supplier_id, invoice_date, total_amount, count(*)
 FROM supplier_invoices
 WHERE reference = 'AUTO-REC' AND deleted_at IS NULL
 GROUP BY 1,2,3,4 HAVING count(*) > 1;
 ```
+
+---
+
+## Round 4 — the 7 blind-review findings (review-k107-r3.md)
+
+**HIGH-1 — `convertToInvoice` kept the check-then-act round 3 fixed next door. FIXED.**
+`quote.status !== 'accepted'` was read and then the invoice was minted: two concurrent calls both
+read 'accepted' and both billed the customer, with `converted_invoice_id` pointing at one of the
+two. Now a status-predicated claiming `UPDATE ... WHERE status='accepted' RETURNING id` runs BEFORE
+the sequence is touched; the loser re-reads and gets `QuoteNotInvoiceableError` carrying the
+winner's invoice id, which the route answers 409. Same remedy, same shape as `convertToSalesOrder`.
+
+**The sibling sweep the finding asked for — and what it caught.** Every mint path was read, not
+just the named function: the five callers of `insertWithReservedNumber` plus every convert /
+transition path in `src/modules/accounting/services`. `salesOrderWorkflowService.
+convertSalesOrderToInvoice` had the IDENTICAL defect (read `status !== 'confirmed'`, then mint) and
+is reachable from the sales-order screen's "Invoice" action. FIXED the same way
+(`SalesOrderNotInvoiceableError`, 409). `recurringInvoiceService.runOneTemplate` and
+`executeRecurring` were already guarded by their row locks; nothing else mints under a status read.
+Its route also caught EVERYTHING into `badRequestFromError` — a 4xx after a write, which `withAuth`
+COMMITs — so it now maps only the two pre-write refusals and rethrows the rest.
+
+**MEDIUM-1 — the recurring documents did not foot; only the fixture did. FIXED.**
+`headerTotals` (new `recurringTemplateLines.ts`) DERIVES subtotal/tax/total from the lines when the
+template has any, and refuses a stored aggregate that disagrees by more than 1c/line (capped at
+R1.00) with `RecurringTemplateTotalsMismatchError` — raised before the first write, answered 400.
+Templates that predate the `lines` field still run on their aggregate. The footing test now uses a
+template with NO stored aggregate, so it fails if the derivation is removed; the round-3 assertion
+could not, because its fixture agreed with itself.
+
+**MEDIUM-2 — every `auto_post` template raised a 500 on every run. FIXED.**
+`status = 'posted'` is not a value either CHECK permits. Both branches now call the canonical
+approve path (`approveCustomerInvoice` / `approveSupplierInvoice`), which sets a legal status AND
+posts the journal — setting a bare 'approved' would put the document in AR/AP with no GL behind it.
+Covered by the first two tests in `k107-recurring-autopost-and-footing`, which assert the status,
+a non-null `gl_journal_entry_id`, and a balanced journal agreeing with the document total.
+
+**MEDIUM-3 — existing duplicates uncounted, and 646 is fail-closed. PARTIALLY ACTIONED.**
+The Round-3 query is now labelled: it is the AUTO-REC subset, NOT the deploy pre-flight. The
+pre-flight is the query under **Historical impact** above, which mirrors the index predicate and
+grouping exactly. It has NOT been run: this programme's agents are forbidden from querying
+production, even read-only. **OPERATOR ACTION BEFORE DEPLOY:** run it, record the count here, and
+clean any groups it returns — otherwise migration 646 aborts and the deploy fails.
+
+**LOW-1 — the retry swallowed any 23505. FIXED.** `insertWithReservedNumber` now takes the
+numbering index name and renumbers only for a clash on THAT constraint; anything else is rethrown
+with one reservation spent instead of five. Four call sites updated;
+`tests/unit/services/core/documentNumberRetry.test.ts` (4) pins both directions.
+
+**LOW-2 — prefix 646 leaves 627–645 unused. ACCEPTED**, no change wanted on this branch (the
+reviewer's own ruling); the ordering hazard is recorded in the programme's prefix register.
+**LOW-3 — `BL-53-57-insert-not-null-fixes.test.ts` is 361 lines. ACCEPTED**, inherited and not
+touched this round; split by fixture group when it is next edited.
+
+**L3 caveat — the counter row had no `lock_timeout`. FIXED.** `reserveNextDocumentNumber` now sets
+`SET LOCAL lock_timeout = '5s'` (the programme's standard, restored to DEFAULT on the success path
+only) and raises `DocumentNumberLockTimeoutError` instead of hanging behind a stuck holder.
+Serialisation itself is unchanged and still accepted under **Limits**.
+
+**Round 4 files.** New: `src/modules/accounting/services/core/recurringTemplateLines.ts`. Changed:
+`quoteConvertService.ts`, `salesOrderWorkflowService.ts`, `recurringInvoiceService.ts`,
+`recurringTransactionInvoices.ts`, `recurringTransactionErrors.ts`, `documentNumberRetry.ts`,
+`companySettingsService.ts`, `pages/api/accounting/{customer-quotes-action,
+customer-sales-orders-action,recurring-transactions-execute}.ts`.
+
+**Round 4 tests.** `tests/integration/k121-convert-double-mint.int.test.ts` (5),
+`k107-recurring-autopost-and-footing.int.test.ts` (4),
+`k107-document-number-lock-timeout.int.test.ts` (2), `tests/unit/api/
+convertActionsNo4xxAfterWrite.test.ts` (4), `tests/unit/services/core/documentNumberRetry.test.ts`
+(4), plus one case added to `recurringExecuteNo4xxAfterWrite` (6). Mutation proof M14–M19 in
+green.log. Full unit suite with the fixture env unset: 9565 passed / 243 skipped, 0 failed.
+
+**Round 4 historical impact.** No migration and no data change. API contract narrowings: converting
+a non-accepted quote answers 409 (was 400) and a missing quote 404; invoicing a non-confirmed sales
+order answers 409 (was 400). Documents already minted by a double-convert are NOT cleaned up — the
+duplicate is a real invoice that has to be credit-noted, not deleted. Read-only probes, NOT run
+against production:
+```sql
+-- quotes that produced more than one invoice
+SELECT q.company_id, q.id, q.quote_number, count(*) AS invoices
+FROM customer_quotes q JOIN customer_invoices ci
+  ON ci.company_id = q.company_id AND ci.notes = 'Converted from ' || q.quote_number
+WHERE ci.deleted_at IS NULL GROUP BY 1,2,3 HAVING count(*) > 1;
+-- sales orders that produced more than one invoice
+SELECT so.company_id, so.id, so.order_number, count(*) AS invoices
+FROM customer_sales_orders so JOIN customer_invoices ci
+  ON ci.company_id = so.company_id AND ci.notes = 'Converted from ' || so.order_number
+WHERE ci.deleted_at IS NULL GROUP BY 1,2,3 HAVING count(*) > 1;
+```
+Auto-post templates have never produced a document (the 23514 rolled every run back), so there is
+no auto-posted history to correct.

@@ -204,7 +204,7 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   // legacy row already holds under its own savepoint — without that, a single
   // such row stalls this template on every future run.
   const invoiceId = await insertWithReservedNumber(
-    companyId, 'customer_invoice', 'rec_inv_', async (invoiceNumber) => {
+    companyId, 'customer_invoice', 'rec_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const inv = (await sql`
         INSERT INTO customer_invoices (
           company_id, invoice_number, client_id, customer_id, project_id,

@@ -102,11 +102,12 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
   });
 
   it('convertToInvoice inserts items with amount/gl_account_id (not line_total/account_id)', async () => {
-    // convertToInvoice → getQuote (quote+lines), doc-number INSERT, invoice
-    // INSERT, item INSERT(s), quote UPDATE, final getQuote (quote+lines).
+    // convertToInvoice → getQuote (quote+lines), the status-predicated CLAIM,
+    // invoice INSERT, item INSERT(s), quote link UPDATE, final getQuote.
     sqlResults.push(
       [quoteRow()],
       [lineRow],
+      [{ id: QUOTE_ID }], // claiming UPDATE ... WHERE status='accepted'
       [{ id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' }], // invoice insert
       [], // item insert
       [], // quote update
@@ -130,12 +131,15 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
   });
 
   it('retries with a fresh number when the INSERT hits a legacy-number collision (23505)', async () => {
+    // The constraint MATTERS: only a clash on the numbering index renumbers.
     const dupe = Object.assign(new Error('duplicate key value violates unique constraint'), {
       code: '23505',
+      constraint: 'uq_customer_invoices_company_number',
     });
     sqlResults.push(
       [quoteRow()],
       [lineRow],
+      [{ id: QUOTE_ID }], // claiming UPDATE
       // first invoice INSERT → 23505; wired via mockImplementation below
     );
     const mockSqlFn = (await import('@/lib/neon')).sql as unknown as ReturnType<typeof vi.fn>;

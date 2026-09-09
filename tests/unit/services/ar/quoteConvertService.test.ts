@@ -85,9 +85,10 @@ beforeEach(() => {
 describe('convertToInvoice — writes real customer_invoice_items columns', () => {
   it('inserts line items using amount/gl_account_id, not line_total/account_id', async () => {
     mockGetQuote.mockResolvedValueOnce(acceptedQuote() as never);
+    mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]); // claiming UPDATE customer_quotes
     mockSql.mockResolvedValueOnce([{ id: 'inv-1' }]); // INSERT customer_invoices RETURNING id
     mockSql.mockResolvedValueOnce([]); // INSERT customer_invoice_items
-    mockSql.mockResolvedValueOnce([]); // UPDATE customer_quotes status
+    mockSql.mockResolvedValueOnce([]); // UPDATE customer_quotes converted_invoice_id
     mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), status: 'converted' } as never);
 
     await convertToInvoice(COMPANY_ID, QUOTE_ID);
