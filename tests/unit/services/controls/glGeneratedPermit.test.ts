@@ -55,3 +55,13 @@ it.each(['payroll_run.post','payroll_run.reopen'] as const)('registers only a pe
  sql.mockResolvedValue([]);
  await expect(registerGeneratedJournal(ctx,{permit,parent},journal,'journal.post')).rejects.toThrow('parent');
 });
+
+it.each([['bank_transfer_intent','bank_transfer.post'],['asset_depreciation_intent','asset_depreciation.post'],['fiscal_year','year.close']])(
+ 'registers the owned generated %s journal only for its fixed date',async(entityType,operation)=>{
+  const parent={entityType,entityId:entityType==='fiscal_year'?'2026':journal,operation} as OperationRef;
+  const localPermit={accountingDate:'2026-09-09'} as ControlledEffectPermit;
+  await expect(registerGeneratedJournal(ctx,{permit:localPermit,parent},journal,'journal.post')).resolves.toBeUndefined();
+  expect(()=>assertGeneratedJournal(ctx,{permit:localPermit,parent},journal,'journal.post')).not.toThrow();
+  sql.mockResolvedValue([{id:journal,entry_date:'2026-09-10'}]);
+  await expect(registerGeneratedJournal(ctx,{permit:localPermit,parent},journal,'journal.post')).rejects.toThrow('date');
+ });

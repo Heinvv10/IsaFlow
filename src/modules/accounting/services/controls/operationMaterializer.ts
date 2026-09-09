@@ -1,3 +1,6 @@
+import {materializeBankTransferOperation} from './bankTransferOperationMaterializer';
+import {materializeAssetDepreciationOperation} from './assetDepreciationOperationMaterializer';
+import {materializeArOperation} from './arOperationMaterializer';
 import { materializePayrollOperation } from './payrollOperationMaterializer';
 import { materializePeriodOperation } from './periodOperationMaterializer';
 import { isRealCalendarDate } from '@/lib/validation';
@@ -18,6 +21,13 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
   if(!validId)throw new Error('Invalid operation reference');
   const operations = ref.entityType === 'supplier_invoice'
     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_invoice.cancel']
+    : ref.entityType === 'bank_transfer_intent' ? ['bank_transfer.post']
+    : ref.entityType === 'asset_depreciation_intent' ? ['asset_depreciation.post']
+    : ref.entityType === 'customer_invoice' ? ['customer_invoice.post','customer_invoice.cancel']
+    : ref.entityType === 'customer_payment' ? ['customer_payment.confirm','customer_payment.cancel']
+    : ref.entityType === 'credit_note' ? ['credit_note.approve','credit_note.cancel']
+    : ref.entityType === 'credit_note_application' ? ['credit_note_application.apply']
+    : ref.entityType === 'recurring_invoice_run' ? ['recurring_invoice.generate']
     : ref.entityType === 'supplier_payment' ? ['supplier_payment.process', 'supplier_payment.void']
       : ref.entityType === 'journal_entry' ? ['journal.post','journal.reverse']
         : ref.entityType === 'payroll_run' ? ['payroll_run.post','payroll_run.reopen']
@@ -26,7 +36,7 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
               : ref.entityType === 'vat_period' ? ['vat_period.lock']
                 : ref.entityType === 'company_lockdown_intent' ? ['company_lockdown.change'] : [];
   if (!operations.includes(ref.operation)) throw new Error('Unsupported controlled operation');
-  const reverses = ['journal.reverse','supplier_payment.void','supplier_invoice.cancel','payroll_run.reopen'].includes(ref.operation);
+  const reverses = ['journal.reverse','supplier_payment.void','supplier_invoice.cancel','payroll_run.reopen','customer_invoice.cancel','customer_payment.cancel','credit_note.cancel'].includes(ref.operation);
   const reversalDate = ref.reversalDate ?? (reverses && 'accountingDate' in ref ? ref.accountingDate : undefined);
   if (reversalDate !== undefined && (!reverses || typeof reversalDate !== 'string' || !isRealCalendarDate(reversalDate))) throw new Error('Invalid reversal date');
   return { entityType: ref.entityType, entityId: ref.entityId,
@@ -86,6 +96,9 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
 
 /** Authoritative source material is shared by approval, execution and after-effect evidence. */
 export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
+  if(ref.entityType==='bank_transfer_intent')return materializeBankTransferOperation(ctx,ref);
+  if(ref.entityType==='asset_depreciation_intent')return materializeAssetDepreciationOperation(ctx,ref);
+  if(['customer_invoice','customer_payment','credit_note','credit_note_application','recurring_invoice_run'].includes(ref.entityType))return materializeArOperation(ctx,ref);
   if(ref.entityType==='payroll_run')return materializePayrollOperation(ctx,ref);
   if(['fiscal_period','fiscal_year','vat_period','company_lockdown_intent'].includes(ref.entityType))return materializePeriodOperation(ctx,ref);
   return ref.entityType==='journal_entry' ? materializeGlOperation(ctx,ref) : materializeApOperation(ctx,ref);
