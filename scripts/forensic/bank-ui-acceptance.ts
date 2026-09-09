@@ -80,10 +80,11 @@ try{
  const splitId=await f.source('Browser exact split','-115.23');
  await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.bank}`,{waitUntil:'domcontentloaded'});
  const splitRow=maker.getByRole('row').filter({hasText:'Browser exact split'});await expect(splitRow).toBeVisible();await splitRow.getByTitle('Split transaction',{exact:true}).click();
- await maker.getByRole('button',{name:'Select GL Account',exact:true}).click();await maker.getByRole('button',{name:'4000 Browser office costs',exact:true}).click();
- await maker.getByPlaceholder('0.00').fill('100.01');await maker.getByRole('button',{name:'Add Line',exact:true}).click();
- await maker.getByRole('button',{name:'Select GL Account',exact:true}).click();await maker.getByRole('button',{name:'4000 Browser office costs',exact:true}).last().click();
- await maker.getByPlaceholder('0.00').nth(1).fill('15.22');await maker.getByRole('button',{name:'Review split',exact:true}).click();
+ const splitModal=maker.locator('div.max-w-2xl').filter({has:maker.getByRole('heading',{name:'Split Transaction',exact:true})});
+ await splitModal.getByRole('button',{name:'Select GL Account',exact:true}).click();await splitModal.getByRole('button',{name:'4000 Browser office costs',exact:true}).filter({has:maker.locator('span').filter({hasText:/^Browser office costs$/})}).click();
+ await splitModal.getByPlaceholder('0.00').fill('100.01');await splitModal.getByRole('button',{name:'Add Line',exact:true}).click();
+ await splitModal.getByRole('button',{name:'Select GL Account',exact:true}).click();await splitModal.getByRole('button',{name:'4000 Browser office costs',exact:true}).filter({has:maker.locator('span').filter({hasText:/^Browser office costs$/})}).click();
+ await splitModal.getByPlaceholder('0.00').nth(1).fill('15.22');await splitModal.getByRole('button',{name:'Review split',exact:true}).click();
  const splitPrepared=await action(maker,'Prepare allocation','prepare_split_allocate');
  const splitPlan=(await f.pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[f.fixture.companyA,splitPrepared.intentId])).rows[0].payload;
  assert.equal(splitPlan.kind,'split');assert.deepEqual(splitPlan.lines.map((line:{amount:string})=>line.amount),['100.01','15.22']);
