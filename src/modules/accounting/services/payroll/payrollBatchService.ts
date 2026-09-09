@@ -11,6 +11,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import {executeCompensationCaller,type CompensationExecutionOptions} from '../controls/payrollCompensationLegacyAdapter';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -381,131 +382,10 @@ export async function postBatch(
   companyId: string,
   batchId: string,
   userId: string,
+  options: CompensationExecutionOptions = {},
 ): Promise<{ inserted: number }> {
-  const batch = await loadBatchForCompany(companyId, batchId);
-  if (batch.status === 'posted' || batch.status === 'cancelled') {
-    throw new BatchNotEditableError(batch.status);
-  }
-  if (batch.status !== 'validated') {
-    throw new Error('Batch must be validated before posting');
-  }
-
-  const lines = (await sql`
-    SELECT id, employee_id, value, km, rate_per_km,
-           taxable_portion, non_taxable_portion,
-           effective_from, effective_to
-      FROM payroll_batch_lines
-     WHERE batch_id = ${batchId}::uuid
-  `) as Row[];
-
-  let inserted = 0;
-
-  if (batch.batchType === 'component_values') {
-    const componentId = batch.componentId;
-    if (!componentId) throw new Error('component_values batch missing componentId');
-    for (const line of lines) {
-      await insertAssignment({
-        employeeId: String(line.employee_id),
-        componentId,
-        amount: Number(line.value ?? 0),
-        effectiveFrom: toDate(line.effective_from),
-        effectiveTo: toDateOrNull(line.effective_to),
-        isRecurring: batch.isRecurring,
-      });
-      inserted += 1;
-    }
-  } else {
-    const [taxableComponent, nonTaxableComponent] = await Promise.all([
-      resolveTravelComponent(companyId, '3702'),
-      resolveTravelComponent(companyId, '3703'),
-    ]);
-
-    for (const line of lines) {
-      const taxable = Number(line.taxable_portion ?? 0);
-      const nonTaxable = Number(line.non_taxable_portion ?? 0);
-      const effectiveFrom = toDate(line.effective_from);
-      const effectiveTo = toDateOrNull(line.effective_to);
-
-      if (taxable > 0) {
-        await insertAssignment({
-          employeeId: String(line.employee_id),
-          componentId: taxableComponent,
-          amount: taxable,
-          effectiveFrom,
-          effectiveTo,
-          isRecurring: batch.isRecurring,
-        });
-        inserted += 1;
-      }
-      if (nonTaxable > 0) {
-        await insertAssignment({
-          employeeId: String(line.employee_id),
-          componentId: nonTaxableComponent,
-          amount: nonTaxable,
-          effectiveFrom,
-          effectiveTo,
-          isRecurring: batch.isRecurring,
-        });
-        inserted += 1;
-      }
-    }
-  }
-
-  await sql`
-    UPDATE payroll_batches
-       SET status = 'posted',
-           posted_at = NOW(),
-           posted_by = ${userId},
-           updated_at = NOW()
-     WHERE id = ${batchId}::uuid
-  `;
-
-  log.info(
-    'Payroll batch posted',
-    { companyId, batchId, userId, inserted, batchType: batch.batchType },
-    'payrollBatchService',
-  );
-
-  return { inserted };
-}
-
-async function resolveTravelComponent(companyId: string, sarsCode: '3702' | '3703'): Promise<string> {
-  const rows = (await sql`
-    SELECT id FROM payroll_components
-     WHERE company_id = ${companyId}::uuid
-       AND sars_source_code = ${sarsCode}
-       AND is_active = true
-     LIMIT 1
-  `) as Row[];
-  const row = rows[0];
-  if (!row) {
-    throw new Error(
-      `Payroll component for SARS code ${sarsCode} not configured. Create it under Setup → Pay Components.`,
-    );
-  }
-  return String(row.id);
-}
-
-async function insertAssignment(opts: {
-  employeeId: string;
-  componentId: string;
-  amount: number;
-  effectiveFrom: Date;
-  effectiveTo: Date | null;
-  isRecurring: boolean;
-}): Promise<void> {
-  await sql`
-    INSERT INTO payroll_employee_components (
-      employee_id, component_id, amount, effective_from, effective_to, is_recurring
-    ) VALUES (
-      ${opts.employeeId}::uuid,
-      ${opts.componentId}::uuid,
-      ${opts.amount},
-      ${toIso(opts.effectiveFrom)},
-      ${opts.effectiveTo ? toIso(opts.effectiveTo) : null},
-      ${opts.isRecurring}
-    )
-  `;
+  const result=await executeCompensationCaller(companyId,{version:1,source:{kind:'batch',sourceId:batchId}},options,userId);
+  return{inserted:result.inserted};
 }
 
 export async function deleteBatch(companyId: string, batchId: string): Promise<void> {

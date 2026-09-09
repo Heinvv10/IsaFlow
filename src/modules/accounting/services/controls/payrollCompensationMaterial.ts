@@ -8,7 +8,7 @@ import {loadPayrollCompensationSources,compensationFingerprint,assignmentState} 
 import {expandPayrollCompensation} from './payrollCompensationExpand';
 interface Intent{id:string;requester_person_id:string;effective_date:string;amount:string;currency:string;payload:unknown;source_fingerprint:string}
 export interface CompensationEffectResult{intentId:string;afterFingerprint:string;assignmentIds:string[];inserted:number;ended:number;amended:number}
-function assertionInput(payload:PayrollCompensationPayload){
+export function compensationAssertionInput(payload:PayrollCompensationPayload){
  if(payload.source.kind==='batch')return{version:1,source:payload.source};
  if(payload.source.kind==='package')return{version:1,source:payload.source,effectiveFrom:payload.actions.find(a=>a.kind==='assign')?.effectiveFrom};
  return{version:1,source:payload.source,actions:payload.actions.map(action=>action.kind==='assign'?{kind:action.kind,employeeId:action.employeeId,componentId:action.componentId,amount:action.amount,effectiveFrom:action.effectiveFrom,effectiveTo:action.effectiveTo,isRecurring:action.isRecurring}:
@@ -30,7 +30,7 @@ export async function loadPayrollCompensationIntent(ctx:ControlTx,id:string){
  }else{
   if(intent.source_fingerprint!==fingerprint)throw new Error('Compensation source changed; prepare a fresh intent');
   if(plan.actions.some(a=>a.kind==='assign'&&sources.assignments.some(row=>row.id===a.assignmentId)))throw new Error('Compensation assignment already exists');
-  const expanded=expandPayrollCompensation(assertionInput(plan),sources);
+  const expanded=expandPayrollCompensation(compensationAssertionInput(plan),sources);
   if(compensationFingerprint(actionShape(plan))!==compensationFingerprint(actionShape(expanded.payload))||expanded.effectiveDate!==intent.effective_date||!new Decimal(expanded.amount).eq(intent.amount)||intent.currency!=='ZAR')throw new Error('Compensation intent does not match complete current source');
  }
  return{intent,plan,sources,effect};

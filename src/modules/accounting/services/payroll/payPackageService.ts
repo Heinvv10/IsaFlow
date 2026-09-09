@@ -13,6 +13,7 @@
  */
 
 import { sql, withTransaction } from '@/lib/neon';
+import {executeCompensationCaller,type CompensationExecutionOptions} from '../controls/payrollCompensationLegacyAdapter';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -74,14 +75,7 @@ async function assertPackageInCompany(companyId: string, id: string): Promise<vo
   if (rows.length === 0) throw new PayPackageNotFoundError(id);
 }
 
-async function assertEmployeeInCompany(companyId: string, employeeId: string): Promise<void> {
-  const rows = (await sql`
-    SELECT id FROM payroll_employees
-     WHERE id = ${employeeId}::uuid AND company_id = ${companyId}::uuid
-     LIMIT 1
-  `) as DbRow[];
-  if (rows.length === 0) throw new Error(`Employee ${employeeId} not in company`);
-}
+
 
 export interface CreatePayPackageInput {
   companyId: string;
@@ -232,50 +226,8 @@ export async function applyPackageToEmployee(
   employeeId: string,
   effectiveFrom: string,
   userId: string,
+  options: CompensationExecutionOptions = {},
 ): Promise<ApplyResult> {
-  await assertEmployeeInCompany(companyId, employeeId);
-  await assertPackageInCompany(companyId, packageId);
-
-  const compRows = (await sql`
-    SELECT component_id, amount, is_recurring
-      FROM pay_package_components
-     WHERE package_id = ${packageId}::uuid
-  `) as DbRow[];
-  if (compRows.length === 0) return { inserted: 0, ended: 0 };
-
-  log.info(
-    'Applying pay package',
-    { companyId, packageId, employeeId, effectiveFrom, userId, rowCount: compRows.length },
-    'payPackageService',
-  );
-
-  // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
-  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
-  // `withAuth` opens for every request — so it commits the WHOLE request, makes
-  // every earlier write durable and destroys any enclosing savepoint.
-  // `withTransaction` nests a SAVEPOINT when a request transaction is in flight
-  // and opens a real one only when there is none.
-  return withTransaction(async (tx) => {
-    let ended = 0;
-    for (const r of compRows) {
-      const componentId = String(r.component_id);
-      const endResult = (await tx`
-        UPDATE payroll_employee_components
-           SET effective_to = (${effectiveFrom}::date - INTERVAL '1 day')::date
-         WHERE employee_id = ${employeeId}::uuid
-           AND component_id = ${componentId}::uuid
-           AND effective_to IS NULL
-        RETURNING id
-      `) as DbRow[];
-      ended += endResult.length;
-
-      await tx`
-        INSERT INTO payroll_employee_components
-          (employee_id, component_id, amount, effective_from, is_recurring)
-        VALUES
-          (${employeeId}::uuid, ${componentId}::uuid, ${Number(r.amount)}, ${effectiveFrom}::date, ${r.is_recurring === true})
-      `;
-    }
-    return { inserted: compRows.length, ended };
-  });
+  const result=await executeCompensationCaller(companyId,{version:1,source:{kind:'package',sourceId:packageId,employeeId},effectiveFrom},options,userId);
+  return{inserted:result.inserted,ended:result.ended};
 }
