@@ -1,3 +1,4 @@
+import {historicalImportInvoiceEvidence} from './historicalImportInvoiceEvidence';
 import {assertStandalonePaymentVoid,assertStandalonePaymentProcess} from '../ap/batchPaymentValidation';
 import {assertStandaloneBankChildReversal} from './bankChildReversalGuard';
 import { createHash } from 'node:crypto';
@@ -66,9 +67,10 @@ export async function materializeApOperation(ctx: ControlTx, ref: OperationRef):
       FROM supplier_invoice_items sii JOIN supplier_invoices si ON si.id=sii.supplier_invoice_id
       WHERE si.company_id=${company}::uuid AND si.id=${ref.entityId}::uuid ORDER BY sii.id FOR SHARE OF sii
     ` as Array<Row & { line_total: string; tax_amount: string }>;
-    amount = deriveInvoiceAmount(String(header.total_amount), lines);
+    const archivalSummary=lines.length?null:await historicalImportInvoiceEvidence(ctx,'supplier_invoice',ref.entityId);
+    amount = archivalSummary?.totalAmount ?? deriveInvoiceAmount(String(header.total_amount), lines);
     currency = String(header.currency); accountingDate = String(header.invoice_date);
-    sourceFacts = { header, lines };
+    sourceFacts = { header, lines, archivalSummary };
   } else if (ref.entityType === 'supplier_payment') {
     [header] = await ctx.sql`
       SELECT id,supplier_id,payment_date::text,total_amount::text,payment_method,bank_account_id,
