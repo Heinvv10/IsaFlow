@@ -25,6 +25,10 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,'Synthetic historical Sage',2,2023,'2023-02-01','2023-02-28','closed')",[fixture.companyA]);
 });
 afterAll(async()=>{await pool.end();});
+async function legacy(imports?:Array<{importId:string;approvalId:string}>){
+ const {importLedgerTransactions}=await import('@/modules/accounting/services/core/sageImportService');
+ return actor('u1',()=>importLedgerTransactions(fixture.companyA,fixture.u1.id,imports?{imports}:undefined));
+}
 async function group(){const reference=randomUUID(),ids=[randomUUID(),randomUUID()];
  await pool.query("INSERT INTO sage_ledger_transactions(id,company_id,sage_id,account_code,transaction_date,description,debit,credit,reference,migration_status) VALUES($1,$3,'D','S-D','2023-02-28','Persisted source debit',100.01,0,$4,'pending'),($2,$3,'C','S-C','2023-02-28','Persisted source credit',0,100.01,$4,'pending')",[...ids,fixture.companyA,reference]);
  return{reference,ids};}
@@ -107,4 +111,39 @@ it.each(['source','mapping'] as const)('blocks an existing owned %s row moving i
    await expect(mutation).rejects.toMatchObject({code:'55P03'});
   }finally{await other.query('ROLLBACK');other.release();}
  });
+});
+it('routes the legacy Sage ledger importer through saved independently approved actual column evidence',async()=>{
+ const input=await group(),prepared=await staged(input.reference),decision=await approved(prepared.importId);
+ const imports=[{importId:prepared.importId,approvalId:decision.approvalId}];
+ const result=await legacy(imports);expect(result).toMatchObject({runType:'ledger_import',status:'completed',totalRecords:1,processed:1,succeeded:1,failed:0,skipped:0});
+ expect(await legacy(imports)).toEqual(result);
+ expect((await pool.query('SELECT id FROM gl_migration_runs WHERE company_id=$1 AND id=$2',[fixture.companyA,result.id])).rows).toHaveLength(1);
+ const effects=(await pool.query("SELECT result FROM control_operation_effects WHERE company_id=$1 AND entity_type='historical_import' AND entity_id=$2",[fixture.companyA,prepared.importId])).rows;
+ expect(effects).toHaveLength(1);expect(effects[0].result.sageSourceRecordIds.sort()).toEqual(input.ids.sort());
+ await pool.query('UPDATE users u SET is_active=false FROM company_users cu WHERE cu.company_id=$1 AND cu.user_id=u.id AND u.id=$2',[fixture.companyA,fixture.u2.id]);
+ try{await expect(legacy(imports)).rejects.toThrow();}
+ finally{await pool.query('UPDATE users u SET is_active=true FROM company_users cu WHERE cu.company_id=$1 AND cu.user_id=u.id AND u.id=$2',[fixture.companyA,fixture.u2.id]);}
+});
+it('requires saved authority at the legacy Sage boundary before creating any migration run',async()=>{
+ const before=(await pool.query('SELECT count(*)::int AS count FROM gl_migration_runs WHERE company_id=$1',[fixture.companyA])).rows[0].count;
+ await expect(legacy()).rejects.toThrow('saved');
+ expect((await pool.query('SELECT count(*)::int AS count FROM gl_migration_runs WHERE company_id=$1',[fixture.companyA])).rows[0].count).toBe(before);
+});
+it('refuses a legacy Sage group whose persisted source changed after approval',async()=>{
+ const input=await group(),prepared=await staged(input.reference),decision=await approved(prepared.importId);
+ await pool.query("UPDATE sage_ledger_transactions SET description='Changed after decision' WHERE company_id=$1 AND id=$2",[fixture.companyA,input.ids[0]]);
+ await expect(legacy([{importId:prepared.importId,approvalId:decision.approvalId}])).rejects.toThrow('changed');
+ expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,prepared.importId])).rows).toHaveLength(0);
+});
+it('refuses unrelated canonical source bytes labelled Sage instead of the actual saved column artifact',async()=>{
+ const {storeHistoricalImportSource}=await import('@/modules/accounting/services/controls/historicalImportSourceService');
+ const {prepareHistoricalImport}=await import('@/modules/accounting/services/controls/historicalImportPreparation');
+ const source={version:1,sourceSystem:'sage' as const,sourceKey:randomUUID(),kind:'gl' as const,mode:'post_journal' as const,accountingDate:'2023-02-28',currency:'ZAR',records:[
+  {recordId:'claimed-d',accountCode:'HS-D',debit:'10',credit:'0',description:'Claimed debit'},
+  {recordId:'claimed-c',accountCode:'HS-C',debit:'0',credit:'10',description:'Claimed credit'}]};
+ const stored=await actor('u1',ctx=>storeHistoricalImportSource(ctx,{bytes:Buffer.from(JSON.stringify(source)),mimeType:'application/json'}));
+ const prepared=await actor('u1',ctx=>prepareHistoricalImport(ctx,{sourceSystem:'sage',sourceKey:source.sourceKey,kind:'gl',mode:'post_journal',accountingDate:source.accountingDate,evidenceId:stored.sourceId,sourceRecordIds:source.records.map(row=>row.recordId)}));
+ const decision=await approved(prepared.importId);
+ await expect(legacy([{importId:prepared.importId,approvalId:decision.approvalId}])).rejects.toThrow('Sage column evidence');
+ expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,prepared.importId])).rows).toHaveLength(0);
 });
