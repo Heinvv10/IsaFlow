@@ -1,14 +1,18 @@
-import crypto from 'crypto';
 import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { amortise } from '@/lib/amortisation/engine';
-import type { LoanInputs, LoanEvent, RatePoint, ScheduleRow } from '@/lib/amortisation/types';
+import type { LoanEvent, ScheduleRow } from '@/lib/amortisation/types';
+import {
+  ENGINE_VERSION,
+  buildInputsHash,
+  dbEventToEngine,
+  dbPointToEngine,
+  loanRowToInputs,
+  mapDbRowToSchedule,
+} from './loanScheduleInputs';
 
 type Row = DbRow;
-
-const ENGINE_VERSION = '1.0.0';
 
 export interface ScheduleResult {
   rows: ScheduleRow[];
@@ -30,71 +34,19 @@ export interface PortfolioSummary {
   closedCount: number;
 }
 
-function mapDbRowToSchedule(r: Row): ScheduleRow {
-  return {
-    period: Number(r.period),
-    date: fmtDate(r.date),
-    opening: parseFloat(String(r.opening ?? '0')),
-    rate: parseFloat(String(r.rate ?? '0')),
-    installment: parseFloat(String(r.installment ?? '0')),
-    interest: parseFloat(String(r.interest ?? '0')),
-    principal: parseFloat(String(r.principal ?? '0')),
-    intPortion: parseFloat(String(r.interest ?? '0')),
-    skip: Boolean(r.skip_flag),
-    payment: parseFloat(String(r.payment ?? '0')),
-    lump: parseFloat(String(r.lump ?? '0')),
-    closing: parseFloat(String(r.closing ?? '0')),
-    stLiability: parseFloat(String(r.st_liability ?? '0')),
-    extrapolated: Boolean(r.extrapolated),
-    nca_flagged: Boolean(r.nca_flagged),
-  };
-}
-
-function loanRowToInputs(row: Row): LoanInputs {
-  return {
-    id: String(row.id),
-    principal: parseFloat(String(row.principal)),
-    startDate: fmtDate(row.start_date),
-    termMonths: Number(row.term_months),
-    rateMode: String(row.rate_mode) as LoanInputs['rateMode'],
-    margin: parseFloat(String(row.margin ?? '0')),
-    fixedRate: row.fixed_rate != null ? parseFloat(String(row.fixed_rate)) : undefined,
-    residual: parseFloat(String(row.residual ?? '0')),
-    recurringSkipMonths: Array.isArray(row.recurring_skip_months)
-      ? (row.recurring_skip_months as number[])
-      : [],
-    dayCount: String(row.day_count) as LoanInputs['dayCount'],
-    repriceMode: String(row.reprice_mode) as LoanInputs['repriceMode'],
-    skipMode: String(row.skip_mode) as LoanInputs['skipMode'],
-    lumpMode: String(row.lump_mode) as LoanInputs['lumpMode'],
-  };
-}
-
-function dbEventToEngine(r: Row): LoanEvent {
-  return {
-    kind: String(r.kind) as LoanEvent['kind'],
-    date: fmtDate(r.event_date),
-    amount: r.amount != null ? parseFloat(String(r.amount)) : undefined,
-    note: r.note != null ? String(r.note) : undefined,
-  };
-}
-
-function dbPointToEngine(r: Row): RatePoint {
-  return {
-    effectiveDate: fmtDate(r.effective_date),
-    rate: parseFloat(String(r.rate)),
-  };
-}
-
-function buildInputsHash(loan: Row, events: Row[], points: Row[]): string {
-  const payload = JSON.stringify({ loan: loan.id, events, points });
-  return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16);
-}
-
-async function fetchLoanData(companyId: string, loanId: string) {
-  const loans = (await sql`
-    SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId}
-  `) as Row[];
+/**
+ * `forShare` pins the terms for the caller's transaction. Without it a concurrent
+ * updateLoan can land between this read and the cache-hit computed_at touch, and
+ * the touch then promotes a run built on the superseded terms over the run the
+ * edit produced — the same defect the touch exists to prevent, with the operands
+ * swapped. Only getOrComputeSchedule needs it; previewSchedule writes nothing and
+ * must not block edits. The caller must be inside a transaction (withAuth opens
+ * one) or the lock is released at statement end and the window reopens.
+ */
+async function fetchLoanData(companyId: string, loanId: string, forShare = false) {
+  const loans = (await (forShare
+    ? sql`SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId} FOR SHARE`
+    : sql`SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId}`)) as Row[];
   if (loans.length === 0) throw new Error(`Loan ${loanId} not found`);
   return loans[0]!;
 }
@@ -103,14 +55,14 @@ async function fetchEvents(companyId: string, loanId: string): Promise<Row[]> {
   return (await sql`
     SELECT * FROM loan_events
     WHERE loan_id = ${loanId} AND company_id = ${companyId}
-    ORDER BY event_date ASC
+    ORDER BY event_date ASC, id ASC
   `) as Row[];
 }
 
 async function fetchRatePoints(curveId: string | null | undefined): Promise<Row[]> {
   if (!curveId || curveId === 'null') return [];
   return (await sql`
-    SELECT * FROM loan_rate_points WHERE curve_id = ${curveId} ORDER BY effective_date ASC
+    SELECT * FROM loan_rate_points WHERE curve_id = ${curveId} ORDER BY effective_date ASC, id ASC
   `) as Row[];
 }
 
@@ -145,7 +97,7 @@ export async function getOrComputeSchedule(
   companyId: string,
   loanId: string,
 ): Promise<ScheduleResult> {
-  const loanRow = await fetchLoanData(companyId, loanId);
+  const loanRow = await fetchLoanData(companyId, loanId, true);
   const eventRows = await fetchEvents(companyId, loanId);
   const pointRows = await fetchRatePoints(loanRow.curve_id as string | null);
 
@@ -163,11 +115,18 @@ export async function getOrComputeSchedule(
     const cachedRows = (await sql`
       SELECT * FROM loan_schedule_rows WHERE run_id = ${String(run.id)} ORDER BY period ASC
     `) as Row[];
+    // Consumers take the LATEST run by computed_at; touch the hit so a revert
+    // cannot leave a superseded run newest.
+    const touched = (await sql`
+      UPDATE loan_schedule_runs SET computed_at = now()
+      WHERE id = ${String(run.id)} AND company_id = ${companyId}
+      RETURNING computed_at
+    `) as Row[];
     return {
       rows: cachedRows.map(mapDbRowToSchedule),
       runId: String(run.id),
       cached: true,
-      computedAt: String(run.computed_at),
+      computedAt: String(touched[0]?.computed_at ?? run.computed_at),
     };
   }
 
@@ -189,18 +148,24 @@ export async function getOrComputeSchedule(
   const run = runRows[0]!;
   const runId = String(run.id);
 
-  // Persist rows
-  for (const r of scheduleRows) {
-    await sql`
-      INSERT INTO loan_schedule_rows
-        (run_id, period, date, opening, rate, installment, interest, principal,
-         lump, skip_flag, payment, closing, st_liability, extrapolated, nca_flagged)
-      VALUES
-        (${runId}, ${r.period}, ${r.date}, ${r.opening}, ${r.rate}, ${r.installment},
-         ${r.interest}, ${r.principal}, ${r.lump}, ${r.skip}, ${r.payment},
-         ${r.closing}, ${r.stLiability}, ${r.extrapolated}, ${r.nca_flagged})
-    `;
-  }
+  // Persist rows in ONE statement. The loan is share-locked until this
+  // transaction commits, so a per-period round trip (360 on a 30-year term) made
+  // every concurrent loan edit wait out the whole loop.
+  const col = <T,>(f: (r: ScheduleRow) => T): T[] => scheduleRows.map(f);
+  await sql`
+    INSERT INTO loan_schedule_rows
+      (run_id, period, date, opening, rate, installment, interest, principal,
+       lump, skip_flag, payment, closing, st_liability, extrapolated, nca_flagged)
+    SELECT ${runId}::uuid, * FROM unnest(
+      ${col((r) => r.period)}::int[], ${col((r) => r.date)}::date[],
+      ${col((r) => r.opening)}::numeric[], ${col((r) => r.rate)}::numeric[],
+      ${col((r) => r.installment)}::numeric[], ${col((r) => r.interest)}::numeric[],
+      ${col((r) => r.principal)}::numeric[], ${col((r) => r.lump)}::numeric[],
+      ${col((r) => r.skip)}::boolean[], ${col((r) => r.payment)}::numeric[],
+      ${col((r) => r.closing)}::numeric[], ${col((r) => r.stLiability)}::numeric[],
+      ${col((r) => r.extrapolated)}::boolean[], ${col((r) => r.nca_flagged)}::boolean[]
+    )
+  `;
 
   log.info('Computed and cached schedule', { loanId, runId, periods: scheduleRows.length }, 'loans');
   return {

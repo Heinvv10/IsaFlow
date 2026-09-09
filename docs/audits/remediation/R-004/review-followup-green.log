@@ -1,0 +1,11 @@
+ Test Files  12 passed (12)
+      Tests  154 passed (154)
+   Start at  05:50:10
+   Duration  492ms (transform 1.39s, setup 0ms, import 1.99s, tests 299ms, environment 1ms)
+
+ Test Files  3 passed (3)
+      Tests  8 passed (8)
+   Start at  05:50:11
+   Duration  927ms (transform 637ms, setup 0ms, import 1.54s, tests 750ms, environment 0ms)
+
+Mutation: with the NO_COMPANY_TABLES cut-off removed, nlQueryScopeGuard.test.ts 3 failed | 29 passed and the global-reference-hub DB test 1 failed | 1 passed; restored -> all green.
