@@ -198,6 +198,24 @@ export async function postSupplierInvoiceToGL(
   userId: string,
   opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  // Same check-then-act window approveSupplierInvoice closes at :95, and the
+  // same reason: this function decides on `glJournalEntryId` below and then
+  // overwrites it. Unlocked, two overlapping "Post to GL" calls both read NULL,
+  // both post an Expense/VAT/AP journal, and the second UPDATE strands the
+  // first where cancelSupplierInvoiceInner (which reverses only the id on the
+  // row) can never reach it — AP credited twice for one bill. The bulk action
+  // (supplier-invoices-bulk-action.ts, action=post_gl) walks up to the route's
+  // 200-id cap in one transaction, so the window is seconds. Each id there is
+  // wrapped in its own savepoint, so this lock timing out is that id's failure
+  // and not the batch's. Locking only in approve left this path free to race an
+  // approve that WAS holding the row lock.
+  //
+  // Taken BEFORE the read so the guards below see settled state: a caller that
+  // blocked here re-reads the journal id the winner wrote and early-returns
+  // alreadyPosted.
+  if (!(await lockSupplierInvoiceForUpdate(companyId, id))) {
+    throw new Error(`Supplier invoice ${id} not found`);
+  }
   const invoice = await getSupplierInvoiceById(companyId, id);
   if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
 
