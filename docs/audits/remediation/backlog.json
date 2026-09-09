@@ -8098,6 +8098,39 @@
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "low"
+  },
+  {
+   "id": "R-009",
+   "claim": "NL query scope guard propagates tenant scope through global reference tables without company_id (asset_categories, leave_types), allowing a join back into another tenant's assets, chart of accounts and journal lines.",
+   "area": "gl",
+   "affectedPaths": [
+    "src/modules/accounting/services/core/nlQueryScopeGuard.ts:186",
+    "src/modules/accounting/services/core/nlQueryFkPairs.ts:18"
+   ],
+   "sourceLabel": "Independent review of b3b4a71d (R-004)",
+   "sourceIds": [],
+   "correctedTrigger": "Own-company seed on assets a1 joined through asset_categories to assets a2 passed both guards; reproduced on real PostgreSQL through the authenticated API returning another company's asset (nl-query-global-reference-hub-postgres.int.test.ts, mutation run in review-followup-green.log).",
+   "severityRationale": "Confirmed cross-tenant read through the NL query endpoint; pre-existing, not introduced by R-004.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "b3b4a71d",
+   "status": "in-progress",
+   "dependencies": [
+    "Fixed in the R-004 branch: tables without company_id no longer propagate scope"
+   ],
+   "testNames": [
+    "tests/unit/services/core/nlQueryScopeGuard.test.ts",
+    "tests/integration/nl-query-global-reference-hub-postgres.int.test.ts"
+   ],
+   "evidencePaths": [
+    "R-004/review.md",
+    "R-004/review-followup-green.log"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "No data changed. Prior cross-tenant reads through this path not assessed; nl-query requests are logged with question and company only, not the generated SQL.",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
   }
  ],
  "sourceInventory": [

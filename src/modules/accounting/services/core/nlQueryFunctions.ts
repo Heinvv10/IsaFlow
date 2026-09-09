@@ -28,13 +28,16 @@ export const ALLOWED_FUNCTIONS: ReadonlySet<string> = new Set([
   // strings
   'lower', 'upper', 'initcap', 'length', 'char_length', 'character_length',
   'trim', 'ltrim', 'rtrim', 'btrim', 'concat', 'concat_ws', 'substring', 'substr',
-  'left', 'right', 'replace', 'split_part', 'position', 'strpos', 'lpad', 'rpad',
-  'repeat', 'reverse', 'starts_with', 'regexp_replace',
+  'left', 'right', 'replace', 'split_part', 'position', 'strpos', 'reverse',
+  'starts_with', 'regexp_replace',
   // dates and conversion
   'now', 'date_trunc', 'date_part', 'age', 'to_char', 'to_number', 'to_date',
   'to_timestamp', 'make_date', 'make_interval', 'justify_days', 'justify_hours',
   'justify_interval',
 ]);
+
+/** Bare keywords that read session or role state rather than tenant data. */
+const FORBIDDEN_KEYWORD_NODES = new Set(['current_user', 'session_user', 'user', 'current_role', 'current_catalog', 'current_schema']);
 
 /** Reject any function call that is schema-qualified or outside the analytical allowlist. */
 export function validateQueryFunctions(sql: string): string | null {
@@ -47,6 +50,14 @@ export function validateQueryFunctions(sql: string): string | null {
       return null;
     }
     if (!object(value)) return null;
+    if (value.type === 'keyword' && typeof value.keyword === 'string'
+      && FORBIDDEN_KEYWORD_NODES.has(value.keyword.toLowerCase())) {
+      return `Keyword '${value.keyword}' not allowed`;
+    }
+    if (value.type === 'cast' && object(value.to) && typeof value.to.name === 'string'
+      && /^reg[a-z]*$/i.test(value.to.name)) {
+      return `Cast to '${value.to.name}' not allowed`;
+    }
     if (value.type === 'call') {
       if (!object(value.function) || typeof value.function.name !== 'string') return 'Unnamed function';
       const { name, schema } = value.function;

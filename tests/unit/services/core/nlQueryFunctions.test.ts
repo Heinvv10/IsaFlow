@@ -35,3 +35,18 @@ describe('R-004 NL query function capability gate', () => {
     expect(validateGeneratedSQL(sql)).toMatchObject({ valid: true });
   });
 });
+
+describe('R-004 review follow-ups', () => {
+  it.each([
+    "SELECT 16384::regclass::text",
+    "SELECT 'customers'::regclass::oid::text",
+    'SELECT 10::regrole::text',
+    'SELECT current_user',
+    'SELECT session_user',
+    'SELECT user',
+    "SELECT repeat('a', 400000000)",
+    "SELECT lpad('a', 400000000, 'b')",
+  ])('rejects %s', (sql) => {
+    expect(validateGeneratedSQL(sql).valid).toBe(false);
+  });
+});
