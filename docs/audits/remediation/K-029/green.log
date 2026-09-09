@@ -182,3 +182,47 @@ timeouts under the parallel run rather than a regression.
 eslint on all 9 changed src + pages files — clean
 tsc --noEmit — clean
 138 / 180 / 218 / 91 / 229 / 113 lines — real headroom under the 300 cap now
+
+================================================================
+Round 5 — re-review of 90de5ede (MEDIUM-H/I + LOW-J, all on the page)
+================================================================
+=== GREEN (round 5) ===
+  comp:       Tests  5 passed (5)
+=== P1: life-expired rows back to GL Failed (MEDIUM-H) ===
+  comp:       Tests  1 failed | 4 passed (5)
+=== P2: the note is no longer rendered (MEDIUM-H detail) ===
+  comp:       Tests  1 failed | 4 passed (5)
+=== P3: amount back to the field the API never returns (MEDIUM-I) ===
+  comp:       Tests  1 failed | 4 passed (5)
+=== P4: header back to straight line (LOW-J) ===
+  comp:       Tests  1 failed | 4 passed (5)
+=== P5: Monthly Dep. column back to hard-coded straight line ===
+  comp:       Tests  2 failed | 3 passed (5)
+=== RESTORED ===
+  comp:       Tests  5 passed (5)
+  tsc: clean
+
+Each of the five mutations turns a component test RED; the tree restores GREEN.
+  P1 the two-state ternary (MEDIUM-H) · P2 hiding the note (MEDIUM-H detail)
+  P3 reverting to the `amount` field the API never returns (MEDIUM-I)
+  P4 the straight-line header copy (LOW-J)
+  P5 the inline straight-line Monthly Dep. column (found while editing)
+
+=== component suite (bun run test:components) ===
+Test Files  56 passed (56) / Tests  389 passed (389)
+An earlier run of the same suite showed 2 failures in the two `pages/_app.tsx`
+tests (serviceWorkerExclusion, shareProviderFetches). Both are load flake, not
+this change: they pass in isolation (4/4), two consecutive full runs with the
+new test file present are 56/56 green, and a full run with the new file REMOVED
+still failed shareProviderFetches.
+
+=== full unit suite, no fixture env (DATABASE_URL unset) ===
+Test Files  2 failed | 783 passed | 36 skipped (821)
+     Tests  2 failed | 9358 passed | 234 skipped (9594)
+bankAllocationUnwind and cashFlowReport — a subset of the same load-flaky set
+seen in rounds 2 and 4, neither importing anything this change touches.
+
+=== lint / types / file sizes ===
+eslint on pages/accounting/depreciation/index.tsx — clean
+tsc --noEmit — clean
+286 lines — under the 300 cap
