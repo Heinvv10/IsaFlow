@@ -1,3 +1,4 @@
+import {assertOperationRequester} from './operationRequester';
 import type { ApMaterial } from './apOperationMaterializer';
 import { operationPermission } from './operationPermissions';
 import { withSavepoint } from '@/lib/neon';
@@ -31,6 +32,7 @@ export async function requestOperationApproval(ctx: ControlTx, input: OperationR
   await assertEffectivePermission(ctx, 'write:approvals');
   await assertEffectivePermission(ctx, operationPermission(ref.operation,'write'));
   return withSavepoint('control_approval_request', async () => {
+    await assertOperationRequester(ctx,ref,ctx.principal.personId);
     const material = await loadOperationMaterial(ctx, ref);
     await initializeOperationObservations(ctx, material);
     const status = material.binding.policies.length ? 'pending' : 'approved';
@@ -72,6 +74,7 @@ export async function decideOperationApproval(ctx: ControlTx, id: string,
     await assertEffectivePermission(ctx, operationPermission(initial.binding.operation,'read'));
     const material = await loadOperationMaterial(ctx, initial.binding);
     const row = await lockApproval(ctx, id);
+    await assertOperationRequester(ctx,row.binding,row.requester_person_id);
     if (!['pending', 'approved'].includes(row.status) || !row.unexpired) throw new Error('Approval is terminal or expired');
     if (row.binding_hash !== material.bindingHash) throw new Error('Approval material changed');
     if (decision === 'cancelled') {

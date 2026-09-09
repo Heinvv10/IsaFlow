@@ -1,3 +1,4 @@
+import {assertOperationRequester} from './operationRequester';
 import { operationPermission,operationRequiresPosting } from './operationPermissions';
 import { randomUUID } from 'node:crypto';
 import { withSavepoint } from '@/lib/neon';
@@ -40,6 +41,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
     const row = approvalId ? await lockApproval(ctx, approvalId) : null;
     if (row) {
+      await assertOperationRequester(ctx,ref,row.requester_person_id);
       await assertRequesterAuthority(row, authorities);
       await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
     }
