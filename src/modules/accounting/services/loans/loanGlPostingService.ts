@@ -151,8 +151,10 @@ export async function postPeriodJournals(
   period: number,
   userId: string,
 ): Promise<PostPeriodResult> {
+  // FOR UPDATE serialises two concurrent posts of the same loan; the
+  // already-posted check below then sees the winner's committed rows.
   const loans = (await sql`
-    SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId}
+    SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId} FOR UPDATE
   `) as Row[];
   if (loans.length === 0) throw new Error(`Loan ${loanId} not found`);
 
@@ -186,6 +188,20 @@ export async function postPeriodJournals(
     SELECT yyyymm FROM loan_period_locks WHERE company_id = ${companyId} AND yyyymm = ${yyyymmStr}
   `) as Row[];
   if (locks.length > 0) throw new Error(`Period ${yyyymmStr} is locked`);
+
+  // Already posted? Reversal rows carry reversal_of and must not block a
+  // legitimate re-post after a reversal, so they are excluded.
+  const posted = (await sql`
+    SELECT journal_entry_id FROM loan_gl_postings
+    WHERE company_id = ${companyId} AND loan_id = ${loanId} AND period = ${period}
+      AND reversal_of IS NULL
+    LIMIT 1
+  `) as Row[];
+  if (posted.length > 0) {
+    throw new Error(
+      `Period ${period} of loan ${loanId} has already been posted (journal ${String(posted[0]!.journal_entry_id)})`,
+    );
+  }
 
   const narrative = `Loan ${String(loanRow.reference ?? loanId)} – period ${period}`;
   const entryInput = buildPeriodJournalInput(row, accounts, narrative);

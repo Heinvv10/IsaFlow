@@ -47,6 +47,8 @@ export interface CloseResult {
 interface SnapshotRow {
   closing: number;
   stLiability: number;
+  /** Amount already sitting in the current-portion account from the last close. */
+  priorStLiability?: number;
 }
 
 // ── buildReclassificationInput (pure) ───────────────────────────────────────
@@ -58,9 +60,17 @@ export function buildReclassificationInput(
   narrative: string,
 ): JournalEntryCreateInput {
   const lines: JournalLineInput[] = [];
-  if (snapshot.stLiability > 0) {
-    lines.push({ glAccountId: accounts.loanLiability, debit: snapshot.stLiability, credit: 0, description: narrative });
-    lines.push({ glAccountId: accounts.currentPortion, debit: 0, credit: snapshot.stLiability, description: narrative });
+  // The reclass restates a balance, not a transaction: the current-portion
+  // account must end the period holding stLiability, so only the movement
+  // since the previous close belongs in the journal. Posting the full amount
+  // every month compounds the current / non-current split.
+  const movement = snapshot.stLiability - (snapshot.priorStLiability ?? 0);
+  if (movement > 0) {
+    lines.push({ glAccountId: accounts.loanLiability, debit: movement, credit: 0, description: narrative });
+    lines.push({ glAccountId: accounts.currentPortion, debit: 0, credit: movement, description: narrative });
+  } else if (movement < 0) {
+    lines.push({ glAccountId: accounts.currentPortion, debit: -movement, credit: 0, description: narrative });
+    lines.push({ glAccountId: accounts.loanLiability, debit: 0, credit: -movement, description: narrative });
   }
   return { entryDate: postingDate, description: narrative, source: 'manual', lines };
 }
@@ -139,7 +149,8 @@ export async function closeLoanPeriod(
     SELECT l.*,
            snap.closing     AS snapshot_closing,
            snap.st_liability AS snapshot_stliability,
-           snap.date        AS snapshot_date
+           snap.date        AS snapshot_date,
+           prior.st_liability AS prior_stliability
     FROM loans l
     LEFT JOIN LATERAL (
       SELECT lsr.closing, lsr.st_liability, lsr.date
@@ -150,6 +161,22 @@ export async function closeLoanPeriod(
       ORDER BY lsrun.computed_at DESC NULLS LAST, lsr.period DESC
       LIMIT 1
     ) snap ON true
+    -- What the previous close already reclassified for this loan: the
+    -- st_liability of its schedule row in the most recent locked period
+    -- before this one. NULL (0) when this is the loan's first close. Closes
+    -- that ran before the loan existed cannot have reclassified it, hence
+    -- the locked_at >= created_at predicate.
+    LEFT JOIN LATERAL (
+      SELECT lsr.st_liability
+      FROM loan_period_locks lpl
+      JOIN loan_schedule_runs lsrun ON lsrun.loan_id = l.id AND lsrun.company_id = l.company_id
+      JOIN loan_schedule_rows lsr ON lsr.run_id = lsrun.id
+       AND TO_CHAR(lsr.date, 'YYYYMM') = lpl.yyyymm
+      WHERE lpl.company_id = ${companyId} AND lpl.yyyymm < ${yyyymm}
+        AND lpl.locked_at >= l.created_at
+      ORDER BY lpl.yyyymm DESC, lsrun.computed_at DESC NULLS LAST, lsr.period DESC
+      LIMIT 1
+    ) prior ON true
     WHERE l.company_id = ${companyId} AND l.status = 'active'
   `) as Row[];
 
@@ -173,6 +200,7 @@ export async function closeLoanPeriod(
     const snapshot: SnapshotRow = {
       closing: parseFloat(String(row.snapshot_closing)),
       stLiability: parseFloat(String(row.snapshot_stliability ?? '0')),
+      priorStLiability: parseFloat(String(row.prior_stliability ?? '0')),
     };
     const postingDate = fmtDate(row.snapshot_date);
     const narrative = `Reclassification – loan ${String(row.reference ?? loanId)} for ${yyyymm}`;

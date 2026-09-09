@@ -1,0 +1,28 @@
+K-081 GREEN evidence (branch fix/audit-k081-k084-loans, base origin/master 31fc2f10)
+
+Targeted tests, final run 2026-09-09:
+  unit  tests/unit/services/loans/ tests/unit/lib/amortisation/ — 12 files, 159 passed
+  real DB tests/integration/k08{1,2,3}-*.int.test.ts — 3 files, 11 passed
+  (fixture PostgreSQL, migration 644 applied; no production database was queried)
+
+Full unit suite, DATABASE_URL unset:
+  832 files (36 skipped) — 9459 passed, 234 skipped, 2 failed.
+  The 2 failures are tests/unit/services/bank/bankAllocationUnwind.test.ts and
+  tests/unit/services/cashFlowReport.test.ts. Both pass when re-run on their own
+  (2 files, 17 passed). Machine load average was 110 during the full run; these are
+  the known parallel-agent timeout saturation, not this branch. Neither file touches
+  loans, amortisation or GL posting.
+
+Mutation proofs (production change reverted, test re-run, then restored):
+  K-081 movement -> full stLiability          unit 4 failed / 1 passed; DB 2 failed / 2 passed
+  K-082 oldest-unsettled -> next instalment   unit 5 failed / 3 passed; DB 2 failed / 1 passed
+  K-083 already-posted lookup removed         DB 1 failed / 3 passed (constraint still holds the
+                                              ledger; caller gets an opaque 23P01)
+  K-083 EXCLUDE constraint dropped, guard kept DB 4 passed — the constraint is a backstop for
+                                              writers that skip the FOR UPDATE path, not something
+                                              these tests can distinguish
+  K-084 both validateCreate/updateLoan guards unit 3 failed / 4 passed
+  K-084 engine extendedPeriods cap removed    unit 2 failed / 1 passed (95699 rows again)
+
+Gates: bunx tsc --noEmit clean. bunx eslint on the five changed src files clean.
+       scripts/ci/check-migration-rls.ts OK.

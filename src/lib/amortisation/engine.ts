@@ -92,6 +92,11 @@ export function amortise(
   // Track cumulative OUTPUT interest (2dp rounded) to prevent exceeding principal in output
   let cumInterestOutput = 0;
   let extendedPeriods = 0;
+  // EXTEND_TERM pushes the loop bound out once per skipped period. A loan that
+  // skips more months than it repays would run for millennia, so cap the
+  // extension: five times the contractual term is far beyond any real payment
+  // holiday and still terminates promptly.
+  const maxExtendedPeriods = totalPeriods * 5;
 
   for (let p = 1; p <= totalPeriods + extendedPeriods; p++) {
     const date = addMonths(loan.startDate, p);
@@ -175,7 +180,15 @@ export function amortise(
       }
     }
 
-    if (skip && loan.skipMode === 'EXTEND_TERM') extendedPeriods++;
+    if (skip && loan.skipMode === 'EXTEND_TERM') {
+      if (extendedPeriods >= maxExtendedPeriods) {
+        throw new Error(
+          `Loan skips more periods than it repays: term extension exceeded ${maxExtendedPeriods} periods. ` +
+          'Reduce recurringSkipMonths or use skipMode MAINTAIN_TERM.',
+        );
+      }
+      extendedPeriods++;
+    }
 
     if (skip && loan.skipMode === 'MAINTAIN_TERM') {
       const remaining = totalPeriods + extendedPeriods - p;

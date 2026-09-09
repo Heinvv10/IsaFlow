@@ -213,6 +213,7 @@ describe('postPeriodJournals', () => {
       .mockResolvedValueOnce([{ id: 'run-id-21' }])       // latest schedule run
       .mockResolvedValueOnce([makeScheduleDbRow(1)])      // schedule row for period
       .mockResolvedValueOnce([])                            // period lock check (not locked)
+      .mockResolvedValueOnce([])                            // already-posted check (none)
       .mockResolvedValueOnce([{ id: 'posting-1' }]);       // insert loan_gl_posting
 
     createEntryMock.mockResolvedValueOnce({ id: ENTRY_ID, entryNumber: 'JE-2026-001' });
