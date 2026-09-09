@@ -12,7 +12,10 @@ vi.mock('@/lib/neon', () => {
   // `unsafe` is part of the real client — itemService uses it for its
   // pre-validated enum fragments — so the stub carries it too. Without it the
   // scan below cannot reach list_items at all.
-  const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), {
+  const sqlFn = Object.assign(vi.fn(async (strings: TemplateStringsArray) => {
+    // Independent known empty cash population; a census SELECT still returns one row.
+    return strings.join('').includes('WITH census AS') ? [{ id: null, population_count: '0' }] : [];
+  }), {
     transaction: vi.fn(),
     unsafe: vi.fn((fragment: string) => fragment),
   });
@@ -570,8 +573,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 71 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(71);
+  it('exactly 77 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(77);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
