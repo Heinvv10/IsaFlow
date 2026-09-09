@@ -19,30 +19,37 @@ some invoices carrying `client_id = X, customer_id = Y` and others carrying
 AR aging shows for the same book, so the surfaces still agree.) Response contracts
 unchanged: `clientId` is still one UUID that `getDebtorDetail` accepts.
 
-Both joins to `customers` are also tenant-scoped now (`AND c.company_id = ci.company_id`).
-Neither `client_id` (no FK at all) nor `customer_id` (FK to `customers(id)`, not
-tenant-scoped) is constrained to the invoice's own company, so an id pointing at another
+Both joins to `customers` are also tenant-scoped now (`AND c.company_id = ci.company_id`)
+and made OUTER. Neither `client_id` (no FK at all) nor `customer_id` (FK to `customers(id)`,
+not tenant-scoped) is constrained to the invoice's own company, so an id pointing at another
 company's customer previously joined and rendered that customer's NAME on this company's
 dashboard. Coalescing widened the class of rows that could do it, since NULL-`client_id`
-rows now join on `customer_id`. Scoped, such a row is dropped instead of named.
-`getCollectionStats.clientCount` uses the same tenant-scoped test via
-`FILTER (WHERE EXISTS ...)`, so the tile counts exactly the debtors the table lists.
+rows now join on `customer_id`. The `LEFT JOIN` plus `COALESCE(c.name, 'Unknown customer')`
+withholds the foreign name — the actual leak — while keeping the row and its amount, which
+is this company's own AR, visible. Dropping the row instead would have re-created the very
+defect K-058 is about: money not shown, not totalled, not reported as excluded. The outer
+join also re-admits orphan `client_id` values, same argument. `clientCount` is a plain
+`COUNT(DISTINCT COALESCE(ci.client_id, ci.customer_id))`: with an outer join every debtor
+group is listed, the collection-stats `WHERE` is identical to the summary `WHERE`, and
+`customer_id` is NOT NULL, so the tile equals `summary.length` by construction.
 
 **Files.**
 - `src/modules/accounting/services/ar/debtorsManagerService.ts` — 7 lines:
   `getDebtorsSummary` projection/join/GROUP BY, `getDebtorDetail` predicate,
   `getOverdueInvoices` projection/join, `getCollectionStats` `COUNT(DISTINCT ...)`;
-  plus `AND c.company_id = ci.company_id` on both `customers` joins and the matching
-  `EXISTS` guard on `clientCount`.
+  plus `AND c.company_id = ci.company_id` on both `customers` joins, both joins made
+  `LEFT JOIN`, and both name projections wrapped in `COALESCE(..., 'Unknown customer')`.
 
-**Tests.** `tests/integration/k058-debtors-drops-null-client-id.int.test.ts` — 8 tests
-against the real schema (2 pre-existing RED + 1 control, plus 5 adjacent cases:
+**Tests.** `tests/integration/k058-debtors-drops-null-client-id.int.test.ts` — 9 tests
+against the real schema (2 pre-existing RED + 1 control, plus 6 adjacent cases:
 `client_id` precedence over `customer_id`, drill-down by the summary's `clientId`,
-collection-stats customer count, second-company isolation, and a company-A invoice whose
-`customer_id` points at company B's customer, which must yield no name). 8/8 pass. Three
-mutations recorded in `green.log`: reverting the whole change turns 6 RED, removing only
-the tenant predicate on the joins turns 5 RED, removing only the `clientCount` guard turns
-2 RED.
+collection-stats customer count, second-company isolation, a company-A invoice whose
+`customer_id` points at company B's customer — the row and its money must appear while the
+name must not — and stat-tile/table agreement on both count and total). 9/9 pass. Three
+mutations recorded in `green.log` §9b, each restored: `LEFT JOIN` back to `JOIN` turns 5
+RED, dropping the tenant predicate turns 1 RED, reverting `COALESCE(client_id, customer_id)`
+to `client_id` turns 5 RED. Full unit suite with `DATABASE_URL` unset: 9434 passed, 0
+failed.
 
 **Migration / rollback.** None. Read-side only; revert the commit to roll back.
 
@@ -61,11 +68,12 @@ GROUP BY company_id;
 ```
 
 **Limits.**
-- A row naming a foreign customer is now dropped from the summary and the overdue list,
-  but its money still counts in `getCollectionStats.totalOutstanding`, which has no join.
-  That is deliberate: the amount is this company's, only the foreign NAME is withheld.
-  `getARAging` joins `customers` unscoped, so it would still render that name; scoping it
-  is a change to a different service and was left alone.
+- A row naming a foreign customer renders as `Unknown customer` rather than being
+  dropped, so the debtors table, the overdue list and `getCollectionStats` all agree on
+  the same money. `getARAging` still joins `customers` unscoped, so that surface would
+  still render the foreign name; scoping it is a change to a different service and was
+  left alone. The placeholder is not an excluded-row alert — an operator sees an unnamed
+  debtor, which is a data-quality signal, not a reconciliation break.
 - None of the four queries filters `deleted_at`. Adding it here alone would re-open the
   very disagreement this fix closes, because `arAgingService` does not filter it either,
   and the repo's own predicate is `(deleted_at IS NULL OR deleted_at > NOW())`, not a
