@@ -39,6 +39,22 @@ function runOutcome(r: DepreciationRunResultRow): { label: string; className: st
   return { label: 'GL Failed', className: 'text-red-400 text-xs' };
 }
 
+/**
+ * One count per label, tallied with the same `runOutcome` that labels the rows,
+ * so the numbers cannot drift from what is listed underneath them.
+ *
+ * The summary used to lead with the run's `processed`, which counts an asset
+ * whose POLICY track is finished while its tax track still posts — a row this
+ * page renders "No charge" at R 0.00. Counter and label disagreed at a glance.
+ * Every row the run reports lands in `results`, so posted + no charge + failed
+ * equals `processed + glFailed` with nothing lost.
+ */
+export function outcomeTally(results: DepreciationRunResultRow[]): Record<string, number> {
+  const tally: Record<string, number> = { 'GL Posted': 0, 'No charge': 0, 'GL Failed': 0 };
+  for (const r of results) tally[runOutcome(r).label] = (tally[runOutcome(r).label] ?? 0) + 1;
+  return tally;
+}
+
 interface AssetRow {
   id: string;
   asset_number: string;
@@ -192,13 +208,16 @@ export default function DepreciationPage() {
               </h2>
               <div className="flex gap-6 text-sm mb-3">
                 <span className="text-teal-400">
-                  Processed: {lastRun.processed}
+                  GL Posted: {outcomeTally(lastRun.results)['GL Posted']}
                 </span>
-                <span className="text-[var(--ff-text-secondary)]">
-                  Skipped: {lastRun.skipped}
+                <span className="text-[var(--ff-text-tertiary)]">
+                  No charge: {outcomeTally(lastRun.results)['No charge']}
                 </span>
                 <span className={lastRun.glFailed > 0 ? 'text-red-400' : 'text-[var(--ff-text-secondary)]'}>
                   GL Failed: {lastRun.glFailed}
+                </span>
+                <span className="text-[var(--ff-text-secondary)]">
+                  Skipped: {lastRun.skipped}
                 </span>
                 <span className="text-[var(--ff-text-secondary)]">
                   Total Assets: {lastRun.total}
