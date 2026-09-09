@@ -1,3 +1,4 @@
+import {assertStandaloneBankChildReversal} from './bankChildReversalGuard';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from './canonical';
 import {UUID_RE,isRealCalendarDate} from '@/lib/validation';
@@ -34,6 +35,7 @@ export async function materializeArOperation(ctx:ControlTx,ref:OperationRef):Pro
   source={...data,accounts:accounts.facts};accountingDate=fmtDate(header.invoice_date);
  }else{
   const data=await lockArPaymentSources(ctx,ref.entityId);header=data.header;
+  if(reverse)await assertStandaloneBankChildReversal(ctx,ref.entityId,header.gl_journal_entry_id);
   const explicit=header.bank_account_id?[String(header.bank_account_id)]:[];
   const accounts=await resolveArAccounts(ctx,reverse?[]:explicit.length?['receivable']:['receivable','bank'],reverse?[]:explicit);
   ({amount,currency}=deriveArSettlementMoney(header.total_amount,header.currency_code,data.allocations.map(a=>({amount:a.amount_allocated,currency:a.invoice_currency})),accounts.ledgerCurrency));
