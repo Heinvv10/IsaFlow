@@ -8282,6 +8282,58 @@
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-016",
+   "claim": "A credit note holds a single customer_invoice_id and cancel un-applies through it, so a partially applied note cannot be spread across invoices without a link table and a cancel rewrite.",
+   "area": "ar",
+   "affectedPaths": [
+    "src/modules/accounting/services/ar/creditNoteCancelService.ts"
+   ],
+   "sourceLabel": "Review of K-011 fix (MEDIUM 2)",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Named by the independent reviewer of the referenced fix; left open by decision, not yet reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "d0f4f5dc",
+   "status": "candidate",
+   "dependencies": [
+    "Design change; probe SQL to be attached from K-011/fix.md"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-017",
+   "claim": "No dunning/notification path exists for subscriptions that enter past_due after the last failed charge attempt; the state is recorded but nobody is told.",
+   "area": "billing",
+   "affectedPaths": [
+    "src/modules/billing/services/subscriptionBillingService.ts"
+   ],
+   "sourceLabel": "Review of K-033 fix (M1)",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Named by the independent reviewer of the referenced fix; left open by decision, not yet reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "d0f4f5dc",
+   "status": "candidate",
+   "dependencies": [
+    "Product decision required before implementation"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
   }
  ],
  "sourceInventory": [
