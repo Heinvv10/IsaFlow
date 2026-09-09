@@ -9,7 +9,7 @@ function cents(value:unknown):bigint{
 }
 function money(value:bigint){return `${value/100n}.${String(value%100n).padStart(2,'0')}`;}
 function identities(rows:Array<{source:string;id:string}>){
- const hash=createHash('sha256');for(const row of [...rows].sort((a,b)=>a.source.localeCompare(b.source)||a.id.localeCompare(b.id)))hash.update(`${row.source}:${row.id}\n`);
+ const hash=createHash('sha256');for(const row of [...rows].sort((a,b)=>a.source<b.source?-1:a.source>b.source?1:a.id<b.id?-1:a.id>b.id?1:0))hash.update(`${row.source}:${row.id}\n`);
  return hash.digest('hex');
 }
 /** Independent verifier over authenticated retained facts, not the production totals reducer. */
