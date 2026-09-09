@@ -34,6 +34,8 @@ it('changed opposite amount or pointer refuses',async()=>{
  expect((await f.read(p.bank)).status).toBeGreaterThanOrEqual(400);
  await f.pool.query('UPDATE bank_transactions SET amount=115.23,transfer_journal_entry_id=NULL WHERE company_id=$1 AND id=$2',[f.f.companyA,p.opposite]);
  expect((await f.read(p.opposite!)).status).toBeGreaterThanOrEqual(400);
+ await f.pool.query('UPDATE bank_transactions SET matched_journal_line_id=NULL WHERE company_id=$1 AND id=$2',[f.f.companyA,p.opposite]);
+ expect((await f.read(p.opposite!)).status).toBeGreaterThanOrEqual(400);
 });
 it('genuine legacy transfer remains explicit unknown',async()=>{
  const bank=await f.bank(),journal=randomUUID(),line=randomUUID();
