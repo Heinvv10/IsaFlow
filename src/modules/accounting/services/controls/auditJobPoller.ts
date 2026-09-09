@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import type {Pool,PoolClient} from 'pg';
 import {als} from '@/lib/als';
+import {log} from '@/lib/logger';
 import {sql} from '@/lib/neon';
 import {canonicalJson} from './canonical';
 import {runAuditSnapshotJob,type AuditWorkerResult} from './auditJobRunner';
@@ -53,7 +54,12 @@ export function createAuditJobPoller(input:AuditPollerConfig,options:{pool:Pool}
    if(!rows.length)cursors.delete(companyId);
    for(const row of rows){
     if(signal?.aborted)break;
-    const result=await runAuditSnapshotJob({companyId,personId:row.personId,jobId:row.jobId},{pool:options.pool,signal});
+    let result:AuditWorkerResult;
+    try{result=await runAuditSnapshotJob({companyId,personId:row.personId,jobId:row.jobId},{pool:options.pool,signal});}
+    catch{
+     log.warn('Audit queue candidate refused before claim',{companyId,jobId:row.jobId},'audit-worker');
+     result={state:'failed',code:signal?.aborted?'CANCELLED':'WORKER_ERROR',failureRecorded:false};
+    }
     results.push(result);
     if(result.state==='busy')break;
     cursors.set(companyId,{jobId:row.jobId,updatedAt:row.updatedAt});
