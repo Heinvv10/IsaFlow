@@ -8041,7 +8041,7 @@
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
-   "historicalDataImpact": "Not assessed",
+   "historicalDataImpact": "Production read-only probe 2026-09-09: 0 customer_invoices and 0 supplier_invoices with amount_paid > 0 carrying an auto_migration journal; exactly 1 auto_migration journal exists (one company); no Sage-sourced journals. Historical exposure is nil; the fix is forward-only.",
    "canonicalItem": null,
    "sourceReferences": [
     {
@@ -8783,7 +8783,7 @@
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
-   "historicalDataImpact": "None yet: the wizard import never succeeded before K-015 (production probe pending)",
+   "historicalDataImpact": "Nil on production (same probe): no migrated documents with VAT lines exist beyond one auto_migration journal.",
    "canonicalItem": null,
    "reportedSeverity": "high"
   }
