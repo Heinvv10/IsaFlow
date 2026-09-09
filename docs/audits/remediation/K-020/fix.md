@@ -122,3 +122,22 @@ New test `tests/unit/components/reconciliationBalances.test.tsx` (2 tests, run u
 the agreeing case shows one GL tile with no warning and no revived "Reconciled Balance"
 tile; the defect's own shape (GL 1000, reconciled 2000) shows the warning and the GL
 figure. Reverting the tile to `reconciledBalance` turns one of the two red.
+
+---
+
+## Round-3 re-review — one LOW
+
+**The warning named a remedy the round-2 guard refuses.** It ended "Post an adjustment to
+recompute" for every stale row, but a completed reconciliation cannot be adjusted
+(`createAdjustmentEntry` throws on `status === 'completed'`), cannot be cancelled
+(`cancelReconciliation` takes `in_progress` only), and has no reopen path — and completed
+rows are exactly the population fix.md names as keeping the wrong figure. The last
+sentence is now gated on status: `in_progress` still points at the adjustment,
+`completed` says the figure is historical and will not change without a data fix, which
+is what the Historical-data impact section above already says. Two tests added, one per
+branch; removing the gate turns the completed one red.
+
+**Also tightened (reviewer's note, not a finding).** The stale-row test asserted both
+figures against the tile's whole `textContent`, so it would have passed if the tile and
+the warning swapped numbers. It now asserts the warning's own text and the balance
+paragraph beside it separately.

@@ -35,7 +35,14 @@ export function ReconciliationBalances({ recon }: { recon: BankReconciliation })
         {staleReconciled && (
           <p className="text-xs text-amber-400 mt-1">
             Stored reconciled balance {formatCurrency(recon.reconciledBalance)} predates the balance
-            fix; the difference is still derived from it. Post an adjustment to recompute.
+            fix; the difference is still derived from it.{' '}
+            {/* A completed reconciliation cannot be adjusted (createAdjustmentEntry
+                refuses one) or cancelled (cancelReconciliation takes in_progress
+                only), and there is no reopen path — so do not send the user after a
+                remedy that will be refused. */}
+            {recon.status === 'completed'
+              ? 'This reconciliation is closed, so the figure is historical and will not change without a data fix.'
+              : 'Post an adjustment to recompute.'}
           </p>
         )}
       </div>

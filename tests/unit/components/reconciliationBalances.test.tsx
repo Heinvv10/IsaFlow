@@ -28,17 +28,28 @@ describe('ReconciliationBalances', () => {
     expect(screen.getByText('Balanced')).toBeDefined();
   });
 
+  // The defect's own shape: gl_balance 1000, reconciled_balance 1000 + 1000 matched.
+  const legacy = { glBalance: 1000, reconciledBalance: 2000, difference: -950 };
+
   it('warns, and still shows the GL figure, on a pre-fix row where the columns differ', () => {
-    // The defect's own shape: gl_balance 1000, reconciled_balance 1000 + 1000 matched.
-    render(<ReconciliationBalances recon={recon({
-      glBalance: 1000, reconciledBalance: 2000, difference: -950,
-    })} />);
-    expect(screen.getByText(/predates the balance/)).toBeDefined();
-    const tile = screen.getByText('GL Balance (as at statement date)').parentElement!;
-    // Compare against the same formatter the tile uses: the SA locale's group
-    // separator is not a comma.
-    expect(tile.textContent).toContain(formatCurrency(1000));
-    expect(tile.textContent).toContain(formatCurrency(2000));
+    render(<ReconciliationBalances recon={recon(legacy)} />);
+    const warning = screen.getByText(/predates the balance/);
+    // Assert each figure on its OWN element: a tile-wide textContent check would
+    // also pass if the tile and the warning swapped numbers. Compare against the
+    // same formatter the tile uses; the SA locale's group separator is not a comma.
+    expect(warning.textContent).toContain(formatCurrency(2000));
+    expect(warning.previousElementSibling!.textContent).toBe(formatCurrency(1000));
     expect(screen.queryByText('Balanced')).toBeNull();
+  });
+
+  it('sends an in-progress row to the adjustment that will actually recompute it', () => {
+    render(<ReconciliationBalances recon={recon({ ...legacy, status: 'in_progress' })} />);
+    expect(screen.getByText(/Post an adjustment to recompute/)).toBeDefined();
+  });
+
+  it('does not offer an adjustment on a completed row, which refuses one', () => {
+    render(<ReconciliationBalances recon={recon({ ...legacy, status: 'completed' })} />);
+    expect(screen.queryByText(/Post an adjustment/)).toBeNull();
+    expect(screen.getByText(/historical and will not change/)).toBeDefined();
   });
 });
