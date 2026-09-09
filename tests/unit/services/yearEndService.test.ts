@@ -20,18 +20,7 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
-// Retained earnings resolves through the system-account resolver, not a name
-// match — see yearEndRetainedEarnings.test.ts for that contract.
-const getSystemAccountCandidatesMock = vi.fn();
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', async (importOriginal) => ({
-  // Spread the real module rather than enumerating exports: a partial mock that
-  // hand-lists them breaks the moment the module gains one, and it fails
-  // looking like the production code is broken instead of the mock being stale.
-  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/systemAccountResolver')>()),
-  getSystemAccountCandidates: (...a: unknown[]) => getSystemAccountCandidatesMock(...a),
-}));
-
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -191,120 +180,12 @@ describe('yearEndService — tenant isolation (S-002)', () => {
     });
   });
 
-  // ── closeFiscalYear ─────────────────────────────────────────────────────────
-
-  describe('closeFiscalYear', () => {
-    it('returns open_periods error when periods are still open', async () => {
-      // The probe now returns the open period ROWS, not a count: an agent
-      // cannot act on "2 periods are open" and can act on their names.
-      sqlMock.mockResolvedValueOnce([
-        { id: 'p1', period_name: 'March 2026', period_number: 1 },
-        { id: 'p2', period_name: 'April 2026', period_number: 2 },
-      ]);
-
-      const result = await closeFiscalYear(COMPANY_A, YEAR_LABEL, USER_ID);
-
-      expect(result).toMatchObject({ error: 'open_periods', count: 2 });
-      // Should NOT have queried revenue/expense accounts
-      expect(sqlMock).toHaveBeenCalledTimes(1);
-    });
-
-    it('returns year_not_found when fiscal periods have no rows', async () => {
-      sqlMock
-        .mockResolvedValueOnce([])  // no open periods
-        .mockResolvedValueOnce([]);              // no range rows
-
-      const result = await closeFiscalYear(COMPANY_A, YEAR_LABEL, USER_ID);
-
-      expect(result).toEqual({ error: 'year_not_found' });
-    });
-
-    it('aggregates company A revenue and expense — company B data is absent', async () => {
-      /**
-       * Scenario:
-       *   Company A: revenue accounts sum = 1000, expense accounts sum = 600
-       *   Company B: revenue = 500                   ← must NOT appear
-       *
-       * The revenue/expense queries (calls 2 and 3 after the open-period and
-       * range checks) return only company A data because the WHERE clause
-       * contains ga.company_id = companyId AND je.company_id = companyId.
-       *
-       * The mock returns company A totals only; the test asserts the derived
-       * netIncome is 400 (not 900 which would include company B).
-       */
-      const RE_ACCOUNT_ID = 'eeeeeeee-0000-0000-0000-000000000010';
-
-      // call 0: open periods count
-      sqlMock.mockResolvedValueOnce([]);
-      // call 1: year date range
-      sqlMock.mockResolvedValueOnce([{ start_date: START_DATE, end_date: END_DATE }]);
-      // call 1a: companies.financial_year_start. The periods must actually BE
-      // the company's fiscal year — closing a calendar span for a March-start
-      // company rolls the wrong twelve months into retained earnings. This
-      // fixture declares January so its calendar range is the fiscal year.
-      sqlMock.mockResolvedValueOnce([{ financial_year_start: 1 }]);
-      // call 2: revenue accounts for company A (balance = 1000)
-      sqlMock.mockResolvedValueOnce([
-        { id: 'rev-acc-001', account_code: '4000', account_name: 'Sales', balance: '1000' },
-      ]);
-      // call 3: expense accounts for company A (balance = 600)
-      sqlMock.mockResolvedValueOnce([
-        { id: 'exp-acc-001', account_code: '6000', account_name: 'Cost of Sales', balance: '600' },
-      ]);
-      // Retained earnings comes from the system-account resolver, so it costs
-      // no sql call here.
-      getSystemAccountCandidatesMock.mockResolvedValue([{
-        id: RE_ACCOUNT_ID, accountCode: '3200', accountName: 'Retained Earnings',
-        accountType: 'equity', accountSubtype: 'retained_earnings', createdAt: 0,
-      }]);
-      // The fiscal period covering the closing date, resolved BEFORE the
-      // transaction opens. A NULL fiscal_period_id would put the year-end
-      // journal outside the trial balance permanently, and the periods are
-      // locked immediately afterwards, so it could not be corrected in place.
-      sqlMock.mockResolvedValueOnce([{ id: 'fp-closing' }]);
-      // withTransaction inner calls (insert journal entry + lines + lock)
-      const txMock = sqlMock;
-      (withTransaction as ReturnType<typeof vi.fn>).mockImplementationOnce(
-        async (cb: (tx: typeof txMock) => unknown) => {
-          // INSERT gl_journal_entries
-          txMock.mockResolvedValueOnce([{
-            id: 'je-closing-001', company_id: COMPANY_A,
-            entry_number: `YE-${YEAR_LABEL}`, entry_date: END_DATE,
-          }]);
-          // INSERT line for revenue DR
-          txMock.mockResolvedValueOnce([{}]);
-          // INSERT line for expense CR
-          txMock.mockResolvedValueOnce([{}]);
-          // INSERT line for retained earnings CR
-          txMock.mockResolvedValueOnce([{}]);
-          // UPDATE fiscal_periods
-          txMock.mockResolvedValueOnce([{}]);
-          return cb(txMock);
-        }
-      );
-
-      const result = await closeFiscalYear(COMPANY_A, YEAR_LABEL, USER_ID);
-
-      // Result must be a CloseYearResult (not an error)
-      expect(result).not.toHaveProperty('error');
-      if ('netIncome' in result) {
-        // 1000 revenue - 600 expenses = 400 (NOT 900 which would include company B's 500)
-        expect(result.netIncome).toBe(400);
-        expect(result.message).toContain('400.00');
-      }
-    });
-
-    it('passes companyId to revenue and expense account queries', async () => {
-      // Minimal setup: early exit via year_not_found to limit mocks needed
-      sqlMock
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]); // no range → year_not_found
-
-      await closeFiscalYear(COMPANY_A, YEAR_LABEL, USER_ID);
-
-      const allArgs = sqlMock.mock.calls.flatMap((args) => args.slice(1));
-      expect(allArgs).toContain(COMPANY_A);
-      expect(allArgs).not.toContain(COMPANY_B);
+  // Successful controlled-close diagnostics and exact source aggregation live in
+  // gl/yearEndCloseDryRun.test.ts; actual owned posting is covered by glYearEndWriters.int.test.ts.
+  describe('closeFiscalYear authenticated transaction boundary',()=>{
+    it.each([true,false])('refuses a naked legacy call before SQL (dryRun=%s)',async(dryRun)=>{
+      await expect(closeFiscalYear(COMPANY_A,YEAR_LABEL,USER_ID,{dryRun})).rejects.toThrow('Authenticated control transaction required');
+      expect(sqlMock).not.toHaveBeenCalled();
     });
   });
 });

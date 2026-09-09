@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import {YearEndEligibilityError} from './yearEndEligibilityError';
 import { fmtDate } from '@/lib/fmtDate';
 import { buildExactClosingPlan } from '../gl/glBypassExactPlans';
 import { resolveFiscalYearStartMonth } from '../gl/fiscalYearBasis';
@@ -16,13 +17,18 @@ export async function buildYearEndFinancialMaterial(ctx: ControlTx, year: string
   const { company, periods, journals, lines, accounts } = source;
   const currency = company.default_currency;
   if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) throw new Error('Closing ledger currency unavailable');
-  const expected = fiscalYearRange(Number(year), resolveFiscalYearStartMonth(company.financial_year_start, ctx.principal.companyId));
+  const startMonth=resolveFiscalYearStartMonth(company.financial_year_start, ctx.principal.companyId);
+  const expected = fiscalYearRange(Number(year), startMonth);
   const starts = periods.map(p => date(p.start_date)).sort(), ends = periods.map(p => date(p.end_date)).sort();
-  if (starts[0] !== expected.startDate || ends.at(-1) !== expected.endDate) throw new Error('Fiscal year period range mismatch');
+  if (!periods.length) throw new YearEndEligibilityError({error:'year_not_found'});
+  if (starts[0] !== expected.startDate || ends.at(-1) !== expected.endDate) throw new YearEndEligibilityError({error:'period_range_mismatch',expected,actual:{startDate:starts[0]!,endDate:ends.at(-1)!},startMonth});
   const retainedRows = await ctx.sql`SELECT id,account_code,account_name,account_type,account_subtype,is_active
     FROM gl_accounts WHERE company_id=${ctx.principal.companyId}::uuid AND is_system_account=true
-      AND account_subtype='retained_earnings' ORDER BY id LIMIT 2 FOR SHARE` as Row[];
-  if (retainedRows.length !== 1 || retainedRows[0]!.account_type !== 'equity') throw new Error('Retained earnings role missing or ambiguous');
+      AND account_subtype='retained_earnings' ORDER BY id LIMIT 101 FOR SHARE` as Row[];
+  if (!retainedRows.length) throw new YearEndEligibilityError({error:'no_retained_earnings'});
+  if (retainedRows.length>100) throw new Error('Retained earnings role population exceeds its bound');
+  if (retainedRows.length!==1) throw new YearEndEligibilityError({error:'ambiguous_retained_earnings',accountCodes:retainedRows.map(row=>String(row.account_code))});
+  if (retainedRows[0]!.account_type !== 'equity') throw new Error('Retained earnings role must be an equity account');
   const retained = retainedRows[0]!;
   const posted = new Set(journals.filter(j => j.status === 'posted').map(j => String(j.id)));
   const profitAccounts = accounts.filter(a => a.account_type === 'revenue' || a.account_type === 'expense');

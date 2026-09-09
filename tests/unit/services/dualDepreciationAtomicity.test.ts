@@ -1,155 +1,31 @@
-/**
- * postDualDepreciationToLedger atomicity (PR #200 review HIGH).
- *
- * The asset_period_ledger upsert and the GL posting must commit or roll back
- * TOGETHER inside one savepoint: a persisted subledger period row without its
- * backing journal permanently understates accumulated depreciation (the next
- * run computes from persisted opening balances). A GL failure must surface as
- * glFailed=true so the run can report it loudly — never a silent partial.
- */
-
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
-
-const savepointCalls: string[] = [];
-
-vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {
-    transaction: vi.fn(),
-    unsafe: vi.fn((s: string) => s),
-  });
-  return {
-    sql: sqlMock,
-    withTransaction: vi.fn(),
-    withSavepoint: vi.fn(async (name: string, fn: () => unknown) => {
-      savepointCalls.push(name);
-      return fn();
-    }),
-    fmtDate: (d: unknown) => String(d),
-  };
+/** Legacy adapters surface controlled transaction outcomes; rollback itself has actual PG proof. */
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({prepare:vi.fn(),execute:vi.fn()}));
+vi.mock('@/modules/accounting/services/gl/controlledAssetDepreciation',()=>({prepareAssetDepreciation:m.prepare,executeAssetDepreciation:m.execute}));
+vi.mock('@/lib/logger',()=>({log:{warn:vi.fn()}}));
+import {postDualDepreciationToLedger} from '@/modules/accounting/services/gl/assetDepreciationPosting';
+const input={cost:999999,residualPct:0,usefulLifeYears:3,taxLifeYears:3,purchaseDate:'2026-01-01',periodDate:'2026-07-31',openingAccDep:0,taxOpeningAccDep:0,deferredTaxRate:0.27};
+const run=()=>postDualDepreciationToLedger('company','asset',input,'202607','user');
+beforeEach(()=>{vi.resetAllMocks();m.prepare.mockResolvedValue({intentId:'intent',requiresApproval:false});});
+it('reports the shared committed result and never forwards caller financial amounts',async()=>{
+ m.execute.mockResolvedValue({policyDep:'100',taxDep:'90',journalEntryId:'journal'});
+ expect(await run()).toMatchObject({policyDep:100,taxDep:90,entryId:'journal',glFailed:false});
+ expect(m.prepare).toHaveBeenCalledWith('company','user','asset','2026-07-31');
+ expect(m.execute).toHaveBeenCalledWith('company','user','intent',undefined);
 });
-
-vi.mock('@/lib/logger', () => ({
-  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
-}));
-
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
-  getSystemAccountId: vi.fn().mockResolvedValue('acct-1'),
-}));
-
-import { sql } from '@/lib/neon';
-import { postDualDepreciationToLedger } from '@/modules/accounting/services/gl/glCrossModuleHooks';
-
-const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
-
-const COMPANY_ID = 'cccccccc-0000-4000-8000-cccccccccccc';
-const ASSET_ID = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
-const USER_ID = 'ffffffff-0000-4000-8000-ffffffffffff';
-
-const input = {
-  cost: 12000,
-  residualPct: 0,
-  usefulLifeYears: 3,
-  taxLifeYears: 3,
-  purchaseDate: '2026-01-01',
-  periodDate: '2026-07-31',
-  openingAccDep: 0,
-  taxOpeningAccDep: 0,
-  deferredTaxRate: 27,
-};
-
-/** Text-keyed sql mock — robust to query insertions between versions. */
-function mockByText(overrides: Record<string, unknown[] | Error> = {}) {
-  mockSql.mockImplementation((strings: TemplateStringsArray) => {
-    const text = (strings as unknown as string[]).join('?');
-    for (const [pattern, result] of Object.entries(overrides)) {
-      if (new RegExp(pattern, 'i').test(text)) {
-        return result instanceof Error ? Promise.reject(result) : Promise.resolve(result);
-      }
-    }
-    if (/SELECT id, asset_number/i.test(text)) {
-      return Promise.resolve([{ id: ASSET_ID, asset_number: 'ASST-0001', name: 'X' }]);
-    }
-    return Promise.resolve([]); // apl upsert, existing-check (no hit), lines, updates
-  });
-}
-
-describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
-  beforeEach(() => {
-    savepointCalls.length = 0;
-    vi.resetAllMocks(); // reset, not clear: once-queues must not leak across tests
-  });
-
-  it('runs ledger upsert + GL post inside ONE savepoint and reports success', async () => {
-    mockByText({ 'INSERT INTO gl_journal_entries': [{ id: 'je-1' }] });
-
-    const result = await postDualDepreciationToLedger(
-      COMPANY_ID, ASSET_ID, input, '202607', USER_ID,
-    );
-
-    expect(savepointCalls).toContain('asset_dep_period');
-    expect(result.glFailed).toBe(false);
-    expect(result.entryId).toBe('je-1');
-
-    // The apl upsert ran INSIDE the savepoint (after withSavepoint was entered).
-    const upsertText = (mockSql.mock.calls[0]![0] as string[]).join('?');
-    expect(upsertText).toMatch(/INSERT INTO asset_period_ledger/i);
-  });
-
-  it('reports glFailed=true when the GL post throws — nothing silently persists', async () => {
-    mockByText({
-      'INSERT INTO gl_journal_entries': Object.assign(new Error('value too long'), { code: '22001' }),
-    });
-
-
-    const result = await postDualDepreciationToLedger(
-      COMPANY_ID, ASSET_ID, input, '202607', USER_ID,
-    );
-
-    expect(result.glFailed).toBe(true);
-    expect(result.entryId).toBeNull();
-    expect(savepointCalls).toContain('asset_dep_period');
-  });
-
-  it('returns the existing journal as already-posted on a same-month re-run (idempotent)', async () => {
-    mockByText({
-      'SELECT id FROM gl_journal_entries': [{ id: 'je-existing' }],
-      'INSERT INTO gl_journal_entries': new Error('must not re-insert when already posted'),
-    });
-
-    const result = await postDualDepreciationToLedger(
-      COMPANY_ID, ASSET_ID, input, '202607', USER_ID,
-    );
-
-    expect(result.glFailed).toBe(false);
-    expect(result.entryId).toBe('je-existing');
-  });
-
-  it('a REVERSED same-month entry is NOT treated as already-posted — the re-run fails LOUD', async () => {
-    // The idempotency SELECT filters reversed_at IS NULL, so a reversed
-    // original is invisible to it; the INSERT then hits the unique index
-    // (number still taken by the reversed row) → savepoint → glFailed:true.
-    // Silent success here would permanently under-depreciate the asset
-    // (reversal never touches assets.accumulated_depreciation).
-    const idempotencySql = mockSql; // alias for clarity
-    mockByText({
-      'SELECT id FROM gl_journal_entries': [], // reversed row filtered out
-      'INSERT INTO gl_journal_entries': Object.assign(
-        new Error('duplicate key value violates unique constraint "uq_gl_je_company_entry_number"'),
-        { code: '23505' },
-      ),
-    });
-
-    const result = await postDualDepreciationToLedger(
-      COMPANY_ID, ASSET_ID, input, '202607', USER_ID,
-    );
-
-    expect(result.glFailed).toBe(true);
-    expect(result.entryId).toBeNull();
-    const existingCheck = idempotencySql.mock.calls
-      .map((c) => (c[0] as unknown as string[]).join('?'))
-      .find((t) => /SELECT id FROM gl_journal_entries/i.test(t));
-    expect(existingCheck, 'idempotency check must exclude reversed entries').toMatch(
-      /reversed_at IS NULL/i,
-    );
-  });
+it('reports a rolled-back shared writer failure loudly with no successful amounts',async()=>{
+ m.execute.mockRejectedValue(new Error('Subledger constraint failure'));
+ expect(await run()).toEqual({policyDep:0,taxDep:0,entryId:null,glFailed:true,intentId:'intent',requiresApproval:false});
+});
+it('returns the shared verified receipt on an idempotent retry',async()=>{
+ m.execute.mockResolvedValue({policyDep:'100',taxDep:'90',journalEntryId:'existing'});
+ expect(await run()).toMatchObject({entryId:'existing',glFailed:false});
+});
+it('surfaces a reversed receipt refusal rather than declaring already posted',async()=>{
+ m.execute.mockRejectedValue(new Error('Depreciation receipt journal changed'));
+ expect(await run()).toMatchObject({entryId:null,glFailed:true});
+});
+it('does not swallow preparation authority failures',async()=>{
+ m.prepare.mockRejectedValue(new Error('Current authority required'));
+ await expect(run()).rejects.toThrow('authority');expect(m.execute).not.toHaveBeenCalled();
 });

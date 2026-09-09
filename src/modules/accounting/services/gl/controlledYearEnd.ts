@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {YearEndEligibilityError} from '../controls/yearEndEligibilityError';
 import {canonicalJson} from '../controls/canonical';
 import {replayKnownOperationEffect} from '../controls/operationReceiptReplay';
 import {fmtDate} from '@/lib/fmtDate';
@@ -46,7 +47,9 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
   await assertEffectivePermission(ctx,'write:post');const result=await prior(ctx,yearLabel);
   if(result)return options.approvalId?executeControlledOperation<CloseYearResult>(ctx,parent,options.approvalId,async()=>{throw new Error('Receipt replay cannot create a new effect');}):result;
  }
- const material=await loadOperationMaterial(ctx,parent),facts=material.observedSources[0]!.facts as unknown as Facts;
+ let material:Awaited<ReturnType<typeof loadOperationMaterial>>;
+ try{material=await loadOperationMaterial(ctx,parent);}catch(error){if(error instanceof YearEndEligibilityError)return error.result;throw error;}
+ const facts=material.observedSources[0]!.facts as unknown as Facts;
  if(facts.company.lockdown_enabled===true&&(!facts.company.lockdown_date||facts.closing.accountingDate<=String(facts.company.lockdown_date)))throw new Error('Year-close date is within company lockdown');
  const open=facts.periods.filter(p=>p.status==='open');
  if(open.length)return{error:'open_periods',count:open.length,openPeriods:open.map(p=>({id:String(p.id),periodName:String(p.period_name),periodNumber:Number(p.period_number)}))};

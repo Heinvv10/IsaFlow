@@ -183,3 +183,20 @@ it('refuses a repeat preview after a zero-policy tax-only subledger posting',asy
  expect((await pool.query('SELECT id FROM asset_period_ledger WHERE company_id=$1 AND asset_id=$2',[fixture.companyA,zeroAsset])).rows).toHaveLength(1);
  expect((await pool.query('SELECT tax_accumulated_depreciation::text AS amount FROM assets WHERE company_id=$1 AND id=$2',[fixture.companyA,zeroAsset])).rows[0].amount).toBe('100.00');
 });
+
+it('rolls back journal and asset effects when a subledger failure is caught by the legacy adapter',async()=>{
+ const failedAsset=randomUUID();
+ await pool.query(`INSERT INTO assets(id,company_id,category_id,asset_number,name,purchase_date,purchase_price,useful_life_years,tax_useful_life_years)
+  VALUES($1,$2,$3,'SYNTHETIC-ROLLBACK','Synthetic rollback asset','2026-01-01',1200,1,1)`,[failedAsset,fixture.companyA,category]);
+ // Fixture-only fault injection. The interpolated value is a locally generated UUID; the lease serializes schema changes.
+ await pool.query(`ALTER TABLE asset_period_ledger ADD CONSTRAINT forensic_gl_subledger_fault CHECK(asset_id::text <> '${failedAsset}')`);
+ try{
+  const result=await actor('u1',()=>postDualDepreciationToLedger(fixture.companyA,failedAsset,
+   {cost:1200,residualPct:0,usefulLifeYears:1,taxLifeYears:1,purchaseDate:'2026-01-01',periodDate:'2026-02-28',openingAccDep:0,taxOpeningAccDep:0,deferredTaxRate:0.27},'202602',fixture.u1.id));
+  expect(result).toMatchObject({glFailed:true,entryId:null,policyDep:0,taxDep:0});
+  expect((await pool.query("SELECT id FROM gl_journal_entries WHERE company_id=$1 AND entry_number='DEP-SYNTHETIC-ROLLBACK-2026-02'",[fixture.companyA])).rows).toHaveLength(0);
+  expect((await pool.query('SELECT id FROM asset_period_ledger WHERE company_id=$1 AND asset_id=$2',[fixture.companyA,failedAsset])).rows).toHaveLength(0);
+  expect((await pool.query('SELECT accumulated_depreciation::text AS amount FROM assets WHERE company_id=$1 AND id=$2',[fixture.companyA,failedAsset])).rows[0].amount).toBe('0.00');
+  expect((await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,result.intentId])).rows).toHaveLength(0);
+ }finally{await pool.query('ALTER TABLE asset_period_ledger DROP CONSTRAINT forensic_gl_subledger_fault');}
+});
