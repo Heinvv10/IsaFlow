@@ -16,7 +16,7 @@ export async function readBankAttachmentStorageEvidence(input:BankAttachmentStor
  if(saved.fileUrl.length>MAX_BANK_ATTACHMENT_URL_LENGTH)return{status:'unavailable',reason:'attachment_resource_limit'};
  if(!saved.fileUrl.startsWith('data:'))return{status:'unavailable',reason:'unsupported_attachment_source'};
  const match=/^data:([a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+);base64,([A-Za-z0-9+/]*={0,2})$/.exec(saved.fileUrl);
- if(!match||!match[2]||match[2].length%4!==0)return{status:'unavailable',reason:'attachment_encoding_invalid'};
+ if(!match||match[1]!.length>256||!match[2]||match[2].length%4!==0)return{status:'unavailable',reason:'attachment_encoding_invalid'};
  const bytes=Buffer.from(match[2],'base64');
  if(bytes.length>MAX_BYTES)return{status:'unavailable',reason:'attachment_resource_limit'};
  if(!bytes.length||bytes.toString('base64')!==match[2])return{status:'unavailable',reason:'attachment_encoding_invalid'};
