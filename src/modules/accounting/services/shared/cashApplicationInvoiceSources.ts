@@ -1,3 +1,4 @@
+import {verifyCashAccountingLegs} from './cashApplicationJournalProof';
 import {fmtDate} from '@/lib/fmtDate';
 import Decimal from 'decimal.js';
 import type {ControlTx} from '../controls/contracts';
@@ -19,7 +20,8 @@ export async function loadCashApplicationInvoices(ctx:ControlTx,plan:CashApplica
   if(!journal||journal.status!=='posted'||journal.reversed_at||journal.source_record_id!==invoice.id||journal.source!==(plan.kind==='customer'?'auto_invoice':'auto_supplier_invoice'))throw new Error('Live invoice source journal required');
   const material=await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:String(journal.id),operation:'journal.post'});
   if(material.binding.accountingDate!==fmtDate(invoice.invoice_date as string|Date)||material.binding.currency!=='ZAR'||!new D(String(material.binding.amount)).eq(String(invoice.total_amount)))throw new Error('Invoice journal date, denomination or amount changed');
-  items.push({allocation,invoice,journal,observedSources:material.observedSources});
+  const accountingLegs=await verifyCashAccountingLegs(ctx,String(journal.id),plan.kind,'invoice',String(invoice.total_amount));
+  items.push({allocation,invoice,journal,accountingLegs,observedSources:material.observedSources});
  }
  return items;
 }
