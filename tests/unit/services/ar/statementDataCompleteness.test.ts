@@ -46,7 +46,7 @@ const INVOICES = [
   { id: 'i2', invoice_number: 'INV0002', invoice_date: '2026-02-15', total_amount: 5000 },
 ];
 const PAYMENTS = [
-  { id: 'p1', payment_number: 'PMT0001', payment_date: '2026-02-01', amount_allocated: 4000, status: 'confirmed' },
+  { id: 'p1', payment_number: 'PMT0001', payment_date: '2026-02-01', amount_received: 4000, status: 'confirmed' },
 ];
 // applied_amount DIFFERS from total_amount on purpose. Approving a note applies
 // MIN(total, outstanding) and leaves the excess unapplied, so a note whose two
@@ -101,7 +101,7 @@ describe('fetchStatementData — what it drops, it names', () => {
     routeMock({
       payments: [
         ...PAYMENTS,
-        { id: 'p2', payment_number: 'PMT0002', payment_date: '2026-03-01', amount_allocated: 50000, status: 'draft' },
+        { id: 'p2', payment_number: 'PMT0002', payment_date: '2026-03-01', amount_received: 50000, status: 'draft' },
       ],
     });
     const payload = (await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31'))!;
@@ -120,7 +120,7 @@ describe('fetchStatementData — what it drops, it names', () => {
     routeMock({
       payments: [
         ...PAYMENTS,
-        { id: 'p2', payment_number: 'PMT0002', payment_date: '2026-03-01', amount_allocated: 50000, status: 'cancelled' },
+        { id: 'p2', payment_number: 'PMT0002', payment_date: '2026-03-01', amount_received: 50000, status: 'cancelled' },
       ],
     });
     const payload = (await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31'))!;

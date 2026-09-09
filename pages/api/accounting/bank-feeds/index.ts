@@ -18,7 +18,7 @@ import {
 } from '@/modules/accounting/services/bank/openBankingService';
 
 const CreateConnectionSchema = z.object({
-  provider: z.enum(['manual_csv', 'basiq', 'tink', 'plaid', 'extension']),
+  provider: z.enum(['manual_csv', 'extension']),
   accountId: z.string().max(200).optional(),
   externalAccountId: z.string().max(200).optional(),
   config: z.record(z.string(), z.unknown()).optional(),
