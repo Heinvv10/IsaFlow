@@ -3,8 +3,8 @@ import {prepareBankAllocationReversal} from '@/modules/accounting/services/bank/
 import {als} from '@/lib/als';
 import {voidPaymentDocument} from '@/modules/accounting/services/core/paymentVoidService';
 import {unwindOnePayment,unwindBankAllocationApplication} from '@/modules/accounting/services/bank/bankAllocationUnwind';
-import {confirmCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
-import {processSupplierPayment} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {confirmCustomerPayment,cancelCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
+import {processSupplierPayment,voidSupplierPayment} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import {prepareCashApplication,executeCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
 import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
 import type {OperationRef} from '@/modules/accounting/services/controls/contracts';
@@ -161,6 +161,7 @@ for(const kind of ['customer','supplier'] as const){
   const after=await state(kind,doc.payment,doc.invoice);
   expect(after.payment[0].status).toBe('cancelled');expect(after.invoice).toEqual(before.invoice);
   expect(after.allocations).toEqual(before.allocations);expect(after.allocations[0].reversal_intent_id).toBe(inverse.intentId);
+  expect(await actor(()=>voidPaymentDocument(fixture.companyA,kind,doc.payment,fixture.u1.id,opts))).toEqual({refusal:'already_cancelled'});
  });
 }
 it('exported journal-wide raw unwind refuses an unapproved mutation request',async()=>{
@@ -168,15 +169,70 @@ it('exported journal-wide raw unwind refuses an unapproved mutation request',asy
 });
 
 it('bank-backed document delegates its exact independently approved immutable inverse',async()=>{
- const tx=randomUUID();
+ const tx=randomUUID(),targetInvoice=(await document('customer')).invoice;
  await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',115,'Synthetic document-addressed bank inverse','imported')",[tx,fixture.companyA,bank]);
- const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[{invoiceId:targetInvoice,amount:'115'}]}));
  const approved=await approval(prepared.operation);
  const posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approved}));
+ const duplicate=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,matched_journal_line_id) SELECT $1,company_id,bank_account_id,transaction_date,amount,'Synthetic ambiguous bank relationship','allocated',matched_journal_line_id FROM bank_transactions WHERE company_id=$2 AND id=$3",[duplicate,fixture.companyA,tx]);
+ expect(await actor(()=>voidPaymentDocument(fixture.companyA,'customer',posted.paymentId!,fixture.u1.id))).toEqual({refusal:'ambiguous_bank_lines',count:2});
+ await pool.query('DELETE FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,duplicate]);
  const inverse=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:prepared.intentId,reversalDate:'2026-09-12',reason:'Synthetic document inverse'}));
  const inverseApproval=await approval(inverse.operation);
  const result=await actor(()=>voidPaymentDocument(fixture.companyA,'customer',posted.paymentId!,fixture.u1.id,{intentId:inverse.intentId,approvalId:inverseApproval,reversalDate:'2026-09-12'}));
- expect(result).toMatchObject({paymentId:posted.paymentId,bankTransactionId:tx,journalEntryId:posted.journalEntryId,invoicesReopened:0,amountUnapplied:0});
+ expect(result).toMatchObject({paymentId:posted.paymentId,bankTransactionId:tx,journalEntryId:posted.journalEntryId,invoicesReopened:1,amountUnapplied:115});
  expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('imported');
  expect((await pool.query('SELECT status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].status).toBe('cancelled');
+});
+
+it('foreign payment is indistinguishable from missing and does not change owned balances',async()=>{
+ const foreignCustomer=randomUUID(),foreignPayment=randomUUID();
+ await pool.query("INSERT INTO customers(id,company_id,name) VALUES($1,$2,'Synthetic foreign customer')",[foreignCustomer,fixture.companyB]);
+ await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,currency_code,created_by) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'ZAR',$4)",[foreignPayment,fixture.companyB,foreignCustomer,fixture.u3.id]);
+ expect(await actor(()=>voidPaymentDocument(fixture.companyA,'customer',foreignPayment,fixture.u1.id))).toEqual({refusal:'not_found'});
+ expect(await actor(()=>voidPaymentDocument(fixture.companyA,'customer',randomUUID(),fixture.u1.id))).toEqual({refusal:'not_found'});
+ expect((await pool.query('SELECT status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyB,foreignPayment])).rows[0].status).toBe('draft');
+});
+for(const kind of ['customer','supplier'] as const)it(`${kind}: unapplied draft-stage document refuses before changing invoice or history`,async()=>{
+ const doc=await document(kind,true),status=kind==='customer'?'draft':'approved';
+ if(kind==='customer')await pool.query('UPDATE customer_payments SET status=$3 WHERE company_id=$1 AND id=$2',[fixture.companyA,doc.payment,status]);
+ else await pool.query('UPDATE supplier_payments SET status=$3 WHERE company_id=$1 AND id=$2',[fixture.companyA,doc.payment,status]);
+ const before=await state(kind,doc.payment,doc.invoice);
+ expect(await actor(()=>voidPaymentDocument(fixture.companyA,kind,doc.payment,fixture.u1.id))).toEqual({refusal:'not_applied',status});
+ expect(await state(kind,doc.payment,doc.invoice)).toEqual(before);
+});
+
+it('refuses an approved single-payment void when its journal also backs another live payment',async()=>{
+ const doc=await document('customer'),sibling=randomUUID();
+ const before=await state('customer',doc.payment,doc.invoice),journal=before.payment[0].gl_journal_entry_id;
+ await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,currency_code,created_by,status,gl_journal_entry_id,bank_account_id) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'ZAR',$4,'confirmed',$5,$6)",[sibling,fixture.companyA,customer,fixture.u1.id,journal,bank]);
+ await expect((async()=>{const approved=await approval({entityType:'customer_payment',entityId:doc.payment,operation:'customer_payment.cancel',reversalDate:'2026-09-12'});
+  return actor(()=>voidPaymentDocument(fixture.companyA,'customer',doc.payment,fixture.u1.id,{approvalId:approved,reversalDate:'2026-09-12'}));})()).rejects.toThrow(/shared|ambiguous|multiple/i);
+ expect(await state('customer',doc.payment,doc.invoice)).toEqual(before);
+ expect((await pool.query('SELECT reversed_at FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,journal])).rows[0].reversed_at).toBeNull();
+});
+
+for(const kind of ['customer','supplier'] as const)for(const timing of ['before','after'] as const)it(`${kind}: direct approved inverse rejects shared journal added ${timing} approval`,async()=>{
+ const doc=await document(kind),before=await state(kind,doc.payment,doc.invoice),journal=before.payment[0].gl_journal_entry_id,sibling=randomUUID();
+ const ref:OperationRef={entityType:`${kind}_payment`,entityId:doc.payment,operation:kind==='customer'?'customer_payment.cancel':'supplier_payment.void',reversalDate:'2026-09-12'};
+ let approved:string|undefined;if(timing==='after')approved=await approval(ref);
+ if(kind==='customer')await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,currency_code,created_by,status,gl_journal_entry_id,bank_account_id) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'ZAR',$4,'confirmed',$5,$6)",[sibling,fixture.companyA,customer,fixture.u1.id,journal,bank]);
+ else await pool.query("INSERT INTO supplier_payments(id,company_id,supplier_id,payment_number,payment_date,total_amount,status,created_by,gl_journal_entry_id) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'processed',$4,$5)",[sibling,fixture.companyA,before.payment[0].supplier_id,fixture.u1.id,journal]);
+ await expect((async()=>{approved??=await approval(ref);return actor(()=>kind==='customer'?cancelCustomerPayment(fixture.companyA,doc.payment,fixture.u1.id,undefined,{approvalId:approved,reversalDate:'2026-09-12'}):voidSupplierPayment(fixture.companyA,doc.payment,fixture.u1.id,{approvalId:approved,reversalDate:'2026-09-12'}));})()).rejects.toThrow(/shared|ambiguous|multiple/i);
+ expect(await state(kind,doc.payment,doc.invoice)).toEqual(before);
+ expect((await pool.query('SELECT reversed_at FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,journal])).rows[0].reversed_at).toBeNull();
+});
+for(const kind of ['customer','supplier'] as const)it(`${kind}: bank journal sibling cannot impersonate original allocation payment`,async()=>{
+ const tx=randomUUID(),sibling=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',115,'Synthetic bank child identity','imported')",[tx,fixture.companyA,bank]);
+ const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ const approved=await approval(prepared.operation),posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approved}));
+ if(kind==='customer')await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,currency_code,created_by,status,gl_journal_entry_id,bank_account_id) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'ZAR',$4,'confirmed',$5,$6)",[sibling,fixture.companyA,customer,fixture.u1.id,posted.journalEntryId,bank]);
+ else{const party=randomUUID();await pool.query("INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,'Synthetic sibling supplier')",[party,fixture.companyA]);await pool.query("INSERT INTO supplier_payments(id,company_id,supplier_id,payment_number,payment_date,total_amount,status,created_by,gl_journal_entry_id) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'processed',$4,$5)",[sibling,fixture.companyA,party,fixture.u1.id,posted.journalEntryId]);}
+ const inverse=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:prepared.intentId,reversalDate:'2026-09-12',reason:'Synthetic child identity'}));
+ const inverseApproval=await approval(inverse.operation);
+ await expect(actor(()=>voidPaymentDocument(fixture.companyA,kind,sibling,fixture.u1.id,{intentId:inverse.intentId,approvalId:inverseApproval,reversalDate:'2026-09-12'}))).rejects.toThrow(/identity|original.*payment|owned.*payment/i);
+ expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('allocated');
+ expect((await pool.query('SELECT status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].status).toBe('confirmed');
 });
