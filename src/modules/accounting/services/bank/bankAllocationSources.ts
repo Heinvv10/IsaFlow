@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
 import {assertControlTx} from '../controls/context';
 import type {ControlTx} from '../controls/contracts';
-import {buildBankAllocationLines,type BankAllocationPlan} from './bankAllocationPlan';
+import {buildBankAllocationLines,isBankAllocationRefund,type BankAllocationPlan} from './bankAllocationPlan';
 import {materializeGlOperation} from '../controls/glOperationMaterializer';
 import Decimal from 'decimal.js';
 const D=Decimal.clone({precision:80});
@@ -12,6 +12,8 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  assertControlTx(ctx);const company=ctx.principal.companyId;
  const [bank]=await ctx.sql`SELECT * FROM bank_transactions WHERE company_id=${company}::uuid AND id=${plan.bankTransactionId}::uuid FOR UPDATE` as Row[];
  if(!bank)throw new Error('Owned bank transaction not found');
+ const refund=isBankAllocationRefund(plan.kind,String(bank.amount));
+ if(refund&&'applications' in plan&&plan.applications.length)throw new Error('Refund applications must be empty');
  const metadata=await ctx.sql`SELECT id,currency,gl_account_id FROM bank_accounts WHERE company_id=${company}::uuid AND gl_account_id=${bank.bank_account_id}::uuid ORDER BY id FOR SHARE` as Row[];
  const [ledger]=await ctx.sql`SELECT id,default_currency,lockdown_enabled,lockdown_date::text FROM companies WHERE id=${company}::uuid FOR SHARE` as Row[];
  if(metadata.length!==1||metadata[0]!.currency!=='ZAR'||ledger?.default_currency!=='ZAR')throw new Error('Bank allocation requires unambiguous owned ZAR denomination');
@@ -47,7 +49,7 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  const periods=await ctx.sql`SELECT * FROM fiscal_periods WHERE company_id=${company}::uuid AND start_date<=${bank.transaction_date}::date AND end_date>=${bank.transaction_date}::date ORDER BY id FOR UPDATE` as Row[];
  if(periods.length!==1)throw new Error('Unambiguous bank accounting period required');
  const vatLocks=await ctx.sql`SELECT * FROM vat_period_locks WHERE company_id=${company}::uuid AND period_start<=${bank.transaction_date}::date AND period_end>=${bank.transaction_date}::date ORDER BY id FOR SHARE` as Row[];
- const beneficiary=plan.kind==='supplier'?await getVerifiedBeneficiary(ctx,{entityType:'supplier',entityId:plan.partyId}):null;
+ const beneficiary=plan.kind==='supplier'&&!refund?await getVerifiedBeneficiary(ctx,{entityType:'supplier',entityId:plan.partyId}):null;
  const receipts=await ctx.sql`SELECT p.* FROM customer_payments p JOIN gl_journal_entries je ON je.company_id=p.company_id AND je.id=p.gl_journal_entry_id
   WHERE p.company_id=${company}::uuid AND je.source_record_id=${plan.bankTransactionId}::uuid ORDER BY p.id FOR SHARE OF p` as Row[];
  const disbursements=await ctx.sql`SELECT p.* FROM supplier_payments p JOIN gl_journal_entries je ON je.company_id=p.company_id AND je.id=p.gl_journal_entry_id

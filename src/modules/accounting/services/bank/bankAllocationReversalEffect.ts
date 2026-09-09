@@ -1,3 +1,4 @@
+import {isBankAllocationRefund} from './bankAllocationPlan';
 import {recomputeInvoiceStatus} from '../ar/invoiceStatusRecompute';
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
 import {bankAllocationActor} from './bankAllocationActor';
@@ -19,7 +20,7 @@ export async function executeBankAllocationReversalEffect(ctx:ControlTx,intentId
  const parentControl={parent,permit};await registerGeneratedJournal(ctx,parentControl,String(original.journal.id),'journal.reverse');
  const contra=await reverseJournalEntry(ctx.principal.companyId,String(original.journal.id),ctx.principal.personId,{...bankAllocationActor(ctx.principal,options),parentControl,reversalDate:permit.accountingDate});
  const company=ctx.principal.companyId;
- if('applications' in original.plan){
+ if('applications' in original.plan&&!isBankAllocationRefund(original.plan.kind,String(original.sources.bank.amount))){
   for(const item of original.sources.invoices){
    const before=item.invoice as Row,allocation=item.allocation as {invoiceId:string;amount:string};
    const updates=original.plan.kind==='customer'?await ctx.sql`UPDATE customer_invoices SET amount_paid=amount_paid-${allocation.amount}::numeric

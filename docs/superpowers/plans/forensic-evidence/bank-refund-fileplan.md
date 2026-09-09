@@ -18,3 +18,11 @@ No new public refund flag: immutable signed bank source and existing party kind 
 
 ## Acceptance evidence
 Pending genuine RED, full refund and existing settlement PG, sourceTS/lint, named independent review. No HTTP/UI/production verification claimed.
+
+## Verification checkpoint
+- Tests/file plan committed BEFORE source changes as da71c7984. Actual PG52055 terminal1/poolclosed: eight economic/lifecycle scenarios failed on existing `Allocation party direction is invalid`. Two targeted-refund checks failed message specificity (generic missing invoice instead); these are NOT bypass reproductions.
+- Implemented shared signed-source classifier, refund application refusal, gross two-line posting, no refund cash child, no inbound supplier beneficiary requirement, adapter strategy skip, and inverse no-child provenance. Existing recomputeInvoiceStatus calls and ordinary canonical facts unchanged.
+- Combined74686 terminal1: all23 existing settlement/allocation PG passed. Nine new refund scenarios stopped at a fixture mismatch: PAT approval decisions correctly require an authenticated human. Corrected fixture to real cookie decisions, asserted alternate-PAT rejection separately and same-maker cookie refusal explicitly. Also corrected override module to actual `banking` via policy inspection before authority checks. No source changes followed this combined run.
+- Final dedicated58264 terminal0: all12 actual refund PG passed,2.70s, poolclosed. Includes both directions, enabled oldest strategy, exact gross/noVAT, no generated cash documents, concurrent one-effect execution/replay, targeted refusal, independent human approval, inverse/retry/outer rollback, closed period, backdated/amount-changed source, foreign tenant/party and current write permission denial.
+- Root authorized directly related obsolete direction-refusal unit replacement. Exact-line/refund-target unit suite b764e4 terminal0:7 passed. HTTP/UI transport and production execution remain unverified in this slice.
+- Source tsc --noEmit --incremental false97941 terminal0; scoped six-source ESLint95623 terminal0, no warnings; diff whitespace check passed. DB/TS leases released. Independent named review pending root assignment; no integration/completion claim yet.
