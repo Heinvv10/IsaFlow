@@ -1,12 +1,8 @@
-/**
- * MCP tool-call audit + idempotency persistence (mcp_tool_calls, mig 507).
- *
- * Runs inside the request's app_user GUC context, so tenant RLS holds on
- * every read/write here. Audit rows are append-only.
- */
+/** Tenant invocation history and separately retained financial replay receipts. */
 import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { storeIdempotentResult } from './idempotencyStore';
 import type { McpToolContext, McpToolResult } from './types';
 
 type Row = Record<string, unknown>;
@@ -56,11 +52,10 @@ export async function recordToolCall(row: {
   durationMs: number;
 }): Promise<void> {
   try {
-    // ON CONFLICT DO NOTHING on the partial idempotency index: a concurrent
-    // duplicate write (same company/tool/key) must not throw here — an
-    // unhandled unique-violation aborts the request tx and cascades into a
-    // failed COMMIT. Silently skipping the duplicate audit row is correct; the
-    // conflict is already surfaced to the caller by the replay/args-hash path.
+    if (row.status === 'ok' && row.idempotencyKey !== null) {
+      await storeIdempotentResult(row.ctx.companyId, row.tool, row.idempotencyKey, row.argsHash, row.result);
+    }
+    // Invocation history retention is independent of the immutable effect receipt.
     await sql`
       INSERT INTO mcp_tool_calls (
         company_id, user_id, token_jti, oauth_app_id,
@@ -73,13 +68,11 @@ export async function recordToolCall(row: {
         ${row.ctx.oauthAppId},
         ${row.tool},
         ${row.argsHash},
-        ${row.idempotencyKey},
+        ${null},
         ${row.status},
-        ${JSON.stringify(row.result ?? null)}::jsonb,
+        ${null}::jsonb,
         ${row.durationMs}
       )
-      ON CONFLICT (company_id, tool, idempotency_key) WHERE idempotency_key IS NOT NULL
-      DO NOTHING
     `;
   } catch (err) {
     log.error(
@@ -87,20 +80,7 @@ export async function recordToolCall(row: {
       { tool: row.tool, err: err instanceof Error ? err.message : String(err) },
       'mcp',
     );
-    // A READ's audit row is a record, and losing it must not mask the result.
-    //
-    // A WRITE's audit row under a key is also the IDEMPOTENCY RECORD. The
-    // registry writes, then audits: if the write commits and this INSERT fails
-    // for anything other than the handled ON CONFLICT, the retry finds no
-    // status='ok' row, the replay lookup answers 'none', and the handler runs
-    // AGAIN — a second document, a second billable time entry, with no natural
-    // key behind it to catch the duplicate. Swallowing that trades a lost audit
-    // row for a silent double write.
-    //
-    // So fail closed: rethrow, and the registry's savepoint unwinds the write.
-    // The agent retries the same key cleanly against a clean slate. Losing one
-    // write to a transient audit failure is recoverable; double-billing a
-    // client is not.
+    // A successful keyed write must roll back when its durable receipt fails.
     if (row.status === 'ok' && row.idempotencyKey !== null) throw err;
   }
 }
@@ -123,11 +103,10 @@ export async function findIdempotentReplay(
   argsHash: string,
 ): Promise<IdempotencyLookup> {
   const rows = (await sql`
-    SELECT result, args_hash FROM mcp_tool_calls
+    SELECT result, args_hash FROM mcp_idempotency_results
     WHERE company_id = ${companyId}::uuid
       AND tool = ${tool}
       AND idempotency_key = ${key}
-      AND status = 'ok'
     LIMIT 1
   `) as Row[];
   if (rows.length === 0) return { status: 'none' };

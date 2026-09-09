@@ -85,10 +85,10 @@ describe('recordToolCall', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('still swallows a handled 23505 — ON CONFLICT covers the concurrent duplicate', async () => {
+  it('accepts an already persisted matching receipt without overwriting it', async () => {
     // The unique-violation path is the one the ON CONFLICT clause exists for;
     // it must not be turned into a rollback by the fail-closed rule above.
-    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{args_hash:'h1'}]);
     await expect(
       recordToolCall({
         ctx: ctx(), tool: 't', argsHash: 'h1', idempotencyKey: 'k1',
@@ -105,7 +105,7 @@ describe('findIdempotentReplay', () => {
     await expect(findIdempotentReplay(COMPANY_ID, 't', 'k1', 'h1')).resolves.toEqual({
       status: 'match', result: stored,
     });
-    expect(sqlCallText(0)).toContain("status = 'ok'");
+    expect(sqlCallText(0)).toContain('FROM mcp_idempotency_results');
     expect(sqlCallValues(0)).toEqual(expect.arrayContaining([COMPANY_ID, 't', 'k1']));
   });
 
@@ -125,6 +125,7 @@ describe('findIdempotentReplay', () => {
 
 describe('recordToolCall — concurrency safety', () => {
   it('uses ON CONFLICT DO NOTHING on the idempotency index (no tx-poisoning throw)', async () => {
+    sqlMock.mockResolvedValueOnce([{args_hash:'h1'}]);
     await recordToolCall({
       ctx: ctx(), tool: 't', argsHash: 'h1', idempotencyKey: 'k1',
       status: 'ok', result: null, durationMs: 5,
