@@ -30,3 +30,15 @@ Resource leases remain centralized. Initial job contract/630 schema REDs precede
 `auditSnapshotSeal.ts` seals complete explicit materialized populations: unique source/record identities, source versions, declared counts/exclusions, complete nonpaginated check results, retained artifact SHA256/byte lengths and explicit coverage/missing sources. It canonicalizes record ordering and authenticates the canonical hash with domain-separated HMAC-SHA256. `CONTROL_SNAPSHOT_SIGNING_KEY` is mandatory (at least32characters) and must stay outside database storage; `CONTROL_SNAPSHOT_KEY_ID` defaults to current. There is no insecure ordinary-hash fallback. Loss/rotation of this key currently makes old seals unverifiable; retained key-ring management remains an operational requirement before production rollout. Compromise of both server key and database is outside this trust boundary.
 
 Verification requires expected tenant and snapshot IDs, validates complete canonical structure, and returns privately branded deeply frozen material. Artifact checks refuse copied/unverified metadata and require the exact retained bytes. Rendered PDF bytes are not accepted in canonical snapshot data; the eventual export manifest must authenticate its own rendered artifact hash separately. This module is cryptographic retention support, not completed source capture, snapshot storage, export or transport. Current hard bounds100000records/100MiBcanonicaldata complement forthcoming paginated database capture bounds.
+# Cold worker claim implementation
+
+Root owns auditJobLease.ts, context.ts, auditJobDelegation.ts and auditJobContext.int.test.ts.
+The missing boundary is claiming a durable request after restart without a live HTTP principal.
+Add claimAuditJobForWorker(store, jobId) for a server-owned transaction with tenant/person GUCs.
+Validate protected saved request identity before touching the queue; use the existing private
+lease issuer and generation fencing, then validate original current authority through the real
+job context before returning. Refusal rolls back the claim savepoint even if its caller catches it.
+No synthetic cookie, caller-supplied grants or injected worker callback are accepted.
+Tests: cold claim and later job context, foreign tenant refusal with untouched queue,
+revoked authority with no committed attempt, concurrent claim, expired takeover and retries.
+This does not yet supply polling, consistent capture, retained storage or publication.

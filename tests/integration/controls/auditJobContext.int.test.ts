@@ -5,7 +5,7 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,withControlJobRequest,requireControlTx,makeControlPrincipal} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditSnapshot} from '@/modules/accounting/services/controls/auditJobService';
-import {claimAuditJob,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
+import {claimAuditJob,claimAuditJobForWorker,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {openProtectedChange,protectChangeValues} from '@/modules/accounting/services/controls/changeProtection';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -99,4 +99,45 @@ it('does not admit a capability whose claim was rolled back',async()=>{
  let lease:AuditJobLease|null=null;
  await expect(actor('cookie',async()=>{lease=await claimAuditJob(requireControlTx(),job.id);throw new Error('Synthetic rollback');})).rejects.toThrow('Synthetic rollback');
  expect(lease).not.toBeNull();await expect(actor(lease!,async()=>undefined)).rejects.toThrow(/lease/);
+});
+async function coldClaim(jobId:string,person:'u1'|'u3'='u1',catchPermissionFailure=false){
+ const user=fixture[person],client=await pool.connect();
+ try{
+  await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
+  const claims={sub:user.id,role:'authenticated',company_id:user.companyId};
+  await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
+  let lease:AuditJobLease|null=null;
+  try{lease=await claimAuditJobForWorker({client,userId:user.id,companyId:user.companyId,claims},jobId);}
+  catch(error){if(!catchPermissionFailure)throw error;expect(error).toHaveProperty('message','Current permissions do not allow this operation.');}
+  await client.query('COMMIT');return lease;
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
+it('claims a persisted queued delegation without an authenticated request or synthetic cookie',async()=>{
+ const job=await actor('cookie',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
+ const lease=await coldClaim(job.id);expect(lease).not.toBeNull();
+ await actor(lease!,async()=>{expect(requireControlTx().principal.provenance).toBe('job');});
+ expect(await coldClaim(job.id)).toBeNull();
+});
+it('refuses foreign cold claims and leaves the actual queued job untouched',async()=>{
+ const job=await actor('cookie',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
+ await expect(coldClaim(job.id,'u3')).rejects.toThrow(/Audit job unavailable/);
+ const row=(await pool.query('SELECT state,attempts FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows[0];
+ expect(row).toMatchObject({state:'queued',attempts:0});
+});
+it('rechecks original current authority before committing a cold claim',async()=>{
+ const job=await actor('cookie',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
+ await pool.query('UPDATE users u SET is_active=false FROM company_users cu WHERE cu.company_id=$1 AND cu.user_id=u.id AND u.id=$2',[fixture.companyA,fixture.u1.id]);
+ try{await expect(coldClaim(job.id)).rejects.toThrow(/permissions/);expect(await coldClaim(job.id,'u1',true)).toBeNull();}
+ finally{await pool.query('UPDATE users u SET is_active=true FROM company_users cu WHERE cu.company_id=$1 AND cu.user_id=u.id AND u.id=$2',[fixture.companyA,fixture.u1.id]);}
+ const row=(await pool.query('SELECT state,attempts FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows[0];
+ expect(row).toMatchObject({state:'queued',attempts:0});
+});
+it('serializes cold claims and fences an expired worker after takeover',async()=>{
+ const job=await actor('cookie',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
+ const claims=await Promise.all([coldClaim(job.id),coldClaim(job.id)]),leases=claims.filter(value=>value!==null);
+ expect(leases).toHaveLength(1);
+ await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1 AND job_id=$2",[fixture.companyA,job.id]);
+ const next=await coldClaim(job.id);expect(next!.generation).toBe(leases[0]!.generation+1);
+ await expect(actor(leases[0]!,async()=>undefined)).rejects.toThrow(/lease/);
+ await actor(next!,async()=>{expect(requireControlTx().principal.provenance).toBe('job');});
 });
