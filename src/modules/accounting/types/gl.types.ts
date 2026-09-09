@@ -83,6 +83,7 @@ export const GL_ENTRY_SOURCES = [
   'auto_asset_disposal',
   'auto_asset_expense',
   'auto_gl_import',
+  'year_end',
 ] as const;
 
 export type GLEntrySource = (typeof GL_ENTRY_SOURCES)[number];
