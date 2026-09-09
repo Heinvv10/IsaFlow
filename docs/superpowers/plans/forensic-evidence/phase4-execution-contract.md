@@ -24,3 +24,9 @@ Root owner; base8c561e15 plus64253f89a18. Existing phase2-4-subplans remains the
 7. Existing local MCP HTTP and REST/UI supplier/payroll/close workflows consume these real services. No final completion until full finalCI, named independent integrated review and draftPRs.
 
 Resource leases remain centralized. Initial job contract/630 schema REDs precede code; declaration-only schema never counts as runnable jobs/snapshots/exceptions.
+
+## Snapshot sealing implementation contract
+
+`auditSnapshotSeal.ts` seals complete explicit materialized populations: unique source/record identities, source versions, declared counts/exclusions, complete nonpaginated check results, retained artifact SHA256/byte lengths and explicit coverage/missing sources. It canonicalizes record ordering and authenticates the canonical hash with domain-separated HMAC-SHA256. `CONTROL_SNAPSHOT_SIGNING_KEY` is mandatory (at least32characters) and must stay outside database storage; `CONTROL_SNAPSHOT_KEY_ID` defaults to current. There is no insecure ordinary-hash fallback. Loss/rotation of this key currently makes old seals unverifiable; retained key-ring management remains an operational requirement before production rollout. Compromise of both server key and database is outside this trust boundary.
+
+Verification requires expected tenant and snapshot IDs, validates complete canonical structure, and returns privately branded deeply frozen material. Artifact checks refuse copied/unverified metadata and require the exact retained bytes. Rendered PDF bytes are not accepted in canonical snapshot data; the eventual export manifest must authenticate its own rendered artifact hash separately. This module is cryptographic retention support, not completed source capture, snapshot storage, export or transport. Current hard bounds100000records/100MiBcanonicaldata complement forthcoming paginated database capture bounds.
