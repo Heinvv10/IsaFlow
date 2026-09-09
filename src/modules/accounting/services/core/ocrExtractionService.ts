@@ -143,33 +143,54 @@ export function extractReferenceNumber(text: string): string | null {
   return null;
 }
 
+/**
+ * The comma is the DECIMAL separator in SA ("R1 150,00"); stripping it with the
+ * thousands space made that 115000 and posted it. Same rule as
+ * `bankCsvParserUtils.parseAmount`: comma + two digits and no point is the
+ * decimal point ("1,234.56" stays 1234.56).
+ */
 function parseAmount(str: string): number {
-  const cleaned = str.replace(/[\s,]/g, '');
+  const decimalComma = !str.includes('.') && /,\d{2}$/.test(str.trim());
+  const cleaned = decimalComma
+    ? str.replace(/[\s\u00A0]/g, '').replace(',', '.')
+    : str.replace(/[\s\u00A0,]/g, '');
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : Math.round(num * 100) / 100;
 }
 
+/** A 9-or-10-digit run with no decimal part: a registration number, not an amount. */
+const REGISTRATION_NUMBER = /^\d{9,10}$/;
+
 export function extractAmounts(text: string): ExtractedAmounts {
   const result: ExtractedAmounts = { subtotal: null, vatAmount: null, totalAmount: null };
 
+  // `(?:^|[^A-Za-z])` is the left boundary the labels never had: "Subtotal"
+  // satisfied them, and `text.match` takes the FIRST match — so a Subtotal
+  // above Total Due became the total, VAT-exclusive.
   const totalPatterns = [
-    /(?:Grand\s*)?Total\s*(?:Due|Amount|Payable)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /(?:Amount|Balance)\s*(?:Due|Owing|Payable)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /Total\s*(?:Incl(?:uding)?\.?\s*(?:VAT|Tax))?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+    /(?:^|[^A-Za-z])(?:Grand\s*)?Total\s*(?:Due|Amount|Payable)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+    /(?:^|[^A-Za-z])(?:Amount|Balance)\s*(?:Due|Owing|Payable)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+    /(?:^|[^A-Za-z])Total\s*(?:Incl(?:uding)?\.?\s*(?:VAT|Tax))?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
   ];
   for (const pattern of totalPatterns) {
     const match = text.match(pattern);
     if (match && match[1]) { result.totalAmount = parseAmount(match[1]); break; }
   }
 
+  // Every separator after VAT was optional, so a letterhead "VAT 4123456789"
+  // read as an amount; it now needs a rate, separator or currency token.
   const vatPatterns = [
-    /VAT\s*(?:@\s*\d+%?)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+    /VAT\s*(?:@|\()\s*\d+(?:[.,]\d+)?\s*%\s*\)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+    /VAT\s*[:-]\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+    /VAT\s+(?:ZAR|R)\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
     /Tax\s*(?:Amount)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /VAT\s*\(\s*15\s*%\s*\)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
   ];
   for (const pattern of vatPatterns) {
     const match = text.match(pattern);
-    if (match && match[1]) { result.vatAmount = parseAmount(match[1]); break; }
+    if (match && match[1] && !REGISTRATION_NUMBER.test(match[1].replace(/[\s\u00A0]/g, ''))) {
+      result.vatAmount = parseAmount(match[1]);
+      break;
+    }
   }
 
   const subtotalPatterns = [

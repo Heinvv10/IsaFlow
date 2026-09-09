@@ -1,0 +1,38 @@
+K-072 / K-075 / K-076 — GREEN evidence (branch fix/audit-k072-k075-k076-capture-vat-ocr)
+
+$ bunx vitest run tests/unit/services/k072-receipt-entertainment-vat.test.ts \
+      tests/unit/services/k075-ocr-comma-decimal.test.ts \
+      tests/unit/services/k076-ocr-label-boundaries.test.ts
+ Test Files  3 passed (3)
+      Tests  21 passed (21)
+   (K-072 8, K-075 7, K-076 6)
+
+$ source scratchpad/fixture.env; bun run test:integration -- tests/integration/k072-receipt-entertainment-vat.int.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Real Postgres. Meals receipt posted 2 legs (no VAT-input line), expense debit
+   1150 = bank credit 1150. Office receipt posted 3 legs, VAT input 150 kept.
+   Derived-VAT meals receipt posted 460 gross. Cross-tenant document → 404, no
+   journal written.
+
+$ bun scripts/ci/check-vat-guard-coverage.ts
+[vat-guard] OK — 1908 files scanned, 14 attended/no-claim paths allowlisted.
+   (14 = unchanged from origin/master. The gate file is NOT modified by this
+   branch and no allowlist entry was added.)
+
+$ bunx tsc --noEmit                                        → clean
+$ bunx eslint <the two changed src files>                   → clean
+
+MUTATION PROOF (production change reverted, test re-run, then restored)
+  1. receiptToJournalService: applyVatDenial(false, ...) i.e. denial disabled
+       → 4 failed | 4 passed
+  2. ocrExtractionService parseAmount → master's str.replace(/[\s,]/g,'')
+       → 4 failed | 3 passed
+  3a. total patterns → master's (no `(?:^|[^A-Za-z])` left boundary)
+       → 2 failed | 4 passed
+  3b. VAT patterns + REGISTRATION_NUMBER reject → master's single loose pattern
+       → 2 failed | 4 passed
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u JWT_SECRET bunx vitest run)
+ Test Files  795 passed | 36 skipped (831)
+      Tests  9459 passed | 234 skipped (9693)
