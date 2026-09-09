@@ -602,7 +602,7 @@
     "K-015/validation.md"
    ],
    "fixCommit": "5672a828",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/373 (draft until the take-on posting rework lands)",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
@@ -1085,7 +1085,7 @@
     "K-028/validation.md"
    ],
    "fixCommit": "7f92a7cb",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/371",
    "deployedSha": null,
    "historicalDataImpact": "Read-side only and the endpoint has no consumer in the repo (reviewer-verified), so no issued AFS note was produced from it; the filed note comes from a separate generator (R-023).",
    "canonicalItem": null,
@@ -1473,7 +1473,7 @@
     "K-039/validation.md"
    ],
    "fixCommit": "4feeefc9;3db0b88e;6789f9d7",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/374",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
@@ -2961,7 +2961,7 @@
     "K-089/validation.md"
    ],
    "fixCommit": "5672a828",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/373 (draft until the take-on posting rework lands)",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
@@ -8426,7 +8426,7 @@
     "K-028/validation.md"
    ],
    "fixCommit": "7f92a7cb",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/371",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
