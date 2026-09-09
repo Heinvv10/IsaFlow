@@ -65,6 +65,9 @@ it('honours admin module deny, account suspension and foreign-tenant token misma
   await expect(asActor(principal(), ctx => assertEffectivePermission(ctx, 'write:journals'))).rejects.toThrow();
   await pool.query('UPDATE users SET is_active=false WHERE id=$1', [fixture.u1.id]);
   await expect(asActor(principal(), ctx => assertEffectivePermission(ctx, 'read:reports'))).rejects.toThrow();
+  // Establish an active allowed principal first: suspension must not mask a tenant-isolation failure.
+  await pool.query('UPDATE users SET is_active=true WHERE id=$1', [fixture.u1.id]);
+  await asActor(principal(), ctx => assertEffectivePermission(ctx, 'read:reports'));
   await expect(asActor({ ...principal(), companyId: fixture.companyB }, ctx => assertEffectivePermission(ctx, 'read:reports')))
     .rejects.toThrow();
 });
