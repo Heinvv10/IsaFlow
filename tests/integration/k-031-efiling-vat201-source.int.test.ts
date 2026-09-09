@@ -60,6 +60,19 @@ const draftExportJournal = crypto.randomUUID();
 const draftExportInvoice = crypto.randomUUID();
 const uncodedExportJournal = crypto.randomUUID();
 const uncodedExportInvoice = crypto.randomUUID();
+const zeroLegExportJournal = crypto.randomUUID();
+const zeroLegExportInvoice = crypto.randomUUID();
+const zeroLegMixedJournal = crypto.randomUUID();
+const zeroLegMixedInvoice = crypto.randomUUID();
+const ZERO_LEG_START = '2026-11-01';
+const ZERO_LEG_END = '2026-11-30';
+const taxedCodeZeroLegJournal = crypto.randomUUID();
+const taxedCodeZeroLegInvoice = crypto.randomUUID();
+const TAXED_CODE_START = '2026-12-01';
+const TAXED_CODE_END = '2026-12-31';
+const inputLegJournal = crypto.randomUUID();
+const INPUT_LEG_START = '2027-01-01';
+const INPUT_LEG_END = '2027-01-31';
 const EXEMPT_START = '2026-09-01';
 const EXEMPT_END = '2026-09-30';
 const DRAFT_START = '2026-10-01';
@@ -281,6 +294,62 @@ beforeAll(async () => {
     [uncodedExportInvoice, company, customer, uncodedExportJournal, user],
   );
 
+  // NOVEMBER: a wholly zero-rated R20 000 export that posts a R0.00 VAT
+  // control leg — a common posting convention. Counting that leg as tax made
+  // field 1 give back a base it never held, rendering minus R20 000.
+  await journal(zeroLegExportJournal, company, 'K031-ZEROLEG', '2026-11-08');
+  await line(zeroLegExportJournal, company, receivable, 20000, 0, null);
+  await line(zeroLegExportJournal, company, revenue, 0, 20000, 'zero_rated');
+  await line(zeroLegExportJournal, company, vatOutput, 0, 0, 'zero_rated');
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-ZEROLEG-1',$3,'2026-11-08',20000,0,0,20000,'sent',$4,$5)`,
+    [zeroLegExportInvoice, company, customer, zeroLegExportJournal, user],
+  );
+
+  // ...and, same period, a genuinely mixed invoice that ALSO carries a R0.00
+  // nil-rated control leg beside its real one. Here the deduction must still
+  // happen: R1 000 standard + R500 zero-rated, R150 of tax.
+  await journal(zeroLegMixedJournal, company, 'K031-ZEROMIX', '2026-11-09');
+  await line(zeroLegMixedJournal, company, receivable, 1650, 0, null);
+  await line(zeroLegMixedJournal, company, revenue, 0, 1000, 'standard');
+  await line(zeroLegMixedJournal, company, revenue, 0, 500, 'zero_rated');
+  await line(zeroLegMixedJournal, company, vatOutput, 0, 150, 'standard');
+  await line(zeroLegMixedJournal, company, vatOutput, 0, 0, 'zero_rated');
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-ZEROMIX-1',$3,'2026-11-09',1500,150,15,1650,'sent',$4,$5)`,
+    [zeroLegMixedInvoice, company, customer, zeroLegMixedJournal, user],
+  );
+
+  // DECEMBER, the mirror case: a wholly zero-rated R9 000 invoice whose R0.00
+  // control leg is coded `standard`. deriveVatBoxes has one output type, it is
+  // taxed, so the WHOLE base goes to box 1 — here the deduction IS required, or
+  // the R9 000 is declared in field 1 and field 2 both.
+  await journal(taxedCodeZeroLegJournal, company, 'K031-TAXCODE', '2026-12-04');
+  await line(taxedCodeZeroLegJournal, company, receivable, 9000, 0, null);
+  await line(taxedCodeZeroLegJournal, company, revenue, 0, 9000, 'zero_rated');
+  await line(taxedCodeZeroLegJournal, company, vatOutput, 0, 0, 'standard');
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-TAXCODE-1',$3,'2026-12-04',9000,0,0,9000,'sent',$4,$5)`,
+    [taxedCodeZeroLegInvoice, company, customer, taxedCodeZeroLegJournal, user],
+  );
+
+  // JANUARY 2027: one journal carrying a R6 000 EXPORT sale and a R2 000
+  // purchase with R300 of INPUT VAT. Its only control leg is on the input side,
+  // so deriveVatBoxes builds no output box at all and the export base sits in
+  // no taxed box — field 1 has nothing to give back.
+  await journal(inputLegJournal, company, 'K031-INPUTLEG', '2027-01-14');
+  await line(inputLegJournal, company, receivable, 6000, 0, null);
+  await line(inputLegJournal, company, revenue, 0, 6000, 'export');
+  await line(inputLegJournal, company, expense, 2000, 0, 'standard');
+  await line(inputLegJournal, company, vatInput, 300, 0, 'standard');
+  await line(inputLegJournal, company, payable, 0, 2300, null);
+
   // The other tenant's June sale — R50 000 + R7 500. Must never appear.
   await journal(otherJournal, otherCompany, 'K031-OTHER', '2026-06-10');
   await line(otherJournal, otherCompany, otherReceivable, 57500, 0, null);
@@ -416,6 +485,46 @@ describe('K-031 VAT201 source', () => {
     expect(october.field2_zeroRatedSupplies).toBeCloseTo(7000, 2);   // not 16 000
     expect(october.field1_standardRatedSupplies).toBeCloseTo(0, 2);
     expect(october.field5_outputVAT).toBeCloseTo(0, 2);
+  });
+
+  it('a zero-value VAT control leg does not make a nil-rated journal taxed', async () => {
+    // November: an R20 000 export posting a R0.00 VAT line, and a mixed
+    // R1 000 + R500 invoice posting a real R150 line beside a R0.00 one.
+    // Hand-computed: field1 = 1 000 (the mixed invoice's taxed half only),
+    // field2 = 20 000 + 500, field5 = 150.
+    const nov = await getLedgerVAT201(company, ZERO_LEG_START, ZERO_LEG_END);
+
+    expect(nov.field1_standardRatedSupplies).toBeCloseTo(1000, 2);   // never negative
+    expect(nov.field2_zeroRatedSupplies).toBeCloseTo(20500, 2);
+    expect(nov.field5_outputVAT).toBeCloseTo(150, 2);
+    expect(
+      nov.field1_standardRatedSupplies + nov.field2_zeroRatedSupplies,
+    ).toBeCloseTo(21500, 2);                                          // 20 000 + 1 500
+    expect(evaluateVat201Filability(nov)).toEqual({ filable: true, reason: null });
+  });
+
+  it('still deducts when the zero-value control leg carries a TAXED code', async () => {
+    // The mirror of the case above, and the direction a naive "ignore R0.00
+    // legs" fix breaks. One output type, `standard`, so deriveVatBoxes puts the
+    // whole R9 000 on box 1 — field 1 must give it back, not declare it twice.
+    const dec = await getLedgerVAT201(company, TAXED_CODE_START, TAXED_CODE_END);
+
+    expect(dec.field1_standardRatedSupplies).toBeCloseTo(0, 2);       // not 9 000
+    expect(dec.field2_zeroRatedSupplies).toBeCloseTo(9000, 2);
+    expect(dec.field5_outputVAT).toBeCloseTo(0, 2);
+    expect(evaluateVat201Filability(dec)).toEqual({ filable: true, reason: null });
+  });
+
+  it('does not deduct for a journal whose only control leg is input VAT', async () => {
+    // The export shares a journal with a purchase, so the journal IS selected
+    // by the VAT basis — but on the input side. Its output base reaches no box,
+    // so field 1 must not give back a share it never received.
+    const jan = await getLedgerVAT201(company, INPUT_LEG_START, INPUT_LEG_END);
+
+    expect(jan.field1_standardRatedSupplies).toBeCloseTo(0, 2);   // not -6 000
+    expect(jan.field2_zeroRatedSupplies).toBeCloseTo(6000, 2);
+    expect(jan.field5_outputVAT).toBeCloseTo(0, 2);
+    expect(jan.field10_totalInputVAT).toBeCloseTo(300, 2);
   });
 
   it('refuses to file an input breakdown that contradicts its own total', async () => {

@@ -124,3 +124,48 @@ $ bunx tsc --noEmit                                              TSC_CLEAN
 $ bunx eslint <5 changed src/pages files>                        ESLINT_CLEAN
 
 No query was run against the production database.
+
+================================================================================
+FOURTH COMMIT — round-3 finding N6 (zero-value VAT control leg)
+================================================================================
+
+=== GREEN ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+      Tests  16 passed (16)
+$ bunx vitest run tests/unit/sars/efiling-submission.test.ts
+      Tests  25 passed (25)
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9331 passed | 234 skipped (9565)
+
+=== MUTATION CHECKS (three, each reverted from backup after) ===
+The predicate is `account_subtype = 'vat_output'` AND the leg's own VAT code is
+absent or not nil-rated. Each clause is pinned by a fixture, in both directions.
+
+J. drop the VAT-code clause — any vat_output leg makes the journal taxed
+   (this IS the reported defect)
+   integration: 1 failed | 14 passed
+   "expected -19000 to be close to 1000" — November renders minus the export.
+K. gate on the leg AMOUNT instead of its code
+   `AND (vat_type IS NULL OR vat_type <> ALL(nil))` -> `AND debit + credit <> 0`
+   integration: 1 failed | 14 passed
+   "expected 9000 to be close to +0" — December declares the same R9 000 in
+   field 1 and field 2, which is the mirror defect an "ignore R0.00 legs" fix
+   introduces.
+L. let vat_input legs count as well
+   `= 'vat_output'` -> `= ANY(ARRAY['vat_output','vat_input'])`
+   integration: 1 failed | 15 passed
+   "expected -6000 to be close to +0" — a journal carrying an export sale and a
+   purchase deducts a share its output base never received.
+All three restored; suite back to 16 passed.
+
+NOTE — J and K were each run once BEFORE the mirror and input-leg fixtures
+existed, and both survived: the original zero-value-leg fixture was satisfied by
+either clause alone, so the test proved neither. The two fixtures were added for
+exactly that reason.
+
+=== Gates ===
+$ bunx tsc --noEmit                                              TSC_CLEAN
+$ bunx eslint <changed src files>                                ESLINT_CLEAN
+
+No query was run against the production database.
