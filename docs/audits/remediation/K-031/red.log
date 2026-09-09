@@ -1,0 +1,29 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-031-efiling-vat201-source.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Generating VAT201","timestamp":"2026-09-09T03:39:23.444Z","component":"vat201Service","data":{"periodStart":"2026-06-01","periodEnd":"2026-06-30"}}
+ ❯ tests/integration/k-031-efiling-vat201-source.int.test.ts (1 test | 1 failed) 269ms
+   × files the same output VAT the ledger-derived VAT201 reports 34ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-031-efiling-vat201-source.int.test.ts > files the same output VAT the ledger-derived VAT201 reports
+AssertionError: expected 1500 to be close to 1350, received difference is 150, but expected 0.005
+ ❯ tests/integration/k-031-efiling-vat201-source.int.test.ts:107:34
+    105|
+    106|   expect(ledger.outputTax).toBeCloseTo(1350, 2);   // 1500 invoiced le…
+    107|   expect(filed.field5_outputVAT).toBeCloseTo(ledger.outputTax, 2);
+       |                                  ^
+    108|   expect(filed.field1_standardRatedSupplies).toBeCloseTo(ledger.output…
+    109| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  05:39:23
+   Duration  583ms (transform 86ms, setup 0ms, import 142ms, tests 269ms, environment 1ms)
+
+error: script "test:integration" exited with code 1
