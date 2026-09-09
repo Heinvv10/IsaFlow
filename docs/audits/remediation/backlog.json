@@ -2120,7 +2120,7 @@
         "K-058/red.log",
         "K-058/validation.md"
       ],
-      "fixCommit": "7cc4c7a5",
+      "fixCommit": "0c1e5723",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3043,7 +3043,7 @@
         "K-087/red.log",
         "K-087/validation.md"
       ],
-      "fixCommit": "cdfcb585",
+      "fixCommit": "d5fce2f1",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -9659,6 +9659,33 @@
       "severity": "medium",
       "source": "Raised by blind review of K-043 (review-k043 L3); needs an explicit exemption feature, recorded 2026-09-09",
       "processNotes": "Raised by blind review of K-043 (review-k043 L3); needs an explicit exemption feature, recorded 2026-09-09"
+    },
+    {
+      "id": "R-034",
+      "claim": "",
+      "area": "core/migration",
+      "affectedPaths": [],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Opening-balance take-on journal is dated the import date, not the take-on date; now reachable for contra-carrying imports",
+      "severity": "medium",
+      "source": "Raised by blind review of K-087 (review-k087 LOW-4); recorded 2026-09-09",
+      "processNotes": "Belongs with R-001 take-on posting work"
     }
   ],
   "sourceInventory": [

@@ -2,7 +2,7 @@
 <html lang="en"><meta charset="utf-8"><title>IsaFlow remediation evidence</title>
 <style>body{font:16px system-ui;margin:2rem;max-width:1400px}table{border-collapse:collapse;width:100%}td,th{padding:.7rem;text-align:left;border-bottom:1px solid #ccc;vertical-align:top}th{background:#eee}a{color:#164d8c}</style>
 <h1>IsaFlow remediation evidence</h1>
-<p>37 code-verified, 56 in-progress, 8 false-positive, 67 confirmed, 1 already-fixed-verified, 145 candidate. Code verification and deployment are separate states; production deployment is authorized, subject to standard gates and live verification.</p>
+<p>37 code-verified, 56 in-progress, 8 false-positive, 68 confirmed, 1 already-fixed-verified, 145 candidate. Code verification and deployment are separate states; production deployment is authorized, subject to standard gates and live verification.</p>
 <p>All 130 explicit numbered sources mapped by claim/location to 129 unique K rows (including 10 split-source mappings). All 118 medium/low detail headings have K counterparts. Scope remains OPEN: unnumbered compound and latent claims, aggregate discrepancies, and source coverage gaps are documented in reconciliation.md; no candidate is code-validated by this mapping. Two supplemental unnumbered AP-import claims are retained as R-001/R-002, dependent on K-015; K-281 lists all six required subchecks. Remediation-discovered R-003 retains the unverified first-registration WhatsApp ownership boundary; it is not an original audit ID.</p>
 <p>Baseline: <code>5661d6f0f5f2212705151e95455a3f681ddf840e</code></p>
 <p><a href="backlog.json">Finding register</a> · <a href="inputs.json">Input hashes</a> · <a href="evidence/baseline-ci.log">Baseline CI output</a> · <a href="HANDOFF.md">Execution handoff</a></p>
@@ -319,4 +319,5 @@
 <tr><td>R-030</td><td>in-progress</td><td>auth</td><td>The /accept-invite flow (invitation system 1) is dead: the token route&#x27;s join to companies is filtered by the companies_member_read RLS policy, so every valid invitation answers 410.</td><td></td></tr>
 <tr><td>R-031</td><td>candidate</td><td>gl</td><td>customer_invoices and supplier_invoices carry no cancelled_at, and cancellation NULLs gl_journal_entry_id, so an invoice cancelled after a period end cannot be rewound to its as-at state; close-readiness keeps a residual variance when the cancellation reversal is dated into a later period.</td><td></td></tr>
 <tr><td>R-032</td><td>confirmed</td><td>gl/approvals</td><td></td><td></td></tr>
-<tr><td>R-033</td><td>confirmed</td><td>gl/approvals</td><td></td><td></td></tr></tbody></table></html>
+<tr><td>R-033</td><td>confirmed</td><td>gl/approvals</td><td></td><td></td></tr>
+<tr><td>R-034</td><td>confirmed</td><td>core/migration</td><td></td><td></td></tr></tbody></table></html>
