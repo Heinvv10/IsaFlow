@@ -32,6 +32,10 @@ Sub-routes for the dual-track FAR (policy/IFRS vs tax/SARS). Register CRUD itsel
 - `below-threshold` POST locks the asset `FOR UPDATE OF a` (5s `lock_timeout`), refuses a repeat with 409 when `assets.below_threshold` is already true, refuses a `disposed`/`written_off` asset with 400, pre-checks the fiscal period covering today (400 if not open — the hook creates the draft journal before postJournalEntry would throw, and withAuth COMMITs on 4xx), then delegates to `glCrossModuleHooks.postCapitalizationExpenseToGL`
 - `below-threshold` GET returns `expensed` from the `assets.below_threshold` column; the page uses it to render already-expensed rows without a Post button
 - Dispose calculates both policy and tax gain/loss, posts GL via `glCrossModuleHooks.postAssetDisposalToGL`
+- `afs-summary` uses the COMPANY's financial year, via `getFiscalYearStartMonth` + `fiscalWindowForPeriod` (`afs/afsFiscalPeriod.ts`) — NOT Jan-Dec. It REFUSES (500) a company with no `financial_year_start`; do not add a fallback, an AFS note is filed under the customer's name
+- `afs-summary` additions = assets whose FIRST period in their whole ledger history falls in the year; `MIN(yyyymm)` inside the period-filtered aggregate is a tautology
+- `afs-summary` prior-year snapshot excludes rows with `disposal_proceeds IS NOT NULL` — the disposal row carries full cost and would sit in opening cost forever
+- `afs-summary` is NOT the filed note 3. `generateNote3PropertyPlantEquipment` (`afs/noteGenerators/notes1to5.ts`) is a separate implementation over `assets.purchase_price`; the two disagree and this endpoint has no consumer today
 
 ## Related files
 - `src/modules/accounting/services/items/farDepreciationService.ts`
@@ -41,5 +45,6 @@ Sub-routes for the dual-track FAR (policy/IFRS vs tax/SARS). Register CRUD itsel
 
 ## Recent changes
 - 2026-09-09: K-026 — `below-threshold` POST gained `withWriteAccess`, a row lock and an already-expensed guard
+- 2026-09-09: `afs-summary` K-028/R-007 — additions no longer double-count pre-existing assets, window follows the company's financial year, prior snapshot drops disposed assets, `period` month validated (400 not 500)
 - 2026-04-22: 4 Bugsink-surfaced regressions
 - 2026-04-19: PRD-04 Enhanced FAR — dual-track engine
