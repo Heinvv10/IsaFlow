@@ -66,8 +66,18 @@ mandate was debited twice and the second settlement was recorded as a failure. A
 `resolveStaleSubmittedCharges`, which the cron runs first. Before deploying, count the charges the
 backfill cannot attribute and set their `subscription_id` by hand:
 ```sql
-SELECT count(*) FROM subscription_charges
-WHERE subscription_id IS NULL AND status IN ('queued','submitted','failed');
+-- Exactly what migration 624 refuses on: every unattributed row, any status.
+SELECT count(*) FROM subscription_charges WHERE subscription_id IS NULL;
+
+-- Which rows, and for which company:
+SELECT c.id, c.company_id, c.period_start, c.period_end, c.status, c.amount_cents
+FROM subscription_charges c
+WHERE c.subscription_id IS NULL
+ORDER BY c.created_at;
+
+-- Attribute each one to the subscription it belongs to, then re-run the migration:
+-- UPDATE subscription_charges SET subscription_id = '<subscription uuid>'
+-- WHERE id = '<charge uuid>' AND company_id = '<company uuid>';
 ```
 
 **Review round 4 (`review-fixes-round4.md`):** migration 624 now refuses to apply while any charge
@@ -75,3 +85,7 @@ is unattributed, a CHECK forbids a settled charge without a subscription, and th
 drops its COALESCE — a legacy NULL row and its replacement used to land in different buckets and
 both settle. The stale resolver's failure write and the settle write are status-predicated, so a
 webhook landing mid-verify is not overwritten and a voided charge is not resurrected.
+
+**Review round 5 (`review-fixes-round5.md`):** the pre-deploy query above is now the migration's own
+gate rather than a narrower one, and `runQueuedCharges` skips a charge that names no subscription
+instead of debiting it and failing on the CHECK afterwards.

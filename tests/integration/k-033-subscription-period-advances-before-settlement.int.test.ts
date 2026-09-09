@@ -401,7 +401,7 @@ describe('K-033 subscription period advances before Paystack settles', () => {
 
     const resolved = await resolveStaleSubmittedCharges(new Date());
 
-    expect(resolved).toMatchObject({ settled: 1, failed: 0, unresolved: 0 });
+    expect(resolved).toMatchObject({ settled: 1, failed: 0, pending: 0, contended: 0, errored: 0 });
     expect((await readCharge())?.status).toBe('settled');
     const sub = await readSubscription();
     expect(new Date(sub.current_period_end).toISOString()).toBe(await expectedPeriodEndIso());
@@ -424,7 +424,7 @@ describe('K-033 subscription period advances before Paystack settles', () => {
     );
     const resolved = await resolveStaleSubmittedCharges(new Date());
 
-    expect(resolved).toMatchObject({ settled: 0, failed: 1, unresolved: 0 });
+    expect(resolved).toMatchObject({ settled: 0, failed: 1, pending: 0, contended: 0, errored: 0 });
     const charge = await readCharge();
     expect(charge?.status).toBe('failed');
     const sub = await readSubscription();
@@ -495,7 +495,8 @@ describe('K-033 subscription period advances before Paystack settles', () => {
 
     const resolved = await resolveStaleSubmittedCharges(new Date());
 
-    expect(resolved).toMatchObject({ settled: 0, failed: 0, unresolved: 1 });
+    // The settlement landed mid-verify, so this is 'pending', not a lost claim.
+    expect(resolved).toMatchObject({ settled: 0, failed: 0, pending: 1, contended: 0 });
     const charge = await readCharge();
     expect(charge?.status).toBe('settled');
     const sub = await readSubscription();
@@ -518,6 +519,9 @@ describe('K-033 subscription period advances before Paystack settles', () => {
     ]);
 
     expect(a.settled + b.settled).toBe(1);
+    // The run that lost the claim reports contention, not a Paystack problem.
+    expect(a.contended + b.contended).toBe(1);
+    expect(a.errored + b.errored).toBe(0);
     expect(verifyTransaction).toHaveBeenCalledTimes(1);
   });
 
@@ -533,5 +537,31 @@ describe('K-033 subscription period advances before Paystack settles', () => {
     expect(after?.status).toBe('cancelled');
     const sub = await readSubscription();
     expect(new Date(sub.current_period_end).toISOString()).toBe(originalPeriodEnd.toISOString());
+  });
+  it('never debits a charge that names no subscription', async () => {
+    // Migration 624's CHECK rejects the settlement of such a row, and that
+    // rejection lands after the money has moved — so the debit pass must not
+    // pick it up at all.
+    const periodStartDay = new Date(originalPeriodEnd).toISOString().slice(0, 10);
+    const nextEnd = new Date(originalPeriodEnd);
+    nextEnd.setMonth(nextEnd.getMonth() + 1);
+    await pool.query(
+      `INSERT INTO subscription_charges
+         (company_id, subscription_id, mandate_id, period_start, period_end,
+          amount_cents, currency, gateway, external_reference, paystack_reference, status)
+       VALUES ($1, NULL, $2, $3, $4, 49900, 'ZAR', 'paystack', $5, $5, 'queued')`,
+      [companyId, mandateId, periodStartDay, nextEnd.toISOString().slice(0, 10), 'orphan_k033'],
+    );
+    chargeAuthorization.mockResolvedValue({ status: 'success', reference: 'orphan_k033' });
+
+    const ran = await runQueuedCharges(new Date());
+
+    expect(chargeAuthorization).not.toHaveBeenCalled();
+    expect(ran).toMatchObject({ submitted: 0, failed: 0, skipped: 0 });
+    const { rows } = await pool.query(
+      'SELECT status, attempt_count FROM subscription_charges WHERE external_reference=$1',
+      ['orphan_k033'],
+    );
+    expect(rows[0]).toMatchObject({ status: 'queued', attempt_count: 0 });
   });
 });

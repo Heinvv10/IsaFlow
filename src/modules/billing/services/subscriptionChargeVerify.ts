@@ -14,11 +14,40 @@ import { log } from '@/lib/logger';
 import { verifyTransaction } from './paystackClient';
 import { STALE_SUBMITTED_HOURS, settleSubscriptionCharge } from './subscriptionPeriod';
 
+/**
+ * A live charge that names no subscription cannot be settled — migration 624's
+ * CHECK rejects it, and that rejection would land after Paystack had taken the
+ * money. `runQueuedCharges` skips such rows; this says so out loud, because the
+ * customer is silently not being billed until someone attributes them.
+ */
+export async function warnUnattributedLiveCharges(): Promise<number> {
+  const rows = await sql<{ count: number }>`
+    SELECT count(*)::int AS count
+    FROM subscription_charges
+    WHERE gateway = 'paystack'
+      AND subscription_id IS NULL
+      AND status IN ('queued','failed')
+  `;
+  const count = rows[0]?.count ?? 0;
+  if (count > 0) {
+    log.warn(
+      'Live charges name no subscription and will not be debited — attribute them (migration 624)',
+      { count },
+      'BillingCron',
+    );
+  }
+  return count;
+}
+
 export interface ResolveStaleResult {
   settled: number;
   failed: number;
-  /** Still pending at Paystack, or the verify call itself failed. */
-  unresolved: number;
+  /** Paystack still has no answer, or a settlement landed mid-verify. */
+  pending: number;
+  /** Another cron run claimed the charge first. Healthy contention. */
+  contended: number;
+  /** The verify call itself threw — an integration problem, not a charge one. */
+  errored: number;
 }
 
 export async function resolveStaleSubmittedCharges(
@@ -31,10 +60,10 @@ export async function resolveStaleSubmittedCharges(
     company_id: string;
     paystack_reference: string | null;
     external_reference: string;
-    updated_at_text: string;
+    row_version: string;
   }>`
     SELECT id, company_id, paystack_reference, external_reference,
-           updated_at::text AS updated_at_text
+           xmin::text AS row_version
     FROM subscription_charges
     WHERE gateway = 'paystack'
       AND status = 'submitted'
@@ -45,21 +74,26 @@ export async function resolveStaleSubmittedCharges(
 
   let settled = 0;
   let failed = 0;
-  let unresolved = 0;
+  let pending = 0;
+  let contended = 0;
+  let errored = 0;
 
   for (const c of stale) {
     // Claim it: a second cron run holding the same snapshot gets nothing back
-    // and leaves the charge alone rather than verifying it in parallel.
+    // and leaves the charge alone rather than verifying it in parallel. The
+    // predicate is the row version, which is an exact integer — a timestamp
+    // read back through the driver loses precision and renders through the
+    // session's TimeZone, so a CAS on one silently stops matching.
     const claimed = await sql<{ id: string }>`
       UPDATE subscription_charges
       SET updated_at = now()
       WHERE id = ${c.id}
         AND status = 'submitted'
-        AND updated_at::text = ${c.updated_at_text}
+        AND xmin::text = ${c.row_version}
       RETURNING id
     `;
     if (!claimed[0]) {
-      unresolved++;
+      contended++;
       continue;
     }
 
@@ -73,7 +107,7 @@ export async function resolveStaleSubmittedCharges(
         continue;
       }
       if (result.status === 'pending') {
-        unresolved++;
+        pending++;
         continue;
       }
 
@@ -90,12 +124,13 @@ export async function resolveStaleSubmittedCharges(
         RETURNING id
       `;
       if (!marked[0]) {
-        unresolved++;
+        // The missing webhook arrived while we were asking. Leave it settled.
+        pending++;
         continue;
       }
       failed++;
     } catch (err) {
-      unresolved++;
+      errored++;
       log.error(
         'Could not verify a stale subscription debit',
         { chargeId: c.id, companyId: c.company_id, reference,
@@ -105,5 +140,5 @@ export async function resolveStaleSubmittedCharges(
     }
   }
 
-  return { settled, failed, unresolved };
+  return { settled, failed, pending, contended, errored };
 }

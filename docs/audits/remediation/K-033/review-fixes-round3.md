@@ -29,10 +29,11 @@ submission cannot block a period or a cancellation.
 
 **N4 (MEDIUM) — the backfill skipped multi-subscription companies silently.** Migration 624 now
 ends with a `DO` block that RAISEs a NOTICE counting the live charges it could not attribute. The
-pre-deploy count to run and attribute by hand:
+pre-deploy count to run and attribute by hand (superseded in round 4: the migration now refuses on
+**every** unattributed row, whatever its status — see `review-fixes-round4.md` and the runbook in
+`fix.md`):
 ```sql
-SELECT count(*) FROM subscription_charges
-WHERE subscription_id IS NULL AND status IN ('queued','submitted','failed');
+SELECT count(*) FROM subscription_charges WHERE subscription_id IS NULL;
 ```
 Unattributed charges advance no period and flag nothing, which is the safe failure, not a silent
 wrong write.
