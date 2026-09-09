@@ -573,8 +573,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 77 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(77);
+  it('exactly 80 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(80);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -703,6 +703,7 @@ describe('suite-wide invariants', () => {
     const happyArgs: Record<string, Record<string, unknown>> = {
       // These require a real authenticated ControlTx. Scan their input refusal here;
       // successful DTOs and current authority are exercised in paymentRiskChecks.int.test.ts.
+      list_pending_approvals: { limit: 101 },
       duplicate_invoice_checks: { limit: 101 },
       payment_risk_checks: { limit: 101 },
       profit_and_loss: { period_start: '2026-06-01', period_end: '2026-06-30' },
