@@ -9915,6 +9915,37 @@
       "severity": "high",
       "source": "Raised by the K-081 r3 blind reviewer; recorded 2026-09-09",
       "processNotes": "scripts/apply-migrations.ts:121-130 runs client.query(file.content) on a pg.PoolClient and never registers a 'notice' listener, so node-postgres drops every NOTICE/WARNING the server sends. scripts/deploy.sh:146 runs exactly that path against production. Only RAISE EXCEPTION surfaces, because errors travel as errors. Found via K-081's migration 659, whose entire safety argument is that an ambiguous loan key is REFUSED and named in a WARNING for a human -- the human never sees it, and the refused loans then reclassify their full current portion at the next close, a silent GL movement. This is programme-wide, not a K-081 defect: any past or future migration that reports by RAISE WARNING or RAISE NOTICE has been reporting into a void. AUDIT every migration already applied to production for a RAISE WARNING/NOTICE whose output was assumed to have been read. K-081's fixer is adding the listener as the general fix."
+    },
+    {
+      "id": "R-042",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Wrong input-tax figures, already filed, with no way to enumerate the affected documents from data alone.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-072"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-072/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unquantifiable from the database; requires re-reading source documents.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Documents mis-captured by the OCR VAT readers cannot be identified retrospectively -- the defects leave no marker",
+      "severity": "high",
+      "source": "Raised by the K-072 fixer while closing review-k072-r2; recorded 2026-09-09",
+      "processNotes": "K-072 fixes several OCR readers that mis-read VAT figures at capture time. Measured worst case: on 'Price Excl VAT 1000.00 / VAT 150.00 / Total Due 1150.00' the reader returned VAT=1000, subtotal=150 -- BALANCED, and an R1 000 input claim on an R1 150 invoice. The subtotal guard also disagreed with its own pattern, so 'Sub - Total 1000.00' was refused as the total AND not read as the subtotal, losing the figure. UNLIKE R-037/R-038/R-039, there is NO census query possible: a mis-read simply produced wrong numbers on an otherwise ordinary document and left no marker distinguishing it from a correctly captured one. Affected documents can only be found by re-reading the source files, or by an accountant reconciling claimed input VAT against supplier documents. HEIN: this is the one residual on this programme that cannot be quantified from the database, and it touches input-tax claims already submitted to SARS."
     }
   ],
   "sourceInventory": [
