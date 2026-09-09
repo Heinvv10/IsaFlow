@@ -1,0 +1,10 @@
+40 |     res = resolve
+41 |     rej = reject
+42 |   }).catch((err) => {
+43 |     // replace the stack trace that leads to `TCP.onStreamRead` with one that leads back to the
+44 |     // application that created the query
+45 |     Error.captureStackTrace(err)
+               ^
+error: The server does not support SSL connections
+      at <anonymous> (/home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/node_modules/pg-pool/index.js:45:11)
+

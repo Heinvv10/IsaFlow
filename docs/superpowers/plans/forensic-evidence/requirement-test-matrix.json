@@ -1,0 +1,462 @@
+[
+  {
+    "id": "P0-01",
+    "phase": 0,
+    "requirement": "Produce a complete tool matrix: name, scope, mutation/post flags, arguments, service, pagination, dry-run behavior, audit behavior and known coverage limits.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "toolContractMatrix.test.ts"
+    ]
+  },
+  {
+    "id": "P0-02",
+    "phase": 0,
+    "requirement": "Map all UI/REST/MCP/job paths capable of bypassing each proposed preventive control.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "forensic-ingress.int.test.ts"
+    ]
+  },
+  {
+    "id": "P0-03",
+    "phase": 0,
+    "requirement": "Produce exact file-level subplans per subsystem with interfaces, concrete fixtures, failing tests, implementation steps and commands. Record scope decisions autonomously within this specification.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "phase1-preventive-plan.md",
+      "phase2-4-subplans.md"
+    ]
+  },
+  {
+    "id": "P0-04",
+    "phase": 0,
+    "requirement": "Establish disposable migrated PostgreSQL with two tenants, two independent users in tenant A, one user in tenant B, and distinct tokens for the same user.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "fixtureSafety.test.ts",
+      "forensic-fixture.ts"
+    ]
+  },
+  {
+    "id": "P0-05",
+    "phase": 0,
+    "requirement": "Freeze contracts for approval-bound operation versions, effective permissions, audit events, check results and evidence snapshots. Decide compatibility and feature-flag migration behavior.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "contracts.test.ts"
+    ]
+  },
+  {
+    "id": "P0-06",
+    "phase": 0,
+    "requirement": "Create a requirement-to-test matrix covering every capability in later phases.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "requirement-test-matrix.json"
+    ]
+  },
+  {
+    "id": "P1-01",
+    "phase": 1,
+    "requirement": "Enforce actor separation using person identity, not token inequality. Enforce the configured approver role and current membership.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase1-preventive-plan.md",
+    "plannedAcceptanceFiles": [
+      "operationApproval.int.test.ts:A01/A03/A04"
+    ]
+  },
+  {
+    "id": "P1-02",
+    "phase": 1,
+    "requirement": "Bind approvals to tenant, operation, server-derived amount, currency and beneficiary, document version, policy version, expiry, and a single execution. Define rejection/cancellation and concurrency semantics.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase1-preventive-plan.md",
+    "plannedAcceptanceFiles": [
+      "operationApproval.int.test.ts:A02/A05/A06/A07/A08/A09"
+    ]
+  },
+  {
+    "id": "P1-03",
+    "phase": 1,
+    "requirement": "Reject stale approvals after material edits. Evaluate controls in the executing shared service and transaction, not only in MCP previews.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase1-preventive-plan.md",
+    "plannedAcceptanceFiles": [
+      "operationMaterialization.test.ts",
+      "forensic-ingress.int.test.ts"
+    ]
+  },
+  {
+    "id": "P1-04",
+    "phase": 1,
+    "requirement": "Land the minimal transaction-bound change-event writer and operation versioning before enabling either approval or beneficiary workflows; Phase 2 expands coverage and exposes history.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase1-preventive-plan.md",
+    "plannedAcceptanceFiles": [
+      "forensic-change-history.int.test.ts"
+    ]
+  },
+  {
+    "id": "P1-05",
+    "phase": 1,
+    "requirement": "Route bank-detail changes through proposal and independent evidence-backed verification. Preserve approved details until replacement activation; payment generation/release must respect holds and beneficiary version changes.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase1-preventive-plan.md",
+    "plannedAcceptanceFiles": [
+      "supplierBankChange.int.test.ts:B01/B02/B05",
+      "paymentReleaseConcurrency.int.test.ts"
+    ]
+  },
+  {
+    "id": "P1-06",
+    "phase": 1,
+    "requirement": "Separate beneficiary-maintenance permission from ordinary contact edits. Preserve backwards compatibility of harmless contact changes while preventing bypass through older routes/imports.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase1-preventive-plan.md",
+    "plannedAcceptanceFiles": [
+      "supplierBankLegacyPaths.test.ts:B03/B04"
+    ]
+  },
+  {
+    "id": "P1-07",
+    "phase": 1,
+    "requirement": "Calculate effective permissions from current role and granted scope; downgrades must remove authority without waiting for token expiry. Review conflicting/dormant grants without exposing secret tokens.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase1-preventive-plan.md",
+    "plannedAcceptanceFiles": [
+      "permissionRevocation.int.test.ts:R01/R02/R03"
+    ]
+  },
+  {
+    "id": "P2-01",
+    "phase": 2,
+    "requirement": "Record tenant, principal, connection/grant identity, acting firm when known, request/operation IDs, actual event time, accounting date, entity/version, action, protected before/after values, outcome and provenance.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-change-history.int.test.ts"
+    ]
+  },
+  {
+    "id": "P2-02",
+    "phase": 2,
+    "requirement": "Distinguish an invocation attempt from a committed financial effect. Record retries/replays without creating another financial effect. Failed attempts must survive financial rollback through a bounded, documented durable logging design.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-idempotency.int.test.ts:rollback/replay"
+    ]
+  },
+  {
+    "id": "P2-03",
+    "phase": 2,
+    "requirement": "Separate idempotency retention from audit retention so pruning events never enables duplicate writes.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-idempotency.int.test.ts:audit-prune"
+    ]
+  },
+  {
+    "id": "P2-04",
+    "phase": 2,
+    "requirement": "Capture supplier banking, employee components, bank rules, GL classification, approvals, locks and ordinary non-ledger mutations; report historical gaps explicitly.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-change-history.int.test.ts:all-entities"
+    ]
+  },
+  {
+    "id": "P2-05",
+    "phase": 2,
+    "requirement": "Join supporting evidence across both existing document stores through authorized parent links. Explain missing, ambiguous and reversed links rather than manufacturing associations.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-evidence-chain.int.test.ts"
+    ]
+  },
+  {
+    "id": "P3-01",
+    "phase": 3,
+    "requirement": "Detect duplicate invoices across changed references/imports, repeated payment intent, shared beneficiary accounts, and recent beneficiary changes. Distinguish candidate matches from confirmed duplicates.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-ap-controls.int.test.ts:duplicates/payment-risk"
+    ]
+  },
+  {
+    "id": "P3-02",
+    "phase": 3,
+    "requirement": "Check PO/receipt/invoice quantities and prices across complete populations, with recorded tolerances, overrides and partial receipts.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-ap-controls.int.test.ts:three-way"
+    ]
+  },
+  {
+    "id": "P3-03",
+    "phase": 3,
+    "requirement": "Check actual-time versus accounting-date posting, reversal patterns, thresholds and closed-period changes. Statistical heuristics produce investigation leads, not fraud conclusions.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-bank-journal.int.test.ts:actual-date/closed-period"
+    ]
+  },
+  {
+    "id": "P3-04",
+    "phase": 3,
+    "requirement": "Compare imported bank populations with independent source statement counts, periods and balances. A transaction-free day is not proof of missing data; no gaps is not proof of completeness.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-bank-journal.int.test.ts:source-manifest/unknown"
+    ]
+  },
+  {
+    "id": "P3-05",
+    "phase": 3,
+    "requirement": "Reconcile payroll totals/liabilities/settlements and detect bank-account reuse, changed salary components, terminated employees paid and zero-cost employees.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-payroll-controls.int.test.ts"
+    ]
+  },
+  {
+    "id": "P4-01",
+    "phase": 4,
+    "requirement": "Snapshot a consistent population with reporting cutoff, actual capture time, source versions, counts, exclusions, check versions and evidence hashes. Document whether snapshot materializes records or otherwise preserves reproducibility.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-audit-snapshot.int.test.ts:consistent-population"
+    ]
+  },
+  {
+    "id": "P4-02",
+    "phase": 4,
+    "requirement": "Detect later backdated postings, edits, reversals and changed classifications or check-rule versions without altering the original snapshot.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-audit-snapshot.int.test.ts:backdate/edit/reversal"
+    ]
+  },
+  {
+    "id": "P4-03",
+    "phase": 4,
+    "requirement": "Extend existing exports with complete manifests and retained evidence. Hash stable canonical snapshot data separately from rendered PDF bytes; do not assume repeated PDF rendering is byte-identical. A hash stored beside mutable source data is not independent tamper protection; define and test the actual trust boundary.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-audit-snapshot.int.test.ts:export/tamper"
+    ]
+  },
+  {
+    "id": "P4-04",
+    "phase": 4,
+    "requirement": "Persist finding identity, recurrence, owner, due date, evidence, independent review and recheck result. Require an independent verifier for high-risk findings. Separate accepted risk from remediated findings. Reopen recurring conditions.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-control-exceptions.int.test.ts"
+    ]
+  },
+  {
+    "id": "P4-05",
+    "phase": 4,
+    "requirement": "Use bounded asynchronous jobs/status/pagination for large scans and exports; reads must not secretly trigger unbounded processing.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "phase2-4-subplans.md",
+    "plannedAcceptanceFiles": [
+      "forensic-audit-jobs.int.test.ts"
+    ]
+  },
+  {
+    "id": "P5-01",
+    "phase": 5,
+    "requirement": "Test every registered tool for manifest/discovery consistency, input validation, scope behavior and expected error shape. Preserve compatibility for existing consumers.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "toolContractMatrix.test.ts"
+    ]
+  },
+  {
+    "id": "P5-02",
+    "phase": 5,
+    "requirement": "Run focused unit tests, migrated real-DB integration tests, RLS/cross-tenant tests, rollback/idempotency/concurrency tests, and relevant Playwright flows.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "forensic-postgres-suite"
+    ]
+  },
+  {
+    "id": "P5-03",
+    "phase": 5,
+    "requirement": "Perform local HTTP MCP initialize/tools-list/tools-call acceptance using synthetic bearer identities. Exercise underlying UI/REST paths, not only direct service calls.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "forensic-http.mjs"
+    ]
+  },
+  {
+    "id": "P5-04",
+    "phase": 5,
+    "requirement": "Run one complete supplier case: proposal -> unauthorized approval rejected -> independent approval -> bill -> three-way exception -> approved correction -> settlement -> bank evidence -> audit snapshot -> backdated correction -> snapshot diff -> reviewed exception resolution.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "forensic-supplier-workflow.mjs"
+    ]
+  },
+  {
+    "id": "P5-05",
+    "phase": 5,
+    "requirement": "Run payroll and close-period cases with deliberately incomplete evidence and confirm unknown/block behavior.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "forensic-payroll-close-workflow.mjs"
+    ]
+  },
+  {
+    "id": "P5-06",
+    "phase": 5,
+    "requirement": "Exercise representative large datasets with explicit latency, pagination, job recovery and resource bounds established in Phase 0.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "forensic-large-population.int.test.ts"
+    ]
+  },
+  {
+    "id": "P5-07",
+    "phase": 5,
+    "requirement": "Independent reviewers inspect the exact integrated commit, including bypass routes, migrations, sensitive-data exposure and evidence claims. Fix confirmed in-scope issues and rerun affected checks.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "named-commit-independent-review.md"
+    ]
+  },
+  {
+    "id": "P5-08",
+    "phase": 5,
+    "requirement": "Generate agent-doc mirrors where canonical docs changed. Run bun run ci on the final integration commit before any PR; record SHA and command results.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "final-ci.log"
+    ]
+  },
+  {
+    "id": "P5-09",
+    "phase": 5,
+    "requirement": "Create reviewable draft PR(s) with final behavior, migration/rollout notes, test evidence and limitations. Do not merge or deploy.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "draft-pr-delivery.md"
+    ]
+  },
+  {
+    "id": "P5-10",
+    "phase": 5,
+    "requirement": "Final report: completed capabilities, exact commits/PRs, tests and representative workflow evidence, unresolved blockers, historical coverage gaps, and explicit statement that production is unchanged/unverified.",
+    "status": "pending",
+    "owner": "root",
+    "testEvidence": [],
+    "plan": "shared-contracts.md",
+    "plannedAcceptanceFiles": [
+      "final-evidence.md"
+    ]
+  }
+]
