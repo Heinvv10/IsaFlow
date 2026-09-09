@@ -59,3 +59,16 @@ it('evidence insertion failure rolls back every bulk deletion and prior event/ve
   expect(await Promise.all(ids.map(row))).toEqual(before);expect(await Promise.all(ids.map(history))).toEqual(events);
  }finally{await f.pool.query(`DROP TRIGGER IF EXISTS ${name} ON control_protected_evidence`);await f.pool.query(`DROP FUNCTION ${name}()`);}
 });
+it('a suppressed delete cannot produce false deleted history or a partial bulk result',async()=>{
+ const a=await create(),b=await create(),ids=[a.id,b.id].sort(),name=`rule_suppress_${randomUUID().replaceAll('-','')}`;
+ const before=await Promise.all(ids.map(row)),events=await Promise.all(ids.map(history));
+ await f.pool.query(`CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.company_id='${f.f.companyA}'::uuid AND OLD.id='${ids[1]}'::uuid THEN RETURN NULL; END IF; RETURN OLD; END $$`);
+ try{
+  await f.pool.query(`CREATE TRIGGER ${name} BEFORE DELETE ON bank_categorisation_rules FOR EACH ROW EXECUTE FUNCTION ${name}()`);
+  let result:number|undefined,failure:unknown;
+  try{result=await f.actor(()=>deleteRules(f.f.companyA,ids));}catch(error){failure=error;}
+  const remaining=await Promise.all(ids.map(row)),afterEvents=await Promise.all(ids.map(history));
+  expect(failure,{returned:result,remaining:remaining.filter(Boolean).length,versions:afterEvents.map(list=>list.length)}).toBeDefined();
+  expect(remaining).toEqual(before);expect(afterEvents).toEqual(events);
+ }finally{await f.pool.query(`DROP TRIGGER IF EXISTS ${name} ON bank_categorisation_rules`);await f.pool.query(`DROP FUNCTION ${name}()`);}
+});
