@@ -160,7 +160,7 @@ async function cancelSupplierInvoiceInner(
       }
     }
     const rows = (await sql`
-      UPDATE supplier_invoices SET status = 'cancelled', gl_journal_entry_id = NULL
+      UPDATE supplier_invoices SET status = 'cancelled'
       WHERE id = ${id} AND company_id = ${companyId}::UUID AND status != 'cancelled'
       RETURNING *
     `) as Row[];

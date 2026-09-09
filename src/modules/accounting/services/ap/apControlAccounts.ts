@@ -14,6 +14,8 @@ export function selectApSystemAccount(rows: readonly Account[], role: SystemAcco
 export async function resolveApControlAccounts(ctx: ControlTx, ref: OperationRef) {
   assertControlTx(ctx);
   const company = ctx.principal.companyId;
+  const [ledger] = await ctx.sql`SELECT id,default_currency FROM companies WHERE id=${company}::uuid FOR SHARE` as Array<{ id: string; default_currency: string }>;
+  if (!ledger || !/^[A-Z]{3}$/.test(ledger.default_currency)) throw new Error('Ledger currency unavailable');
   const invoice = ref.entityType === 'supplier_invoice';
   const reverse = ['supplier_invoice.cancel', 'supplier_payment.void'].includes(ref.operation);
   const [parent] = invoice ? await ctx.sql`
@@ -53,5 +55,5 @@ export async function resolveApControlAccounts(ctx: ControlTx, ref: OperationRef
   ` as Account[];
   if (explicitAccounts.length !== ids.length || explicitAccounts.some(account => account.is_active !== true)) throw new Error('AP account is missing, foreign or inactive');
   if (!invoice && source.bank_account_id) chosen.bank = explicitAccounts.find(account => account.id === source.bank_account_id)!;
-  return { chosen, facts: { systemAccounts, explicitAccounts, journal } };
+  return { chosen, ledgerCurrency: ledger.default_currency, facts: { ledger, systemAccounts, explicitAccounts, journal } };
 }
