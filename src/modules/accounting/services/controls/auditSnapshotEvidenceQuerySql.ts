@@ -21,6 +21,7 @@ export async function querySnapshotEvidence(ctx:ControlTx,roots:readonly {source
  UNION ALL SELECT q.source,q.id,'{}'::jsonb FROM requested q JOIN payment_allocations p ON p.id=q.id JOIN supplier_payments owner ON owner.id=p.payment_id AND owner.company_id=${company}::uuid WHERE q.source='supplier_payment_allocation'
  UNION ALL SELECT q.source,q.id,'{}'::jsonb FROM requested q JOIN payroll_run_lines p ON p.id=q.id JOIN payroll_run_headers owner ON owner.id=p.run_id AND owner.company_id=${company}::uuid WHERE q.source='payroll_run_line'
  UNION ALL SELECT q.source,q.id,'{}'::jsonb FROM requested q JOIN payroll_run_headers p ON p.id=q.id AND p.company_id=${company}::uuid WHERE q.source='payroll_run'
+ UNION ALL SELECT q.source,q.id,'{}'::jsonb FROM requested q JOIN sage_supplier_invoices p ON p.id=q.id AND p.company_id=${company}::uuid WHERE q.source='sage_supplier_invoice'
  ), parents(kind,id) AS (
   SELECT 'supplier_invoice',id FROM sage_supplier_invoices WHERE company_id=${company}::uuid UNION ALL
   SELECT 'customer_invoice',id FROM customer_invoices WHERE company_id=${company}::uuid UNION ALL
@@ -33,6 +34,7 @@ export async function querySnapshotEvidence(ctx:ControlTx,roots:readonly {source
   SELECT 'goods_receipt_note',id FROM goods_received_notes WHERE company_id=${company}::uuid
  ), targets(source,root_id,kind,id) AS (
   SELECT r.source,r.id,r.source,r.id FROM roots r WHERE r.source IN ('customer_invoice','customer_payment','supplier_payment')
+  UNION SELECT r.source,r.id,'supplier_invoice',r.id FROM roots r WHERE r.source='sage_supplier_invoice'
   UNION SELECT r.source,r.id,'supplier_invoice',s.id FROM roots r JOIN sage_supplier_invoices s
    ON s.company_id=${company}::uuid AND s.gl_supplier_invoice_id=r.id WHERE r.source='supplier_invoice'
   UNION SELECT r.source,r.id,'purchase_order',p.id FROM roots r JOIN purchase_orders p
