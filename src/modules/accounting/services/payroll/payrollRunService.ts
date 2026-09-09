@@ -20,6 +20,7 @@ import {
   listActiveLoansForRun,
   type ApplyLoanResult,
 } from './payrollLoanService';
+import { reverseLoanApplicationsForRun } from './payrollLoanReversal';
 
 
 type Row = DbRow;
@@ -152,6 +153,12 @@ export async function calculatePayrollRun(
   };
 
   const lineInserts: LineInsert[] = [];
+
+  // Undo the loan deductions THIS run already applied. Without it a second
+  // calculation finds every schedule row flagged paid, injects no LOAN
+  // deduction, and leaves the balance reduced for a repayment the payslip no
+  // longer takes. The forward path below then re-applies identically.
+  await reverseLoanApplicationsForRun(companyId, runId);
 
   const activeLoans = await listActiveLoansForRun(companyId, period.year, period.month);
   const loansByEmployee = new Map<string, string[]>();

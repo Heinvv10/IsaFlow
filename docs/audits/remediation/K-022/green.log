@@ -1,0 +1,13 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-022
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  05:48:37
+   Duration  683ms (transform 133ms, setup 0ms, import 202ms, tests 336ms, environment 0ms)
+
+
+--- Mutation check: reversal call commented out in payrollRunService.ts ---
+Tests 4 failed (4) — all four assertions are sensitive to the production change; restored afterwards.
