@@ -45,7 +45,9 @@ export async function createBankFeedConnection(
   input: BankFeedConnectionInput,
   userId: string,
 ): Promise<BankFeedConnection> {
-  const validProviders = ['manual_csv', 'basiq', 'tink', 'plaid', 'extension'] as const;
+  // basiq | tink | plaid are not implemented — syncing one imports nothing,
+  // so refuse the connection at creation time rather than at first sync.
+  const validProviders = ['manual_csv', 'extension'] as const;
   if (!validProviders.includes(input.provider as typeof validProviders[number])) {
     throw new Error(`Invalid provider "${input.provider}". Must be one of: ${validProviders.join(', ')}`);
   }
