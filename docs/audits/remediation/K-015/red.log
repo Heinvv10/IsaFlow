@@ -1,0 +1,54 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k015-ap-migration-balance-due-column.int.test.ts (2 tests | 2 failed) 196ms
+     × the column exists in the schema it is written to 17ms
+     × imports the bill and leaves the request transaction usable 17ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k015-ap-migration-balance-due-column.int.test.ts > K-015 AP migration writes a non-existent balance_due column > the column exists in the schema it is written to
+AssertionError: expected [] to deeply equal [ 'balance_due' ]
+
+- Expected
++ Received
+
+- [
+-   "balance_due",
+- ]
++ []
+
+ ❯ tests/integration/k015-ap-migration-balance-due-column.int.test.ts:83:42
+     81|       SELECT column_name FROM information_schema.columns
+     82|       WHERE table_name = 'supplier_invoices' AND column_name = 'balanc…
+     83|     expect(rows.map(r => r.column_name)).toEqual(['balance_due']);
+       |                                          ^
+     84|   });
+     85|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k015-ap-migration-balance-due-column.int.test.ts > K-015 AP migration writes a non-existent balance_due column > imports the bill and leaves the request transaction usable
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:107:19
+    105|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    106|       assertTxUsable();
+    107|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    108|       return res.rows as T[];
+    109|     }
+ ❯ updateSession src/modules/accounting/services/core/migrationService.ts:123:17
+ ❯ importAPInvoices src/modules/accounting/services/ap/migrationApService.ts:128:3
+ ❯ tests/integration/k015-ap-migration-balance-due-column.int.test.ts:90:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  05:39:18
+   Duration  665ms (transform 197ms, setup 0ms, import 292ms, tests 196ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
