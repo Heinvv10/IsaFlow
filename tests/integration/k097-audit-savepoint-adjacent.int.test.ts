@@ -125,6 +125,38 @@ describeIfDb('K-097 audit savepoint adjacent cases', () => {
     expect(committed).toBe(true);
   });
 
+  // MEDIUM-2 from the blind review of fb63f304. The savepoint changed what
+  // membership of CRITICAL_ACTIONS means: an action OUTSIDE the set that fails
+  // to log now COMMITS its mutation unaudited, where before the poisoned
+  // transaction discarded it. These are money movement and identity
+  // destruction, so they have to be inside the set. Mutation-proof: drop any
+  // one of them from CRITICAL_ACTIONS and this goes red.
+  it.each([
+    'flow.adjust',
+    'user.delete',
+    'company.create',
+    'subscription.create',
+    'trial.convert_to_paid',
+    'plan.create',
+    'invoice.mark_paid',
+  ])('%s fails closed when its audit write fails', async (action) => {
+    let thrown: unknown = null;
+    let criticalFlag: boolean | undefined;
+
+    await inRequestTx(async () => {
+      try {
+        await logAdminAction(ADMIN_USER, action, 'x', randomUUID(), BAD_DETAILS, '127.0.0.1');
+      } catch (err) {
+        thrown = err;
+      }
+      criticalFlag = als.getStore()?.criticalAuditFailed;
+      return null;
+    });
+
+    expect(thrown).toBeInstanceOf(CriticalAuditError);
+    expect(criticalFlag).toBe(true);
+  });
+
   it('two failed audit writes in one request still leave the mutation intact', async () => {
     const { error, committed } = await inRequestTx(async () => {
       const rows = (await sql`

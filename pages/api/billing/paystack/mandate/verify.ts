@@ -46,6 +46,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ON m.company_id = pr.company_id
      AND m.gateway = 'paystack'
      AND m.status IN ('pending','active')
+     -- Migration 651 records which mandate the checkout was started for. When
+     -- it is set only that row can join, so two abandoned checkouts can no
+     -- longer make one reference activate the other's mandate (and its
+     -- max_amount_cents ceiling). Rows written before 651 have no recoverable
+     -- link, so they keep the old newest-pending heuristic.
+     AND (pr.mandate_id IS NULL OR m.id = pr.mandate_id)
     WHERE pr.paystack_reference = ${ref}
       AND pr.company_id = ${req.companyId}
       AND pr.purpose = 'authorization'
@@ -74,7 +80,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
                 paystack_customer_code = ${live.customer?.customerCode ?? null}
             WHERE id = ${row.pr_id}
           `;
-          // Only the mandate this reference resolved to. Promoting every
+          // Only the mandate this reference is linked to. Promoting every
           // pending row breaks ux_sub_mandates_company_active the moment an
           // abandoned checkout has left a second one behind.
           if (row.mandate_id) {
@@ -94,6 +100,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
               WHERE id = ${row.mandate_id}
                 AND company_id = ${req.companyId}
             `;
+          } else {
+            // The reference is now spent — pr_status is no longer 'pending', so
+            // this block never runs again — and nothing was activated. Say so
+            // rather than letting the route report 'pending' forever.
+            log.warn(
+              'Paystack authorisation succeeded but resolved to no mandate row',
+              { prId: row.pr_id, companyId: req.companyId },
+              'PaystackMandate',
+            );
           }
         } else if (live.status === 'failed' || live.status === 'abandoned') {
           await sql`

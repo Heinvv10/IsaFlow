@@ -42,14 +42,23 @@ export interface AuditLogFilters {
  * fails. Every entry has to be a string some call site actually passes to
  * `logAdminAction`; a name nothing emits protects nothing. Guarded by
  * tests/unit/services/adminCriticalActions.test.ts.
+ *
+ * Membership decides fail-closed vs fail-open. Since the INSERT below runs in
+ * its own savepoint, an action OUTSIDE this set that fails to log now commits
+ * its mutation unaudited — before the savepoint it was silently discarded
+ * instead. So the set has to cover money movement, identity destruction and
+ * anything that starts or reprices billing, not just the obvious suspensions.
  */
 export const CRITICAL_ACTIONS = new Set([
   'user.suspend', 'user.reset_password', 'user.update', 'user.force_logout',
+  'user.delete',
   'impersonation_start',
-  'company.suspend', 'company.delete', 'company.impersonate',
+  'company.create', 'company.suspend', 'company.delete', 'company.impersonate',
   'company.activate', 'company.export_data',
-  'subscription.cancel', 'subscription.update',
-  'plan.update', 'plan.archive',
+  'subscription.create', 'subscription.cancel', 'subscription.update',
+  'trial.convert_to_paid',
+  'plan.create', 'plan.update', 'plan.archive',
+  'flow.adjust', 'invoice.mark_paid',
   'company_feature.override_set', 'company_feature.override_removed',
 ]);
 

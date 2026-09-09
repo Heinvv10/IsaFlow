@@ -79,6 +79,36 @@ export async function processEvent(
   log.info('Paystack event recorded (no-op handler)', { eventType }, 'PaystackWebhook');
 }
 
+/**
+ * The mandate a successful authorisation belongs to, or null if there is none.
+ * Migration 651 records the link on the payment request; rows written before it
+ * have none (create.ts passed the id only in Paystack metadata) and fall back
+ * to the company's newest pending paystack mandate. Either way: at most ONE row.
+ */
+async function resolveAuthorisedMandateId(
+  companyId: string,
+  linkedMandateId: string | null,
+): Promise<string | null> {
+  if (linkedMandateId) {
+    const rows = await sql<{ id: string }>`
+      SELECT id FROM subscription_mandates
+      WHERE id = ${linkedMandateId}
+        AND company_id = ${companyId}
+      LIMIT 1
+    `;
+    return rows[0]?.id ?? null;
+  }
+  const rows = await sql<{ id: string }>`
+    SELECT id FROM subscription_mandates
+    WHERE company_id = ${companyId}
+      AND gateway = 'paystack'
+      AND status = 'pending'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  return rows[0]?.id ?? null;
+}
+
 async function handleChargeSuccess(
   reference: string,
   event: PaystackWebhookEvent,
@@ -93,6 +123,7 @@ async function handleChargeSuccess(
     customer_invoice_id: string | null;
     flow_purchase_id: string | null;
     subscription_charge_id: string | null;
+    mandate_id: string | null;
     amount_cents: string;
     status: string;
   }>`
@@ -105,7 +136,7 @@ async function handleChargeSuccess(
         channel = COALESCE(${event.data.channel ?? null}, channel)
     WHERE paystack_reference = ${reference}
       AND status <> 'completed'
-    RETURNING id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, amount_cents, status
+    RETURNING id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, mandate_id, amount_cents, status
   `;
   const pr = prRows[0];
   if (!pr) {
@@ -172,8 +203,21 @@ async function handleChargeSuccess(
   }
 
   if (pr.purpose === 'authorization' && auth.authorization_code) {
-    // Auth capture — promote the captured authorization onto the company's
-    // mandate row so subsequent recurring debits can charge it.
+    // Auth capture — promote the authorization onto the ONE mandate this
+    // checkout was started for. The predicate used to be every mandate on the
+    // company with status IN ('pending','active'), which raises 23505 on
+    // ux_sub_mandates_company_active once an abandoned-then-retried checkout
+    // has left a second pending row behind. That throw rolls the event back,
+    // the webhook answers 500, and every redelivery hits the same constraint.
+    const mandateId = await resolveAuthorisedMandateId(pr.company_id, pr.mandate_id);
+    if (!mandateId) {
+      log.warn(
+        'charge.success authorisation has no mandate row to activate',
+        { reference, companyId: pr.company_id },
+        'PaystackWebhook',
+      );
+      return;
+    }
     await sql`
       UPDATE subscription_mandates
       SET status = 'active',
@@ -187,7 +231,8 @@ async function handleChargeSuccess(
           bank_name = COALESCE(${auth.bank ?? null}, bank_name),
           authorised_at = COALESCE(authorised_at, now()),
           updated_at = now()
-      WHERE company_id = ${pr.company_id} AND status IN ('pending','active')
+      WHERE id = ${mandateId}
+        AND company_id = ${pr.company_id}
     `;
     return;
   }
