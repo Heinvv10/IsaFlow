@@ -1,8 +1,4 @@
-/**
- * Journal Entry CRUD Service
- * Create, read operations for GL journal entries.
- * Trial balance split to trialBalanceService.ts.
- */
+/** Journal CRUD; trial balance lives in trialBalanceService.ts. */
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -242,12 +238,9 @@ export async function createJournalEntry(
     const safeUserId = await resolveUserUuid(userId);
     const resolvedMeta = meta ?? defaultHumanMeta(userId);
 
-    // Generate the entry UUID client-side so we can reference it in line inserts
-    // without needing a sequential transaction (the direct Neon endpoint may be unreachable).
+    // Generate the UUID before batching the header and line inserts.
     const entryId = randomUUID();
 
-    // Use neon serverless transaction() — batches all inserts into one HTTP round-trip
-    // via the pooler, which is always reachable.
     const [entryResult] = await sql.transaction([
       sql`
         INSERT INTO gl_journal_entries (
