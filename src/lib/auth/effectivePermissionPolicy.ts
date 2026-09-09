@@ -11,6 +11,8 @@ export const EFFECTIVE_PERMISSION_RULES: Readonly<Record<string, PermissionRule>
   'write:bank-tx': rule(['banking'], 'canWrite'),
   'write:journals': rule(['accounts'], 'canWrite'),
   'write:accounts': rule(['accounts'], 'canWrite'),
+  'read:assets': rule(['assets'], 'canRead'),
+  'write:assets': rule(['assets'], 'canWrite'),
   'read:reports': rule(['reports'], 'canRead'),
   'read:contacts': rule(['customers', 'suppliers'], 'canRead'),
   'write:contacts': rule(['customers', 'suppliers'], 'canWrite'),

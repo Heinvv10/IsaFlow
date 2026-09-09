@@ -44,3 +44,7 @@ CREATE POLICY tenant_create ON control_asset_depreciation_intents FOR INSERT
  AND requester_person_id=auth.uid()::text);
 REVOKE ALL ON control_asset_depreciation_intents FROM PUBLIC,app_user;
 GRANT SELECT,INSERT ON control_asset_depreciation_intents TO app_user;
+
+INSERT INTO permission_modules(module_key,module_name,description,display_order)
+VALUES('assets','Fixed assets','Fixed asset maintenance and controlled depreciation',208)
+ON CONFLICT(module_key) DO NOTHING;

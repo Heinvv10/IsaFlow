@@ -13,6 +13,8 @@ export interface PatScopeMeta {
 }
 
 export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
+  'read:assets': { label: 'Read fixed assets', desc: 'Read fixed asset records and depreciation control requirements.' },
+  'write:assets': { label: 'Manage fixed assets', desc: 'Prepare and execute fixed asset changes under accounting controls. Depreciation posting also requires write:post.' },
   'read:approvals': { label: 'Read operation approvals', desc: 'Read approval requirements and request status.' },
   'write:approvals': { label: 'Request operation approvals', desc: 'Request independent approval of a specific operation. Decisions require a signed-in human.' },
   'write:beneficiaries': { label: 'Propose beneficiary changes', desc: 'Propose banking changes for independent human verification before use.' },
