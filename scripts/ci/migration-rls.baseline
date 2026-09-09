@@ -87,8 +87,6 @@ company_messages
 company_udf_definitions
 company_user_permissions
 compliance_alerts
-cost_centre_gl_mappings
-cost_centres
 customer_activities
 customer_contacts
 customer_delivery_addresses
@@ -141,15 +139,9 @@ payment_transactions
 pay_packages
 payroll_audit_log
 payroll_batches
-payroll_components
-payroll_employee_cost_allocations
 payroll_employee_history
-payroll_employees
 payroll_external_imports
 payroll_external_payslips
-payroll_leave_types
-payroll_loans
-payroll_run_headers
 pay_scales
 paystack_payment_requests
 personal_access_tokens
