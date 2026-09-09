@@ -1,6 +1,6 @@
 # Synthetic forensic fixture handoff
 
-Base a107aa8b; branch feat/mcp-forensic-fixtures-20260909. No database calls were made: root serializes provisioning after CI. Implementation is unit-tested; real schema compatibility and HTTP acceptance remain unverified.
+Base a107aa8b; branch feat/mcp-forensic-fixtures-20260909. Initial implementation was unit-only. Subsequent root-leased real PostgreSQL proof passed as recorded below; HTTP acceptance remains unverified.
 
 Owned interfaces in `tests/integration/forensic-fixture.ts`:
 
@@ -26,3 +26,17 @@ node node_modules/typescript/bin/tsc --ignoreConfig --noEmit --skipLibCheck --es
 Focused TypeScript compile passed. Direct ESLint on these three files failed project-service discovery because repo tsconfig excludes their locations; no ESLint/config/hook changes made. Initial focused tsc command required the installed TypeScript6 --ignoreConfig flag and was rerun successfully. Full CI and DB proof remain root integration checks, not waived. Existing integration node_modules symlink reused after identical bun.lock comparison. All owned code files are below300 lines.
 
 Initial commit secret-scan hook rejected literal synthetic password URLs in negative tests. Removed password components entirely from those URLs; no hook bypass used.
+
+## Real PostgreSQL proof (subsequent root-granted DB lease)
+
+`tests/integration/forensic-fixture.int.test.ts` passed3 tests against the root-owned PG16 container isaflow-forensic-pg-20260909, local33149/isaflow_schema_fixture. Root independently verified Docker purpose=isaflow-forensic-synthetic before granting the lease. No baseline schema repairs were needed.
+
+Verified two company rows, three user rows, three memberships, four PAT hashes; real application validatePat accepts every token and both U1 tokens map to U1 with distinct patIds. SET LOCAL ROLE app_user plus JWT/company GUCs exposes only owned company/membership rows in each direction. A disposable trigger rejects synthetic PAT insertion after company/user/membership inserts: provisionForensicFixture throws and all four table counts remain unchanged. Trigger/function removed in finally. No sessions with application_name=isaflow-forensic-fixture remain; test and application PAT pools are explicitly closed.
+
+Command from worker worktree with Node22.23.1 on PATH, ISAFLOW_FORENSIC_FIXTURE_OPT_IN=1, dedicated ISAFLOW_FORENSIC_FIXTURE_URL targeting postgres@127.0.0.1:33149/isaflow_schema_fixture, and disposable PGPASSWORD supplied at runtime (no credentials committed):
+
+```
+node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts tests/integration/forensic-fixture.int.test.ts
+```
+
+First run3/3passed250ms; after adding explicit users-table count assertion final run3/3passed274ms (128ms test time). Latest raw local log /tmp/forensic-fixture-db.log. Successful random synthetic fixture identities are retained in this disposable database for root inspection; the two runs created two independent sets (4companies/6users/8PATs total added). Failed provisioning added zero rows. No production or external endpoints called, no messages sent, no migrations/build/full CI executed. This proves existing fixture compatibility, not historical migration replay or MCP HTTP acceptance.
