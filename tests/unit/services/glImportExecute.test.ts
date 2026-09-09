@@ -1,5 +1,6 @@
 /**
- * GL journal import must post balanced entries — or none.
+ * Legacy GL draft staging must validate complete balanced groups.
+ * Actual approved posting and rollback are covered by historicalImportExecution.int.test.ts.
  *
  * importJournalEntries groups rows by date+reference, one journal per group.
  * The old body INSERTed each group's header directly (status='posted' when the
@@ -148,7 +149,7 @@ describe('importJournalEntries', () => {
 
     // Previously: the 9999 row was skipped and a 1000-debit entry with no
     // credit was posted.
-    await expect(importJournalEntries(COMPANY, rows, USER, true)).rejects.toThrow(/9999/);
+    await expect(importJournalEntries(COMPANY, rows, USER, false)).rejects.toThrow(/9999/);
     expect(createMock).not.toHaveBeenCalled();
   });
 
@@ -163,7 +164,7 @@ describe('importJournalEntries', () => {
 
     // Validation runs across every row before the first entry is created, so a
     // bad row late in the file cannot leave earlier groups half-imported.
-    await expect(importJournalEntries(COMPANY, rows, USER, true)).rejects.toThrow(/9999/);
+    await expect(importJournalEntries(COMPANY, rows, USER, false)).rejects.toThrow(/9999/);
     expect(createMock).not.toHaveBeenCalled();
     expect(postMock).not.toHaveBeenCalled();
   });
@@ -182,7 +183,7 @@ describe('importJournalEntries', () => {
       row({ reference: 'REF2', accountCode: '4000', debit: 0, credit: 400 }),   // vs 400 credit
     ];
 
-    await expect(importJournalEntries(COMPANY, rows, USER, true)).rejects.toThrow(/not balanced/i);
+    await expect(importJournalEntries(COMPANY, rows, USER, false)).rejects.toThrow(/not balanced/i);
 
     // REF1 must NOT have been created — it is ordered before the bad group.
     expect(createMock).not.toHaveBeenCalled();
@@ -196,7 +197,7 @@ describe('importJournalEntries', () => {
       importJournalEntries(COMPANY, [
         row({ reference: 'REF9', accountCode: '1000', debit: 500, credit: 0 }),
         row({ reference: 'REF9', accountCode: '4000', debit: 0, credit: 400 }),
-      ], USER, true),
+      ], USER, false),
     ).rejects.toThrow(/REF9/);
   });
 
@@ -206,17 +207,16 @@ describe('importJournalEntries', () => {
     // The route keys off this type: anything else propagates to a 500 and rolls
     // back, because it can only have happened mid-write.
     await expect(
-      importJournalEntries(COMPANY, [row({ accountCode: '9999', debit: 1, credit: 0 })], USER, true),
+      importJournalEntries(COMPANY, [row({ accountCode: '9999', debit: 1, credit: 0 })], USER, false),
     ).rejects.toBeInstanceOf(ImportValidationError);
   });
 
-  it('posts each entry when postImmediately is set', async () => {
+  it('refuses financial posting without an authenticated control transaction', async () => {
     withAccounts(ACCOUNTS);
 
-    await importJournalEntries(COMPANY, balancedPair, USER, true);
-
-    expect(postMock).toHaveBeenCalledTimes(1);
-    expect(postMock).toHaveBeenCalledWith(COMPANY, 'je-1', USER);
+    await expect(importJournalEntries(COMPANY, balancedPair, USER, true)).rejects.toThrow('Authenticated control transaction');
+    expect(createMock).not.toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
   });
 
   it('leaves entries as drafts when postImmediately is not set', async () => {

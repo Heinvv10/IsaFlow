@@ -7,9 +7,10 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ImportRow, ImportResult } from './glImportService';
-import { createJournalEntry, postJournalEntry } from './journalEntryService';
+import { createJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
+import {executeLegacyHistoricalGl,type HistoricalGlImportBindings} from '../controls/historicalImportLegacyGl';
 type Row = DbRow;
 
 /**
@@ -54,7 +55,10 @@ export async function importJournalEntries(
   rows: ImportRow[],
   userId: string,
   postImmediately: boolean,
+  savedImports?: HistoricalGlImportBindings,
 ): Promise<ImportResult> {
+  if (postImmediately) return executeLegacyHistoricalGl(companyId, rows, userId, savedImports);
+  if (savedImports) throw new ImportValidationError('Saved historical imports execute through posting; use source preparation for staging');
   try {
     const accountRows = (await sql`
       SELECT account_code, id
@@ -158,17 +162,13 @@ export async function importJournalEntries(
       // createJournalEntry resolves the fiscal period from entryDate and runs
       // validateJournalEntry, so an unbalanced group is rejected here rather
       // than becoming a posted entry nobody checked.
-      const entry = await createJournalEntry(companyId, {
+      await createJournalEntry(companyId, {
         entryDate: group.entryDate,
         description: group.description,
         source: 'auto_gl_import',
         ...(group.reference ? { reference: group.reference } : {}),
         lines: group.lines,
       }, userId, { postingAgent: 'import:gl-manual' });
-
-      if (postImmediately) {
-        await postJournalEntry(companyId, entry.id, userId);
-      }
 
       entriesCreated++;
       linesCreated += group.lines.length;
