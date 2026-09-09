@@ -1,0 +1,32 @@
+K-107 / K-120 / K-121 — one branch, one fix set (document numbering).
+
+GREEN (fixture DB, bun run test:integration):
+  k107-recurring-invoice-number-collision.int.test.ts
+  k107-recurring-number-sequence-adjacent.int.test.ts
+  k120-invoice-numbering-bypasses-sequence.int.test.ts
+  k120-invoice-sequence-adjacent.int.test.ts
+  k121-quote-convert-adjacent.int.test.ts
+  k121-quote-convert-to-order-no-status-guard.int.test.ts
+  => Test Files 6 passed (6) / Tests 13 passed (13)
+
+MUTATION PROOF (production change reverted to HEAD, test re-run, then restored):
+  M1 quoteConvertService.ts reverted        -> 2 failed | 1 passed (K-121)
+  M2 salesOrderWorkflowService.ts reverted  -> 4 failed | 1 passed (K-120)
+  M3 recurringInvoiceService.ts reverted    -> 1 failed | 2 passed (K-120 adjacent)
+  M4 recurringTransactionService.ts reverted-> 3 failed | 2 passed (K-107)
+  M5 migration 646 index DROPped            -> 1 failed | 2 passed (K-107 adjacent)
+  All five restored; re-run green above.
+
+FULL UNIT SUITE (DATABASE_URL unset, bunx vitest run):
+  Test Files 799 passed | 40 skipped (839)
+  Tests      9545 passed | 243 skipped (9788)
+
+bunx tsc --noEmit           -> clean (exit 0)
+bunx eslint <4 changed src> -> clean (exit 0)
+bun scripts/audit-migration-naming.ts -> OK, no new duplicate prefixes
+bun scripts/ci/check-migration-rls.ts -> OK
+
+AFTER the caller-message change in pages/api/accounting/customer-quotes-action.ts
+(K-121: 404 label 'Unconverted quote'):
+  bunx tsc --noEmit -> clean; bunx eslint <5 changed src/pages files> -> clean
+  bunx vitest run tests/unit -> 799 passed | 40 skipped (839) / 9545 passed | 243 skipped (9788)

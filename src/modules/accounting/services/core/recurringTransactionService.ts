@@ -3,10 +3,11 @@
  * CRUD + execute for recurring journal/invoice templates.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
+import { reserveNextDocumentNumber } from './companySettingsService';
 
 
 export interface RecurringTemplate {
@@ -162,31 +163,50 @@ export async function executeRecurring(
   } else if (template.entityType === 'customer_invoice') {
     // BL-56: populate invoice_number, customer_id, created_by (all NOT-NULL)
     const data = template.templateData as Record<string, unknown>;
-    // Generate a deterministic recurring invoice number: RINV-<template-slug>-<YYYY-MM>
-    const slugCI = template.name.replace(/[^A-Za-z0-9]/g, '-').toUpperCase().slice(0, 20);
-    const periodCI = new Date().toISOString().slice(0, 7).replace('-', '');
-    const invoiceNumberCI = `RINV-${slugCI}-${periodCI}`;
+    // THE NUMBER COMES FROM THE COMPANY SEQUENCE. It used to be
+    // `RINV-<slug>-<YYYYMM>` — the period token is the calendar month, so a
+    // daily or weekly template minted the SAME number on every run after the
+    // first and died on uq_customer_invoices_company_number (23505). The
+    // sequence is reserved under UPDATE...RETURNING, so concurrent runs cannot
+    // collide; the savepointed retry is for a clash with a legacy number, the
+    // same shape quoteConvertService.convertToInvoice uses.
     const clientIdCI = data.clientId ? String(data.clientId) : null;
-    const ciRows = (await sql`
-      INSERT INTO customer_invoices (
-        company_id, invoice_number, client_id, customer_id, invoice_date, due_date,
-        notes, subtotal, tax_amount, total_amount, status, created_by
-      ) VALUES (
-        ${companyId}::UUID,
-        ${invoiceNumberCI},
-        ${clientIdCI},
-        ${clientIdCI},
-        CURRENT_DATE,
-        CURRENT_DATE::DATE + INTERVAL '30 days',
-        ${String(data.notes || template.name)},
-        ${Number(data.subtotal || 0)},
-        ${Number(data.vatAmount || 0)},
-        ${Number(data.totalAmount || 0)},
-        'draft',
-        ${userId}::UUID
-      ) RETURNING id
-    `) as DbRow[];
-    entityId = String(ciRows[0]?.id);
+    let invoiceNumberCI = await reserveNextDocumentNumber(companyId, 'recurring_invoice');
+    entityId = '';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        entityId = await withSavepoint(`rec_txn_inv_${attempt}`, async () => {
+          const ciRows = (await sql`
+            INSERT INTO customer_invoices (
+              company_id, invoice_number, client_id, customer_id, invoice_date, due_date,
+              notes, subtotal, tax_amount, total_amount, status, created_by
+            ) VALUES (
+              ${companyId}::UUID,
+              ${invoiceNumberCI},
+              ${clientIdCI},
+              ${clientIdCI},
+              CURRENT_DATE,
+              CURRENT_DATE::DATE + INTERVAL '30 days',
+              ${String(data.notes || template.name)},
+              ${Number(data.subtotal || 0)},
+              ${Number(data.vatAmount || 0)},
+              ${Number(data.totalAmount || 0)},
+              'draft',
+              ${userId}::UUID
+            ) RETURNING id
+          `) as DbRow[];
+          return String(ciRows[0]?.id);
+        });
+        break;
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === '23505' && attempt < 4) {
+          invoiceNumberCI = await reserveNextDocumentNumber(companyId, 'recurring_invoice');
+          continue;
+        }
+        throw err;
+      }
+    }
     if (template.autoPost) {
       const postResult = (await sql`UPDATE customer_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID RETURNING id`) as DbRow[];
       if (postResult.length === 0) throw new Error(`Customer invoice not found for auto-post: ${entityId}`);
@@ -195,10 +215,14 @@ export async function executeRecurring(
   } else {
     // BL-57: populate invoice_number, created_by (NOT-NULL)
     const data = template.templateData as Record<string, unknown>;
-    // Generate a deterministic recurring supplier invoice number: RSINV-<template-slug>-<YYYY-MM>
-    const slugSI = template.name.replace(/[^A-Za-z0-9]/g, '-').toUpperCase().slice(0, 20);
-    const periodSI = new Date().toISOString().slice(0, 7).replace('-', '');
-    const invoiceNumberSI = `RSINV-${slugSI}-${periodSI}`;
+    // Same month-constant number as the customer side above, but supplier
+    // invoices had NO unique index, so instead of failing the AP template
+    // minted an identical bill — same number, same duplicate_fingerprint —
+    // on every run, inflating payables and input VAT. Migration 646 adds
+    // uq_supplier_invoices_supplier_number; there is deliberately no 23505
+    // retry here, because on the AP side a clash means "this bill is already
+    // captured for this supplier" and must be refused, not renumbered.
+    const invoiceNumberSI = await reserveNextDocumentNumber(companyId, 'supplier_invoice');
     const recSupplierId = String(data.supplierId || '');
     const recTotal = Number(data.totalAmount || 0);
 

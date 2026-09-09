@@ -15,6 +15,7 @@ import {
   RecurringInvoiceTemplateError,
 } from './recurringInvoiceTemplate';
 import { lockRecurringTemplate, RecurringInvoiceLockTimeoutError } from './recurringInvoiceLock';
+import { reserveNextDocumentNumber } from '../core/companySettingsService';
 import type {
   RecurringInvoice,
   RecurringInvoiceCreateInput,
@@ -178,13 +179,13 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   const endDate = ri.end_date ? String(ri.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
 
-  // Generate next invoice number
-  const numRows = (await sql`
-    SELECT MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)) AS max_num
-    FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number LIKE 'INV-%'
-  `) as Row[];
-  const nextNum = (Number(numRows[0]?.max_num) || 0) + 1;
-  const invoiceNumber = `INV-${String(nextNum).padStart(5, '0')}`;
+  // THE NUMBER COMES FROM THE COMPANY SEQUENCE. MAX(invoice_number)+1 was a
+  // second generator for one uniqueness domain: it left
+  // company_document_numbers.next_number frozen at its seed value while live
+  // numbers ran ahead of it, and it padded to 5 where the sequence pads to the
+  // configured width. Retry on 23505 (a clash with a legacy number) is handled
+  // at the INSERT below, which is already inside this template's savepoint.
+  const invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
 
   // The template's lines ARE the invoice. Minting a header with none of them
   // put a receivable in AR with no detail behind it, so refuse rather than
