@@ -109,7 +109,7 @@ export async function getCashBalance(
   // `account_type = 'asset'` alongside the subtype list, because a credit card
   // spelled `bank_account` is a liability and is not cash. Every other reader of
   // this figure already carries that guard (cashFlowDirectService's movement
-  // half, both cashFlowReconciliationService predicates); without it here the
+  // half and both cashFlowReconciliationService predicates); without it here the
   // opening balance disagreed with the closing one it is compared against, and
   // the reconciliation reported a variance equal to the card balance on books
   // that were correct.

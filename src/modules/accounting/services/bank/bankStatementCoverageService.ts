@@ -186,9 +186,12 @@ export async function getBankStatementCoverage(
     const opening = row.openingBalanceAmount;
     const statementBalance = row.netMovement;
     const computedBalance = (opening ?? 0) + statementBalance;
-    // An account the cash figure does not list has no bank-subtype GL presence
-    // at all; zero is the honest reading, and the difference then states the
-    // whole statement balance as unexplained rather than hiding the row.
+    // The cash figure and fetchCoverageAccounts share one definition of a bank
+    // account -- subtype `bank`, type `asset` -- so an account listed here is
+    // always one the cash figure also lists, and this fallback is unreachable
+    // in practice. It stays as a floor rather than an assumption: if the two
+    // ever drift again, the difference states the whole statement balance as
+    // unexplained instead of hiding the row.
     const glBalance = glBy.get(row.bankAccountId) ?? 0;
     const direction = directionBy.get(row.bankAccountId);
     const glOnlyMovement = direction?.glOnlyMovement ?? 0;
