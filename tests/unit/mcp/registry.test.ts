@@ -1,3 +1,5 @@
+// Durable invocation lifecycle is exercised separately by registryInvocation and PostgreSQL suites.
+vi.mock('@/lib/mcp/invocationBoundary', () => ({ withMcpInvocation: async (_name: string, _args: unknown, run: (mark: () => void) => Promise<unknown>) => run(() => undefined) }));
 // Tool argument contracts are independently covered for every registered schema.
 vi.mock('@/lib/mcp/inputValidation', () => ({ validateToolArguments: (_tool: unknown, args: unknown) => ({ ok: true, args }) }));
 // Current authority is independently covered by forensic/currentToolAuthority and real PostgreSQL permission tests.
@@ -70,10 +72,17 @@ function auditInserts(): Array<{ text: string; values: unknown[] }> {
     .filter((c) => c.text.includes('INSERT INTO mcp_tool_calls'));
 }
 
+function receiptInserts() {
+  return sqlMock.mock.calls.map((_, i) => ({ text: sqlCallText(i), values: sqlCallValues(i) }))
+    .filter(c => c.text.includes('INSERT INTO mcp_idempotency_results'));
+}
+
 let registry: McpRegistry;
 
 beforeEach(() => {
   resetSqlMock();
+  sqlMock.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) =>
+    strings.join('').includes('INSERT INTO mcp_idempotency_results') ? [{ args_hash: values[3] }] : []);
   savepointMock.mockClear();
   registry = new McpRegistry();
 });
@@ -184,7 +193,7 @@ describe('McpRegistry — fence order', () => {
     expect(r.content[0]!.text).not.toContain('first-call');
   });
 
-  it('data minimisation: read-tool audit stores NULL result; write-tool stores it', async () => {
+  it('data minimisation: history omits payloads; only successful writes retain replay results', async () => {
     // read tool (write:false) → result column is JSON null
     registry.register(makeTool({
       name: 'r', scope: 'read:reports',
@@ -192,18 +201,21 @@ describe('McpRegistry — fence order', () => {
     }));
     await registry.call('r', {}, ctxWithScopes(['read:reports']));
     const readInsert = auditInserts()[0]!;
-    expect(readInsert.values).toContain('null'); // JSON.stringify(null)
+    expect(readInsert.values).toContain(null); // No duplicate payload in retained history
     expect(readInsert.values.some((v) => String(v).includes('secret financials'))).toBe(false);
 
     // write tool (write:true) → result IS stored (needed for replay)
     resetSqlMock();
+  sqlMock.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) =>
+    strings.join('').includes('INSERT INTO mcp_idempotency_results') ? [{ args_hash: values[3] }] : []);
     registry.register(makeTool({
       name: 'w', scope: 'write:invoices', write: true,
       handler: async () => ({ content: [{ type: 'text' as const, text: '"created inv-1"' }] }),
     }));
     await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']));
-    const writeInsert = auditInserts()[0]!;
+    const writeInsert = receiptInserts()[0]!;
     expect(writeInsert.values.some((v) => String(v).includes('created inv-1'))).toBe(true);
+    expect(auditInserts()[0]!.values.some(v => String(v).includes('created inv-1'))).toBe(false);
   });
 
   it('happy path → handler called with ctx, audited status ok with tenant + jti', async () => {

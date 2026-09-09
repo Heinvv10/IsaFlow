@@ -2,8 +2,8 @@
  * MCP tool registry — the security fence for every tools/call.
  *
  * call() order is the invariant (proven by tests, not convention):
- *   resolve tool → scope check → write:post check → idempotency-key presence
- *   → replay lookup → handler → audit.
+ *   durable admission → resolve tool → scope check → write:post check → idempotency-key presence
+ *   → current authority → replay lookup → handler → transactional receipt → observed COMMIT.
  * Rejections happen BEFORE the handler runs and are audited as 'rejected'.
  * Handler errors return a GENERIC message — never stack traces or SQL.
  */
@@ -21,6 +21,7 @@ import {
 import { insufficientScopeMessage } from './scopeRemediation';
 import { assertCurrentToolAuthority } from './currentToolAuthority';
 import { validateToolArguments } from './inputValidation';
+import {withMcpInvocation,type MarkInvocation} from './invocationBoundary';
 
 /**
  * The SAVEPOINT name a write tool runs under.
@@ -41,6 +42,10 @@ export function savepointNameFor(toolName: string): string {
 
 function errorResult(text: string): McpToolResult {
   return { content: [{ type: 'text', text }], isError: true };
+}
+
+class HandlerRefusal extends Error {
+  constructor(readonly result:McpToolResult){super('Tool refused');}
 }
 
 const GENERIC_FAILURE = 'The operation failed. Please try again or contact support.';
@@ -78,6 +83,10 @@ export class McpRegistry {
     args: Record<string, unknown>,
     ctx: McpToolContext,
   ): Promise<McpToolResult> {
+    return withMcpInvocation(name,args,mark=>this.callAdmitted(name,args,ctx,mark));
+  }
+
+  private async callAdmitted(name:string,args:Record<string,unknown>,ctx:McpToolContext,mark:MarkInvocation):Promise<McpToolResult> {
     const started = Date.now();
     let argsHash = hashArgs({ invalidArguments: true });
 
@@ -148,6 +157,7 @@ export class McpRegistry {
         log.info('MCP: idempotent replay served', { tool: name, companyId: ctx.companyId }, 'mcp');
         // Stored results may carry registry-internal flags (billable) — strip on replay too.
         const { billable: _b, wroteNothing: _w, ...replayWire } = replay.result;
+        mark({status:'replay',reportedWrite:false,reasonCode:'REPLAY'});
         return replayWire;
       }
       if (replay.status === 'conflict') {
@@ -164,22 +174,9 @@ export class McpRegistry {
     // would be a second at-rest copy of financial data with no use.
     const runAndAudit = async (): Promise<McpToolResult> => {
       const result = await tool.handler(args, ctx);
-      // A handler REFUSAL is audited as 'rejected' with a NULL key, never as a
-      // replayable 'ok'. Same reasoning as the insufficient-Flows and
-      // handler-throw paths below: the partial unique index is
-      // (company_id, tool, idempotency_key) with no status column and
-      // recordToolCall does ON CONFLICT DO NOTHING, so a row carrying the real
-      // key permanently occupies that slot.
-      //
-      // Stored under the key instead, a refusal replays FOREVER. Most of these
-      // refusals are state-dependent, not argument-dependent — "Not found" for
-      // a batch that had not committed yet, "Transaction already allocated",
-      // an ownership check racing a customer being created. Once the state is
-      // fixed the identical call is still correct, and the agent (which chose
-      // one key per logical operation) would get the stale error back with no
-      // way to tell it apart from a fresh one. Nothing is lost by re-running:
-      // a refusal wrote nothing, so there is no duplicate to protect against.
+      // Refusals are not replayable; successful dry runs also leave the key free.
       const refused = result.isError === true;
+      if(tool.write && refused)throw new HandlerRefusal(result);
       // A success that wrote nothing (a dry run) must not occupy the key
       // either: the real call that follows carries the same intent and the same
       // natural key, and would otherwise be served the dry run's "posted: 0"
@@ -203,14 +200,7 @@ export class McpRegistry {
     // again would bill twice for one operation.
     const debit = await debitForTool(ctx.companyId, name, args);
     if (!debit.ok) {
-      // Audited WITHOUT the idempotency key, deliberately. The partial unique
-      // index is (company_id, tool, idempotency_key) with no status column, and
-      // recordToolCall does ON CONFLICT DO NOTHING — so a 'rejected' row here
-      // would permanently occupy the key. The later successful call's 'ok' row
-      // would be silently dropped, and findIdempotentReplay (which matches only
-      // status='ok') would never see it again: every retry of that key would
-      // re-run the handler, creating duplicate documents and duplicate debits.
-      // Running out of Flows must not burn the key.
+      // Insufficient funds never consume the immutable result key.
       return reject(
         `Insufficient Flows: ${name} costs ${debit.required} and the wallet holds ${debit.balance}. Top up to continue.`,
         null,
@@ -239,30 +229,27 @@ export class McpRegistry {
       }
       // Both flags are registry-internal — never put them on the wire.
       const { billable: _billable, wroteNothing: _wroteNothing, ...wire } = result;
+      mark({status:result.isError===true?'rejected':'ok',reportedWrite:tool.write&&result.isError!==true&&result.wroteNothing!==true,
+        reasonCode:result.isError===true?'TOOL_REJECTED':'SUCCESS'});
       return wire;
     } catch (err) {
-      log.error(
+      const refused=err instanceof HandlerRefusal;
+      mark({status:refused?'rejected':'error',reportedWrite:false,reasonCode:refused?'TOOL_REJECTED':'HANDLER_ERROR'});
+      if(!refused)log.error(
         'MCP tool handler failed',
-        { tool: name, companyId: ctx.companyId, err: err instanceof Error ? err.message : String(err) },
+        { tool: name, companyId: ctx.companyId },
         'mcp',
       );
       if (debit.handle) await refundForTool(ctx.companyId, debit.handle);
-      // Audited WITHOUT the idempotency key — same reasoning as the
-      // insufficient-Flows reject above. The partial unique index is
-      // (company_id, tool, idempotency_key) and recordToolCall does
-      // ON CONFLICT DO NOTHING, so an 'error' row carrying the real key
-      // permanently occupies that slot: the retry's successful 'ok' row is
-      // silently dropped, and because findIdempotentReplay matches only
-      // status='ok', every later retry of that key re-runs the handler instead
-      // of replaying. A failed call must not burn the key.
-      //
-      // This became reachable for finalize_invoice once it stopped swallowing
-      // its GL failures (a swallowed error returned an isError envelope and
-      // never reached this catch at all).
+      // Error history remains independent of successful idempotency receipts.
       await recordToolCall({
         ctx, tool: name, argsHash, idempotencyKey: null,
-        status: 'error', result: null, durationMs: Date.now() - started,
+        status: refused?'rejected':'error', result: null, durationMs: Date.now() - started,
       });
+      if(err instanceof HandlerRefusal){
+        const {billable:_billable,wroteNothing:_wroteNothing,...wire}=err.result;
+        return wire;
+      }
       // A line-specific refusal contains only safe caller-owned input.
       if (err instanceof BulkAllocationLineError) {
         return errorResult(bulkAllocationLineErrorText(name, err));

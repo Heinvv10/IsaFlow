@@ -1,3 +1,5 @@
+// Durable invocation lifecycle is exercised separately by registryInvocation and PostgreSQL suites.
+vi.mock('@/lib/mcp/invocationBoundary', () => ({ withMcpInvocation: async (_name: string, _args: unknown, run: (mark: () => void) => Promise<unknown>) => run(() => undefined) }));
 import { beforeEach, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ authority:vi.fn(),replay:vi.fn(),audit:vi.fn(),debit:vi.fn(),lock:vi.fn() }));
 vi.mock('@/lib/mcp/currentToolAuthority', () => ({ assertCurrentToolAuthority:mock.authority }));

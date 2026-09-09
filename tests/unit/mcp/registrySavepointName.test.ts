@@ -1,3 +1,5 @@
+// Durable invocation lifecycle is exercised separately by registryInvocation and PostgreSQL suites.
+vi.mock('@/lib/mcp/invocationBoundary', () => ({ withMcpInvocation: async (_name: string, _args: unknown, run: (mark: () => void) => Promise<unknown>) => run(() => undefined) }));
 /**
  * Every registered tool must produce a savepoint name `withSavepoint` accepts.
  *

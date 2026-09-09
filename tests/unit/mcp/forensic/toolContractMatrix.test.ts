@@ -1,3 +1,5 @@
+// Durable invocation lifecycle is exercised separately by registryInvocation and PostgreSQL suites.
+vi.mock('@/lib/mcp/invocationBoundary', () => ({ withMcpInvocation: async (_name: string, _args: unknown, run: (mark: () => void) => Promise<unknown>) => run(() => undefined) }));
 /** Schema and registry-fence fixtures, NOT successful financial workflow proof. */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
