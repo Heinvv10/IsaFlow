@@ -276,3 +276,8 @@ describe('refundForTool', () => {
     await expect(refundForTool(COMPANY, { code: 'journal.create', cost: 3 })).resolves.toBeUndefined();
   });
 });
+
+it('explicitly meters prepared bank controls as free, matching existing bank allocation and corrections',()=>{
+ expect(flowOperationFor('prepare_bank_operation',{})).toBe(null);
+ expect(flowOperationFor('execute_bank_operation',{})).toBe(null);
+});
