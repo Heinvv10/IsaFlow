@@ -69,3 +69,10 @@ it('executes the tagged lazy SQL while the private metadata-only ALS context is 
  });
  await createAuditJobPoller({companyIds:[company]},{pool}).pollOnce();
 });
+it('advances past malformed identities rejected before the runner can claim',async()=>{
+ query.mockImplementation(async(text:string)=>({rows:text.includes('SELECT j.job_id')?[{...candidate,personId:''},{...candidate,jobId:other}]:[]}));
+ vi.mocked(runAuditSnapshotJob).mockRejectedValueOnce(new Error('Malformed stored requester identity')).mockResolvedValueOnce({state:'not_claimed'});
+ const result=await createAuditJobPoller({companyIds:[company]},{pool}).pollOnce();
+ expect(result.attempted).toBe(2);expect(result.results[0]).toMatchObject({state:'failed',failureRecorded:false});
+ expect(result.results[1]).toEqual({state:'not_claimed'});
+});
