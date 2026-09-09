@@ -143,6 +143,7 @@ async function fetchInvoiceCandidates(
              FROM customer_payment_allocations cpa
              WHERE cpa.invoice_id = ci.id
                AND cpa.payment_id = ${paymentId}::UUID
+               AND cpa.reversed_at IS NULL
            ), 0) AS already_allocated
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}::UUID
