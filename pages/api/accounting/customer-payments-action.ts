@@ -1,3 +1,4 @@
+import {parseArActionOptions} from '@/modules/accounting/services/ar/arActionOptions';
 /**
  * Customer Payment Actions API
  * POST /api/accounting/customer-payments-action
@@ -29,11 +30,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'confirm': {
-        const payment = await confirmCustomerPayment(companyId, paymentId, userId);
+        const payment = await confirmCustomerPayment(companyId, paymentId, userId, parseArActionOptions(req.body));
         return apiResponse.success(res, payment);
       }
       case 'cancel': {
-        const cancelled = await cancelCustomerPayment(companyId, paymentId, userId, reason);
+        const cancelled = await cancelCustomerPayment(companyId, paymentId, userId, reason, parseArActionOptions(req.body));
         return apiResponse.success(res, cancelled);
       }
       default:

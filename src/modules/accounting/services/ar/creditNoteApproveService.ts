@@ -9,10 +9,13 @@
  */
 
 import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
-import { getSystemAccount } from '../gl/systemAccountResolver';
+import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import {mutateArRelatedEntity} from './arRelatedEntityEffect';
+import {resolveArAccounts} from '../controls/arControlAccounts';
+import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
+import {requireArControl,runArControlled,type ArApprovalOptions} from './arControlBoundary';
+import type {ArParentControl} from './customerInvoiceFinancialEffect';
 import type { CreditNote } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
@@ -20,7 +23,7 @@ import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 
-export async function approveCreditNote(
+async function approveCreditNoteEffect(
   companyId: string,
   id: string,
   userId: string,
@@ -29,7 +32,8 @@ export async function approveCreditNote(
   // defaultHumanMeta(userId) and an MCP-approved credit note posts labelled
   // `human:<userId>` — claiming the token owner did it by hand, and invisible
   // to list_agent_postings, which filters posting_agent LIKE 'mcp:%'.
-  opts?: PostingActorOpts,
+  opts: PostingActorOpts | undefined,
+  parentControl: ArParentControl,
 ): Promise<CreditNote> {
   try {
     // FOR UPDATE, not a plain SELECT: the status check below and the posting
@@ -43,13 +47,15 @@ export async function approveCreditNote(
     if (!cn) throw new Error(`Credit note ${id} not found`);
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
 
+    const ctx=requireArControl(companyId,userId);
+    const accounts=await resolveArAccounts(ctx,String(cn.type)==='customer'?['default_revenue','receivable','vat_output']:['payable','default_expense','vat_input']);
     let lines: JournalLineInput[];
 
     if (String(cn.type) === 'customer') {
       // Customer CN: DR Revenue, CR Accounts Receivable
-      const revenueAccount = await getSystemAccount('default_revenue', companyId);
-      const arAccount = await getSystemAccount('receivable', companyId);
-      const vatAccount = await getSystemAccount('vat_output', companyId);
+      const revenueAccount = accounts.chosen.default_revenue!;
+      const arAccount = accounts.chosen.receivable!;
+      const vatAccount = accounts.chosen.vat_output!;
 
       lines = [
         { glAccountId: revenueAccount.id, debit: Number(cn.subtotal), credit: 0,
@@ -63,9 +69,9 @@ export async function approveCreditNote(
         description: `AR credit: ${cn.credit_note_number}` });
     } else {
       // Supplier CN: DR Accounts Payable, CR Expense
-      const apAccount = await getSystemAccount('payable', companyId);
-      const expenseAccount = await getSystemAccount('default_expense', companyId);
-      const vatAccount = await getSystemAccount('vat_input', companyId);
+      const apAccount = accounts.chosen.payable!;
+      const expenseAccount = accounts.chosen.default_expense!;
+      const vatAccount = accounts.chosen.vat_input!;
 
       lines = [
         { glAccountId: apAccount.id, debit: Number(cn.total_amount), credit: 0,
@@ -79,16 +85,7 @@ export async function approveCreditNote(
         description: `Expense credit: ${cn.credit_note_number}` });
     }
 
-    // credit_date comes back from pg as a Date object (or a string on some
-    // paths); String(Date) yields "Fri Jul 04 2026 ... GMT+0200 (...)" which
-    // Postgres rejects as an invalid time zone when inserted into entry_date.
-    // fmtDate (not toISODate) is required here: node-postgres constructs DATE
-    // columns at LOCAL midnight, so toISODate's UTC-based slicing rolls the
-    // date back a day on this server's UTC+2 timezone — fmtDate reads the
-    // same local getters pg used to build the Date, and also handles the
-    // string shape (already 'YYYY-MM-DD' or an ISO timestamp).
-    const entryDate = fmtDate(cn.credit_date);
-    if (!entryDate) throw new Error(`Credit note ${id} has an invalid credit_date value`);
+    const entryDate=parentControl.permit.accountingDate;
 
     // No sourceDocumentId: gl_journal_entries.source_document_id has an FK to
     // captured_documents(id) only (migration 409); a credit note's own id
@@ -98,9 +95,11 @@ export async function approveCreditNote(
       entryDate,
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
+      sourceRecordId: id,
       lines,
     }, userId, actorMeta(opts));
-    await postJournalEntry(companyId, je.id, userId);
+    await registerGeneratedJournal(ctx,parentControl,je.id,'journal.post');
+    await postJournalEntry(companyId,je.id,userId,{parentControl});
 
     // N6 (P2.1): approving a LINKED note auto-applies it, so it must land in
     // 'applied' — leaving it 'approved' let the separate apply action credit
@@ -153,6 +152,7 @@ export async function approveCreditNote(
       appliedAmount = Math.round(Math.min(Number(cn.total_amount), outstanding) * 100) / 100;
 
       if (appliedAmount > 0) {
+        await mutateArRelatedEntity(ctx,applyTarget.table==='customer'?'customer_invoice':'supplier_invoice',String(applyTarget.id),parentControl,'credit_note_applied',async()=>{
         const applied = (applyTarget.table === 'customer'
           ? await sql`
               UPDATE customer_invoices SET amount_paid = amount_paid + ${appliedAmount}
@@ -167,6 +167,7 @@ export async function approveCreditNote(
           throw new Error(`Credit note ${id}: applying to invoice ${String(applyTarget.id)} wrote no row.`);
         }
         await recomputeInvoiceStatus(companyId, applyTarget.table, String(applyTarget.id));
+        });
       }
     }
     const autoApplied = appliedAmount > 0;
@@ -202,3 +203,8 @@ export async function approveCreditNote(
   }
 }
 
+
+export async function approveCreditNote(companyId:string,id:string,userId:string,opts?:PostingActorOpts&ArApprovalOptions):Promise<CreditNote>{
+ const parent={entityType:'credit_note',entityId:id,operation:'credit_note.approve'} as const;
+ return runArControlled(companyId,userId,parent,opts,permit=>approveCreditNoteEffect(companyId,id,userId,opts,{permit,parent}));
+}

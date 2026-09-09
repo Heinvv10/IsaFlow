@@ -1,3 +1,4 @@
+import {parseArActionOptions} from '@/modules/accounting/services/ar/arActionOptions';
 /**
  * Supplier Credit Notes API
  * GET  /api/accounting/supplier-credit-notes          - List supplier credit notes
@@ -125,12 +126,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (existing.type !== 'supplier') return apiResponse.notFound(res, 'Supplier Credit Note', id);
 
       if (action === 'post') {
-        const posted = await approveCreditNote(companyId, id, userId);
+        const posted = await approveCreditNote(companyId, id, userId, parseArActionOptions(req.body));
         return apiResponse.success(res, posted);
       }
 
       if (action === 'reverse') {
-        const reversed = await cancelCreditNote(companyId, id, userId);
+        const reversed = await cancelCreditNote(companyId, id, userId, undefined, parseArActionOptions(req.body));
         return apiResponse.success(res, reversed);
       }
 

@@ -18,6 +18,12 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// Authorization/savepoint behavior is exercised against PostgreSQL; isolate cancellation rules here.
+vi.mock('@/modules/accounting/services/ar/arControlBoundary',()=>({
+ requireArControl:()=>({}),
+ runArControlled:vi.fn(async(_company:string,_person:string,_ref:unknown,_options:unknown,effect:(permit:unknown)=>Promise<unknown>)=>effect({accountingDate:'2026-09-09'})),
+}));
+vi.mock('@/modules/accounting/services/controls/generatedJournalPermit',()=>({registerGeneratedJournal:vi.fn()}));
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
@@ -86,7 +92,7 @@ describe('cancelCustomerInvoice', () => {
     const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
 
     expect(mockReverse).toHaveBeenCalledTimes(1);
-    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JE_ID, USER_ID);
+    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JE_ID, USER_ID, expect.objectContaining({reversalDate:'2026-09-09',parentControl:expect.any(Object)}));
     expect(result.reversedJournalEntryId).toBe(REVERSAL_ID);
 
     // Both row reads must lock (FOR UPDATE) to close the double-cancel race.
@@ -101,9 +107,8 @@ describe('cancelCustomerInvoice', () => {
     // balance is GENERATED ALWAYS AS (total_amount - amount_paid); writing it
     // raises pg 428C9, so the UPDATE must never touch it.
     expect(text).not.toMatch(/\bbalance\b/i);
-    // The journal link is nulled so a future legitimate re-post creates a fresh
-    // journal instead of re-using the reversed net-zero pair.
-    expect(text).toMatch(/gl_journal_entry_id\s*=\s*NULL/i);
+    // Preserve the original link for reversal provenance and frozen approval material.
+    expect(text).not.toMatch(/gl_journal_entry_id\s*=\s*NULL/i);
   });
 
   it('propagates a reversal failure (e.g. closed period) and mutates nothing', async () => {
@@ -187,11 +192,11 @@ describe('cancelCustomerInvoice', () => {
     expect(updateInvoiceCalls()).toHaveLength(0);
   });
 
-  it('runs inside a savepoint so 400-path failures cannot orphan-commit partial writes', async () => {
-    const { withSavepoint } = await import('@/lib/neon');
+  it('delegates cancellation to the shared transaction control boundary', async () => {
+    const {runArControlled}=await import('@/modules/accounting/services/ar/arControlBoundary');
     mockSql.mockResolvedValueOnce([]); // not found → throws, but wrapper must be used
     await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID).catch(() => undefined);
-    expect(withSavepoint).toHaveBeenCalledWith('cancel_customer_invoice', expect.any(Function));
+    expect(runArControlled).toHaveBeenCalledWith(COMPANY_ID,USER_ID,{entityType:'customer_invoice',entityId:INVOICE_ID,operation:'customer_invoice.cancel'},undefined,expect.any(Function));
   });
 
   it('is a no-op when the invoice is already cancelled', async () => {

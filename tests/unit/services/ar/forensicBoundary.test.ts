@@ -1,0 +1,11 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const mock=vi.hoisted(()=>({context:vi.fn(),execute:vi.fn()}));
+vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:mock.context}));
+vi.mock('@/modules/accounting/services/controls/approvalExecutionService',()=>({executeControlledOperation:mock.execute}));
+vi.mock('@/modules/accounting/services/ar/arPostingReceipt',()=>({readArInvoicePostingReceipt:async()=>null}));
+import {runArControlled} from '@/modules/accounting/services/ar/arControlBoundary';
+const ref={entityType:'customer_invoice',entityId:'invoice',operation:'customer_invoice.post'} as const;
+beforeEach(()=>{vi.clearAllMocks();mock.context.mockReturnValue({principal:{companyId:'company',personId:'person'}});});
+it('refuses caller actor mismatches before touching the kernel or effect',async()=>{const effect=vi.fn();await expect(runArControlled('other','person',ref,undefined,effect)).rejects.toThrow('actor');expect(mock.execute).not.toHaveBeenCalled();expect(effect).not.toHaveBeenCalled();});
+it('passes only the approval reference and converts approval requirements to a safe structured refusal',async()=>{mock.execute.mockRejectedValue(new Error('Independent operation approval is required'));await expect(runArControlled('company','person',ref,{approvalId:'approval'},vi.fn())).rejects.toMatchObject({code:'OPERATION_APPROVAL_REQUIRED',statusCode:409,entityId:'invoice'});expect(mock.execute.mock.calls[0]?.[2]).toBe('approval');});
+it('stores the existing wire representation without undefined optional fields',async()=>{mock.execute.mockImplementation(async(_ctx,_ref,_id,effect)=>effect({}));expect(await runArControlled('company','person',ref,undefined,async()=>({id:'invoice',optional:undefined}))).toEqual({id:'invoice'});});

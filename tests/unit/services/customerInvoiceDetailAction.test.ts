@@ -13,6 +13,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+// Isolate route and invoice lifecycle guards; actual auth is exercised in forensic integration.
+vi.mock('@/modules/accounting/services/ar/arControlBoundary',async()=>({
+ ...await vi.importActual<typeof import('@/modules/accounting/services/ar/arControlBoundary')>('@/modules/accounting/services/ar/arControlBoundary'),
+ runArControlled:async(_company:string,_person:string,_ref:unknown,_opts:unknown,effect:(permit:unknown)=>Promise<unknown>)=>effect({accountingDate:'2026-09-09'}),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
@@ -44,7 +49,7 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceCancelService', () => (
   InvoiceNotFoundError: class InvoiceNotFoundError extends Error {},
   InvoiceHasPaymentsError: class InvoiceHasPaymentsError extends Error {},
 }));
-vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({ postCustomerInvoiceToGL: postGlMock }));
+vi.mock('@/modules/accounting/services/ar/customerInvoiceFinancialEffect', () => ({ postCustomerInvoiceFinancialEffect: postGlMock }));
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({ snapshotInvoicePdf: snapshotMock }));
 
 // Real ClosedFiscalPeriodError so the route's instanceof check matches.

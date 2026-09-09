@@ -1,3 +1,4 @@
+import {parseArActionOptions} from '@/modules/accounting/services/ar/arActionOptions';
 /**
  * Recurring Invoices Run API
  * POST — run one recurring invoice by ID, or all currently due
@@ -48,7 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (recurring_invoice_id) {
     // Run a single recurring invoice
     try {
-      const invoiceId = await generateInvoiceFromRecurring(companyId, recurring_invoice_id, userId);
+      const invoiceId = await generateInvoiceFromRecurring(companyId, recurring_invoice_id, userId, parseArActionOptions(req.body));
       result.generated = 1;
       result.invoice_ids = [invoiceId];
       log.info('Single recurring invoice run', { recurring_invoice_id, invoiceId }, 'recurring-run');

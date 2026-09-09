@@ -1,3 +1,5 @@
+import {prepareCreditNoteApplication} from '@/modules/accounting/services/ar/creditNoteApplicationControl';
+import {parseArActionOptions} from '@/modules/accounting/services/ar/arActionOptions';
 /**
  * Credit Note Actions API
  * POST /api/accounting/credit-notes-action
@@ -18,6 +20,7 @@ const CreditNoteActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), creditNoteId: UUID }),
   z.object({ action: z.literal('cancel'), creditNoteId: UUID, reason: z.string().max(500).optional() }),
   z.object({ action: z.literal('apply'), creditNoteId: UUID, invoiceId: UUID }),
+  z.object({ action: z.literal('prepare_application'), creditNoteId: UUID, invoiceId: UUID }),
 ]);
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -37,15 +40,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (parsed.data.action) {
       case 'approve': {
-        const creditNote = await approveCreditNote(companyId, parsed.data.creditNoteId, userId);
+        const creditNote = await approveCreditNote(companyId, parsed.data.creditNoteId, userId, parseArActionOptions(req.body));
         return apiResponse.success(res, creditNote);
       }
       case 'cancel': {
-        const cancelled = await cancelCreditNote(companyId, parsed.data.creditNoteId, userId, parsed.data.reason);
+        const cancelled = await cancelCreditNote(companyId, parsed.data.creditNoteId, userId, parsed.data.reason, parseArActionOptions(req.body));
         return apiResponse.success(res, cancelled);
       }
+      case 'prepare_application': {
+        const operation=await prepareCreditNoteApplication(companyId,parsed.data.creditNoteId,parsed.data.invoiceId,userId);
+        return apiResponse.success(res,{operation});
+      }
       case 'apply': {
-        const applied = await applyCreditNoteToInvoice(companyId, parsed.data.creditNoteId, parsed.data.invoiceId, userId);
+        const applied = await applyCreditNoteToInvoice(companyId, parsed.data.creditNoteId, parsed.data.invoiceId, userId, parseArActionOptions(req.body));
         return apiResponse.success(res, applied);
       }
     }
