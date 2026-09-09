@@ -169,3 +169,51 @@ Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABA
 bunx tsc --noEmit           : clean (no output)
 bunx eslint <changed files> : clean (no output)
 bun run agent-docs:check    : OK: 74 agent document mirror(s) match canonical sources.
+
+═══════════════════════════════════════════════════════════════════════════════
+ROUND 5 — the seven findings of review-k053-r4.md (0 HIGH, 2 MEDIUM, 5 LOW)
+═══════════════════════════════════════════════════════════════════════════════
+
+GREEN (fixture PostgreSQL, migration 653 present):
+  bun run test:integration -- tests/integration/k053
+    Test Files  11 passed (11)
+    Tests       47 passed (47)
+  New this round:
+    k053-statements-as-at-reversal-date.int.test.ts   7 passed
+    k053-out-of-order-reversal-chain.int.test.ts      3 passed
+    k053-purge-expired-deletes-cascade.int.test.ts    2 passed
+  New unit file:
+    tests/unit/services/core/softDeleteRouteErrorClass.test.ts   5 passed
+
+MUTATION PROOF (production change reverted, test re-run, then restored):
+  A. the four statement surfaces back to an undated `deleted_at IS NULL`
+     (statementEmailService, supplierStatementService,
+      supplierStatementBalancesService, customer-statement)
+     k053-statements-as-at-reversal-date: 4 failed | 3 passed (7)
+     — AR statement, customer-statement route, AP statement, on-account leg
+  B. reports-supplier-ledger back to `si.deleted_at IS NULL`
+     k053-statements-as-at-reversal-date: 1 failed | 6 passed (7)
+     — "the supplier ledger running balance is drawn to its own window end"
+  C. the soft_delete_journal_reversals cascade removed from purgeExpiredDeletes
+     k053-purge-expired-deletes-cascade: 1 failed | 1 passed (2)
+  D. isUserFixable given back its `includes('fiscal period')` arm
+     softDeleteRouteErrorClass: 1 failed | 4 passed (5)
+     — "a plain fault that MENTIONS a fiscal period is a 500 and is logged"
+  E. resolveReversalDate's `requested < originalDate` guard disabled
+     k053-out-of-order-reversal-chain: 2 failed | 1 passed (3)
+  F. ReversalPeriodError reverted to a plain Error at both throw sites
+     k053-out-of-order-reversal-chain: 1 failed | 2 passed (3)
+
+Full unit suite, fixture env UNSET
+(env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run):
+  Test Files  793 passed | 36 skipped (829)
+  Tests       9439 passed | 234 skipped (9673)
+  Three mocked suites first went RED with `sql.unsafe is not a function` —
+  supplierStatementService, statementDataCompleteness and
+  supplierStatementBalancesService stub `@/lib/neon` without `unsafe`. Each mock
+  gained it as a plain passthrough, NOT as the same spy as `sql`: a fragment
+  build is not a query and must not consume a queued mockResolvedValueOnce.
+
+bunx tsc --noEmit           : clean (no output)
+bunx eslint <changed files> : clean (no output)
+bun run agent-docs:check    : OK: 74 agent document mirror(s) match canonical sources.

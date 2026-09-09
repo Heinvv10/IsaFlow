@@ -24,7 +24,10 @@ import {
   isValidEntityType,
 } from '@/modules/accounting/services/core/softDeleteService';
 import { SoftDeleteRefusalError } from '@/modules/accounting/services/core/softDeleteErrors';
-import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import {
+  ClosedFiscalPeriodError,
+  ReversalPeriodError,
+} from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 /**
  * Refusals the caller can act on, as opposed to a fault. Both the delete and
@@ -34,19 +37,24 @@ import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journa
  * softDelete/undoDelete is what keeps a 400 from committing the reversal's
  * draft rows.
  *
- * Decided by TYPE, not by substring. The old `message.includes('not found')`
+ * Decided by TYPE, and by nothing else. The old `message.includes('not found')`
  * also matched reverseJournalEntry's `Journal entry <id> not found` and
  * getSystemAccount's "... account not found" — genuine data faults, which the
  * undo path (newly wired to this helper) then answered as a 400 carrying the
- * raw internal message, skipping the log.error branch entirely. Only the
- * missing-fiscal-period case is still matched on text: fiscalPeriodAutoCreate
- * and resolveReversalDate raise it as a plain Error.
+ * raw internal message, skipping the log.error branch entirely. Round 4 kept
+ * one `includes('fiscal period')` arm for resolveReversalDate's two plain
+ * Errors, with the same shape at a smaller radius: any fault whose message
+ * merely mentioned a fiscal period — the NULL-fiscal-period assertions
+ * elsewhere in the ledger code being the realistic source — was answered 400
+ * and never logged. Those two throws are ReversalPeriodError now, so the arm
+ * is gone and no message text is read here at all.
  */
 function isUserFixable(err: unknown): err is Error {
-  if (!(err instanceof Error)) return false;
-  if (err instanceof SoftDeleteRefusalError) return true;
-  if (err instanceof ClosedFiscalPeriodError) return true;
-  return err.message.includes('fiscal period');
+  return (
+    err instanceof SoftDeleteRefusalError ||
+    err instanceof ClosedFiscalPeriodError ||
+    err instanceof ReversalPeriodError
+  );
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

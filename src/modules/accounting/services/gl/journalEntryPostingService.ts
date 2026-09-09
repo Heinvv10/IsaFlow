@@ -36,6 +36,22 @@ export class ClosedFiscalPeriodError extends Error {
 }
 
 /**
+ * Thrown when a reversal cannot be dated into a usable fiscal period — either
+ * no period covers the target date, or the one that does is closed. A user
+ * problem (create or reopen the period), not a fault, and `instanceof`-matchable
+ * for the same reason ClosedFiscalPeriodError is: pages/api/accounting/
+ * soft-delete.ts decides 400-vs-500 on the class, and matching the wording
+ * instead answered any unrelated fault whose message happened to contain
+ * "fiscal period" as a 400 carrying the raw internal message.
+ */
+export class ReversalPeriodError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReversalPeriodError';
+  }
+}
+
+/**
  * Thrown when an entry targets a GL account that has been deactivated.
  * Carries the offending account codes so a caller can act on them, and is
  * `instanceof`-matchable for the same reason ClosedFiscalPeriodError is:
@@ -219,14 +235,14 @@ export async function resolveReversalDate(
   // the caller is told which of the two problems it has.
   const targetPeriod = await getPeriodStatusForDate(companyId, requested);
   if (targetPeriod === 'no_period') {
-    throw new Error(
+    throw new ReversalPeriodError(
       `No fiscal period covers reversal_date ${requested}. `
       + 'Create the fiscal year first — posting outside every period would leave the '
       + 'reversal invisible to the trial balance, the VAT201 and the AFS.',
     );
   }
   if (targetPeriod !== 'open') {
-    throw new Error(`The fiscal period covering reversal_date ${requested} is closed.`);
+    throw new ReversalPeriodError(`The fiscal period covering reversal_date ${requested} is closed.`);
   }
   return requested;
 }

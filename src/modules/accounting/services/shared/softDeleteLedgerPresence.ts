@@ -29,6 +29,17 @@
  *   - the delete's reversal itself reversed by hand        -> 3, standing, kept
  *   - never posted, or the link is NULL                    -> 0, out, dropped
  *
+ * PRECONDITION: no reversal is ever dated BEFORE the entry it reverses. Parity
+ * of the entries dated on or before the as-at date only equals the chain's net
+ * position when those entries form a PREFIX of the chain, and that is what
+ * makes them one. resolveReversalDate (gl/journalEntryPostingService) enforces
+ * it — it returns the target's own date or TODAY when the target's period is
+ * closed, and refuses an explicit reversal_date earlier than the entry it
+ * corrects. A change there that let a reversal be back-dated past its original
+ * would make this predicate answer the wrong way round for the dates between
+ * the two, silently. k053-out-of-order-reversal-chain.int.test.ts hand-builds
+ * such a chain in SQL and pins that failure mode so the coupling is visible.
+ *
  * CASE rather than OR so the recursive walk is only ever evaluated for a
  * deleted row: CASE guarantees the arms are not evaluated when the condition
  * decides it, an OR arm is merely likely to be ordered that way by the planner.
@@ -53,8 +64,13 @@ export type InvoiceAlias = 'ci' | 'si';
  * NULL` and must be paired with a GL half bounded by `entry_date <= asAtStr`.
  *
  * The row must expose `deleted_at` and `gl_journal_entry_id`.
+ *
+ * INTERPOLATION ONLY — hence the name. The return is a LazyQuery, i.e. a
+ * thenable, so `await`ing it instead of splicing it into a template sends the
+ * bare `(CASE WHEN ...)` fragment to Postgres as a whole statement and fails at
+ * runtime rather than at compile time. Same hazard as `effectivePaidExpr`.
  */
-export function documentInLedgerAsAt(alias: InvoiceAlias, asAtStr: string, companyId: string) {
+export function documentInLedgerAsAtFragment(alias: InvoiceAlias, asAtStr: string, companyId: string) {
   return sql.unsafe(
     `(CASE WHEN ${alias}.deleted_at IS NULL THEN TRUE ELSE (
         WITH RECURSIVE chain AS (

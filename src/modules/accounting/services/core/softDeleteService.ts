@@ -140,6 +140,22 @@ async function undoDeleteInner(
  * Hard-purge records that were soft-deleted more than 5 minutes ago.
  * Intended to be called by a scheduled background job.
  * Returns the total count of purged records across all tables.
+ *
+ * NOT WIRED UP TODAY — `git grep purgeExpiredDeletes -- src pages` finds no
+ * caller — and K-053 is why that matters before one is added. A soft-deleted
+ * invoice keeps its row precisely so the sub-ledger can still answer the DATED
+ * question `documentInLedgerAsAtFragment` asks: the delete's GL reversal is
+ * dated to the delete, so for every as-at date between the document and the
+ * delete the control account still carries it and the document must still be
+ * countable. Hard-DELETEing the row removes the only thing that predicate can
+ * evaluate, so those historical dates lose the document from the sub-ledger
+ * side while the GL keeps it — permanently, and with no repair. Whoever wires
+ * a caller up has to decide that trade first; a purge window measured in
+ * minutes almost certainly cannot.
+ *
+ * The `soft_delete_journal_reversals` row (migration 653) is deleted with the
+ * document it describes: it is keyed on (company_id, entity_type, entity_id)
+ * with no FK to the invoice, so the purge would otherwise strand it.
  */
 export async function purgeExpiredDeletes(): Promise<number> {
   let total = 0;
@@ -160,6 +176,18 @@ export async function purgeExpiredDeletes(): Promise<number> {
     try {
       const rows = await fn();
       if (rows.length > 0) {
+        if (entityType === 'customer_invoice' || entityType === 'supplier_invoice') {
+          // Company-scoped by pair, not by entity_id alone: the id list comes
+          // from a purge that spans every tenant.
+          await sql`
+            DELETE FROM soft_delete_journal_reversals r
+            WHERE r.entity_type = ${entityType}
+              AND (r.company_id, r.entity_id) IN (
+                SELECT c::UUID, e::UUID
+                FROM unnest(${rows.map((r) => String(r.company_id))}::text[],
+                            ${rows.map((r) => String(r.id))}::text[]) AS t(c, e)
+              )`;
+        }
         // BL-80: log per-tenant attribution so a mis-fired purge is observable
         const companyIds = [...new Set(rows.map((r) => String(r.company_id)))];
         log.info('Purged expired soft-deletes', {

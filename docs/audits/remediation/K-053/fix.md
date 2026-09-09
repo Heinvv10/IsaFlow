@@ -26,4 +26,11 @@ WHERE deleted_at IS NOT NULL AND status NOT IN ('draft','cancelled')
 GROUP BY company_id;
 ```
 
+**Rounds 2-5.** See `fix-round2.md` (GL reversal on delete), `fix-round3.md`, `fix-round4.md`
+(the exclusion dated to the reversal) and `fix-round5.md` (the as-at statement surfaces, the
+typed reversal-period error, the purge cascade and the parity precondition). The one-line
+`deleted_at IS NULL` described above is superseded at every AS-AT surface by
+`shared/softDeleteLedgerPresence.documentInLedgerAsAtFragment`; it survives only where the
+question is asked as at NOW (dunning, the dunning cron, smart-reminder).
+
 **Limits.** The purge gap is NOT wired here (out of scope per task): the advertised 5-minute undo window never expires, so a mistaken soft-delete now hides a genuine receivable the UI cannot recover. Needs its own change, or the UI should stop calling it a 5-minute window. The supplier-ledger payment leg is unchanged.
