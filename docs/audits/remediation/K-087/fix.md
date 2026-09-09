@@ -52,7 +52,7 @@ SELECT company_id, source_system, started_at, errors
    ordinary credit line on the debit side and is still refused by the totals check. That is not a
    regression — master refused it too — but such a file is not made importable here. The
    convention is now stated in the code and in the module `.claude.md`.
-2. **The entry is dated the import date, not the take-on date.** Line 109 uses
+2. **The entry is dated the import date, not the take-on date.** Line 134 uses
    `fmtDate(new Date())`, while the manual path (`openingBalancePostingService`) dates the entry
    at the open period's `start_date` and passes `fiscalPeriodId`. Pre-existing and deliberately
    untouched, but the fix makes it REACHABLE for every contra-carrying import that previously

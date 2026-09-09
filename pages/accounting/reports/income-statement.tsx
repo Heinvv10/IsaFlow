@@ -245,6 +245,7 @@ export default function IncomeStatementPage() {
               </div>
 
               <IncomeStatementSections
+                costCentreId={costCentreId}
                 report={report}
                 periodStart={periodStart}
                 periodEnd={periodEnd}
@@ -261,6 +262,7 @@ export default function IncomeStatementPage() {
       </div>
       {evidenceTarget && (
         <EvidenceDrillModal
+          costCentreId={costCentreId}
           accountId={evidenceTarget.accountId}
           accountName={evidenceTarget.accountName}
           periodStart={periodStart}

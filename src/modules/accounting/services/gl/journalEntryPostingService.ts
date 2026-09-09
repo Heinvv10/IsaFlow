@@ -1,7 +1,4 @@
-/**
- * Journal Entry Posting Service
- * Post and reverse journal entries with fiscal period and balance validation.
- */
+/** Post and reverse journals with fiscal-period and balance validation. */
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -132,15 +129,6 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
   }
 }
 
-/**
- * Post the contra entry that reverses `id`.
- *
- * `opts.postingAgent` stamps the CONTRA (the original keeps whatever it was
- * posted with). A reversal is a real posted journal, so an automated caller
- * that does not stamp it lands on `human:<userId>` and its correction becomes
- * invisible to every posting_agent-based review surface. Callers that pass
- * nothing keep exactly that human default.
- */
 /** A calendar date, and a real one — `2026-02-30` matches the shape but is not a day. */
 function isCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -150,48 +138,12 @@ function isCalendarDate(value: string): boolean {
 }
 
 /**
- * Which date the contra carries.
- *
- * Without an explicit date this is the default described above: the original
- * entry's date when its period is open, today when it is closed.
- *
- * With one, the caller wins over the ORIGINAL period's status — that fallback is
- * exactly what people ask to override (correcting a closed month from the open
- * one). Three guards:
- *
- *   - the value must be a real YYYY-MM-DD day. It is interpolated into a DATE
- *     column, where a malformed value raises 22P02 and reaches the caller as a
- *     generic failure that names nothing. '2026-02-30' matches the shape and is
- *     not a day, so the date is constructed and compared back.
- *   - it must not PRECEDE the entry being reversed. A correction landing before
- *     the thing it corrects is nonsense in every period-bounded report.
- *   - its fiscal period must EXIST and be open.
- *
- * That third guard was initially left to postJournalEntry, on the reasoning that
- * a second check could only drift from the one governing the write. That
- * reasoning was WRONG, and an adversarial review caught it:
- *
- *   postJournalEntry guards its closed-period check behind
- *   `if (entry.fiscalPeriodId)`, and createJournalEntry leaves that column NULL
- *   when NO fiscal_periods row covers the entry date. So a date in a fiscal
- *   year nobody has created yet — '9999-12-31', or a typo'd year — skipped the
- *   check entirely and POSTED, with fiscal_period_id NULL, permanently outside
- *   every period-bounded report: trial balance, VAT201, AFS.
- *
- * The underlying NULL-period hole is older than this parameter and reachable by
- * any caller of createJournalEntry. What this parameter changed is that an
- * arbitrary date became remotely selectable, so it is closed HERE, on the path
- * that introduced the reach. getPeriodStatusForDate already distinguishes
- * `no_period` from `closed`, and the two get different messages because the
- * remedies differ: create the fiscal year, versus re-open the period.
- */
-/**
- * Exported so a caller that must distinguish a REFUSAL from a FAILURE can run
- * these guards first. It is read-only, so calling it twice costs two period
- * lookups and nothing else. `apply`-style MCP tools need this: only pre-write
- * validation may return a `toolError`, and once `reverseJournalEntry` has been
- * entered a caller cannot tell a bad date from a failure after the contra
- * posted.
+ * Default to the original date while its period is open; otherwise use today.
+ * An explicit date must be real, not precede the original, and have an open
+ * period. Check period existence here: posting permits a null fiscalPeriodId,
+ * which would leave the correction outside period-bounded reports.
+ * Exported for read-only preflight: callers must distinguish a refusal before
+ * writes from a failure after the contra has posted.
  */
 export async function resolveReversalDate(
   companyId: string,
@@ -231,6 +183,7 @@ export async function resolveReversalDate(
   return requested;
 }
 
+/** Automated callers stamp the contra via opts; omitted opts keep human attribution. */
 export async function reverseJournalEntry(
   companyId: string,
   id: string,
@@ -254,6 +207,8 @@ export async function reverseJournalEntry(
       description: `Reversal: ${l.description || ''}`,
       projectId: l.projectId,
       costCenterId: l.costCenterId,
+      cc1Id: l.cc1Id,
+      cc2Id: l.cc2Id,
       buId: l.buId,
       vatType: l.vatType,
     }));

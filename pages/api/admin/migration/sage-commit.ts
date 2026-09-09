@@ -25,7 +25,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import type { PlatformAdminRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { commitSageMigration } from '@/modules/admin/services/sageMigrationCommitService';
+import { commitSageMigration } from '@/modules/admin/services/sageMigrationOrchestrator';
 import type {
   MappedAccount,
   MappedCustomer,
