@@ -254,6 +254,8 @@ export async function reverseJournalEntry(
       description: `Reversal: ${l.description || ''}`,
       projectId: l.projectId,
       costCenterId: l.costCenterId,
+      cc1Id: l.cc1Id,
+      cc2Id: l.cc2Id,
       buId: l.buId,
       vatType: l.vatType,
     }));
