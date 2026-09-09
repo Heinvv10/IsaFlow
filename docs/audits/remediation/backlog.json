@@ -9791,6 +9791,37 @@
       "severity": "high",
       "source": "Raised by the K-107 fixer while closing review-k107-r2 H1; recorded 2026-09-09",
       "processNotes": "K-107 stops FUTURE double-runs (FOR UPDATE + is_due, 409 before the first write) but does not touch documents already minted. Any tenant that double-clicked a recurring run since the number scheme changed may hold a duplicate real invoice AND supplier bill. A read-only count query is in docs/audits/remediation/K-107/fix.md and has NOT been executed against production. HEIN'S CALL: this is customer-visible AR/AP data, so the count must be run and any correction decided by a human, not by an agent."
+    },
+    {
+      "id": "R-038",
+      "claim": "",
+      "area": "accounting/ar",
+      "affectedPaths": [],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-122"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-122/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unquantified until the identification SQL is run.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Credit notes already raised from portal disputes booked the gross disputed amount to revenue with zero VAT",
+      "severity": "high",
+      "source": "Raised by the K-122 fixer while closing review-k122 findings; recorded 2026-09-09",
+      "processNotes": "K-122 fixes the VAT split going forward. Credit notes already created from disputes carry the GROSS disputed amount against revenue with no VAT line, so both revenue and the VAT control account are wrong for those documents, and the VAT201 for the affected periods was filed off those figures. Read-only identification SQL is in docs/audits/remediation/K-122/fix.md and has NOT been run against production. HEIN'S CALL: this needs an accountant, not an agent -- a correcting journal touches filed VAT periods. Also note sent dunning emails keep dead links because dunning_sends bodies are immutable; only future sends are fixed."
     }
   ],
   "sourceInventory": [
