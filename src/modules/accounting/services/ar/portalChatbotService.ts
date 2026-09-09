@@ -152,6 +152,13 @@ const SQL_SENTENCE_PATTERNS: RegExp[] = [
   // `select x from dunning_sends` — a snake_case FROM target is a table name,
   // never the English noun a prose "from" introduces.
   /\bselect\b[\s\S]{0,2000}?\bfrom\s+[a-z][a-z0-9]*_[a-z0-9_]*/i,
+  // `select balance from acct` — a whole sentence that is nothing BUT a
+  // select/from pair over bare identifiers is SQL whatever it names: prose
+  // ("Please select the invoice from the list below") always carries extra
+  // words, an article or a trailing clause, and so cannot match end-to-end.
+  // Without this the one shape that carries no star, no clause, no comma list
+  // and no snake_case reached the customer verbatim.
+  /^\s*select\s+[a-z_][a-z0-9_.]*(?:\s*,\s*[a-z_][a-z0-9_.]*)*\s+from\s+[a-z_][a-z0-9_.]*\s*[.;!?]?\s*$/i,
   // Predicates and internal identifiers, which leak tenant ids on their own.
   // The WHERE rule requires a qualified or snake_case column: "your balance
   // where applicable = 0" is prose, `where ci.company_id = '…'` is not.

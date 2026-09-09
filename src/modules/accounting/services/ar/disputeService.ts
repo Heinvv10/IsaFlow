@@ -17,6 +17,7 @@
 
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { ArRequestError } from './arErrors';
 import {
   ELIGIBLE_STATUSES,
   mapRow,
@@ -27,6 +28,7 @@ import {
 } from './disputeTypes';
 
 export * from './disputeTypes';
+export { ArRequestError } from './arErrors';
 export { resolveDispute, withdrawDispute } from './disputeResolution';
 
 export async function raiseDispute(
@@ -34,10 +36,10 @@ export async function raiseDispute(
   input: RaiseDisputeInput,
 ): Promise<Dispute> {
   if (!Number.isFinite(input.disputedAmount) || input.disputedAmount <= 0) {
-    throw new Error('Disputed amount must be greater than zero');
+    throw new ArRequestError('Disputed amount must be greater than zero');
   }
   if (!input.reason || input.reason.trim().length === 0) {
-    throw new Error('Dispute reason is required');
+    throw new ArRequestError('Dispute reason is required');
   }
 
   const invoiceRows = (await sql`
@@ -51,16 +53,20 @@ export async function raiseDispute(
   `) as DbRow[];
 
   if (!invoiceRows[0]) {
-    throw new Error(
+    throw new ArRequestError(
       `Invoice not found or not eligible for dispute: ${input.customerInvoiceId}`,
+      400,
+      'DISPUTE_INVOICE_INELIGIBLE',
     );
   }
 
   const invoice = invoiceRows[0];
   const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid ?? 0);
   if (input.disputedAmount > outstanding + 0.01) {
-    throw new Error(
+    throw new ArRequestError(
       `Disputed amount ${input.disputedAmount} exceeds outstanding balance ${outstanding}`,
+      400,
+      'DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING',
     );
   }
 
@@ -104,7 +110,11 @@ export async function raiseDispute(
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code === '23505') {
-      throw new Error('There is already an open dispute on this invoice or line');
+      throw new ArRequestError(
+        'There is already an open dispute on this invoice or line',
+        409,
+        'DISPUTE_EXISTS',
+      );
     }
     throw err;
   }
@@ -126,8 +136,10 @@ export async function listDisputes(
     SELECT d.*, ci.invoice_number, COALESCE(ci.client_id, ci.customer_id) AS client_id,
            c.name AS client_name
     FROM customer_invoice_disputes d
-    JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+    JOIN customer_invoices ci
+      ON ci.id = d.customer_invoice_id AND ci.company_id = d.company_id
+    LEFT JOIN customers c
+      ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = d.company_id
     WHERE d.company_id = ${companyId}::uuid
       AND (${statusFilter}::text IS NULL OR d.status = ${statusFilter})
       AND (${invoiceFilter}::uuid IS NULL OR d.customer_invoice_id = ${invoiceFilter}::uuid)
@@ -155,7 +167,8 @@ export async function listDisputes(
       COALESCE(SUM(d.disputed_amount) FILTER (WHERE d.status = 'open'), 0)::numeric
         AS open_amount
     FROM customer_invoice_disputes d
-    JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
+    JOIN customer_invoices ci
+      ON ci.id = d.customer_invoice_id AND ci.company_id = d.company_id
     WHERE d.company_id = ${companyId}::uuid
       AND (${invoiceFilter}::uuid IS NULL OR d.customer_invoice_id = ${invoiceFilter}::uuid)
   `) as DbRow[];

@@ -161,3 +161,26 @@ describe('K-127 round-4 review — the mirror holes in the narrowed guard', () =
     expect(clean).toBe(SANITIZED_FALLBACK);
   });
 });
+
+describe('K-127 round-5 review — the clause-free, snake_case-free residue', () => {
+  // LOW-4: a single-column, single-table, lower-case query against a table not
+  // on the allow-list matched none of the six rules — no star, no trailing
+  // clause, no comma list, no snake_case FROM target, no listed identifier —
+  // and reached the customer verbatim.
+  it.each([
+    'select balance from acct',
+    'select amount from arledger.',
+    'SELECT BALANCE FROM ACCT',
+  ])('drops %j', (leaked) => {
+    expect(sanitizeClientResponse(leaked)).toBe(SANITIZED_FALLBACK);
+  });
+
+  // The mirror: prose carries extra words, so it cannot match end-to-end.
+  it.each([
+    'Select the invoice from the list below.',
+    'You can select any invoice from your statement.',
+    'Please select a payment method from the options.',
+  ])('leaves %j untouched', (reply) => {
+    expect(sanitizeClientResponse(reply)).toBe(reply);
+  });
+});

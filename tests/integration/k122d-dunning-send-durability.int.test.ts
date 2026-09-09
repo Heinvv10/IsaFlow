@@ -37,6 +37,13 @@ vi.mock('@/lib/neon', async (importOriginal) => {
     }
     return original.sql(strings, ...values);
   };
+  // Carry the real tagged template's own properties across; a bare arrow
+  // function silently drops sql.transaction / sql.unsafe / sql.query.
+  Object.assign(sql, {
+    transaction: original.sql.transaction,
+    unsafe: original.sql.unsafe,
+    query: original.sql.query,
+  });
   return { ...original, sql };
 });
 

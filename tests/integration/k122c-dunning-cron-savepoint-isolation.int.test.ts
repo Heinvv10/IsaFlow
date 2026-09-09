@@ -27,11 +27,19 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 /** Invoice whose dunning_sends INSERT is replaced by a failing statement. */
 let poisonInvoiceId: string | null = null;
+/** Invoice ids in the order the cron actually reached their send INSERT. */
+const sendOrder: string[] = [];
+/** Ids the send order is recorded for; assigned once the uuids exist. */
+let trackedInvoiceIds: string[] = [];
 
 vi.mock('@/lib/neon', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/neon')>();
   const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join(' ');
+    if (/INSERT\s+INTO\s+dunning_sends/.test(text)) {
+      const seen = trackedInvoiceIds.find((id) => values.includes(id));
+      if (seen) sendOrder.push(seen);
+    }
     if (
       poisonInvoiceId &&
       /INSERT\s+INTO\s+dunning_sends/.test(text) &&
@@ -45,6 +53,14 @@ vi.mock('@/lib/neon', async (importOriginal) => {
     }
     return original.sql(strings, ...values);
   };
+  // Carry the real tagged template's own properties across. Nothing on this
+  // path uses sql.transaction / sql.unsafe / sql.query today, and a bare arrow
+  // function would make the first caller that does fail confusingly.
+  Object.assign(sql, {
+    transaction: original.sql.transaction,
+    unsafe: original.sql.unsafe,
+    query: original.sql.query,
+  });
   return { ...original, sql };
 });
 
@@ -61,7 +77,13 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K122c fixture']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query('INSERT INTO customers(id,company_id,name,email) VALUES($1,$2,$3,$4)', [customer, company, 'K122c customer', 'k122c@test.local']);
-  for (const [id, number] of [[poisoned, 'K122C-INV-1-POISON'], [healthy, 'K122C-INV-2-OK']] as const) {
+  // Seeded in DESCENDING invoice-number order deliberately: on a freshly
+  // populated table the seq-scan heap order is insertion order, so without the
+  // cron's ORDER BY the healthy invoice would be processed FIRST. That makes
+  // the ordering assertion below fail when the ORDER BY is deleted, instead of
+  // passing on heap-order luck.
+  trackedInvoiceIds = [poisoned, healthy];
+  for (const [id, number] of [[healthy, 'K122C-INV-2-OK'], [poisoned, 'K122C-INV-1-POISON']] as const) {
     await pool.query(
       `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,client_id,invoice_date,due_date,subtotal,tax_amount,total_amount,status,created_by)
        VALUES($1,$2,$3,$4,$4,'2026-01-01','2026-01-31',1000,150,1150,'approved',$5)`,
@@ -127,9 +149,10 @@ it('rolls one failing invoice back to its savepoint and leaves the transaction u
   expect(result.failed).toBe(1);
   expect(result.errors.join(' ')).toMatch(new RegExp(poisoned));
 
-  // The invoice AFTER it still sent — the failure did not cascade. The cron
-  // orders candidates by invoice_number, so K122C-INV-1-POISON is genuinely
-  // processed before K122C-INV-2-OK rather than by luck of heap order.
+  // The invoice AFTER it still sent — the failure did not cascade. The
+  // fixture is seeded in reverse, so this order is the cron's ORDER BY and not
+  // heap order: delete `ORDER BY m.invoice_number` and this flips.
+  expect(sendOrder).toEqual([poisoned, healthy]);
   expect(result.sent).toBe(1);
   expect(result.errors.join(' ')).not.toMatch(/25P02|current transaction is aborted/i);
 

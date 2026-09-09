@@ -97,3 +97,41 @@ Whole item set: **9 integration files / 41 tests**, three consecutive clean runs
 **Test-only surface added.** `runDunningCron({ companyId })` restricts the walk to one company. The
 cron itself walks every opted-in company; without it two test files sharing the fixture database each
 counted the other's invoices, which is how the k122c/k122d counter assertions first went red.
+
+---
+
+## Round-5 review (`review-k122-r4.md`) — dispositions
+
+| # | Finding | Disposition |
+|---|---|---|
+| **H-1** | A 4xx after the new claim UPDATE commits an unrecoverable dispute state | **Fixed, two ways.** (a) The routes no longer decide a status from an error message: `ArRequestError` (`src/modules/accounting/services/ar/arErrors.ts`) marks a refusal the service raises itself, and every AR dispute/dunning route classifies on `instanceof` and rethrows everything else — so `createCreditNote`'s bare `'Not found'` reaches `withAuth` as a 5xx and ROLLBACKs. (b) `resolveDispute` runs claim + credit note + link inside `withSavepoint('dispute_resolve')`, so even a legitimate 400 raised after the claim unwinds it. `k122e` reproduces the reviewer's exact case (soft-deleted customer) on a real transaction and asserts by outcome: dispute back to `open`, `resolution_mode` NULL, zero credit notes, and the retry then succeeds. Mutation (savepoint removed) → 3/3 RED. |
+| **M-1** | `sendEmail`'s un-awaited, un-savepointed `email_log` INSERT sits inside M-5's window | **Fixed.** `logEmailAttempt` is now `async`, AWAITED at all three call sites, and wrapped in `withSavepoint('email_log_write')`. `k122f` poisons that INSERT inside a real ALS transaction with a real PG error and asserts the email left, `dunning_sends.email_status` is `'sent'`, and the transaction still executes statements afterwards; a second case asserts the log row is written when nothing fails. Mutation (savepoint removed) → RED. |
+| L-1 | `listDisputes` joins not company-scoped | **Fixed.** `ci.company_id = d.company_id` on both the page and the aggregate query; `c.company_id = d.company_id` on the customers LEFT JOIN. |
+| L-2 | AR aging join likewise unscoped | **Fixed.** `pages/api/accounting/reports-ar-aging.ts` joins `customers` on `c.company_id = ci.company_id`, matching `debtorsManagerService`. |
+| L-3 | L-2 (round 3) *is* deterministically testable | **Fixed.** `k122c` now seeds the invoices in DESCENDING invoice-number order, so heap order is the reverse of the ORDER BY, and records the order in which the cron reaches each `dunning_sends` INSERT. Mutation (`ORDER BY m.invoice_number` deleted) → RED. |
+| L-4 | Sanitiser passes a clause-free lower-case `select x from y` | **Fixed.** A seventh rule drops a sentence that is nothing BUT a select/from pair over bare identifiers (`select balance from acct`); prose always carries extra words and cannot match end-to-end. Three new drop cases and three new pass-through cases in `k127`. Mutation (rule removed) → 3 RED. |
+| L-5 | The derived `taxRate` is a fiction on a mixed-rate invoice | **Fixed.** The credit note is stamped with the invoice's OWN `tax_rate` whenever it reconciles with the invoice's amounts; a genuinely mixed-rate invoice still gets the blended pro-rata, now logged as derived. The (b) edge — tax over a non-positive subtotal, which silently derived 0% and booked the whole gross to revenue — is refused instead (`k122e` second case, which also proves the savepoint unwinds a claim behind a 400). |
+| L-6 | `k122c`/`k122d` `sql` mocks drop the function's properties | **Fixed.** Both `Object.assign` `transaction` / `unsafe` / `query` from the real module onto the mock. |
+| — | `runDunningCron({ companyId })` | **Accepted, relabelled.** The JSDoc now describes it as an ordinary operational affordance (re-run one tenant) that is a no-op when omitted, and records that the tests use it to work around the shared fixture — which stays registered as **R-036**. |
+| — | `SendDunningInput.skipPaidGuard` | **Commented, not removed.** Its JSDoc now says it disables a financial guard, is reachable only because `send.ts` parses a `.strict()` body and passes fields explicitly, and must never be fed from a spread. |
+| — | `pages/api/accounting/ar/invoice/[id]/pdf.ts` | **Left alone, noted.** Same `/not found/i` fragility, but its path (`getSealedInvoicePdf`, `generateInvoicePdf`) issues no writes, so a 4xx there commits nothing. Outside this item's surface. |
+
+**Round-5 tests.** New: `k122e-dispute-resolve-atomicity` (3, real DB), `k122f-email-log-savepoint` (2, real DB);
+grown: `k127` sanitiser (34 unit), `disputeService` (21 unit). K-122…K-125 set: **11 integration files / 46 tests**.
+Full unit suite with `DATABASE_URL` unset: **9598 passed / 243 skipped (801 files)**. `tsc --noEmit`, `eslint`
+and `agent-docs:check` clean. 4 further mutations, each RED.
+
+**Historical-data impact.** A dispute can already be sitting in the committed half-state H-1 describes.
+Read-only identification (production, run manually — not run by this fixer):
+
+```sql
+SELECT d.id, d.company_id, d.customer_invoice_id, d.disputed_amount, d.resolved_at
+  FROM customer_invoice_disputes d
+ WHERE d.resolution_mode = 'resolve_with_credit'
+   AND d.credit_note_id IS NULL
+ ORDER BY d.resolved_at DESC;
+```
+
+Each row is a dispute the customer was told was credited and for which no credit note exists. The fix
+prevents new ones; existing rows need a decision per row (raise the note, or reopen the dispute), not a
+blanket backfill. No migration.

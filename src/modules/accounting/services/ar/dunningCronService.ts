@@ -71,9 +71,15 @@ export async function runDunningCron(options: {
   /** Override for "now" — test-only. */
   now?: Date;
   /**
-   * Restrict the walk to one company. Test-only: the cron itself walks every
-   * opted-in company, and two test files sharing the fixture database would
-   * otherwise each count the other's invoices.
+   * Restrict the walk to one company. An ordinary operational affordance —
+   * re-run the ladder for one tenant after a fix, or backfill a single
+   * company — not a test hook, and a no-op when omitted (the predicate is
+   * `NULL::uuid IS NULL OR …`, which is true for every row).
+   *
+   * The tests use it to work AROUND a shared fixture database in which two
+   * files count each other's invoices. That remains registered as R-036: the
+   * real fix is per-file company isolation in the fixture, not narrowing a
+   * production query.
    */
   companyId?: string;
 } = {}): Promise<DunningCronResult> {
