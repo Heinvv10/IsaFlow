@@ -26,7 +26,7 @@ import {
   completeBundlePurchase,
   failBundlePurchase,
 } from '@/modules/billing/services/flowWalletService';
-import { advancePeriodForSettledCharge } from '@/modules/billing/services/subscriptionPeriod';
+import { settleSubscriptionCharge } from '@/modules/billing/services/subscriptionPeriod';
 
 export const config = { api: { bodyParser: false } };
 
@@ -272,15 +272,8 @@ async function handleChargeSuccess(
   }
 
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
-    await sql`
-      UPDATE subscription_charges
-      SET status = 'settled',
-          settled_at = COALESCE(settled_at, now()),
-          updated_at = now()
-      WHERE id = ${pr.subscription_charge_id} AND company_id = ${pr.company_id}
-    `;
     // The paid-up period only moves once the money has actually arrived.
-    await advancePeriodForSettledCharge(pr.subscription_charge_id, pr.company_id);
+    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id);
   }
 }
 

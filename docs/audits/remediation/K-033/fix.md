@@ -50,3 +50,10 @@ No backfill is shipped — correcting a live period is a billing decision, not a
 idempotency tests exercise directly. `period_end` is a DATE, so the first advance snaps the
 period boundary to midnight in the DB session timezone (stable thereafter).
 `pages/api/webhooks/paystack.ts` was already 329 lines, over the 300-line cap; this change adds 3.
+
+**Review round 2 (`review-fixes.md`):** the period and past_due writes are now keyed on
+`subscription_charges.subscription_id` (migration 619) rather than `company_id`, which had let one
+charge move every subscription a company owns. The attempt is claimed with a compare-and-swap
+before it is spent. Period boundaries are cast through UTC. Known terminal state, unchanged: after
+three declines no further charge is raised for that period and `past_due` gates nothing — dunning
+is not implemented and needs a follow-up decision.
