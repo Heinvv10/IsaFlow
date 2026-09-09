@@ -108,3 +108,33 @@ Test Files  58 passed (58)    Tests  395 passed (395)
 
 === bunx tsc --noEmit ===  clean
 === bunx eslint (supplierInvoiceService, ap.types, commit service) ===  exit 0
+
+════════ Review round 5 (addendum to review-k038-round3.md) ════════
+
+Finding: the shared-type change was not behaviour-neutral. supplier-invoices.ts
+forwarded request-body line objects verbatim, so `taxAmount` became a
+client-settable, unbounded input-VAT figure on that route.
+
+Two independent guards, one test each:
+  service — honours taxAmount only when the input carries trustSourceTax: true
+  route   — whitelists the nine line fields the service reads
+
+=== bunx vitest run tests/unit/api/supplierInvoiceClientTaxAmount.test.ts ===
+Tests  3 passed (3)
+=== bunx vitest run tests/unit/services/ap/supplierInvoiceExactTaxAmount.test.ts ===
+Tests  8 passed (8)
+
+=== Mutation check H (service trusts taxAmount unconditionally) ===
+Tests  2 failed | 6 passed (8)
+=== Mutation check I (route forwards raw body items again) ===
+Tests  1 failed | 2 passed (3)
+
+=== bun run test:integration -- tests/integration/k-038 ===
+Test Files  3 passed (3)      Tests  17 passed (17)
+=== Full unit suite, DATABASE_URL unset ===
+Test Files  792 passed | 36 skipped (828)
+     Tests  9402 passed | 234 skipped (9636)
+=== bun run test:components ===  58 files, 395 passed
+=== bunx tsc --noEmit ===  clean
+=== bunx eslint (service, types, commit service, route) ===  exit 0
+=== bun run agent-docs:check ===  OK: 74 mirrors match

@@ -34,14 +34,15 @@ vi.mock('@/modules/accounting/services/capture/captureDeduplicationService', () 
 }));
 
 const { createSupplierInvoice } = await import('@/modules/accounting/services/ap/supplierInvoiceService');
-import type { SupplierInvoiceCreateInput } from '@/modules/accounting/types/ap.types';
+import type { SupplierInvoiceImportInput } from '@/modules/accounting/types/ap.types';
 
 /** The bound values of the first tx call — the supplier_invoices INSERT. */
 function headerValues(): unknown[] {
   return txCalls[0]!.slice(1);
 }
 
-const input = (over: Partial<SupplierInvoiceCreateInput> = {}): SupplierInvoiceCreateInput => ({
+const input = (over: Partial<SupplierInvoiceImportInput> = {}): SupplierInvoiceImportInput => ({
+  trustSourceTax: true,
   invoiceNumber: 'INV-1', supplierId: 'sup-1', invoiceDate: '2026-03-01',
   taxRate: 4.76,
   items: [{ description: 'line', quantity: 1, unitPrice: 700 }],
@@ -80,6 +81,27 @@ describe('createSupplierInvoice honours an exact line tax amount', () => {
     const v = headerValues();
     expect(v).toContain(150);
     expect(v).toContain(1150);
+  });
+
+  it('IGNORES a tax amount when the input does not opt in — the public route\'s shape', async () => {
+    // pages/api/accounting/supplier-invoices.ts also strips the field, but the
+    // service must refuse to honour it on its own: a route that forgets to
+    // whitelist must not become an unbounded input-VAT vector.
+    const untrusted = { ...input(), items: [{ description: 'line', quantity: 1, unitPrice: 700, taxAmount: 10000 }] };
+    delete (untrusted as { trustSourceTax?: true }).trustSourceTax;
+    await createSupplierInvoice('c1', untrusted as never, 'u1');
+
+    const v = headerValues();
+    expect(v).toContain(33.32);
+    expect(v).toContain(733.32);
+    expect(v).not.toContain(10000);
+  });
+
+  it('does not reject an untrusted negative tax amount — it is simply not read', async () => {
+    const untrusted = { ...input(), items: [{ description: 'line', quantity: 1, unitPrice: 700, taxAmount: -1 }] };
+    delete (untrusted as { trustSourceTax?: true }).trustSourceTax;
+    await expect(createSupplierInvoice('c1', untrusted as never, 'u1')).resolves.toBeTruthy();
+    expect(headerValues()).toContain(33.32);
   });
 
   it('rejects a negative tax amount rather than storing a credit as a bill', async () => {

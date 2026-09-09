@@ -22,9 +22,15 @@ The AP total divergence is fixed at its root. `createSupplierInvoice` re-derived
 tax from a 2 dp rate, so a bill at a non-round blended rate stored a total that differed from
 Sage's in either direction — 700 / 33.33 stored 733.32, 812.50 / 58.40 stored 870.92 — leaving
 the invoice row and the journal posted for that same bill up to R0.44 apart before any payment
-was considered. `SupplierInvoiceItemInput.taxAmount` now lets an importer pass the source's
-exact tax, and the Sage commit does; the row, the journal and Sage agree by construction. The
-field is optional, validated non-negative and finite, and every existing caller is unchanged.
+was considered. An importer can now pass the source's exact tax and the Sage commit does, so the row, the
+journal and Sage agree by construction. The field is deliberately NOT on the public
+`SupplierInvoiceItemInput`: it lives on `SupplierInvoiceImportItemInput` and is honoured only
+when the input carries `trustSourceTax: true`, which no route copies from a body. An unbounded
+client-settable VAT amount is the failure mode that gating prevents —
+`pages/api/accounting/supplier-invoices.ts` forwarded request-body line objects verbatim, so
+without it any write-access user could have posted `unitPrice 100, taxRate 15, taxAmount 10000`.
+That route now whitelists the nine line fields the service reads rather than forwarding the
+body, giving two independent guards. Every existing caller is unchanged.
 AP additionally derives `amount_paid` from what the source says is still OUTSTANDING
 (`stored total − source AmountDue`) rather than carrying its paid figure across, so any future
 divergence cannot strand a settled bill at `partially_paid`. Sub-cent excess is treated as
@@ -45,7 +51,8 @@ a residual is seeing the settled cash, not a recompute artefact. There is no in-
 `bank_transactions` at `status='imported'` with no GL leg. The fix is an opening-balance step
 in `CommitPayload` (or allocating those imported bank rows). **R-001 stays open.**
 
-**Files.** `ap.types.ts` and `supplierInvoiceService.ts` (the optional exact-tax field),
+**Files.** `ap.types.ts` and `supplierInvoiceService.ts` (the importer-only exact-tax field),
+`pages/api/accounting/supplier-invoices.ts` (line-field whitelist),
 `sageMigrationTypes.ts`, `sageMigrationCommitService.ts`, new
 `sageMigrationOrchestrator.ts` (the orchestrator moved verbatim so both files clear the
 300-line cap; `sage-commit.ts` and one unit test now import it from there), new
@@ -62,8 +69,9 @@ balanced full-total journal / recomputed total below Sage's / above Sage's / par
 non-round rate / genuine overpayment / fully paid / unpaid. Mutation-checked four times:
 reverting the original change takes 6 of 9 red; disabling the non-finite guard, the negative
 guard or the AP anchor takes their tests red; re-anchoring AP to the source paid amount takes
-3 red; hiding the warnings disclosure takes 3 component tests red. Also 6 unit tests on the exact-tax field, reading the values bound into the INSERT rather than
-a mocked row. Full unit suite 9397 passed, components 395 passed, `tsc --noEmit`, `eslint` and
+3 red; hiding the warnings disclosure takes 3 component tests red. Also 8 unit tests on the exact-tax field, reading the values bound into the INSERT rather than
+a mocked row, and 3 route tests proving a client-supplied `taxAmount` never reaches the service
+and the importer opt-in is never set from a body. Full unit suite 9402 passed, components 395 passed, `tsc --noEmit`, `eslint` and
 `agent-docs:check` clean — `green.log`.
 
 **Migration / rollback.** None. Code-only.
