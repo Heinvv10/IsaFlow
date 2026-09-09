@@ -25,9 +25,11 @@ export async function executeCashApplicationReversalEffect(ctx:ControlTx,ref:Ope
  }
  for(const {invoice,allocation} of original.sources.invoices){
   const rows=kind==='customer'?await ctx.sql`UPDATE customer_invoices SET amount_paid=amount_paid-${allocation.amount}::numeric,
+   updated_at=clock_timestamp(),paid_at=CASE WHEN amount_paid-${allocation.amount}::numeric=total_amount THEN COALESCE(paid_at,clock_timestamp()) ELSE NULL END,
    status=CASE WHEN amount_paid-${allocation.amount}::numeric=0 THEN 'approved' WHEN amount_paid-${allocation.amount}::numeric=total_amount THEN 'paid' ELSE 'partially_paid' END
    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid AND amount_paid>=${allocation.amount}::numeric RETURNING *`
    :await ctx.sql`UPDATE supplier_invoices SET amount_paid=amount_paid-${allocation.amount}::numeric,
+   updated_at=clock_timestamp(),paid_at=CASE WHEN amount_paid-${allocation.amount}::numeric=total_amount THEN COALESCE(paid_at,clock_timestamp()) ELSE NULL END,
    status=CASE WHEN amount_paid-${allocation.amount}::numeric=0 THEN 'approved' WHEN amount_paid-${allocation.amount}::numeric=total_amount THEN 'paid' ELSE 'partially_paid' END,
    payment_matched=(amount_paid-${allocation.amount}::numeric=total_amount),payment_matched_at=CASE WHEN amount_paid-${allocation.amount}::numeric=total_amount THEN clock_timestamp() ELSE NULL END
    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid AND amount_paid>=${allocation.amount}::numeric RETURNING *`;

@@ -54,7 +54,7 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
     if (filters?.status && filters?.supplierId) {
       rows = (await sql`
         SELECT sp.*, s.name AS supplier_name
-        FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
+        FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
         WHERE sp.company_id = ${companyId}::UUID
           AND sp.status = ${filters.status} AND sp.supplier_id = ${filters.supplierId}
         ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
@@ -67,7 +67,7 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
     } else if (filters?.status) {
       rows = (await sql`
         SELECT sp.*, s.name AS supplier_name
-        FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
+        FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
         WHERE sp.company_id = ${companyId}::UUID AND sp.status = ${filters.status}
         ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
@@ -78,7 +78,7 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
     } else if (filters?.supplierId) {
       rows = (await sql`
         SELECT sp.*, s.name AS supplier_name
-        FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
+        FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
         WHERE sp.company_id = ${companyId}::UUID AND sp.supplier_id = ${filters.supplierId}
         ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
@@ -89,7 +89,7 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
     } else {
       rows = (await sql`
         SELECT sp.*, s.name AS supplier_name
-        FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
+        FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
         WHERE sp.company_id = ${companyId}::UUID
         ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
@@ -111,7 +111,7 @@ export async function getSupplierPaymentById(companyId: string,
   try {
     const rows = (await sql`
       SELECT sp.*, s.name AS supplier_name
-      FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
+      FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
       WHERE sp.id = ${id} AND sp.company_id = ${companyId}::UUID
     `) as Row[];
     if (rows.length === 0) return null;

@@ -41,7 +41,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
       rows = (await sql`
         SELECT cp.*, c.name AS client_name,
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id AND cpa.reversed_at IS NULL), 0) AS allocated_amount
-        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
+        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         WHERE cp.client_id = ${filters.clientId}::UUID AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
@@ -52,7 +52,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
       rows = (await sql`
         SELECT cp.*, c.name AS client_name,
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id AND cpa.reversed_at IS NULL), 0) AS allocated_amount
-        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
+        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         WHERE cp.status = ${filters.status} AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
@@ -63,7 +63,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
       rows = (await sql`
         SELECT cp.*, c.name AS client_name,
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id AND cpa.reversed_at IS NULL), 0) AS allocated_amount
-        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
+        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         WHERE cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
@@ -83,7 +83,7 @@ export async function getCustomerPaymentById(companyId: string,
   try {
     const rows = (await sql`
       SELECT cp.*, c.name AS client_name
-      FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
+      FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
       WHERE cp.id = ${id} AND cp.company_id = ${companyId}
     `) as Row[];
     if (rows.length === 0) return null;
@@ -168,7 +168,7 @@ export async function createCustomerPayment(companyId: string,
       ),
     ] as ReturnType<typeof tx>[]);
 
-    const paymentRows = (await sql`SELECT cp.*, c.name AS client_name FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id WHERE cp.id = ${paymentId}::UUID AND cp.company_id = ${companyId}::UUID`) as Row[];
+    const paymentRows = (await sql`SELECT cp.*, c.name AS client_name FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id WHERE cp.id = ${paymentId}::UUID AND cp.company_id = ${companyId}::UUID`) as Row[];
     const paymentRow = paymentRows[0]!;
 
     log.info('Created customer payment', { paymentId, totalAmount: input.totalAmount }, 'accounting');

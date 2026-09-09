@@ -34,9 +34,11 @@ export async function executeCashApplicationEffect(ctx:ControlTx,ref:OperationRe
   const row=(rows as Row[])[0];if(!row)throw new Error('Cash allocation row disappeared');allocationIds.push(String(row.id));
   await recordCashApplicationChild(ctx,permit,plan.kind==='customer'?'customer_payment_allocation':'supplier_payment_allocation',null,row,'cash_application.line_created');
   const updates=plan.kind==='customer'?await ctx.sql`UPDATE customer_invoices SET amount_paid=amount_paid+${allocation.amount}::numeric,
+   updated_at=clock_timestamp(),paid_at=CASE WHEN amount_paid+${allocation.amount}::numeric=total_amount THEN COALESCE(paid_at,clock_timestamp()) ELSE NULL END,
    status=CASE WHEN amount_paid+${allocation.amount}::numeric=total_amount THEN 'paid' ELSE 'partially_paid' END
    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid AND amount_paid+${allocation.amount}::numeric<=total_amount RETURNING *`
    :await ctx.sql`UPDATE supplier_invoices SET amount_paid=amount_paid+${allocation.amount}::numeric,
+   updated_at=clock_timestamp(),paid_at=CASE WHEN amount_paid+${allocation.amount}::numeric=total_amount THEN COALESCE(paid_at,clock_timestamp()) ELSE NULL END,
    status=CASE WHEN amount_paid+${allocation.amount}::numeric=total_amount THEN 'paid' ELSE 'partially_paid' END,
    payment_matched=(amount_paid+${allocation.amount}::numeric=total_amount),payment_matched_at=CASE WHEN amount_paid+${allocation.amount}::numeric=total_amount THEN clock_timestamp() ELSE NULL END
    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid AND amount_paid+${allocation.amount}::numeric<=total_amount RETURNING *`;
