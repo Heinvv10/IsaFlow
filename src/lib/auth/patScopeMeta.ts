@@ -21,6 +21,8 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
   'read:access': { label: 'Review access', desc: 'Read current tenant roles and connection grants without credentials.' },
   'read:audit': { label: 'Read forensic evidence', desc: 'Read protected accounting history and control findings. Sensitive payroll needs separate permission.' },
   'write:audit': { label: 'Capture forensic evidence', desc: 'Create evidence snapshots and audit export jobs.' },
+  'read:imports': { label: 'Read historical imports', desc: 'Read historical import sources, plans and execution evidence.' },
+  'write:imports': { label: 'Execute historical imports', desc: 'Prepare and execute independently approved historical imports with current accounting permissions.' },
   'write:release': { label: 'Release approved payments', desc: 'Dispatch independently approved payment releases using verified banking details.' },
   'write:locks': { label: 'Manage accounting locks', desc: 'Close, lock or reopen accounting periods and change company lockdown under configured independent approvals.' },
   'write:controls': { label: 'Manage control exceptions', desc: 'Assign exceptions and request resolution after a fresh control check.' },
