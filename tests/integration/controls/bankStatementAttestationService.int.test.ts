@@ -120,6 +120,24 @@ it('passes a current independently reviewed quiet statement locally without clai
  const result=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));expect(result.status).toBe('pass');
  expect(result.populationCount).toBe(1);expect(result.findingCount).toBe(0);expect(result.missingSources).toEqual([]);
  expect(result.coverage).toContain('external_bank_confirmation_not_performed');
+ await pool.query(`INSERT INTO bank_statement_imports(company_id,bank_account_id,source_document_id,period_start,period_end,row_count,opening_balance,closing_balance,status)
+ VALUES($1,$2,$3,'2026-09-01','2026-09-30',99,-10,100,'committed')`,[fixture.companyA,account,document]);
+ expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}))).status).toBe('pass');
+ const outside=randomUUID();await pool.query(`INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
+ VALUES($1,$2,$3,'2026-10-01',10,'Synthetic outside statement period','imported')`,[outside,fixture.companyA,account]);
+ const uncovered=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));expect(uncovered.status).toBe('unknown');
+ expect(uncovered.missingSources).toContain('imported_transactions_outside_source_statement_periods');
+ expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{cutoff:'2026-09-30'}))).status).toBe('pass');
+ await pool.query('DELETE FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,outside]);
+ const tx=randomUUID();await pool.query(`INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
+ VALUES($1,$2,$3,'2026-09-09',10,'Synthetic statement divergence','imported')`,[tx,fixture.companyA,account]);
+ const discrepancy=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));expect(discrepancy.status).toBe('fail');
+ expect(discrepancy.findingCount).toBe(1);expect(discrepancy.amountTotals).toEqual({ZAR:'10'});
+ expect(discrepancy.findings[0]?.classification).toBe('candidate');
+ await pool.query('DELETE FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx]);
+ expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{cutoff:'2026-09-29'}))).status).toBe('unknown');
+ expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}),'u3')).populationCount).toBe(0);
+
  await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND id=$3',[Buffer.from('Changed after review'),fixture.companyA,document]);
  expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}))).status).toBe('unknown');
 });
