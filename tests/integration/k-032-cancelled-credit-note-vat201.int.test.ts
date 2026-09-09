@@ -92,6 +92,8 @@ it('nets a cancelled credit note and its reversal to nothing in the VAT201 boxes
   const basis = deriveVatBoxes(lines);
 
   // A cancelled credit note raises no VAT and no supply, in either direction.
-  expect(basis.outputTax).toBeCloseTo(0, 2);
-  expect(basis.outputBase).toBeCloseTo(0, 2);
+  // Soft so both numbers are measured — the tax assertion alone used to abort
+  // the test and leave the base figure unevidenced.
+  expect.soft(basis.outputTax).toBeCloseTo(0, 2);
+  expect.soft(basis.outputBase).toBeCloseTo(0, 2);
 });
