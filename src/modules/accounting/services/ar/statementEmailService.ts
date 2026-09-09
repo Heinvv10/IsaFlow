@@ -125,15 +125,20 @@ export async function fetchStatementData(
       ORDER BY invoice_date
     ` as Promise<Row[]>,
 
+    // The receipt is credited at what the customer PAID, not at what has been
+    // matched to invoices. The old COALESCE(SUM(allocated), total) fell back to
+    // the receipt total only when there were no allocation rows at all, so a
+    // partly allocated receipt was credited at its allocated figure and the
+    // unapplied remainder vanished from a document we email the customer,
+    // overstating what they owe. Allocation is an internal matching detail; the
+    // statement is an account-level document.
     sql`
       SELECT cp.id, cp.payment_number, cp.payment_date, cp.status,
-        COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
+        cp.total_amount AS amount_received
       FROM customer_payments cp
-      LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
       WHERE cp.client_id = ${customerId}::UUID
         AND cp.company_id = ${companyId}::UUID
         AND cp.payment_date <= ${asAtDate}::DATE
-      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.total_amount, cp.status
     ` as Promise<Row[]>,
 
     sql`
@@ -177,7 +182,7 @@ export async function fetchStatementData(
         id: String(pmt.id),
         reason: 'payment_not_confirmed',
         detail: `Receipt is '${status}'; it settles nothing until it is confirmed or reconciled.`,
-        amount: Number(pmt.amount_allocated),
+        amount: Number(pmt.amount_received),
         documentNumber: String(pmt.payment_number ?? ''),
       });
       continue;
@@ -187,7 +192,7 @@ export async function fetchStatementData(
       type: 'payment',
       reference: String(pmt.payment_number ?? ''),
       debit: 0,
-      credit: Number(pmt.amount_allocated),
+      credit: Number(pmt.amount_received),
       balance: 0,
     });
   }
