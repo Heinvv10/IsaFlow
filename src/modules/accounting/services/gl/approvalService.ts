@@ -37,7 +37,8 @@ export interface ApprovalRule {
 
 export interface ApprovalRequest {
   id: string;
-  ruleId: string;
+  /** Nullable on the live schema; rows predating the scoped insert can carry NULL. */
+  ruleId: string | null;
   ruleName?: string;
   documentType: DocumentType;
   documentId: string;

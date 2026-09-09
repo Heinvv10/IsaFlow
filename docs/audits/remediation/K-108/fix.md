@@ -56,3 +56,13 @@ across the parallel branches. Only the filename changed; the constraint is still
 `approval_rules_condition_operator_check`, so the rollback statement above is unaffected. The
 fixture's constraint was DROPPED and rebuilt from the renamed file to prove it, not merely skipped
 by the idempotent DO block.
+
+**Constraint scoped to active rules (round-2 LOW-2).** The CHECK is
+`condition_operator IN (...) OR is_active IS NOT TRUE`. NOT VALID skips only the initial full-table
+validation — Postgres still enforces the constraint on any row it UPDATES, and `updateRule`
+re-presents `condition_operator` through COALESCE, so an unscoped constraint refused an update that
+only set `is_active = false`. Combined with the fail-closed `default:` arm, that made exactly the
+rules which now demand approval on every document impossible to switch off. `checkApproval` reads
+only `is_active = true` rules, so an inactive row carrying an unreadable operator is inert, and
+deactivating one is the correction. Reactivation still requires a real operator. The route maps
+23514 to a 400 naming the column.

@@ -15,8 +15,14 @@ maps them to 403 with the code in `error.details.reason`; unknown/already-decide
 let anybody satisfy an `accountant` rule (a migration-234 default). Unrecognised rule role falls
 back to `admin`, the column default; a higher role satisfies a lower requirement.
 
-**Files.** `src/modules/accounting/services/gl/approvalAuthority.ts` (new, 82 lines),
-`approvalService.ts` (+2), `pages/api/accounting/approval-requests.ts` (+13/-3).
+**Files.** Counted at commit 9d8a142e, where K-043 alone landed:
+`src/modules/accounting/services/gl/approvalAuthority.ts` (new, 82 lines), `approvalService.ts`
+(+2), `pages/api/accounting/approval-requests.ts` (+13/-3). The later commits on this branch
+(K-108, K-109, and the two review rounds) move those numbers; against 9d8a142e the branch tip has
+`approvalAuthority.ts` at 140 lines, `approvalService.ts` +44/-112 (the `approvalMatching.ts`
+split, 127 lines new), `approval-requests.ts` +32/-5, plus `approval-rules.ts` and
+`pages/accounting/approvals/index.tsx`. Per-item file lists are in the K-108 and K-109 fix
+documents.
 
 **Tests.** `tests/integration/k-043-self-approval-and-approver-role.int.test.ts` (1, validator's
 RED case) and `tests/integration/k-043-approval-authority.int.test.ts` (5 new: wrong role refused,
@@ -75,3 +81,34 @@ differ by design. `ROLE_HIERARCHY`'s own `?? 0` bug is left alone as the review 
 an eligible approver passes the guard and `decided_by` records the impersonated user, so the audit
 row does not say who actually approved. Pre-existing platform capability; worth its own item now
 that a segregation-of-duties control leans on identity.
+
+## Round-2 review dispositions (scratchpad/review-k043-r2.md — 0 HIGH / 2 MEDIUM / 7 LOW)
+
+All nine fixed.
+
+**M1 — `bookkeeper` assignable but absent from the ladder.** Added at rank 2, between `accountant`
+and `storeman` on the evidence of `ALLOWED_COMPANY_ROLES`' descending order; the ladder is
+renumbered 8..0 to make room. `ALLOWED_COMPANY_ROLES` is now exported and the coverage test
+enumerates it, plus the invitation route's inline allowlist read out of source so adding a role
+there fails the test rather than silently excluding it from every approval.
+
+**M2 — both rank fallbacks untested; `?? 99` survived.** A missing `company_users` row is refused
+outright (it also fixes LOW-6: `viewer` ranks 0 and `0 < 0` is false, so a non-member could decide
+a viewer rule). Nine unit cases over `assertMayDecide` in
+`tests/unit/services/gl/approvalDecisionAuthority.test.ts` cover both fallbacks; mutants M
+(decider 0→99), N (rule admin→0) and O (membership check off) each kill two.
+
+**L1 — the K-108 file was order-coupled.** The check test creates its own rule and the first test
+scopes its assertion by name. Every test in both integration files now passes with `-t` alone.
+**L2 — a legacy unreadable rule could not be deactivated, and failed as a 500.** Migration 647's
+CHECK is scoped `OR is_active IS NOT TRUE`, so deactivation always succeeds while reactivation
+still requires a real operator; 23514 maps to 400 on the route. Three integration cases plant a
+legacy row by dropping the constraint and restoring the definition read back from the catalogue,
+so the test cannot pass against an unscoped constraint (mutation R2).
+**L3 — malformed ids answered 500.** `requestId` and `ruleId` are validated with `isUuidParam`; a
+malformed request id gets the 404 this document already claimed, a malformed rule id a 400.
+**L4 — stale file counts.** The "Files" line above now says which commit it counted.
+**L5 — `APPROVER_RANK` prototype keys.** Both rank helpers go through `isApproverRole`.
+**L6 — viewer rule satisfied by a non-member.** Covered by M2's refusal.
+**L7 — `mapRequest` turned NULL `rule_id` into `"null"`.** Returns null; `ApprovalRequest.ruleId`
+is `string | null`. No consumer outside the module reads it.

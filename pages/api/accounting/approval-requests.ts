@@ -16,6 +16,7 @@ import {
 import {
   ApprovalDecisionError, ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from '@/modules/accounting/services/gl/approvalAuthority';
+import { isUuidParam } from '@/lib/validation';
 
 const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
@@ -61,6 +62,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!ruleId || !documentType || !documentId) {
         return apiResponse.badRequest(res, 'ruleId, documentType, and documentId are required');
       }
+      // Both are cast `::UUID` downstream. Unchecked, a malformed id is a
+      // 22P02 from inside the transaction — a 500 and a logged stack for what
+      // is plainly a bad request.
+      if (!isUuidParam(ruleId)) return apiResponse.badRequest(res, 'ruleId must be a UUID');
+      if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'documentId must be a UUID');
       try {
         const request = await requestApproval(companyId, {
           ruleId, documentType, documentId, documentReference, amount, requestedBy: userId,
@@ -78,6 +84,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'approve' || action === 'reject') {
       const { requestId, notes } = req.body;
       if (!requestId) return apiResponse.badRequest(res, 'requestId is required');
+      // An id that is not a UUID names no request, so it gets the same answer as
+      // one that names a request this company cannot see — the contract the
+      // fix document states. Unchecked it was a 22P02 and a 500.
+      if (!isUuidParam(requestId)) {
+        return apiResponse.notFound(res, `Approval request ${requestId} not found or already decided`);
+      }
       const decision = action === 'approve' ? 'approved' : 'rejected';
       try {
         const result = await decideRequest(companyId, requestId, decision, userId, notes);

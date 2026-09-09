@@ -32,6 +32,7 @@ const adminDecider = crypto.randomUUID();
 const ownerApproveRequest = crypto.randomUUID();
 const foreignRuleId = crypto.randomUUID();
 const foreignRuleRequest = crypto.randomUUID();
+const raceRequest = crypto.randomUUID();
 const tokens: Record<string, string> = {};
 
 async function mint(userId: string) {
@@ -84,7 +85,7 @@ beforeAll(async () => {
     `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active,priority)
      VALUES($1,$2,'K043 company B owner-only rule','supplier_invoice','total','greater_than',0,'owner',true,10)`,
     [foreignRuleId, companyB]);
-  for (const id of [approveRequest, rejectRequest, crossTenantRequest, ownerApproveRequest]) {
+  for (const id of [approveRequest, rejectRequest, crossTenantRequest, ownerApproveRequest, raceRequest]) {
     await pool.query(
       `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,status,requested_by)
        VALUES($1,$2,$3,'supplier_invoice',$4,250000,'pending',$5)`,
@@ -169,16 +170,40 @@ describe('K-043 review findings', () => {
 
   // M1: losing a decide race used to throw a bare Error and answer 500.
   it('answers 404, not 500, when the request was already decided', async () => {
-    const first = await decide(owner, companyA, 'approve', approveRequest);
+    const first = await decide(owner, companyA, 'approve', raceRequest);
     expect(first.state.statusCode).toBe(200);
 
-    const second = await decide(owner, companyA, 'approve', approveRequest);
+    const second = await decide(owner, companyA, 'approve', raceRequest);
     expect(second.state.statusCode).toBe(404);
-    expect(await readRequest(approveRequest)).toMatchObject({ status: 'approved', decided_by: owner });
+    expect(await readRequest(raceRequest)).toMatchObject({ status: 'approved', decided_by: owner });
   });
 
   it('answers 404 for a request id that does not exist', async () => {
     const result = await decide(owner, companyA, 'approve', crypto.randomUUID());
     expect(result.state.statusCode).toBe(404);
+  });
+
+  // LOW-3: the id is cast ::UUID downstream, so a malformed one was a 22P02 —
+  // a 500 with a logged stack, contradicting the contract fix.md states.
+  it('answers 404, not 500, for a request id that is not a UUID', async () => {
+    const result = await decide(owner, companyA, 'approve', 'not-a-uuid');
+    expect(result.state.statusCode).toBe(404);
+  });
+
+  it('answers 400 for a rule id that is not a UUID', async () => {
+    const csrf = 'disposable-postgres-workflow-csrf-0123456789';
+    const cookies = { 'sb-access-token': tokens[owner]!, active_company_id: companyA, isaflow_csrf: csrf };
+    const req = {
+      method: 'POST', url: '/api/accounting/approval-requests', query: {}, cookies,
+      headers: {
+        cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; '),
+        'x-csrf-token': csrf,
+      },
+      body: { action: 'request', ruleId: 'not-a-uuid', documentType: 'payment', documentId: crypto.randomUUID() },
+      socket: { remoteAddress: '127.0.0.85' },
+    } as unknown as NextApiRequest;
+    const result = response();
+    await approvalRequests(req, result.res);
+    expect(result.state.statusCode).toBe(400);
   });
 });
