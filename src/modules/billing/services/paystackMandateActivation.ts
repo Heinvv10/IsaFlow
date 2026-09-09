@@ -26,6 +26,10 @@ import { sql, withSavepoint } from '@/lib/neon';
 export interface MandateRow {
   id: string;
   status: string;
+  /** The authorization code already recorded on the row, if any. */
+  authorizationCode: string | null;
+  /** True when the payment request named this mandate (migration 651). */
+  linked: boolean;
 }
 
 export interface AuthorisationDetails {
@@ -43,13 +47,27 @@ export type ActivationOutcome =
   | 'activated'
   /** It was already active — a redelivery, or verify and the webhook racing. */
   | 'already_active'
+  /**
+   * The fallback resolver landed on an already-active mandate carrying a
+   * DIFFERENT authorization code: a second checkout was paid and its capture
+   * belongs to a row this reference cannot name. Never a success.
+   */
+  | 'already_active_other_code'
   /** revoked / expired / failed: never resurrect it from a payment event. */
   | 'not_pending'
   /** The company already has a different active mandate. */
   | 'blocked';
 
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
+/**
+ * Only the one constraint the conditional UPDATE races on. Matching bare 23505
+ * would report any future unique index, deferred constraint or trigger-raised
+ * duplicate on this table as "the company already has a different active
+ * mandate" and swallow it; anything else must reach the caller.
+ */
+function isActiveMandateConflict(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: string; constraint?: string };
+  return e.code === '23505' && e.constraint === 'ux_sub_mandates_company_active';
 }
 
 /**
@@ -60,28 +78,43 @@ function isUniqueViolation(err: unknown): boolean {
  * ONE row, and its status is returned so the caller can refuse to resurrect a
  * revoked one.
  */
+interface ResolvedRow {
+  id: string;
+  status: string;
+  paystack_authorization_code: string | null;
+}
+
+function toMandateRow(row: ResolvedRow, linked: boolean): MandateRow {
+  return {
+    id: row.id,
+    status: row.status,
+    authorizationCode: row.paystack_authorization_code,
+    linked,
+  };
+}
+
 export async function resolveAuthorisedMandate(
   companyId: string,
   linkedMandateId: string | null,
 ): Promise<MandateRow | null> {
   if (linkedMandateId) {
-    const rows = await sql<MandateRow>`
-      SELECT id, status FROM subscription_mandates
+    const rows = await sql<ResolvedRow>`
+      SELECT id, status, paystack_authorization_code FROM subscription_mandates
       WHERE id = ${linkedMandateId}
         AND company_id = ${companyId}
       LIMIT 1
     `;
-    return rows[0] ?? null;
+    return rows[0] ? toMandateRow(rows[0], true) : null;
   }
-  const rows = await sql<MandateRow>`
-    SELECT id, status FROM subscription_mandates
+  const rows = await sql<ResolvedRow>`
+    SELECT id, status, paystack_authorization_code FROM subscription_mandates
     WHERE company_id = ${companyId}
       AND gateway = 'paystack'
       AND status IN ('pending','active')
     ORDER BY (status = 'active') DESC, created_at DESC
     LIMIT 1
   `;
-  return rows[0] ?? null;
+  return rows[0] ? toMandateRow(rows[0], false) : null;
 }
 
 export async function activateAuthorisedMandate(
@@ -89,7 +122,17 @@ export async function activateAuthorisedMandate(
   mandate: MandateRow,
   auth: AuthorisationDetails,
 ): Promise<ActivationOutcome> {
-  if (mandate.status === 'active') return 'already_active';
+  if (mandate.status === 'active') {
+    // Active-first ordering in the fallback is what makes a REDELIVERY of the
+    // event that activated this row resolve idempotently. A different
+    // authorization code means this is not that redelivery — the pending row
+    // this reference actually paid for is still pending and unnameable, so
+    // reporting success would discard a captured, charged authorisation.
+    if (!mandate.linked && mandate.authorizationCode !== auth.authorizationCode) {
+      return 'already_active_other_code';
+    }
+    return 'already_active';
+  }
   if (mandate.status !== 'pending') return 'not_pending';
 
   try {
@@ -119,7 +162,7 @@ export async function activateAuthorisedMandate(
     `);
     return rows[0] ? 'activated' : 'blocked';
   } catch (err) {
-    if (isUniqueViolation(err)) return 'blocked';
+    if (isActiveMandateConflict(err)) return 'blocked';
     throw err;
   }
 }
@@ -127,8 +170,11 @@ export async function activateAuthorisedMandate(
 /**
  * Records WHY a paid authorisation attached to nothing. The payment request
  * keeps status 'completed' — the money really was taken — but a completed
- * authorisation with no mandate is an operator-visible fault, not a success,
- * and `failure_reason` is the only column that survives to say so.
+ * authorisation with no mandate is a fault, not a success. `failure_reason` is
+ * the column that survives to say so; the verify route reads it back and
+ * answers `failed` + reason so the payer is told to contact support instead of
+ * watching 'pending' forever, and both call sites log at error level so it
+ * reaches error tracking.
  */
 export async function noteAuthorisationNotAttached(
   paymentRequestId: string,

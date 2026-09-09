@@ -66,3 +66,26 @@ MIGRATION: none added in round 3. The constraint HIGH-1 asked for
 (ux_sub_mandates_company_active, UNIQUE on company_id WHERE status='active') already exists
 from migration 429_stitch_payments.sql:103, confirmed present on the fixture DB.
 Reserved prefix 656 is RELEASED, unused.
+
+=== Round 4 (findings from review-k095-r3.md, commit 131bf415d) ===
+$ bunx vitest run tests/unit/services/paystackMandateActivation.test.ts
+  Test Files 1 passed (1) · Tests 7 passed (7)
+$ bun run test:integration -- tests/integration/k095-r4-fallback-attribution.int.test.ts
+  Test Files 1 passed (1) · Tests 3 passed (3)
+$ bun run test:integration -- tests/integration/k095 tests/integration/k096 tests/integration/k097
+  Test Files 10 passed (10) · Tests 40 passed (40)
+$ env -u DATABASE_URL bunx vitest run        # full unit suite, fixture env UNSET
+  Test Files 801 passed | 40 skipped (841) · Tests 9555 passed | 243 skipped (9798)
+$ bunx tsc --noEmit                          # clean
+$ bunx eslint <5 changed src/pages files>    # clean
+$ bun run agent-docs:check                   # OK: 74 mirrors match
+
+Mutation proof (production code reverted, then restored):
+  - drop the `!mandate.linked && authorizationCode !== …` guard AND restore bare `code === '23505'`
+      unit: 2 failed | 5 passed  (already_active_other_code; other-constraint rethrow)
+      integration k095-r4: 2 failed | 1 passed (second checkout unlabelled; dangling link)
+  - restore `mandate === null` as the verify fallback predicate (`else if (true)`)
+      integration k095-r4: dangling-link test red (reported the company's own active row)
+  - drop `failureReason ? 'failed'` from publicStatus
+      integration k095-mandate-activation-guards: 1 failed | 3 passed
+  All production files restored from backup and re-verified GREEN above.

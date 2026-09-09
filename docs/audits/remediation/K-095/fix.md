@@ -121,3 +121,81 @@ commercial decision.
 **Limits (round 3).** `blocked` is recorded, not resolved: nobody is alerted and no refund is
 raised. The pre-651 NULL-link fallback is still a newest-first heuristic — correct for one open
 checkout, a guess for two, and only time retires it as those rows age out.
+
+---
+
+## Round 4 — disposition of the 8 findings in review-k095-r3.md (commit 131bf415d)
+
+**MEDIUM-1 — FIXED.** The pre-651 fallback orders `(status='active') DESC` — which is what makes a
+webhook *redelivery* idempotent — so a second paid checkout resolved the ALREADY-ACTIVE mandate,
+short-circuited at `already_active`, and both callers read that as success: no label, no warn, a
+charged card and a captured authorization code discarded. `resolveAuthorisedMandate` now returns
+the row's `paystack_authorization_code` and whether the payment request *named* it (`linked`), and
+an unlinked active row carrying a **different** code returns the new outcome
+`already_active_other_code` → `failure_reason='authorisation_already_active_other_code'`. Same code
+= genuine redelivery = `already_active`, unchanged. A `linked` row is never second-guessed.
+
+**MEDIUM-2 — FIXED.** `paystack_payment_requests.failure_reason` had no reader, so "operator-visible"
+was not met and the payer saw `pending` indefinitely. `GET …/mandate/verify` now reads it back and
+answers `status: 'failed'` + `failureReason`; the return page renders "Your card was charged but the
+mandate could not be activated — contact support" for an `authorisation_*` reason instead of the
+card-declined copy. Both `noteAuthorisationNotAttached` call sites moved `log.warn` → `log.error`
+so it reaches error tracking. A row is only *named* in the response when the request linked it or
+nothing went wrong — a failed fallback resolution answers `mandateId: null`, never a neighbour's id.
+
+**LOW-1 — FIXED.** `isUniqueViolation` matched bare `23505`. It is now `isActiveMandateConflict`:
+`code === '23505' && constraint === 'ux_sub_mandates_company_active'`. Any other unique violation,
+deferred constraint or trigger-raised duplicate reaches the caller instead of being reported as
+"the company already has a different active mandate".
+
+**LOW-2 — FIXED.** `verify.ts` branched its fallback re-read on `mandate === null` rather than on
+whether the request *had* a link. A `mandate_id` that no longer resolves now answers
+`mandateId: null` (no query at all) instead of the company-newest row.
+
+**LOW-3 — FIXED.** `create.ts`'s failure-path `UPDATE subscription_mandates … WHERE id = ${mandateId}`
+carries `AND company_id = ${req.companyId}`.
+
+**LOW-4 — FIXED (documentation).** `src/modules/admin/.claude.md` records that fail-closed rolls back
+the DB, not the outside world: `invoice.send`, `user.reset_password` and `user.force_logout` leave
+their external effect done when the audit INSERT fails, so an operator reading that 500 must assume
+the email or the password change happened. It also records that `logAdminAction` fails closed.
+
+**LOW-5 — ACCEPTED, operational.** No code change: the 503 is correct. `PAYSTACK_SECRET_KEY` (test
+key) must be set on the dev and pilot hosts before this ships, or Flow top-ups there return 503 with
+no override (`NODE_ENV=production` under `next start` disables `ALLOW_UNPAID_FLOW_PURCHASE`). Flagged
+for the deploy, not fixable from the repo.
+
+**LOW-6 — FIXED.** `authorised_at` dropped from both `verify.ts` re-reads and from `MandateView`.
+
+**Round-4 tests.** `tests/unit/services/paystackMandateActivation.test.ts` — 7 tests (different code
+vs redelivery vs linked row; 23505 absorbed only for the named constraint; another constraint and a
+non-unique error rethrown; revoked). `tests/integration/k095-r4-fallback-attribution.int.test.ts` —
+3 tests on the fixture DB (second paid checkout labelled and both mandates untouched; same-code
+redelivery left unlabelled; a dangling link answers no mandate while the company's own active row is
+not reported). k095/k096/k097: **10 files / 40 tests**. Full unit suite with the fixture env unset:
+**801 files / 9555 tests**. tsc, eslint, agent-docs (74 mirrors) clean.
+Mutation: restoring the bare-`23505` match and dropping the different-code guard takes 2 unit + 1
+integration test red; restoring `mandate === null` as the fallback predicate takes the dangling-link
+test red; dropping `failureReason ? 'failed'` takes the round-3 verify test red.
+
+**Historical-data impact (round 4).** No migration, no backfill. Requests that took the
+already-active fallback before this fix are unlabelled and indistinguishable from a redelivery —
+read-only, not executed here:
+
+```sql
+SELECT pr.company_id, pr.paystack_reference, pr.completed_at, pr.paystack_authorization_code
+FROM   paystack_payment_requests pr
+JOIN   subscription_mandates m
+       ON m.company_id = pr.company_id AND m.status = 'active'
+WHERE  pr.purpose = 'authorization'
+  AND  pr.status = 'completed'
+  AND  pr.mandate_id IS NULL
+  AND  pr.failure_reason IS NULL
+  AND  pr.paystack_authorization_code IS DISTINCT FROM m.paystack_authorization_code
+ORDER  BY pr.completed_at DESC;
+```
+
+**Limits (round 4).** `already_active_other_code` is still only a label plus an error log — no refund
+and no ticket is raised, which stays a commercial decision. The different-code test is only possible
+for rows where `paystack_authorization_code` was recorded; a pre-651 request whose code column is
+NULL compares as different and is labelled conservatively.
