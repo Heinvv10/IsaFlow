@@ -6,7 +6,7 @@ import { provisionForensicFixture, validateFixtureTarget, type ForensicFixture }
 import { withControlRequest, requireControlTx } from '@/modules/accounting/services/controls/context';
 import type { ControlTx, OperationRef } from '@/modules/accounting/services/controls/contracts';
 import { requestOperationApproval, decideOperationApproval, getApprovalRequirements } from '@/modules/accounting/services/controls/approvalRequestService';
-import { executeControlledOperation } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { assertControlledEffectPermit, executeControlledOperation } from '@/modules/accounting/services/controls/approvalExecutionService';
 
 const config = fixtureConfigFromEnv(process.env), target = validateFixtureTarget(config);
 process.env.ENCRYPTION_KEY = randomBytes(32).toString('hex');
@@ -188,4 +188,98 @@ it('serializes same-day supplier exposure so concurrent split operations cannot 
   expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
   const total = (await pool.query("SELECT sum(amount)::text amount FROM control_policy_exposure WHERE company_id=$1 AND state='committed'", [fixture.companyA])).rows[0];
   expect(Number(total.amount)).toBe(6000);
+});
+it('retains separate beneficiary and currency exposure for one parent batch', async () => {
+  const parentId = randomUUID(), operation = 'supplier_payment_batch.process';
+  const beneficiaryA = randomUUID(), beneficiaryB = randomUUID();
+  await request('u1', async ctx => {
+    for (const [beneficiary, currency] of [[beneficiaryA, 'ZAR'], [beneficiaryB, 'ZAR'], [beneficiaryA, 'USD']]) {
+      await ctx.sql`INSERT INTO control_policy_exposure(company_id,policy_id,beneficiary_key,currency,window_start,operation,entity_id,amount,state)
+        VALUES(${fixture.companyA}::uuid,${rule},${beneficiary},${currency},
+          (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date,${operation},${parentId},100,'committed')`;
+    }
+  });
+  expect((await pool.query('SELECT beneficiary_key,currency FROM control_policy_exposure WHERE company_id=$1 AND entity_id=$2',
+    [fixture.companyA, parentId])).rows).toHaveLength(3);
+});
+it('serializes concurrent policy update and material inspection without a row/advisory deadlock', async () => {
+  let policyLocked!: () => void, continueInspection!: () => void;
+  const locked = new Promise<void>(resolve => { policyLocked = resolve; });
+  const ready = new Promise<void>(resolve => { continueInspection = resolve; });
+  const inspection = request('u1', async ctx => {
+    await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${fixture.companyA}`},0))`;
+    policyLocked(); await ready;
+    return getApprovalRequirements(ctx, ref);
+  });
+  await locked;
+  let updaterPid = 0;
+  const update = request('u2', async ctx => {
+    const [row] = await ctx.sql`SELECT pg_backend_pid() AS pid` as Array<{ pid: number }>;
+    updaterPid = row!.pid;
+    await ctx.sql`UPDATE approval_rules SET condition_value=condition_value+1 WHERE company_id=${fixture.companyA}::uuid AND id=${rule}::uuid`;
+  });
+  const results = Promise.allSettled([inspection, update]);
+  try {
+    let waiting = false;
+    for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+      if (updaterPid) waiting = (await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event='advisory'", [updaterPid])).rows.length === 1;
+      if (!waiting) await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    expect(waiting).toBe(true);
+  } finally { continueInspection(); }
+  expect((await results).map(result => result.status)).toEqual(['fulfilled', 'fulfilled']);
+});
+it('binds the live parent permit to its precise operation', async () => {
+  await pool.query("UPDATE approval_rules SET condition_operator='any',aggregate_window_days=null,aggregate_by=null WHERE company_id=$1 AND id=$2", [fixture.companyA, rule]);
+  const targetRef = await freshPayment();
+  const approval = await request('u1', ctx => requestOperationApproval(ctx, targetRef));
+  await request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved'));
+  await request('u1', ctx => executeControlledOperation(ctx, targetRef, approval.id, async permit => {
+    expect(() => assertControlledEffectPermit(ctx, permit, targetRef)).not.toThrow();
+    expect(() => assertControlledEffectPermit(ctx, permit, { ...targetRef, operation: 'supplier_payment.void' })).toThrow();
+    return { checked: true };
+  }));
+});
+it('rejects unrelated same-tenant captured evidence despite a caller-supplied matching parent', async () => {
+  const capture = randomUUID(), targetRef = await freshPayment();
+  await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type) VALUES($1,$2,'synthetic.pdf','pdf')", [capture, fixture.companyA]);
+  const approval = await request('u1', ctx => requestOperationApproval(ctx, targetRef));
+  await expect(request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved', [{ store: 'captured',
+    evidenceId: capture, entityType: targetRef.entityType, entityId: targetRef.entityId, version: null, hash: null }]))).rejects.toThrow('evidence');
+});
+it('does not execute a no-policy operation twice under one server-issued operation identity', async () => {
+  await pool.query('UPDATE approval_rules SET is_active=false WHERE company_id=$1 AND id=$2', [fixture.companyA, rule]);
+  const targetRef = await freshPayment(); let effects = 0;
+  await request('u1', async ctx => {
+    const effect = async () => ({ sequence: ++effects });
+    await executeControlledOperation(ctx, targetRef, null, effect);
+    await expect(executeControlledOperation(ctx, targetRef, null, effect)).rejects.toThrow('committed');
+  });
+  expect(effects).toBe(1);
+});
+it('rechecks the original requester token after revocation or scope attenuation', async () => {
+  await pool.query("UPDATE approval_rules SET is_active=true,condition_operator='any' WHERE company_id=$1 AND id=$2", [fixture.companyA, rule]);
+  const token = fixture.u1.tokens[1]!;
+  for (const change of ['revoked', 'scope', 'expired']) {
+    await pool.query("UPDATE personal_access_tokens SET scopes=$1,revoked_at=null,expires_at=clock_timestamp()+interval '1 day' WHERE company_id=$2 AND id=$3",
+      [['write:approvals', 'write:invoices', 'write:post'], fixture.companyA, token.id]);
+    const targetRef = await freshPayment();
+    const approval = await request('u1', ctx => requestOperationApproval(ctx, targetRef), true);
+    await request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved'));
+    if (change === 'revoked') await pool.query('UPDATE personal_access_tokens SET revoked_at=clock_timestamp() WHERE company_id=$1 AND id=$2', [fixture.companyA, token.id]);
+    else if (change === 'expired') await pool.query("UPDATE personal_access_tokens SET expires_at=clock_timestamp()-interval '1 minute' WHERE company_id=$1 AND id=$2", [fixture.companyA, token.id]);
+    else await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['read:invoices'] WHERE company_id=$1 AND id=$2", [fixture.companyA, token.id]);
+    await expect(request('u1', ctx => executeControlledOperation(ctx, targetRef, approval.id, noEffect))).rejects.toThrow();
+  }
+});
+it('accepts stored captured-source linkage and refuses it after detachment', async () => {
+  const capture = randomUUID(), hash = randomBytes(32).toString('hex'), targetRef = await freshPayment();
+  await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,raw_bytes_sha256) VALUES($1,$2,'linked.pdf','pdf',$3)", [capture, fixture.companyA, hash]);
+  await pool.query(`UPDATE supplier_invoices SET source_document_id=$1 WHERE company_id=$2 AND id IN
+    (SELECT invoice_id FROM payment_allocations WHERE payment_id=$3)`, [capture, fixture.companyA, targetRef.entityId]);
+  const approval = await request('u1', ctx => requestOperationApproval(ctx, targetRef));
+  await request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved', [{ store: 'captured',
+    evidenceId: capture, entityType: targetRef.entityType, entityId: targetRef.entityId, version: null, hash }]));
+  await pool.query('UPDATE supplier_invoices SET source_document_id=null WHERE company_id=$1 AND source_document_id=$2', [fixture.companyA, capture]);
+  await expect(request('u1', ctx => executeControlledOperation(ctx, targetRef, approval.id, noEffect))).rejects.toThrow('evidence');
 });

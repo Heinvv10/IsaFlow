@@ -5,7 +5,7 @@ import { canonicalJson, operationBindingHash } from './canonical';
 import type { ControlTx, EvidenceRef, OperationApproval, OperationBinding, PolicyBinding } from './contracts';
 
 export interface ApprovalRow {
-  id: string; company_id: string; operation_id: string; requester_person_id: string;
+  id: string; company_id: string; operation_id: string; requester_person_id: string; requester_auth_method: string;
   binding: OperationBinding; binding_hash: string; status: OperationApproval['status'];
   requested_at: Date | string; expires_at: Date | string; unexpired: boolean; consumed_effect_id: string | null;
 }
@@ -13,7 +13,7 @@ export interface DecisionRow { policy_id: string; person_id: string; decision: '
 export interface AuthorityRow {
   person_id: string; role: string; is_active: boolean | null; status: string | null;
   suspended_at: Date | string | null; company_status: string | null; company_suspended_at: Date | string | null;
-  permissions: Array<Record<string, unknown>>;
+  permissions: Array<Record<string, unknown>>; grant_valid: boolean; current_scopes: string[] | null;
 }
 export interface ApprovalSummary {
   id: string; status: OperationApproval['status']; operation: string; entityType: string; entityId: string;
@@ -48,7 +48,9 @@ export async function approvalDecisions(ctx: ControlTx, id: string): Promise<Dec
 }
 export async function assertApprovalAuthority(authority: AuthorityRow | undefined, permission: string, role?: string): Promise<void> {
   const { permissionReason } = await import('@/lib/auth/effectivePermissionPolicy');
-  if (!authority || !isActiveUserAccount(authority) || authority.company_suspended_at !== null
+  if (!authority || authority.grant_valid !== true
+    || (authority.current_scopes !== null && (!Array.isArray(authority.current_scopes)
+      || authority.current_scopes.some(scope => typeof scope !== 'string'))) || !isActiveUserAccount(authority) || authority.company_suspended_at !== null
     || ['suspended', 'deleted'].includes(authority.company_status ?? '')
     || (role !== undefined && authority.role !== role) || !Array.isArray(authority.permissions)) throw new Error('Approval authority is no longer valid');
   const overrides: ModulePermission[] = authority.permissions.map(row => ({
@@ -57,7 +59,16 @@ export async function assertApprovalAuthority(authority: AuthorityRow | undefine
     canApprove: row.can_approve === true, accountRangeFrom: row.account_range_from == null ? null : String(row.account_range_from),
     accountRangeTo: row.account_range_to == null ? null : String(row.account_range_to), restrictions: row.restrictions as Record<string, unknown>,
   }));
-  if (permissionReason(authority.role, permission, null, overrides)) throw new Error('Approval authority is no longer valid');
+  if (permissionReason(authority.role, permission, authority.current_scopes, overrides)) throw new Error('Approval authority is no longer valid');
+}
+export async function assertRequesterAuthority(row: ApprovalRow, authorities: AuthorityRow[]): Promise<void> {
+  const requester = authorities.find(person => person.person_id === row.requester_person_id);
+  if (!['cookie', 'pat', 'oauth'].includes(row.requester_auth_method)
+    || (row.requester_auth_method !== 'cookie' && !Array.isArray(requester?.current_scopes))) {
+    throw new Error('Requester grant authority is no longer valid');
+  }
+  await assertApprovalAuthority(requester, 'write:invoices');
+  await assertApprovalAuthority(requester, 'write:approvals');
 }
 export async function validateDecisions(ctx: ControlTx, row: ApprovalRow, decisions: DecisionRow[], authorities: AuthorityRow[]): Promise<void> {
   for (const policy of row.binding.policies) {
@@ -80,8 +91,19 @@ export async function validateApprovalEvidence(ctx: ControlTx, binding: Operatio
     if (ref.entityId !== binding.entityId || ref.entityType !== binding.entityType) throw new Error('Evidence parent does not match approval');
     let found: unknown[];
     if (ref.store === 'captured') {
-      found = await ctx.sql`SELECT id FROM captured_documents WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.evidenceId}::uuid
-        AND (${ref.hash}::text IS NULL OR raw_bytes_sha256=${ref.hash})`;
+      found = await ctx.sql`
+        SELECT cd.id FROM captured_documents cd
+        WHERE cd.company_id=${ctx.principal.companyId}::uuid AND cd.id=${ref.evidenceId}::uuid
+          AND (${ref.hash}::text IS NULL OR cd.raw_bytes_sha256=${ref.hash})
+          AND EXISTS(SELECT 1 FROM supplier_invoices si
+            WHERE si.company_id=${ctx.principal.companyId}::uuid AND si.source_document_id=cd.id
+              AND ((${binding.entityType}='supplier_invoice' AND si.id=${binding.entityId}::uuid)
+                OR (${binding.entityType}='supplier_payment' AND EXISTS(
+                  SELECT 1 FROM payment_allocations pa JOIN supplier_payments sp ON sp.id=pa.payment_id
+                  WHERE sp.company_id=${ctx.principal.companyId}::uuid AND sp.id=${binding.entityId}::uuid
+                    AND pa.invoice_id=si.id AND si.supplier_id=sp.supplier_id))))
+        FOR SHARE OF cd
+      `;
     } else if (ref.store === 'procurement') {
       found = await ctx.sql`
         SELECT pd.id FROM procurement_documents pd WHERE pd.id=${ref.evidenceId}::uuid AND pd.is_active=true

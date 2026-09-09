@@ -2,7 +2,7 @@ import { withSavepoint } from '@/lib/neon';
 import type { ControlTx, EvidenceRef, OperationRef } from './contracts';
 import { assertControlTx } from './context';
 import { canonicalOperationRef, loadOperationMaterial, reserveOperationExposure, type OperationMaterial } from './operationMaterializer';
-import { approvalAuthorities, approvalDecisions, approvalSummary, assertApprovalAuthority, lockApproval,
+import { approvalAuthorities, approvalDecisions, approvalSummary, assertRequesterAuthority, lockApproval,
   pendingPolicies, validateApprovalEvidence, type ApprovalRow } from './approvalQueries';
 
 export async function getApprovalRequirements(ctx: ControlTx, ref: OperationRef) {
@@ -34,9 +34,12 @@ export async function requestOperationApproval(ctx: ControlTx, input: OperationR
     const status = material.binding.policies.length ? 'pending' : 'approved';
     const [row] = await ctx.sql`
       INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,
-        requester_person_id,binding,binding_hash,status,requested_at,expires_at)
+        requester_person_id,requester_auth_method,requester_grant_id,requester_granted_scopes,
+        binding,binding_hash,status,requested_at,expires_at)
       VALUES(${ctx.principal.companyId}::uuid,${ctx.principal.operationId}::uuid,${ref.operation},${ref.entityType},${ref.entityId},
-        ${ctx.principal.personId},${JSON.stringify(material.binding)}::jsonb,${material.bindingHash},${status},
+        ${ctx.principal.personId},${ctx.principal.authMethod},
+        ${ctx.principal.authMethod === 'pat' ? ctx.principal.connectionId : ctx.principal.grantId}::uuid,
+        ${ctx.principal.grantedScopes === null ? null : [...ctx.principal.grantedScopes]}::text[],${JSON.stringify(material.binding)}::jsonb,${material.bindingHash},${status},
         clock_timestamp(),clock_timestamp()+interval '1 day') RETURNING *
     ` as ApprovalRow[];
     if (!row) throw new Error('Approval request could not be created');
@@ -73,7 +76,7 @@ export async function decideOperationApproval(ctx: ControlTx, id: string,
       if (ctx.principal.personId !== row.requester_person_id) throw new Error('Only the requester can cancel approval');
     } else {
       if (ctx.principal.personId === row.requester_person_id) throw new Error('Self approval is not permitted');
-      await assertApprovalAuthority(authorities.find(person => person.person_id === row.requester_person_id), 'write:invoices');
+      await assertRequesterAuthority(row, authorities);
       const decisions = await approvalDecisions(ctx, id);
       const eligible = pendingPolicies(row.binding.policies, decisions, actor.role);
       if (!eligible.length) throw new Error('No pending policy accepts this approver role');
