@@ -1,5 +1,6 @@
 import {materializeBankAllocationOperation} from '../bank/bankAllocationMaterial';
 import {materializeInvoiceMatchOverride} from '../ap/invoiceMatchOverrideMaterial';
+import {materializeHistoricalImportOperation} from './historicalImportMaterializer';
 import {materializeBankTransferOperation} from './bankTransferOperationMaterializer';
 import {materializeAssetDepreciationOperation} from './assetDepreciationOperationMaterializer';
 import {materializeArOperation} from './arOperationMaterializer';
@@ -25,7 +26,7 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
     : ref.entityType==='vat_period' ? dates.length===2 && dates.every(isRealCalendarDate) && dates[0]!<=dates[1]!
       : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.entityId);
   if(!validId)throw new Error('Invalid operation reference');
-  const operations = ref.entityType==='invoice_match_override_intent'?['invoice_match.override']:ref.entityType === 'supplier_invoice'
+  const operations = ref.entityType==='historical_import'?['historical_import.post']:ref.entityType==='invoice_match_override_intent'?['invoice_match.override']:ref.entityType === 'supplier_invoice'
     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_invoice.cancel']
     : ref.entityType === 'bank_allocation_reversal_intent' ? ['bank_allocation.reverse']
     : ref.entityType === 'bank_allocation_intent' ? ['bank_allocation.post']
@@ -66,6 +67,12 @@ export async function loadOperationMaterial(ctx: ControlTx, input: OperationRef)
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
   const rules = await loadApprovalRules(ctx, operationRuleType(ref.operation));
   const material = await materializeOperation(ctx, ref);
+  if(ref.entityType==='historical_import'){
+    const facts=material.observedSources[0]!.facts as {source:{normalized:{kind:string}}};
+    const kind=facts.source.normalized.kind;
+    const domain=kind==='customer_invoice'?'customer_invoice':kind==='supplier_invoice'?'supplier_invoice':'journal_entry';
+    rules.push(...await loadApprovalRules(ctx,domain));
+  }
   const [clock] = await ctx.sql`SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day` as Array<{ day: string }>;
   if (!clock) throw new Error('Execution clock unavailable');
   const binding = { ...material.binding, policies: await matchOperationPolicies(ctx, rules, material, clock.day) };
@@ -96,6 +103,7 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
 export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
   if(['bank_allocation_intent','bank_allocation_reversal_intent'].includes(ref.entityType))return materializeBankAllocationOperation(ctx,ref);
   if(ref.entityType==='invoice_match_override_intent')return materializeInvoiceMatchOverride(ctx,ref);
+  if(ref.entityType==='historical_import')return materializeHistoricalImportOperation(ctx,ref);
   if(ref.entityType==='bank_transfer_intent')return materializeBankTransferOperation(ctx,ref);
   if(ref.entityType==='asset_depreciation_intent')return materializeAssetDepreciationOperation(ctx,ref);
   if(['customer_invoice','customer_payment','credit_note','credit_note_application','recurring_invoice_run'].includes(ref.entityType))return materializeArOperation(ctx,ref);

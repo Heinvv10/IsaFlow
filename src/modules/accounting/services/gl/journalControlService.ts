@@ -61,7 +61,7 @@ async function assertDirectJournalOperation(ctx:ControlTx,ref:OperationRef):Prom
 }
 function assertDirectSource(source:string):void {
   if(new Set(['auto_invoice','auto_payment','auto_credit_note','auto_supplier_invoice','auto_supplier_payment',
-    'auto_batch_payment','auto_depreciation','auto_payroll','auto_bank_transfer','auto_bank_recon','year_end']).has(source)) {
+    'auto_batch_payment','auto_depreciation','auto_payroll','auto_bank_transfer','auto_bank_recon','year_end','auto_gl_import']).has(source)) {
     throw new Error('Generated journal must be changed through its authorized domain operation');
   }
 }

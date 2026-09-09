@@ -1,5 +1,6 @@
 import {readBankAllocationReversalJournalRelationship} from './bankAllocationReversalJournalRelationship';
 import {readBankAllocationJournalRelationship} from './bankAllocationJournalRelationship';
+import {readHistoricalJournalRelationship} from './historicalJournalRelationship';
 import { assertControlledEffectPermit } from './approvalExecutionService';
 import type { ControlTx } from './contracts';
 import type { ParentJournalControl } from './generatedJournalPermit';
@@ -10,6 +11,7 @@ export async function readPostingIntentJournalRelationship(ctx: ControlTx, contr
   assertControlledEffectPermit(ctx, control.permit, control.parent);
   if (control.parent.entityType === 'bank_allocation_intent') return readBankAllocationJournalRelationship(ctx,control,journalId,operation);
   if (control.parent.entityType === 'bank_allocation_reversal_intent') return readBankAllocationReversalJournalRelationship(ctx,control,journalId,operation);
+  if(control.parent.entityType==='historical_import')return readHistoricalJournalRelationship(ctx,control,journalId,operation);
   if (operation !== 'journal.post') return [];
   const { parent, permit } = control, company = ctx.principal.companyId;
   if (parent.entityType === 'bank_transfer_intent' && parent.operation === 'bank_transfer.post') {

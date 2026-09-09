@@ -1,7 +1,8 @@
-const operations: Record<string,{read:string;write:string;rule:'supplier_invoice'|'payment'|'journal_entry'|'payroll_run'|'fiscal_period'|'fiscal_year'|'company_lockdown'|'vat_period'|'asset_depreciation'|'customer_invoice'|'credit_note'|'payment_release'|'invoice_match_override'}>={
+const operations: Record<string,{read:string;write:string;rule:'supplier_invoice'|'payment'|'journal_entry'|'payroll_run'|'fiscal_period'|'fiscal_year'|'company_lockdown'|'vat_period'|'asset_depreciation'|'customer_invoice'|'credit_note'|'payment_release'|'invoice_match_override'|'historical_import'}>={
   'invoice_match.override':{read:'read:invoices',write:'write:invoices',rule:'invoice_match_override'},
   'bank_allocation.post':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
   'bank_allocation.reverse':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
+  'historical_import.post':{read:'read:imports',write:'write:imports',rule:'historical_import'},
   'bank_transfer.post':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
   'asset_depreciation.post':{read:'read:assets',write:'write:assets',rule:'asset_depreciation'},
   'customer_invoice.post':{read:'read:invoices',write:'write:invoices',rule:'customer_invoice'},

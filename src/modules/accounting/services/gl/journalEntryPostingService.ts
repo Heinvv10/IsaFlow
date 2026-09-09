@@ -1,3 +1,4 @@
+import {isAuthorizedHistoricalPosting} from '../controls/historicalPostingGuard';
 /** Shared journal writers: authenticated control gate before any financial effect. */
 import { randomUUID } from 'node:crypto';
 import { sql, type DbRow } from '@/lib/neon';
@@ -35,9 +36,9 @@ function facts(material: ApMaterial): { header: Row; targetPeriod: Row; company:
   return material.observedSources.find(s => s.entityType === 'journal_entry' && s.entityId === material.binding.entityId)!.facts as
     { header: Row; targetPeriod: Row; company: Row; accounts: Row[]; vatLocks: Row[] };
 }
-function assertPostingGuards(material: ApMaterial, authorizedYearEnd = false): ReturnType<typeof facts> {
+function assertPostingGuards(material: ApMaterial, authorizedClosedPeriod = false): ReturnType<typeof facts> {
   const state = facts(material);
-  if (state.targetPeriod.status !== 'open' && !(authorizedYearEnd && state.targetPeriod.status === 'closed')) {
+  if (state.targetPeriod.status !== 'open' && !(authorizedClosedPeriod && state.targetPeriod.status === 'closed')) {
     throw new ClosedFiscalPeriodError(String(state.targetPeriod.status));
   }
   if (state.company.lockdown_enabled === true && (!state.company.lockdown_date
@@ -51,8 +52,9 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
   return runJournalControl(companyId, userId, { entityType: 'journal_entry', entityId: id, operation: 'journal.post' }, opts,
     async (ctx, material, parent) => {
       const state = facts(material);
-      const authorizedYearEnd = isAuthorizedYearEndPosting(ctx, parent, state.header, state.targetPeriod, material.binding.accountingDate!);
-      const { header } = assertPostingGuards(material, authorizedYearEnd);
+      const authorizedClosedPeriod = isAuthorizedYearEndPosting(ctx, parent, state.header, state.targetPeriod, material.binding.accountingDate!)
+        ||isAuthorizedHistoricalPosting(ctx,parent,state.header,state.targetPeriod,material.binding.accountingDate!);
+      const { header } = assertPostingGuards(material, authorizedClosedPeriod);
       if (header.status !== 'draft') throw new Error(`Cannot post entry with status: ${header.status}`);
       const rows = await ctx.sql`UPDATE gl_journal_entries SET status='posted',posted_by=${ctx.principal.personId}::uuid,posted_at=clock_timestamp()
         WHERE company_id=${companyId}::uuid AND id=${id}::uuid AND status='draft' RETURNING *` as Row[];
