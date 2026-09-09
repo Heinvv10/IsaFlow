@@ -1,0 +1,9 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+
+ Test Files  31 passed | 2 skipped (33)
+      Tests  416 passed | 5 skipped (421)
+   Start at  21:56:26
+   Duration  688ms (transform 7.22s, setup 0ms, import 9.78s, tests 215ms, environment 2ms)
+

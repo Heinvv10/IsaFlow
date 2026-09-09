@@ -1,0 +1,28 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"OAuth app registered","timestamp":"2026-09-08T16:46:42.517Z","component":"oauth","data":{"appId":"c030a0e5-0156-4aef-92c7-b06734454608","ownerUserId":"08141ef8-7ef7-4a28-8a43-99852708c7b6","name":"standing fixture","isDynamic":false}}
+{"level":"info","message":"PAT created","timestamp":"2026-09-08T16:46:42.536Z","component":"pat","data":{"userId":"08141ef8-7ef7-4a28-8a43-99852708c7b6","companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046","name":"standing fixture","scopes":["read:invoices"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.542Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:46:42.559Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.567Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.573Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:46:42.580Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.587Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.595Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:46:42.607Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.623Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.634Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:46:42.645Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.656Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.671Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:46:42.683Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.694Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.705Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:46:42.716Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:42.727Z","component":"AdminCompanyService","data":{"companyId":"82332355-50da-4a3d-a2bc-3a3a35f5a046"}}
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  18:46:42
+   Duration  652ms (transform 90ms, setup 0ms, import 222ms, tests 337ms, environment 0ms)

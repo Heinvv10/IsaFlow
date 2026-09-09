@@ -84,13 +84,18 @@ export async function ingestPostmarkPayload(
   const inboxRows = await sql`
     SELECT id, company_id, allowed_sender_domains
     FROM capture_inboxes
-    WHERE address = ${toAddress} AND is_active = true AND channel = 'email'
-    LIMIT 1
+    WHERE lower(address) = ${toAddress} AND is_active = true AND channel = 'email'
+    LIMIT 2
   ` as InboxRow[];
 
   if (inboxRows.length === 0) {
     log.info('Inbound email: no active inbox for address', { toAddress }, 'inbound-email');
     return { rejected: 'no matching inbox' };
+  }
+
+  if (inboxRows.length > 1) {
+    log.warn('Inbound email: ambiguous destination rejected', { toAddress }, 'inbound-email');
+    return { rejected: 'ambiguous inbox' };
   }
 
   const inbox = inboxRows[0]!;

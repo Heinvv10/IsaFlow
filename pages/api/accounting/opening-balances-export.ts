@@ -28,7 +28,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           SUM(CASE WHEN credit > 0 THEN credit ELSE 0 END) AS credit
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        WHERE je.source = 'opening_balance' AND je.company_id = ${companyId}
+        WHERE (je.source = 'opening_balance' OR (je.source = 'manual' AND je.reference = 'opening_balance'))
+          AND je.status = 'posted' AND je.company_id = ${companyId}
           AND jl.company_id = ${companyId}::UUID
         GROUP BY gl_account_id
       ) ob ON ob.gl_account_id = a.id

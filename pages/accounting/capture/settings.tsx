@@ -1,3 +1,4 @@
+import { WhatsAppVerificationSection } from '@/components/accounting/capture/WhatsAppVerificationSection';
 /**
  * Capture Settings — PRD-05 Phase 1 + Phase 8
  * Manage email inbox address, WhatsApp WABA number, and chase toggles.
@@ -7,14 +8,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  Mail, Smartphone, MessageSquare, Server,
+  Mail, Smartphone, Server,
   Copy, Check, RefreshCw, AlertCircle, Loader2, X, Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import { CaptureApiKeysSection } from '@/components/accounting/capture/CaptureApiKeysSection';
 
 interface InboxAddress { id: string; address: string }
-interface WaInbox { id: string; address: string; isActive: boolean }
 interface ChaseSettings { chaseAutoSendEnabled: boolean; chaseGraceDays: number; whatsappChaseEnabled: boolean }
 
 function SectionCard({ children, title }: { children: React.ReactNode; title: string }) {
@@ -36,18 +36,10 @@ export default function CaptureSettingsPage() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
-  // WhatsApp inbox state
-  const [waInbox, setWaInbox] = useState<WaInbox | null>(null);
-  const [waLoading, setWaLoading] = useState(true);
-  const [waInput, setWaInput] = useState('');
-  const [waSaving, setWaSaving] = useState(false);
-  const [webhookCopied, setWebhookCopied] = useState(false);
-
   // Chase settings state
   const [chaseSettings, setChaseSettings] = useState<ChaseSettings | null>(null);
   const [chaseSaving, setChaseSaving] = useState(false);
 
-  const WEBHOOK_URL = 'https://app.isaflow.co.za/api/accounting/capture/inbound/whatsapp';
 
   function showToast(msg: string, ok: boolean) { setToast({ msg, ok }); }
   useEffect(() => {
@@ -70,17 +62,6 @@ export default function CaptureSettingsPage() {
     }
   }, []);
 
-  const loadWaInbox = useCallback(async () => {
-    setWaLoading(true);
-    try {
-      const res = await apiFetch('/api/accounting/capture/whatsapp-inbox');
-      const json = await res.json() as { data?: WaInbox | null };
-      setWaInbox(json.data ?? null);
-      if (json.data?.address) setWaInput(json.data.address);
-    } catch { /* non-fatal */ }
-    finally { setWaLoading(false); }
-  }, []);
-
   const loadChaseSettings = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/chase-settings');
@@ -90,20 +71,14 @@ export default function CaptureSettingsPage() {
     } catch { /* non-fatal */ }
   }, []);
 
-  useEffect(() => { void Promise.all([loadAddress(), loadWaInbox(), loadChaseSettings()]); },
-    [loadAddress, loadWaInbox, loadChaseSettings]);
+  useEffect(() => { void Promise.all([loadAddress(), loadChaseSettings()]); },
+    [loadAddress, loadChaseSettings]);
 
   async function handleCopy() {
     if (!inboxAddr?.address) return;
     await navigator.clipboard.writeText(inboxAddr.address);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }
-
-  async function handleCopyWebhook() {
-    await navigator.clipboard.writeText(WEBHOOK_URL);
-    setWebhookCopied(true);
-    setTimeout(() => setWebhookCopied(false), 2000);
   }
 
   async function handleRegenerate() {
@@ -120,27 +95,6 @@ export default function CaptureSettingsPage() {
       showToast('Network error', false);
     } finally {
       setRegenerating(false);
-    }
-  }
-
-  async function handleSaveWa() {
-    const address = waInput.trim();
-    if (!address) { showToast('Enter a WhatsApp number', false); return; }
-    setWaSaving(true);
-    try {
-      const res = await apiFetch('/api/accounting/capture/whatsapp-inbox', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address }),
-      });
-      const json = await res.json() as { data?: WaInbox; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Failed to save', false); return; }
-      setWaInbox(json.data ?? null);
-      showToast('WhatsApp number saved', true);
-    } catch {
-      showToast('Network error', false);
-    } finally {
-      setWaSaving(false);
     }
   }
 
@@ -214,36 +168,7 @@ export default function CaptureSettingsPage() {
 
           {/* Section 2: WhatsApp */}
           <SectionCard title="WhatsApp">
-            <div className="flex items-center gap-2 mb-4">
-              <MessageSquare className="h-5 w-5 text-green-400" />
-              <p className="text-sm text-slate-400">Connect your WhatsApp Business Account (WABA) to receive documents via WhatsApp.</p>
-            </div>
-            {waLoading ? (
-              <div className="flex items-center gap-2 text-slate-500 py-2"><Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Loading…</span></div>
-            ) : (
-              <div className="space-y-4">
-                {waInbox
-                  ? <p className="text-sm text-slate-400">Your WhatsApp Business number: <span className="font-mono text-slate-200">{waInbox.address}</span></p>
-                  : <p className="text-sm text-slate-500">No WhatsApp number configured.</p>}
-                <div className="flex gap-2">
-                  <input type="tel" inputMode="tel" value={waInput} onChange={e => setWaInput(e.target.value)}
-                    placeholder="+27821234567"
-                    className="flex-1 px-3 py-2 rounded-lg text-sm bg-white/5 border border-[rgba(255,255,255,0.08)] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-green-500/50" />
-                  <button onClick={handleSaveWa} disabled={waSaving || !waInput.trim()}
-                    className="px-4 py-2 rounded-lg text-sm font-medium bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white transition-colors">
-                    {waSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  <p className="text-xs text-slate-500">Configure Twilio to POST to:</p>
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-white/5 border border-[rgba(255,255,255,0.08)]">
-                    <span className="flex-1 font-mono text-xs text-slate-300 break-all">{WEBHOOK_URL}</span>
-                    <button onClick={handleCopyWebhook} className="shrink-0 p-1.5 rounded text-slate-500 hover:text-teal-400 transition-colors" title="Copy URL">
-                      {webhookCopied ? <Check className="h-4 w-4 text-teal-400" /> : <Copy className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-600">Set TWILIO_* env vars on the server for outbound replies + chase.</p>
-                </div>
+            <WhatsAppVerificationSection />
                 <div className="pt-3 border-t border-[rgba(255,255,255,0.06)] flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <Zap className="h-4 w-4 text-green-500 shrink-0" />
@@ -259,8 +184,6 @@ export default function CaptureSettingsPage() {
                     <span className={`inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform ${chaseSettings?.whatsappChaseEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
                   </button>
                 </div>
-              </div>
-            )}
           </SectionCard>
 
           {/* Section 3: API Keys */}

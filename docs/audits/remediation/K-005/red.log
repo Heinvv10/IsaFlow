@@ -1,0 +1,92 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/capture/whatsapp-inbox","timestamp":"2026-09-08T18:35:10.809Z","component":"API","requestId":"01M214TYJRMXYKKYJ3FKWZZMG4","data":{"type":"request","method":"POST","url":"/api/accounting/capture/whatsapp-inbox","query":{},"body":{"address":"+27820001001"}}}
+{"level":"info","message":"Upserted WhatsApp capture inbox","timestamp":"2026-09-08T18:35:10.811Z","component":"whatsapp-inbox","requestId":"01M214TYJRMXYKKYJ3FKWZZMG4","data":{"companyId":"e78420c0-34a4-4bf8-9f9f-c63904459790","address":"+27820001001"}}
+{"level":"info","message":"API Response: POST /api/accounting/capture/whatsapp-inbox - 200 (2ms)","timestamp":"2026-09-08T18:35:10.811Z","component":"API","requestId":"01M214TYJRMXYKKYJ3FKWZZMG4","data":{"type":"response","method":"POST","url":"/api/accounting/capture/whatsapp-inbox","statusCode":200,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T18:35:10.811Z","component":"http","requestId":"01M214TYJRMXYKKYJ3FKWZZMG4","data":{"event":"request_completed","route":"/api/accounting/capture/whatsapp-inbox","method":"POST","status":200,"durationMs":2,"userId":"3ecd4c0c-8a69-42c1-834c-7eb42a91e3ac","companyId":"e78420c0-34a4-4bf8-9f9f-c63904459790","outcome":"ok"}}
+{"level":"info","message":"withAuth slow request","timestamp":"2026-09-08T18:35:10.918Z","component":"Auth","data":{"ms":117,"url":"/api/accounting/capture/whatsapp-inbox"}}
+{"level":"info","message":"API Request: POST /api/accounting/capture/whatsapp-inbox","timestamp":"2026-09-08T18:35:10.920Z","component":"API","requestId":"01M214TYP8M0MKR3AMEH57TJ27","data":{"type":"request","method":"POST","url":"/api/accounting/capture/whatsapp-inbox","query":{},"body":{"address":"+27820001002"}}}
+{"level":"info","message":"Upserted WhatsApp capture inbox","timestamp":"2026-09-08T18:35:10.920Z","component":"whatsapp-inbox","requestId":"01M214TYP8M0MKR3AMEH57TJ27","data":{"companyId":"75a1ebdd-d81d-44a1-8194-7d04c46f85bd","address":"+27820001002"}}
+{"level":"info","message":"API Response: POST /api/accounting/capture/whatsapp-inbox - 200 (1ms)","timestamp":"2026-09-08T18:35:10.921Z","component":"API","requestId":"01M214TYP8M0MKR3AMEH57TJ27","data":{"type":"response","method":"POST","url":"/api/accounting/capture/whatsapp-inbox","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T18:35:10.921Z","component":"http","requestId":"01M214TYP8M0MKR3AMEH57TJ27","data":{"event":"request_completed","route":"/api/accounting/capture/whatsapp-inbox","method":"POST","status":200,"durationMs":1,"userId":"af2c1ca1-3da3-43d8-934d-cac1cdafb90e","companyId":"75a1ebdd-d81d-44a1-8194-7d04c46f85bd","outcome":"ok"}}
+{"level":"info","message":"withAuth slow request","timestamp":"2026-09-08T18:35:11.022Z","component":"Auth","data":{"ms":104,"url":"/api/accounting/capture/whatsapp-inbox"}}
+{"level":"info","message":"API Request: POST /api/accounting/capture/whatsapp-inbox","timestamp":"2026-09-08T18:35:11.024Z","component":"API","requestId":"01M214TYSGQ8J713HKGF61T6EE","data":{"type":"request","method":"POST","url":"/api/accounting/capture/whatsapp-inbox","query":{},"body":{"address":"+27820001001"}}}
+{"level":"info","message":"Upserted WhatsApp capture inbox","timestamp":"2026-09-08T18:35:11.025Z","component":"whatsapp-inbox","requestId":"01M214TYSGQ8J713HKGF61T6EE","data":{"companyId":"75a1ebdd-d81d-44a1-8194-7d04c46f85bd","address":"+27820001001"}}
+{"level":"info","message":"API Response: POST /api/accounting/capture/whatsapp-inbox - 200 (1ms)","timestamp":"2026-09-08T18:35:11.025Z","component":"API","requestId":"01M214TYSGQ8J713HKGF61T6EE","data":{"type":"response","method":"POST","url":"/api/accounting/capture/whatsapp-inbox","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T18:35:11.025Z","component":"http","requestId":"01M214TYSGQ8J713HKGF61T6EE","data":{"event":"request_completed","route":"/api/accounting/capture/whatsapp-inbox","method":"POST","status":200,"durationMs":1,"userId":"af2c1ca1-3da3-43d8-934d-cac1cdafb90e","companyId":"75a1ebdd-d81d-44a1-8194-7d04c46f85bd","outcome":"ok"}}
+{"level":"info","message":"withAuth slow request","timestamp":"2026-09-08T18:35:11.127Z","component":"Auth","data":{"ms":104,"url":"/api/accounting/capture/whatsapp-inbox"}}
+{"level":"info","message":"API Request: POST /api/accounting/capture/inbound/whatsapp","timestamp":"2026-09-08T18:35:11.132Z","component":"API","requestId":"01M214TYWVCKPK6FRR3TYFD9HT","data":{"type":"request","method":"POST","url":"/api/accounting/capture/inbound/whatsapp","query":{},"body":{"From":"whatsapp:+27821111111","To":"whatsapp:+27820001001","Body":"Paid R100 at Fixture","NumMedia":"0","MessageSid":"SM-disposable-routing"}}}
+{"level":"info","message":"whatsAppInbound: text-command capture event created","timestamp":"2026-09-08T18:35:11.242Z","component":"whatsapp-inbound","requestId":"01M214TYWVCKPK6FRR3TYFD9HT","data":{"companyId":"e78420c0-34a4-4bf8-9f9f-c63904459790","inboxId":"366c0557-a6f8-4343-b010-a67c4a22f13d","eventId":"4ad69264-27ea-4d8b-94e5-3fe035555d83","parsedCommand":{"action":"provisional_expense","amount":100,"supplierHint":"Fixture","paymentMethod":null,"description":"Paid R100 at Fixture"}}}
+{"level":"info","message":"Twilio webhook: processed","timestamp":"2026-09-08T18:35:11.242Z","component":"whatsapp-inbound","requestId":"01M214TYWVCKPK6FRR3TYFD9HT","data":{"companyId":"e78420c0-34a4-4bf8-9f9f-c63904459790","captureEventIds":["4ad69264-27ea-4d8b-94e5-3fe035555d83"],"hasCommand":true}}
+{"level":"info","message":"API Response: POST /api/accounting/capture/inbound/whatsapp - 200 (110ms)","timestamp":"2026-09-08T18:35:11.242Z","component":"API","requestId":"01M214TYWVCKPK6FRR3TYFD9HT","data":{"type":"response","method":"POST","url":"/api/accounting/capture/inbound/whatsapp","statusCode":200,"duration":"110ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T18:35:11.242Z","component":"http","requestId":"01M214TYWVCKPK6FRR3TYFD9HT","data":{"event":"request_completed","route":"/api/accounting/capture/inbound/whatsapp","method":"POST","status":200,"durationMs":110,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/capture/inbound/whatsapp","timestamp":"2026-09-08T18:35:11.244Z","component":"API","requestId":"01M214TZ0C1Z8PCXFNG3Q1NQ41","data":{"type":"request","method":"POST","url":"/api/accounting/capture/inbound/whatsapp","query":{},"body":{"From":"whatsapp:+27821111111","To":"whatsapp:+27820001001","Body":"Paid R100 at Fixture","NumMedia":"0","MessageSid":"SM-disposable-routing"}}}
+{"level":"info","message":"API Response: POST /api/accounting/capture/inbound/whatsapp - 403 (0ms)","timestamp":"2026-09-08T18:35:11.244Z","component":"API","requestId":"01M214TZ0C1Z8PCXFNG3Q1NQ41","data":{"type":"response","method":"POST","url":"/api/accounting/capture/inbound/whatsapp","statusCode":403,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T18:35:11.245Z","component":"http","requestId":"01M214TZ0C1Z8PCXFNG3Q1NQ41","data":{"event":"request_completed","route":"/api/accounting/capture/inbound/whatsapp","method":"POST","status":403,"durationMs":1,"userId":null,"companyId":null,"outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/capture/inbound/whatsapp","timestamp":"2026-09-08T18:35:11.245Z","component":"API","requestId":"01M214TZ0DBHCY4CJS6RZNX1TX","data":{"type":"request","method":"POST","url":"/api/accounting/capture/inbound/whatsapp","query":{},"body":{"From":"whatsapp:+27821111111","To":"whatsapp:+27820001001","Body":"Paid R100 at Fixture","NumMedia":"0","MessageSid":"SM-disposable-routing"}}}
+{"level":"info","message":"API Response: POST /api/accounting/capture/inbound/whatsapp - 503 (0ms)","timestamp":"2026-09-08T18:35:11.245Z","component":"API","requestId":"01M214TZ0DBHCY4CJS6RZNX1TX","data":{"type":"response","method":"POST","url":"/api/accounting/capture/inbound/whatsapp","statusCode":503,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T18:35:11.245Z","component":"http","requestId":"01M214TZ0DBHCY4CJS6RZNX1TX","data":{"event":"request_completed","route":"/api/accounting/capture/inbound/whatsapp","method":"POST","status":503,"durationMs":0,"userId":null,"companyId":null,"outcome":"server_error"}}
+{"level":"warn","message":"Twilio webhook: invalid signature","timestamp":"2026-09-08T18:35:11.244Z","component":"whatsapp-inbound","requestId":"01M214TZ0C1Z8PCXFNG3Q1NQ41","data":{"signature":"invalid"}}
+{"level":"error","message":"TWILIO_AUTH_TOKEN not set — rejecting inbound WhatsApp webhook","timestamp":"2026-09-08T18:35:11.245Z","component":"whatsapp-inbound","requestId":"01M214TZ0DBHCY4CJS6RZNX1TX"}
+ ❯ tests/integration/whatsapp-inbox-routing.int.test.ts (3 tests | 2 failed) 887ms
+   × duplicate number claim is refused without disabling the second tenant current number 332ms
+   × signed inbound message to an ambiguous number is rejected before tenant event creation 113ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/whatsapp-inbox-routing.int.test.ts > duplicate number claim is refused without disabling the second tenant current number
+AssertionError: expected 200 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 200
+
+ ❯ tests/integration/whatsapp-inbox-routing.int.test.ts:58:38
+     56|   expect((await configure(second,old)).state.statusCode).toBe(200);
+     57|   const duplicate=await configure(second,shared);
+     58|   expect(duplicate.state.statusCode).toBe(409);
+       |                                      ^
+     59|   expect((await pool.query('SELECT address FROM capture_inboxes WHERE …
+     60| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/whatsapp-inbox-routing.int.test.ts > signed inbound message to an ambiguous number is rejected before tenant event creation
+AssertionError: expected { …(3) } to deeply equal { rejected: 'ambiguous inbox' }
+
+- Expected
++ Received
+
+  {
+-   "rejected": "ambiguous inbox",
++   "captureEventIds": [
++     "4ad69264-27ea-4d8b-94e5-3fe035555d83",
++   ],
++   "companyId": "e78420c0-34a4-4bf8-9f9f-c63904459790",
++   "parsedCommand": {
++     "action": "provisional_expense",
++     "amount": 100,
++     "description": "Paid R100 at Fixture",
++     "paymentMethod": null,
++     "supplierHint": "Fixture",
++   },
+  }
+
+ ❯ tests/integration/whatsapp-inbox-routing.int.test.ts:64:54
+     62|   const result=await deliver();
+     63|   expect(result.state.statusCode).toBe(200);
+     64|   expect((result.state.body as {data:unknown}).data).toEqual({rejected…
+       |                                                      ^
+     65|   expect((await pool.query('SELECT company_id FROM capture_events WHER…
+     66| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  20:35:10
+   Duration  1.33s (transform 155ms, setup 0ms, import 350ms, tests 887ms, environment 0ms)

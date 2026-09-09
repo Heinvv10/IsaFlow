@@ -1,0 +1,37 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/pending-mfa-access.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/auth/pending-mfa-access.test.ts (2 tests | 1 failed) 23ms
+     × verified factor enrolled: true 21ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/auth/pending-mfa-access.test.ts > K-001: password token cannot replace a completed MFA session > verified factor enrolled: true
+AssertionError: expected 200 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 200
+
+ ❯ tests/unit/auth/pending-mfa-access.test.ts:91:48
+     89|     const protectedResponse = response();
+     90|     await withAuth(handler)(request(`sb-access-token=${issuedToken}; a…
+     91|     expect(protectedResponse.state.statusCode).toBe(enrolled ? 401 : 2…
+       |                                                ^
+     92|     expect(handler).toHaveBeenCalledTimes(enrolled ? 0 : 1);
+     93|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  17:51:21
+   Duration  319ms (transform 59ms, setup 0ms, import 194ms, tests 23ms, environment 0ms)
+
+error: script "test:unit" exited with code 1

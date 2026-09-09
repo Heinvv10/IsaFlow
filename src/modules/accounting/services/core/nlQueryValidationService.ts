@@ -3,6 +3,9 @@
  * SQL safety validation extracted from nlQueryService.ts.
  */
 
+import { validateQueryRelations } from './nlQueryRelations';
+import { validateQueryFunctions } from './nlQueryFunctions';
+
 export interface SQLValidation {
   valid: boolean;
   error?: string;
@@ -97,32 +100,14 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
     return { valid: false, error: 'Multiple statements not allowed', sanitizedSQL: '' };
   }
 
-  // Extract CTE aliases so they pass the table allowlist
-  const cteAliases = new Set<string>();
-  const ctePattern = /\bWITH\s+(\w+)\s+AS\b/gi;
-  let cteMatch: RegExpExecArray | null;
-  while ((cteMatch = ctePattern.exec(sql)) !== null) {
-    cteAliases.add(cteMatch[1]!.toLowerCase());
+  const relationError = validateQueryRelations(sql, ALLOWED_TABLES);
+  if (relationError) {
+    return { valid: false, error: relationError, sanitizedSQL: '' };
   }
 
-  // Table allowlist check — walk ALL FROM/JOIN tokens regardless of paren
-  // depth.  Previously the check skipped depth > 0, which allowed subqueries
-  // such as `WHERE EXISTS (SELECT 1 FROM forbidden_table …)` to slip through.
-  //
-  // Strip SQL comments first so that table names inside comments are not
-  // accidentally flagged, and so that a comment cannot be used to embed a
-  // forbidden token that confuses the regex.
-  const sqlNoComments = sql
-    .replace(/--[^\n]*/g, '')           // single-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, ''); // block comments
-
-  const kwPattern = /\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi;
-  let kwMatch: RegExpExecArray | null;
-  while ((kwMatch = kwPattern.exec(sqlNoComments)) !== null) {
-    const tableName = kwMatch[1]!.toLowerCase();
-    if (!ALLOWED_TABLES.has(tableName) && !cteAliases.has(tableName)) {
-      return { valid: false, error: `Table '${kwMatch[1]}' not allowed`, sanitizedSQL: '' };
-    }
+  const functionError = validateQueryFunctions(sql);
+  if (functionError) {
+    return { valid: false, error: functionError, sanitizedSQL: '' };
   }
 
   let sanitizedSQL = sql.trim().replace(/;$/, '');

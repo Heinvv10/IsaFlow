@@ -1,0 +1,87 @@
+[
+  {
+    "source": "/home/hein/Workspace/IsaFlow/docs/audits/2026-09-08-combined-findings.html",
+    "snapshot": "inputs/2026-09-08-combined-findings.html",
+    "sha256": "dfff8051f7f06f5364481960e1fc0ba791aa6b13d67bf781b603abec8cf0df61"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/docs/audits/2026-09-08-claude-full-code-audit.html",
+    "snapshot": "inputs/2026-09-08-claude-full-code-audit.html",
+    "sha256": "0328f1d4507f015a4b68e96afe693feb8ffbe2ba9aadae7cf8eb00d6fc8187f4"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/docs/audits/2026-09-08-detail/api-admin-auth-billing-portal.md",
+    "snapshot": "inputs/api-admin-auth-billing-portal.md",
+    "sha256": "5e825b4c570ea133c56cafdffd23a53b7937f7297631439445f8968ed03b69c0"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/docs/audits/2026-09-08-detail/ar-ap-loans-items.md",
+    "snapshot": "inputs/ar-ap-loans-items.md",
+    "sha256": "afeea41c6da6716f0ce7b71687bcd1ca192f4e80651dbaa059c2ac2f90b1a0b2"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/docs/audits/2026-09-08-detail/bank-reconciliation-capture.md",
+    "snapshot": "inputs/bank-reconciliation-capture.md",
+    "sha256": "bdb923abb91f1ffccba3954369e3950c0c9f7e2b3024463504120759ca04fb4e"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/docs/audits/2026-09-08-detail/gl-core.md",
+    "snapshot": "inputs/gl-core.md",
+    "sha256": "82b1fd732812990ea98a1f52ffdb221f031c7ed5d9f1cc0fe7f6effa1f284784"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/2026-09-08-codebase-audit.html",
+    "snapshot": "inputs/2026-09-08-codebase-audit.html",
+    "sha256": "18a00a4adc49a7fcc2b1378e2a805d09732d0f3bc8578558623ab463ebce6566"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/2026-09-08-audit-comparison.html",
+    "snapshot": "inputs/2026-09-08-audit-comparison.html",
+    "sha256": "893aaae4db09425f1f4ad176943d80533675e5ca9ee331dc44cae3d836861ddb"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/comparison-accounting.md",
+    "snapshot": "inputs/comparison-accounting.md",
+    "sha256": "050c5bcaad3ed234ab46d47316797358495eb6983a14b8d5f2bc344ceed49ab9"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/comparison-exceljs-reproduction.json",
+    "snapshot": "inputs/comparison-exceljs-reproduction.json",
+    "sha256": "91714f23ce4764384d99e1a6f0af97cbc90b12c5e224b322089dba9a40cdc3ec"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/comparison-findings-index.json",
+    "snapshot": "inputs/comparison-findings-index.json",
+    "sha256": "9444ce96e5533adc4f468fb052a7d5ccd79fe2873489c1805632fffecc763134"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/comparison-payroll.md",
+    "snapshot": "inputs/comparison-payroll.md",
+    "sha256": "72f638f60a58f869400ffe10ee47429bf14dfcca9fa2f545924231a0ed3518b6"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/comparison-security.md",
+    "snapshot": "inputs/comparison-security.md",
+    "sha256": "f4305dd8851931b6c0de79f528ae0f43888860abe2fb567dd204f0a44826adeb"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/database-reproductions.cjs",
+    "snapshot": "inputs/database-reproductions.cjs",
+    "sha256": "fef83c5530a391c1fff452474ac7b7d943b88f31b848eed9de0850256dfeb992"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/database-reproductions.json",
+    "snapshot": "inputs/database-reproductions.json",
+    "sha256": "96229af548990994117316b9a163cb48951ef2c028957162f79881c9809ca442"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/missing-routes-reproduction.json",
+    "snapshot": "inputs/missing-routes-reproduction.json",
+    "sha256": "fda0462c3533879ddf13e1ab56fcf90d928cd5888f27c1e64e341f59beef6fbe"
+  },
+  {
+    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/superpowers/plans/2026-09-08-audit-remediation-goal.md",
+    "snapshot": "inputs/2026-09-08-audit-remediation-goal.md",
+    "sha256": "e36ccf7b318b493c9de3e9ba124cab7d3e04605a16e45c85f505462ab60788e3"
+  }
+]

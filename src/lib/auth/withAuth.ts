@@ -1,3 +1,5 @@
+import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
+import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
@@ -9,7 +11,7 @@ import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
@@ -57,7 +59,7 @@ export function withAuth(handler: Handler): NextApiHandler {
 
     let claims;
     try {
-      claims = await verifyToken(token);
+      claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
       // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
       // Chromium request carries a short-lived print token instead of a
@@ -114,21 +116,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       // (company_users.user_id has no FK to users) is denied by the predicate
       // rather than silently disappearing into the membership-missing branch.
       // Neither user_id nor users.id is cast: both are TEXT columns.
-      type MembershipRow = UserAccountRow & { role: string; account_user_id: string | null };
-      let membership: { rows: MembershipRow[] };
+      let membership: { rows: CompanyMembershipRow[] };
       try {
-        membership = await client.query<MembershipRow>(
-          `SELECT cu.role,
-                  u.id AS account_user_id,
-                  u.is_active,
-                  u.status,
-                  u.suspended_at
-             FROM company_users cu
-             LEFT JOIN users u ON u.id = cu.user_id
-            WHERE cu.user_id = $1 AND cu.company_id = $2::uuid
-            LIMIT 1`,
-          [claims.sub, activeCompanyId]
-        );
+        membership = await getCompanyMembership(client, claims.sub, activeCompanyId);
       } catch {
         await client.query('ROLLBACK');
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });

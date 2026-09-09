@@ -1,0 +1,1 @@
+PASS actual Opening Balances page -> authenticated POST -> posted native journal -> exact123.45 debit/credit lines -> reconciled account cache; all browser traffic restricted to disposable host.

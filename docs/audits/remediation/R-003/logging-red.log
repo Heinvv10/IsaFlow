@@ -1,0 +1,30 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-k004-capture-inbox-20260908
+
+ ❯ tests/unit/lib/apiErrorHandlerShareToken.test.ts (7 tests | 1 failed) 8ms
+   × redacts encoded token names and values before logging a WhatsApp callback 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/apiErrorHandlerShareToken.test.ts > redacts encoded token names and values before logging a WhatsApp callback
+AssertionError: expected '[[{"type":"request","method":"GET","u…' not to contain '%41%41%41%41%41%41%41%41%41%41%41%41%…'
+
+Expected: "%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41"
+Received: "[[{"type":"request","method":"GET","url":"/api/accounting/capture/inbound/whatsapp?%74oken=%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41","query":{"token":"[token]"}},"API Request: GET /api/accounting/capture/inbound/whatsapp?%74oken=%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41"],[{"type":"response","method":"GET","url":"/api/accounting/capture/inbound/whatsapp?%74oken=%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41","statusCode":200,"duration":"0ms"},"API Response: GET /api/accounting/capture/inbound/whatsapp?%74oken=%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41%41 - 200 (0ms)"]]"
+
+ ❯ tests/unit/lib/apiErrorHandlerShareToken.test.ts:136:56
+    134|   const { req, res } = makeReqRes(`/api/accounting/capture/inbound/wha…
+    135|   await withErrorHandler(async () => {})(req, res);
+    136|   expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(encod…
+       |                                                        ^
+    137|   expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(TOKEN…
+    138|   expect(JSON.stringify(apiLoggerInfo.mock.calls)).toContain('[token]'…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  21:35:22
+   Duration  135ms (transform 25ms, setup 0ms, import 34ms, tests 8ms, environment 0ms)
+
