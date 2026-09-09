@@ -170,3 +170,16 @@ it('refuses zero-book nonzero-tax depreciation inside company lockdown without l
  expect((await pool.query('SELECT id FROM asset_period_ledger WHERE company_id=$1 AND asset_id=$2',[fixture.companyA,zeroAsset])).rows).toHaveLength(0);
  expect((await pool.query('SELECT tax_accumulated_depreciation::text AS amount FROM assets WHERE company_id=$1 AND id=$2',[fixture.companyA,zeroAsset])).rows[0].amount).toBe('0.00');
 });
+
+it('refuses a repeat preview after a zero-policy tax-only subledger posting',async()=>{
+ const zeroAsset=randomUUID();
+ await pool.query(`INSERT INTO assets(id,company_id,category_id,asset_number,name,purchase_date,purchase_price,useful_life_years,tax_useful_life_years,accumulated_depreciation,current_book_value,tax_accumulated_depreciation)
+  VALUES($1,$2,$3,'SYNTHETIC-ZERO-REPEAT','Synthetic tax-only asset','2026-01-01',1200,1,1,1200,0,0)`,[zeroAsset,fixture.companyA,category]);
+ const plan={postable:[{assetId:zeroAsset,assetNumber:'FORGED',name:'Forged'}],periodDate:'2026-02-28'} as unknown as DepreciationPlan;
+ expect((await actor('u1',()=>previewDepreciationJournals(fixture.companyA,plan,[]))).writesWithoutJournal).toHaveLength(1);
+ const prepared=await actor('u1',()=>prepareAssetDepreciation(fixture.companyA,fixture.u1.id,zeroAsset,'2026-02-28'));
+ await actor('u1',()=>executeAssetDepreciation(fixture.companyA,fixture.u1.id,prepared.intentId));
+ await expect(actor('u1',()=>previewDepreciationJournals(fixture.companyA,plan,[]))).rejects.toThrow('Depreciation period already exists');
+ expect((await pool.query('SELECT id FROM asset_period_ledger WHERE company_id=$1 AND asset_id=$2',[fixture.companyA,zeroAsset])).rows).toHaveLength(1);
+ expect((await pool.query('SELECT tax_accumulated_depreciation::text AS amount FROM assets WHERE company_id=$1 AND id=$2',[fixture.companyA,zeroAsset])).rows[0].amount).toBe('100.00');
+});
