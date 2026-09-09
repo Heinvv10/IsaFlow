@@ -73,11 +73,14 @@ it('actual OOM in its own lowered128MiB test unit is observed without claiming a
  expect(value.result).toMatchObject({state:'failed',code:'RESOURCE_LIMIT',failureRecorded:false});expect(value.observation.oomKilled).toBe(true);
 });
 
-async function pausedPublication(){
- await pool.query("CREATE OR REPLACE FUNCTION forensic_isolated_publication_pause() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(30); RETURN NEW; END $$");
- await pool.query('CREATE TRIGGER forensic_isolated_publication_pause BEFORE INSERT ON control_audit_snapshots FOR EACH ROW EXECUTE FUNCTION forensic_isolated_publication_pause()');
+function pauseName(){return `forensic_pause_${fixture.runId.replaceAll('-','')}`;}
+async function pausedPublication(jobId:string){
+ if(![fixture.companyA,jobId].every(value=>/^[a-f0-9-]{36}$/.test(value)))throw new Error('Synthetic pause identity invalid');
+ const name=pauseName();
+ await pool.query(`CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id::text=TG_ARGV[0] AND NEW.id::text=TG_ARGV[1] THEN PERFORM pg_sleep(30); END IF; RETURN NEW; END $$`);
+ await pool.query(`CREATE TRIGGER ${name} BEFORE INSERT ON control_audit_snapshots FOR EACH ROW EXECUTE FUNCTION ${name}('${fixture.companyA}','${jobId}')`);
 }
-async function unpausePublication(){await pool.query('DROP TRIGGER IF EXISTS forensic_isolated_publication_pause ON control_audit_snapshots');await pool.query('DROP FUNCTION IF EXISTS forensic_isolated_publication_pause()');}
+async function unpausePublication(){const name=pauseName();await pool.query(`DROP TRIGGER IF EXISTS ${name} ON control_audit_snapshots`);await pool.query(`DROP FUNCTION IF EXISTS ${name}()`);}
 async function waitForPublication(jobId:string){
  for(let n=0;n<100;n++){
   const rows=(await pool.query("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND wait_event='PgSleep'",[`isaflow-audit:${jobId}`])).rows;
@@ -87,7 +90,7 @@ async function waitForPublication(jobId:string){
 it('graceful process cancellation cancels real publication SQL with a two-connection child pool',async()=>{
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
  const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!)}),controller=new AbortController();
- await pausedPublication();const work=runner.runIsolatedAuditJob(identity(job.id),{signal:controller.signal});
+ await pausedPublication(job.id);const work=runner.runIsolatedAuditJob(identity(job.id),{signal:controller.signal});
  try{
   await waitForPublication(job.id);controller.abort();
   expect((await work).result).toMatchObject({state:'failed',code:'CANCELLED',failureRecorded:true});
@@ -99,7 +102,7 @@ it('hard-killed publication rolls back and expired authenticated claim recovers 
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
  const marker=join(directory,'own-unit.txt');
  const marked=await script('real-marked',`const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(marker)},fs.readFileSync('/proc/self/cgroup','utf8'));require(${JSON.stringify(artifact)});`);
- const controller=new AbortController();await pausedPublication();const work=marked.runIsolatedAuditJob(identity(job.id),{signal:controller.signal});
+ const controller=new AbortController();await pausedPublication(job.id);const work=marked.runIsolatedAuditJob(identity(job.id),{signal:controller.signal});
  try{
   await waitForPublication(job.id);const unit=(await readFile(marker,'utf8')).trim().split('/').at(-1)!;
   expect(unit).toMatch(/^isaflow-audit-[a-f0-9-]{36}\.service$/);
@@ -116,3 +119,17 @@ it('hard-killed publication rolls back and expired authenticated claim recovers 
  expect((await runner.runIsolatedAuditJob(identity(job.id))).result).toMatchObject({state:'succeeded',snapshotId:job.id});
  expect((await pool.query('SELECT state,attempts,generation FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows[0]).toEqual({state:'succeeded',attempts:2,generation:'2'});
 },45000);
+
+it('publication pause does not delay another job or another company',async()=>{
+ const selected=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
+ await pausedPublication(selected.id);
+ try{
+  const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!)});
+  for(const user of [fixture.u1,fixture.u3]){
+   const who={companyId:user.companyId,personId:user.id,jobId:randomUUID()};
+   const other=await withAuditWorkerTransaction(pool,who,'read committed',Date.now()+10000,undefined,
+    store=>withControlRequest(store,{companyId:user.companyId,personId:user.id,authMethod:'cookie'},()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()})));
+   expect((await runner.runIsolatedAuditJob({...who,jobId:other.id},{signal:AbortSignal.timeout(2000)})).result).toMatchObject({state:'succeeded',snapshotId:other.id});
+  }
+ }finally{await unpausePublication();}
+});
