@@ -77,3 +77,34 @@ Test Files  790 passed | 36 skipped (826)
 
 === bunx tsc --noEmit ===  clean
 === bunx eslint (commit service, SageCommitSummary, sage-import page) ===  exit 0
+
+════════ Review round 4 (scratchpad/review-k038-round3.md) ════════
+
+=== bun run test:integration -- tests/integration/k-038 ===
+Test Files  3 passed (3)      Tests  17 passed (17)
+
+=== bunx vitest run tests/unit/services/ap/supplierInvoiceExactTaxAmount.test.ts ===
+Tests  6 passed (6)
+
+=== Mutation check F (exact line taxAmount ignored, back to the 2 dp rate) ===
+integration  Tests  3 failed | 14 passed (17)
+  × a fully settled bill at a NON-ROUND blended VAT rate stores SAGE's total and lands paid
+  × a fully settled bill whose RECOMPUTED total lands ABOVE Sage's leaves no phantom residual
+  × a part-settled bill at a non-round rate keeps exactly the source outstanding amount
+unit         Tests  2 failed | 4 passed (6)
+
+=== Mutation check G (absent-amountPaid short circuit removed), IN ISOLATION ===
+Tests  17 passed (17)  ← NOT mutation-proof, and said so in fix.md Limits.
+Now that the stored total equals Sage's, the derivation returns 0 for an absent
+field anyway. The guard is kept as defence-in-depth because the field is
+optional and the commit route does not validate its body.
+
+=== Full unit suite, DATABASE_URL unset ===
+Test Files  791 passed | 36 skipped (827)
+     Tests  9397 passed | 234 skipped (9631)
+
+=== bun run test:components (full) ===
+Test Files  58 passed (58)    Tests  395 passed (395)
+
+=== bunx tsc --noEmit ===  clean
+=== bunx eslint (supplierInvoiceService, ap.types, commit service) ===  exit 0

@@ -52,6 +52,12 @@ async function arRow(id: string) {
   return rows[0]!;
 }
 
+async function journalCredit(journalEntryId: string) {
+  const { rows } = await pool.query(
+    'SELECT COALESCE(SUM(credit),0) AS c FROM gl_journal_lines WHERE journal_entry_id=$1', [journalEntryId]);
+  return Number(rows[0]!.c);
+}
+
 async function apRow(id: string) {
   const { rows } = await pool.query(
     'SELECT total_amount, amount_paid, balance, status, paid_at, payment_matched, gl_journal_entry_id FROM supplier_invoices WHERE id=$1', [id]);
@@ -202,10 +208,10 @@ describe('K-038 adjacent — AP', () => {
     expect(Number(lines[0]!.c)).toBeCloseTo(Number(row.total_amount), 2);
   });
 
-  it('a fully settled bill at a NON-ROUND blended VAT rate still lands paid, never a negative balance', async () => {
-    // createSupplierInvoice recomputes total_amount from a 2 dp tax rate, so a
-    // bill whose effective rate is not exact stores a total that differs from
-    // Sage's by cents. Clamping to the SOURCE total would store -0.01 here.
+  it('a fully settled bill at a NON-ROUND blended VAT rate stores SAGE\'s total and lands paid', async () => {
+    // 4.76% is the 2 dp rate this bill derives to. Re-deriving the tax from it
+    // stored 733.32 against Sage's 733.33, putting the row a cent away from the
+    // journal posted for it; the source tax is now passed through instead.
     const [m] = mapSageAPInvoices([{
       ID: 1, SupplierId: 1, Supplier: { Name: 'K-038 Supplier' },
       DocumentNumber: `${tag}-AP-ODD`, Reference: `${tag}-AP-ODD`,
@@ -214,23 +220,21 @@ describe('K-038 adjacent — AP', () => {
     } as never]);
     const { invoiceId, warning } = await commitAPInvoice(companyId, userId, m as never);
     const row = await apRow(invoiceId);
-    // The stored total is the recomputed one, not Sage's 733.33.
-    expect(Number(row.total_amount)).toBe(733.32);
-    expect(Number(row.amount_paid)).toBe(733.32);
+    expect(Number(row.total_amount)).toBe(733.33);
+    expect(Number(row.amount_paid)).toBe(733.33);
     expect(Number(row.balance)).toBe(0);
-    expect(Number(row.balance)).toBeGreaterThanOrEqual(0);
     expect(row.status).toBe('paid');
     expect(row.payment_matched).toBe(true);
-    // The missing cent is IsaFlow's own recompute, not a discarded credit.
     expect(warning).toBeUndefined();
+    // The journal is built from the SOURCE figures; the row must match it.
+    expect(await journalCredit(row.gl_journal_entry_id as string)).toBeCloseTo(733.33, 2);
   });
 
   it('a fully settled bill whose RECOMPUTED total lands ABOVE Sage\'s leaves no phantom residual', async () => {
     // The mirror of AP-ODD and the case a clamp cannot reach: it only binds
-    // when the paid amount exceeds the total. 812.50 / 58.40 gives a 7.19%
-    // rate that recomputes to 870.92 against Sage's 870.90, so carrying the
-    // source's paid amount across would strand this settled bill at
-    // partially_paid with an 0.02 residual in AP aging forever.
+    // when the paid amount exceeds the total. 812.50 / 58.40 derives a 7.19%
+    // rate that used to recompute to 870.92 against Sage's 870.90, stranding
+    // this settled bill at partially_paid with an 0.02 residual in AP aging.
     const [m] = mapSageAPInvoices([{
       ID: 1, SupplierId: 1, Supplier: { Name: 'K-038 Supplier' },
       DocumentNumber: `${tag}-AP-ODD2`, Reference: `${tag}-AP-ODD2`,
@@ -239,13 +243,13 @@ describe('K-038 adjacent — AP', () => {
     } as never]);
     const { invoiceId, warning } = await commitAPInvoice(companyId, userId, m as never);
     const row = await apRow(invoiceId);
-    expect(Number(row.total_amount)).toBe(870.92);
-    expect(Number(row.amount_paid)).toBe(870.92);
+    expect(Number(row.total_amount)).toBe(870.90);
+    expect(Number(row.amount_paid)).toBe(870.90);
     expect(Number(row.balance)).toBe(0);
     expect(row.status).toBe('paid');
     expect(row.payment_matched).toBe(true);
-    // Sub-cent recompute dust is not a customer credit.
     expect(warning).toBeUndefined();
+    expect(await journalCredit(row.gl_journal_entry_id as string)).toBeCloseTo(870.90, 2);
   });
 
   it('a part-settled bill at a non-round rate keeps exactly the source outstanding amount', async () => {
@@ -257,10 +261,27 @@ describe('K-038 adjacent — AP', () => {
     } as never]);
     const { invoiceId } = await commitAPInvoice(companyId, userId, m as never);
     const row = await apRow(invoiceId);
-    // Whatever the recomputed total came to, R200 is what is still owed.
+    // R200 is what is still owed, and the row, Sage and the journal all agree
+    // on the total the R200 is owed against.
+    expect(Number(row.total_amount)).toBe(11234.55);
     expect(Number(row.balance)).toBe(200);
-    expect(Number(row.amount_paid)).toBeCloseTo(Number(row.total_amount) - 200, 2);
+    expect(Number(row.amount_paid)).toBe(11034.55);
     expect(row.status).toBe('partially_paid');
+    expect(await journalCredit(row.gl_journal_entry_id as string)).toBeCloseTo(11234.55, 2);
+  });
+
+  it('an AP record with NO source paid amount imports silently as unpaid', async () => {
+    // The field is optional and the commit route does not validate the body, so
+    // a payload built before amountPaid existed still arrives. It states nothing
+    // about the source and must not be reported as a negative amount.
+    const [m] = mapSageAPInvoices([apSource(`${tag}-AP-NOPAID`, 733.33, 0)]);
+    delete (m as { amountPaid?: number }).amountPaid;
+    const { invoiceId, warning } = await commitAPInvoice(companyId, userId, m as never);
+    const row = await apRow(invoiceId);
+    expect(Number(row.amount_paid)).toBe(0);
+    expect(Number(row.balance)).toBe(Number(row.total_amount));
+    expect(row.status).toBe('approved');
+    expect(warning).toBeUndefined();
   });
 
   it('a genuine AP overpayment is still clamped AND reported', async () => {
