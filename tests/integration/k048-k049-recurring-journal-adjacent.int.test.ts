@@ -289,6 +289,29 @@ it('"today" is the SAST calendar date, not the UTC one', async () => {
   });
 });
 
+it('a month-end template lands on the last day of February, not the third of March', async () => {
+  // The GL consequence of the calendar arithmetic: the run is claimed on
+  // next_run_date and the journal is DATED at it, so an overflowed month end
+  // posts on the wrong day and every later run inherits the drift.
+  const nowYear = new Date().getUTCFullYear();
+  const year = new Date().getUTCMonth() >= 2 ? nowYear : nowYear - 1;
+  const jan31 = `${year}-01-31`;
+  const febEnd = new Date(Date.UTC(year, 2, 0)).toISOString().slice(0, 10);
+  await armTemplate(jan31);
+
+  const journalId = await inRequestTx(pool, company, admin,
+    () => generateJournalFromRecurring(company, template, admin));
+
+  const je = await pool.query(
+    'SELECT entry_date::text AS entry_date FROM gl_journal_entries WHERE id=$1 AND company_id=$2',
+    [journalId, company]);
+  expect(je.rows[0].entry_date).toBe(jan31);
+
+  const tpl = await pool.query(
+    'SELECT next_run_date::text AS next_run_date FROM recurring_journals WHERE id=$1', [template]);
+  expect(tpl.rows[0].next_run_date).toBe(febEnd);
+});
+
 it('a closed period is refused as a 400 BEFORE any write, not a 500 after one', async () => {
   // Close the period two months back and schedule the run into it. Without the
   // pre-check, postJournalEntry raises ClosedFiscalPeriodError after the entry
