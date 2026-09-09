@@ -93,11 +93,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         -- The supplier NAME lookup above already filters deleted_at; the
         -- invoice leg did not, so a soft-deleted bill stayed in the ledger
         -- and in its running balance.
+        --
+        -- deleted_at ONLY, deliberately. The payment leg below lists whole
+        -- supplier_payments rows rather than allocations, so anything dropped
+        -- here leaves its payment behind with no matching debit and drives the
+        -- running balance negative. A soft-deleted bill cannot carry one —
+        -- assertInvoiceDeletable refuses to delete a bill with any live
+        -- allocation — so this filter is safe; a draft/cancelled status filter
+        -- would NOT be, and excluding draft and cancelled bills from a
+        -- supplier ledger is a contract change to a report outside K-053's
+        -- scope in any case. Round 3 added one; it is reverted here.
         AND si.deleted_at IS NULL
-        -- And the same status set AP aging uses: a draft bill has not been
-        -- issued and a cancelled one has had its journal reversed, so neither
-        -- belongs in a statement or its running balance.
-        AND si.status NOT IN ('draft', 'cancelled')
         AND (${dateFromVal}::date IS NULL OR si.invoice_date >= ${dateFromVal}::date)
         AND (${dateToVal}::date IS NULL OR si.invoice_date <= ${dateToVal}::date)
 

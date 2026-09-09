@@ -7,6 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { SoftDeleteRefusalError } from './softDeleteErrors';
 
 /** Amounts below this (in currency units) are treated as zero, as in cancel. */
 export const ZERO_TOLERANCE = 0.005;
@@ -81,16 +82,16 @@ export async function assertInvoiceDeletable(
 ): Promise<DbRow> {
   const row = await lockInvoice(entityType, entityId, companyId);
   if (!row || row.deleted_at != null) {
-    throw new Error(`${entityType} not found or already deleted`);
+    throw new SoftDeleteRefusalError(`${entityType} not found or already deleted`);
   }
   if (String(row.status) === 'posted') {
-    throw new Error(`Cannot delete a posted ${entityType}`);
+    throw new SoftDeleteRefusalError(`Cannot delete a posted ${entityType}`);
   }
   if (Number(row.amount_paid ?? 0) > ZERO_TOLERANCE) {
-    throw new Error(`Cannot delete a ${entityType} with payments`);
+    throw new SoftDeleteRefusalError(`Cannot delete a ${entityType} with payments`);
   }
   if ((await allocatedByLivePayments(entityType, entityId, companyId)) > ZERO_TOLERANCE) {
-    throw new Error(`Cannot delete a ${entityType} with payments`);
+    throw new SoftDeleteRefusalError(`Cannot delete a ${entityType} with payments`);
   }
   return row;
 }

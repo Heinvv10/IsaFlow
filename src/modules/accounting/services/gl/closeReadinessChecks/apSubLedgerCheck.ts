@@ -16,6 +16,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ChecklistItem } from '../periodCloseReadinessService';
+import { documentInLedgerAsAt } from '../../shared/softDeleteLedgerPresence';
 
 type Row = DbRow;
 
@@ -38,17 +39,9 @@ export async function apSubLedgerCheck(
     WHERE si.company_id = ${companyId}::UUID
       AND si.status IN ('approved', 'partially_paid')
       -- K-053: same rule as arSubLedgerCheck — a soft-deleted bill stays on
-      -- this side only while its journal is still standing on the other one.
-      AND (
-        si.deleted_at IS NULL
-        OR EXISTS (
-          SELECT 1 FROM gl_journal_entries je
-          WHERE je.id = si.gl_journal_entry_id
-            AND je.company_id = si.company_id
-            AND je.status = 'posted'
-            AND je.reversed_at IS NULL
-        )
-      )
+      -- this side only while its journal is still standing on the other one AS
+      -- AT the period end, which is the date the GL half below is bounded by.
+      AND ${documentInLedgerAsAt('si', period.endDate, companyId)}
       AND si.invoice_date <= ${period.endDate}::date
   `) as Row[];
 

@@ -14,6 +14,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ChecklistItem } from '../periodCloseReadinessService';
+import { documentInLedgerAsAt } from '../../shared/softDeleteLedgerPresence';
 
 type Row = DbRow;
 
@@ -36,24 +37,15 @@ export async function arSubLedgerCheck(
     WHERE ci.company_id = ${companyId}::UUID
       AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
       -- K-053: a soft-deleted invoice belongs on this side of the comparison
-      -- exactly when it is still on the OTHER side. Soft-delete now reverses
-      -- the approval journal, so a document deleted since that change is off
-      -- the control account and must come off here too or the check reports
-      -- the whole deleted amount as a difference. Documents deleted BEFORE it
-      -- kept their journal posted, so they are still in the GL total below and
-      -- are still counted here. A plain deleted_at IS NULL predicate would
-      -- serve the first population and break the second; this one serves both,
-      -- and needs no historical repair to be correct.
-      AND (
-        ci.deleted_at IS NULL
-        OR EXISTS (
-          SELECT 1 FROM gl_journal_entries je
-          WHERE je.id = ci.gl_journal_entry_id
-            AND je.company_id = ci.company_id
-            AND je.status = 'posted'
-            AND je.reversed_at IS NULL
-        )
-      )
+      -- exactly when it is still on the OTHER side, AS AT THE SAME DATE. The
+      -- GL half below is bounded by entry_date <= endDate, and the delete's
+      -- reversal is dated TODAY whenever the invoice's own period is closed,
+      -- so an undated exclusion here fails the check by the whole document
+      -- amount for every period between the invoice and the delete. The
+      -- reversal-chain parity in shared/softDeleteLedgerPresence answers the
+      -- dated question, and covers documents deleted BEFORE this change (whose
+      -- journal is still standing) with no historical repair.
+      AND ${documentInLedgerAsAt('ci', period.endDate, companyId)}
       AND ci.invoice_date <= ${period.endDate}::date
   `) as Row[];
 

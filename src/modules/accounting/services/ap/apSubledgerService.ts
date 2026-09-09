@@ -18,6 +18,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
+import { documentInLedgerAsAt } from '../shared/softDeleteLedgerPresence';
 import type { SubledgerSnapshot } from '../ar/subledgerTypes';
 import { buildSnapshot, toDocument } from '../ar/subledgerShared';
 
@@ -51,7 +52,7 @@ export async function getAPSubledger(
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         -- Same population as apAgingService — see arSubledgerService.
-        AND si.deleted_at IS NULL
+        AND ${documentInLedgerAsAt('si', asAtDate, companyId)}
         AND COALESCE(si.invoice_date, si.created_at::date) <= ${asAtDate}::DATE
         AND (si.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY si.due_date NULLS LAST, si.id
