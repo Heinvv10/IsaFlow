@@ -17,7 +17,7 @@ async function request<T>(url:string,body?:unknown,signal?:AbortSignal):Promise<
 }
 export function buildBankAllocationPreparation(bankTransactionId:string,selection:RowSelection):BankPreparation{
  if(!selection.entityId)throw new Error('Select an account, customer or supplier first');
- if(selection.type==='transfer')throw new Error('Transfer allocation needs the controlled transfer workflow');
+ if(selection.type==='transfer')return{action:'prepare_allocate',bankTransactionId,allocationType:'transfer',contraAccountId:selection.entityId};
  const dimensions={...(selection.cc1Id?{cc1Id:selection.cc1Id}:{}),...(selection.cc2Id?{cc2Id:selection.cc2Id}:{}),...(selection.buId?{buId:selection.buId}:{})};
  return{action:'prepare_allocate',bankTransactionId,allocationType:selection.type,...dimensions,
   ...(selection.type==='account'?{contraAccountId:selection.entityId,vatCode:selection.vatCode??'none'}:{entityId:selection.entityId})};
@@ -30,7 +30,7 @@ export function loadBankControlState(query:{bankTransactionId?:string;intentId?:
  const params=new URLSearchParams();for(const [key,value]of Object.entries(query))if(value)params.set(key,value);
  return request<BankControlState>(`/api/accounting/bank-control-state?${params}`,undefined,signal);
 }
-export function prepareBankControl(body:BankPreparation){return request<{intentId:string;operation:OperationRef}>('/api/accounting/bank-transactions-action',body);}
+export function prepareBankControl(body:BankPreparation){return request<{intentId:string;operation:OperationRef;bankTransactionId?:string}>('/api/accounting/bank-transactions-action',body);}
 export function loadBankApprovalRequirements(ref:OperationRef){return request<BankApprovalRequirements>('/api/accounting/control-approvals',{action:'requirements',ref});}
 export function requestBankApproval(ref:OperationRef){return request<ApprovalSummary>('/api/accounting/control-approvals',{action:'request',ref});}
 export function decideBankApproval(approvalId:string,decision:'approved'|'rejected'){return request<ApprovalSummary>('/api/accounting/control-approvals',{action:'decide',approvalId,decision});}
