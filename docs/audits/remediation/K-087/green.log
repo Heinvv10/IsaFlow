@@ -1,0 +1,29 @@
+K-087 — GREEN evidence (branch fix/audit-k087-opening-balance-sign, off origin/master 5661d6f0)
+
+RED on origin/master code (validator's run, see red.log):
+  tests/integration/k087-opening-balance-negative-zeroed.int.test.ts — 2 failed / 2
+
+GREEN, real PostgreSQL (isaflow_schema_fixture), 2026-09-09 15:52:
+  k087-opening-balance-negative-zeroed.int.test.ts   2 passed / 2
+  k087-opening-balance-adjacent.int.test.ts          4 passed / 4
+  combined: Test Files 2 passed, Tests 6 passed
+
+Mutation proof — the two line expressions reverted to
+  `isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0` (and the credit mirror),
+  same tests re-run:
+    Tests 5 failed | 1 passed (6)
+  The one survivor is "the second company is untouched by company A's import", which asserts a
+  negative and cannot go red on this mutation. Production file RESTORED and re-run: 6 passed / 6.
+
+Static gates:
+  bunx tsc --noEmit                                             exit 0
+  bunx eslint src/.../core/migrationOpeningBalanceService.ts    exit 0
+
+Full unit suite, DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset
+(`env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run`), 2026-09-09 15:53:
+  Test Files 792 passed | 36 skipped (828)
+  Tests      9438 passed | 234 skipped (9672)   — 0 failed. Machine load average 46.
+
+Scope note: an earlier (crashed) fixer's fix.md claimed a second production change to
+migrationImportService.ts for R-020. No such change exists in this branch and none was made —
+that file belongs to the K-015 branch (PR #373). This branch is the sign defect only.
