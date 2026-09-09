@@ -200,8 +200,9 @@ export const ENTITY_TYPES = [
 
 // ── Toggle ────────────────────────────────────────────────────────────────────
 
-export function Toggle({ checked, onChange, label }: {
+export function Toggle({ checked, onChange, label, disabled = false }: {
   checked: boolean;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
   label: string;
 }) {
@@ -211,6 +212,7 @@ export function Toggle({ checked, onChange, label }: {
         type="button"
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${checked ? 'bg-teal-600' : 'bg-gray-600'}`}
       >
