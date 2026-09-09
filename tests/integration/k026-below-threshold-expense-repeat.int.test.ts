@@ -28,6 +28,10 @@ const category = crypto.randomUUID();
 const otherCompany = crypto.randomUUID();
 const otherAsset = crypto.randomUUID();
 const raceAsset = crypto.randomUUID();
+const disposedAsset = crypto.randomUUID();
+const writtenOffAsset = crypto.randomUUID();
+const closedPeriodAsset = crypto.randomUUID();
+const lockAsset = crypto.randomUUID();
 let adminToken = '', viewerToken = '';
 
 async function account(code: string, name: string, type: string, subtype: string, normal: string) {
@@ -55,11 +59,12 @@ beforeAll(async () => {
   clearSystemAccountCache(company);
 
   // asset_categories is a global reference table (no company_id) shared with
-  // other agents on this fixture DB — unique code, deleted by id in afterAll.
+  // other agents on this fixture DB — name AND code are unique, so both carry the
+  // run's own suffix; a run killed before afterAll must not block the next one.
   await pool.query(
     `INSERT INTO asset_categories(id,name,code,sars_rate,sars_years,capitalization_threshold)
-     VALUES($1,'K026 Small tools',$2,0.33,3,5000)`,
-    [category, `K026-${category.slice(0, 8)}`],
+     VALUES($1,$2,$3,0.33,3,5000)`,
+    [category, `K026 Small tools ${category.slice(0, 8)}`, `K026-${category.slice(0, 8)}`],
   );
   await pool.query(
     `INSERT INTO assets(id,company_id,asset_number,name,category_id,purchase_date,purchase_price,
@@ -67,11 +72,16 @@ beforeAll(async () => {
     [asset, company, category],
   );
 
-  await pool.query(
+  const addAsset = (id: string, number: string, price: number, status = 'available') => pool.query(
     `INSERT INTO assets(id,company_id,asset_number,name,category_id,purchase_date,purchase_price,
-       useful_life_years,status) VALUES($1,$2,'A-K026-R','K026 Race drill',$3,'2026-01-15',700,3,'available')`,
-    [raceAsset, company, category],
+       useful_life_years,status) VALUES($1,$2,$3,$3,$4,'2026-01-15',$5,3,$6)`,
+    [id, company, number, category, price, status],
   );
+  await addAsset(raceAsset, 'A-K026-R', 700);
+  await addAsset(disposedAsset, 'A-K026-D', 800, 'disposed');
+  await addAsset(writtenOffAsset, 'A-K026-W', 850, 'written_off');
+  await addAsset(closedPeriodAsset, 'A-K026-C', 950);
+  await addAsset(lockAsset, 'A-K026-L', 650);
 
   // Second tenant: same category, its own asset. Nothing this route does may reach it.
   await pool.query("INSERT INTO companies(id,name) VALUES($1,'K026 other tenant')", [otherCompany]);
@@ -123,15 +133,28 @@ async function expenseJournalCount(): Promise<number> {
   return rows[0].n as number;
 }
 
+async function journalsFor(assetNumber: string): Promise<number> {
+  const { rows } = await pool.query(
+    "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND description LIKE $2",
+    [company, `%${assetNumber}%`],
+  );
+  return rows[0].n as number;
+}
+
+async function flagOf(id: string): Promise<unknown> {
+  const { rows } = await pool.query('SELECT below_threshold FROM assets WHERE id=$1', [id]);
+  return rows[0]?.below_threshold;
+}
+
 it('expensing the same below-threshold asset twice posts ONE journal', async () => {
   const first = await expenseAs(adminToken);
   expect(first.state.statusCode).toBe(200);
   expect(await expenseJournalCount()).toBe(1);
 
   const second = await expenseAs(adminToken);
-  // Either refuse the repeat or return the existing journal — but never post a second.
+  // Refuse the repeat as a state conflict — and never post a second journal.
+  expect(second.state.statusCode).toBe(409);
   expect(await expenseJournalCount()).toBe(1);
-  expect(second.state.statusCode).not.toBe(500);
 });
 
 it('the expense account is debited once, not twice', async () => {
@@ -195,7 +218,7 @@ it('a malformed request posts nothing', async () => {
 it('two concurrent requests for the same asset post ONE journal', async () => {
   const [a, b] = await Promise.all([expenseAs(adminToken, raceAsset), expenseAs(adminToken, raceAsset)]);
   const codes = [a.state.statusCode, b.state.statusCode].sort();
-  expect(codes).toEqual([200, 400]);
+  expect(codes).toEqual([200, 409]);
 
   const { rows } = await pool.query(
     `SELECT count(*)::int AS n, COALESCE(SUM(jl.debit),0)::float8 AS debit
@@ -206,4 +229,64 @@ it('two concurrent requests for the same asset post ONE journal', async () => {
   );
   expect(rows[0].n).toBe(1);
   expect(rows[0].debit).toBeCloseTo(700, 2);
+});
+
+it('a disposed asset cannot be expensed', async () => {
+  const result = await expenseAs(adminToken, disposedAsset);
+  expect(result.state.statusCode).toBe(400);
+  expect(await journalsFor('A-K026-D')).toBe(0);
+  expect(await flagOf(disposedAsset)).not.toBe(true);
+});
+
+it('a written-off asset cannot be expensed', async () => {
+  const result = await expenseAs(adminToken, writtenOffAsset);
+  expect(result.state.statusCode).toBe(400);
+  expect(await journalsFor('A-K026-W')).toBe(0);
+});
+
+it('a closed fiscal period is a 400, not a 500, and leaves no draft journal', async () => {
+  await pool.query("UPDATE fiscal_periods SET status='closed' WHERE company_id=$1", [company]);
+  try {
+    const result = await expenseAs(adminToken, closedPeriodAsset);
+    expect(result.state.statusCode).toBe(400);
+    // The hook creates the DRAFT journal before postJournalEntry would throw, and
+    // withAuth COMMITs on a 4xx — so a post-hoc catch would leave an orphan draft.
+    expect(await journalsFor('A-K026-C')).toBe(0);
+    expect(await flagOf(closedPeriodAsset)).not.toBe(true);
+  } finally {
+    await pool.query("UPDATE fiscal_periods SET status='open' WHERE company_id=$1", [company]);
+  }
+});
+
+it('a request that cannot get the row lock is refused, not queued forever', async () => {
+  const holder = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const held = await holder.connect();
+    await held.query('BEGIN');
+    await held.query('SELECT id FROM assets WHERE id=$1 FOR UPDATE', [lockAsset]);
+
+    const result = await expenseAs(adminToken, lockAsset);
+    expect(result.state.statusCode).toBe(409);
+    expect(await journalsFor('A-K026-L')).toBe(0);
+
+    await held.query('ROLLBACK');
+    held.release();
+  } finally {
+    await holder.end();
+  }
+}, 20000);
+
+it('GET reports which assets have already been expensed', async () => {
+  const req = request({ 'sb-access-token': adminToken, active_company_id: company }, 'GET') as never as {
+    url: string; query: Record<string, string>;
+  };
+  req.url = '/api/accounting/assets/below-threshold';
+  req.query = {};
+  const result = response();
+  await belowThreshold(req as never, result.res);
+  expect(result.state.statusCode).toBe(200);
+
+  const rows = (result.state.body as { data: Array<{ id: string; expensed: boolean }> }).data;
+  expect(rows.find(r => r.id === asset)?.expensed).toBe(true);
+  expect(rows.find(r => r.id === lockAsset)?.expensed).toBe(false);
 });
