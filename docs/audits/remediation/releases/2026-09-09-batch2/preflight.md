@@ -9,7 +9,9 @@ Unique indexes added by this batch will refuse to build if production already ho
 | 621_payroll_loan_payment_reversals | K-022 | new table, no precondition | n/a | |
 | 623_gl_je_reversal_of_index | K-032 | non-unique index, no precondition | n/a | |
 | 624_subscription_charges_subscription_id | K-033/K-034 | backfill precondition: charges whose company holds >1 subscription: see K-033/fix.md | | |
-| 625_supplier_invoice_duplicate_fingerprint_unique | K-015 | duplicate fingerprints per company: see K-015/fix.md | | |
+| 625_supplier_invoice_duplicate_fingerprint_unique | K-015 | duplicate (company_id, supplier_id, fingerprint) rows: see K-015/fix.md | | |
+| 622_payroll_loan_payment_columns | K-022 | ADD COLUMN IF NOT EXISTS only, no precondition | n/a | |
+| 626_practice_rate_override_mirror_trigger | K-039 | trigger only; confirm no legacy rows with disagreeing pairs: see K-039/fix.md | | |
 
 Post-deploy verification (in addition to the deploy script's golden paths + integrity):
 - RELEASE_SHA and BUILD_ID on the live app match the merged master SHA.
