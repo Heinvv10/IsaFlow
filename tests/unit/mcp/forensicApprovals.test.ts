@@ -1,3 +1,4 @@
+import {validateToolArguments} from '@/lib/mcp/inputValidation';
 import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({ctx:{principal:{personId:'person'}},permission:vi.fn(),requirements:vi.fn(),request:vi.fn(),list:vi.fn(),requester:vi.fn()}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>m.ctx}));
@@ -35,4 +36,16 @@ it('refuses caller authority, accessor reads and foreign company assertions',asy
  expect((await forensicApprovalTools[0].handler(args,ctx)).isError).toBe(true);expect(getter).not.toHaveBeenCalled();
  expect((await forensicApprovalTools[0].handler({...input,person_id:id},ctx)).isError).toBe(true);
  await expect(forensicApprovalTools[1].authorize!({...input,idempotency_key:'retry',company_id:'foreign'},ctx)).rejects.toThrow();
+});
+it('preserves fiscal-year and VAT-period references and rejects invalid operation/date pairs',async()=>{
+ await forensicApprovalTools[0].handler({operation:'year.close',entity_type:'fiscal_year',entity_id:'2026'},ctx);
+ expect(m.requirements).toHaveBeenLastCalledWith(m.ctx,{operation:'year.close',entityType:'fiscal_year',entityId:'2026'});
+ await forensicApprovalTools[0].handler({operation:'vat_period.lock',entity_type:'vat_period',entity_id:'2026-08-01/2026-08-31'},ctx);
+ expect(m.requirements).toHaveBeenLastCalledWith(m.ctx,{operation:'vat_period.lock',entityType:'vat_period',entityId:'2026-08-01/2026-08-31'});
+ for(const args of [{...input,reversal_date:'2026-02-31'},{...input,operation:'beneficiary.verify'},{...input,expected_version:0}])expect((await forensicApprovalTools[0].handler(args,ctx)).isError).toBe(true);
+});
+
+it('admits actual wire contracts through the registry validator',()=>{
+ const inputs=[input,{...input,idempotency_key:'retry'},{limit:100,cursor:'signed'}];
+ forensicApprovalTools.forEach((tool,index)=>expect(validateToolArguments(tool,inputs[index]).ok).toBe(true));
 });
