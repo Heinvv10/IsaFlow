@@ -3,7 +3,6 @@ import {createServer} from 'node:http';
 import {SignJWT} from 'jose';
 import {apiResolver} from 'next/dist/server/api-utils/node/api-resolver';
 import route from '../../../pages/api/accounting/bank-control-state';
-import {getAuthPool} from '@/lib/auth/authPool';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {validateFixtureTarget} from '../forensic-fixture';
 import {transferControlFixture} from './bankTransferControlFixture';
@@ -38,6 +37,6 @@ export async function transferReadFixture(){
    return await withControlRequest({client,userId:user.id,companyId:user.companyId,claims},{personId:user.id,companyId:user.companyId,authMethod:'cookie'},()=>readBankControlState(requireControlTx(),{bankTransactionId:bankId}));
   }finally{await client.query('ROLLBACK');client.release();}
  }
- async function close(){await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));await getAuthPool().end();await f.close();}
+ async function close(){await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));await f.close();}
  return{...f,read,posted,withoutEvidence,close};
 }

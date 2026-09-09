@@ -1,8 +1,9 @@
-import {beforeAll,afterAll,expect,it} from 'vitest';
+import {beforeEach,afterEach,afterAll,expect,it} from 'vitest';
+import {getAuthPool} from '@/lib/auth/authPool';
 import {randomUUID} from 'node:crypto';
 import {transferReadFixture} from './bankTransferReadFixture';
 let f:Awaited<ReturnType<typeof transferReadFixture>>;
-beforeAll(async()=>{f=await transferReadFixture();});afterAll(async()=>{if(f)await f.close();});
+beforeEach(async()=>{f=await transferReadFixture();});afterEach(async()=>{if(f)await f.close();});afterAll(()=>getAuthPool().end());
 it('actual GET resolves original and saved opposite to one canonical post intent',async()=>{
  const p=await f.posted();
  for(const id of [p.bank,p.opposite!]){const response=await f.read(id);expect(response.status).toBe(200);expect(response.body.data).toMatchObject({currentOriginalIntentId:p.prepared.intentId,legacyProvenanceUnavailable:false});}
