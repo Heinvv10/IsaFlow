@@ -15,7 +15,7 @@ and not fixed in this branch.
 | L2 | No nesting guard on `withPublicRouteTransaction` | Throws when an ALS request context is already bound |
 | L3 | Silent RLS bypass on this path | Documented in the wrapper's header: isolation rests on the explicit `company_id` predicates |
 | L4 | `subscription_charges` update lacks `company_id` | **Not fixed** — pre-existing on master, moved verbatim, out of scope per the review |
-| L5 | Read-then-write idempotency with no constraint behind it | Migration `619_customer_payments_card_reference_unique.sql`, a partial unique index on `(company_id, bank_reference)` for non-cancelled card payments |
+| L5 | Read-then-write idempotency with no constraint behind it | Migration `620_customer_payments_card_reference_unique.sql`, a partial unique index on `(company_id, bank_reference)` for non-cancelled card payments |
 | L6 | Two different epsilons | Single `EPS = 0.01`, matching `confirmCustomerPayment` |
 
 **Accounting-policy choice worth overruling (M4).** There is no bank-charges system
@@ -37,7 +37,7 @@ non-UUID author, over-settlement, `paid_at` dating, fee posting, concurrent deli
 and the nesting refusal (`tests/integration/public-route-tx.int.test.ts`). The unique-index
 case proves the migration. Totals: K-035 6, K-036 13, publicRouteTx 4 — 23 passed.
 
-**Migration.** `619` applied to the fixture database to prove it. Checked for violations
+**Migration.** `620` applied to the fixture database to prove it. Checked for violations
 first: zero duplicate `(company_id, bank_reference)` card payments in `isaflow_dev` across
 57 card payments. Rollback is `DROP INDEX ux_customer_payments_card_reference`. Production
 was not queried.

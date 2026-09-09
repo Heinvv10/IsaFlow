@@ -32,4 +32,4 @@ Mutation: reverting the five source files to 9e2fcd95 turns all 8 new cases red
 Full unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run --testTimeout=60000
 --maxWorkers=4):  784 files passed | 36 skipped; 9320 tests passed | 234 skipped.
 tsc --noEmit clean; eslint clean on all five source files; migration-naming, migration-rls
-and agent-docs gates all OK. Migration 619 applied to the fixture DB.
+and agent-docs gates all OK. Migration 620 applied to the fixture DB.
