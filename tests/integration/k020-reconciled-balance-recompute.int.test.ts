@@ -4,10 +4,13 @@
 //   * another tenant's journal line on the same gl_account_id is excluded,
 //   * a posted entry dated after statement_date is excluded, one dated exactly
 //     on statement_date is included,
-//   * a draft (unposted) entry is excluded.
+//   * a draft (unposted) entry is excluded,
+//   * an adjustment against a different bank account, or against a completed
+//     reconciliation, is refused rather than posted with no effect.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import {
+  createAdjustmentEntry,
   startReconciliation,
   updateReconciledBalance,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
@@ -24,7 +27,14 @@ const otherPeriod = crypto.randomUUID();
 const onDateJe = crypto.randomUUID();
 const bankLine = crypto.randomUUID();
 const bankTx = crypto.randomUUID();
+const otherBank = crypto.randomUUID();
 let reconId = '';
+
+async function countEntries(): Promise<number> {
+  const r = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1', [company]);
+  return r.rows[0].n as number;
+}
 
 async function seedEntry(
   id: string, co: string, byUser: string, fiscalPeriod: string,
@@ -61,8 +71,9 @@ beforeAll(async () => {
   }
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)
-     VALUES($1,$3,'K020RB','K020 Bank','asset','bank','debit'),($2,$3,'K020RC','K020 Contra','revenue',NULL,'credit')`,
-    [bank, contra, company],
+     VALUES($1,$3,'K020RB','K020 Bank','asset','bank','debit'),($2,$3,'K020RC','K020 Contra','revenue',NULL,'credit'),
+            ($4,$3,'K020RB2','K020 Second Bank','asset','bank','debit')`,
+    [bank, contra, company, otherBank],
   );
   // In period, posted, on the statement date itself: must be included.
   await seedEntry(onDateJe, company, user, period, '2026-03-31', 'posted', 400, bankLine);
@@ -85,7 +96,7 @@ afterAll(async () => {
       await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [co]);
       await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [co]);
     }
-    await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])', [[bank, contra]]);
+    await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])', [[bank, contra, otherBank]]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
     for (const co of [company, other]) {
       await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [co]);
@@ -123,6 +134,31 @@ describe('K-020 reconciled balance recompute', () => {
 
   it('leaves the row untouched when called with the wrong company_id', async () => {
     await updateReconciledBalance(other, reconId);
+    const row = await pool.query(
+      'SELECT gl_balance, reconciled_balance FROM bank_reconciliations WHERE id=$1', [reconId]);
+    expect(Number(row.rows[0].gl_balance)).toBe(400);
+    expect(Number(row.rows[0].reconciled_balance)).toBe(400);
+  });
+
+  it('refuses an adjustment posted to a different bank account, and posts nothing', async () => {
+    const before = await countEntries();
+    await expect(
+      createAdjustmentEntry(company, reconId, otherBank, contra, 50, 'K020 wrong bank', user),
+    ).rejects.toThrow(/does not match the reconciliation/);
+    expect(await countEntries()).toBe(before);
+    const row = await pool.query(
+      'SELECT reconciled_balance FROM bank_reconciliations WHERE id=$1', [reconId]);
+    expect(Number(row.rows[0].reconciled_balance)).toBe(400);
+  });
+
+  it('refuses an adjustment on a completed reconciliation and preserves its balances', async () => {
+    await pool.query(
+      "UPDATE bank_reconciliations SET status='completed' WHERE id=$1", [reconId]);
+    const before = await countEntries();
+    await expect(
+      createAdjustmentEntry(company, reconId, bank, contra, 50, 'K020 after sign-off', user),
+    ).rejects.toThrow(/completed reconciliation/);
+    expect(await countEntries()).toBe(before);
     const row = await pool.query(
       'SELECT gl_balance, reconciled_balance FROM bank_reconciliations WHERE id=$1', [reconId]);
     expect(Number(row.rows[0].gl_balance)).toBe(400);
