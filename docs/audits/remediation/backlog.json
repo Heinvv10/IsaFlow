@@ -365,9 +365,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "0882a6c3",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts"
    ],
@@ -375,12 +377,14 @@
     "K-009/red.log",
     "K-009/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "0882a6c3",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k009-migration-rollback",
+   "reviewRounds": 4
   },
   {
    "id": "K-010",
@@ -396,9 +400,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "8e5c7d2c",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
    ],
@@ -406,12 +412,14 @@
     "K-010/red.log",
     "K-010/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "8e5c7d2c",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k010-journal-reversal-lock",
+   "reviewRounds": 4
   },
   {
    "id": "K-011",
@@ -428,9 +436,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "65580385",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k011-credit-note-apply-lost-update.int.test.ts"
    ],
@@ -438,12 +448,14 @@
     "K-011/red.log",
     "K-011/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "65580385",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k011-credit-note-apply-lock",
+   "reviewRounds": 3
   },
   {
    "id": "K-012",
@@ -459,9 +471,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "35d0d7e7",
+   "status": "in-progress",
+   "dependencies": [
+    "PR open; GitHub checks pending"
+   ],
    "testNames": [
     "tests/integration/k012-statement-partial-receipt-credit.int.test.ts"
    ],
@@ -469,12 +483,14 @@
     "K-012/red.log",
     "K-012/validation.md"
    ],
-   "fixCommit": null,
-   "pr": null,
+   "fixCommit": "35d0d7e7",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/358",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k012-statement-receipt-credit",
+   "reviewRounds": 2
   },
   {
    "id": "K-013",
@@ -491,9 +507,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "dc2aaf76",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k013-recurring-invoice-no-lines-no-gl.int.test.ts"
    ],
@@ -501,12 +519,14 @@
     "K-013/red.log",
     "K-013/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "dc2aaf76",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k013-recurring-invoice-lines-gl",
+   "reviewRounds": 3
   },
   {
    "id": "K-014",
@@ -522,9 +542,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "b2644bc8",
+   "status": "in-progress",
+   "dependencies": [
+    "PR open; GitHub checks pending"
+   ],
    "testNames": [
     "tests/integration/k014-supplier-bill-double-gl-post.int.test.ts"
    ],
@@ -532,12 +554,14 @@
     "K-014/red.log",
     "K-014/validation.md"
    ],
-   "fixCommit": null,
-   "pr": null,
+   "fixCommit": "b2644bc8",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/360",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k014-supplier-bill-gl-lock",
+   "reviewRounds": 2
   },
   {
    "id": "K-015",
@@ -647,9 +671,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "879692c0",
+   "status": "in-progress",
+   "dependencies": [
+    "PR open; GitHub checks pending"
+   ],
    "testNames": [
     "tests/integration/k018-open-banking-fabricated-transactions.int.test.ts"
    ],
@@ -657,12 +683,14 @@
     "K-018/red.log",
     "K-018/validation.md"
    ],
-   "fixCommit": null,
-   "pr": null,
+   "fixCommit": "879692c0",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/361",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k018-open-banking-providers",
+   "reviewRounds": 2
   },
   {
    "id": "K-019",
@@ -713,9 +741,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "2ff1617e",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k020-reconciled-balance-double-count.int.test.ts"
    ],
@@ -723,12 +753,14 @@
     "K-020/red.log",
     "K-020/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "2ff1617e",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k020-reconciled-balance",
+   "reviewRounds": 3
   },
   {
    "id": "K-021",
@@ -744,9 +776,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "480e2060",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k021-failed-reversal-commits-unwind.int.test.ts"
    ],
@@ -754,12 +788,14 @@
     "K-021/red.log",
     "K-021/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "480e2060",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k021-reversal-unwind-atomic",
+   "reviewRounds": 2
   },
   {
    "id": "K-022",
@@ -838,9 +874,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "89024a8c",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k024-annual-export-declarable-status.int.test.ts"
    ],
@@ -848,12 +886,14 @@
     "K-024/red.log",
     "K-024/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "89024a8c",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k024-annual-export-declarable",
+   "reviewRounds": 1
   },
   {
    "id": "K-025",
@@ -931,9 +971,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "d1d6211c",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k027-tax-depreciation-carry-forward.int.test.ts"
    ],
@@ -941,12 +983,14 @@
     "K-027/red.log",
     "K-027/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "d1d6211c",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k027-tax-depreciation-carry-forward",
+   "reviewRounds": 4
   },
   {
    "id": "K-028",
@@ -1025,9 +1069,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "11b27034",
+   "status": "in-progress",
+   "dependencies": [
+    "PR open; GitHub checks pending"
+   ],
    "testNames": [
     "tests/integration/k-030-loan-schedule-cache-hash.int.test.ts"
    ],
@@ -1035,12 +1081,14 @@
     "K-030/red.log",
     "K-030/validation.md"
    ],
-   "fixCommit": null,
-   "pr": null,
+   "fixCommit": "11b27034",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/362",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k030-loan-schedule-hash",
+   "reviewRounds": 4
   },
   {
    "id": "K-031",
@@ -1056,9 +1104,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "939e9b6a",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k-031-efiling-vat201-source.int.test.ts"
    ],
@@ -1066,12 +1116,14 @@
     "K-031/red.log",
     "K-031/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "939e9b6a",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k031-vat201-ledger-source",
+   "reviewRounds": 4
   },
   {
    "id": "K-032",
@@ -1186,9 +1238,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "af38f359",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts"
    ],
@@ -1196,12 +1250,14 @@
     "K-035/red.log",
     "K-035/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "af38f359",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k035-k036-paystack-webhook",
+   "reviewRounds": 3
   },
   {
    "id": "K-036",
@@ -1217,9 +1273,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "af38f359",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [
     "tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts"
    ],
@@ -1227,12 +1285,14 @@
     "K-036/red.log",
     "K-036/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "af38f359",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "branch": "fix/audit-k035-k036-paystack-webhook",
+   "reviewRounds": 3
   },
   {
    "id": "K-037",
@@ -2624,9 +2684,12 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "47ead2b2",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending",
+    "Fixed on the K-015 branch (sibling root cause), review round 4 in progress"
+   ],
    "testNames": [
     "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
    ],
@@ -2634,12 +2697,14 @@
     "K-089/red.log",
     "K-089/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "47ead2b2",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k015-k089-migration-balance-due",
+   "reviewRounds": 4
   },
   {
    "id": "K-090",
@@ -8017,19 +8082,23 @@
    "correctedTrigger": null,
    "severityRationale": "Discovered during validation of the named K item; reachability described in that item's validation.md, not yet independently reproduced.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "candidate",
-   "dependencies": [],
+   "currentSha": "89024a8c",
+   "status": "in-progress",
+   "dependencies": [
+    "Independent review rounds complete; full CI, PR and merge pending"
+   ],
    "testNames": [],
    "evidencePaths": [
     "K-024/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "89024a8c",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "medium"
+   "reportedSeverity": "medium",
+   "branch": "fix/audit-k024-annual-export-declarable",
+   "reviewRounds": 1
   },
   {
    "id": "R-006",
@@ -8346,6 +8415,85 @@
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-018",
+   "claim": "pages/api/accounting/sars/emp501.ts is a dead route with no consumer; it carries its own EMP501 aggregation that is not maintained alongside the payroll EMP501 surfaces.",
+   "area": "payroll",
+   "affectedPaths": [
+    "pages/api/accounting/sars/emp501.ts"
+   ],
+   "sourceLabel": "Review of K-024 fix",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Named by an independent reviewer or fixer; not yet reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "candidate",
+   "dependencies": [
+    "Unrelated dead code: mention, do not delete without confirming no external caller"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "low"
+  },
+  {
+   "id": "R-019",
+   "claim": "Credit-note cancel path: a lock timeout inside the cancel un-apply is reported as 400; reviewer withdrew a HIGH after proving 55P03 aborts the transaction so the 400 commits nothing, but the fixer retained an unrun probe for the pre-existing cancel-behind-400 behaviour.",
+   "area": "ar",
+   "affectedPaths": [
+    "src/modules/accounting/services/ar/creditNoteCancelService.ts"
+   ],
+   "sourceLabel": "Review of K-011 fix",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Named by an independent reviewer or fixer; not yet reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "candidate",
+   "dependencies": [
+    "Probe SQL in K-011/fix.md; run on disposable data before disposing"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "low"
+  },
+  {
+   "id": "R-020",
+   "claim": "Migration wizard: opening balances plus the AR/AP invoice import both post to the control accounts, doubling them; customer_invoices.external_ref written by the import has no reader.",
+   "area": "migrations",
+   "affectedPaths": [
+    "src/modules/accounting/services/core/migrationImportService.ts",
+    "src/modules/accounting/services/core/migrationOpeningBalanceService.ts"
+   ],
+   "sourceLabel": "K-015 fix limits",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Named by an independent reviewer or fixer; not yet reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "candidate",
+   "dependencies": [
+    "Design decision: import either the opening balance or the open documents, not both"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
   }
  ],
  "sourceInventory": [
