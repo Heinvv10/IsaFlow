@@ -15,7 +15,7 @@ SARS return preparation + eFiling submissions tracking + compliance calendar. VA
 - `GET /api/accounting/sars/emp501` — bi-annual employer recon summary
 - `GET /api/accounting/sars/vat-exceptions` — `?from=&to=`; pre-filing VAT exceptions (uncoded GL VAT lines, invoice tax-code issues, invoice↔GL mismatches, VAT201-vs-GL-control recon); informational for the panel, **but the eFiling submit path re-runs it as a HARD gate**
 - `GET /api/accounting/sars/efiling-status` — redacted `{ configured, baseUrlHost, channel }`; drives whether the "Submit to SARS" surface appears. Never returns credentials (Phase 4)
-- `POST /api/accounting/sars/efiling-submit` — `{ submissionId, action?: 'submit'|'poll' }`; files a VAT201 via the ISV channel (or polls status). DARK unless `SARS_EFILING_ENABLED=true` + creds; server re-checks the exceptions gate and REFUSES when not clean/degraded (Phase 4), and additionally refuses a return failing SARS's 15% tie-out, one declaring a negative supply value, or one whose figures have drifted from the reviewed draft (`draftDrift`)
+- `POST /api/accounting/sars/efiling-submit` — `{ submissionId, action?: 'submit'|'poll' }`; files a VAT201 via the ISV channel (or polls status). DARK unless `SARS_EFILING_ENABLED=true` + creds; server re-checks the exceptions gate and REFUSES when not clean/degraded (Phase 4), and additionally refuses a material 15% variance (0.5% of the tax declared, floor R1 — NOT `rateCheck.ties`, whose R1 absolute bar no real book clears), a negative supply value, an input breakdown contradicting field 10, or figures drifted from the reviewed draft (`draftDrift`)
 
 ## Auth
 All routes: `withAuth(withErrorHandler(withWriteAccess(handler)))`.
@@ -33,7 +33,7 @@ All routes: `withAuth(withErrorHandler(withWriteAccess(handler)))`.
 - `src/modules/accounting/services/reports/sarsService.ts`
 - `src/modules/accounting/services/reports/vat201Service.ts` (invoice-derived; recon input only)
 - `src/modules/accounting/services/reports/vat201LedgerFields.ts` — `getLedgerVAT201` (field1..field11 for the route and the ISV payload) + `evaluateVat201Filability` (15% tie-out and negative supply values). Fields 1/4/5/6/7/9/10/11 come from the ledger, 2/3 from `vat201NilRatedSupplies`, 8 from the invoice line classification
-- `src/modules/accounting/services/reports/vat201NilRatedSupplies.ts` — zero-rated and exempt supply VALUES; they post no VAT control leg, so no journal-derived basis can see them
+- `src/modules/accounting/services/reports/vat201NilRatedSupplies.ts` — zero-rated and exempt supply VALUES from the posted revenue legs carrying a nil VAT code (per LINE, so a mixed invoice splits); returns the share sitting on taxed journals, which field 1 gives back
 - `src/modules/accounting/services/reports/irp5Service.ts` (EMP501 build)
 - `src/modules/accounting/services/reports/complianceCalendarService.ts`
 - `src/modules/accounting/services/reports/sarsEfilingService.ts` (pure VAT201/EMP201/IRP6 payload builders + validation + calendar)
@@ -43,6 +43,7 @@ All routes: `withAuth(withErrorHandler(withWriteAccess(handler)))`.
 - `src/modules/accounting/services/reports/sarsEfilingRepo.ts` — Phase 4 persistence (mig 504 `sars_efiling_events` audit log + eFiling cols on `sars_submissions`)
 
 ## Recent changes
+- 2026-09-09: K-031 follow-up — nil-rated supplies read per journal LINE and posted-only; field 1 gives back the nil-rated share of a mixed journal instead of both boxes declaring it; the filing gate refuses a negative field 7 (document-derived field 8 exceeding the ledger's input tax) and uses a proportional 15% tolerance
 - 2026-09-09: K-031 — `sars-vat201` (GET+POST) and `submitVAT201ToSars` switched from the invoice-derived `generateVAT201` to `getLedgerVAT201`. Credit notes and manual VAT journals were invisible to the old source. Fields 2/3 (zero-rated, exempt) and 8 (services) stay document-derived because no VAT control leg exists to derive them from; `sars_submissions.form_data` is now read back so filing cannot send figures the reviewer never saw
 - 2026-07-06: Phase 4 ISV VAT201 e-filing — `efiling-status` + `efiling-submit` routes; env-gated `sarsEfiling{Config,Client,Repo,SubmissionService}`; mig 504 audit log; submit REFUSES server-side unless exceptions clean. Live submission Hein-gated on SARS ISV registration (`docs/sars/2026-07-VAT201-isv-dossier.md`)
 - 2026-06-11: `vat-exceptions` endpoint added (Dotbiz Workstream A) — delegates to `vatExceptionsService.getVatExceptions`

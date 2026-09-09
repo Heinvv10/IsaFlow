@@ -14,9 +14,10 @@
  *   LEDGER (`getVat201Report`) — 1, 4, 5, 6, 7, 9, 10, 11.
  *     Every field whose value is a VAT amount, plus the supply values that
  *     have a VAT leg to attribute them to. This is the K-031 correction.
- *   DOCUMENTS (`getNilRatedSupplies`) — 2, 3.
- *     A zero-rated or exempt supply posts no VAT control leg, so the ledger
- *     basis never selects its journal. See that file.
+ *   JOURNAL LINES (`getNilRatedSupplies`) — 2, 3, and a deduction from 1.
+ *     A zero-rated or exempt supply posts no VAT control leg, so the box basis
+ *     never selects its journal. Read per LINE, so a mixed invoice splits
+ *     instead of declaring its whole value twice. See that file.
  *   DOCUMENTS (`generateVAT201`) — 8, and the drill-down invoice lists.
  *     Input tax on services is `supplier_invoice_items.vat_classification`;
  *     journal `vat_type` has no goods/services split, so the ledger cannot
@@ -44,6 +45,7 @@
 import { generateVAT201, type VAT201Data } from './vat201Service';
 import { getVat201Report, type Vat201Report } from './vat201ReportService';
 import { getNilRatedSupplies } from './vat201NilRatedSupplies';
+import { SA_VAT_RATE } from './vatBoxBasis';
 
 /** Output boxes whose value is reported in field 2 or field 3, not field 1. */
 const NIL_RATED_OUTPUT_BOXES: readonly string[] = ['2', '2A', '3'];
@@ -79,12 +81,15 @@ function boxBase(report: Vat201Report, boxes: readonly string[]): number {
  * the same 15% relation the return is checked on, so field 1 is every output
  * box except the two nil-rated ones, whose values come from the documents.
  */
-function taxedOutputBase(report: Vat201Report): number {
-  return r2(
-    report.boxes
-      .filter((b) => b.direction === 'output' && !NIL_RATED_OUTPUT_BOXES.includes(b.box))
-      .reduce((s, b) => s + b.base, 0),
-  );
+function taxedOutputBase(report: Vat201Report, nilRatedInside: number): number {
+  const taxed = report.boxes
+    .filter((b) => b.direction === 'output' && !NIL_RATED_OUTPUT_BOXES.includes(b.box))
+    .reduce((s, b) => s + b.base, 0);
+  // `deriveVatBoxes` apportions a journal's whole base pro-rata by tax, so a
+  // nil-rated line sharing a journal with a taxed one lands here. It is
+  // declared in field 2 or 3, so field 1 gives it up rather than the same rand
+  // being reported in two boxes.
+  return r2(taxed - nilRatedInside);
 }
 
 /**
@@ -122,7 +127,7 @@ export async function getLedgerVAT201(
   return {
     periodStart,
     periodEnd,
-    field1_standardRatedSupplies: taxedOutputBase(report),
+    field1_standardRatedSupplies: taxedOutputBase(report, nilRated.onTaxedJournals),
     field2_zeroRatedSupplies: nilRated.zeroRated,
     field3_exemptSupplies: nilRated.exempt,
     field4_totalImports: boxBase(report, ['14A/15A']),
@@ -149,19 +154,51 @@ const SUPPLY_VALUE_FIELDS = [
 ] as const;
 
 /**
+ * Rands of 15% variance tolerated before a return is called unfilable, as a
+ * share of the tax declared in that direction, with an absolute floor.
+ *
+ * NOT `rateCheck.ties`, which is `vatBoxBasis`'s R1 ABSOLUTE tolerance on the
+ * whole return plus a demand that no journal carry tax without a base. Neither
+ * is reachable by a real book — that file's own header records a residual
+ * variance of R4 407 on Velocity Fibre and calls it a genuine finding rather
+ * than an error — so gating filing on it would block that company forever.
+ * `ties` stays the assurance report's stricter signal; this is the filing bar.
+ */
+const RATE_CHECK_FLOOR = 1;
+const RATE_CHECK_PROPORTION = 0.005;
+
+function varianceIsMaterial(variance: number, taxDeclared: number): boolean {
+  return Math.abs(variance) > Math.max(RATE_CHECK_FLOOR, Math.abs(taxDeclared) * RATE_CHECK_PROPORTION);
+}
+
+export type Vat201Filability = Pick<
+  LedgerVAT201,
+  'rateCheck' | 'field5_outputVAT' | 'field7_otherGoods' | 'field8_services'
+  | 'field10_totalInputVAT' | (typeof SUPPLY_VALUE_FIELDS)[number][0]
+>;
+
+/**
  * Pure decision: may this return be FILED? Separate from the exceptions gate,
  * which reconciles the invoice population; this asks whether the arithmetic on
  * the form itself is one SARS will accept.
  *
- * Two ways it is not. A box 1 that does not imply box 4 at 15% is the check
- * SARS runs on receipt — it fires when one journal mixes a taxed and a
- * nil-rated line, because the ledger basis apportions that journal's base
- * pro-rata by tax and the untaxed part lands on field 1. And a period holding
- * only credit notes produces negative supply values, which no VAT201 field can
- * carry.
+ * Three ways it is not.
+ *
+ * A NEGATIVE SUPPLY VALUE. A period holding only credit notes produces one, and
+ * no VAT201 supply box can carry it.
+ *
+ * A BOX 1 THAT DOES NOT IMPLY BOX 4 at 15%, which is the check SARS runs on
+ * receipt. It fires when one journal mixes VAT types the ledger cannot split by
+ * line, because the base is apportioned pro-rata by tax.
+ *
+ * AN INPUT BREAKDOWN THAT CONTRADICTS ITS TOTAL. Field 8 is the only input
+ * figure not derived from the ledger — journal `vat_type` has no goods/services
+ * split — so where the documents classify more services VAT than the ledger
+ * claims in total, the field 7 remainder turns negative. That is the two bases
+ * disagreeing, not a real credit, and it must not be filed as a negative box.
  */
 export function evaluateVat201Filability(
-  vat201: Pick<LedgerVAT201, 'rateCheck' | (typeof SUPPLY_VALUE_FIELDS)[number][0]>,
+  vat201: Vat201Filability,
 ): { filable: boolean; reason: string | null } {
   for (const [field, label] of SUPPLY_VALUE_FIELDS) {
     const value = Number(vat201[field] ?? 0);
@@ -172,14 +209,38 @@ export function evaluateVat201Filability(
       };
     }
   }
-  if (!vat201.rateCheck.ties) {
+
+  const input = vat201.field10_totalInputVAT;
+  const other = vat201.field7_otherGoods;
+  if ((input >= 0 && other < 0) || (input < 0 && other > 0)) {
+    return {
+      filable: false,
+      reason:
+        `VAT201 input VAT on other goods is ${other.toFixed(2)} against a total of ${input.toFixed(2)} — `
+        + `the services figure (${vat201.field8_services.toFixed(2)}), which comes from the invoice line `
+        + `classification rather than the ledger, exceeds what the ledger claims`,
+    };
+  }
+
+  // Output variance is recomputed FROM THE FIELDS BEING FILED, not taken from
+  // the report: the report's box 1 base still holds the nil-rated share of a
+  // mixed journal, which field 1 has given back to field 2 or 3, so the
+  // report's variance describes a declaration nobody is making. Input has no
+  // supply-value field on this form, so its variance stays the report's.
+  const outputVariance = r2(vat201.field5_outputVAT - vat201.field1_standardRatedSupplies * SA_VAT_RATE);
+  const { inputVariance } = vat201.rateCheck;
+  if (
+    varianceIsMaterial(outputVariance, vat201.field5_outputVAT)
+    || varianceIsMaterial(inputVariance, vat201.field10_totalInputVAT)
+  ) {
     return {
       filable: false,
       reason:
         `The return fails SARS's own 15% check — output tax is out by `
-        + `${vat201.rateCheck.outputVariance.toFixed(2)} and input tax by `
-        + `${vat201.rateCheck.inputVariance.toFixed(2)} against the supply values declared`,
+        + `${outputVariance.toFixed(2)} and input tax by ${inputVariance.toFixed(2)} `
+        + `against the supply values declared`,
     };
   }
+
   return { filable: true, reason: null };
 }

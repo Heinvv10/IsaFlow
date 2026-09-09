@@ -54,6 +54,16 @@ const capitalBill = crypto.randomUUID();
 const servicesJournal = crypto.randomUUID();
 const servicesBill = crypto.randomUUID();
 const mixedInvoiceJournal = crypto.randomUUID();
+const mixedExemptJournal = crypto.randomUUID();
+const mixedExemptInvoice = crypto.randomUUID();
+const draftExportJournal = crypto.randomUUID();
+const draftExportInvoice = crypto.randomUUID();
+const uncodedExportJournal = crypto.randomUUID();
+const uncodedExportInvoice = crypto.randomUUID();
+const EXEMPT_START = '2026-09-01';
+const EXEMPT_END = '2026-09-30';
+const DRAFT_START = '2026-10-01';
+const DRAFT_END = '2026-10-31';
 
 // The other tenant's mirror of the same period — none of it may leak.
 const otherRevenue = crypto.randomUUID();
@@ -229,6 +239,48 @@ beforeAll(async () => {
     [mixedInvoice, company, customer, mixedInvoiceJournal, user],
   );
 
+  // SEPTEMBER: one invoice, one journal, R1 000 standard + R500 EXEMPT.
+  // Reading one VAT code per document put the whole R1 500 in field 3 while
+  // the ledger put it in field 1 — R3 000 declared for an R1 500 invoice.
+  await journal(mixedExemptJournal, company, 'K031-MIXEX', '2026-09-12');
+  await line(mixedExemptJournal, company, receivable, 1650, 0, null);
+  await line(mixedExemptJournal, company, revenue, 0, 1000, 'standard');
+  await line(mixedExemptJournal, company, revenue, 0, 500, 'exempt');
+  await line(mixedExemptJournal, company, vatOutput, 0, 150, 'standard');
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-MIXEX-1',$3,'2026-09-12',1500,150,15,1650,'sent',$4,$5)`,
+    [mixedExemptInvoice, company, customer, mixedExemptJournal, user],
+  );
+
+  // OCTOBER: a DRAFT export invoice on a DRAFT journal, plus a posted export
+  // invoice whose revenue leg carries no VAT code at all.
+  await pool.query(
+    `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,
+       status,source,created_by)
+     VALUES($1,$2,'K031-DRAFT','2026-10-05','K031 draft export','draft','manual',$3)`,
+    [draftExportJournal, company, user],
+  );
+  await line(draftExportJournal, company, receivable, 9000, 0, null);
+  await line(draftExportJournal, company, revenue, 0, 9000, 'export');
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-DRAFT-1',$3,'2026-10-05',9000,0,0,9000,'draft',$4,$5)`,
+    [draftExportInvoice, company, customer, draftExportJournal, user],
+  );
+
+  await journal(uncodedExportJournal, company, 'K031-UNCODED', '2026-10-06');
+  await line(uncodedExportJournal, company, receivable, 7000, 0, null);
+  await line(uncodedExportJournal, company, revenue, 0, 7000, null);
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,
+       subtotal,tax_amount,tax_rate,total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'K031-UNCODED-1',$3,'2026-10-06',7000,0,0,7000,'sent',$4,$5)`,
+    [uncodedExportInvoice, company, customer, uncodedExportJournal, user],
+  );
+
   // The other tenant's June sale — R50 000 + R7 500. Must never appear.
   await journal(otherJournal, otherCompany, 'K031-OTHER', '2026-06-10');
   await line(otherJournal, otherCompany, otherReceivable, 57500, 0, null);
@@ -327,18 +379,72 @@ describe('K-031 VAT201 source', () => {
     expect(evaluateVat201Filability(filed)).toEqual({ filable: true, reason: null });
   });
 
-  it('refuses to file a mixed-rate journal that fails SARS\'s 15% check', async () => {
+  it('splits a mixed zero-rated invoice by line instead of declaring it twice', async () => {
+    // ONE journal: R1 000 standard (R150 VAT) + R500 zero-rated, R1 500 invoice.
+    // deriveVatBoxes apportions the whole R1 500 base onto the taxed box, so
+    // field 1 gives the R500 back to field 2 rather than declaring R2 000.
     const mixed = await getLedgerVAT201(company, MIXED_START, MIXED_END);
 
-    // The pro-rata-by-tax base split puts the untaxed R500 on field 1, so the
-    // return declares R1 500 of standard supplies against R150 of tax.
-    expect(mixed.field1_standardRatedSupplies).toBeCloseTo(1500, 2);
+    expect(mixed.field1_standardRatedSupplies).toBeCloseTo(1000, 2);
+    expect(mixed.field2_zeroRatedSupplies).toBeCloseTo(500, 2);
+    expect(mixed.field3_exemptSupplies).toBeCloseTo(0, 2);
     expect(mixed.field5_outputVAT).toBeCloseTo(150, 2);
-    expect(mixed.rateCheck.ties).toBe(false);
+    // R1 000 x 15% = R150. Declared and implied now agree, so it is filable.
+    expect(
+      mixed.field1_standardRatedSupplies + mixed.field2_zeroRatedSupplies,
+    ).toBeCloseTo(1500, 2);
+    expect(evaluateVat201Filability(mixed)).toEqual({ filable: true, reason: null });
+  });
 
-    const gate = evaluateVat201Filability(mixed);
+  it('splits a mixed EXEMPT invoice by line — the double count was R3 000 for R1 500', async () => {
+    const mixed = await getLedgerVAT201(company, EXEMPT_START, EXEMPT_END);
+
+    expect(mixed.field1_standardRatedSupplies).toBeCloseTo(1000, 2);
+    expect(mixed.field3_exemptSupplies).toBeCloseTo(500, 2);
+    expect(mixed.field2_zeroRatedSupplies).toBeCloseTo(0, 2);
+    expect(
+      mixed.field1_standardRatedSupplies + mixed.field3_exemptSupplies,
+    ).toBeCloseTo(1500, 2);
+    expect(mixed.field5_outputVAT).toBeCloseTo(150, 2);
+  });
+
+  it('ignores an unposted document and still reads a revenue leg with no VAT code', async () => {
+    // October holds a DRAFT R9 000 export on a draft journal, and a POSTED
+    // R7 000 export invoice whose revenue leg carries no VAT code at all.
+    const october = await getLedgerVAT201(company, DRAFT_START, DRAFT_END);
+
+    expect(october.field2_zeroRatedSupplies).toBeCloseTo(7000, 2);   // not 16 000
+    expect(october.field1_standardRatedSupplies).toBeCloseTo(0, 2);
+    expect(october.field5_outputVAT).toBeCloseTo(0, 2);
+  });
+
+  it('refuses to file an input breakdown that contradicts its own total', async () => {
+    // The ledger claims R2 100 of input tax; the documents classify R9 000 of
+    // it as services, so the field 7 remainder would be negative.
+    const filed = await getLedgerVAT201(company, PERIOD_START, PERIOD_END);
+    const contradicted = { ...filed, field8_services: 9000, field7_otherGoods: -7900 };
+
+    const gate = evaluateVat201Filability(contradicted);
     expect(gate.filable).toBe(false);
-    expect(gate.reason).toContain('15%');
+    expect(gate.reason).toContain('services');
+  });
+
+  it('tolerates a variance proportional to the tax declared, and refuses a material one', async () => {
+    const filed = await getLedgerVAT201(company, PERIOD_START, PERIOD_END);
+
+    // Output variance is recomputed from field1 x 15% against field5.
+    // R2 out on R1 350 of output tax is under the 0.5% bar (R6.75), so it is
+    // filable — vatBoxBasis's R1 absolute tolerance would block it forever.
+    const small = { ...filed, field5_outputVAT: filed.field5_outputVAT + 2 };
+    expect(evaluateVat201Filability(small)).toEqual({ filable: true, reason: null });
+
+    // R75 out on the same R1 350 is 5.6% — refused.
+    const material = { ...filed, field5_outputVAT: filed.field5_outputVAT + 75 };
+    expect(evaluateVat201Filability(material).filable).toBe(false);
+
+    // And the input side still comes from the report's own variance.
+    const badInput = { ...filed, rateCheck: { ...filed.rateCheck, inputVariance: 900 } };
+    expect(evaluateVat201Filability(badInput).filable).toBe(false);
   });
 
   it('refuses to file a period whose supply values are negative', async () => {

@@ -193,15 +193,49 @@ describe('submitVAT201ToSars', () => {
   });
 
   it('BLOCKS a return that fails SARS\'s own 15% check, and audits it', async () => {
+    // R1 000 000 of standard supplies implies R150 000 of tax; R158 000 is
+    // R8 000 out, well over the 0.5% bar of R790.
     m.getLedgerVAT201.mockResolvedValue({
       ...FILED_FIELDS,
-      rateCheck: tiedRateCheck({ ties: false, outputVariance: 75, inputVariance: 0 }),
+      field5_outputVAT: 158000,
+      rateCheck: tiedRateCheck({ ties: false, outputVariance: 8000, inputVariance: 0 }),
     });
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingBlockedError);
     expect(m.submitVAT201).not.toHaveBeenCalled();
     expect(m.insertEfilingEvent).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'blocked', detail: expect.objectContaining({ rateCheckTies: false }) }),
     );
+  });
+
+  it('files a variance that is immaterial against the tax declared', async () => {
+    // R200 out on R150 000 is 0.13% — under the bar. vatBoxBasis's own R1
+    // absolute tolerance would refuse this book forever.
+    m.getLedgerVAT201.mockResolvedValue({
+      ...FILED_FIELDS,
+      field5_outputVAT: 150200,
+      rateCheck: tiedRateCheck({ ties: false, outputVariance: 200 }),
+    });
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
+      efilingCorrelationId: null, efilingLastStatus: null,
+      formData: { ...FILED_FIELDS, field5_outputVAT: 150200 },
+    });
+    await submitVAT201ToSars(CID, SID, UID);
+    expect(m.submitVAT201).toHaveBeenCalledTimes(1);
+  });
+
+  it('BLOCKS an input breakdown that contradicts its own total', async () => {
+    const contradicted = { ...FILED_FIELDS, field7_otherGoods: -50000, field8_services: 150000 };
+    m.getLedgerVAT201.mockResolvedValue({ ...contradicted, rateCheck: tiedRateCheck() });
+    // Saved draft matches, so this is the filability gate and not draft drift.
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
+      efilingCorrelationId: null, efilingLastStatus: null, formData: { ...contradicted },
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toThrow(/exceeds what the ledger claims/);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
   });
 
   it('BLOCKS a return declaring a negative supply value', async () => {
