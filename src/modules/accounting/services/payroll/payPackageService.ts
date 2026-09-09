@@ -2,8 +2,9 @@
  * Pay package master + application to employees (mig 454).
  *
  * Applying a package:
- *   1. End-date any OPEN assignment (effective_to IS NULL) for each of the
- *      package's components, set effective_to = effectiveFrom - 1 day.
+ *   1. End-date every assignment the apply overlaps (open-ended, or closed on
+ *      or after effectiveFrom) for each of the package's components, set
+ *      effective_to = effectiveFrom - 1 day.
  *   2. Insert a new payroll_employee_components row per package row with
  *      the package's default amount + is_recurring flag. A row flagged
  *      once-off is closed at the end of effectiveFrom's month, because the
@@ -266,12 +267,17 @@ export async function applyPackageToEmployee(
     let ended = 0;
     for (const r of compRows) {
       const componentId = String(r.component_id);
+      // Supersede every assignment this apply overlaps, not only the
+      // open-ended ones. A once-off row is inserted already closed, so an
+      // `effective_to IS NULL` predicate would step over the previous apply's
+      // row and leave two overlapping windows — getEmployeeComponents returns
+      // both and the run pays the component twice.
       const endResult = (await tx`
         UPDATE payroll_employee_components
            SET effective_to = (${effectiveFrom}::date - INTERVAL '1 day')::date
          WHERE employee_id = ${employeeId}::uuid
            AND component_id = ${componentId}::uuid
-           AND effective_to IS NULL
+           AND (effective_to IS NULL OR effective_to >= ${effectiveFrom}::date)
         RETURNING id
       `) as DbRow[];
       ended += endResult.length;
