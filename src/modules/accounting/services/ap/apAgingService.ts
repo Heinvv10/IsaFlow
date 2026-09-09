@@ -86,6 +86,10 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
+        -- A soft-deleted bill is not a payable. deleted_at is the only record
+        -- that the document was deleted and it is never set to a future time,
+        -- so IS NULL is the whole test.
+        AND si.deleted_at IS NULL
         AND si.invoice_date <= ${asAtStr}::date
         AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
       -- Same omission as AR, and larger: 357 supplier invoices worth
@@ -150,6 +154,10 @@ export async function getAPAgingDetail(companyId: string,
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
+        -- A soft-deleted bill is not a payable. deleted_at is the only record
+        -- that the document was deleted and it is never set to a future time,
+        -- so IS NULL is the whole test.
+        AND si.deleted_at IS NULL
         AND si.invoice_date <= ${asAtStr}::date
         AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
       -- Undated invoices belong here for the same reason they belong in the

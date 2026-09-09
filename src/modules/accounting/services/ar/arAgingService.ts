@@ -52,6 +52,10 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('draft', 'cancelled')
+        -- A soft-deleted invoice is not a receivable. deleted_at is the only
+        -- record that the document was deleted and it is never set to a future
+        -- time, so IS NULL is the whole test.
+        AND ci.deleted_at IS NULL
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
       -- POINT IN TIME. amount_paid on the invoice is a CURRENT snapshot, so
@@ -172,6 +176,10 @@ export async function getARAgingDetail(companyId: string,
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
         AND ci.status NOT IN ('draft', 'cancelled')
+        -- A soft-deleted invoice is not a receivable. deleted_at is the only
+        -- record that the document was deleted and it is never set to a future
+        -- time, so IS NULL is the whole test.
+        AND ci.deleted_at IS NULL
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
       -- An invoice with no due date is still a debt. Filtering

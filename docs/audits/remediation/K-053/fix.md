@@ -1,0 +1,29 @@
+# K-053 — aging and the supplier ledger kept soft-deleted invoices
+
+**Trigger.** Soft-delete (`pages/api/accounting/soft-delete.ts`) blocks only `status='posted'`; aging excludes only `'draft'`/`'cancelled'`. So every `approved`/`sent`/`partially_paid`/`overdue` document is both deletable and aged, and no aging query filtered `deleted_at`.
+
+**Before → after.** The deleted document kept a balance in AR and AP aging, both drill-downs, and the supplier statement's rows and running balance (fixture: R1,750 reported, R1,000 live). Now `AND ci.deleted_at IS NULL` / `AND si.deleted_at IS NULL` in each query; only R1,000 is reported. The `OR deleted_at > NOW()` form the AR customer ledger uses was deliberately not copied — `deleted_at` is only ever set to `NOW()`.
+
+**Files.** `arAgingService.ts` (getARAging, getARAgingDetail) · `apAgingService.ts` (getAPAging, getAPAgingDetail) · `pages/api/accounting/reports-supplier-ledger.ts` (invoice leg; the supplier-name lookup already filtered).
+
+**Tests.** `tests/integration/k053-aging-includes-soft-deleted.int.test.ts` (2, validator's RED) + `tests/integration/k053-aging-soft-delete-adjacent.int.test.ts` (4: AR detail, AP detail, supplier ledger through the real route, second-company no-leak). 6 passed on fixture Postgres. Mutation check: reverting the three files takes 5 of 6 RED. Full unit suite 9,434 passed / 234 skipped; tsc and eslint clean. See `green.log`.
+
+**Migration / rollback.** None. Rollback = revert the commit; nothing is written.
+
+**Historical impact.** Every soft-deleted open document has been aged, chased and stated since deletion, and `purgeExpiredDeletes` (`softDeleteService.ts:256`) has no caller in `src/` or `pages/`, so those rows are permanent and may be years old. This filter REMOVES money from aging totals, which will not tie to published reports. Quantify first — read-only, NOT run here, run on a copy or by a DBA:
+
+```sql
+SELECT 'ar' AS side, company_id, count(*), sum(total_amount - COALESCE(amount_paid,0)) AS balance
+FROM customer_invoices
+WHERE deleted_at IS NOT NULL AND status NOT IN ('draft','cancelled')
+  AND (total_amount - COALESCE(amount_paid,0)) > 0
+GROUP BY company_id
+UNION ALL
+SELECT 'ap', company_id, count(*), sum(total_amount - COALESCE(amount_paid,0))
+FROM supplier_invoices
+WHERE deleted_at IS NOT NULL AND status NOT IN ('draft','cancelled')
+  AND (total_amount - COALESCE(amount_paid,0)) > 0
+GROUP BY company_id;
+```
+
+**Limits.** The purge gap is NOT wired here (out of scope per task): the advertised 5-minute undo window never expires, so a mistaken soft-delete now hides a genuine receivable the UI cannot recover. Needs its own change, or the UI should stop calling it a 5-minute window. The supplier-ledger payment leg is unchanged.
