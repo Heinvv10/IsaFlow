@@ -1,3 +1,4 @@
+import { settleControlTransaction } from '@/modules/accounting/services/controls/transactionObservers';
 import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
 /**
  * Shared Bearer-token request pipeline (PRD-10 / MCP).
@@ -11,7 +12,6 @@ import { getCompanyMembership, type CompanyMembershipRow } from './companyMember
 import type { NextApiRequest, NextApiResponse } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
-// Register DATE parsing independently of neon import order.
 import '@/lib/pgTypes';
 import { ControlIntegrityError, withControlRequest } from '@/modules/accounting/services/controls/context';
 import { log } from '@/lib/logger';
@@ -131,17 +131,14 @@ export async function runBearerRequest(
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
-    // RLS reads both user and company from the synthetic authenticated claims.
     const claims = { sub: ctx.userId, role: 'authenticated', company_id: ctx.companyId };
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
     await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [ctx.companyId]);
 
-    // Missing profile and inactive membership remain distinct refusal reasons.
     let membership: { rows: CompanyMembershipRow[] };
     try {
       membership = await getCompanyMembership(client, ctx.userId, ctx.companyId);
     } catch (err) {
-      // Only malformed UUID means forbidden; infrastructure failures must propagate.
       const code = (err as { code?: string } | null)?.code;
       if (code === PG_INVALID_TEXT_REPRESENTATION) {
         await client.query('ROLLBACK');
@@ -192,8 +189,6 @@ export async function runBearerRequest(
       authedReq.oauthAppId = ctx.oauthAppId;
     }
 
-    // Mirror withAuth's per-company rate limit so Bearer-authed reports calls
-    // don't bypass the limiter that protects the pool from full-GL aggregations.
     const path = req.url?.split('?')[0] ?? '';
     const bucket = AUTO_RATE_LIMIT.find((b) => path.startsWith(b.prefix));
     if (bucket) {
@@ -258,6 +253,7 @@ export async function runBearerRequest(
     const handlerFailed = res.statusCode >= 500;
     try {
       await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
+        await settleControlTransaction(client, handlerFailed ? 'rolled_back' : 'committed');
     } catch (finalizeErr) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       log.error('bearerPipeline: transaction finalize failed after handler responded', {
@@ -290,6 +286,7 @@ export async function runBearerRequest(
     try { await client.query('ROLLBACK'); } catch { /* secondary */ }
     throw err;
   } finally {
+    await settleControlTransaction(client, 'unknown');
     client.release();
     const ms = Date.now() - startedAt;
     if (ms > 100) log.info('bearerPipeline slow request', { ms, url: req.url }, 'Auth');

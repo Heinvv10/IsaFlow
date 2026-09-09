@@ -1,0 +1,10 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+{"level":"error","message":"Control transaction observer failed; durable attempt requires reconciliation","timestamp":"2026-09-09T07:42:26.868Z","component":"controls","data":{"outcome":"committed"}}
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  09:42:26
+   Duration  507ms (transform 69ms, setup 0ms, import 96ms, tests 10ms, environment 0ms)
+

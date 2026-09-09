@@ -242,4 +242,17 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(currentClient.release).toHaveBeenCalledTimes(1);
   });
 
+  it.each([200,500])('notifies transaction observers after database finalization for status%s', async status => {
+    const events:string[]=[];currentClient=makeClient({events});const {res}=makeRes(events);
+    const {withAuth}=await import('@/lib/auth/withAuth');
+    const {observeControlTransaction}=await import('@/modules/accounting/services/controls/transactionObservers');
+    await withAuth(async (_req:unknown,r:NextApiResponse)=>{
+      observeControlTransaction(outcome=>{events.push(`OBSERVED_${outcome}`);});
+      r.status(status).json({success:status===200});
+    })(mkReq(await makeToken('user-1'),COMPANY_ID),res);
+    const verb=status===200?'COMMIT':'ROLLBACK',outcome=status===200?'committed':'rolled_back';
+    expect(events.indexOf(`OBSERVED_${outcome}`)).toBeGreaterThan(events.indexOf(verb));
+    expect(events.indexOf(`OBSERVED_${outcome}`)).toBeLessThan(events.indexOf('FLUSH'));
+  });
+
 });
