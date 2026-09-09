@@ -1,3 +1,4 @@
+import {seedBankAllocationSupplier} from './bankAllocationSupplierFixture';
 import {expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {actor,customer,fixture,pool,postedCash} from './cashApplicationFixture';
@@ -42,7 +43,6 @@ it('advances receipt postedThrough when approved unapplication changes retained 
  expect(new Date(after.postedThrough).getTime()).toBeGreaterThan(new Date(before.postedThrough).getTime());
 });
 it('retains supplier cash at earlier cutoffs after its actual approved bank-parent inverse',async()=>{
- const {seedBankAllocationSupplier}=await import('./bankAllocationSupplierFixture');
  const {prepareBankAllocation,executeBankAllocation}=await import('@/modules/accounting/services/bank/bankAllocationControl');
  const {prepareBankAllocationReversal,executeBankAllocationReversal}=await import('@/modules/accounting/services/bank/bankAllocationReversal');
  const {getUnappliedPayments}=await import('@/modules/accounting/services/ap/unappliedPaymentService');
