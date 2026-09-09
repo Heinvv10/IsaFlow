@@ -152,3 +152,121 @@ it('refuses to post a reclass whose date resolves no fiscal period (L6)', async 
   expect(rows[0].orphans).toBe(0);
   expect(rows[0].locks).toBe(2);
 });
+
+/**
+ * Round-3 M4. `assertClosesInOrder` is a read-then-act check: the later-lock
+ * read and the `loan_period_locks` INSERT that would satisfy it sit either side
+ * of every journal post, and the table's PK only stops the SAME month twice.
+ * Two concurrent closes of adjacent months therefore both read an empty
+ * later-lock set and both post their FULL current portion off a prior of 0.
+ * The advisory lock serialises them, so whichever order they land in, the
+ * current-portion account holds ONE month's figure — never the sum.
+ */
+it('serialises two concurrent closes of adjacent months (M4)', async () => {
+  const co = randomUUID();
+  const ln = randomUUID();
+  const run = randomUUID();
+  const acct: Record<string, string> = {};
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [co, 'K081 M4']);
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')",
+    [co, user]);
+  await pool.query(
+    `INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+     VALUES($1,'K081 M4 FY',1,2026,'2026-01-01','2026-12-31','open')`, [co]);
+  for (const [code, type, subtype, normal] of [
+    ['2400', 'liability', 'long_term_liability', 'credit'],
+    ['2410', 'liability', 'payable', 'credit'],
+    ['8100', 'expense', 'default_expense', 'debit'],
+    ['2420', 'liability', 'payable', 'credit'],
+    ['1010', 'asset', 'bank', 'debit'],
+  ] as const) {
+    const { rows } = await pool.query(
+      `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,account_subtype,
+         normal_balance,is_active) VALUES($1,$2,$2,$3,$4,$5,true) RETURNING id`,
+      [co, code, type, subtype, normal]);
+    acct[code] = rows[0].id as string;
+  }
+  await pool.query(
+    `INSERT INTO loans(id,company_id,reference,principal,start_date,term_months,rate_mode,fixed_rate,
+       gl_account_id,interest_expense_account_id,interest_payable_account_id,bank_account_id,
+       current_portion_account_id,status)
+     VALUES($1,$2,'K081-M4',100000,'2026-02-28',12,'FIXED',12,$3,$4,$5,$6,$7,'active')`,
+    [ln, co, acct['2400'], acct['8100'], acct['2420'], acct['1010'], acct['2410']]);
+  await pool.query(
+    `INSERT INTO loan_schedule_runs(id,loan_id,company_id,engine_version,inputs_hash)
+     VALUES($1,$2,$3,'test','k081m4')`, [run, ln, co]);
+  for (const m of MONTHS.slice(0, 2)) {
+    await pool.query(
+      `INSERT INTO loan_schedule_rows(run_id,period,date,opening,rate,installment,interest,principal,
+         lump,skip_flag,payment,closing,st_liability,extrapolated,nca_flagged)
+       VALUES($1,$2,$3,100000,12,8884.88,1000,7884.88,0,false,8884.88,$4,$5,false,false)`,
+      [run, m.period, m.date, m.closing, m.st]);
+  }
+
+  async function closeFor(yyyymm: string) {
+    const c: PoolClient = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const out = await als.run(
+        { client: c, userId: user, companyId: co, claims: {} } as never,
+        () => closeLoanPeriod(co, yyyymm, user));
+      await c.query('COMMIT');
+      return out;
+    } catch (err) {
+      await c.query('ROLLBACK');
+      throw err;
+    } finally { c.release(); }
+  }
+
+  async function cpBalance(): Promise<number> {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(SUM(l.credit - l.debit),0)::float8 AS net
+         FROM gl_journal_lines l JOIN gl_journal_entries e ON e.id = l.journal_entry_id
+        WHERE l.company_id=$1 AND l.gl_account_id=$2 AND e.status='posted'`, [co, acct['2410']]);
+    return rows[0].net as number;
+  }
+
+  try {
+    // A peer close of this company is represented by a second client holding
+    // the same advisory lock. The close must WAIT for it — not read the
+    // later-lock set and carry on, which is what made the guard bypassable.
+    const holder: PoolClient = await pool.connect();
+    await holder.query('BEGIN');
+    await holder.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1::text || ':loan_period_close'))", [co]);
+
+    let settled = false;
+    const pending = closeFor(MONTHS[0]!.yyyymm)
+      .then((r) => { settled = true; return r; }, (e) => { settled = true; throw e; });
+
+    await new Promise((r) => setTimeout(r, 750));
+    expect(settled).toBe(false);
+    expect(await cpBalance()).toBeCloseTo(0, 2);
+
+    await holder.query('COMMIT');
+    holder.release();
+    await pending;
+    expect(settled).toBe(true);
+    expect(await cpBalance()).toBeCloseTo(MONTHS[0]!.st, 2);
+
+    // And the next month still posts the movement only, never the sum.
+    await closeFor(MONTHS[1]!.yyyymm);
+    expect(await cpBalance()).toBeCloseTo(MONTHS[1]!.st, 2);
+    expect(await cpBalance()).not.toBeCloseTo(MONTHS[0]!.st + MONTHS[1]!.st, 2);
+  } finally {
+    await pool.query('DELETE FROM loan_reclass_postings WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM loan_period_locks WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM loan_schedule_rows WHERE run_id=$1', [run]);
+    await pool.query('DELETE FROM loan_schedule_runs WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM loans WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [co]);
+    await pool.query(
+      'DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id=$1)',
+      [co]);
+    await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM company_users WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [co]);
+  }
+}, 30_000);

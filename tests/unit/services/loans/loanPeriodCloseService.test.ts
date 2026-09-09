@@ -154,6 +154,7 @@ describe('closeLoanPeriod', () => {
   it('processes each active loan: posts reclass, then locks period', async () => {
     sqlMock
       .mockResolvedValueOnce([])                                // 1. isPeriodLocked
+      .mockResolvedValueOnce([])                                // advisory lock on the company's closes
       .mockResolvedValueOnce([])                                // 1b. no later period closed
       .mockResolvedValueOnce([{                                  // 2. JOINed loans + snapshot
         ...makeLoanRow(),
@@ -176,6 +177,7 @@ describe('closeLoanPeriod', () => {
   it('completes even when no active loans exist', async () => {
     sqlMock
       .mockResolvedValueOnce([])                               // isPeriodLocked
+      .mockResolvedValueOnce([])                               // advisory lock on the company's closes
       .mockResolvedValueOnce([])                               // no later period closed
       .mockResolvedValueOnce([])                               // no active loans (JOINed query)
       .mockResolvedValueOnce([{                                 // lock insert
@@ -228,6 +230,7 @@ describe('closeLoanPeriod', () => {
     const createMock = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
     sqlMock
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])                                 // advisory lock on the company's closes
       .mockResolvedValueOnce([])                                 // no later period closed
       .mockResolvedValueOnce([{
         ...makeLoanRow(),
@@ -248,6 +251,7 @@ describe('closeLoanPeriod', () => {
   it('skips loans missing required GL accounts and records them in result', async () => {
     sqlMock
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])                                 // advisory lock on the company's closes
       .mockResolvedValueOnce([])                                 // no later period closed
       .mockResolvedValueOnce([{                                  // loan with NULL gl_account_id
         ...makeLoanRow({ gl_account_id: null }),

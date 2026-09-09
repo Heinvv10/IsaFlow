@@ -164,6 +164,18 @@ async function main(): Promise<void> {
   });
 
   const client = await pool.connect();
+  // Migrations report per-tenant refusals and reconstructed row counts with
+  // RAISE WARNING / RAISE NOTICE. node-postgres DISCARDS both unless a `notice`
+  // listener is registered, so without this the operator running a deploy sees
+  // nothing at all — only RAISE EXCEPTION surfaces, because errors travel as
+  // errors. Printing them is the whole reason a migration is allowed to refuse
+  // a row instead of guessing at it.
+  client.on('notice', (n) => {
+    const severity = n.severity ?? 'NOTICE';
+    for (const line of String(n.message ?? '').split('\n')) {
+      console.log(`  [${severity}] ${line}`);
+    }
+  });
   try {
     // Bootstrap: ensure tracking table exists with canonical schema even if
     // migration 332 hasn't run yet. Also upgrades pre-existing tables that

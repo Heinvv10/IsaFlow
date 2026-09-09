@@ -48,7 +48,7 @@ both suites.
 the earlier month. The recorded figure cannot move. Covered by a real-DB test that inserts a newer
 run over an already-closed month.
 
-**L1 — fixed.** `loanPeriodCloseService.ts` is 278 lines (was 312).
+**L1 — fixed.** `loanPeriodCloseService.ts` is 282 lines (was 312).
 `loanComplianceService.ts` 299 (was 359) and `loanService.ts` 265 (was 386) via
 `loanArrearsService.ts`, `loanValidation.ts` and `loanTypes.ts`. Every file in the module is now
 under 300.
@@ -73,9 +73,10 @@ line on the loan's CURRENT `current_portion_account_id`. Neither is unique — `
 unique constraint, one current-portion account serves every loan — so two loans sharing a reference
 each absorbed the other's journals and `closeLoanPeriod` posted a fabricated movement off the wrong
 prior. 659 extracts the key OUT of the description and resolves it against the company's loans;
-`n_loans <> 1` is REFUSED, never guessed, and named in a `RAISE WARNING` for a human. A refused loan
-gets no row, so its next close reclassifies the full current portion — an overstatement an operator
-can see, not a movement nobody can trace. 645 is untouched: both migrations ship in this unmerged
+`n_loans <> 1` is REFUSED, never guessed, and recorded in `loan_reclass_backfill_refusals` (round 3
+corrected this: the round-2 claim that a `RAISE WARNING` reached a human was FALSE — see round-3 H1
+below). A refused loan gets no row, so its next close reclassifies the full current portion — an
+overstatement an operator can see, not a movement nobody can trace. 645 is untouched: both migrations ship in this unmerged
 branch, and 659 rebuilds every row 645 wrote.
 
 **M2 — fixed.** `assertClosesInOrder` (`loanPostingGuards.ts`) refuses a close when any
@@ -95,6 +96,8 @@ cross-tenant independence of the same reference, a second run, and the tenant-na
 
 **M5 — fixed.** `lockLoanForUpdate` issues `SET LOCAL lock_timeout = '5s'` before the `FOR UPDATE`
 and maps `55P03` to `LoanPostLockTimeoutError`, per `bankTxLock.ts`. Proven with two pool clients.
+(Round 3 L3: it now THROWS when there is no request transaction rather than running unbounded, so
+the bound is unconditional and the round-2 wording no longer needs its "inside a request" caveat.)
 
 **L1 — fixed.** `company_id` added to the `loan_schedule_runs` lateral in `closeLoanPeriod` and to
 the latest-run reads in `loanGlPostingService` and `loanComplianceService`.
@@ -122,37 +125,123 @@ does not change the answer.
 throw rolls the request back, so nothing posts and no lock is written. Covered by a real-DB test
 closing a 2032 period.
 
-**Migration.** 659 (657 was reassigned to another branch), applied to the fixture. No DDL — it
+**Migration.** 659 (657 was reassigned to another branch), applied to the fixture through the real
+runner. It adds `loan_reclass_postings.source` and the `loan_reclass_backfill_refusals` table, then
 rebuilds `loan_reclass_postings` from posted reclass journals, per company, and is a no-op on an
-unchanged ledger. It aborts, naming the tenant, if a `loan_period_locks` row exists at or after that
-company's earliest `loan_reclass_postings` row (the application has written there since the
-backfill). Rollback: none needed; re-running reproduces the same rows.
+unchanged ledger. The round-2 per-tenant abort is GONE (round-3 M1/M5): the rebuild deletes only
+`source = 'backfill'`, so a row the application wrote is never at risk and the migration can always
+be re-run. Rollback: none needed; re-running reproduces the same rows.
 
 **Deploy note (unchanged).** The first close after deploy posts one correcting movement per loan, and
 re-running compliance moves loans into stages 2/3.
 
+## Review round 3 dispositions (blind review of 4ceaf1aca)
+
+**H1 — fixed.** 659's entire safety argument was that an ambiguous loan key is refused and *named in
+a WARNING for a human*. `scripts/apply-migrations.ts` calls `client.query(file.content)` on a
+`pg.PoolClient` and registered no `notice` listener, so node-postgres discarded every NOTICE and
+WARNING; `scripts/deploy.sh:146` runs exactly that path, so on a real deploy the operator saw
+neither the refused loans nor the row count. Two changes: (1) the runner now registers
+`client.on('notice', …)` and prints `[SEVERITY] message` — general, and it surfaces every other
+migration's notices too; (2) 659 records each refusal as a row in `loan_reclass_backfill_refusals`
+(company_id, journal_entry_id, loan_key, yyyymm, description, reason), rebuilt per tenant on every
+run, because deploy console output scrolls past. Proved end to end, not by unit test: an ambiguous
+loan and an unparseable description were seeded in the fixture and migration 659 applied through
+`bun scripts/apply-migrations.ts` itself — operator-visible output was
+
+```
+applying 659_loan_reclass_postings_backfill_rebuild.sql ...
+  [WARNING] loan_reclass_postings backfill refused to reconstruct these loans; …
+  [WARNING] company_id=1111…e2 loan_key=LN-AMB reason=reference is shared by 2 loans
+  [WARNING] company_id=1111…e2 loan_key=(unparsed) reason=description does not parse into a loan key and period
+  [NOTICE] loan_reclass_postings rebuilt: 0 row(s) reconstructed from posted reclass journals
+```
+
+The same file run through `origin/master`'s copy of the runner printed only `ok (12ms)`.
+
+**M1 — fixed.** The round-2 per-tenant guard made the documented "re-run 659 for that tenant"
+recovery impossible: the first close after deploy writes a lock and a `loan_reclass_postings` row in
+one transaction, so `locked_at >= MIN(created_at)` held forever after. `loan_reclass_postings.source`
+replaces the heuristic — the rebuild deletes only its own `'backfill'` rows, so an application row is
+never at risk and the guard is unnecessary. `recordReclass` writes `source = 'app'`.
+
+**M2 — fixed.** The round-2 detection query reported loans that were reconstructed *correctly*: 659
+stores one `journal_entry_id` per `(loan_id, yyyymm)`, so the second journal of a month looked
+refused. Detection is now the refusals table itself, which is written from the same temp table the
+INSERT reads, and therefore cannot disagree with it. The query is below.
+
+**M3 — fixed.** Candidates are selected on the loose `description LIKE 'Reclassification%loan%'` and
+anything the strict parse rejects is refused with `reason = 'description does not parse into a loan
+key and period'` instead of being dropped with neither a row nor a warning. The length bound is now
+`>= 35`, so a loan whose `reference` is `''` (description exactly 35 characters) reconstructs
+correctly — round 2 was a regression against 645 for that loan.
+
+**M4 — fixed.** `assertClosesInOrder` was a read-then-act check with nothing serialising it: the
+later-lock read and the `loan_period_locks` INSERT sit either side of every journal post, and the PK
+`(company_id, yyyymm)` only stops the same month twice, so two concurrent closes of adjacent months
+both read an empty later-lock set and both posted their full current portion. It now takes
+`pg_advisory_xact_lock(hashtext(company_id || ':loan_period_close'))` first, held to COMMIT.
+
+**M5 — fixed** by the same change as M1. A close that reclassified nothing still wrote a lock and no
+posting row, which tripped the round-2 guard, and because `RAISE EXCEPTION` aborts the whole `DO`
+block it abandoned every OTHER tenant's rebuild and failed the deploy.
+
+**L1 — fixed.** `loanComplianceService.ts` was 301 lines; the inlined `notes` local brings it to 299.
+`loanPeriodCloseService.ts` is 282, and the round-2 claim of 278 is corrected above.
+
+**L2 — fixed.** `SET LOCAL lock_timeout = DEFAULT` after the `FOR UPDATE` returns, on the success
+path only — an error above has already aborted the transaction and a reset there would raise 25P02
+over the real cause.
+
+**L3 — fixed.** `lockLoanForUpdate` throws when `als.getStore()?.client` is absent instead of
+running the `FOR UPDATE` unbounded on a pooled connection. Both callers are `withAuth` routes; the
+unit tests wrap the call in `als.run`.
+
+**L4 — fixed.** 659 refuses at the top of the rebuild unless the connected role is superuser or
+`BYPASSRLS`. `loan_reclass_postings` FORCEs row level security and its only policy is `TO app_user`,
+which binds the table owner too, so a lesser role would have matched zero rows in silence.
+
+**L5 — resolved, not a risk.** `schema_migrations` on `isaflow_dev` holds no `64x`/`65x` row at all
+(`SELECT name FROM schema_migrations WHERE name LIKE '64%' OR name LIKE '65%'` → 0 rows), and
+production is behind this branch, so neither 645 nor 659 has been applied anywhere but the
+disposable fixture. No checksum conflict is possible on deploy.
+
+**L6 — no longer reachable.** The guard that read `loan_period_locks.locked_at` is gone (M1/M5), so
+a NULL `locked_at` can no longer hide a row from it.
+
+**Round-3 files.** `scripts/apply-migrations.ts` (notice listener only — no change to ordering,
+transaction handling or error behaviour), `scripts/migrations/sql/659_…sql`, `loanPostingGuards.ts`,
+`loanReclassService.ts`, `loanComplianceService.ts`, `.claude.md` + `AGENTS.md`.
+
+**Round-3 tests.** `tests/integration/k081-loan-reclass-backfill.int.test.ts` — 11 passed (was 8;
+the tenant-abort case is replaced by "an application row survives a rebuild", plus the durable
+refusal record, the unparseable description and the empty reference). Now runs the WHOLE migration
+file, not a slice of it. `tests/integration/k081-loan-close-ordering.int.test.ts` — 4 passed (M4).
+All k081/k082/k083 integration files: 35 passed. Full unit suite with the fixture env unset: 9469
+passed / 234 skipped. `tsc --noEmit` clean; `eslint` clean on the changed `src` files.
+
+**Round-3 mutation proof.** Notice listener removed (ran the same migration through
+`origin/master`'s runner): the refusals vanish from the operator's output entirely. Advisory lock
+removed: `serialises two concurrent closes of adjacent months (M4)` red 3/3, green 3/3 restored.
+`AND source = 'backfill'` dropped from the DELETE: the M1/M5 case red. Loose candidate filter
+reverted to the round-2 strict one: the M3 and empty-reference cases red. Refusal INSERT removed:
+the H1 durable-record case red.
+
 **Refused-group detection, to run AFTER 659 (read-only, NOT run against production):**
 
 ```sql
-SELECT e.company_id, e.description
-  FROM gl_journal_entries e
- WHERE e.description LIKE 'Reclassification – loan % for %'
-   AND e.status = 'posted' AND e.reversed_at IS NULL
-   AND NOT EXISTS (SELECT 1 FROM loan_reclass_postings r
-                    WHERE r.company_id = e.company_id AND r.journal_entry_id = e.id)
- ORDER BY 1, 2;
+SELECT company_id, loan_key, yyyymm, description, reason
+  FROM loan_reclass_backfill_refusals
+ ORDER BY company_id, yyyymm, loan_key;
 ```
 
-Every row is a loan 659 refused — a duplicate/absent reference, or a re-pointed current-portion
-account. Resolve the reference or the account mapping, then re-run 659 for that tenant.
+Every row is a reclass journal 659 declined to reconstruct: a duplicate or absent reference, a
+re-pointed current-portion account, or a description it could not parse. Resolve the reference, the
+account mapping or the description, then re-run 659 — which is now always possible, for any tenant,
+at any time. Until then that loan's next close reclassifies its full current portion: the trial
+balance still balances (both legs are liabilities) but the current / non-current split is overstated
+by that amount, which is an AFS misstatement rather than an out-of-balance ledger.
 
-**Limits (round 1, superseded above).** A loan whose `reference` was renamed after a close will not match the backfill's
-narrative join and gets no row for that month; its next close then reclassifies from the last month
-that did match. Find them with:
-
-```sql
-SELECT e.company_id, e.description FROM gl_journal_entries e
- WHERE e.description LIKE 'Reclassification – loan % for %'
-   AND NOT EXISTS (SELECT 1 FROM loan_reclass_postings r
-                    WHERE r.company_id = e.company_id AND r.journal_entry_id = e.id);
-```
+**Historical-data impact (round 3).** Unchanged in direction. `loan_reclass_postings` and
+`loan_reclass_backfill_refusals` do not exist in production yet, so nothing existing is rewritten;
+659 populates both on the deploy that first applies 645.

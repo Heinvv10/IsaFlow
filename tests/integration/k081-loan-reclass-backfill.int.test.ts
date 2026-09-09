@@ -24,16 +24,11 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const user = randomUUID();
 
-/** The migration's own `DO` block — never a copy that can drift from it. */
-const BACKFILL = (() => {
-  const sql = readFileSync(
-    join(process.cwd(), 'scripts/migrations/sql/659_loan_reclass_postings_backfill_rebuild.sql'),
-    'utf8',
-  );
-  const start = sql.indexOf('DO $$');
-  if (start < 0) throw new Error('migration 659 no longer contains a DO block');
-  return sql.slice(start);
-})();
+/** The whole migration file — never a copy that can drift from it. */
+const BACKFILL = readFileSync(
+  join(process.cwd(), 'scripts/migrations/sql/659_loan_reclass_postings_backfill_rebuild.sql'),
+  'utf8',
+);
 
 interface Ctx {
   company: string;
@@ -105,6 +100,14 @@ async function recorded(c: PoolClient, company: string) {
     `SELECT loan_id, yyyymm, st_liability::float8 AS st FROM loan_reclass_postings
       WHERE company_id=$1 ORDER BY loan_id, yyyymm`, [company]);
   return rows as { loan_id: string; yyyymm: string; st: number }[];
+}
+
+/** Round-3 H1/M2: what the rebuild refused, durably, not only as a WARNING. */
+async function refusals(c: PoolClient, company: string) {
+  const { rows } = await c.query(
+    `SELECT loan_key, yyyymm, reason FROM loan_reclass_backfill_refusals
+      WHERE company_id=$1 ORDER BY reason, loan_key`, [company]);
+  return rows as { loan_key: string | null; yyyymm: string | null; reason: string }[];
 }
 
 /** Run `fn` against a rolled-back transaction, so the fixture keeps no rows. */
@@ -258,18 +261,101 @@ it('is idempotent: a second run reproduces the same rows', async () => {
   });
 });
 
-it('aborts, naming the tenant, once a close has written to the table', async () => {
+it('leaves a row the application wrote alone, and re-runs after a close (M1/M5)', async () => {
   await inRollback(async (c) => {
     const ctx = await seedCompany(c, 'GUARD');
     const loan = await seedLoan(c, ctx, 'LN-GUARD');
     await seedReclassJournal(c, ctx, 'LN-GUARD', '202602', 100_000);
+
+    // A close has run since the backfill: it wrote both a lock and a row.
+    // Round 2 aborted the WHOLE migration here, which made the documented
+    // "re-run 659 for that tenant" recovery impossible and abandoned every
+    // other tenant's rebuild as well.
     await c.query(
-      `INSERT INTO loan_reclass_postings(company_id,loan_id,yyyymm,st_liability,created_at)
-       VALUES($1,$2,'202602',100000,now() - interval '1 hour')`, [ctx.company, loan]);
+      `INSERT INTO loan_reclass_postings(company_id,loan_id,yyyymm,st_liability,source)
+       VALUES($1,$2,'202603',88888,'app')`, [ctx.company, loan]);
     await c.query(
       `INSERT INTO loan_period_locks(company_id,yyyymm,locked_at,locked_by)
-       VALUES($1,'202602',now(),$2)`, [ctx.company, user]);
+       VALUES($1,'202603',now(),$2)`, [ctx.company, user]);
 
-    await expect(c.query(BACKFILL)).rejects.toThrow(new RegExp(ctx.company));
+    await c.query(BACKFILL);
+
+    // The reconstructed month is rebuilt; the application's own row survives
+    // untouched at the figure IT recorded, not at anything reconstructed.
+    expect(await recorded(c, ctx.company)).toEqual([
+      { loan_id: loan, yyyymm: '202602', st: 100_000 },
+      { loan_id: loan, yyyymm: '202603', st: 88_888 },
+    ]);
+    const { rows } = await c.query(
+      `SELECT yyyymm, source FROM loan_reclass_postings WHERE company_id=$1 ORDER BY yyyymm`,
+      [ctx.company]);
+    expect(rows).toEqual([
+      { yyyymm: '202602', source: 'backfill' },
+      { yyyymm: '202603', source: 'app' },
+    ]);
+  });
+});
+
+it('records every refusal in a table, not only in a WARNING the runner drops (H1)', async () => {
+  await inRollback(async (c) => {
+    const ctx = await seedCompany(c, 'DURABLE');
+    await seedLoan(c, ctx, 'LN-DUP');
+    await seedLoan(c, ctx, 'LN-DUP');
+    await seedReclassJournal(c, ctx, 'LN-DUP', '202602', 100_000);
+    await seedReclassJournal(c, ctx, 'LN-GONE', '202602', 40_000);
+
+    await c.query(BACKFILL);
+
+    expect(await recorded(c, ctx.company)).toEqual([]);
+    expect(await refusals(c, ctx.company)).toEqual([
+      { loan_key: 'LN-GONE', yyyymm: '202602', reason: 'no loan carries this reference' },
+      { loan_key: 'LN-DUP', yyyymm: '202602', reason: 'reference is shared by 2 loans' },
+    ]);
+  });
+});
+
+it('names a description it cannot parse instead of dropping it silently (M3)', async () => {
+  await inRollback(async (c) => {
+    const ctx = await seedCompany(c, 'PARSE');
+    await seedLoan(c, ctx, 'LN-HYPH');
+    const id = randomUUID();
+    // A hyphen where closeLoanPeriod writes an en dash, and a description a
+    // user appended to. Round 2 gave each no row AND no warning — the loan
+    // then reclassified its full current portion invisibly.
+    for (const [entry, description] of [
+      [id, 'Reclassification - loan LN-HYPH for 202602'],
+      [randomUUID(), 'Reclassification – loan LN-HYPH for 202602 (corrected)'],
+    ] as const) {
+      await c.query(
+        `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,status,
+           source,created_by) VALUES($1,$2,$3,'2026-02-28',$4,'posted','manual',$5)`,
+        [entry, ctx.company, `JE-${String(entry).slice(0, 8)}`, description, user]);
+    }
+
+    await c.query(BACKFILL);
+
+    expect(await recorded(c, ctx.company)).toEqual([]);
+    expect(await refusals(c, ctx.company)).toEqual([
+      { loan_key: null, yyyymm: null,
+        reason: 'description does not parse into a loan key and period' },
+      { loan_key: null, yyyymm: null,
+        reason: 'description does not parse into a loan key and period' },
+    ]);
+  });
+});
+
+it('reconstructs a loan whose reference is the empty string (M3 regression)', async () => {
+  await inRollback(async (c) => {
+    const ctx = await seedCompany(c, 'EMPTY');
+    const loan = await seedLoan(c, ctx, '');
+    // 'Reclassification – loan  for 202602' is exactly 35 characters; round 2
+    // required > 35 and dropped it, silently, where 645 had matched it.
+    await seedReclassJournal(c, ctx, '', '202602', 61_000);
+
+    await c.query(BACKFILL);
+
+    expect(await recorded(c, ctx.company))
+      .toEqual([{ loan_id: loan, yyyymm: '202602', st: 61_000 }]);
+    expect(await refusals(c, ctx.company)).toEqual([]);
   });
 });

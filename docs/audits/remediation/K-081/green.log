@@ -73,3 +73,57 @@ Mutation proof:
   * SET LOCAL lock_timeout removed from lockLoanForUpdate -> the lock test and
     the following one hang to the 30s vitest timeout instead of failing fast
     (2 RED). Restored.
+
+── Round 4 (fixing the round-3 blind review of 4ceaf1aca) ──────────────────
+
+H1 end-to-end, through the REAL runner (not a unit test):
+  fixture seeded with company 1111…e2 — two loans both reference='LN-AMB' plus
+  a posted reclass journal, and a second journal whose description uses a
+  hyphen instead of the en dash.
+  $ cd <scratch>/e2e && DATABASE_URL=<fixture> bun <worktree>/scripts/apply-migrations.ts
+    applying 659_loan_reclass_postings_backfill_rebuild.sql ...
+      [NOTICE] policy "tenant_isolation" for relation "loan_reclass_backfill_refusals" does not exist, skipping
+      [WARNING] loan_reclass_postings backfill refused to reconstruct these loans; their next close
+                reclassifies the full current portion, so correct them by hand and re-run this
+                migration (…). Every refusal is also a row in loan_reclass_backfill_refusals:
+      [WARNING] company_id=11111111-1111-1111-1111-1111111111e2 loan_key=LN-AMB reason=reference is shared by 2 loans
+      [WARNING] company_id=11111111-1111-1111-1111-1111111111e2 loan_key=(unparsed) reason=description does not parse into a loan key and period
+      [NOTICE] loan_reclass_postings rebuilt: 0 row(s) reconstructed from posted reclass journals
+      [NOTICE] refusals recorded: SELECT * FROM loan_reclass_backfill_refusals ORDER BY company_id, yyyymm;
+      ok (58ms)
+    Applied 1 migrations
+  MUTATION — same migration, same DB, `git show origin/master:scripts/apply-migrations.ts`:
+    applying 659_loan_reclass_postings_backfill_rebuild.sql ...
+      ok (12ms)
+    Applied 1 migrations
+  Nothing. The refusals were invisible on a real deploy; that is the defect.
+  Durable record survives regardless:
+    loan_key | yyyymm |                 reason
+    LN-AMB   | 202602 | reference is shared by 2 loans
+             |        | description does not parse into a loan key and period
+
+Integration (fixture DB):
+  k081-loan-reclass-backfill.int.test.ts        11 passed  (was 8)
+  k081-loan-close-ordering.int.test.ts           4 passed  (was 3)
+  k081-loan-reclass-movement.int.test.ts         7 passed
+  k082-loan-arrears-staging.int.test.ts          6 passed
+  k083-loan-period-journal-idempotency.int.test  4 passed
+  k083-loan-post-lock-timeout.int.test.ts        3 passed
+                                          total 35 passed
+
+Unit, loans module: 10 files / 134 passed.
+FULL unit suite, fixture env UNSET (env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files  796 passed | 36 skipped (832)
+       Tests  9469 passed | 234 skipped (9703)
+
+Mutation, round 4:
+  pg_advisory_xact_lock removed from assertClosesInOrder     → M4 case RED 3/3; restored GREEN 3/3
+  DELETE loses `AND source = 'backfill'`                     → M1/M5 case RED
+  candidate filter reverted to round-2 strict (> 35, parsed) → M3 + empty-reference cases RED
+  refusal INSERT commented out                               → H1 durable-record + M3 cases RED
+
+Gates: bunx tsc --noEmit clean. eslint clean on the changed src files
+(scripts/apply-migrations.ts is outside the eslint tsconfig project — pre-existing,
+same on origin/master). scripts/ci/check-migration-rls.ts OK (the new
+loan_reclass_backfill_refusals table is under RLS). scripts/audit-migration-naming.ts
+OK. scripts/ci/check-gl-journal-lines-scope.ts OK. bun run agent-docs:check OK.

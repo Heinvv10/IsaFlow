@@ -265,8 +265,6 @@ export async function assessLoan(
   const remainingSchedule = schedule.filter((r) => r.date > asOfDate);
   const ecl = computeEclAmount(stage, outstanding, remainingSchedule);
 
-  const notes = arrearsBasisNote(hasReceipts, dpd);
-
   const inserted = (await sql`
     INSERT INTO loan_compliance_assessments (
       company_id, loan_id, assessment_date,
@@ -277,7 +275,7 @@ export async function assessLoan(
       ${companyId}, ${loanId}, ${asOfDate},
       ${nca.flagged}, ${nca.firstBreachPeriod}, ${stage},
       ${dpd}, ${ecl.amount}, ${ecl.method},
-      ${outstanding}, ${userId}, ${notes}
+      ${outstanding}, ${userId}, ${arrearsBasisNote(hasReceipts, dpd)}
     )
     RETURNING *
   `) as Row[];
