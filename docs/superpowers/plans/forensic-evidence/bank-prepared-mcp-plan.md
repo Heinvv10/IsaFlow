@@ -1,0 +1,13 @@
+# Prepared bank operations through MCP
+
+Base: 1d1d33f45. Owner root; isolated feat/mcp-bank-prepared-tools-20260910. No migration.
+
+Confirmed gap: existing MCP bank allocation and reversal schemas cannot transport saved intent/approval references. Shared controls fail closed but the caller cannot complete the attended workflow. REST has complete preparation and execution dispatch, including canonical opposite-feed reversal, but it lives under lib/api and does not forward MCP posting provenance.
+
+Owned files: move bankControlActions implementation to services/bank/bankControlActionService.ts and bankControlActionSchema to services/bank/bankControlActionSchema.ts, retain API re-exports; add tools/bankPreparedOperations.ts and bankPreparedOperationSchema.ts; focused unit and actual HTTP tests. Root owns eventual registry/defaultTools/flow metering/discovery integration.
+
+Frozen interface: prepare_bank_operation accepts {instruction:<existing strict prepare_allocate/prepare_split_allocate/prepare_reverse body>,idempotency_key}; execute_bank_operation accepts {instruction:<strict allocate/split_allocate/reverse body with bankTransactionId,intent_id,approval_id>,idempotency_key}. Preparation never accepts execution, execution never accepts preparation or financial edits. Both current write:bank-tx and write:post; per-person idempotency and current authority before replay. Only authenticated context supplies company/person and posting actor. Original REST shape remains compatible. Preparation result carries operation ref for approval tools; opposite-feed reversal result carries canonical bankTransactionId for execution. No agent approval decision.
+
+Failing scenarios: missing transport; invalid/mixed actions, injected actor/company fields, approval absent, UUID/date/amount/page bounds, accessor side effects, current permission revocation before replay, wrong issued person/tenant; posted effect receives mcp actor stamp. Actual local MCP HTTP must prepare, request approval, refuse same-person second token, accept independent cookie approval, execute once, retry, canonical inverse and stale/foreign/revoked failures with no financial effects. Existing REST HTTP regression must remain green after moving coordinator.
+
+Sequence: focused tests RED, extract real shared coordinator and wire tool adapters, focused GREEN and source TS/lint; independent named review; actual PostgreSQL/HTTP under serialized lease; registry/discovery and current full contract/auth matrix; final integrated CI. Legacy bank tool compatibility and bulk approved-intent transport remain follow-up required work, not waived by the new tools.
