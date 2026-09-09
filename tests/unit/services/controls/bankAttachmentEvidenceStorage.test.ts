@@ -38,3 +38,7 @@ it('retains same-size changed bytes as a distinct capture without claiming recor
  expect(result).toMatchObject({status:'available',recordedHashVerified:false});
  if(result.status==='available')expect(result.sha256).not.toBe(createHash('sha256').update(bytes).digest('hex'));
 });
+
+it('bounds retained media metadata as well as decoded byte size',async()=>{
+ expect(await readBankAttachmentStorageEvidence({...input,fileUrl:`data:application/${'x'.repeat(300)};base64,${bytes.toString('base64')}`})).toMatchObject({status:'unavailable',reason:'attachment_encoding_invalid'});
+});
