@@ -7658,7 +7658,8 @@
       "currentSha": "6d42b2ac",
       "status": "confirmed",
       "dependencies": [
-        "Requires separate function capability correction and API regression; production impact remains unverified"
+        "Requires separate function capability correction and API regression; production impact remains unverified",
+        "Independent reviewer reported disposable database reproduction, but durable database output is missing; follow-up evidence capture was blocked by platform cybersecurity filtering. Guard-only probe preserved. Do not treat the database claim as independently replayable yet."
       ],
       "testNames": [],
       "evidencePaths": [

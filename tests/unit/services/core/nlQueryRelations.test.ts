@@ -7,6 +7,7 @@ describe('parsed NL query relation allowlist', () => {
     'SELECT * FROM customers, "webhook_endpoints"',
     'SELECT (SELECT secret FROM "webhook_endpoints") FROM customers',
     'SELECT * FROM private.customers',
+    'WITH webhook_endpoints AS (SELECT * FROM customers) SELECT * FROM public.webhook_endpoints',
     'SELECT * FROM "CUSTOMERS"',
     'WITH x AS (SELECT * FROM "webhook_endpoints") SELECT * FROM x',
     'SELECT * FROM "webhook_endpoints" WHERE EXISTS (WITH "webhook_endpoints" AS (SELECT * FROM customers) SELECT * FROM "webhook_endpoints")',
@@ -16,6 +17,7 @@ describe('parsed NL query relation allowlist', () => {
   it.each([
     'SELECT * FROM "customers"',
     'SELECT * FROM public.customers',
+    'WITH webhook_endpoints AS (SELECT * FROM customers) SELECT * FROM webhook_endpoints',
     'SELECT * FROM "public"."customers"',
     'WITH a AS (SELECT * FROM customers), b AS (SELECT * FROM a) SELECT * FROM b',
     'SELECT * FROM (SELECT * FROM customers) AS c',
