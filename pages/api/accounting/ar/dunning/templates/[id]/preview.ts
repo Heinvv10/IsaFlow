@@ -17,6 +17,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { renderTemplate } from '@/modules/accounting/services/ar/dunningService';
+import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
 
 const BodySchema = z.object({ invoiceId: UUID }).strict();
 
@@ -56,12 +57,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     }
     apiResponse.success(res, { preview: rendered });
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : '';
-    if (/not found/i.test(errMsg)) {
-      apiResponse.notFound(res, 'Template', templateId);
+    // Typed, not text-matched — see the note in ar/dunning/send.ts. The old
+    // catch-all turned every failure into a 400, which withAuth COMMITs.
+    if (err instanceof ArRequestError) {
+      if (err.code === 'DUNNING_TEMPLATE_NOT_FOUND') {
+        apiResponse.notFound(res, 'Template', templateId);
+        return;
+      }
+      apiResponse.badRequestFromError(res, err, 'Failed to render preview');
       return;
     }
-    apiResponse.badRequestFromError(res, err, 'Failed to render preview');
+    throw err;
   }
 }
 

@@ -97,3 +97,35 @@ it the test passes on heap order, which is exactly the finding.
 Fixture-DB residue after every run: no company, invoice or credit note of
 this branch's own left behind (the K120 / K126c rows present belong to other
 agents' in-flight work, timestamped 14:2x–14:3x).
+
+=== Round 5 (review-k122-r4.md) ===
+$ bun run test:integration -- tests/integration/k122e-dispute-resolve-atomicity.int.test.ts
+  Test Files  1 passed (1) / Tests  3 passed (3)
+MUTATION (withSavepoint('dispute_resolve') removed → resolveClaimed called directly):
+  Tests  3 failed (3) — "expected 'resolved' to be 'open'" x2, "expected +0 to be 1"
+  restored; savepoint back at disputeResolution.ts:38
+
+$ bun run test:integration -- tests/integration/k122f-email-log-savepoint.int.test.ts
+  Test Files  1 passed (1) / Tests  2 passed (2)
+MUTATION (withSavepoint('email_log_write') replaced by a bare async IIFE):
+  Tests  1 failed | 1 passed (2)
+  restored; savepoint back at emailService.ts:48
+
+MUTATION (ORDER BY m.invoice_number deleted from dunningCronService candidates):
+  k122c → Tests 1 failed (1) — "expected [ …(2) ] to deeply equal [ …(2) ]" (send order flipped)
+  restored.
+
+MUTATION (the bare select/from sentence rule removed from SQL_SENTENCE_PATTERNS):
+  k127 → Tests 3 failed | 31 passed (34)
+  restored.
+
+$ bun run test:integration -- tests/integration/k122 k123 k124 k125
+  Test Files  11 passed (11) / Tests  46 passed (46)
+
+$ env -u DATABASE_URL bunx vitest run           # fixture env UNSET
+  Test Files  801 passed | 40 skipped (841)
+  Tests  9598 passed | 243 skipped (9841)
+
+$ bunx tsc --noEmit                              # clean
+$ bunx eslint <14 changed src/pages files>       # clean
+$ bun run agent-docs:check                       # OK: 74 mirrors match

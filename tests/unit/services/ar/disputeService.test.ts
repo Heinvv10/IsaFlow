@@ -22,7 +22,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return { sql: sqlMock, withTransaction: vi.fn() };
+  return {
+    sql: sqlMock,
+    withTransaction: vi.fn(),
+    // resolveDispute wraps claim + credit note + link in one savepoint. Run
+    // the body straight through here: the savepoint's own behaviour is proved
+    // against a real transaction in tests/integration/k122e-….
+    withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
+  };
 });
 
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
@@ -32,6 +39,7 @@ vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
 import { sql } from '@/lib/neon';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import {
+  ArRequestError,
   getDispute,
   getOpenDisputeTotals,
   listDisputes,
@@ -166,6 +174,38 @@ describe('raiseDispute', () => {
         raisedBy: `user:${USER_ID}`,
       }),
     ).rejects.toThrow(/already an open dispute/i);
+  });
+
+  // The routes decide their HTTP status from the error TYPE, never from its
+  // message: withAuth COMMITs on any status below 500, so anything that is not
+  // the service's own refusal must stay untyped and reach it as a 5xx.
+  it('types its own refusals so the route can 4xx them, and only those', async () => {
+    mockSql.mockResolvedValueOnce([eligibleInvoiceRow()]);
+    const dup = Object.assign(new Error('duplicate key'), { code: '23505' });
+    mockSql.mockRejectedValueOnce(dup);
+    const duplicate = await raiseDispute(COMPANY_ID, {
+      customerInvoiceId: INVOICE_ID, reason: 'again', disputedAmount: 100,
+      raisedBy: `user:${USER_ID}`,
+    }).catch((e: unknown) => e);
+    expect(duplicate).toBeInstanceOf(ArRequestError);
+    expect((duplicate as ArRequestError).status).toBe(409);
+    expect((duplicate as ArRequestError).code).toBe('DISPUTE_EXISTS');
+
+    const amount = await raiseDispute(COMPANY_ID, {
+      customerInvoiceId: INVOICE_ID, reason: 'zero', disputedAmount: 0,
+      raisedBy: `user:${USER_ID}`,
+    }).catch((e: unknown) => e);
+    expect(amount).toBeInstanceOf(ArRequestError);
+    expect((amount as ArRequestError).status).toBe(400);
+
+    // A failure that is NOT a precondition stays a plain Error → 500 → rollback.
+    mockSql.mockResolvedValueOnce([eligibleInvoiceRow()]);
+    mockSql.mockRejectedValueOnce(new Error('Not found'));
+    const deeper = await raiseDispute(COMPANY_ID, {
+      customerInvoiceId: INVOICE_ID, reason: 'boom', disputedAmount: 100,
+      raisedBy: `user:${USER_ID}`,
+    }).catch((e: unknown) => e);
+    expect(deeper).not.toBeInstanceOf(ArRequestError);
   });
 });
 

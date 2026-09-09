@@ -14,6 +14,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '../core/emailService';
+import { ArRequestError } from './arErrors';
 import { BRAND, emailLayout } from '@/lib/email-templates';
 import {
   loadInvoiceCtx,
@@ -32,21 +33,39 @@ export interface SendDunningInput {
   sentBy?: string | null;
   triggerSource?: TriggerSource;
   portalBaseUrl?: string;
-  /** Allow send even when outstanding ≤ 0 (test-only). */
+  /**
+   * Allow send even when outstanding ≤ 0. TEST-ONLY: this disables a financial
+   * guard, so it must never become reachable from a request body. It is safe
+   * today only because pages/api/accounting/ar/dunning/send.ts parses a
+   * `.strict()` Zod body of exactly {invoiceId, templateId} and passes the
+   * fields explicitly — one `...parsed.data` spread away from being reachable.
+   * Keep it that way.
+   */
   skipPaidGuard?: boolean;
 }
 
 export async function sendDunning(input: SendDunningInput): Promise<SendResult> {
   const ctx = await loadInvoiceCtx(input.companyId, input.invoiceId);
-  if (!ctx) throw new Error(`Invoice ${input.invoiceId} not found for company`);
+  if (!ctx) {
+    throw new ArRequestError(
+      `Invoice ${input.invoiceId} not found for company`, 404, 'DUNNING_INVOICE_NOT_FOUND',
+    );
+  }
   if (!input.skipPaidGuard && ctx.outstanding <= 0) {
-    throw new Error('Invoice has no outstanding balance — refusing to send dunning');
+    throw new ArRequestError(
+      'Invoice has no outstanding balance — refusing to send dunning',
+      400, 'DUNNING_INVOICE_PAID',
+    );
   }
   if (ctx.status === 'cancelled') {
-    throw new Error('Cannot send dunning for a cancelled invoice');
+    throw new ArRequestError(
+      'Cannot send dunning for a cancelled invoice', 400, 'DUNNING_INVOICE_CANCELLED',
+    );
   }
   if (!ctx.customer_email) {
-    throw new Error('Customer has no email address on file');
+    throw new ArRequestError(
+      'Customer has no email address on file', 400, 'DUNNING_NO_EMAIL',
+    );
   }
 
   const rendered = await renderTemplate(
@@ -63,7 +82,10 @@ export async function sendDunning(input: SendDunningInput): Promise<SendResult> 
   // successful. Refuse instead.
   if (rendered.body.includes(PORTAL_LINK_UNAVAILABLE)
       || rendered.subject.includes(PORTAL_LINK_UNAVAILABLE)) {
-    throw new Error('Refusing to send dunning: the portal link could not be resolved');
+    throw new ArRequestError(
+      'Refusing to send dunning: the portal link could not be resolved',
+      400, 'DUNNING_PORTAL_LINK_UNAVAILABLE',
+    );
   }
 
   const insertRows = (await sql`

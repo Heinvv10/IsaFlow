@@ -16,6 +16,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { getInvoicePortalToken, getOrMintInvoicePortalToken } from './portalTokenService';
+import { ArRequestError } from './arErrors';
 
 export type DunningTone = 'polite' | 'firm' | 'final' | 'legal';
 export type TriggerSource = 'manual' | 'cron' | 'auto';
@@ -215,7 +216,11 @@ export async function renderTemplate(
     getTemplateById(companyId, templateId),
     loadInvoiceCtx(companyId, invoiceId),
   ]);
-  if (!tmpl) throw new Error(`Template ${templateId} not found for company`);
+  if (!tmpl) {
+    throw new ArRequestError(
+      `Template ${templateId} not found for company`, 404, 'DUNNING_TEMPLATE_NOT_FOUND',
+    );
+  }
   if (!ctx) return null;
 
   // The portal route accepts only the 64-hex portal_token, never the invoice

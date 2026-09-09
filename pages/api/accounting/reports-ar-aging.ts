@@ -80,7 +80,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS balance_due,
         GREATEST(0, (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date))) AS days_overdue
       FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      JOIN customers c
+        ON c.id = COALESCE(ci.client_id, ci.customer_id)
+       AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('paid', 'cancelled', 'draft')
         AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
