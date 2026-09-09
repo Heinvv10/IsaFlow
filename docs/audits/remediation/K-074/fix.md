@@ -37,3 +37,60 @@ aging-vs-control reconciliation, not a query specific to this defect.
 
 **Limits.** The 500 is deliberate — it makes the failure visible to `withAuth` and to error
 tracking. Any caller that treated the old 400 message as user-facing validation now sees a 500.
+
+---
+
+## Round 2 — dispositions for the six blind-review findings on `d0765c74`
+
+All six are **fixed**; none was argued away.
+
+**HIGH-1 (settlement had no payment document).** Correct, and the more serious half of
+the finding. Dropping the `balance` assignment switched ON a bare `amount_paid` write
+with no `supplier_payments` row and no `payment_allocations` row, and
+`bankAllocationUnwind` finds its work through exactly those two tables — so
+unallocating the line would have reversed the GL and left the bill paid. The branch now
+settles through `applyBankLineToSupplierInvoices`, which posts the journal, writes the
+payment document carrying it, and applies it through `applyLineToBill`. The
+over-payment half is fixed by the same change: the bill takes what it can and the
+remainder stays on the document, where `list_unapplied_payments` can see it, instead of
+being capped away against an AP control moved by the whole line. Proved by two new
+tests — one asserts the document, the allocation row, a balanced journal and AP relieved
+by exactly the cash; one settles a bill, unwinds it and asserts `amount_paid` returns to
+zero.
+
+**MEDIUM-1 (status written on terminal bills).** Correct. The inline UPDATE had no
+status filter. `applyLineToBill` writes money only and delegates the three derived
+columns to `recomputeInvoiceStatus`, which restricts itself to balance-derived statuses,
+and `planSupplierAllocationLines` refuses a `cancelled` or `draft` bill outright. Test:
+a cancelled bill is refused 400 with nothing written.
+
+**MEDIUM-2 (every failure became "An internal error occurred").** Correct, and a real UI
+regression for the FindMatchModal. `validateBankSupplierPayment` — reads only — now runs
+BEFORE the first write, so its refusals (line already allocated, closed or missing
+fiscal period, cancelled bill, over-allocation, money the wrong way) return 400 carrying
+their own remedy. The catch-all keeps its 500, because after the first write the
+rollback is the point. Test: an already-allocated line answers 400 quoting the reason.
+
+**LOW-1 (no module-doc entry).** Fixed: an entry in
+`src/modules/accounting/services/bank/.claude.md` covering both K-071 and K-074, with
+the `AGENTS.md` mirror regenerated.
+
+**LOW-2 (evidence ran against a stubbed allocator).** Fixed: the K-074 tests no longer
+mock `allocateTransaction` or the settlement at all. They run the real posting path
+against the production schema, seeding a chart of accounts and an open fiscal period
+(`tests/integration/helpers/k074Fixture.ts`). The post-write-failure case now forces its
+throw at the LAST step of the real settlement, so the journal and the payment document
+genuinely exist when the rollback removes them. An over-payment case was added.
+
+**LOW-3 (a failed savepoint rollback still returned a clean import).** Fixed in
+`bankImportService.ts`: the sweep's catch calls `assertTxUsable()` first, so when
+`withSavepoint` has marked the context the failure is rethrown with the original cause
+instead of degrading to a warning row. Test: the sweep releases its own savepoint before
+throwing, which is the one case a savepoint cannot survive.
+
+**Tests after round 2.** 15 integration tests across four files, all on the real
+PostgreSQL fixture; full unit suite 9439 passed. Six mutation probes, one per fixed
+finding, each turning the matching tests red — see `green.log`.
+
+**Historical-data impact, unchanged.** The supplier branch still never succeeded before
+this work, so there is nothing to repair. What changes is only what it does from now on.

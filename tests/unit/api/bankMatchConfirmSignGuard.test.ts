@@ -53,12 +53,24 @@ vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   allocateTransaction: vi.fn(),
   matchTransaction: vi.fn(),
 }));
+// The supplier branch settles through the AP service rather than posting and
+// updating inline (K-074), so THAT is the collaborator the guard must keep it
+// away from. Both halves are mocked: the guard is what this suite tests.
+vi.mock('@/modules/accounting/services/ap/supplierBankPaymentService', () => ({
+  validateBankSupplierPayment: vi.fn(async () => ({})),
+  applyBankLineToSupplierInvoices: vi.fn(async () => ({
+    supplierPaymentId: 'payment-1', allocatedTotal: 1000, unappliedRemainder: 0,
+  })),
+}));
 
 import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
   matchTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import {
+  applyBankLineToSupplierInvoices,
+} from '@/modules/accounting/services/ap/supplierBankPaymentService';
 import handler from '../../../pages/api/accounting/bank-match-confirm';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -137,6 +149,7 @@ describe('bank-match-confirm — a line pointing the wrong way is refused', () =
     // The whole point: nothing was written, so the 400 that COMMITs cannot
     // commit a journal or a settled document.
     expect(allocateTransaction).not.toHaveBeenCalled();
+    expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
     // Two reads and no more — the guard fires before the UPDATE.
     const writes = mockSql.mock.calls.filter(
       (c) => /UPDATE|INSERT/.test((c[0] as unknown as TemplateStringsArray).join('')),
@@ -156,7 +169,12 @@ describe('bank-match-confirm — a line pointing the wrong way is refused', () =
     await handler(req, res);
 
     expect(res.statusCode).not.toBe(400);
-    expect(allocateTransaction).toHaveBeenCalledTimes(1);
+    // The supplier branch reaches the AP settlement service; the other two
+    // still post through allocateTransaction directly.
+    const settler = candidateType === 'supplier_invoice'
+      ? applyBankLineToSupplierInvoices
+      : allocateTransaction;
+    expect(settler).toHaveBeenCalledTimes(1);
   });
 
   // These two settle no document — they tie a bank line to a journal that

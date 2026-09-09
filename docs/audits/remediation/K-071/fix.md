@@ -32,3 +32,17 @@ log but not the table is a lost import.
 
 **Limits.** The savepoint changes today's accidental all-or-nothing outcome: a sweep failure now
 leaves the transactions imported but unposted, which is what the new error message says.
+
+---
+
+## Round 2 — blind-review finding LOW-3
+
+`withSavepoint` rethrows after marking the context when its own `ROLLBACK TO SAVEPOINT`
+fails, and the sweep's catch swallowed that too — the request transaction is genuinely
+aborted in that case, so a warning row would have handed back the clean-looking import
+this fix exists to remove. The catch now calls `assertTxUsable()` first, which rethrows
+naming the original cause. Test:
+`tests/integration/k071-bank-import-autopost-adjacent.int.test.ts` — the sweep releases
+its own savepoint before throwing, so the rollback really fails; deleting the
+`assertTxUsable()` call turns it red. The other five findings in that review are
+K-074's; their dispositions are in `../K-074/fix.md`.

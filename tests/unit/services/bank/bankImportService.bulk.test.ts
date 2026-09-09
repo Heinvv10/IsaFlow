@@ -22,8 +22,10 @@ vi.mock('@/lib/neon', () => ({
   withTransaction: withTransactionMock,
   // The auto-post sweep runs inside a savepoint (K-071). Outside a request
   // withSavepoint just runs the callback, which is what this pass-through
-  // reproduces.
+  // reproduces, and assertTxUsable is a no-op with no request transaction to
+  // poison — both exactly as @/lib/neon behaves with no ALS store.
   withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
+  assertTxUsable: () => {},
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },

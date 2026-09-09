@@ -26,6 +26,11 @@ import {
   matchTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import {
+  applyBankLineToSupplierInvoices,
+  validateBankSupplierPayment,
+} from '@/modules/accounting/services/ap/supplierBankPaymentService';
+import { EPS, round2 } from '@/modules/accounting/services/ap/supplierAllocationLines';
+import {
   signMismatchReason,
   type SettlementKind,
 } from '@/modules/accounting/services/bank/bankLineDirection';
@@ -91,46 +96,54 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     if (candidateType === 'supplier_invoice') {
       const invRows = (await sql`
-        SELECT id, supplier_id, total_amount, amount_paid, balance
+        SELECT id, total_amount, amount_paid
         FROM supplier_invoices WHERE id = ${candidateId}::UUID AND company_id = ${companyId}
       `) as Row[];
       if (invRows.length === 0) {
         return apiResponse.notFound(res, 'Supplier invoice', candidateId);
       }
       const inv = invRows[0]!;
-      const supplierId = String(inv.supplier_id);
-      const currentPaid = Number(inv.amount_paid || 0);
-      const invoiceTotal = Number(inv.total_amount);
-      const outstandingBalance = invoiceTotal - currentPaid;
+      const outstandingBalance = round2(Number(inv.total_amount) - Number(inv.amount_paid || 0));
+      if (outstandingBalance <= EPS) {
+        return apiResponse.badRequest(res, 'This supplier invoice is already fully paid.');
+      }
+      // A line bigger than the bill applies what the bill can take; the rest
+      // stays unapplied ON THE PAYMENT DOCUMENT, where list_unapplied_payments
+      // can see it. Capping the subledger without a document to hold the
+      // remainder is what split AP control from the aging.
+      const allocations = [{
+        invoiceId: candidateId,
+        amount: round2(Math.min(paymentAmount, outstandingBalance)),
+      }];
 
-      // Create GL entry: DR Accounts Payable, CR Bank. Pass candidateId so the
-      // 4-way match targets this specific invoice rather than the
-      // most-recent-unpaid heuristic.
-      await allocateTransaction(
-        companyId, bankTransactionId, '', userId, undefined, 'supplier', supplierId,
-        undefined, undefined, undefined, undefined, candidateId,
-      );
+      // READS ONLY, and BEFORE the first write. Every refusal this operation
+      // can make — line already allocated, closed or missing fiscal period,
+      // cancelled bill, money the wrong way — is answered here as a 4xx that
+      // carries its own remedy. After this call the catch-all answers 500 so
+      // the request rolls back, which also means it can say nothing useful.
+      try {
+        await validateBankSupplierPayment(companyId, bankTransactionId, allocations);
+      } catch (refusal) {
+        return apiResponse.badRequest(
+          res, refusal instanceof Error ? refusal.message : 'Match refused',
+        );
+      }
 
-      // Update invoice payment tracking
-      const newPaid = currentPaid + Math.min(paymentAmount, outstandingBalance);
-      const newBalance = invoiceTotal - newPaid;
-      const newStatus = newBalance <= 0.01 ? 'paid' : 'partially_paid';
-
-      // `balance` is GENERATED ALWAYS AS (total_amount - amount_paid) STORED
-      // (migration 201). Assigning it is rejected outright with 428C9 — which
-      // is why this branch could never reach its own subledger write. The
-      // column follows amount_paid on its own.
-      await sql`
-        UPDATE supplier_invoices
-        SET amount_paid = ${newPaid}::NUMERIC,
-            status = ${newStatus},
-            updated_at = NOW()
-        WHERE id = ${candidateId}::UUID AND company_id = ${companyId}::UUID
-      `;
+      // The document, the journal and the subledger in ONE operation, the way
+      // every other AP settlement path writes them. The bare `amount_paid`
+      // UPDATE this branch used to carry created no supplier_payments row and
+      // no payment_allocations row, so unallocating the line reversed the GL
+      // and left the bill paid forever — bankAllocationUnwind finds its work
+      // through those two tables.
+      const applied = await applyBankLineToSupplierInvoices(companyId, {
+        bankTxId: bankTransactionId, userId, allocations,
+      });
 
       log.info('Confirmed match: supplier invoice', {
-        bankTransactionId, candidateId,
-        paymentAmount, outstandingBalance, newStatus,
+        bankTransactionId, candidateId, paymentAmount, outstandingBalance,
+        supplierPaymentId: applied.supplierPaymentId,
+        allocated: applied.allocatedTotal,
+        unappliedRemainder: applied.unappliedRemainder,
       }, 'accounting-api');
 
     } else if (candidateType === 'customer_invoice') {
