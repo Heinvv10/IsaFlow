@@ -9,7 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import { als } from '@/lib/als';
+import { als, assertTxUsable } from '@/lib/als';
 import { checkCapitalizationThreshold } from '@/modules/accounting/services/items/farDepreciationService';
 import { postCapitalizationExpenseToGL } from '@/modules/accounting/services/gl/glCrossModuleHooks';
 
@@ -61,6 +61,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw new Error('below-threshold expense requires a request transaction (withAuth).');
     }
 
+    // A failed `ROLLBACK TO SAVEPOINT` earlier in the request leaves the
+    // connection aborted; without this every statement below raises a bare 25P02
+    // that loses the real cause. Same order as creditNoteLock.
+    assertTxUsable();
     // Bound the wait like creditNoteLock/bankTxLock do; FOR UPDATE otherwise
     // queues forever behind whoever holds the row.
     await client.query("SET LOCAL lock_timeout = '5s'");

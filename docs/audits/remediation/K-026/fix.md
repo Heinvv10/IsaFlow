@@ -98,3 +98,25 @@ Tests: integration file now 12 tests (disposed, written-off, closed period, lock
 contention, GET `expensed`, plus the original seven); new component test
 `tests/unit/components/belowThresholdAssetsPage.test.tsx`, 2 tests. Every behavioural
 finding mutation-checked individually — see `green.log`.
+
+---
+
+## Re-review round (3 LOW on b8d13138)
+
+**`assertTxUsable()` was missing from the copied lock pattern.** Added before the
+`SET LOCAL`, matching `creditNoteLock.ts`. Unreachable today — nothing sets
+`txUnusable` before this point in the route — so it carries no test; it is there so
+the copy does not drift from the precedent it cites.
+
+**The lock test leaked its holder connection on failure.** The assertions now sit in
+their own `try`, with `ROLLBACK`/`release()` in a `finally`. That alone was not enough:
+vitest abandons a timed-out test without unwinding it, so the `finally` never ran and
+the row stayed locked. The holder transaction now sets
+`idle_in_transaction_session_timeout = '8s'`, so Postgres frees the row even when the
+test is abandoned. Re-running the L3 mutation proves it: the failure went from 20s plus
+a 10s hook timeout and four leftover companies, to 8s, no hook timeout and nothing left
+behind.
+
+**Transaction plumbing inlined in the route.** Left as it is, on the reviewer's own
+recommendation ("worth an `assets/assetLock.ts` next time this pattern is needed a
+fourth time") and the repo's no-abstraction-for-single-use rule. There is one caller.
