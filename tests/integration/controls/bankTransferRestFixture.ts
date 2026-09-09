@@ -12,10 +12,11 @@ export async function transferRestFixture(){
   void apiResolver(req,res,{}, {default:approvals?approvalRoute:bankRoute},{previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,
    approvals?'/api/accounting/control-approvals':'/api/accounting/bank-transactions-action').catch(()=>{res.statusCode=500;res.end('Synthetic transfer route failure');});});
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error('Synthetic REST server unavailable');
+ const origin=`http://127.0.0.1:${address.port}`;
  async function request(body:unknown,person:'u1'|'u2'|'u3'='u1',approvals=false,validCsrf=true){
   const user=f.f[person],token=await new SignJWT({role:'authenticated',aal:'aal2'}).setProtectedHeader({alg:'HS256'}).setSubject(user.id).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   const path=approvals?'control-approvals':'bank-transactions-action';
-  const response=await fetch(`http://127.0.0.1:${address.port}/api/accounting/${path}`,{method:'POST',redirect:'error',headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${user.companyId}; isaflow_csrf=${csrf}`,'x-csrf-token':validCsrf?csrf:'invalid'},body:JSON.stringify(body),signal:AbortSignal.timeout(10000)});
+  const response=await fetch(`${origin}/api/accounting/${path}`,{method:'POST',redirect:'error',headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${user.companyId}; isaflow_csrf=${csrf}`,'x-csrf-token':validCsrf?csrf:'invalid'},body:JSON.stringify(body),signal:AbortSignal.timeout(10000)});
   return{status:response.status,body:await response.json()};
  }
  async function approved(ref:OperationRef){
