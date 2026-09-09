@@ -12,11 +12,12 @@ const accountLine=z.object({accountId:id,amount:money,vatCode:z.enum(['none','st
  description:z.string().max(1000).optional(),cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional()}).strict();
 const common={version:z.literal(1),bankTransactionId:id,description:z.string().max(1000).optional()};
 const application=z.object({invoiceId:id,amount:money}).strict();
+const partyDimensions={cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional()};
 const schema=z.discriminatedUnion('kind',[
  z.object({...common,kind:z.literal('account'),vatAccountId:id.optional(),lines:z.array(accountLine).length(1)}).strict(),
  z.object({...common,kind:z.literal('split'),vatAccountId:id.optional(),lines:z.array(accountLine).min(1).max(100)}).strict(),
- z.object({...common,kind:z.literal('customer'),partyId:id,applications:z.array(application).max(100)}).strict(),
- z.object({...common,kind:z.literal('supplier'),partyId:id,applications:z.array(application).max(100)}).strict(),
+ z.object({...common,...partyDimensions,kind:z.literal('customer'),partyId:id,applications:z.array(application).max(100)}).strict(),
+ z.object({...common,...partyDimensions,kind:z.literal('supplier'),partyId:id,applications:z.array(application).max(100)}).strict(),
 ]);
 export type BankAllocationPlan=z.infer<typeof schema>;
 export function parseBankAllocationPlan(input:unknown):BankAllocationPlan{
@@ -39,7 +40,7 @@ export function buildBankAllocationLines(plan:BankAllocationPlan,source:{bankAcc
   if(isBankAllocationRefund(plan.kind,source.signedAmount)&&plan.applications.length)throw new Error('Refund applications must be empty');
   if(!source.controlAccountId)throw new Error('Allocation control account unavailable');
   if(plan.applications.reduce((sum,a)=>sum.add(a.amount),new D(0)).gt(amount))throw new Error('Applications exceed bank amount');
-  add(source.controlAccountId,amount,spent);
+  add(source.controlAccountId,amount,spent,description,null,plan);
  }else{
   if(!plan.lines.reduce((sum,line)=>sum.add(line.amount),new D(0)).eq(amount))throw new Error('Allocation total differs from bank amount');
   for(const line of plan.lines){
