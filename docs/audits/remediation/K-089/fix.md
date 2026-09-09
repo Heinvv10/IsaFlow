@@ -50,3 +50,29 @@ DR 38.33 / CR 38.34. `postJournalEntry` rejects it: "Entry is not balanced: tota
 total credit R38.34 (difference: R0.01)". Result `{imported: 0, skipped: 1}`, 0 invoice rows. The
 savepoint now contains it — the run no longer 500s — but the row is dropped with only an error
 entry, so a rounding difference in the source file silently loses the document.
+
+---
+
+# Follow-up: blind-review remediation (all 11 findings)
+
+Full detail in `review-response.md` next to this file. Summary of the behaviour changes:
+
+- **Settlement leg (H1).** An already-paid amount now posts a second balanced journal against
+  opening balance equity, so the AP/AR control account carries the OUTSTANDING balance and agrees
+  with the invoice's own `balance`. This supersedes R-001 below: it no longer reproduces.
+- **Duplicate guard (H2).** Migration `625_supplier_invoice_duplicate_fingerprint_unique.sql` makes
+  `supplier_invoices.duplicate_fingerprint` unique per company, which is what
+  `ON CONFLICT DO NOTHING` had always assumed. **Apply 625 before shipping this code** — without
+  the index the INSERT cannot infer its arbiter and every row fails.
+- **Session bookkeeping (M1, M2).** `updateSession` merges `steps_completed` and appends `errors`
+  rather than replacing both, so one step no longer erases the record of the steps before it.
+- **Reasons on skips (M3), amount check (M4), source system (M5), optional amountPaid (L3).**
+- **Request validation (L2)** via `src/modules/accounting/services/core/migrationRowSchemas.ts`.
+
+R-002 no longer surfaces as a raw posting failure: the row is rejected up front with a message
+naming subtotal, tax and total. It still means the document is not imported — folding a cent into
+a rounding line would need a designated rounding account, which is Hein's call.
+
+Two things stay open by choice, both in `review-response.md`: the opening-balances step and the
+invoice import still double the control accounts, and `customer_invoices.external_ref` has no
+reader.

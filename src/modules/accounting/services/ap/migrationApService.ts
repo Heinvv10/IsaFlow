@@ -22,7 +22,8 @@ export interface APInvoiceRow {
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
-  amountPaid: number;
+  /** Optional: absent and 0 mean the same thing — nothing has been paid. */
+  amountPaid?: number;
   reference?: string;
 }
 
@@ -57,8 +58,23 @@ export async function importAPInvoices(
         continue;
       }
 
-      const balance = inv.totalAmount - (inv.amountPaid ?? 0);
-      const status  = balance <= 0 ? 'paid' : inv.amountPaid > 0 ? 'partially_paid' : 'approved';
+      // M4/R-002: the journal is built from subtotal + tax and credited with
+      // totalAmount, so a source file whose three amounts disagree by a cent
+      // produces an unbalanced entry that postJournalEntry rejects — losing the
+      // document with a raw Postgres-flavoured message. Reject it here instead,
+      // naming all three amounts so the operator can correct the file.
+      if (Math.abs(inv.subtotal + inv.taxAmount - inv.totalAmount) > 0.005) {
+        errors.push({
+          step: 'ap_invoices', row: i, field: 'totalAmount',
+          message: `Amounts do not add up for ${inv.invoiceNumber}: subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`,
+        });
+        skipped++;
+        continue;
+      }
+
+      const amountPaid = inv.amountPaid ?? 0;
+      const balance = inv.totalAmount - amountPaid;
+      const status  = balance <= 0 ? 'paid' : amountPaid > 0 ? 'partially_paid' : 'approved';
 
       const matchedSupplier = supRows.find(s => String(s.id) === supplierId);
       const migFingerprint = computeFingerprint(
@@ -81,15 +97,26 @@ export async function importAPInvoices(
             ${companyId}::UUID, ${supplierId}::UUID, ${inv.invoiceNumber},
             ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE,
             ${inv.subtotal}, ${inv.taxAmount}, ${inv.totalAmount},
-            ${inv.amountPaid ?? 0}, ${status},
+            ${amountPaid}, ${status},
             ${inv.reference ?? null}, ${userId}::UUID,
             ${migFingerprint}
           )
-          ON CONFLICT DO NOTHING
+          ON CONFLICT (company_id, duplicate_fingerprint)
+            WHERE duplicate_fingerprint IS NOT NULL AND deleted_at IS NULL
+          DO NOTHING
           RETURNING id
         `) as Row[];
 
-        if (invRows.length === 0) return false;
+        // Re-running the wizard after a partial failure is the obvious user
+        // action; without a reason on the skip the operator cannot tell a
+        // duplicate from a lost document.
+        if (invRows.length === 0) {
+          errors.push({
+            step: 'ap_invoices', row: i, field: 'invoiceNumber',
+            message: `Already imported: ${inv.invoiceNumber} for this supplier and amount`,
+          });
+          return false;
+        }
         const invoiceId = String(invRows[0]!.id);
 
         // Post GL: DR Expense + VAT Input, CR Payable
@@ -121,6 +148,28 @@ export async function importAPInvoices(
           UPDATE supplier_invoices SET gl_journal_entry_id = ${entry.id}::UUID
           WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         `;
+
+        // The origination entry credits payable with the FULL total, but the
+        // invoice is stored with the amount already settled before the cutover.
+        // Without this leg the AP control account and the AP subledger disagree
+        // by exactly amountPaid. The contra is opening balance equity — the
+        // clearing account for everything that happened before the cutover; a
+        // bank leg would invent a cash movement the bank's own opening balance
+        // already accounts for. Resolved here rather than above so a company
+        // with no such account can still import unpaid invoices.
+        if (amountPaid > 0) {
+          const obeAccountId = await getSystemAccountId('opening_balance_equity', companyId);
+          const settlement = await createJournalEntry(companyId, {
+            entryDate: inv.invoiceDate,
+            description: `Migrated AP invoice ${inv.invoiceNumber} — settled before cutover`,
+            source: 'auto_migration',
+            lines: [
+              { glAccountId: apAccountId,  debit: amountPaid, credit: 0,          description: `AP settled — ${inv.invoiceNumber}` },
+              { glAccountId: obeAccountId, debit: 0,          credit: amountPaid, description: `Opening balance equity — ${inv.invoiceNumber}` },
+            ],
+          }, userId);
+          await postJournalEntry(companyId, settlement.id, userId);
+        }
         return true;
       });
       if (rowImported) imported++; else skipped++;

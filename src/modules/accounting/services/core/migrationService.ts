@@ -124,14 +124,21 @@ export async function updateSession(
     UPDATE migration_sessions SET
       source_system        = COALESCE(${updates.sourceSystem ?? null}, source_system),
       status               = COALESCE(${updates.status ?? null}, status),
-      steps_completed      = COALESCE(${updates.stepsCompleted ? JSON.stringify(updates.stepsCompleted) : null}::JSONB, steps_completed),
+      -- MERGE, never replace: each wizard step sends only its own flag, and a
+      -- whole-value assignment erased every step completed before it.
+      steps_completed      = COALESCE(steps_completed, '{}'::JSONB)
+                             || COALESCE(${updates.stepsCompleted ? JSON.stringify(updates.stepsCompleted) : null}::JSONB, '{}'::JSONB),
       coa_records_imported = COALESCE(${updates.coaRecordsImported ?? null}, coa_records_imported),
       customers_imported   = COALESCE(${updates.customersImported ?? null}, customers_imported),
       suppliers_imported   = COALESCE(${updates.suppliersImported ?? null}, suppliers_imported),
       opening_balances_set = COALESCE(${updates.openingBalancesSet ?? null}, opening_balances_set),
       ar_invoices_imported = COALESCE(${updates.arInvoicesImported ?? null}, ar_invoices_imported),
       ap_invoices_imported = COALESCE(${updates.apInvoicesImported ?? null}, ap_invoices_imported),
-      errors               = COALESCE(${updates.errors ? JSON.stringify(updates.errors) : null}::JSONB, errors),
+      -- APPEND, and only when there is something to append. An empty array is
+      -- truthy in JS, so a clean run used to write '[]' over the errors the
+      -- earlier steps had recorded.
+      errors               = COALESCE(errors, '[]'::JSONB)
+                             || COALESCE(${updates.errors?.length ? JSON.stringify(updates.errors) : null}::JSONB, '[]'::JSONB),
       notes                = COALESCE(${updates.notes ?? null}, notes),
       completed_at         = COALESCE(${updates.completedAt ?? null}::TIMESTAMPTZ, completed_at)
     WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
