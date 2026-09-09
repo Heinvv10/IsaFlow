@@ -1,5 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({ctx:{principal:{companyId:'company',personId:'person'}},permission:vi.fn(async()=>undefined),dispatch:vi.fn(async()=>({intentId:'saved'}))}));
+const mocks=vi.hoisted(()=>({ctx:{principal:{companyId:'company',personId:'person'}},permission:vi.fn<(ctx:unknown,permission:string)=>Promise<void>>(async()=>undefined),dispatch:vi.fn(async()=>({intentId:'saved'}))}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>mocks.ctx}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:mocks.permission}));
 vi.mock('@/modules/accounting/services/bank/bankControlActionService',()=>({dispatchBankControlAction:mocks.dispatch}));
