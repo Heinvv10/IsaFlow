@@ -1,3 +1,4 @@
+import {readArJournalRelationship} from './arGeneratedRelationship';
 import {readPostingIntentJournalRelationship} from './postingIntentJournalRelationship';
 import { UUID_RE } from '@/lib/validation';
 import type { ControlTx, OperationRef } from './contracts';
@@ -59,6 +60,7 @@ export async function registerGeneratedJournal(ctx: ControlTx, control: ParentJo
         AND je.entry_date=${control.permit.accountingDate}::date FOR SHARE OF p,je`;
   }
   if(related.length===0)related=await readPostingIntentJournalRelationship(ctx,control,journalId,operation);
+  if(related.length===0)related=await readArJournalRelationship(ctx,control,journalId,operation);
   if (related.length !== 1) throw new Error('Generated journal has no authorized parent relationship');
   if (operation === 'journal.post' && (related[0] as { entry_date?: unknown }).entry_date !== control.permit.accountingDate) {
     throw new Error('Generated journal date differs from the authorized parent date');
