@@ -53,7 +53,6 @@ const input = {
   purchaseDate: '2026-01-01',
   periodDate: '2026-07-31',
   openingAccDep: 0,
-  taxOpeningAccDep: 0,
   deferredTaxRate: 27,
 };
 

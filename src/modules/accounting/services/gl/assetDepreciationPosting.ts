@@ -160,7 +160,6 @@ interface DualDepInput {
   purchaseDate: string;
   periodDate: string;
   openingAccDep: number;
-  taxOpeningAccDep: number;
   deferredTaxRate: number;
   disposalDate?: string;
 }
@@ -188,9 +187,11 @@ export async function postDualDepreciationToLedger(
   });
 
   // The tax figures are computed INSIDE the savepoint, once the asset row is
-  // locked and the subledger has been read — `input.taxOpeningAccDep` is a
-  // pre-transaction snapshot of a cache column and is not a safe opening. See
-  // `assetTaxAccumulation.ts`. Reported as 0 if the savepoint fails before it.
+  // locked and the subledger has been read. `DualDepInput` deliberately carries
+  // NO tax opening: the only value a caller could pass is a pre-transaction read
+  // of the cache column, which is the defect this module exists to stop relying
+  // on. See `assetTaxAccumulation.ts`. Reported as 0 if the savepoint fails
+  // before the calculation.
   let taxDep = 0;
 
   // Ledger row + GL entry commit or roll back TOGETHER: a subledger period

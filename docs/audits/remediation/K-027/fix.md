@@ -160,6 +160,23 @@ computed from the nil balance, need separate review before any figures move.
   accumulation larger than the asset ever cost to compute recoupment from. The
   clamp bounds the cache; it does not repair the subledger rows that caused it,
   which is what the warning is for.
+- A clamped asset therefore stays flagged, BY DESIGN, in two places. It appears
+  in the `assets_disagreeing_with_subledger` query below for good — 120 000 will
+  never equal the 140 000 its corrupt history closed at — so an operator running
+  that query after deployment must read a clamped asset as a subledger still
+  needing repair, not as an unfixed write-back. And it re-warns on every
+  subsequent run, because `writeAssetTaxAccumulation` is called each period and
+  the history never shrinks. The recurring warning IS the outstanding signal;
+  it stops when the subledger rows are recomputed, not before.
+- The clamp bounds the cache only, never the next opening. `lockAssetTaxBase`
+  derives the opening from unclamped subledger sums, so an over-charged asset
+  still computes `remaining <= 0` and correctly charges nothing further.
+- `DualDepInput` carries no tax opening. The field existed, was passed
+  `Number(a.tax_acc_dep)` by the run, and after the opening moved to the
+  subledger nothing read it — a field written but never read, the mirror of the
+  column read but never written that this ticket began with. It and the SELECT
+  alias feeding it are gone, so a future caller cannot supply an opening and
+  reasonably expect it to decide anything.
 - A back-posted period does not RECOMPUTE the subledger rows that were written
   after it. Posting February, then January, then March now leaves the asset at
   6 000, equal to the three charges made, and March opening at 4 000 — both
