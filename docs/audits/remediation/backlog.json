@@ -967,7 +967,7 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "637b6609",
+   "currentSha": "b8d13138",
    "status": "in-progress",
    "dependencies": [],
    "testNames": [
@@ -977,7 +977,7 @@
     "K-026/red.log",
     "K-026/validation.md"
    ],
-   "fixCommit": "637b6609",
+   "fixCommit": "637b6609;b8d13138",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -8636,6 +8636,35 @@
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-024",
+   "claim": "Below-threshold asset expensing credits the bank account as the contra, so a purchase already captured as a supplier bill is double-counted; the contra should be the asset's own GL account (resolveAssetAccountId) and historical auto_asset_expense postings need correction.",
+   "area": "assets",
+   "affectedPaths": [
+    "pages/api/accounting/assets/below-threshold.ts"
+   ],
+   "sourceLabel": "Validator and reviewer of K-026",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Ruled out of K-026 scope by both validator and reviewer; ledger misstatement for every below-threshold expense whose purchase was billed.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "candidate",
+   "dependencies": [
+    "Needs a decision on the contra account and a historical correction plan; write-only impact SQL in K-026/fix.md"
+   ],
+   "testNames": [],
+   "evidencePaths": [
+    "K-026/validation.md",
+    "K-026/fix.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed; existing auto_asset_expense journals credit bank",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
   }
  ],
  "sourceInventory": [
