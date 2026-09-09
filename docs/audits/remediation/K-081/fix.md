@@ -25,6 +25,17 @@ lock (H2): integration 2 failed. Prior read off the latest schedule run (M3): in
 from the reclass journals already posted, matching `closeLoanPeriod`'s deterministic narrative
 exactly. Rollback: `DROP TABLE loan_reclass_postings;`.
 
+**Backfill scoping and idempotency.** The INSERT runs inside a `DO` loop, once per company, with
+`company_id` bound as a parameter and repeated on the `gl_journal_lines` join, the `loans` join and
+the `gl_journal_entries` predicate, so no statement can read or write across tenants even if an
+account or loan id were reused. It ends with `ON CONFLICT (company_id, loan_id, yyyymm) DO NOTHING`,
+so re-running after a partial failure changes nothing and a row written by the running application
+always wins over a reconstructed figure. It reports the row count it reconstructed as a NOTICE.
+Proven on the fixture inside a rolled-back transaction: two legacy closes of 100 000 and 92 000
+reconstruct to 202602 = 100 000 and 202603 = 192 000, matching the GL balance; a second run inserts
+0 rows; an application-written row is left untouched by a third run; and no row lands under any
+other `company_id`.
+
 ## Review dispositions
 
 **H2 — fixed.** A lock is written unconditionally, after the `missing GL accounts`, `no schedule

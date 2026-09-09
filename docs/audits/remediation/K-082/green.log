@@ -30,9 +30,13 @@ Engine equivalence (H3): pre-fix vs post-fix engine over 144 combinations
   (terms 6/12/24/60/120/360 x EXTEND_TERM|MAINTAIN_TERM x k=0..11) — 0 differences.
   Basis for leaving ENGINE_VERSION at 1.0.0.
 
-Migration 645 backfill probed on the fixture inside a rolled-back transaction: two legacy closes
-of 100 000 and 92 000 leave a GL current-portion balance of 192 000, and the backfill reconstructs
-exactly 202602=100 000, 202603=192 000.
+Migration 645 backfill probed on the fixture inside a rolled-back transaction:
+  two legacy closes of 100 000 and 92 000 leave a GL current-portion balance of 192 000, and the
+  backfill reconstructs exactly 202602=100 000, 202603=192 000;
+  a second run inserts 0 rows (idempotent);
+  a row written by the application is not overwritten by a further run;
+  no row lands under any other company_id (the INSERT is a per-company loop with company_id bound
+  as a parameter and repeated on every join).
 
 Gates: bunx tsc --noEmit clean. bunx eslint on src/modules/accounting/services/loans/ and
        src/lib/amortisation/engine.ts clean. check-migration-rls.ts OK. agent-docs:check OK.
