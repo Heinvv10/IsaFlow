@@ -1,0 +1,61 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-k004-capture-inbox-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/goods-received","timestamp":"2026-09-08T20:12:54.667Z","component":"API","requestId":"01M21ADX0A9BKNDCV2VJ1JFCPA","data":{"type":"request","method":"POST","url":"/api/accounting/goods-received","query":{},"body":{"purchaseOrderId":"e1281722-1c4f-4f1c-8818-1f78cc74ce9f","receivedDate":"2026-09-08","receivedBy":"Fixture receiver","items":[{"poItemId":"3ae0b6f8-8c79-4284-b49e-477f02928c33","quantityReceived":3,"quantityRejected":0}]}}}
+{"level":"info","message":"GRN created","timestamp":"2026-09-08T20:12:54.723Z","component":"accounting","requestId":"01M21ADX0A9BKNDCV2VJ1JFCPA","data":{"grn":"GRN-00001","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086"}}
+{"level":"info","message":"API Response: POST /api/accounting/goods-received - 201 (56ms)","timestamp":"2026-09-08T20:12:54.723Z","component":"API","requestId":"01M21ADX0A9BKNDCV2VJ1JFCPA","data":{"type":"response","method":"POST","url":"/api/accounting/goods-received","statusCode":201,"duration":"56ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T20:12:54.723Z","component":"http","requestId":"01M21ADX0A9BKNDCV2VJ1JFCPA","data":{"event":"request_completed","route":"/api/accounting/goods-received","method":"POST","status":201,"durationMs":56,"userId":"9d092002-bddf-4218-9237-7b9c027868bf","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/goods-received","timestamp":"2026-09-08T20:12:54.738Z","component":"API","requestId":"01M21ADX2HXBEJ15SC50EAWBES","data":{"type":"request","method":"POST","url":"/api/accounting/goods-received","query":{},"body":{"purchaseOrderId":"bb8d0612-cd55-44f6-a1af-915d86cf8dfa","receivedDate":"2026-09-08","receivedBy":"Fixture receiver","items":[{"poItemId":"fd3c18ee-5740-4d86-8120-6704323377da","quantityReceived":3,"quantityRejected":0}]}}}
+{"level":"error","message":"withTransaction rolled back (request savepoint)","timestamp":"2026-09-08T20:12:54.739Z","component":"DB","requestId":"01M21ADX2HXBEJ15SC50EAWBES","data":{"message":"Purchase order not found"}}
+{"level":"info","message":"API Response: POST /api/accounting/goods-received - 404 (1ms)","timestamp":"2026-09-08T20:12:54.739Z","component":"API","requestId":"01M21ADX2HXBEJ15SC50EAWBES","data":{"type":"response","method":"POST","url":"/api/accounting/goods-received","statusCode":404,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T20:12:54.739Z","component":"http","requestId":"01M21ADX2HXBEJ15SC50EAWBES","data":{"event":"request_completed","route":"/api/accounting/goods-received","method":"POST","status":404,"durationMs":1,"userId":"9d092002-bddf-4218-9237-7b9c027868bf","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/goods-received","timestamp":"2026-09-08T20:12:54.742Z","component":"API","requestId":"01M21ADX2N5NX7YPTW9V62MRYF","data":{"type":"request","method":"POST","url":"/api/accounting/goods-received","query":{},"body":{"purchaseOrderId":"e1281722-1c4f-4f1c-8818-1f78cc74ce9f","receivedDate":"2026-09-08","receivedBy":"Fixture receiver","items":[{"poItemId":"fd3c18ee-5740-4d86-8120-6704323377da","quantityReceived":3,"quantityRejected":0}]}}}
+{"level":"error","message":"withTransaction rolled back (request savepoint)","timestamp":"2026-09-08T20:12:54.743Z","component":"DB","requestId":"01M21ADX2N5NX7YPTW9V62MRYF","data":{"message":"Every receipt line must belong to this purchase order"}}
+{"level":"info","message":"API Response: POST /api/accounting/goods-received - 400 (1ms)","timestamp":"2026-09-08T20:12:54.743Z","component":"API","requestId":"01M21ADX2N5NX7YPTW9V62MRYF","data":{"type":"response","method":"POST","url":"/api/accounting/goods-received","statusCode":400,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T20:12:54.743Z","component":"http","requestId":"01M21ADX2N5NX7YPTW9V62MRYF","data":{"event":"request_completed","route":"/api/accounting/goods-received","method":"POST","status":400,"durationMs":1,"userId":"9d092002-bddf-4218-9237-7b9c027868bf","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/goods-received","timestamp":"2026-09-08T20:12:54.756Z","component":"API","requestId":"01M21ADX34XGP5Y1G1Q9ZTN32P","data":{"type":"request","method":"POST","url":"/api/accounting/goods-received","query":{},"body":{"purchaseOrderId":"e1281722-1c4f-4f1c-8818-1f78cc74ce9f","receivedDate":"2026-09-08","receivedBy":"Fixture receiver","items":[{"poItemId":"3ae0b6f8-8c79-4284-b49e-477f02928c33","quantityReceived":-1,"quantityRejected":0}]}}}
+{"level":"info","message":"API Response: POST /api/accounting/goods-received - 400 (0ms)","timestamp":"2026-09-08T20:12:54.756Z","component":"API","requestId":"01M21ADX34XGP5Y1G1Q9ZTN32P","data":{"type":"response","method":"POST","url":"/api/accounting/goods-received","statusCode":400,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T20:12:54.756Z","component":"http","requestId":"01M21ADX34XGP5Y1G1Q9ZTN32P","data":{"event":"request_completed","route":"/api/accounting/goods-received","method":"POST","status":400,"durationMs":0,"userId":"9d092002-bddf-4218-9237-7b9c027868bf","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/goods-received","timestamp":"2026-09-08T20:12:54.759Z","component":"API","requestId":"01M21ADX374CVWJEZNHTVJBEBY","data":{"type":"request","method":"POST","url":"/api/accounting/goods-received","query":{},"body":{"purchaseOrderId":"e1281722-1c4f-4f1c-8818-1f78cc74ce9f","receivedDate":"2026-09-08","receivedBy":"Fixture receiver","items":[{"poItemId":"3ae0b6f8-8c79-4284-b49e-477f02928c33","quantityReceived":"Infinity","quantityRejected":0}]}}}
+{"level":"info","message":"API Response: POST /api/accounting/goods-received - 400 (0ms)","timestamp":"2026-09-08T20:12:54.759Z","component":"API","requestId":"01M21ADX374CVWJEZNHTVJBEBY","data":{"type":"response","method":"POST","url":"/api/accounting/goods-received","statusCode":400,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T20:12:54.759Z","component":"http","requestId":"01M21ADX374CVWJEZNHTVJBEBY","data":{"event":"request_completed","route":"/api/accounting/goods-received","method":"POST","status":400,"durationMs":0,"userId":"9d092002-bddf-4218-9237-7b9c027868bf","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/goods-received","timestamp":"2026-09-08T20:12:54.760Z","component":"API","requestId":"01M21ADX38CECPF5WWR6RMBN56","data":{"type":"request","method":"POST","url":"/api/accounting/goods-received","query":{},"body":{"purchaseOrderId":"e1281722-1c4f-4f1c-8818-1f78cc74ce9f","receivedDate":"2026-09-08","receivedBy":"Fixture receiver","items":[{"poItemId":"3ae0b6f8-8c79-4284-b49e-477f02928c33","quantityReceived":"NaN","quantityRejected":0}]}}}
+{"level":"info","message":"API Response: POST /api/accounting/goods-received - 400 (1ms)","timestamp":"2026-09-08T20:12:54.761Z","component":"API","requestId":"01M21ADX38CECPF5WWR6RMBN56","data":{"type":"response","method":"POST","url":"/api/accounting/goods-received","statusCode":400,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T20:12:54.761Z","component":"http","requestId":"01M21ADX38CECPF5WWR6RMBN56","data":{"event":"request_completed","route":"/api/accounting/goods-received","method":"POST","status":400,"durationMs":1,"userId":"9d092002-bddf-4218-9237-7b9c027868bf","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/goods-received","timestamp":"2026-09-08T20:12:54.762Z","component":"API","requestId":"01M21ADX3AP7K0RQGX00FM4Q2S","data":{"type":"request","method":"POST","url":"/api/accounting/goods-received","query":{},"body":{"purchaseOrderId":"e1281722-1c4f-4f1c-8818-1f78cc74ce9f","receivedDate":"2026-09-08","receivedBy":"Fixture receiver","items":[{"poItemId":"3ae0b6f8-8c79-4284-b49e-477f02928c33","quantityReceived":0.001,"quantityRejected":0}]}}}
+{"level":"info","message":"GRN created","timestamp":"2026-09-08T20:12:54.765Z","component":"accounting","requestId":"01M21ADX3AP7K0RQGX00FM4Q2S","data":{"grn":"GRN-00002","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086"}}
+{"level":"info","message":"API Response: POST /api/accounting/goods-received - 201 (3ms)","timestamp":"2026-09-08T20:12:54.765Z","component":"API","requestId":"01M21ADX3AP7K0RQGX00FM4Q2S","data":{"type":"response","method":"POST","url":"/api/accounting/goods-received","statusCode":201,"duration":"3ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T20:12:54.765Z","component":"http","requestId":"01M21ADX3AP7K0RQGX00FM4Q2S","data":{"event":"request_completed","route":"/api/accounting/goods-received","method":"POST","status":201,"durationMs":3,"userId":"9d092002-bddf-4218-9237-7b9c027868bf","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/goods-received","timestamp":"2026-09-08T20:12:54.780Z","component":"API","requestId":"01M21ADX3WT4NFSSC48KBS62PG","data":{"type":"request","method":"POST","url":"/api/accounting/goods-received","query":{},"body":{"purchaseOrderId":"e1281722-1c4f-4f1c-8818-1f78cc74ce9f","receivedDate":"2026-09-08","receivedBy":"Fixture receiver","items":[{"poItemId":"3ae0b6f8-8c79-4284-b49e-477f02928c33","quantityReceived":0,"quantityRejected":0}]}}}
+{"level":"info","message":"API Response: POST /api/accounting/goods-received - 400 (0ms)","timestamp":"2026-09-08T20:12:54.780Z","component":"API","requestId":"01M21ADX3WT4NFSSC48KBS62PG","data":{"type":"response","method":"POST","url":"/api/accounting/goods-received","statusCode":400,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T20:12:54.780Z","component":"http","requestId":"01M21ADX3WT4NFSSC48KBS62PG","data":{"event":"request_completed","route":"/api/accounting/goods-received","method":"POST","status":400,"durationMs":0,"userId":"9d092002-bddf-4218-9237-7b9c027868bf","companyId":"b5084a42-f526-48c3-b6fd-7c62ea856086","outcome":"client_error"}}
+ ❯ tests/integration/goods-received-postgres.int.test.ts (8 tests | 1 failed) 443ms
+   × rejects invalid quantity 0.001 without writes 17ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/goods-received-postgres.int.test.ts > rejects invalid quantity 0.001 without writes
+AssertionError: expected 201 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 201
+
+ ❯ tests/integration/goods-received-postgres.int.test.ts:52:59
+     50| it.each([-1,'Infinity','NaN',0.001,0])('rejects invalid quantity %s wi…
+     51|   const before=(await pool.query('SELECT id FROM goods_received_notes …
+     52|   expect((await post(po,item,quantity)).state.statusCode).toBe(400);
+       |                                                           ^
+     53|   expect((await pool.query('SELECT id FROM goods_received_notes WHERE …
+     54| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+   Start at  22:12:54
+   Duration  834ms (transform 120ms, setup 0ms, import 299ms, tests 443ms, environment 0ms)
+

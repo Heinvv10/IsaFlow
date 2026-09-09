@@ -1,0 +1,21 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"PAT created","timestamp":"2026-09-08T16:46:01.278Z","component":"pat","data":{"userId":"2dbad523-5e55-4717-b182-3006393e0787","companyId":"1a6b1940-0494-4992-99ca-cd29b5413052","name":"standing fixture","scopes":["read:invoices"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:01.282Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:46:01.295Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:01.304Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:01.310Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:46:01.319Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:01.324Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:01.330Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:46:01.341Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:01.350Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:01.355Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:46:01.359Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:46:01.365Z","component":"AdminCompanyService","data":{"companyId":"1a6b1940-0494-4992-99ca-cd29b5413052"}}
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  18:46:00
+   Duration  519ms (transform 101ms, setup 0ms, import 252ms, tests 164ms, environment 0ms)

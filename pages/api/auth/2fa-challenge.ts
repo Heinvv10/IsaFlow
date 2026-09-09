@@ -13,7 +13,7 @@ import {
   PENDING_REMEMBER_COOKIE,
 } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
-import { verifyToken } from '@/lib/auth/gotrue';
+import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -50,7 +50,7 @@ const handler: NextApiHandler = async (req, res) => {
   let userId: string;
   let email: string;
   try {
-    const claims = await verifyToken(pending_token);
+    const claims = await verifyTokenSignature(pending_token);
     userId = claims.sub;
     email = typeof claims.email === 'string' ? claims.email : '';
   } catch {

@@ -1,0 +1,36 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/auth/withPlatformAdmin.pools") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/als") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/logger") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/neon") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-08T17:13:38.314Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-08T17:13:38.317Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-08T17:13:38.317Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-08T17:13:38.320Z","component":"extensionJwt","data":{}}
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-08T17:13:38.337Z","component":"Admin","data":{"admin":"admin-user","target":"target-user"}}
+{"level":"warn","message":"end-impersonation ownership mismatch","timestamp":"2026-09-08T17:13:38.339Z","component":"Admin","data":{"callerId":"unrelated-user","stashAdmin":"admin-user","stashTarget":"target-user"}}
+{"level":"warn","message":"withUserAuth: invalid token","timestamp":"2026-09-08T17:13:38.397Z","component":"Auth","data":{"message":"Invalid Compact JWS"}}
+{"level":"warn","message":"withPlatformAdmin: invalid token","timestamp":"2026-09-08T17:13:38.608Z","component":"Auth","data":{"message":"Invalid Compact JWS"}}
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-08T17:13:38.640Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"commit failed: serialization"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T17:13:38.650Z","component":"Auth","data":{"requestPath":"/api/auth/login","activeCompanyId":"00000000-0000-0000-0000-000000000cc1"}}
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-08T17:13:38.773Z","component":"Admin","data":{"admin":"00000000-0000-0000-0000-000000000ad1","target":"00000000-0000-0000-0000-000000000ab1"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T17:13:38.776Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T17:13:38.781Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T17:13:38.782Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+
+ Test Files  55 passed (55)
+      Tests  448 passed (448)
+   Start at  19:13:37
+   Duration  1.26s (transform 13.73s, setup 0ms, import 18.86s, tests 3.27s, environment 4ms)

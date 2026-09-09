@@ -1,0 +1,9 @@
+# Historical and provider acceptance limits
+
+The scoped read-only historical-impact.sql was run against disposable rows and returned only the requested company's unverified destination. No production inventory or mutation occurred. Saved numbers are not evidence of provider ownership; no provider_verified_at or token hash is invented for legacy rows.
+
+Before deployment, inventory each affected company, confirm provider configuration authority, coordinate its new callback URL and verification, and review conflicting active/retired reservations. Do not automatically transfer a reservation or move captured financial records. Determine historical attribution using provider-side message metadata and company-approved evidence; the SQL inventory alone cannot establish the correct owner.
+
+The code trusts the configured Twilio signing account. A signed delivery to the unpredictable URL with matching To demonstrates control sufficient to arrange that delivery, not legal ownership. Tests use SDK-generated signatures and local sinks; actual provider-console setup/sandbox delivery is not verified. No live provider messages or account changes are authorized. Target rollout also requires proxy/access-log token redaction and operational acceptance of unverified legacy delivery being refused. Reverting to address-only routing reintroduces the flaw; keep reservations/proof data when rolling back.
+
+Browser acceptance used the real local Capture Settings page, auth middleware, PostgreSQL and HTTP webhook. External browser traffic was blocked, including remote fonts. Initial harness attempt lacked the existing onboarding-complete cookie and stayed on onboarding; setting the disposable session's cookie enabled the workflow. No application auth/onboarding bypass was added. The final screenshot was inspected locally. Server outbound Twilio account/from settings were empty and the verification message requested no acknowledgement.

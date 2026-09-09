@@ -14,8 +14,8 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 
 ### Inbox + config
 - `GET /api/accounting/capture/inbox` — pending events with joined extraction (`?status=`)
-- `GET|POST /api/accounting/capture/inbox-address` — get / regenerate 6-hex email inbox slug (deactivates prior)
-- `GET|POST /api/accounting/capture/whatsapp-inbox` — get / upsert WABA number (E.164 validated); `{ address }`
+- `GET|POST /api/accounting/capture/inbox-address` — get / regenerate 32-hex email inbox slug (deactivates prior)
+- `GET|POST /api/accounting/capture/whatsapp-inbox` — get active/pending status / start WABA provider verification (E.164 validated); POST `{ address }` returns inactive pending claim, one-time verification URL and expiry. GET returns `{ active, pending }`; raw token is never reissued. Another-company reservation blocks callback activation, preserving the old verified destination
 
 ### Per-event actions
 - `POST /api/accounting/capture/[id]/post` — inline AI pipeline; gate-routes via `autoPublishGateService.decide` → `duplicate_blocked` (409) / `route_review` (draft) / `auto_publish` (approved). After insert: `performThreeWayMatch` + `attachEvidenceToProvisional` + `resolvePendingAlertForInvoice`
@@ -32,8 +32,8 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 - User routes: `withAuth(withErrorHandler(withWriteAccess(...)))` for mutating; `withAuth(withErrorHandler(...))` for GET
 - **Webhooks no-auth, secret-gated**:
   - `inbound-email`: verifies `X-Postmark-Token` against `POSTMARK_INBOUND_TOKEN` env (rejects when env missing)
-  - `inbound/whatsapp`: verifies `X-Twilio-Signature` via `twilio.validateRequest` using `TWILIO_AUTH_TOKEN`
-- **Webhooks always return 200** on rejection so provider stops retrying (payload contains `{ rejected: '<reason>' }`)
+  - `inbound/whatsapp`: verifies `X-Twilio-Signature` via `twilio.validateRequest` using `TWILIO_AUTH_TOKEN`; exact path and query are signed. A single token must match pending/verified destination before ingestion. Signed POST body must be an incoming WhatsApp message (matching WaId/From, Body and NumMedia); outbound status callbacks cannot establish proof
+- **Payload rejections return200** so provider stops retrying (payload contains `{ rejected: '<reason>' }`); WhatsApp signature/configuration failures retain403/503.
 
 ## Business rules
 - `routeEvent` is fire-and-forget — webhook response does not wait for VLM extraction; background task logs its own failures
