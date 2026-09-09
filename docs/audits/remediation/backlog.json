@@ -1687,8 +1687,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "c16abdde",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts"
@@ -1697,12 +1697,14 @@
     "K-046/red.log",
     "K-046/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "c16abdde",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k046-year-end-close",
+   "reviewRounds": 1
   },
   {
    "id": "K-047",
@@ -3593,7 +3595,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "status": "candidate",
-   "dependencies": [],
+   "dependencies": [
+    "K-046 fixer (c16abdde): still reproduces in changed form \u2014 dry run of an already-closed year reports a false zero and the live call throws the validateJournalEntry refusal on the single zero retained-earnings line instead of 23505; no second journal is written (pinned by a test)"
+   ],
    "testNames": [],
    "evidencePaths": [],
    "fixCommit": null,
@@ -8964,8 +8968,8 @@
    "correctedTrigger": "Executed on the fixture: 23514 on gl_journal_entries_source_check for source='year_end'.",
    "severityRationale": "Year-end close is impossible for every company; closing journals missing and periods stay unlocked.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "3222d0a6",
+   "status": "in-progress",
    "dependencies": [
     "Fixed with K-046 (migration adding year_end to the source CHECK)"
    ],
@@ -8976,12 +8980,14 @@
     "K-046/validation.md",
     "K-046/red.log"
    ],
-   "fixCommit": null,
+   "fixCommit": "3222d0a6",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "No wrong rows; no year-end close has ever completed.",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k046-year-end-close",
+   "reviewRounds": 1
   },
   {
    "id": "R-028",
