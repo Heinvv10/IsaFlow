@@ -1,0 +1,418 @@
+$ bash scripts/ci/run-ci.sh
+
+=== [ci] type-check ===
+$ tsc --noEmit
+[ci] type-check PASS
+
+=== [ci] lint ===
+$ eslint src pages --report-unused-disable-directives
+
+/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/mcp/tools/reports.ts
+  7:10  warning  'fmtDate' is defined but never used. Allowed unused vars must match /^_/u                   @typescript-eslint/no-unused-vars
+  8:10  warning  'getFiscalPeriodIdForDate' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/afs/cashFlowDirectService.ts
+  12:6  warning  'Row' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/creditNoteApproveService.ts
+  14:48  warning  'reverseJournalEntry' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/creditNoteCancelService.ts
+  13:10  warning  'fmtDate' is defined but never used. Allowed unused vars must match /^_/u             @typescript-eslint/no-unused-vars
+  15:10  warning  'createJournalEntry' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  15:30  warning  'postJournalEntry' is defined but never used. Allowed unused vars must match /^_/u    @typescript-eslint/no-unused-vars
+  16:10  warning  'getSystemAccount' is defined but never used. Allowed unused vars must match /^_/u    @typescript-eslint/no-unused-vars
+  18:15  warning  'JournalLineInput' is defined but never used. Allowed unused vars must match /^_/u    @typescript-eslint/no-unused-vars
+
+/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/generalLedgerStreamService.ts
+  52:8  warning  'GeneralLedgerCursor' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/reconciliation/subledgerReconciliationService.ts
+  54:15  warning  'SubledgerDocument' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+✖ 11 problems (0 errors, 11 warnings)
+
+[ci] lint PASS
+
+=== [ci] agent-docs ===
+$ node scripts/mirror-agent-docs.mjs --check
+OK: 74 agent document mirror(s) match canonical sources.
+[ci] agent-docs PASS
+
+=== [ci] security-guards ===
+OK: decodeToken imports scoped correctly.
+
+=== BL-13: every gl_journal_lines query must scope by company_id ===
+OK: gl_journal_lines usage is tenant-scoped.
+
+=== Pentest H7: client IP must come from getClientIp(), never x-forwarded-for[0] ===
+OK: client-IP extraction goes through getClientIp().
+
+=== Pentest H1: portal / impersonation JWT secrets must not be derived from JWT_SECRET ===
+OK: no JWT_SECRET derivations.
+
+=== posted_through: no fabricated 1970-01-01 sentinel, per docs/mcp/CONTRACTS.md ===
+OK: no posted_through sentinel outside the known, scheduled sites.
+[ci] security-guards PASS
+
+=== [ci] user-id-casts ===
+=== user identity is a string: no ::UUID casts on user_id / users.id ===
+OK: no ::UUID casts against string user-identity columns.
+[ci] user-id-casts PASS
+
+=== [ci] is-active-filters ===
+=== is_active must not filter a query that computes a balance ===
+OK: no new files. 2 baselined file(s) remain.
+Baselined file(s) now clean — remove them from scripts/ci/is-active-in-balances.baseline:
+pages/api/accounting/budget-vs-actual-export.ts
+pages/api/accounting/dashboard-stats.ts
+pages/api/accounting/reports-budget-vs-actual.ts
+pages/api/accounting/reports/cash-movement.ts
+src/modules/accounting/services/gl/closeReadinessChecks/openingBalanceEquityCheck.ts
+src/modules/accounting/services/reports/casewareExportService.ts
+src/modules/accounting/services/reports/cashFlowForecastDataService.ts
+src/modules/accounting/services/reports/consolidatedReportingService.ts
+src/modules/accounting/services/reports/kpiChartsService.ts
+src/modules/accounting/services/reports/kpiDashboardService.ts
+src/modules/bureau/services/bureauClientMetricsService.ts
+[ci] is-active-filters PASS
+
+=== [ci] raw-transactions ===
+OK: no raw transaction control in 2666 files.
+[ci] raw-transactions PASS
+
+=== [ci] vat-guard-coverage ===
+[vat-guard] OK — 1898 files scanned, 13 attended/no-claim paths allowlisted.
+[ci] vat-guard-coverage PASS
+
+=== [ci] self-defining-universe ===
+[self-defining-universe] OK — no report derives its own universe
+[ci] self-defining-universe PASS
+
+=== [ci] findings-numbering ===
+[findings-numbering] OK — no duplicate or malformed finding ids
+[ci] findings-numbering PASS
+
+=== [ci] migration-rls ===
+=== every migration-created company_id table must end up under RLS ===
+(156 table(s) not directly verifiable by this gate, matched against the baseline — see scripts/ci/migration-rls.baseline)
+OK: every company_id table created by a migration is under RLS (directly or via the baseline).
+[ci] migration-rls PASS
+
+=== [ci] unit-tests ===
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/auth/withPlatformAdmin.pools") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/als") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/logger") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/neon") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+{"level":"warn","message":"Portal token verification failed","timestamp":"2026-09-09T03:13:48.560Z","component":"portalJwt","data":{"error":"\"exp\" claim timestamp check failed"}}
+{"level":"warn","message":"Portal token verification failed","timestamp":"2026-09-09T03:13:48.561Z","component":"portalJwt","data":{"error":"signature verification failed"}}
+{"level":"warn","message":"Portal token verification failed","timestamp":"2026-09-09T03:13:48.562Z","component":"portalJwt","data":{"error":"signature verification failed"}}
+{"level":"warn","message":"withUserAuth: invalid token","timestamp":"2026-09-09T03:13:48.696Z","component":"Auth","data":{"message":"Invalid Compact JWS"}}
+{"level":"error","message":"SARS eFiling auth failed","timestamp":"2026-09-09T03:13:49.033Z","component":"sarsEfilingClient","data":{"httpStatus":401,"isvLogin":"isv-login-001"}}
+{"level":"error","message":"SARS eFiling auth failed","timestamp":"2026-09-09T03:13:49.036Z","component":"sarsEfilingClient","data":{"httpStatus":401,"isvLogin":"isv-login-001"}}
+{"level":"error","message":"SARS eFiling VAT201 submit failed","timestamp":"2026-09-09T03:13:49.040Z","component":"sarsEfilingClient","data":{"httpStatus":401}}
+{"level":"error","message":"SARS eFiling VAT201 submit failed","timestamp":"2026-09-09T03:13:49.042Z","component":"sarsEfilingClient","data":{"httpStatus":500}}
+{"level":"warn","message":"withPlatformAdmin: invalid token","timestamp":"2026-09-09T03:13:49.172Z","component":"Auth","data":{"message":"Invalid Compact JWS"}}
+{"level":"info","message":"renderPackPptx: rendered","timestamp":"2026-09-09T03:13:49.311Z","component":"packs","data":{"slides":4,"bytes":90346}}
+{"level":"info","message":"renderPackPptx: rendered","timestamp":"2026-09-09T03:13:49.319Z","component":"packs","data":{"slides":4,"bytes":90346}}
+{"level":"info","message":"renderPackPptx: rendered","timestamp":"2026-09-09T03:13:49.325Z","component":"packs","data":{"slides":1,"bytes":67657}}
+{"level":"info","message":"renderPackPptx: rendered","timestamp":"2026-09-09T03:13:49.327Z","component":"packs","data":{"slides":0,"bytes":39793}}
+{"level":"info","message":"renderPackPptx: rendered","timestamp":"2026-09-09T03:13:49.329Z","component":"packs","data":{"slides":1,"bytes":45384}}
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-09T03:13:49.323Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"commit failed: serialization"}}
+{"level":"info","message":"renderPackPptx: rendered","timestamp":"2026-09-09T03:13:49.332Z","component":"packs","data":{"slides":1,"bytes":48055}}
+{"level":"warn","message":"bankTxQuery: send failed","timestamp":"2026-09-09T03:13:49.867Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","reason":"twilio env vars not configured"}}
+{"level":"info","message":"bankTxQuery: sent","timestamp":"2026-09-09T03:13:49.868Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","to":"+27821234567"}}
+{"level":"error","message":"bankTxQuery: INSERT returned no row","timestamp":"2026-09-09T03:13:49.871Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}}
+{"level":"info","message":"bankTxQuery: sent","timestamp":"2026-09-09T03:13:49.871Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","to":"+27821234567"}}
+{"level":"info","message":"bankTxQuery: sent","timestamp":"2026-09-09T03:13:49.872Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","to":"+27821234567"}}
+{"level":"info","message":"bankTxQuery: status changed","timestamp":"2026-09-09T03:13:49.873Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","action":"resolve"}}
+{"level":"info","message":"bankTxQuery: sent","timestamp":"2026-09-09T03:13:49.875Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","to":"+27821234567"}}
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-09T03:13:49.946Z","component":"Admin","data":{"admin":"00000000-0000-0000-0000-000000000ad1","target":"00000000-0000-0000-0000-000000000ab1"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-09T03:13:49.951Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-09T03:13:49.958Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-09T03:13:49.961Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:50.111Z","component":"Auth","data":{"requestPath":"/api/auth/login","activeCompanyId":"00000000-0000-0000-0000-000000000cc1"}}
+{"level":"info","message":"buildAfsCharts","timestamp":"2026-09-09T03:13:50.142Z","component":"afs","data":{"rendered":1}}
+{"level":"info","message":"buildAfsCharts","timestamp":"2026-09-09T03:13:50.143Z","component":"afs","data":{"rendered":0}}
+{"level":"info","message":"Dunning send","timestamp":"2026-09-09T03:13:50.850Z","component":"dunningService","data":{"sendId":"dddddddd-dddd-dddd-dddd-dddddddddddd","invoiceId":"cccccccc-cccc-cccc-cccc-cccccccccccc","templateId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","emailStatus":"sent"}}
+{"level":"info","message":"Dunning send","timestamp":"2026-09-09T03:13:50.852Z","component":"dunningService","data":{"sendId":"dddddddd-dddd-dddd-dddd-dddddddddddd","invoiceId":"cccccccc-cccc-cccc-cccc-cccccccccccc","templateId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","emailStatus":"failed"}}
+{"level":"info","message":"Dunning send","timestamp":"2026-09-09T03:13:50.852Z","component":"dunningService","data":{"sendId":"dddddddd-dddd-dddd-dddd-dddddddddddd","invoiceId":"cccccccc-cccc-cccc-cccc-cccccccccccc","templateId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","emailStatus":"sent"}}
+{"level":"info","message":"Seeded SA default dunning templates","timestamp":"2026-09-09T03:13:50.853Z","component":"dunningAdmin","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}}
+{"level":"info","message":"Creating payroll batch","timestamp":"2026-09-09T03:13:51.788Z","component":"payrollBatchService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","batchType":"component_values","componentId":"cccccccc-cccc-cccc-cccc-cccccccccccc","periodYear":2026,"periodMonth":4}}
+{"level":"info","message":"Creating payroll batch","timestamp":"2026-09-09T03:13:51.790Z","component":"payrollBatchService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","batchType":"reimbursive_travel","periodYear":2026,"periodMonth":4}}
+{"level":"info","message":"Payroll batch posted","timestamp":"2026-09-09T03:13:51.794Z","component":"payrollBatchService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","batchId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","userId":"user-1","inserted":1,"batchType":"component_values"}}
+{"level":"info","message":"Payroll batch posted","timestamp":"2026-09-09T03:13:51.794Z","component":"payrollBatchService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","batchId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","userId":"user-1","inserted":2,"batchType":"reimbursive_travel"}}
+{"level":"info","message":"Parsed QIF statement","timestamp":"2026-09-09T03:13:52.007Z","component":"accounting","data":{"transactionCount":3,"errorCount":0}}
+{"level":"warn","message":"printAuth: token expired","timestamp":"2026-09-09T03:13:52.209Z","component":"printAuth","data":{"companyId":"00000000-0000-0000-0000-000000000001","paths":["/api/accounting/reports-management-accounts"]}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.210Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-management-accounts"],"requestPath":"/api/accounting/reports-balance-sheet"}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-09T03:13:52.210Z","component":"printAuth","data":{"paths":["/api/accounting/reports-management-accounts"]}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-09T03:13:52.210Z","component":"printAuth","data":{"paths":["/api/accounting/reports-management-accounts"]}}
+{"level":"warn","message":"printAuth: PRINT_TOKEN_SECRET is shorter than the minimum length","timestamp":"2026-09-09T03:13:52.212Z","component":"printAuth","data":{"minLength":32}}
+{"level":"warn","message":"printAuth: PRINT_TOKEN_SECRET is shorter than the minimum length","timestamp":"2026-09-09T03:13:52.212Z","component":"printAuth","data":{"minLength":32}}
+{"level":"warn","message":"printAuth: token expired","timestamp":"2026-09-09T03:13:52.213Z","component":"printAuth","data":{"companyId":"00000000-0000-0000-0000-000000000001","paths":["/api/accounting/reports-management-accounts"]}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-09T03:13:52.213Z","component":"printAuth","data":{"paths":["/api/accounting/reports-management-accounts"]}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.214Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack","/api/accounting/packs/management/trend"],"requestPath":"/api/accounting/reports-balance-sheet"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.214Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack-secret"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.214Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.214Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack/sub"}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-09T03:13:52.215Z","component":"printAuth","data":{"paths":["/api/accounting/reports-pack","/api/accounting/customers"]}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-09T03:13:52.215Z","component":"printAuth","data":{"paths":["/api/accounting/reports-pack","/api/accounting/customers"]}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.218Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack/"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.218Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/API/ACCOUNTING/REPORTS-PACK"}}
+{"level":"info","message":"Cancelled customer invoice","timestamp":"2026-09-09T03:13:52.261Z","component":"accounting","data":{"invoiceId":"33333333-3333-3333-3333-333333333333","reversedJournalEntryId":"99999999-9999-9999-9999-999999999999"}}
+{"level":"info","message":"Cancelled customer invoice","timestamp":"2026-09-09T03:13:52.267Z","component":"accounting","data":{"invoiceId":"33333333-3333-3333-3333-333333333333","reversedJournalEntryId":null}}
+{"level":"info","message":"Cancelled customer invoice","timestamp":"2026-09-09T03:13:52.268Z","component":"accounting","data":{"invoiceId":"33333333-3333-3333-3333-333333333333","reversedJournalEntryId":null}}
+{"level":"error","message":"Failed to cancel customer invoice","timestamp":"2026-09-09T03:13:52.264Z","component":"accounting","data":{"invoiceId":"33333333-3333-3333-3333-333333333333","error":{"name":"Error","message":"Cannot post to closed fiscal period","stack":"Error: Cannot post to closed fiscal period\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/services/ar/customerInvoiceCancelService.test.ts:114:35\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:26\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2316:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2313:10)\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2295:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2262:10)\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2945:64"}}}
+{"level":"error","message":"Failed to cancel customer invoice","timestamp":"2026-09-09T03:13:52.266Z","component":"accounting","data":{"invoiceId":"33333333-3333-3333-3333-333333333333","error":{"name":"InvoiceHasPaymentsError","message":"Cannot cancel invoice with payments","stack":"InvoiceHasPaymentsError: Cannot cancel invoice with payments\n    at cancelCustomerInvoiceInner (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/customerInvoiceCancelService.ts:105:13)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)"}}}
+{"level":"error","message":"Failed to cancel customer invoice","timestamp":"2026-09-09T03:13:52.267Z","component":"accounting","data":{"invoiceId":"33333333-3333-3333-3333-333333333333","error":{"name":"InvoiceHasPaymentsError","message":"Cannot cancel invoice with payments","stack":"InvoiceHasPaymentsError: Cannot cancel invoice with payments\n    at cancelCustomerInvoiceInner (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/customerInvoiceCancelService.ts:119:13)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)"}}}
+{"level":"error","message":"Failed to cancel customer invoice","timestamp":"2026-09-09T03:13:52.268Z","component":"accounting","data":{"invoiceId":"33333333-3333-3333-3333-333333333333","error":{"name":"InvoiceNotFoundError","message":"Invoice 33333333-3333-3333-3333-333333333333 not found","stack":"InvoiceNotFoundError: Invoice 33333333-3333-3333-3333-333333333333 not found\n    at cancelCustomerInvoiceInner (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/customerInvoiceCancelService.ts:93:37)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)"}}}
+{"level":"error","message":"Failed to cancel customer invoice","timestamp":"2026-09-09T03:13:52.269Z","component":"accounting","data":{"invoiceId":"33333333-3333-3333-3333-333333333333","error":{"name":"InvoiceNotFoundError","message":"Invoice 33333333-3333-3333-3333-333333333333 not found","stack":"InvoiceNotFoundError: Invoice 33333333-3333-3333-3333-333333333333 not found\n    at cancelCustomerInvoiceInner (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/customerInvoiceCancelService.ts:93:37)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)"}}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-09T03:13:52.484Z","component":"Auth","data":{"companyId":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002","paths":["/api/accounting/reports-pack","/api/accounting/packs/management/trend"]}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-09T03:13:52.486Z","component":"Auth","data":{"companyId":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002","paths":["/api/accounting/reports-pack","/api/accounting/packs/management/trend"]}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-09T03:13:52.490Z","component":"Auth","data":{"companyId":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002","paths":["/api/accounting/reports-pack"]}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-09T03:13:52.492Z","component":"Auth","data":{"companyId":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002","paths":["/api/accounting/reports-pack"]}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.487Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack/"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.487Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack/","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.488Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack","/api/accounting/packs/management/trend"],"requestPath":"/api/accounting/customers"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.488Z","component":"Auth","data":{"requestPath":"/api/accounting/customers","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.488Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-0000000000ff"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.489Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack-secret"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.489Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack-secret","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.489Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack/sub"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.489Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack/sub","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.489Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.489Z","component":"Auth","data":{"requestPath":"/api/accounting/reports","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.489Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack/"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.490Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack/","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-09T03:13:52.490Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/customers"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.490Z","component":"Auth","data":{"requestPath":"/api/accounting/customers","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-09T03:13:52.490Z","component":"printAuth","data":{"paths":["/api/accounting/reports-pack"]}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-09T03:13:52.491Z","component":"printAuth","data":{"paths":["/api/accounting/reports-pack"]}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-09T03:13:52.491Z","component":"Auth","data":{"message":"no GoTrue session"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.491Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.491Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.491Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.491Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.491Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-09T03:13:52.491Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"info","message":"Dispute raised","timestamp":"2026-09-09T03:13:53.015Z","component":"dispute","data":{"disputeId":"44444444-4444-4444-4444-444444444444","invoiceId":"22222222-2222-2222-2222-222222222222","disputedAmount":1500,"raisedBy":"customer:abc"}}
+{"level":"info","message":"Dispute resolved","timestamp":"2026-09-09T03:13:53.019Z","component":"dispute","data":{"disputeId":"44444444-4444-4444-4444-444444444444","mode":"resolve_with_credit","creditNoteId":"77777777-7777-7777-7777-777777777777","userId":"55555555-5555-5555-5555-555555555555"}}
+{"level":"info","message":"Dispute resolved","timestamp":"2026-09-09T03:13:53.020Z","component":"dispute","data":{"disputeId":"44444444-4444-4444-4444-444444444444","mode":"resolve_no_credit","creditNoteId":null,"userId":"55555555-5555-5555-5555-555555555555"}}
+{"level":"info","message":"Dispute resolved","timestamp":"2026-09-09T03:13:53.021Z","component":"dispute","data":{"disputeId":"44444444-4444-4444-4444-444444444444","mode":"rejected","creditNoteId":null,"userId":"55555555-5555-5555-5555-555555555555"}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-09T03:13:53.077Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-09T03:13:53.078Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-09T03:13:53.079Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-09T03:13:53.084Z","component":"extensionJwt","data":{}}
+{"level":"info","message":"Creating cost centre","timestamp":"2026-09-09T03:13:53.377Z","component":"costCentreService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","code":"ADMIN"}}
+{"level":"info","message":"Employee cost centre reassigned","timestamp":"2026-09-09T03:13:53.381Z","component":"costCentreService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"e0000001-0000-0000-0000-000000000001","costCentreId":"cc000001-0000-0000-0000-000000000001"}}
+{"level":"info","message":"Employee cost centre reassigned","timestamp":"2026-09-09T03:13:53.381Z","component":"costCentreService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"e0000001-0000-0000-0000-000000000001","costCentreId":null}}
+{"level":"info","message":"Created cost centre","timestamp":"2026-09-09T03:13:53.383Z","component":"accounting","data":{"id":"cc000001-0000-0000-0000-000000000001","code":"CC1"}}
+{"level":"info","message":"Created cost centre","timestamp":"2026-09-09T03:13:53.383Z","component":"accounting","data":{"id":"cc000001-0000-0000-0000-000000000001","code":"X"}}
+{"level":"info","message":"Created cost centre","timestamp":"2026-09-09T03:13:53.383Z","component":"accounting","data":{"id":"cc000001-0000-0000-0000-000000000001","code":"X"}}
+{"level":"info","message":"API Request: GET /api/x","timestamp":"2026-09-09T03:13:53.446Z","component":"API","requestId":"01M222GQS5B8CFF3RMF9ATCGF5","data":{"type":"request","method":"GET","url":"/api/x"}}
+{"level":"info","message":"API Response: GET /api/x - 200 (2ms)","timestamp":"2026-09-09T03:13:53.447Z","component":"API","requestId":"01M222GQS5B8CFF3RMF9ATCGF5","data":{"type":"response","method":"GET","url":"/api/x","statusCode":200,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.447Z","component":"http","requestId":"01M222GQS5B8CFF3RMF9ATCGF5","data":{"event":"request_completed","route":"/api/x","method":"GET","status":200,"durationMs":2,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/x","timestamp":"2026-09-09T03:13:53.448Z","component":"API","requestId":"01M222GQS8ADPX3AQMR385APCF","data":{"type":"request","method":"GET","url":"/api/x"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.450Z","component":"http","requestId":"01M222GQS8ADPX3AQMR385APCF","data":{"event":"request_completed","route":"/api/x","method":"GET","status":500,"durationMs":2,"userId":null,"companyId":null,"outcome":"server_error"}}
+{"level":"info","message":"API Request: GET /api/x","timestamp":"2026-09-09T03:13:53.451Z","component":"API","requestId":"01M222GQSB4DQTQNW6QEB4E9AM","data":{"type":"request","method":"GET","url":"/api/x"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.452Z","component":"http","requestId":"01M222GQSB4DQTQNW6QEB4E9AM","data":{"event":"request_completed","route":"/api/x","method":"GET","status":500,"durationMs":1,"userId":null,"companyId":null,"outcome":"server_error"}}
+{"level":"info","message":"Creating pay scale","timestamp":"2026-09-09T03:13:53.447Z","component":"payScaleService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","code":"G5"}}
+{"level":"error","message":"error","timestamp":"2026-09-09T03:13:53.450Z","component":"API","requestId":"01M222GQS8ADPX3AQMR385APCF","data":{"type":"error","method":"GET","url":"/api/x","error":"boom","stack":"Error: boom\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/sentry/error-handler-integration.test.ts:40:58\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:15\n    at AsyncLocalStorage.run (node:async_hooks:346:14)\n    at runWithRequestContext (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/observability/requestContext.ts:33:18)\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:13)\n    at Proxy.withIsolationScope (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/sentry/error-handler-integration.test.ts:9:46)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:190:20\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/sentry/error-handler-integration.test.ts:41:11\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:26","duration":"0ms"}}
+{"level":"error","message":"error","timestamp":"2026-09-09T03:13:53.451Z","component":"API","requestId":"01M222GQSB4DQTQNW6QEB4E9AM","data":{"type":"error","method":"GET","url":"/api/x","error":"boom","stack":"Error: boom\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/sentry/error-handler-integration.test.ts:51:58\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:15\n    at AsyncLocalStorage.run (node:async_hooks:346:14)\n    at runWithRequestContext (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/observability/requestContext.ts:33:18)\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:13)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:13\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/sentry/error-handler-integration.test.ts:52:11\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:26\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2316:20","duration":"0ms"}}
+{"level":"info","message":"Quote created","timestamp":"2026-09-09T03:13:53.502Z","data":{"quoteNumber":"QUO-00001","total":287.5}}
+{"level":"info","message":"Quote created","timestamp":"2026-09-09T03:13:53.504Z","data":{"quoteNumber":"QUO-00001","total":230}}
+{"level":"info","message":"Quote created","timestamp":"2026-09-09T03:13:53.505Z","data":{"quoteNumber":"QUO-00001","total":34.5}}
+{"level":"info","message":"Quote updated","timestamp":"2026-09-09T03:13:53.505Z","data":{"id":"22222222-2222-2222-2222-222222222222"}}
+{"level":"info","message":"API Request: GET /.well-known/x","timestamp":"2026-09-09T03:13:53.509Z","component":"API","requestId":"01M222GQV3D747KAKTHZ3GQBM3","data":{"type":"request","method":"GET","url":"/.well-known/x"}}
+{"level":"info","message":"API Response: GET /.well-known/x - 200 (1ms)","timestamp":"2026-09-09T03:13:53.509Z","component":"API","requestId":"01M222GQV3D747KAKTHZ3GQBM3","data":{"type":"response","method":"GET","url":"/.well-known/x","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.509Z","component":"http","requestId":"01M222GQV3D747KAKTHZ3GQBM3","data":{"event":"request_completed","route":"/.well-known/x","method":"GET","status":200,"durationMs":1,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /.well-known/x","timestamp":"2026-09-09T03:13:53.511Z","component":"API","requestId":"01M222GQV78QZZP6JR17Z1W3TY","data":{"type":"request","method":"GET","url":"/.well-known/x"}}
+{"level":"info","message":"API Response: GET /.well-known/x - 200 (0ms)","timestamp":"2026-09-09T03:13:53.511Z","component":"API","requestId":"01M222GQV78QZZP6JR17Z1W3TY","data":{"type":"response","method":"GET","url":"/.well-known/x","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.511Z","component":"http","requestId":"01M222GQV78QZZP6JR17Z1W3TY","data":{"event":"request_completed","route":"/.well-known/x","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /.well-known/x","timestamp":"2026-09-09T03:13:53.511Z","component":"API","requestId":"01M222GQV7QDBKZ10WRDBWRJ6B","data":{"type":"request","method":"GET","url":"/.well-known/x"}}
+{"level":"info","message":"API Response: GET /.well-known/x - 200 (0ms)","timestamp":"2026-09-09T03:13:53.511Z","component":"API","requestId":"01M222GQV7QDBKZ10WRDBWRJ6B","data":{"type":"response","method":"GET","url":"/.well-known/x","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.511Z","component":"http","requestId":"01M222GQV7QDBKZ10WRDBWRJ6B","data":{"event":"request_completed","route":"/.well-known/x","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST /.well-known/x","timestamp":"2026-09-09T03:13:53.511Z","component":"API","requestId":"01M222GQV7W101NNS81YHSR6Y1","data":{"type":"request","method":"POST","url":"/.well-known/x"}}
+{"level":"info","message":"API Response: POST /.well-known/x - 405 (0ms)","timestamp":"2026-09-09T03:13:53.511Z","component":"API","requestId":"01M222GQV7W101NNS81YHSR6Y1","data":{"type":"response","method":"POST","url":"/.well-known/x","statusCode":405,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.511Z","component":"http","requestId":"01M222GQV7W101NNS81YHSR6Y1","data":{"event":"request_completed","route":"/.well-known/x","method":"POST","status":405,"durationMs":0,"userId":null,"companyId":null,"outcome":"client_error"}}
+{"level":"info","message":"API Request: GET /.well-known/x","timestamp":"2026-09-09T03:13:53.512Z","component":"API","requestId":"01M222GQV861B506GKB3CPK45Q","data":{"type":"request","method":"GET","url":"/.well-known/x"}}
+{"level":"info","message":"API Response: GET /.well-known/x - 200 (0ms)","timestamp":"2026-09-09T03:13:53.512Z","component":"API","requestId":"01M222GQV861B506GKB3CPK45Q","data":{"type":"response","method":"GET","url":"/.well-known/x","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.512Z","component":"http","requestId":"01M222GQV861B506GKB3CPK45Q","data":{"event":"request_completed","route":"/.well-known/x","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /.well-known/x","timestamp":"2026-09-09T03:13:53.513Z","component":"API","requestId":"01M222GQV8PH2XWDZ07RHX7TS2","data":{"type":"request","method":"GET","url":"/.well-known/x"}}
+{"level":"info","message":"API Response: GET /.well-known/x - 200 (0ms)","timestamp":"2026-09-09T03:13:53.513Z","component":"API","requestId":"01M222GQV8PH2XWDZ07RHX7TS2","data":{"type":"response","method":"GET","url":"/.well-known/x","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.513Z","component":"http","requestId":"01M222GQV8PH2XWDZ07RHX7TS2","data":{"event":"request_completed","route":"/.well-known/x","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST /.well-known/x","timestamp":"2026-09-09T03:13:53.513Z","component":"API","requestId":"01M222GQV9QVAZFDP8H048H2GG","data":{"type":"request","method":"POST","url":"/.well-known/x"}}
+{"level":"info","message":"API Response: POST /.well-known/x - 405 (0ms)","timestamp":"2026-09-09T03:13:53.513Z","component":"API","requestId":"01M222GQV9QVAZFDP8H048H2GG","data":{"type":"response","method":"POST","url":"/.well-known/x","statusCode":405,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.513Z","component":"http","requestId":"01M222GQV9QVAZFDP8H048H2GG","data":{"event":"request_completed","route":"/.well-known/x","method":"POST","status":405,"durationMs":0,"userId":null,"companyId":null,"outcome":"client_error"}}
+{"level":"info","message":"Replacing employee cost allocations","timestamp":"2026-09-09T03:13:53.649Z","component":"payrollCostAllocationService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"e0000001-0000-0000-0000-000000000001","count":2}}
+{"level":"info","message":"Replacing employee cost allocations","timestamp":"2026-09-09T03:13:53.651Z","component":"payrollCostAllocationService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"e0000001-0000-0000-0000-000000000001","count":2}}
+{"level":"info","message":"Replacing employee cost allocations","timestamp":"2026-09-09T03:13:53.651Z","component":"payrollCostAllocationService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"e0000001-0000-0000-0000-000000000001","count":0}}
+{"level":"info","message":"Replacing employee cost allocations","timestamp":"2026-09-09T03:13:53.652Z","component":"payrollCostAllocationService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"e0000001-0000-0000-0000-000000000001","count":3}}
+{"level":"info","message":"API Request: PUT /api/accounting/afs/brand-profile","timestamp":"2026-09-09T03:13:53.676Z","component":"API","requestId":"01M222GR0AK4T0GP0HP901MDXF","data":{"type":"request","method":"PUT","url":"/api/accounting/afs/brand-profile","query":{},"body":{"primaryColour":"#f5f5f5","secondaryColour":"#c8a86b","fontFamily":"professional","coverStyle":"classic"}}}
+{"level":"info","message":"Upserting AFS brand profile","timestamp":"2026-09-09T03:13:53.677Z","component":"afs-brand-profile-api","requestId":"01M222GR0AK4T0GP0HP901MDXF","data":{"companyId":"11111111-1111-4111-8111-111111111111"}}
+{"level":"info","message":"API Response: PUT /api/accounting/afs/brand-profile - 400 (3ms)","timestamp":"2026-09-09T03:13:53.678Z","component":"API","requestId":"01M222GR0AK4T0GP0HP901MDXF","data":{"type":"response","method":"PUT","url":"/api/accounting/afs/brand-profile","statusCode":400,"duration":"3ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.678Z","component":"http","requestId":"01M222GR0AK4T0GP0HP901MDXF","data":{"event":"request_completed","route":"/api/accounting/afs/brand-profile","method":"PUT","status":400,"durationMs":3,"userId":"u1","companyId":"11111111-1111-4111-8111-111111111111","outcome":"client_error"}}
+{"level":"info","message":"API Request: PUT /api/accounting/afs/brand-profile","timestamp":"2026-09-09T03:13:53.680Z","component":"API","requestId":"01M222GR0GEKKGP98H8Y9SKTQJ","data":{"type":"request","method":"PUT","url":"/api/accounting/afs/brand-profile","query":{},"body":{"primaryColour":"#1a3a5c","secondaryColour":"#c8a86b","fontFamily":"professional","coverStyle":"classic"}}}
+{"level":"info","message":"Upserting AFS brand profile","timestamp":"2026-09-09T03:13:53.680Z","component":"afs-brand-profile-api","requestId":"01M222GR0GEKKGP98H8Y9SKTQJ","data":{"companyId":"11111111-1111-4111-8111-111111111111"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.682Z","component":"http","requestId":"01M222GR0GEKKGP98H8Y9SKTQJ","data":{"event":"request_completed","route":"/api/accounting/afs/brand-profile","method":"PUT","status":500,"durationMs":2,"userId":"u1","companyId":"11111111-1111-4111-8111-111111111111","outcome":"server_error"}}
+{"level":"info","message":"API Request: PUT /api/accounting/afs/brand-profile","timestamp":"2026-09-09T03:13:53.682Z","component":"API","requestId":"01M222GR0JV8BWP0Y7AV2PDZCZ","data":{"type":"request","method":"PUT","url":"/api/accounting/afs/brand-profile","query":{},"body":{"primaryColour":"#1a3a5c","secondaryColour":"#c8a86b","fontFamily":"professional","coverStyle":"classic"}}}
+{"level":"info","message":"Upserting AFS brand profile","timestamp":"2026-09-09T03:13:53.683Z","component":"afs-brand-profile-api","requestId":"01M222GR0JV8BWP0Y7AV2PDZCZ","data":{"companyId":"11111111-1111-4111-8111-111111111111"}}
+{"level":"info","message":"API Response: PUT /api/accounting/afs/brand-profile - 200 (1ms)","timestamp":"2026-09-09T03:13:53.683Z","component":"API","requestId":"01M222GR0JV8BWP0Y7AV2PDZCZ","data":{"type":"response","method":"PUT","url":"/api/accounting/afs/brand-profile","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:13:53.683Z","component":"http","requestId":"01M222GR0JV8BWP0Y7AV2PDZCZ","data":{"event":"request_completed","route":"/api/accounting/afs/brand-profile","method":"PUT","status":200,"durationMs":1,"userId":"u1","companyId":"11111111-1111-4111-8111-111111111111","outcome":"ok"}}
+{"level":"warn","message":"Rejected brand primary colour","timestamp":"2026-09-09T03:13:53.678Z","component":"afs-brand-profile-api","requestId":"01M222GR0AK4T0GP0HP901MDXF","data":{"companyId":"11111111-1111-4111-8111-111111111111","problem":"invisible-on-page"}}
+{"level":"error","message":"error","timestamp":"2026-09-09T03:13:53.682Z","component":"API","requestId":"01M222GR0GEKKGP98H8Y9SKTQJ","data":{"type":"error","method":"PUT","url":"/api/accounting/afs/brand-profile","error":"connection terminated unexpectedly","stack":"Error: connection terminated unexpectedly\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/api/brandProfileRoute.test.ts:71:34\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:26\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2316:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2313:10)\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2295:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2262:10)\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:2945:64","duration":"0ms"}}
+{"level":"info","message":"waitlist promoted","timestamp":"2026-09-09T03:13:53.966Z","component":"onboarding","data":{"waitlistId":"00000000-0000-0000-0000-000000000042","companyId":"company-new","planCode":"payg","paygEligible":true}}
+{"level":"info","message":"waitlist promoted","timestamp":"2026-09-09T03:13:53.968Z","component":"onboarding","data":{"waitlistId":"00000000-0000-0000-0000-000000000042","companyId":"company-new","planCode":"payg","paygEligible":true}}
+{"level":"info","message":"waitlist promoted","timestamp":"2026-09-09T03:13:53.968Z","component":"onboarding","data":{"waitlistId":"00000000-0000-0000-0000-000000000042","companyId":"company-new","planCode":"starter","paygEligible":true}}
+{"level":"warn","message":"waitlist promotion: unknown plan code, proceeding without plan","timestamp":"2026-09-09T03:13:53.969Z","component":"onboarding","data":{"waitlistId":"00000000-0000-0000-0000-000000000042","planCode":"bogus"}}
+{"level":"info","message":"waitlist promoted","timestamp":"2026-09-09T03:13:53.970Z","component":"onboarding","data":{"waitlistId":"00000000-0000-0000-0000-000000000042","companyId":"company-new","planCode":"bogus","paygEligible":true}}
+{"level":"info","message":"waitlist promoted","timestamp":"2026-09-09T03:13:53.970Z","component":"onboarding","data":{"waitlistId":"00000000-0000-0000-0000-000000000042","companyId":"company-bureau","planCode":null,"paygEligible":true}}
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-09T03:13:55.729Z","component":"Admin","data":{"admin":"admin-user","target":"target-user"}}
+{"level":"warn","message":"end-impersonation ownership mismatch","timestamp":"2026-09-09T03:13:55.731Z","component":"Admin","data":{"callerId":"unrelated-user","stashAdmin":"admin-user","stashTarget":"target-user"}}
+{"level":"info","message":"Creating payroll loan","timestamp":"2026-09-09T03:13:56.259Z","component":"payrollLoanService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"e0000001-0000-0000-0000-000000000001","loanNumber":"L-0001","principal":12000,"termMonths":12,"method":"declining_balance"}}
+{"level":"info","message":"Loan payment applied","timestamp":"2026-09-09T03:13:56.261Z","component":"payrollLoanService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","loanId":"l0000001-0000-0000-0000-000000000001","periodYear":2026,"periodMonth":1,"interest":120,"principal":940,"fringeBenefit":0,"newBalance":11060}}
+{"level":"info","message":"Loan payment applied","timestamp":"2026-09-09T03:13:56.261Z","component":"payrollLoanService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","loanId":"l0000001-0000-0000-0000-000000000001","periodYear":2026,"periodMonth":1,"interest":0,"principal":1000,"fringeBenefit":85,"newBalance":11000}}
+{"level":"info","message":"Loan closed","timestamp":"2026-09-09T03:13:56.262Z","component":"payrollLoanService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","loanId":"l0000001-0000-0000-0000-000000000001","status":"settled","userId":"user-1"}}
+{"level":"info","message":"Creating pay package","timestamp":"2026-09-09T03:13:56.671Z","component":"payPackageService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","code":"EXEC"}}
+{"level":"info","message":"Applying pay package","timestamp":"2026-09-09T03:13:56.675Z","component":"payPackageService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","packageId":"pp000001-0000-0000-0000-000000000001","employeeId":"e0000001-0000-0000-0000-000000000001","effectiveFrom":"2026-05-01","userId":"user-1","rowCount":2}}
+{"level":"info","message":"Applying pay package","timestamp":"2026-09-09T03:13:56.676Z","component":"payPackageService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","packageId":"pp000001-0000-0000-0000-000000000001","employeeId":"e0000001-0000-0000-0000-000000000001","effectiveFrom":"2026-05-01","userId":"user-1","rowCount":2}}
+{"level":"info","message":"bankTxQueryReply: media attached to bank tx","timestamp":"2026-09-09T03:13:56.804Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","fileName":"whatsapp_SM123_0.jpeg","size":7}}
+{"level":"info","message":"bankTxQueryReply: media attached to bank tx","timestamp":"2026-09-09T03:13:56.806Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","fileName":"whatsapp_SM_boundary_0.jpeg","size":2097152}}
+{"level":"warn","message":"bankTxQueryReply: media over attachment cap — captured but not attached","timestamp":"2026-09-09T03:13:56.805Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","size":2097153,"fileName":"big.jpeg"}}
+{"level":"error","message":"bankTxQueryReply: bank tx does not belong to company — refusing attach","timestamp":"2026-09-09T03:13:56.806Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","bankTransactionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}}
+{"level":"warn","message":"bankTxQueryReply: refusing attach for unexpected mime type","timestamp":"2026-09-09T03:13:56.807Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","mimeType":"image/jpeg; charset=utf-8"}}
+{"level":"warn","message":"bankTxQueryReply: refusing attach for unexpected mime type","timestamp":"2026-09-09T03:13:56.807Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","mimeType":"text/html"}}
+{"level":"info","message":"bankTxQueryReply: attachment already exists (webhook retry) — skipping duplicate","timestamp":"2026-09-09T03:13:56.807Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","fileName":"whatsapp_SM123_0.jpeg"}}
+{"level":"info","message":"bankTxQueryReply: query marked replied","timestamp":"2026-09-09T03:13:56.808Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","hasText":true,"captureEventId":"dddddddd-dddd-dddd-dddd-dddddddddddd"}}
+{"level":"info","message":"bankTxQueryReply: query marked replied","timestamp":"2026-09-09T03:13:56.808Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","hasText":true,"captureEventId":null}}
+{"level":"info","message":"bankTxQueryReply: query marked replied","timestamp":"2026-09-09T03:13:56.808Z","component":"bank-tx-queries","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","queryId":"cccccccc-cccc-cccc-cccc-cccccccccccc","hasText":true,"captureEventId":null}}
+{"level":"info","message":"Scored receipt-match candidates","timestamp":"2026-09-09T03:13:56.956Z","component":"accounting-api","data":{"bankTransactionId":"22222222-2222-2222-2222-222222222222","poolSize":1,"narrowedTo":1,"returned":1,"topScore":145}}
+{"level":"info","message":"Scored receipt-match candidates","timestamp":"2026-09-09T03:13:56.958Z","component":"accounting-api","data":{"bankTransactionId":"22222222-2222-2222-2222-222222222222","poolSize":3,"narrowedTo":3,"returned":3,"topScore":135}}
+{"level":"info","message":"Scored receipt-match candidates","timestamp":"2026-09-09T03:13:56.958Z","component":"accounting-api","data":{"bankTransactionId":"22222222-2222-2222-2222-222222222222","poolSize":1,"narrowedTo":1,"returned":1,"topScore":78}}
+{"level":"info","message":"Scored receipt-match candidates","timestamp":"2026-09-09T03:13:56.959Z","component":"accounting-api","data":{"bankTransactionId":"22222222-2222-2222-2222-222222222222","poolSize":2,"narrowedTo":2,"returned":2,"topScore":88}}
+{"level":"info","message":"Scored receipt-match candidates","timestamp":"2026-09-09T03:13:56.959Z","component":"accounting-api","data":{"bankTransactionId":"22222222-2222-2222-2222-222222222222","poolSize":10,"narrowedTo":10,"returned":5,"topScore":78}}
+{"level":"info","message":"Scored receipt-match candidates","timestamp":"2026-09-09T03:13:56.959Z","component":"accounting-api","data":{"bankTransactionId":"22222222-2222-2222-2222-222222222222","poolSize":2,"narrowedTo":1,"returned":1,"topScore":86}}
+{"level":"info","message":"Upserting cost-centre GL mapping","timestamp":"2026-09-09T03:13:57.657Z","component":"costCentreGlMappingService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","costCentreId":"cc000001-0000-0000-0000-000000000001","expenseAccountId":"acct0001-0000-0000-0000-000000000001"}}
+{"level":"info","message":"Dunning inbound email processed","timestamp":"2026-09-09T03:13:57.885Z","component":"dunningInbound","data":{"messageToken":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","inferredAction":"paid","updated":true,"sendId":"send-1"}}
+{"level":"info","message":"Dunning inbound email processed","timestamp":"2026-09-09T03:13:57.885Z","component":"dunningInbound","data":{"messageToken":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","inferredAction":null,"updated":true,"sendId":"send-2"}}
+{"level":"info","message":"Dunning inbound email processed","timestamp":"2026-09-09T03:13:57.886Z","component":"dunningInbound","data":{"messageToken":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","inferredAction":null,"updated":false,"sendId":null}}
+{"level":"info","message":"Applying bulk employee update","timestamp":"2026-09-09T03:13:58.166Z","component":"payrollBulkEmployeeService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","userId":"user-1","matchCount":1,"update":{"department":"OPS","costCentreId":"cc000001-0000-0000-0000-00000000000a"}}}
+{"level":"info","message":"Applying bulk employee update","timestamp":"2026-09-09T03:13:58.168Z","component":"payrollBulkEmployeeService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","userId":"user-1","matchCount":1,"update":{"department":"OPS"}}}
+{"level":"info","message":"Applying bulk employee update","timestamp":"2026-09-09T03:13:58.168Z","component":"payrollBulkEmployeeService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","userId":"user-1","matchCount":1,"update":{"department":"OPS"}}}
+{"level":"info","message":"Creating training event","timestamp":"2026-09-09T03:13:58.533Z","component":"trainingEventService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"e0000001-0000-0000-0000-000000000001","category":"short_course"}}
+{"level":"info","message":"Parsed QIF statement","timestamp":"2026-09-09T03:13:58.805Z","component":"accounting","data":{"transactionCount":3,"errorCount":0}}
+{"level":"info","message":"Parsed QIF statement","timestamp":"2026-09-09T03:13:58.807Z","component":"accounting","data":{"transactionCount":2,"errorCount":0}}
+{"level":"info","message":"Parsed QIF statement","timestamp":"2026-09-09T03:13:58.808Z","component":"accounting","data":{"transactionCount":1,"errorCount":0}}
+{"level":"info","message":"Parsed QIF statement","timestamp":"2026-09-09T03:13:58.808Z","component":"accounting","data":{"transactionCount":0,"errorCount":1}}
+{"level":"info","message":"Assigning component to employee","timestamp":"2026-09-09T03:13:59.190Z","component":"payrollEmployeeComponentService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","employeeId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","componentId":"cccccccc-cccc-cccc-cccc-cccccccccccc","isRecurring":true}}
+{"level":"info","message":"Ending employee component","timestamp":"2026-09-09T03:13:59.193Z","component":"payrollEmployeeComponentService","data":{"companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","assignmentId":"dddddddd-dddd-dddd-dddd-dddddddddddd","effectiveTo":"2025-12-31"}}
+{"level":"info","message":"Quote converted to invoice","timestamp":"2026-09-09T03:13:59.282Z","data":{"quoteId":"22222222-2222-2222-2222-222222222222","invoiceId":"inv-1"}}
+{"level":"info","message":"sent mirror connection created (imap)","timestamp":"2026-09-09T03:13:59.510Z","component":"sent-mirror","data":{"id":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}}
+{"level":"info","message":"sent mirror connection disconnected","timestamp":"2026-09-09T03:13:59.512Z","component":"sent-mirror","data":{"id":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","companyId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}}
+{"level":"info","message":"Parsed MT940 statement","timestamp":"2026-09-09T03:13:59.968Z","component":"accounting","data":{"transactionCount":3,"errorCount":0,"accountNumber":"1234567890"}}
+{"level":"info","message":"Parsed MT940 statement","timestamp":"2026-09-09T03:13:59.970Z","component":"accounting","data":{"transactionCount":4,"errorCount":0,"accountNumber":"9999"}}
+{"level":"info","message":"Parsed MT940 statement","timestamp":"2026-09-09T03:13:59.971Z","component":"accounting","data":{"transactionCount":1,"errorCount":0,"accountNumber":"9999"}}
+{"level":"info","message":"Parsed MT940 statement","timestamp":"2026-09-09T03:13:59.971Z","component":"accounting","data":{"transactionCount":1,"errorCount":1,"accountNumber":"9999"}}
+{"level":"info","message":"Parsed MT940 statement","timestamp":"2026-09-09T03:13:59.971Z","component":"accounting","data":{"transactionCount":0,"errorCount":0}}
+{"level":"info","message":"Parsed MT940 statement","timestamp":"2026-09-09T03:13:59.971Z","component":"accounting","data":{"transactionCount":0,"errorCount":0}}
+
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9318 passed | 234 skipped (9552)
+   Start at  05:13:47
+   Duration  18.12s (transform 221.60s, setup 0ms, import 388.23s, tests 26.42s, environment 73ms)
+
+[ci] unit-tests PASS
+
+=== [ci] component-tests ===
+$ node scripts/check-runtime.mjs && vitest run --config vitest.components.config.ts
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+DOMException [AbortError]: The operation was aborted.
+    at Fetch.onAsyncTaskManagerAbort (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/happy-dom/lib/fetch/Fetch.js:546:23)
+    at Object.<anonymous> (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/happy-dom/lib/fetch/Fetch.js:416:101)
+    at AsyncTaskManager.abortAll (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:292:30)
+    at AsyncTaskManager.abort (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:52:21)
+    at DetachedBrowserFrame.abort (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/happy-dom/lib/browser/detached-browser/DetachedBrowserFrame.js:112:58)
+    at DetachedWindowAPI.abort (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/happy-dom/lib/window/DetachedWindowAPI.js:51:35)
+    at teardownWindow (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/vitest/dist/chunks/index.DC7d2Pf8.js:331:22)
+    at Object.teardown (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/vitest/dist/chunks/index.DC7d2Pf8.js:392:10)
+    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/vitest/dist/chunks/base.BPik1OqN.js:168:65
+    at Traces.$ (file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js:142:27)
+
+ Test Files  55 passed (55)
+      Tests  384 passed (384)
+   Start at  05:14:06
+   Duration  3.86s (transform 25.41s, setup 10.94s, import 43.63s, tests 9.63s, environment 28.86s)
+
+[ci] component-tests PASS
+
+=== [ci] migration-naming ===
+OK (historical): prefix 341 — 341_payroll_sars_codes.sql, 341_portal_contacts.sql
+OK (historical): prefix 342 — 342_payroll_medical_aid_deps.sql, 342_portal_magic_links.sql
+OK (historical): prefix 343 — 343_afs_signum_columns.sql, 343_payroll_eti.sql
+OK (historical): prefix 344 — 344_afs_section_comments_author_type.sql, 344_payroll_audit_log.sql
+OK (historical): prefix 434 — 434_analytics_utm.sql, 434_customer_dunning_overrides.sql
+OK (historical): prefix 436 — 436_bureaus.sql, 436_sent_mirror_connections.sql
+OK (historical): prefix 437 — 437_payg_flow_wallet.sql, 437_payroll_recurring_components.sql
+
+Scanned 337 migration files.
+No new duplicate prefixes found.
+[ci] migration-naming PASS
+[skip] integration-tests: DATABASE_URL not set
+
+=== [ci] build ===
+$ NODE_OPTIONS=--max-old-space-size=8192 next build
+[@sentry/nextjs] DEPRECATION WARNING: disableLogger is deprecated and will be removed in a future version. Use webpack.treeshake.removeDebugLogging instead.
+  ▲ Next.js 14.2.35
+  - Experiments (use with caution):
+    · instrumentationHook
+    · outputFileTracingRoot
+
+   Skipping linting
+   Checking validity of types ...
+Failed to compile.
+
+./docs/audits/remediation/R-004/probe.ts:1:38
+Type error: Cannot find module './nlQueryValidationService' or its corresponding type declarations.
+
+[0m[31m[1m>[22m[39m[90m 1 |[39m [36mimport[39m { validateGeneratedSQL } [36mfrom[39m [32m'./nlQueryValidationService'[39m[33m;[39m[0m
+[0m [90m   |[39m                                      [31m[1m^[22m[39m[0m
+[0m [90m 2 |[39m [36mimport[39m { enforceTenantScope } [36mfrom[39m [32m'./nlQueryScopeGuard'[39m[33m;[39m[0m
+[0m [90m 3 |[39m [36mfor[39m ([36mconst[39m q [36mof[39m [[32m"SELECT query_to_xml('SELECT marker FROM r004_private_fixture', true, false, '')"[39m[33m,[39m [32m"SELECT table_to_xml('r004_private_fixture', true, false, '')"[39m[33m,[39m [32m"SELECT lo_get(123)"[39m]) {[0m
+[0m [90m 4 |[39m  [36mconst[39m v [33m=[39m validateGeneratedSQL(q)[33m;[39m console[33m.[39mlog([33mJSON[39m[33m.[39mstringify({q[33m,[39mvalidation[33m:[39mv[33m,[39mscope[33m:[39mv[33m.[39mvalid[33m?[39menforceTenantScope(v[33m.[39msanitizedSQL[33m,[39m[32m'11111111-1111-1111-1111-111111111111'[39m)[33m:[39m[36mnull[39m}))[33m;[39m[0m
+Next.js build worker exited with code: 1 and signal: null
+error: script "build" exited with code 1
+[ci] build FAIL
+
+[ci] FAILED: build
+error: script "ci" exited with code 1

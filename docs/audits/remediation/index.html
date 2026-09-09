@@ -2,7 +2,7 @@
 <html lang="en"><meta charset="utf-8"><title>IsaFlow remediation evidence</title>
 <style>body{font:16px system-ui;margin:2rem;max-width:1400px}table{border-collapse:collapse;width:100%}td,th{padding:.7rem;text-align:left;border-bottom:1px solid #ccc;vertical-align:top}th{background:#eee}a{color:#164d8c}</style>
 <h1>IsaFlow remediation evidence</h1>
-<p>8 code-verified, 276 candidate. Code verification and deployment are separate states; no deployment is authorized by this remediation task.</p>
+<p>9 code-verified, 275 candidate, 1 confirmed. Code verification and deployment are separate states; production deployment is authorized, subject to standard gates and live verification.</p>
 <p>All 130 explicit numbered sources mapped by claim/location to 129 unique K rows (including 10 split-source mappings). All 118 medium/low detail headings have K counterparts. Scope remains OPEN: unnumbered compound and latent claims, aggregate discrepancies, and source coverage gaps are documented in reconciliation.md; no candidate is code-validated by this mapping. Two supplemental unnumbered AP-import claims are retained as R-001/R-002, dependent on K-015; K-281 lists all six required subchecks. Remediation-discovered R-003 retains the unverified first-registration WhatsApp ownership boundary; it is not an original audit ID.</p>
 <p>Baseline: <code>5661d6f0f5f2212705151e95455a3f681ddf840e</code></p>
 <p><a href="backlog.json">Finding register</a> · <a href="inputs.json">Input hashes</a> · <a href="evidence/baseline-ci.log">Baseline CI output</a> · <a href="HANDOFF.md">Execution handoff</a></p>
@@ -13,7 +13,7 @@
 <tr><td>K-005</td><td>code-verified</td><td>tenant</td><td>WhatsApp inbound resolves company by destination number aloneAny sender to a shared destination number is attributed to that company with no sender verification.</td><td>A C18</td></tr>
 <tr><td>K-006</td><td>code-verified</td><td>tenant</td><td>Opening-balance journal accepts a foreign account idJournal lines are inserted with accountId straight from the body with no company ownership check, and posted directly with a possibly NULL fiscal period.</td><td>A C4</td></tr>
 <tr><td>K-007</td><td>code-verified</td><td>tenant</td><td>GRN writes another tenant&#x27;s purchase orderGRN insert and the po_items quantity UPDATE use body ids filtered by id only, with no company ownership check.</td><td>A C5</td></tr>
-<tr><td>K-008</td><td>candidate</td><td>gl</td><td>NL-query table allowlist bypassed by a quoted identifierThe allowlist regex cannot match a double-quoted table name, so FROM &quot;webhook_endpoints&quot; skips the check entirely and returns signing secrets.</td><td>A C12</td></tr>
+<tr><td>K-008</td><td>code-verified</td><td>gl</td><td>NL-query table allowlist bypassed by a quoted identifierThe allowlist regex cannot match a double-quoted table name, so FROM &quot;webhook_endpoints&quot; skips the check entirely and returns signing secrets.</td><td>A C12</td></tr>
 <tr><td>K-009</td><td>candidate</td><td>gl</td><td>Migration rollback deletes pre-existing chart accountsRollback runs an unqualified DELETE on imported_from with no check for existing journal lines, orphaning posted lines.</td><td>A C13</td></tr>
 <tr><td>K-010</td><td>candidate</td><td>gl</td><td>Concurrent journal reversals can both succeedThe original journal is not locked before the reversal check, so two reversals post and leave a net opposite movement.</td><td>B F07</td></tr>
 <tr><td>K-011</td><td>candidate</td><td>ar</td><td>Credit-note apply writes an absolute amount_paid from a stale readThe invoice is read without a lock and amount_paid written absolutely, erasing a concurrent receipt or a second credit note.</td><td>A C8, B F05</td></tr>
@@ -289,4 +289,5 @@
 <tr><td>K-281</td><td>candidate</td><td>other</td><td>Assorted route hardening gapsCash-flow export has no rate limit, bank-import-batches masks DB errors as success, approval-rules DELETE and batch-payments id params are not array-guarded, batch-payments has a NaN limit, and UUID validation is inconsistent across loans/[id]/*.</td><td></td></tr>
 <tr><td>R-001</td><td>candidate</td><td>ap</td><td>Latent AP import posts full expense/VAT/AP while recording already-paid amounts without settlement journals.</td><td></td></tr>
 <tr><td>R-002</td><td>candidate</td><td>ap</td><td>Latent AP import accepts source subtotal/tax/total rounding differences that can fail journal posting.</td><td></td></tr>
-<tr><td>R-003</td><td>code-verified</td><td>tenant</td><td>WhatsApp number first registration has no established provider ownership proof</td><td></td></tr></tbody></table></html>
+<tr><td>R-003</td><td>code-verified</td><td>tenant</td><td>WhatsApp number first registration has no established provider ownership proof</td><td></td></tr>
+<tr><td>R-004</td><td>confirmed</td><td>gl</td><td>Scalar SQL-executing functions bypass NL query relation validation</td><td></td></tr></tbody></table></html>
