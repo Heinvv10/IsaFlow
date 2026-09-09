@@ -135,3 +135,27 @@ missing the same parts collapses onto one string, which is what the production g
 it should discriminate per document — by adding the invoice date or the source document id — is a
 decision affecting every duplicate check in the system and all the data already stored. Not
 changed here.
+
+---
+
+# Follow-up 4: take-on posting closes R-001, R-002 and R-020 — WIZARD PATH ONLY
+
+Per the independent design memo. An imported document is a take-on, not an origination: one entry
+of two lines at `total - amountPaid` against `opening_balance_equity`, with **no revenue, expense
+or VAT line**. A document settled in full before the cutover posts nothing and keeps its
+`amount_paid`. Full record in `takeon-posting.md`.
+
+- **R-001 closed for the wizard.** The control account equals the subledger by construction; both
+  close-readiness sub-ledger checks pass after an import, and no VAT is re-declared.
+- **R-002 closed.** Up to R0.05 of drift imports with a warning; beyond that the row is refused
+  naming all three amounts.
+- **R-020 closed.** A trial balance carrying a receivable or payable control line is refused, and a
+  non-zero clearing residual is recorded on the session at `completeSession`.
+
+**The Sage commit path is NOT changed and is a separate follow-up.**
+`sageMigrationCommitService` still posts the full invoice with its VAT line, so R-001 and the VAT
+re-declaration remain open there.
+
+**Still unmeasured, and it decides forward-only versus a repair migration:** whether any production
+tenant has already committed documents with `amount_paid > 0` through either path. The read-only
+query is in `takeon-posting.md`; this session does not touch the production database.
