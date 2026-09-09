@@ -96,10 +96,14 @@ export async function previewDepreciationJournals(
       writesWithoutJournal.push({
         id: row.assetId,
         reason: 'subledger_row_only_no_journal',
-        detail:
+        // A life-expired asset has NOT "no depreciation left" — it has a balance
+        // the run will never charge, which is the opposite reading. Use the
+        // plan's own note when there is one.
+        detail: row.lifeExpiredNote ?? (
           `${row.assetNumber} has no policy depreciation left for this period, so NO GL journal `
           + 'would post — but the live run still writes its asset_period_ledger row, carrying the '
-          + 'tax figures and the closing carrying amounts. This call is not a no-op for it.',
+          + 'tax figures and the closing carrying amounts. This call is not a no-op for it.'
+        ),
       });
       continue;
     }

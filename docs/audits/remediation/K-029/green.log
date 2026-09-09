@@ -127,3 +127,58 @@ tracker exclusion) did not recur, confirming they were load-related timeouts.
 eslint on all 6 changed src + pages files — clean
 tsc --noEmit — clean
 297 / 296 / 58 / 185 / 100 / 266 lines — all under the 300 cap
+
+================================================================
+Round 4 — re-review of c5e566fb (MEDIUM-D + LOW-E/F/G)
+================================================================
+=== GREEN (round 4) ===
+  int:       Tests  7 passed (7)
+  unit:       Tests  148 passed (148)
+=== O1: run result drops the note (MEDIUM-D, live path) ===
+  int:       Tests  1 failed | 6 passed (7)
+  unit:       Tests  148 passed (148)
+=== O2: expired asset back to an anonymous skip (MEDIUM-D, both tracks zero) ===
+  int:       Tests  1 failed | 6 passed (7)
+  unit:       Tests  148 passed (148)
+=== O3: preview back to its generic wording (MEDIUM-D, dry run) ===
+  int:       Tests  1 failed | 6 passed (7)
+  unit:       Tests  148 passed (148)
+=== O4: export truncation marker removed (LOW-E) ===
+  int:       Tests  7 passed (7)
+  unit:       Tests  1 failed | 147 passed (148)
+=== O5: accumulated_depreciation fallback removed (LOW-F) ===
+  int:       Tests  7 passed (7)
+  unit:       Tests  1 failed | 147 passed (148)
+=== O6: the bounded true-up, after the file split (HIGH-A regression) ===
+  int:       Tests  3 failed | 4 passed (7)
+  unit:       Tests  3 failed | 145 passed (148)
+error: pathspec 'src/modules/accounting/services/items/policyDepreciation.ts' did not match any file(s) known to git
+=== RESTORED ===
+  int:       Tests  3 failed | 4 passed (7)
+  unit:       Tests  3 failed | 145 passed (148)
+  tsc: clean
+=== RESTORED (corrected) ===
+  int:       Tests  7 passed (7)
+  unit:       Tests  148 passed (148)
+  tsc: clean
+
+Each of the six mutations turns a suite RED; the tree restores GREEN.
+  O1 the note on the run result · O2 the anonymous both-tracks-zero skip
+  O3 the preview's contradicting wording · O4 the export truncation marker
+  O5 the accumulated_depreciation fallback · O6 the bounded true-up, re-checked
+     after the file split moved it to policyDepreciation.ts
+
+=== full unit suite, no fixture env (DATABASE_URL unset) ===
+Test Files  4 failed | 781 passed | 36 skipped (821)
+     Tests  7 failed | 9353 passed | 234 skipped (9594)
+The 4 failing files are the same load-flaky set seen in round 2 —
+trackerExclusion, bankAllocationService, bankAllocationUnwind, cashFlowReport.
+None imports anything this change touches, and all 4 pass in isolation:
+  Test Files  4 passed (4) / Tests 24 passed (24)
+Round 3 ran the same suite with zero failures, which is what makes these
+timeouts under the parallel run rather than a regression.
+
+=== lint / types / file sizes ===
+eslint on all 9 changed src + pages files — clean
+tsc --noEmit — clean
+138 / 180 / 218 / 91 / 229 / 113 lines — real headroom under the 300 cap now

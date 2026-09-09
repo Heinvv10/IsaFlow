@@ -9,12 +9,15 @@
 // existing importer of this module is unchanged.
 export {
   annualPolicyCharge,
-  calculatePolicyDepreciation,
+  lifeExpiredNote,
   toDepreciationMethod,
   type DepreciationMethod,
+} from './depreciationMethods';
+export {
+  calculatePolicyDepreciation,
   type PolicyDepreciationInput,
   type PolicyDepreciationResult,
-} from './depreciationMethods';
+} from './policyDepreciation';
 
 // ─── Input / Output types ─────────────────────────────────────────────────────
 
