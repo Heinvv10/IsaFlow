@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { UUID } from '@/lib/schemas/common';
 import {
   approveSupplierPayment,
   processSupplierPayment,
@@ -24,7 +25,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   try {
-    const { action, paymentId } = req.body;
+    const { action, paymentId, approvalId } = req.body;
+    if (approvalId !== undefined && !UUID.safeParse(approvalId).success) return apiResponse.badRequest(res, 'approvalId must be a UUID');
     const userId = req.user.id;
 
     if (!action || !paymentId) {
@@ -37,12 +39,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, payment);
       }
       case 'process': {
-        const payment = await processSupplierPayment(companyId, paymentId, userId);
+        const payment = await processSupplierPayment(companyId, paymentId, userId, { approvalId });
         return apiResponse.success(res, payment);
       }
       case 'void': {
         // P2.1 (audit W4): reverses the GL journal and un-applies allocations.
-        const payment = await voidSupplierPayment(companyId, paymentId, userId);
+        const payment = await voidSupplierPayment(companyId, paymentId, userId, { approvalId });
         return apiResponse.success(res, payment);
       }
       default:

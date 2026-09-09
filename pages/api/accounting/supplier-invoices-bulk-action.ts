@@ -37,6 +37,7 @@ import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/suppli
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
   invoiceIds: z.array(UUID).min(1).max(200),
+  approvalIds: z.record(UUID, UUID).optional(),
 });
 
 interface ItemResult {
@@ -59,7 +60,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     );
   }
 
-  const { action, invoiceIds } = parsed.data;
+  const { action, invoiceIds, approvalIds } = parsed.data;
   const userId = req.user.id;
   const results: ItemResult[] = [];
 
@@ -78,13 +79,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       switch (action) {
         case 'approve':
-          await approveSupplierInvoice(companyId, invoiceId, userId);
+          await approveSupplierInvoice(companyId, invoiceId, userId, { approvalId: approvalIds?.[invoiceId] });
           break;
         case 'cancel':
-          await cancelSupplierInvoice(companyId, invoiceId, userId);
+          await cancelSupplierInvoice(companyId, invoiceId, userId, { approvalId: approvalIds?.[invoiceId] });
           break;
         case 'post_gl':
-          await postSupplierInvoiceToGL(companyId, invoiceId, userId);
+          await postSupplierInvoiceToGL(companyId, invoiceId, userId, { approvalId: approvalIds?.[invoiceId] });
           break;
       }
       results.push({ invoiceId, ok: true });

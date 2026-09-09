@@ -2,14 +2,18 @@ import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { canonicalJson, canonicalMoney } from './canonical';
 import { assertControlTx } from './context';
+import { resolveApReversalMaterial } from '../ap/apReversalMaterial';
+import { resolveApControlAccounts } from '../ap/apControlAccounts';
 import type { ControlTx, EntityRef, EntityVersionRef, OperationBinding, OperationRef } from './contracts';
 
 type Row = Record<string, unknown>;
 export function deriveInvoiceAmount(header: string, lines: readonly { line_total: string; tax_amount: string }[]): string {
   if (!lines.length) throw new Error('Invoice material is incomplete');
   const amount = lines.reduce((sum, line) => sum.add(canonicalMoney(line.line_total)).add(canonicalMoney(line.tax_amount)), new Decimal(0));
-  if (!amount.eq(canonicalMoney(header)) || !amount.gt(0)) throw new Error('Invoice total does not reconcile to lines');
-  return amount.toFixed();
+  const gross = new Decimal(canonicalMoney(header));
+  const lineTotal = lines.reduce((sum, line) => sum.add(canonicalMoney(line.line_total)), new Decimal(0));
+  if ((!amount.eq(gross) && !lineTotal.eq(gross)) || !gross.gt(0)) throw new Error('Invoice total does not reconcile to lines');
+  return gross.toFixed();
 }
 export function derivePaymentAmount(header: string, allocations: readonly { amount_allocated: string; invoice_currency: string }[]) {
   const currencies = new Set(allocations.map(a => a.invoice_currency));
@@ -104,6 +108,10 @@ export async function materializeApOperation(ctx: ControlTx, ref: OperationRef):
   if (!supplier) throw new Error('Operation not found');
   const { beneficiaryFingerprint } = await import('./changeProtection');
   const bankFingerprint = beneficiaryFingerprint(company, supplier);
+  const accounts = await resolveApControlAccounts(ctx, ref);
+  const reversal = await resolveApReversalMaterial(ctx, ref, header.gl_journal_entry_id, accountingDate);
+  accountingDate = reversal.accountingDate;
+  sourceFacts = { ...sourceFacts, accounts: accounts.facts, reversal: reversal.facts };
   const parent = await observe(ctx, ref, sourceFacts);
   const bank = await observe(ctx, { entityType: 'supplier', entityId: String(supplier.id) },
     { bankFingerprint }, { ...supplier, beneficiary_status: 'legacy_unverified' });

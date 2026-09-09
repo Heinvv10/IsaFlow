@@ -26,8 +26,8 @@ import {
 // import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
 
 const SupplierInvoiceActionSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('approve'), invoiceId: UUID }),
-  z.object({ action: z.literal('cancel'), invoiceId: UUID }),
+  z.object({ action: z.literal('approve'), invoiceId: UUID, approvalId: UUID.optional() }),
+  z.object({ action: z.literal('cancel'), invoiceId: UUID, approvalId: UUID.optional() }),
   z.object({ action: z.literal('match'), invoiceId: UUID }),
 ]);
 
@@ -49,11 +49,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
-        const invoice = await approveSupplierInvoice(companyId, invoiceId, userId);
+        const invoice = await approveSupplierInvoice(companyId, invoiceId, userId, { approvalId: parsed.data.approvalId });
         return apiResponse.success(res, invoice);
       }
       case 'cancel': {
-        const invoice = await cancelSupplierInvoice(companyId, invoiceId, userId);
+        const invoice = await cancelSupplierInvoice(companyId, invoiceId, userId, { approvalId: parsed.data.approvalId });
         return apiResponse.success(res, invoice);
       }
       case 'match': {
