@@ -84,6 +84,16 @@ it('caps the second note at the outstanding balance the first one left', async (
   const notes = await pool.query('SELECT id, applied_amount::text AS applied FROM credit_notes WHERE company_id=$1 ORDER BY total_amount DESC', [company]);
   // R150 then R100 against R200: the second is capped at the R50 left, and the
   // invoice is never credited beyond its own total.
+  //
+  // The R50 the second note could not absorb is STRANDED, and this assertion
+  // records that rather than endorsing it. approveCreditNote already credited
+  // AR with the note's full R100 (creditNoteApproveService.ts:62-63), while the
+  // subledger moved R50 and the note is now 'applied', which the status guard
+  // in applyCreditNoteToInvoice will not re-admit. GL and AR subledger diverge
+  // by R50 permanently. Pre-existing and NOT fixed here: `credit_notes` holds
+  // ONE `customer_invoice_id`, which is also how cancelCreditNote un-applies,
+  // so letting a note span two invoices needs a link table. See
+  // docs/audits/remediation/K-011/fix.md, "Open, not fixed here".
   expect(notes.rows.map(r => r.applied)).toEqual(['150.00', '50.00']);
   expect(inv.rows[0].paid).toBe('200.00');
   expect(inv.rows[0].status).toBe('paid');

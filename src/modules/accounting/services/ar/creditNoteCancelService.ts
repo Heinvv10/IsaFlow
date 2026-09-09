@@ -17,6 +17,7 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import type { CreditNote } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
+import { withCustomerInvoiceLock } from './customerInvoiceLock';
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
@@ -148,11 +149,15 @@ export async function applyCreditNoteToInvoice(
   // receipt allocation applied concurrently vanishes from amount_paid while
   // still counting as applied. The note-then-invoice order is the one the
   // comment above establishes, so the lock added here does not create a cycle.
-  const invRows = (await sql`
-    SELECT * FROM customer_invoices
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
-    FOR UPDATE
-  `) as Record<string, unknown>[];
+  const invRows = await withCustomerInvoiceLock(
+    'applyCreditNoteToInvoice',
+    `Invoice ${invoiceId}`,
+    async () => (await sql`
+      SELECT * FROM customer_invoices
+      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
+      FOR UPDATE
+    `) as Record<string, unknown>[],
+  );
   if (invRows.length === 0) throw new Error('Invoice not found');
   const inv = invRows[0]!;
 
