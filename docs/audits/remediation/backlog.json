@@ -22,7 +22,6 @@
       "currentSha": "d626b33f",
       "status": "code-verified",
       "dependencies": [
-        "Deployment requires separate authorization; no deployed verification",
         "Global pristine historical migration replay remains open at migration 253; current-schema K-001 SQL/RLS workflow passed"
       ],
       "testNames": [
@@ -44,10 +43,11 @@
       ],
       "fixCommit": "23608ad7",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/345",
-      "deployedSha": null,
+      "deployedSha": "ebeac9caa1df51cc1cbfb9fa561688855d368d5b",
       "historicalDataImpact": "No historical records changed. Prior misuse not assessed; no retrospective repair authorized.",
       "canonicalItem": null,
-      "reportedSeverity": "critical"
+      "reportedSeverity": "critical",
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
     },
     {
       "id": "K-002",
@@ -66,7 +66,6 @@
       "currentSha": "f89375367f35398e503843f40dd4525bf879e83f",
       "status": "code-verified",
       "dependencies": [
-        "No deployed verification; separate deployment authorization required",
         "Global pristine historical migration replay remains open at253"
       ],
       "testNames": [
@@ -84,10 +83,11 @@
       ],
       "fixCommit": "b5e0ab31f07c3793ad805c1bf467fc4b43c81ded",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/346",
-      "deployedSha": null,
+      "deployedSha": "ebeac9caa1df51cc1cbfb9fa561688855d368d5b",
       "historicalDataImpact": "No historical changes. Possible prior activity after suspension not assessed; no repair authorized.",
       "canonicalItem": null,
-      "reportedSeverity": "critical"
+      "reportedSeverity": "critical",
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
     },
     {
       "id": "K-003",
@@ -107,7 +107,6 @@
       "currentSha": "c1260dd891131e4b0f16dc9100d529407435f8ea",
       "status": "code-verified",
       "dependencies": [
-        "No deployed verification; deployment needs separate authorization",
         "Existing links need separately authorized historical consent review; no automatic repair"
       ],
       "testNames": [
@@ -126,10 +125,11 @@
       ],
       "fixCommit": "60bec360",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/347",
-      "deployedSha": null,
+      "deployedSha": "ebeac9caa1df51cc1cbfb9fa561688855d368d5b",
       "historicalDataImpact": "Old unauthorized bureau links could persist and expose metrics. Scoped read-only review query prepared and tested in disposable PostgreSQL; not run in production. Current membership cannot prove historical consent; no repair executed.",
       "canonicalItem": null,
-      "reportedSeverity": "critical"
+      "reportedSeverity": "critical",
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
     },
     {
       "id": "K-004",
@@ -148,7 +148,6 @@
       "currentSha": "01f94839978a6b6e0f06c7c29344c1a240a148b5",
       "status": "code-verified",
       "dependencies": [
-        "Migration616 target collision preflight and deployment require separate authorization",
         "Legacy short addresses and historical attribution need owner-approved review/rotation"
       ],
       "testNames": [
@@ -168,10 +167,11 @@
       ],
       "fixCommit": "235bb407",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/348",
-      "deployedSha": null,
+      "deployedSha": "ebeac9caa1df51cc1cbfb9fa561688855d368d5b",
       "historicalDataImpact": "Scoped read-only inventory prepared/tested on disposable data. Historical collisions and short addresses may remain; no production inventory, rotation or reassignment executed.",
       "canonicalItem": null,
-      "reportedSeverity": "critical"
+      "reportedSeverity": "critical",
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
     },
     {
       "id": "K-005",
@@ -190,7 +190,6 @@
       "currentSha": "8cff145616389fcbd05deed6220e62d86d9dec36",
       "status": "code-verified",
       "dependencies": [
-        "Migration617 target preflight/deployment require authorization",
         "R003 separately tracks first-registration number ownership"
       ],
       "testNames": [
@@ -211,10 +210,11 @@
       ],
       "fixCommit": "a3278226",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/350",
-      "deployedSha": null,
+      "deployedSha": "ebeac9caa1df51cc1cbfb9fa561688855d368d5b",
       "historicalDataImpact": "Potential legacy assignment/misrouting review remains open; no production query, number transfer or data repair executed.",
       "canonicalItem": null,
-      "reportedSeverity": "critical"
+      "reportedSeverity": "critical",
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
     },
     {
       "id": "K-006",
@@ -232,9 +232,7 @@
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "786ab01fd1bcb16098085365e4eb9ae54e14b722",
       "status": "code-verified",
-      "dependencies": [
-        "Deployment and any historical investigation/repair require their own authorization"
-      ],
+      "dependencies": [],
       "testNames": [
         "tests/integration/opening-balances-postgres.int.test.ts",
         "tests/integration/opening-balances-browser.mjs"
@@ -256,10 +254,11 @@
       ],
       "fixCommit": "a936a8b2",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/352",
-      "deployedSha": null,
+      "deployedSha": "ebeac9caa1df51cc1cbfb9fa561688855d368d5b",
       "historicalDataImpact": "No route-induced corruption reproduced on current schema. Scoped read-only inventory tested against privileged synthetic malformed row; production inventory and any repair remain open.",
       "canonicalItem": null,
-      "reportedSeverity": "critical"
+      "reportedSeverity": "critical",
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
     },
     {
       "id": "K-007",
@@ -305,10 +304,11 @@
       ],
       "fixCommit": "5a7e5ea4; f2fd9243",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/353",
-      "deployedSha": null,
+      "deployedSha": "ebeac9caa1df51cc1cbfb9fa561688855d368d5b",
       "historicalDataImpact": "No route-induced durable corruption reproduced. Read-only inventory tested on a privileged synthetic malformed row; no production historical repair.",
       "canonicalItem": null,
-      "reportedSeverity": "critical"
+      "reportedSeverity": "critical",
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
     },
     {
       "id": "K-008",
@@ -321,18 +321,28 @@
       "sourceIds": [
         "A C12"
       ],
-      "correctedTrigger": "Quoted-identifier allowlist bypass remains subject to AST tenant scope and RLS. No demonstrated cross-tenant read.",
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Quoted non-allowlisted relation exposes own-company endpoint fields through the authenticated API. Real PostgreSQL reproduction failed; quoted customer and foreign predicate controls passed.",
+      "severityRationale": "Confirmed sensitive own-company field exposure outside intended financial relation allowlist; no cross-tenant disclosure demonstrated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
+      "currentSha": "6d42b2ac",
+      "status": "in-progress",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
+      "testNames": [
+        "tests/unit/services/core/nlQueryRelations.test.ts",
+        "tests/integration/nl-query-allowlist-postgres.int.test.ts"
+      ],
+      "evidencePaths": [
+        "K-008/plan.md",
+        "K-008/red.log",
+        "K-008/relations-red.log",
+        "K-008/relations-green.log",
+        "K-008/green.log",
+        "K-008/review.md"
+      ],
+      "fixCommit": "6d42b2ac",
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "No historical data changed. Prior disclosure not assessed; no retrospective repair authorized.",
       "canonicalItem": null,
       "reportedSeverity": "critical"
     },
@@ -7625,8 +7635,39 @@
       ],
       "fixCommit": "6ed297f1;66793126",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/351",
-      "deployedSha": null,
+      "deployedSha": "ebeac9caa1df51cc1cbfb9fa561688855d368d5b",
       "historicalDataImpact": "Scoped inventory tested on disposable rows only; legacy proof not fabricated, target review/reverification and historical attribution remain open.",
+      "canonicalItem": null,
+      "reportedSeverity": "high",
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
+    },
+    {
+      "id": "R-004",
+      "claim": "Scalar SQL-executing functions bypass NL query relation validation",
+      "area": "gl",
+      "affectedPaths": [
+        "src/modules/accounting/services/core/nlQueryRelations.ts",
+        "src/modules/accounting/services/core/nlQueryScopeGuard.ts",
+        "pages/api/accounting/nl-query.ts"
+      ],
+      "sourceLabel": "Remediation discovered",
+      "sourceIds": [],
+      "correctedTrigger": "Independent disposable PostgreSQL test returned a synthetic marker from a non-allowlisted temporary relation through scalar XML functions after both application guards accepted the query.",
+      "severityRationale": "Confirmed application relation allowlist bypass. Production role/RLS impact and live reachability are not verified.",
+      "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+      "currentSha": "6d42b2ac",
+      "status": "confirmed",
+      "dependencies": [
+        "Requires separate function capability correction and API regression; production impact remains unverified"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "R-004/assessment.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No production data queried or changed. Disposable temporary fixture transaction rolled back.",
       "canonicalItem": null,
       "reportedSeverity": "high"
     }
@@ -9256,5 +9297,6 @@
       "mappingRationale": "Same reported workflow and defect at the referenced location; source mapping only, current-code validation remains open.",
       "correctedTrigger": null
     }
-  ]
+  ],
+  "authorization": "User explicitly authorizes repository changes, independent review, PRs, merges, gated production deployments including business hours, and standard Demo-only verification. Historical destructive repairs and real customer communications require separate authorization."
 }
