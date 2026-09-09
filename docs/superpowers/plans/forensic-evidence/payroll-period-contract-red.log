@@ -1,0 +1,62 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/services/controls/operationPermissions.test.ts tests/unit/services/controls/operationApprovalRules.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/operationPermissions.test.ts (13 tests | 8 failed) 15ms
+   × derives domain authority for payroll_run.post 7ms
+   × derives domain authority for payroll_run.reopen 1ms
+   × derives domain authority for fiscal_period.close 0ms
+   × derives domain authority for fiscal_period.lock 0ms
+   × derives domain authority for fiscal_period.reopen 0ms
+   × derives domain authority for year.close 2ms
+   × derives domain authority for company_lockdown.change 0ms
+   × derives domain authority for vat_period.lock 0ms
+ ❯ tests/unit/services/controls/operationApprovalRules.test.ts (12 tests | 1 failed) 15ms
+   × evaluates unconditional nonfinancial policies without inventing an amount 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/operationApprovalRules.test.ts > evaluates unconditional nonfinancial policies without inventing an amount
+Error: Invalid decimal amount
+ ❯ canonicalMoney src/modules/accounting/services/controls/canonical.ts:51:86
+     49| /** Exact, bounded plain decimal input; exponent notation is not finan…
+     50| export function canonicalMoney(value: string): string {
+     51|   if (typeof value !== 'string' || !/^-?\d{1,30}(?:\.\d{1,12})?$/.test…
+       |                                                                                      ^
+     52|   return new Decimal(value).toFixed();
+     53| }
+ ❯ matchApprovalRules src/modules/accounting/services/controls/approvalRuleService.ts:14:29
+ ❯ tests/unit/services/controls/operationApprovalRules.test.ts:28:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts > derives domain authority for payroll_run.post
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts > derives domain authority for payroll_run.reopen
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts > derives domain authority for fiscal_period.close
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts > derives domain authority for fiscal_period.lock
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts > derives domain authority for fiscal_period.reopen
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts > derives domain authority for year.close
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts > derives domain authority for company_lockdown.change
+ FAIL  tests/unit/services/controls/operationPermissions.test.ts > derives domain authority for vat_period.lock
+Error: Unsupported controlled operation
+ ❯ definition src/modules/accounting/services/controls/operationPermissions.ts:11:49
+      9| };
+     10| function definition(operation:string){
+     11|   if(!Object.hasOwn(operations,operation))throw new Error('Unsupported…
+       |                                                 ^
+     12|   return operations[operation]!;
+     13| }
+ ❯ operationPermission src/modules/accounting/services/controls/operationPermissions.ts:14:91
+ ❯ tests/unit/services/controls/operationPermissions.test.ts:17:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  9 failed | 16 passed (25)
+   Start at  10:37:13
+   Duration  502ms (transform 226ms, setup 0ms, import 300ms, tests 30ms, environment 0ms)
+
+error: script "test:unit" exited with code 1

@@ -1,0 +1,42 @@
+CREATE FUNCTION
+REVOKE
+GRANT
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_run_headers" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_run_lines" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_employees" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_components" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_employee_components" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_employee_cost_allocations" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.cost_centre_gl_mappings" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.cost_centres" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_loans" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_loan_schedule" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_loan_payments" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_leave_balances" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_leave_types" does not exist, skipping
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:32: NOTICE:  trigger "control_payroll_mutation_fence" for relation "public.payroll_bank_details" does not exist, skipping
+DO
+CREATE INDEX
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:48: NOTICE:  policy "tenant_read" for relation "control_payroll_calculations" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:scripts/migrations/sql/631_forensic_payroll_calculations.sql:51: NOTICE:  policy "tenant_create" for relation "control_payroll_calculations" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+psql:scripts/migrations/sql/632_forensic_lockdown_intents.sql:14: NOTICE:  policy "tenant_read" for relation "control_lockdown_intents" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:scripts/migrations/sql/632_forensic_lockdown_intents.sql:17: NOTICE:  policy "tenant_create" for relation "control_lockdown_intents" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
+INSERT 0 1

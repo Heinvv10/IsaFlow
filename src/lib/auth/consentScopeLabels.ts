@@ -19,6 +19,7 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   'read:access': 'Read current tenant roles and connection grants without credentials.',
   'read:audit': 'Read protected accounting history and control findings. Sensitive payroll needs separate permission.',
   'write:audit': 'Create evidence snapshots and audit export jobs.',
+  'write:locks': 'Close, lock or reopen accounting periods and change company lockdown under configured independent approvals.',
   'write:controls': 'Assign exceptions and request resolution after a fresh control check.',
   'read:payroll-sensitive': 'Reveal restricted payroll identity and banking evidence with current explicit permission and read:payroll.',
 

@@ -1,0 +1,47 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/lockControlConsent.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/auth/lockControlConsent.test.ts (2 tests | 2 failed) 9ms
+   × requires explicit new consent for lock mutations 5ms
+   × does not expand exception scopes and requires explicit manager authority 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/auth/lockControlConsent.test.ts > requires explicit new consent for lock mutations
+AssertionError: expected [ 'read:invoices', …(22) ] to include 'write:locks'
+ ❯ tests/unit/auth/lockControlConsent.test.ts:7:22
+      5| import {permissionReason} from '@/lib/auth/effectivePermissionPolicy';
+      6| it('requires explicit new consent for lock mutations',()=>{
+      7|   expect(PAT_SCOPES).toContain('write:locks');expect(OAUTH_SCOPES).toC…
+       |                      ^
+      8|   const split=partitionRequestedScopes(['read:reports','write:locks']);
+      9|   expect(split).toEqual({autoGranted:['read:reports'],optIn:['write:lo…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/auth/lockControlConsent.test.ts > does not expand exception scopes and requires explicit manager authority
+AssertionError: expected 'UNKNOWN_PERMISSION' to be 'MISSING_SCOPE' // Object.is equality
+
+Expected: "MISSING_SCOPE"
+Received: "UNKNOWN_PERMISSION"
+
+ ❯ tests/unit/auth/lockControlConsent.test.ts:13:73
+     11| });
+     12| it('does not expand exception scopes and requires explicit manager aut…
+     13|   expect(permissionReason('owner','write:locks',['write:controls'],[])…
+       |                                                                         ^
+     14|   expect(permissionReason('owner','write:locks',['write:locks'],[])).t…
+     15|   expect(permissionReason('manager','write:locks',['write:locks'],[]))…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  10:40:02
+   Duration  275ms (transform 67ms, setup 0ms, import 103ms, tests 9ms, environment 0ms)
+
+error: script "test:unit" exited with code 1

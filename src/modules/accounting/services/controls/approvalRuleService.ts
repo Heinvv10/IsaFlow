@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import type {operationRuleType} from './operationPermissions';
 import { canonicalMoney } from './canonical';
 import { assertControlTx } from './context';
 import type { ControlTx, PolicyBinding } from './contracts';
@@ -9,9 +10,9 @@ export interface ApprovalRuleRow {
   aggregate_window_days: number | null; aggregate_by: string | null;
 }
 
-export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: string,
+export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: string | null,
   priorExposure: ReadonlyMap<string, string>): PolicyBinding[] {
-  const value = new Decimal(canonicalMoney(amount));
+  const value = amount === null ? null : new Decimal(canonicalMoney(amount));
   const matches: PolicyBinding[] = [];
   for (const rule of rules) {
     if (rule.is_active !== true) continue;
@@ -24,11 +25,14 @@ export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: st
     }
     const threshold = new Decimal(canonicalMoney(String(rule.condition_value)));
     if (threshold.isNegative()) throw new Error('Invalid approval policy threshold');
+    if (value === null && (rule.condition_operator !== 'any' || rule.aggregate_window_days !== null)) {
+      throw new Error('Monetary approval policy cannot evaluate a nonfinancial operation');
+    }
     const tested = rule.aggregate_window_days === null ? value
-      : value.add(canonicalMoney(priorExposure.get(rule.id) ?? '0'));
+      : value!.add(canonicalMoney(priorExposure.get(rule.id) ?? '0'));
     if (rule.condition_operator === 'any'
-      || (rule.condition_operator === 'greater_than' && tested.gt(threshold))
-      || (rule.condition_operator === 'greater_equal' && tested.gte(threshold))) {
+      || (rule.condition_operator === 'greater_than' && tested!.gt(threshold))
+      || (rule.condition_operator === 'greater_equal' && tested!.gte(threshold))) {
       matches.push({ policyId: rule.id, policyVersion: rule.control_version,
         approverRole: rule.approver_role, mandatory: false });
     }
@@ -37,7 +41,7 @@ export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: st
 }
 
 /** Lock active policy population; unsupported conditions always fail closed. */
-export async function loadApprovalRules(ctx: ControlTx, documentType: 'payment' | 'supplier_invoice' | 'journal_entry'): Promise<ApprovalRuleRow[]> {
+export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType<typeof operationRuleType>): Promise<ApprovalRuleRow[]> {
   assertControlTx(ctx);
   const rows = await ctx.sql`
     SELECT id,document_type,condition_field,condition_operator,condition_value::text,

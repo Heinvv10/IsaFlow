@@ -1,0 +1,12 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/lockControlConsent.test.ts tests/unit/auth/consentScopes.test.ts tests/unit/auth/patScopeMeta.test.ts tests/unit/auth/consentScopeCopy.test.ts tests/unit/services/controls/operationPermissions.test.ts tests/unit/services/controls/operationApprovalRules.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+
+ Test Files  6 passed (6)
+      Tests  40 passed (40)
+   Start at  10:40:38
+   Duration  835ms (transform 1.36s, setup 0ms, import 1.97s, tests 62ms, environment 0ms)
+

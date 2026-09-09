@@ -9,13 +9,22 @@ import type { ControlTx, OperationBinding, OperationRef } from './contracts';
 
 export function canonicalOperationRef(ref: OperationRef): OperationRef {
   canonicalJson(ref);
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.entityId)) throw new Error('Invalid operation reference');
+  const dates=ref.entityId.split('/');
+  const validId=ref.entityType==='fiscal_year' ? /^[1-9][0-9]{3}$/.test(ref.entityId)
+    : ref.entityType==='vat_period' ? dates.length===2 && dates.every(isRealCalendarDate) && dates[0]!<=dates[1]!
+      : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.entityId);
+  if(!validId)throw new Error('Invalid operation reference');
   const operations = ref.entityType === 'supplier_invoice'
     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_invoice.cancel']
     : ref.entityType === 'supplier_payment' ? ['supplier_payment.process', 'supplier_payment.void']
-      : ref.entityType === 'journal_entry' ? ['journal.post','journal.reverse'] : [];
+      : ref.entityType === 'journal_entry' ? ['journal.post','journal.reverse']
+        : ref.entityType === 'payroll_run' ? ['payroll_run.post','payroll_run.reopen']
+          : ref.entityType === 'fiscal_period' ? ['fiscal_period.close','fiscal_period.lock','fiscal_period.reopen']
+            : ref.entityType === 'fiscal_year' ? ['year.close']
+              : ref.entityType === 'vat_period' ? ['vat_period.lock']
+                : ref.entityType === 'company_lockdown_intent' ? ['company_lockdown.change'] : [];
   if (!operations.includes(ref.operation)) throw new Error('Unsupported controlled operation');
-  const reverses = ['journal.reverse','supplier_payment.void','supplier_invoice.cancel'].includes(ref.operation);
+  const reverses = ['journal.reverse','supplier_payment.void','supplier_invoice.cancel','payroll_run.reopen'].includes(ref.operation);
   const reversalDate = ref.reversalDate ?? (reverses && 'accountingDate' in ref ? ref.accountingDate : undefined);
   if (reversalDate !== undefined && (!reverses || typeof reversalDate !== 'string' || !isRealCalendarDate(reversalDate))) throw new Error('Invalid reversal date');
   return { entityType: ref.entityType, entityId: ref.entityId,
@@ -51,7 +60,7 @@ export async function loadOperationMaterial(ctx: ControlTx, input: OperationRef)
     ` as Array<{ total: string }>;
     exposure.set(rule.id, row?.total ?? '0');
   }
-  const binding = { ...material.binding, policies: matchApprovalRules(rules, material.binding.amount!, exposure) };
+  const binding = { ...material.binding, policies: matchApprovalRules(rules, material.binding.amount, exposure) };
   return { ...material, binding, bindingHash: operationBindingHash(binding), rules, windowStart: clock.day };
 }
 
