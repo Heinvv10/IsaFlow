@@ -57,3 +57,82 @@ describe('stable financial operation contracts', () => {
     expect(() => operationBindingHash({ ...binding, amount: null, currency: null })).toThrow();
   });
 });
+
+it('orders distinct Unicode bytes consistently regardless of reference permutation', () => {
+  const policies = ['é', 'e\u0301'].map(policyId => ({ ...binding.policies[0]!, policyId }));
+  expect(operationBindingHash({ ...binding, policies }))
+    .toBe(operationBindingHash({ ...binding, policies: [...policies].reverse() }));
+});
+
+it.each([
+  { sourceVersions: [{ ...binding.sourceVersions[0]!, version: 0 }] },
+  { sourceVersions: [{ ...binding.sourceVersions[0]!, version: 1.5 }] },
+  { sourceVersions: [{ ...binding.sourceVersions[0]!, fingerprint: '' }] },
+  { beneficiaries: [{ ...binding.beneficiaries[0]!, version: -1 }] },
+  { beneficiaries: [{ ...binding.beneficiaries[0]!, beneficiaryId: ' ' }] },
+  { beneficiaries: [{ ...binding.beneficiaries[0]!, amount: null, currency: 'ZAR' }] },
+  { beneficiaries: [{ ...binding.beneficiaries[0]!, currency: 'zar' }] },
+  { policies: [{ ...binding.policies[0]!, policyVersion: Number.MAX_SAFE_INTEGER + 1 }] },
+  { policies: [{ ...binding.policies[0]!, approverRole: '' }] },
+  { policies: [{ ...binding.policies[0]!, mandatory: 'yes' }] },
+  { accountingDate: '2026-02-30' }, { accountingDate: '09/09/2026' },
+])('rejects malformed material binding fields before hashing %j', patch => {
+  expect(() => operationBindingHash({ ...binding, ...patch } as OperationBinding)).toThrow();
+});
+
+it('rejects sparse arrays even when another enumerable property masks the missing index', () => {
+  const value = new Array(1); Object.assign(value, { extra: 'lost evidence' });
+  expect(() => canonicalJson(value)).toThrow();
+});
+it('rejects array symbol decoration and hidden payload on arrays/objects', () => {
+  const decorated = [null]; Object.assign(decorated, { [Symbol('evidence')]: 123 });
+  expect(() => canonicalJson(decorated)).toThrow();
+  for (const value of [[null], {}]) {
+    Object.defineProperty(value, 'hidden', { value: 'not represented', enumerable: false });
+    expect(() => canonicalJson(value)).toThrow();
+  }
+});
+it('rejects accessor evidence without invoking getters', () => {
+  let accessed = false;
+  for (const value of [[null], {}]) {
+    Object.defineProperty(value, Array.isArray(value) ? '0' : 'field', {
+      enumerable: true, get() { accessed = true; return 123; },
+    });
+    expect(() => canonicalJson(value)).toThrow();
+  }
+  expect(accessed).toBe(false);
+});
+
+it('keeps Unicode permutations stable for sources and beneficiaries without merging identities', () => {
+  const ids = ['é', 'e\u0301'];
+  const sourceVersions = ids.map(entityId => ({ ...binding.sourceVersions[0]!, entityId }));
+  const beneficiaries = ids.map(entityId => ({ ...binding.beneficiaries[0]!, entityId }));
+  const forward = { ...binding, sourceVersions, beneficiaries };
+  expect(operationBindingHash(forward)).toBe(operationBindingHash({ ...forward,
+    sourceVersions: [...sourceVersions].reverse(), beneficiaries: [...beneficiaries].reverse() }));
+  expect(operationBindingHash(forward)).not.toBe(operationBindingHash(binding));
+});
+it.each([
+  { companyId: ' ' }, { entityId: 42 }, { accountingDate: '2025-02-29' },
+  { sourceVersions: [{ ...binding.sourceVersions[0]!, entityId: '' }] },
+  { sourceVersions: [{ ...binding.sourceVersions[0]!, entityType: '' }] },
+  { beneficiaries: [{ ...binding.beneficiaries[0]!, fingerprint: '' }] },
+  { beneficiaries: [{ ...binding.beneficiaries[0]!, entityType: 'bank' }] },
+  { beneficiaries: [{ ...binding.beneficiaries[0]!, amount: '1', currency: null }] },
+  { policies: [{ ...binding.policies[0]!, policyId: ' ' }] },
+  { policies: [{ ...binding.policies[0]!, mandatory: undefined }] },
+  { policies: null },
+])('rejects missing or wrongly typed material fields %j', patch => {
+  expect(() => operationBindingHash({ ...binding, ...patch } as OperationBinding)).toThrow();
+});
+it('permits valid leap days, false policy requirements and frozen ordinary data', () => {
+  expect(() => operationBindingHash({ ...binding, accountingDate: '2024-02-29',
+    policies: [{ ...binding.policies[0]!, mandatory: false }] })).not.toThrow();
+  expect(canonicalJson(Object.freeze([Object.freeze({ a: 1 })]))).toBe('[{"a":1}]');
+});
+it('rejects a hidden array index and decorated dates without losing payload', () => {
+  const array = [1]; Object.defineProperty(array, '0', { enumerable: false });
+  const date = Object.assign(new Date('2026-09-09T00:00:00Z'), { extra: 'hidden by ISO conversion' });
+  expect(() => canonicalJson(array)).toThrow();
+  expect(() => canonicalJson(date)).toThrow();
+});
