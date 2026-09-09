@@ -1,6 +1,6 @@
 # Effective permission core
 
-Base: 2003bddb. Worktree: `.worktrees/mcp-forensic-permissions-20260909`, branch `feat/mcp-forensic-permissions-20260909`. Root context dependency ba3d9ebd cherry-picked as 80c087a6. This is a bounded core, not completed transport/financial-executor enforcement.
+Base: 2003bddb. Worktree: `.worktrees/mcp-forensic-permissions-20260909`, branch `feat/mcp-forensic-permissions-20260909`. Root context dependency ba3d9ebd cherry-picked as 80c087a6; independently reviewed lifetime/finalization fix df7e6e18 cherry-picked as 1c530222. This is a bounded core, not completed transport/financial-executor enforcement.
 
 ## Changes
 
@@ -30,7 +30,7 @@ New modules: `approvals`, `beneficiaries`, `access`, `audit`, `controls`, `payro
 
 Cross-domain invoice/contact scopes conservatively require both modules, preventing a broad endpoint returning both domains from defeating one deny. Domain-specific narrowing is not silently inferred from arbitrary entity labels.
 
-Root wrappers/registry/tool adapters and every high-risk executor must invoke the appropriate scope/domain capability; this worker does not modify those entrypoints. Root must integrate the reviewed control-context lifetime fix. `write:post` alone is ordinary posting authority and never substitutes mandatory operation approval/release capability.
+Root wrappers/registry/tool adapters and every high-risk executor must invoke the appropriate scope/domain capability; this worker does not modify those entrypoints. The reviewed control-context lifetime fix is present in this worker branch. `write:post` alone is ordinary posting authority and never substitutes mandatory operation approval/release capability.
 
 ## Tests and actual evidence
 
@@ -42,8 +42,18 @@ Source ESLint: passed on all three owned source files. Attempting source project
 
 Real PostgreSQL first run on explicitly opted-in localhost33149/isaflow_schema_fixture: **3 passed, 1 failed**. Role downgrade correctly denied writes but viewer retained-read failed because `FOR UPDATE` applies UPDATE RLS to membership/company, and those tables permit admin updates only. Inspected actual policies confirmed this. Grant and override tables have owner/tenant FOR ALL policies and their locks worked. Root accepted a narrow SECURITY DEFINER principal-lock helper in migration626; core now depends on that helper instead of unsafe lock removal.
 
-Real integration suite now has six scenarios: two PATs for same downgraded person; admin explicit deny/suspension/wrong tenant; persisted PAT scope reduction/expiry/revocation; concurrent membership/token revocation and absent-override insertion fencing; manager ordinary writes versus explicit approval capability; persisted OAuth scope reduction/expiry/revocation. **Six-case suite awaits root helper deployment to disposable fixture and another exclusive DB lease.** It uses real `withControlRequest`/`requireControlTx`, app_user RLS, authenticated GUCs and actual service SQL; no mocked queries. All provisioned identities are synthetic and cleaned up. No production/external bank calls.
+Real integration suite now has six scenarios: two PATs for same downgraded person; admin explicit deny/suspension/wrong tenant; persisted PAT scope reduction/expiry/revocation; concurrent membership/token revocation and absent-override insertion fencing; manager ordinary writes versus explicit approval capability; persisted OAuth scope reduction/expiry/revocation. **All six real-DB cases passed at 1c530222 on 2026-09-09, after root applied migration626 to the disposable fixture.** It uses real `withControlRequest`/`requireControlTx`, app_user RLS, authenticated GUCs and actual service SQL; no mocked queries. All provisioned identities are synthetic and cleaned up. No production/external bank calls.
 
 Required helper output: role, account_user_id, is_active, status, suspended_at, company_status, company_suspended_at. Root helper authenticates supplied company/person against transaction GUCs, uses fixed search_path/qualified relations, privileged owner and app_user-only EXECUTE, and locks users/company_users/current company. Missing membership/profile returns no authority. Users parent lock also serializes a concurrent permission INSERT via its users FK, so observing no override does not allow a concurrent deny to overtake authorization.
 
-No full CI/build run by worker. No claim of complete integrated security until helper, reviewed context lifetime fix, six-case real DB suite, root entrypoint wiring and independent review pass. Production unchanged/unverified.
+No full CI/build run by worker. Helper, reviewed context lifetime fix and six-case real DB proof are complete for this core. Root financial-entrypoint wiring and final independent integration review remain required; this is not a claim of complete application enforcement. Production unchanged/unverified.
+
+## Review correction and final focused proof
+
+Independent review of08c72f17 found no blocking source defect and one P2 test defect: the foreign-tenant denial followed a suspended-user denial without restoring activity. Commit3f25024c restores the user and proves the same permission succeeds in tenantA before requesting tenantB, so suspension cannot mask the isolation assertion.
+
+Verified named state1c530222 (core08c72f17 + review test3f25024c + reviewed context fix1c530222):
+
+- PostgreSQL command: `./node_modules/.bin/vitest run --config vitest.integration.config.ts tests/integration/controls/permissionRevocation.int.test.ts`, with explicit synthetic fixture opt-in/localhost33149 target, Node22.23.1. **1 file, 6 passed**, 3.58s total, 1.97s tests. These exercised real app_user RLS/helper SQL, live PAT/OAuth grants, manager/viewer roles, explicit denies, tenant isolation and transaction revocation locks.
+- Unit command: `./node_modules/.bin/vitest run tests/unit/auth/effectivePermissions.test.ts tests/unit/services/controls/context.test.ts`. **2 files, 32 passed** (23 permission +9 context), 1.90s total.
+- Exclusive DB lease released immediately after six-case completion; no ongoing DB process. Synthetic fixture rows cleaned by suite afterAll. No full CI/build, production access or external dispatch.
