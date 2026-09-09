@@ -1,0 +1,36 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/portal/invoice/generate","timestamp":"2026-09-09T09:33:57.400Z","component":"API","requestId":"01M22R8N8QJ6RYR8S692K9PYVY","data":{"type":"request","method":"POST","url":"/api/portal/invoice/generate","query":{},"body":{"invoiceId":"e416b8fb-de40-4208-9e49-dbf807d94ead"}}}
+{"level":"info","message":"API Response: POST /api/portal/invoice/generate - 404 (5ms)","timestamp":"2026-09-09T09:33:57.404Z","component":"API","requestId":"01M22R8N8QJ6RYR8S692K9PYVY","data":{"type":"response","method":"POST","url":"/api/portal/invoice/generate","statusCode":404,"duration":"5ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:33:57.404Z","component":"http","requestId":"01M22R8N8QJ6RYR8S692K9PYVY","data":{"event":"request_completed","route":"/api/portal/invoice/generate","method":"POST","status":404,"durationMs":5,"userId":"b891a3eb-39a1-439d-bfaa-7465f48a8d86","companyId":"ee1edd62-10c5-43b1-89fd-44db737ec6a1","outcome":"client_error"}}
+ ❯ tests/integration/k101-portal-generate-uses-default-company.int.test.ts (1 test | 1 failed) 225ms
+     × mints a token for an invoice in the active (non-default) company 63ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k101-portal-generate-uses-default-company.int.test.ts > K-101 portal token generation follows the active company > mints a token for an invoice in the active (non-default) company
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ tests/integration/k101-portal-generate-uses-default-company.int.test.ts:69:37
+     67|     await generate(req as never, result.res);
+     68|
+     69|     expect(result.state.statusCode).toBe(200);
+       |                                     ^
+     70|     const { rows } = await pool.query('SELECT portal_token FROM custom…
+     71|     expect(rows[0]?.portal_token).toBeTruthy();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:33:52
+   Duration  4.62s (transform 1.16s, setup 0ms, import 3.33s, tests 225ms, environment 0ms)
+

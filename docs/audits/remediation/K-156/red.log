@@ -1,0 +1,34 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"warn","message":"mirror ingest failed","timestamp":"2026-09-09T09:49:06.263Z","component":"imap-mirror","data":{"connectionId":"11111111-1111-4111-8111-111111111111","uid":12,"err":"storage 503 — transient"}}
+ ❯ tests/unit/services/capture/k156-imap-cursor-advances-past-failure.test.ts (1 test | 1 failed) 458ms
+     × does not advance past a message whose ingest failed 442ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/capture/k156-imap-cursor-advances-past-failure.test.ts > K-156 IMAP mirror cursor > does not advance past a message whose ingest failed
+AssertionError: expected 12 to be 11 // Object.is equality
+
+- Expected
++ Received
+
+- 11
++ 12
+
+ ❯ tests/unit/services/capture/k156-imap-cursor-advances-past-failure.test.ts:97:29
+     95|     // UID 12 never got a captured document; leaving the cursor at 11 …
+     96|     // lets the next scan retry it.
+     97|     expect(persisted.INBOX).toBe(11);
+       |                             ^
+     98|   });
+     99| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:49:04
+   Duration  2.02s (transform 534ms, setup 0ms, import 413ms, tests 458ms, environment 0ms)
+

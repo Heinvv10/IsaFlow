@@ -1,0 +1,75 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k138-supplier-subresource-ownership.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST ","timestamp":"2026-09-09T09:43:05.333Z","component":"API","requestId":"01M22RSCB73FA6BZD8W411TWQ2","data":{"type":"request","method":"POST","url":"","query":{},"body":{"supplierId":"abb5e8e7-a36f-4f04-9d59-a9262a3422ec","amount":500,"reason":"K138"}}}
+{"level":"info","message":"Supplier return created","timestamp":"2026-09-09T09:43:05.389Z","requestId":"01M22RSCB73FA6BZD8W411TWQ2","data":{"id":"6accf68f-75b0-4859-9a89-a5a9e5021ea0","number":"DR-0001","module":"accounting"}}
+{"level":"info","message":"API Response: POST  - 200 (70ms)","timestamp":"2026-09-09T09:43:05.389Z","component":"API","requestId":"01M22RSCB73FA6BZD8W411TWQ2","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"70ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:43:05.389Z","component":"http","requestId":"01M22RSCB73FA6BZD8W411TWQ2","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":70,"userId":"765f4bdd-bb52-4825-9fa5-cbd4f8df66d4","companyId":"825217b2-d301-4791-bd11-7d81da00ae4e","outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-09-09T09:43:05.448Z","component":"API","requestId":"01M22RSCF8DZBCK9TRBMW9HWV0","data":{"type":"request","method":"POST","url":"","query":{},"body":{"supplierId":"abb5e8e7-a36f-4f04-9d59-a9262a3422ec","items":[{"description":"K138 widget","quantity":1,"unitPrice":100,"taxRate":15}]}}}
+{"level":"info","message":"Purchase order created","timestamp":"2026-09-09T09:43:05.465Z","component":"accounting","requestId":"01M22RSCF8DZBCK9TRBMW9HWV0","data":{"poNumber":"PO-00001","supplier":"abb5e8e7-a36f-4f04-9d59-a9262a3422ec","total":115}}
+{"level":"info","message":"API Response: POST  - 201 (20ms)","timestamp":"2026-09-09T09:43:05.468Z","component":"API","requestId":"01M22RSCF8DZBCK9TRBMW9HWV0","data":{"type":"response","method":"POST","url":"","statusCode":201,"duration":"20ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:43:05.468Z","component":"http","requestId":"01M22RSCF8DZBCK9TRBMW9HWV0","data":{"event":"request_completed","route":"","method":"POST","status":201,"durationMs":20,"userId":"765f4bdd-bb52-4825-9fa5-cbd4f8df66d4","companyId":"825217b2-d301-4791-bd11-7d81da00ae4e","outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-09-09T09:43:06.130Z","component":"API","requestId":"01M22RSD4JRH6KFE4GW04YCGVK","data":{"type":"request","method":"POST","url":"","query":{},"body":{"type":"supplier","supplierId":"abb5e8e7-a36f-4f04-9d59-a9262a3422ec","creditDate":"2026-03-01","subtotal":250}}}
+{"level":"error","message":"Failed to create credit note","timestamp":"2026-09-09T09:43:06.140Z","component":"accounting","requestId":"01M22RSD4JRH6KFE4GW04YCGVK","data":{"error":{"name":"Error","message":"Not found","stack":"Error: Not found\n    at createCreditNote (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/creditNoteService.ts:111:26)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/credit-notes.ts:60:26)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at post (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k138-supplier-subresource-ownership.int.test.ts:63:3)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k138-supplier-subresource-ownership.int.test.ts:117:17\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"error","message":"Failed to create credit note","timestamp":"2026-09-09T09:43:06.152Z","component":"accounting-api","requestId":"01M22RSD4JRH6KFE4GW04YCGVK","data":{"error":{"name":"Error","message":"Not found","stack":"Error: Not found\n    at createCreditNote (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/creditNoteService.ts:111:26)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/credit-notes.ts:60:26)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at post (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k138-supplier-subresource-ownership.int.test.ts:63:3)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k138-supplier-subresource-ownership.int.test.ts:117:17\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"error","message":"Internal Server Error","timestamp":"2026-09-09T09:43:06.155Z","component":"ApiResponse","requestId":"01M22RSD4JRH6KFE4GW04YCGVK","data":{"message":"Not found","stack":"Error: Not found\n    at createCreditNote (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ar/creditNoteService.ts:111:26)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/credit-notes.ts:60:26)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at post (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k138-supplier-subresource-ownership.int.test.ts:63:3)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k138-supplier-subresource-ownership.int.test.ts:117:17\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}
+{"level":"info","message":"API Response: POST  - 500 (26ms)","timestamp":"2026-09-09T09:43:06.156Z","component":"API","requestId":"01M22RSD4JRH6KFE4GW04YCGVK","data":{"type":"response","method":"POST","url":"","statusCode":500,"duration":"26ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:43:06.156Z","component":"http","requestId":"01M22RSD4JRH6KFE4GW04YCGVK","data":{"event":"request_completed","route":"","method":"POST","status":500,"durationMs":26,"userId":"765f4bdd-bb52-4825-9fa5-cbd4f8df66d4","companyId":"825217b2-d301-4791-bd11-7d81da00ae4e","outcome":"server_error"}}
+ ❯ tests/integration/k138-supplier-subresource-ownership.int.test.ts (3 tests | 3 failed) 4363ms
+     × supplier-returns refuses a supplier from another company 3330ms
+     × purchase-orders refuses a supplier from another company 63ms
+     × credit-notes refuses a supplier from another company 718ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k138-supplier-subresource-ownership.int.test.ts > K-138 a supplier id from the body must belong to the caller company > supplier-returns refuses a supplier from another company
+AssertionError: expected 200 to be greater than or equal to 400
+ ❯ tests/integration/k138-supplier-subresource-ownership.int.test.ts:97:28
+     95|     const route = (await import('../../pages/api/accounting/supplier-r…
+     96|     const res = await post(route, { supplierId: foreignSupplier, amoun…
+     97|     expect(res.statusCode).toBeGreaterThanOrEqual(400);
+       |                            ^
+     98|     const rows = await admin.query(
+     99|       `SELECT id FROM credit_notes WHERE company_id = $1 AND supplier_…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/k138-supplier-subresource-ownership.int.test.ts > K-138 a supplier id from the body must belong to the caller company > purchase-orders refuses a supplier from another company
+AssertionError: expected 201 to be greater than or equal to 400
+ ❯ tests/integration/k138-supplier-subresource-ownership.int.test.ts:109:28
+    107|       items: [{ description: 'K138 widget', quantity: 1, unitPrice: 10…
+    108|     });
+    109|     expect(res.statusCode).toBeGreaterThanOrEqual(400);
+       |                            ^
+    110|     const rows = await admin.query(
+    111|       `SELECT id FROM purchase_orders WHERE company_id = $1 AND suppli…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/k138-supplier-subresource-ownership.int.test.ts > K-138 a supplier id from the body must belong to the caller company > credit-notes refuses a supplier from another company
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/integration/k138-supplier-subresource-ownership.int.test.ts:123:27
+    121|     const rows = await admin.query(
+    122|       `SELECT id FROM credit_notes WHERE company_id = $1 AND supplier_…
+    123|     expect(rows.rowCount).toBe(0);
+       |                           ^
+    124|   });
+    125| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  11:43:00
+   Duration  6.19s (transform 2.59s, setup 0ms, import 830ms, tests 4.36s, environment 0ms)
+
+error: script "test:integration" exited with code 1

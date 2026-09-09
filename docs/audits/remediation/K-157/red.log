@@ -1,0 +1,59 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k157-attach-evidence-poisons-tx.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"warn","message":"attachEvidenceToProvisional failed — continuing","timestamp":"2026-09-09T09:45:47.917Z","component":"evidence-attachment","data":{"companyId":"8a7db943-f084-4dfb-ab24-3f1016bb7c37","capturedDocumentId":"06d200a9-a9b2-4cb1-8710-4c92d97f2c82","error":"numeric field overflow"}}
+ ❯ tests/integration/k157-attach-evidence-poisons-tx.int.test.ts (1 test | 1 failed) 252ms
+   × leaves the caller transaction usable and does not silently roll it back 35ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k157-attach-evidence-poisons-tx.int.test.ts > leaves the caller transaction usable and does not silently roll it back
+AssertionError: expected { attachThrew: null, …(2) } to match object { followUpError: null }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "followUpError": null,
++   "followUpError": error {
++     "message": "current transaction is aborted, commands ignored until end of transaction block",
++     "length": 144,
++     "name": "error",
++     "severity": "ERROR",
++     "code": "25P02",
++     "detail": undefined,
++     "hint": undefined,
++     "position": undefined,
++     "internalPosition": undefined,
++     "internalQuery": undefined,
++     "where": undefined,
++     "schema": undefined,
++     "table": undefined,
++     "column": undefined,
++     "dataType": undefined,
++     "constraint": undefined,
++     "file": "postgres.c",
++     "line": "1140",
++     "routine": "exec_simple_query",
++   },
+  }
+
+ ❯ tests/integration/k157-attach-evidence-poisons-tx.int.test.ts:118:56
+    116|   // The failure must reach the caller: either it throws, or the trans…
+    117|   // still usable because the failed statement was contained in a save…
+    118|   expect({ attachThrew, followUpError, attachResult }).toMatchObject({…
+       |                                                        ^
+    119|   // And the caller's earlier write must not be silently discarded by …
+    120|   // that PostgreSQL degrades to ROLLBACK.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:45:46
+   Duration  1.54s (transform 426ms, setup 0ms, import 656ms, tests 252ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

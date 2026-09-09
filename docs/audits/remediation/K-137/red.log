@@ -1,0 +1,60 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k137-supplier-invoice-put-silent-noop.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: PUT ","timestamp":"2026-09-09T09:46:55.660Z","component":"API","requestId":"01M22S0D9BD6XHV7KR86KTV2DT","data":{"type":"request","method":"PUT","url":"","query":{},"body":{"id":"be7adabe-768a-4d50-aedd-6ec45a8eb210","notes":"K137 edited"}}}
+{"level":"info","message":"Supplier invoice updated","timestamp":"2026-09-09T09:46:55.683Z","requestId":"01M22S0D9BD6XHV7KR86KTV2DT","data":{"id":"be7adabe-768a-4d50-aedd-6ec45a8eb210"}}
+{"level":"info","message":"API Response: PUT  - 200 (34ms)","timestamp":"2026-09-09T09:46:55.693Z","component":"API","requestId":"01M22S0D9BD6XHV7KR86KTV2DT","data":{"type":"response","method":"PUT","url":"","statusCode":200,"duration":"34ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:46:55.696Z","component":"http","requestId":"01M22S0D9BD6XHV7KR86KTV2DT","data":{"event":"request_completed","route":"","method":"PUT","status":200,"durationMs":37,"userId":"8befd0ff-9319-4648-9770-6db8d9ff530f","companyId":"c9dfa07a-f18d-4c1c-a6ab-ede6a58bdf77","outcome":"ok"}}
+{"level":"info","message":"API Request: PUT ","timestamp":"2026-09-09T09:46:55.709Z","component":"API","requestId":"01M22S0DAW5W6G0R89X8AVA7RJ","data":{"type":"request","method":"PUT","url":"","query":{},"body":{"id":"04c347a7-d284-4d1d-9511-df437fd5bc2d","invoiceNumber":"K137-REWRITTEN"}}}
+{"level":"info","message":"Supplier invoice updated","timestamp":"2026-09-09T09:46:55.717Z","requestId":"01M22S0DAW5W6G0R89X8AVA7RJ","data":{"id":"04c347a7-d284-4d1d-9511-df437fd5bc2d"}}
+{"level":"info","message":"API Response: PUT  - 200 (14ms)","timestamp":"2026-09-09T09:46:55.723Z","component":"API","requestId":"01M22S0DAW5W6G0R89X8AVA7RJ","data":{"type":"response","method":"PUT","url":"","statusCode":200,"duration":"14ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:46:55.723Z","component":"http","requestId":"01M22S0DAW5W6G0R89X8AVA7RJ","data":{"event":"request_completed","route":"","method":"PUT","status":200,"durationMs":14,"userId":"8befd0ff-9319-4648-9770-6db8d9ff530f","companyId":"c9dfa07a-f18d-4c1c-a6ab-ede6a58bdf77","outcome":"ok"}}
+{"level":"info","message":"API Request: PUT ","timestamp":"2026-09-09T09:46:55.729Z","component":"API","requestId":"01M22S0DBHVZ7QB6TDFDEX06WV","data":{"type":"request","method":"PUT","url":"","query":{},"body":{"id":"089e281c-c54e-44e5-9380-c85f687b1a17","notes":"K137 cross-tenant"}}}
+{"level":"info","message":"Supplier invoice updated","timestamp":"2026-09-09T09:46:55.735Z","requestId":"01M22S0DBHVZ7QB6TDFDEX06WV","data":{"id":"089e281c-c54e-44e5-9380-c85f687b1a17"}}
+{"level":"info","message":"API Response: PUT  - 200 (8ms)","timestamp":"2026-09-09T09:46:55.737Z","component":"API","requestId":"01M22S0DBHVZ7QB6TDFDEX06WV","data":{"type":"response","method":"PUT","url":"","statusCode":200,"duration":"8ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:46:55.739Z","component":"http","requestId":"01M22S0DBHVZ7QB6TDFDEX06WV","data":{"event":"request_completed","route":"","method":"PUT","status":200,"durationMs":10,"userId":"8befd0ff-9319-4648-9770-6db8d9ff530f","companyId":"c9dfa07a-f18d-4c1c-a6ab-ede6a58bdf77","outcome":"ok"}}
+ ❯ tests/integration/k137-supplier-invoice-put-silent-noop.int.test.ts (3 tests | 2 failed) 1808ms
+     × refuses an edit to an approved invoice instead of reporting success 20ms
+     × answers 404 for an invoice belonging to another company 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k137-supplier-invoice-put-silent-noop.int.test.ts > K-137 a PUT that changes nothing must not answer 200 > refuses an edit to an approved invoice instead of reporting success
+AssertionError: expected 200 to be greater than or equal to 400
+ ❯ tests/integration/k137-supplier-invoice-put-silent-noop.int.test.ts:107:28
+    105|     const row = await admin.query('SELECT invoice_number FROM supplier…
+    106|     expect(row.rows[0].invoice_number).toBe('K137-APPROVED');   // not…
+    107|     expect(res.statusCode).toBeGreaterThanOrEqual(400);          // … …
+       |                            ^
+    108|   });
+    109|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k137-supplier-invoice-put-silent-noop.int.test.ts > K-137 a PUT that changes nothing must not answer 200 > answers 404 for an invoice belonging to another company
+AssertionError: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/k137-supplier-invoice-put-silent-noop.int.test.ts:112:28
+    110|   it('answers 404 for an invoice belonging to another company', async …
+    111|     const res = await put({ id: foreignInvoice, notes: 'K137 cross-ten…
+    112|     expect(res.statusCode).toBe(404);
+       |                            ^
+    113|   });
+    114| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:46:53
+   Duration  2.69s (transform 1.06s, setup 0ms, import 296ms, tests 1.81s, environment 0ms)
+
+error: script "test:integration" exited with code 1

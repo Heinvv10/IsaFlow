@@ -1,0 +1,53 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/capture/k154-statement-match-double-consumption.test.ts (2 tests | 2 failed) 38ms
+     × does not match the same invoice to two statement lines (exact ref path) 33ms
+     × matches two equal statement lines to two distinct invoices (fuzzy path) 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/capture/k154-statement-match-double-consumption.test.ts > K-154 buildInserts must consume a matched invoice > does not match the same invoice to two statement lines (exact ref path)
+AssertionError: expected [ { …(10) }, { …(10) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/unit/services/capture/k154-statement-match-double-consumption.test.ts:30:27
+     28|     // One statement line may claim inv-1; the duplicate must be repor…
+     29|     // unmatched (missing_in_isaflow) so the double charge is visible.
+     30|     expect(matchedToInv1).toHaveLength(1);
+       |                           ^
+     31|   });
+     32|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/services/capture/k154-statement-match-double-consumption.test.ts > K-154 buildInserts must consume a matched invoice > matches two equal statement lines to two distinct invoices (fuzzy path)
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/unit/services/capture/k154-statement-match-double-consumption.test.ts:49:29
+     47|     // Both invoices are genuinely on the statement — neither may be f…
+     48|     // missing, and the two lines must not collapse onto the same invo…
+     49|     expect(matchedIds.size).toBe(2);
+       |                             ^
+     50|     expect(inserts.filter((i) => i.mismatchReason === 'missing_in_stat…
+     51|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:40:03
+   Duration  1.53s (transform 185ms, setup 0ms, import 234ms, tests 38ms, environment 0ms)
+

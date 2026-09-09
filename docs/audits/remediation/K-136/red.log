@@ -1,0 +1,107 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k136-batch-approve-cancel-no-op.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Cancelled batch","timestamp":"2026-09-09T09:41:45.789Z","component":"accounting","data":{"id":"246e0adf-2a25-4353-9a8d-754b4907be7d"}}
+{"level":"info","message":"Approved batch","timestamp":"2026-09-09T09:41:45.802Z","component":"accounting","data":{"id":"7f2fad7b-6e4c-4bbd-a152-7d79a7f419ef"}}
+{"level":"info","message":"Approved batch","timestamp":"2026-09-09T09:41:45.812Z","component":"accounting","data":{"id":"442a990c-4180-47ff-ab4c-7bbbfc709fd7"}}
+{"level":"info","message":"Approved batch","timestamp":"2026-09-09T09:41:45.816Z","component":"accounting","data":{"id":"b3d0a92d-2715-491c-ad2a-93919719e7d7"}}
+ ❯ tests/integration/k136-batch-approve-cancel-no-op.int.test.ts (4 tests | 4 failed) 168ms
+     × refuses to cancel a batch whose payment has already been processed 21ms
+     × refuses to approve a batch that is already cancelled 10ms
+     × refuses an id that belongs to another tenant 10ms
+     × refuses an id that does not exist 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k136-batch-approve-cancel-no-op.int.test.ts > K-136 batch approve/cancel report success when nothing changed > refuses to cancel a batch whose payment has already been processed
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ tests/integration/k136-batch-approve-cancel-no-op.int.test.ts:70:43
+     68|     // THE CLAIM: on origin/master this resolves, and the route answers
+     69|     // { status: 'cancelled' } for a batch that is still processed.
+     70|     await expect(cancelBatch(COMPANY, id)).rejects.toThrow();
+       |                                           ^
+     71|     expect(await statusOf(id)).toBe('processed');
+     72|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/k136-batch-approve-cancel-no-op.int.test.ts > K-136 batch approve/cancel report success when nothing changed > refuses to approve a batch that is already cancelled
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ tests/integration/k136-batch-approve-cancel-no-op.int.test.ts:76:50
+     74|   it('refuses to approve a batch that is already cancelled', async () …
+     75|     const id = await makeBatch(`${TAG}-CANCELLED`, 'cancelled');
+     76|     await expect(approveBatch(COMPANY, id, USER)).rejects.toThrow();
+       |                                                  ^
+     77|     expect(await statusOf(id)).toBe('cancelled');
+     78|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/integration/k136-batch-approve-cancel-no-op.int.test.ts > K-136 batch approve/cancel report success when nothing changed > refuses an id that belongs to another tenant
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ tests/integration/k136-batch-approve-cancel-no-op.int.test.ts:82:56
+     80|   it('refuses an id that belongs to another tenant', async () => {
+     81|     const id = await makeBatch(`${TAG}-FOREIGN`, 'draft');
+     82|     await expect(approveBatch(OTHER_COMPANY, id, USER)).rejects.toThro…
+       |                                                        ^
+     83|     expect(await statusOf(id)).toBe('draft');
+     84|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/integration/k136-batch-approve-cancel-no-op.int.test.ts > K-136 batch approve/cancel report success when nothing changed > refuses an id that does not exist
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ tests/integration/k136-batch-approve-cancel-no-op.int.test.ts:87:60
+     85|
+     86|   it('refuses an id that does not exist', async () => {
+     87|     await expect(approveBatch(COMPANY, randomUUID(), USER)).rejects.to…
+       |                                                            ^
+     88|   });
+     89| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  11:41:44
+   Duration  1.78s (transform 717ms, setup 0ms, import 1.08s, tests 168ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

@@ -1,0 +1,51 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"error","message":"Failed to create journal entry","timestamp":"2026-09-09T09:40:13.558Z","component":"accounting","data":{"error":{"name":"Error","message":"Invalid journal entry: Entry is not balanced: total debit R150.00 != total credit R1150.00 (difference: R1000.00)","stack":"Error: Invalid journal entry: Entry is not balanced: total debit R150.00 != total credit R1150.00 (difference: R1000.00)\n    at createJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/journalEntryCrudService.ts:210:34)\n    at approveSupplierInvoice (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts:166:32)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at inTx (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:47:17)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:107:22\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"error","message":"Failed to approve supplier invoice","timestamp":"2026-09-09T09:40:13.606Z","component":"accounting","data":{"id":"670c5be7-83f2-4105-adc8-07a1523fc9b5","error":{"name":"Error","message":"Invalid journal entry: Entry is not balanced: total debit R150.00 != total credit R1150.00 (difference: R1000.00)","stack":"Error: Invalid journal entry: Entry is not balanced: total debit R150.00 != total credit R1150.00 (difference: R1000.00)\n    at createJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/journalEntryCrudService.ts:210:34)\n    at approveSupplierInvoice (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts:166:32)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at inTx (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:47:17)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:107:22\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"error","message":"Failed to create journal entry","timestamp":"2026-09-09T09:40:13.687Z","component":"accounting","data":{"error":{"name":"Error","message":"Invalid journal entry: Journal entry must have at least 2 lines for double-entry; Entry is not balanced: total debit R0.00 != total credit R800.00 (difference: R800.00)","stack":"Error: Invalid journal entry: Journal entry must have at least 2 lines for double-entry; Entry is not balanced: total debit R0.00 != total credit R800.00 (difference: R800.00)\n    at createJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/journalEntryCrudService.ts:210:34)\n    at approveSupplierInvoice (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts:166:32)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at inTx (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:47:17)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:121:22\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"error","message":"Failed to approve supplier invoice","timestamp":"2026-09-09T09:40:13.689Z","component":"accounting","data":{"id":"03d2e39d-bc30-4d77-8477-f7e762189f4f","error":{"name":"Error","message":"Invalid journal entry: Journal entry must have at least 2 lines for double-entry; Entry is not balanced: total debit R0.00 != total credit R800.00 (difference: R800.00)","stack":"Error: Invalid journal entry: Journal entry must have at least 2 lines for double-entry; Entry is not balanced: total debit R0.00 != total credit R800.00 (difference: R800.00)\n    at createJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/journalEntryCrudService.ts:210:34)\n    at approveSupplierInvoice (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts:166:32)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at inTx (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:47:17)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:121:22\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+ ❯ tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts (2 tests | 2 failed) 395ms
+     × approves a VAT-bearing bill that carries no line items 113ms
+     × approves a zero-VAT bill that carries no line items 64ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts > K-134 a supplier bill with no line items cannot be approved > approves a VAT-bearing bill that carries no line items
+Error: Invalid journal entry: Entry is not balanced: total debit R150.00 != total credit R1150.00 (difference: R1000.00)
+ ❯ createJournalEntry src/modules/accounting/services/gl/journalEntryCrudService.ts:210:34
+    208|   try {
+    209|     const validation = validateJournalEntry(input.lines);
+    210|     if (!validation.valid) throw new Error(`Invalid journal entry: ${v…
+       |                                  ^
+    211|
+    212|     let fiscalPeriodId = input.fiscalPeriodId;
+ ❯ approveSupplierInvoice src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts:166:32
+ ❯ inTx tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:47:17
+ ❯ tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:107:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts > K-134 a supplier bill with no line items cannot be approved > approves a zero-VAT bill that carries no line items
+Error: Invalid journal entry: Journal entry must have at least 2 lines for double-entry; Entry is not balanced: total debit R0.00 != total credit R800.00 (difference: R800.00)
+ ❯ createJournalEntry src/modules/accounting/services/gl/journalEntryCrudService.ts:210:34
+    208|   try {
+    209|     const validation = validateJournalEntry(input.lines);
+    210|     if (!validation.valid) throw new Error(`Invalid journal entry: ${v…
+       |                                  ^
+    211|
+    212|     let fiscalPeriodId = input.fiscalPeriodId;
+ ❯ approveSupplierInvoice src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts:166:32
+ ❯ inTx tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:47:17
+ ❯ tests/integration/k134-header-only-supplier-invoice-approval.int.test.ts:121:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:40:10
+   Duration  2.92s (transform 1.32s, setup 0ms, import 1.71s, tests 395ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
