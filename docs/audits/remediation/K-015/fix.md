@@ -111,3 +111,27 @@ Full detail in `review-response-2.md`.
 
 `idx_supplier_invoices_duplicate_fp` (migration 412) is deliberately kept: `findDuplicate`'s probe
 has no `deleted_at` predicate, so it cannot use an index partial on `deleted_at IS NULL`.
+
+---
+
+# Follow-up 3: migration 625 withdrawn as a unique index
+
+A production pre-flight probe (run by the team lead, not from this session) found groups of 55-79
+live supplier invoices sharing one `duplicate_fingerprint`. The unique index could not be built.
+625 is now a NON-UNIQUE lookup index matching how `findDuplicate` probes, the wizard's idempotency
+is an explicit lookup before the INSERT instead of `ON CONFLICT`, and everything that depended on
+the unique violation is deleted rather than left as dead code. Detail in `review-response-5.md`.
+
+**The deploy notes from follow-up 2 no longer apply.** There is no pre-flight duplicate query to
+run, and no unique-index build lock: 625 is a plain `CREATE INDEX IF NOT EXISTS`. It should still
+be applied before this code ships, so the lookup it serves is indexed, but the import no longer
+fails without it.
+
+## Register item: `duplicate_fingerprint` is not a per-document key
+
+`lower(vat_number|invoice_number|total_amount)` with `no-vat`, `no-inv` and `0` substituted for
+missing parts, in both producers (migration 412's backfill and `computeFingerprint`). Every row
+missing the same parts collapses onto one string, which is what the production groups are. Whether
+it should discriminate per document — by adding the invoice date or the source document id — is a
+decision affecting every duplicate check in the system and all the data already stored. Not
+changed here.

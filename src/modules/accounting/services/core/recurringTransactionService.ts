@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { computeFingerprint, insertNamingDuplicate } from '../capture/captureDeduplicationService';
+import { computeFingerprint } from '../capture/captureDeduplicationService';
 
 
 export interface RecurringTemplate {
@@ -213,7 +213,7 @@ export async function executeRecurring(
     }
     const recFingerprint = computeFingerprint(recVatNumber, invoiceNumberSI, recTotal);
 
-    const siRows = (await insertNamingDuplicate(invoiceNumberSI, async () => (await sql`
+    const siRows = (await sql`
       INSERT INTO supplier_invoices (
         company_id, invoice_number, supplier_id, invoice_date, due_date,
         reference, notes, subtotal, tax_amount, total_amount, status, created_by,
@@ -233,7 +233,7 @@ export async function executeRecurring(
         ${userId}::UUID,
         ${recFingerprint}
       ) RETURNING id
-    `) as DbRow[]));
+    `) as DbRow[];
     entityId = String(siRows[0]?.id);
     if (template.autoPost) {
       const postResult = (await sql`UPDATE supplier_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID RETURNING id`) as DbRow[];

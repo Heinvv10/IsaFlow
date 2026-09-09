@@ -19,7 +19,7 @@ import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
-import { computeFingerprint, insertNamingDuplicate, isDuplicateFingerprintViolation } from '../capture/captureDeduplicationService';
+import { computeFingerprint } from '../capture/captureDeduplicationService';
 
 
 // ── Ledger Transaction Import ───────────────────────────────────────────────
@@ -369,20 +369,15 @@ export async function importSupplierInvoices(companyId: string, userId: string):
     let skipped = 0;
 
     for (const inv of sageInvoices) {
-      // Set inside the savepoint and read in the catch, which has to find the
-      // invoice a duplicate collided with; recomputing the fingerprint there
-      // would mean re-reading the supplier's VAT number.
-      let recordFingerprint: string | null = null;
       try {
         const totalAmount = Number(inv.total_amount || 0);
         if (totalAmount === 0) { skipped++; continue; }
 
-        // Every statement for this record runs inside its own savepoint. The
-        // unique index migration 625 adds makes a 23505 reachable here for the
-        // first time, and without a savepoint that aborts the request
-        // transaction — so the `migration_status = 'failed'` marker in the catch
-        // below would raise 25P02, escape to failRun(), and roll back every
-        // invoice the run had already imported.
+        // Every statement for this record runs inside its own savepoint. Any
+        // SQL failure on a record used to abort the whole request transaction,
+        // so the `migration_status = 'failed'` marker in the catch below then
+        // raised 25P02, escaped to failRun() — more SQL on the same dead
+        // transaction — and rolled back every invoice the run had imported.
         const outcome = await withSavepoint('sage_supplier_invoice_record', async (): Promise<'imported' | 'no_supplier'> => {
 
           // NOTE: purchase_orders table is not available in standalone accounting app.
@@ -417,10 +412,9 @@ export async function importSupplierInvoices(companyId: string, userId: string):
             invNumber,
             totalAmount,
           );
-          recordFingerprint = dupFingerprint;
 
           // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
-          const newInv = (await insertNamingDuplicate(invNumber, async () => (await sql`
+          const newInv = (await sql`
             INSERT INTO supplier_invoices (
               company_id, invoice_number, supplier_id, purchase_order_id, project_id,
               invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
@@ -436,7 +430,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
               ${inv.sage_invoice_id}, ${reference}, ${userId},
               ${dupFingerprint}
             ) RETURNING id
-          `) as DbRow[]));
+          `) as DbRow[];
 
           const newInvoiceId = String(newInv[0]!.id);
 
@@ -502,33 +496,6 @@ export async function importSupplierInvoices(companyId: string, userId: string):
       } catch (err) {
         // The savepoint has rolled back, so the transaction is usable and these
         // statements will land.
-        if (isDuplicateFingerprintViolation(err)) {
-          // Not a failure: this supplier already has this invoice for this
-          // amount, so the document IS in IsaFlow. Point the staging row at it
-          // and count the record as skipped rather than imported — nothing new
-          // was created — so that a re-run of the same export converges instead
-          // of reporting a growing failure count.
-          const existing = (await sql`
-            SELECT id FROM supplier_invoices
-            WHERE company_id = ${companyId}::UUID
-              AND supplier_id = ${inv.supplier_id}::UUID
-              AND duplicate_fingerprint = ${recordFingerprint}
-              AND deleted_at IS NULL
-            LIMIT 1
-          `) as DbRow[];
-          log.warn('Sage invoice already imported; linking the staging row to it', {
-            invoiceId: inv.id, existingId: existing[0]?.id ?? null,
-          }, 'accounting');
-          await sql`
-            UPDATE sage_supplier_invoices
-            SET migration_status = 'imported',
-                gl_supplier_invoice_id = COALESCE(${existing[0]?.id ?? null}::UUID, gl_supplier_invoice_id)
-            WHERE id = ${inv.id}
-              AND company_id = ${companyId}::UUID
-          `;
-          skipped++;
-          continue;
-        }
         log.error('Failed to import sage invoice', { invoiceId: inv.id, error: err }, 'accounting');
         // BL-40: UPDATE scoped by company_id
         await sql`

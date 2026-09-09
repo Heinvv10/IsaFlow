@@ -10,7 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
-import { resolveSettlementAccountId, rethrowIfConflictTargetMissing } from '../core/migrationPostingSupport';
+import { resolveSettlementAccountId } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 type Row = DbRow;
 
@@ -93,6 +93,31 @@ export async function importAPInvoices(
       // per-row failure must not leave the request transaction aborted, or the
       // updateSession below dies with 25P02 and the whole route 500s.
       const rowImported = await withSavepoint('mig_ap_invoice_row', async () => {
+        // Idempotency by lookup, not by constraint. duplicate_fingerprint cannot
+        // carry a unique index: it is lower(vat|invoice_number|total) with
+        // 'no-vat'/'no-inv'/'0' substituted for missing parts, so every row
+        // missing the same parts collapses onto one string — production holds
+        // groups of 55-79 live invoices sharing a fingerprint. This is a
+        // read-then-write and is therefore not safe against two imports of the
+        // same file running at the same instant; the wizard is a single
+        // operator-driven step per company, and there is no constraint to lean
+        // on. See migration 625.
+        const already = (await sql`
+          SELECT id FROM supplier_invoices
+          WHERE company_id = ${companyId}::UUID
+            AND supplier_id = ${supplierId}::UUID
+            AND duplicate_fingerprint = ${migFingerprint}
+            AND deleted_at IS NULL
+          LIMIT 1
+        `) as Row[];
+        if (already.length > 0) {
+          errors.push({
+            step: 'ap_invoices', row: i, field: 'invoiceNumber',
+            message: `Already imported: ${inv.invoiceNumber} for this supplier and amount`,
+          });
+          return false;
+        }
+
         const invRows = (await sql`
           INSERT INTO supplier_invoices (
             company_id, supplier_id, invoice_number, invoice_date, due_date,
@@ -107,22 +132,10 @@ export async function importAPInvoices(
             ${inv.reference ?? null}, ${userId}::UUID,
             ${migFingerprint}
           )
-          ON CONFLICT (company_id, supplier_id, duplicate_fingerprint)
-            WHERE duplicate_fingerprint IS NOT NULL AND deleted_at IS NULL
-          DO NOTHING
           RETURNING id
         `) as Row[];
 
-        // Re-running the wizard after a partial failure is the obvious user
-        // action; without a reason on the skip the operator cannot tell a
-        // duplicate from a lost document.
-        if (invRows.length === 0) {
-          errors.push({
-            step: 'ap_invoices', row: i, field: 'invoiceNumber',
-            message: `Already imported: ${inv.invoiceNumber} for this supplier and amount`,
-          });
-          return false;
-        }
+        if (invRows.length === 0) return false;
         const invoiceId = String(invRows[0]!.id);
 
         // Post GL: DR Expense + VAT Input, CR Payable
@@ -185,7 +198,6 @@ export async function importAPInvoices(
       });
       if (rowImported) imported++; else skipped++;
     } catch (err) {
-      rethrowIfConflictTargetMissing(err, 'uq_supplier_invoices_supplier_fingerprint (migration 625)');
       const msg = err instanceof Error ? err.message : String(err);
       errors.push({ step: 'ap_invoices', row: i, message: msg });
       skipped++;
