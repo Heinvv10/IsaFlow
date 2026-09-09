@@ -48,3 +48,23 @@ bun run lint          clean (eslint covers src + pages; tests/** sits outside
                       tsconfig and cannot be linted — pre-existing, applies to
                       every test file in the repo)
 bun run agent-docs:check  OK: 74 mirrors match
+
+── Re-review round (3 LOW on b8d13138) ──
+
+Integration 12 passed (12); components 58 files / 392 passed; full unit suite
+790 files / 9391 passed / 234 skipped; tsc exit 0; eslint on both changed
+pages exit 0.
+
+Leak fix proved by re-running the L3 mutation (`SET LOCAL lock_timeout` cut):
+  before: test failed at 20012ms AND "Hook timed out in 10000ms",
+          4 K026 companies left behind on the fixture DB, row still locked.
+  after:  test failed at 8078ms, no hook timeout, 0 rows left behind.
+The holder's own `idle_in_transaction_session_timeout = '8s'` is what frees the
+row — vitest abandons a timed-out test without unwinding it, so a `finally`
+alone never runs. 8s > the route's 5s lock_timeout, so it cannot fire while the
+code is correct.
+
+assertTxUsable(): no test. The flag it reads is set only by a failed
+`ROLLBACK TO SAVEPOINT`, and this route runs no savepoint before the lock, so
+the branch is unreachable today — added for fidelity to creditNoteLock, not to
+fix a reachable defect.

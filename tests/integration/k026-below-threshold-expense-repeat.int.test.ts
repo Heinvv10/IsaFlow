@@ -262,15 +262,28 @@ it('a request that cannot get the row lock is refused, not queued forever', asyn
   const holder = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
     const held = await holder.connect();
-    await held.query('BEGIN');
-    await held.query('SELECT id FROM assets WHERE id=$1 FOR UPDATE', [lockAsset]);
+    try {
+      await held.query('BEGIN');
+      // Postgres releases the lock after 8s even if this test never reaches its
+      // finally. Vitest abandons a timed-out test without unwinding it, so a
+      // regression that makes the request hang would otherwise leave the row
+      // locked on a fixture database shared with other agents — and afterAll
+      // then blocks on it too. 8s is longer than the route's 5s lock_timeout,
+      // so it never fires while the code is correct.
+      await held.query("SET LOCAL idle_in_transaction_session_timeout = '8s'");
+      await held.query('SELECT id FROM assets WHERE id=$1 FOR UPDATE', [lockAsset]);
 
-    const result = await expenseAs(adminToken, lockAsset);
-    expect(result.state.statusCode).toBe(409);
-    expect(await journalsFor('A-K026-L')).toBe(0);
-
-    await held.query('ROLLBACK');
-    held.release();
+      const result = await expenseAs(adminToken, lockAsset);
+      expect(result.state.statusCode).toBe(409);
+      expect(await journalsFor('A-K026-L')).toBe(0);
+    } finally {
+      // Release the row BEFORE the assertions can leave it held: a failing
+      // expect() would otherwise skip these, and holder.end() would then wait on
+      // a checked-out client still holding a lock on a shared fixture database.
+      // The holder may already have been terminated by the timeout above.
+      await held.query('ROLLBACK').catch(() => undefined);
+      held.release();
+    }
   } finally {
     await holder.end();
   }
