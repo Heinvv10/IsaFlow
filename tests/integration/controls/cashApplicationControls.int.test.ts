@@ -1,3 +1,4 @@
+import {prepareCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
 import {planReceiptApplication,applyReceiptPlan} from '@/modules/accounting/services/ar/receiptApplicationService';
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID,randomBytes} from 'node:crypto';
@@ -37,7 +38,7 @@ async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u2'='u1',bearer=false){
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 
-it('refuses a later cash application without a fresh approval despite original receipt approval',async()=>{
+async function postedCash(){
  const invoice=randomUUID(),tx=randomUUID();
  await pool.query(`INSERT INTO customer_invoices(id,company_id,customer_id,client_id,invoice_number,invoice_date,subtotal,tax_amount,total_amount,currency_code,exchange_rate,functional_total,created_by)
  VALUES($1,$2,$3,$3,$4,'2026-09-09',100,15,115,'ZAR',1,115,$5)`,[invoice,fixture.companyA,customer,invoice,fixture.u1.id]);
@@ -47,9 +48,21 @@ it('refuses a later cash application without a fresh approval despite original r
  const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
  const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
  const posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approval.id}));
+ return{invoice,posted};
+}
+it('refuses a later cash application without a fresh approval despite original receipt approval',async()=>{
+ const {invoice,posted}=await postedCash();
  await expect(actor(async()=>{
   const plan=await planReceiptApplication(fixture.companyA,posted.paymentId!,[{invoiceId:invoice,amount:115}]);
   return applyReceiptPlan(fixture.companyA,plan,fixture.u1.id);
  })).rejects.toThrow(/approval|intent|controlled/i);
  expect((await pool.query('SELECT amount_paid FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
+});
+
+it('prepares an immutable application without changing posted cash or invoice balances',async()=>{
+ const {invoice,posted}=await postedCash();
+ const prepared=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ expect((await pool.query('SELECT kind,payment_id,accounting_date::text,amount::text,currency FROM control_cash_application_intents WHERE company_id=$1 AND id=$2',[fixture.companyA,prepared.intentId])).rows[0]).toMatchObject({kind:'customer',payment_id:posted.paymentId,accounting_date:'2026-09-10',amount:'115.00000000',currency:'ZAR'});
+ expect((await pool.query('SELECT amount_paid FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
+ expect((await pool.query('SELECT a.id FROM customer_payment_allocations a JOIN customer_payments p ON p.id=a.payment_id WHERE p.company_id=$1 AND p.id=$2',[fixture.companyA,posted.paymentId])).rows).toHaveLength(0);
 });
