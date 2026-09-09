@@ -15,9 +15,14 @@ const uuid={type:'string',format:'uuid'},key={type:'string',minLength:1,maxLengt
  limit={type:'integer',minimum:1,maximum:100},cursor={type:'string',pattern:'^(0|[1-9][0-9]{0,5})$'},
  section={type:'string',enum:[...SNAPSHOT_INDEX_SECTIONS]},ordinal={type:'integer',minimum:0,maximum:800005};
 const id=z.string().uuid(),retry=z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/),page={limit:z.number().int().min(1).max(100).optional(),cursor:z.string().regex(/^(0|[1-9][0-9]{0,5})$/).optional()};
+function writeInput(args:Record<string,unknown>,companyId:string){
+ const {company_id,...input}=args;
+ if(company_id!=null&&company_id!==companyId)throw new Error('Company assertion mismatch');
+ return input;
+}
 function tool<T>(name:string,description:string,write:boolean,properties:Record<string,unknown>,required:string[],schema:z.ZodType<T>,run:(input:T)=>Promise<unknown>):McpTool{
- return{name,description,scope:'read:reports',write,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async args=>{
-  const parsed=schema.safeParse(args);if(!parsed.success)return toolError('Invalid audit delivery arguments');
+ return{name,description,scope:'read:reports',write,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async(args,ctx)=>{
+  const parsed=schema.safeParse(write?writeInput(args,ctx.companyId):args);if(!parsed.success)return toolError('Invalid audit delivery arguments');
   return ok(await run(parsed.data));
  }};
 }
@@ -46,12 +51,14 @@ const exportChunk=tool('audit_export_chunk','Read one authenticated completed-ex
  z.object({job_id:id,file_ordinal:z.number().int().min(0).max(100005),chunk_ordinal:z.number().int().min(0).max(4095)}).strict(),
  async input=>{const {bytes,...result}=await readAuditExportChunk(requireControlTx(),{jobId:input.job_id,fileOrdinal:input.file_ordinal,chunkOrdinal:input.chunk_ordinal});return{...result,bytesBase64:Buffer.from(bytes).toString('base64')};});
 snapshot.perUserIdempotency=true;
-snapshot.authorize=async({idempotency_key,...input})=>{
+snapshot.authorize=async(args,ctx)=>{
+ const {idempotency_key,...input}=writeInput(args,ctx.companyId);
  const request=parseAuditSnapshotRequest({...input,idempotencyKey:idempotency_key});
  for(const permission of auditSnapshotPermissions(request))await assertEffectivePermission(requireControlTx(),permission);
 };
 exported.perUserIdempotency=true;
-exported.authorize=async input=>{
+exported.authorize=async(args,ctx)=>{
+ const input=writeInput(args,ctx.companyId);
  const request=parseAuditExportRequest({snapshotId:input.snapshot_id,idempotencyKey:input.idempotency_key});
  await readAuditSnapshotIndexHeader(requireControlTx(),request.snapshotId);
 };

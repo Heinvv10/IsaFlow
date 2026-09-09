@@ -5,7 +5,7 @@ import { MCP_INPUT_COMPATIBILITY } from './inputCompatibility';
 export type ToolArgumentValidation = { ok: true; args: Record<string, unknown> } | { ok: false; message: string };
 export const MCP_INPUT_SCHEMA_KEYWORDS = [
   'type', 'description', 'properties', 'additionalProperties', 'required', 'format',
-  'enum', 'minimum', 'maximum', 'exclusiveMinimum', 'items', 'minItems', 'maxItems', 'maxLength',
+  'enum', 'minimum', 'maximum', 'exclusiveMinimum', 'items', 'minItems', 'maxItems', 'minLength', 'maxLength', 'pattern',
 ] as const;
 const keywords = new Set<string>(MCP_INPUT_SCHEMA_KEYWORDS);
 const types = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
@@ -55,10 +55,14 @@ function inspectSchema(schema: Schema, depth = 0): void {
   for (const key of Object.keys(schema)) if (!keywords.has(key)) failure('', 'use an unsupported tool schema');
   const declared = Array.isArray(schema.type) ? schema.type : [schema.type];
   if (!declared.length || declared.some(t => typeof t !== 'string' || !types.has(t))) failure('', 'use an unsupported tool schema');
-  if (schema.format !== undefined && schema.format !== 'date') failure('', 'use an unsupported tool format');
+  if (schema.format !== undefined && schema.format!=='date' && schema.format!=='uuid') failure('', 'use an unsupported tool format');
+  if(schema.pattern!==undefined){
+    if(typeof schema.pattern!=='string'||schema.pattern.length>1024)failure('', 'use an invalid pattern schema');
+    try{new RegExp(schema.pattern,'u');}catch{failure('', 'use an invalid pattern schema');}
+  }
   if (schema.required !== undefined && (!Array.isArray(schema.required) || schema.required.some(k => typeof k !== 'string'))) failure('', 'use an invalid required schema');
   if (schema.enum !== undefined && (!Array.isArray(schema.enum) || schema.enum.some(v => v !== null && !['string', 'number', 'boolean'].includes(typeof v)))) failure('', 'use an unsupported enum schema');
-  for (const key of ['minimum', 'maximum', 'exclusiveMinimum', 'minItems', 'maxItems', 'maxLength']) {
+  for (const key of ['minimum', 'maximum', 'exclusiveMinimum', 'minItems', 'maxItems', 'minLength', 'maxLength']) {
     if (schema[key] !== undefined && (typeof schema[key] !== 'number' || !Number.isFinite(schema[key]))) failure('', 'use an invalid bound schema');
   }
   if (declared.includes('object')) {
@@ -108,8 +112,11 @@ export function validateToolArguments(tool: McpTool, args: unknown): ToolArgumen
       if (!matches) failure(path, `must match type ${declared.join(' or ')}`);
       if (Array.isArray(schema.enum) && !schema.enum.some(v => v === value)) failure(path, 'must match an allowed value');
       if (typeof value === 'string') {
+        if (typeof schema.minLength === 'number' && [...value].length < schema.minLength) failure(path, 'is below minimum length');
         if (typeof schema.maxLength === 'number' && [...value].length > schema.maxLength) failure(path, 'exceeds maximum length');
         if (schema.format === 'date' && !isRealCalendarDate(value)) failure(path, 'must be a real YYYY-MM-DD date');
+        if (schema.format === 'uuid' && !UUID_RE.test(value)) failure(path, 'must be a valid UUID');
+        if (typeof schema.pattern === 'string' && !new RegExp(schema.pattern,'u').test(value)) failure(path, 'must match the required pattern');
       }
       if (typeof numeric === 'number' && !clamped) {
         if (typeof schema.minimum === 'number' && numeric < schema.minimum) failure(path, 'is below minimum');
