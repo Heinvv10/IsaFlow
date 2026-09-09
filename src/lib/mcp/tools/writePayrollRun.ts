@@ -31,6 +31,10 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import {
+  PayrollLoanLockTimeoutError,
+  PayrollRunJournalPostedError,
+} from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -114,6 +118,12 @@ export const calculatePayRunTool: McpTool = {
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
       if (err instanceof PayrollRunLockedError) return toolError(err.message);
+      // Same shape: raised before any line is touched, and the message names
+      // the action the agent must take instead.
+      if (err instanceof PayrollRunJournalPostedError
+        || err instanceof PayrollLoanLockTimeoutError) {
+        return toolError(err.message);
+      }
       throw err;
     }
   },

@@ -9,58 +9,72 @@ the second pass injected no LOAN deduction. Net pay rose by the instalment while
 as repaid.
 
 **After.** `calculatePayrollRun` delegates the loan half to `applyRunLoans`, which in one
-`withTransaction`, holding `FOR UPDATE` on the affected loans: refuses a run whose
-`journal_entry_id` is still set; reverses the payments this run wrote; then re-applies the
-instalments due. Recalculation is idempotent. `applyLoanToRun` and `listActiveLoansForRun` take an
-optional `TxSql` executor so the whole sequence stays on one connection.
+`withTransaction` holding `FOR UPDATE` on the affected loans: refuses a run whose `journal_entry_id`
+is still set, reverses the payments this run wrote, then re-applies the instalments due.
+Recalculation is idempotent. `applyLoanToRun` and `listActiveLoansForRun` take an optional `TxSql`
+executor so the whole sequence stays on one connection.
 
-## Review findings from commit b77557ce, all addressed
+## First review (8 findings), all addressed
 
-- **HIGH-1** `reopenPayrollRun` moves an approved run to `calculated` and leaves the GL journal
-  posted, so the reversal could move the subledger under a journal nothing re-posts. `applyRunLoans`
-  now throws `PayrollRunJournalPostedError` when the run has a live `journal_entry_id` and payments
-  to undo, directing the caller to `reversePayrollRunJournal` first.
-- **MEDIUM-1** a loan closed between calculations is reversed but not re-applied. The delete is no
-  longer traceless: each removed payment is tombstoned on `payroll_loan_payment_reversals`
-  (migration 621) with `reapplied` set true only when the forward path retook it, and a
-  `log.warn` names the loans it did not.
-- **MEDIUM-2** reverse and re-apply now run in one transaction under `FOR UPDATE` with a 5s
-  `lock_timeout`, raising `PayrollLoanLockTimeoutError` on contention.
-- **LOW-1** a payment stranded by a deleted run (`run_id` set NULL by the FK) is reclaimed by
-  period, so a replacement run takes the instalment again.
-- **LOW-2** `applyLoanToRun`'s schedule lookup gained `ORDER BY sequence`; the supporting index is
-  not unique, so the bare `LIMIT 1` took heap order.
-- **LOW-3** the restore is `LEAST(principal, outstanding_balance + principal_paid)`, so a balance
-  the forward path clamped at zero cannot be restored above the loan principal.
-- **LOW-4** the loan orchestration moved out of `payrollRunService.ts`, which is now 487 lines,
-  below the 498 it had before this work. Still over the 300-line cap, which predates it.
-- **LOW-5** the test snapshot helper asserts row counts before indexing.
+- **HIGH-1** a reopened run keeps its posted GL journal, so the reversal could move the subledger
+  under a journal nothing re-posts. `applyRunLoans` throws `PayrollRunJournalPostedError`.
+- **MEDIUM-1** a loan closed between calculations is reversed but not re-applied. Each removed
+  payment is tombstoned on `payroll_loan_payment_reversals` (migration 621), `reapplied` set only
+  when the forward path retook it, and a `log.warn` names the rest.
+- **MEDIUM-2** reverse and re-apply run in one transaction under `FOR UPDATE`, 5s `lock_timeout`,
+  raising `PayrollLoanLockTimeoutError`.
+- **LOW-1** a payment stranded by a deleted run is reclaimed by period.
+- **LOW-2, LOW-3** now exact, see below. **LOW-4** see Limits. **LOW-5** test row reads guarded.
+
+## Second review (2 MEDIUM, 4 LOW, 3 partials), all addressed
+
+- **MEDIUM-A** the journal guard only covered the reverse path, so a run with a live journal still
+  took NEW instalments. The guard now reads `listLoansWithInstalmentDue` — active loans with a
+  schedule row for the period, ignoring `paid_flag` — before touching anything, and refuses on
+  either side. `paid_flag` had to be ignored here: the filtered list is empty on a recalculation
+  until the reversal has run, which would hide exactly the work being guarded.
+- **MEDIUM-B** neither new error class reached the caller. Both are mapped to
+  `apiResponse.badRequest` in `pages/api/payroll/runs/[id]/calculate.ts` and to `toolError` in
+  `calculate_pay_run`. Unexpected errors still propagate so the request rolls back.
+- **LOW-A** the reviewer's two-client `FOR UPDATE` test is adopted. It holds a competing row lock
+  from a second connection and asserts `PayrollLoanLockTimeoutError` plus an empty tombstone table.
+  It goes red when the lock is removed.
+- **LOW-B** `SET LOCAL` is transaction-scoped, so under `withAuth` the 5s timeout leaked past the
+  savepoint into the rest of the request. The previous value is captured and restored via
+  `set_config(..., is_local => true)`, which unlike `SET` accepts a bind parameter. Not restored on
+  the error path: that statement has aborted the transaction, so a further query answers 25P02 and
+  masks the cause, and the savepoint rollback restores it anyway.
+- **LOW-C** reclaiming a stranded payment is a repair of someone else's row that the journal guard
+  cannot cover, since the original run is gone. Tombstones carry `stranded` to tell the two apart.
+- **LOW-D** every `rows[0]` read in the tests is behind a length assertion.
+- **LOW-2 (partial → done)** migration 622 records `payroll_loan_payments.schedule_row_id`, so the
+  undo clears the row that was flagged rather than every row for the period.
+- **LOW-3 (partial → done)** migration 622 records `loan_balance_before`, so a balance the forward
+  path clamped at zero is restored to the exact figure it started from, not to the principal
+  ceiling. Rows written before 622 keep NULL and use the previous approximate path.
 
 ## Files
 
-- `src/modules/accounting/services/payroll/payrollRunLoanApplication.ts` (new, 185 lines)
-- `src/modules/accounting/services/payroll/payrollLoanReversal.ts` (new, 136 lines)
-- `src/modules/accounting/services/payroll/payrollLoanService.ts` (executor param, `ORDER BY`)
-- `src/modules/accounting/services/payroll/payrollRunService.ts` (call site)
-- `scripts/migrations/sql/621_payroll_loan_payment_reversals.sql` (new)
-- module `.claude.md` and its generated `AGENTS.md` mirror
+`payrollRunLoanApplication.ts` (new), `payrollLoanReversal.ts` (new), `payrollLoanService.ts`,
+`payrollRunService.ts`, `pages/api/payroll/runs/[id]/calculate.ts`, `src/lib/mcp/tools/writePayrollRun.ts`,
+`scripts/migrations/sql/621_payroll_loan_payment_reversals.sql`,
+`scripts/migrations/sql/622_payroll_loan_reversal_precision.sql`, module `.claude.md` and its mirror.
 
 ## Tests
 
-10 passed against the fixture DB: 4 in `tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts`
-and 6 in `tests/integration/k022-payroll-loan-reversal-edge-cases.int.test.ts`. Full unit suite with
-no fixture env: 9320 passed, 0 failed. `green.log` records every mutation check, including the one
-that does not kill: removing `FOR UPDATE` while keeping the transaction leaves all 10 green. The
-transaction boundary is what the concurrency tests prove; the lock is defence-in-depth.
+14 integration tests across the two K-022 files, plus 4 route tests in
+`tests/unit/api/payrollCalculateRefusals.test.ts` and 2 added to `tests/unit/mcp/payRunLifecycle.test.ts`.
+`green.log` lists every mutation check; all six kill now, including `FOR UPDATE`, which the first
+round could not.
 
-## Migration / rollback
+## Migrations / rollback
 
-Migration 621 creates `payroll_loan_payment_reversals` with `IF NOT EXISTS`, RLS enabled and forced,
-and a `tenant_isolation` policy. Applied twice to the fixture DB to prove idempotence; not run
-against production. Prefix 620 was taken by the K-035 branch after this work started, so the file
-was renamed to 621; re-check the prefix again before merging, as peers keep claiming numbers in this
-range. Rollback: revert the commit and
-`DROP TABLE payroll_loan_payment_reversals`.
+621 creates `payroll_loan_payment_reversals` (RLS enabled and forced, `tenant_isolation` policy).
+622 adds three nullable columns with no backfill. Both use `IF NOT EXISTS`, were applied twice to the
+fixture DB to prove idempotence, and are tracked in `schema_migrations`. Neither was run against
+production. Prefixes were free across all worktrees when taken; peers claim numbers in this range
+constantly, so re-check before merging. Rollback: revert the commits, drop the table and the three
+columns.
 
 ## Historical-data impact
 
@@ -77,12 +91,15 @@ HAVING l.principal - l.outstanding_balance - COALESCE(SUM(p.principal_paid),0) <
 ```
 
 Each hit is an employee whose payslip did not take the instalment while the loan reads as repaid, so
-the staff-loan asset is overstated against what was recovered. It returned no rows on the fixture DB.
+the staff-loan asset is overstated against what was recovered.
 
 ## Limits
 
-`FOR UPDATE` is not killed by any test I could construct: with the transaction in place, the row
-locks the DELETE and UPDATE take already serialise the single-loan case, and the `ON CONFLICT` on
-`payroll_loan_payments` makes the surviving interleavings converge. A run with a live journal is now
-refused rather than silently corrected, which changes behaviour for anyone recalculating a reopened
-run that carries loan deductions.
+**LOW-4 is deliberately not finished.** `payrollRunService.ts` is 487 lines and
+`payrollLoanService.ts` 580, both over the 300-line cap and both over it before this work. Splitting
+either is an adjacent refactor of code K-022 does not touch, which the fixer brief forbids and which
+would collide with the peer branches editing those files. The two new files are 220 and 183 lines.
+
+A run with a live journal is now refused rather than silently corrected, which changes behaviour for
+anyone recalculating a reopened run that carries loan deductions. The `stranded` reclaim path
+remains outside the journal guard by construction.

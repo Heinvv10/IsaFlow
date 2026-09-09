@@ -15,8 +15,10 @@
  * `calculated` and deliberately leaves `journal_entry_id` set — the GL entry
  * posted at approval is NOT reversed. Recalculating then would move the loan
  * subledger under a posted journal that `postPayrollRunJournal` refuses to
- * re-post while that id is set. So a run with a live journal is refused
- * outright when it has loan payments to undo.
+ * re-post while that id is set. The guard covers BOTH directions: undoing an
+ * instalment the journal already reflects, and taking a NEW instalment the
+ * journal never saw. Either leaves the payslip and the subledger disagreeing
+ * with a journal nothing will re-post.
  */
 
 import { withTransaction } from '@/lib/neon';
@@ -25,6 +27,7 @@ import { log } from '@/lib/logger';
 import {
   applyLoanToRun,
   listActiveLoansForRun,
+  listLoansWithInstalmentDue,
   type ApplyLoanResult,
 } from './payrollLoanService';
 import { listReversibleLoanPayments, reverseLoanApplicationsForRun } from './payrollLoanReversal';
@@ -54,6 +57,19 @@ export class PayrollLoanLockTimeoutError extends Error {
 function isLockTimeout(err: unknown): boolean {
   return typeof err === 'object' && err !== null
     && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
+}
+
+/**
+ * Transaction-local `lock_timeout`, via set_config rather than SET LOCAL:
+ * `SET` takes no bind parameters, and set_config with is_local = true has the
+ * same scope. Returns the value that was in force before the change.
+ */
+async function setLocalLockTimeout(tx: TxSql, value: string): Promise<string> {
+  const rows = (await tx`
+    SELECT current_setting('lock_timeout', true) AS previous,
+           set_config('lock_timeout', ${value}, true) AS applied
+  `) as DbRow[];
+  return String(rows[0]?.previous ?? '0');
 }
 
 export interface RunLoanInput {
@@ -109,11 +125,20 @@ export async function applyRunLoans(
     // Bound the wait so a wedged peer surfaces as a retryable error instead of
     // pinning the connection. Re-issued every call: SET LOCAL is
     // subtransaction-aware and a savepoint rollback restores the default of 0.
-    await tx`SET LOCAL lock_timeout = '5s'`;
+    //
+    // SET LOCAL is scoped to the TRANSACTION, not to this block. Under withAuth
+    // a request transaction is already open and withTransaction only nests a
+    // savepoint, so the 5s would otherwise stay in force for the rest of the
+    // request — the run-lines rebuild included. Captured and put back.
+    const previousLockTimeout = await setLocalLockTimeout(tx, '5s');
 
     try {
       await lockLoansForRun(input, tx);
     } catch (err) {
+      // No restore here: the statement that failed has aborted the
+      // transaction, so any further query answers 25P02 and would mask the
+      // real cause. withTransaction's savepoint rollback restores the previous
+      // lock_timeout on its own.
       if (isLockTimeout(err)) throw new PayrollLoanLockTimeoutError(input.runId);
       throw err;
     }
@@ -121,9 +146,18 @@ export async function applyRunLoans(
     const reversible = await listReversibleLoanPayments(
       input.companyId, input.runId, input.periodYear, input.periodMonth, tx,
     );
-    if (reversible.length > 0 && input.journalEntryId != null) {
+    // Read both sides before touching anything: a live journal blocks taking a
+    // NEW instalment just as surely as undoing an old one. The forward side is
+    // read with listLoansWithInstalmentDue, which ignores paid_flag — the
+    // paid_flag-filtered list below is empty on a recalculation until the
+    // reversal has run, and would hide exactly the work being guarded.
+    const dueThisPeriod = await listLoansWithInstalmentDue(
+      input.companyId, input.periodYear, input.periodMonth, tx,
+    );
+    if (input.journalEntryId != null && (reversible.length > 0 || dueThisPeriod.length > 0)) {
       throw new PayrollRunJournalPostedError(input.runId);
     }
+
     await reverseLoanApplicationsForRun(input.companyId, input.runId, reversible, tx);
 
     const active = await listActiveLoansForRun(
@@ -180,6 +214,7 @@ export async function applyRunLoans(
       );
     }
 
+    await setLocalLockTimeout(tx, previousLockTimeout);
     return byEmployee;
   });
 }

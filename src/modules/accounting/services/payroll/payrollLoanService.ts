@@ -424,6 +424,11 @@ export async function applyLoanToRun(
   const opening = Number(scheduleRow.opening_balance);
   const closing = Number(scheduleRow.closing_balance);
 
+  // Recorded on the payment so a reversal restores this exact figure: the
+  // clamp below can subtract less than `principal`, and the schedule's own
+  // opening/closing balances are not the loan's.
+  const balanceBefore = Number(loanRow.outstanding_balance);
+
   const loanRate = Number(loanRow.annual_interest_rate);
   const rateShortfall = Math.max(0, input.officialRate - loanRate);
   const fringeBenefit = round2((rateShortfall * opening) / 12);
@@ -431,7 +436,8 @@ export async function applyLoanToRun(
   await db`
     INSERT INTO payroll_loan_payments (
       loan_id, run_id, period_year, period_month,
-      opening_balance, interest_charged, principal_paid, fringe_benefit, closing_balance
+      opening_balance, interest_charged, principal_paid, fringe_benefit, closing_balance,
+      schedule_row_id, loan_balance_before
     ) VALUES (
       ${input.loanId}::uuid,
       ${input.runId}::uuid,
@@ -441,7 +447,9 @@ export async function applyLoanToRun(
       ${interest},
       ${principal},
       ${fringeBenefit},
-      ${closing}
+      ${closing},
+      ${String(scheduleRow.id)}::uuid,
+      ${balanceBefore}
     )
     ON CONFLICT (loan_id, period_year, period_month) DO UPDATE SET
       opening_balance = EXCLUDED.opening_balance,
@@ -449,7 +457,9 @@ export async function applyLoanToRun(
       principal_paid = EXCLUDED.principal_paid,
       fringe_benefit = EXCLUDED.fringe_benefit,
       closing_balance = EXCLUDED.closing_balance,
-      run_id = EXCLUDED.run_id
+      run_id = EXCLUDED.run_id,
+      schedule_row_id = EXCLUDED.schedule_row_id,
+      loan_balance_before = EXCLUDED.loan_balance_before
   `;
 
   await db`
@@ -458,7 +468,7 @@ export async function applyLoanToRun(
      WHERE id = ${String(scheduleRow.id)}::uuid
   `;
 
-  const newBalance = round2(Math.max(0, Number(loanRow.outstanding_balance) - principal));
+  const newBalance = round2(Math.max(0, balanceBefore - principal));
   const newStatus: LoanStatus = newBalance <= 0.0001 ? 'settled' : 'active';
 
   await db`
@@ -524,6 +534,30 @@ export async function closeLoan(
   `;
 
   log.info('Loan closed', { companyId, loanId, status, userId }, 'payrollLoanService');
+}
+
+/**
+ * Active loans with an instalment scheduled for this period, whether or not it
+ * is already flagged paid. Unlike listActiveLoansForRun this is stable across
+ * a reversal, so callers can ask "is there loan work on this run?" before
+ * undoing anything.
+ */
+export async function listLoansWithInstalmentDue(
+  companyId: string,
+  periodYear: number,
+  periodMonth: number,
+  db: TxSql = sql,
+): Promise<Array<{ loanId: string; employeeId: string }>> {
+  const rows = (await db`
+    SELECT DISTINCT l.id AS loan_id, l.employee_id
+      FROM payroll_loans l
+      JOIN payroll_loan_schedule s ON s.loan_id = l.id
+     WHERE l.company_id = ${companyId}::uuid
+       AND l.status = 'active'
+       AND s.due_period_year = ${periodYear}
+       AND s.due_period_month = ${periodMonth}
+  `) as Row[];
+  return rows.map(r => ({ loanId: String(r.loan_id), employeeId: String(r.employee_id) }));
 }
 
 export async function listActiveLoansForRun(

@@ -13,9 +13,12 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
-import { PayrollRunJournalPostedError } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
+import {
+  applyRunLoans,
+  PayrollLoanLockTimeoutError,
+  PayrollRunJournalPostedError,
+} from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { closeLoan } from '@/modules/accounting/services/payroll/payrollLoanService';
-import { applyRunLoans } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { als } from '@/lib/als';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -112,7 +115,30 @@ async function loanDeductionOnPayslip(runId: string): Promise<number> {
 async function paymentRowCount(loanId: string): Promise<number> {
   const rows = (await pool.query(
     'SELECT COUNT(*)::int AS n FROM payroll_loan_payments WHERE loan_id=$1', [loanId])).rows;
+  expect(rows).toHaveLength(1);
   return Number(rows[0].n);
+}
+
+/**
+ * paid_flag on the loan's schedule. Guarded so a regression that deletes the
+ * schedule row fails on the assertion rather than on a TypeError.
+ */
+async function schedulePaidFlags(loanId: string): Promise<boolean[]> {
+  const rows = (await pool.query(
+    'SELECT paid_flag FROM payroll_loan_schedule WHERE loan_id=$1 ORDER BY sequence',
+    [loanId])).rows;
+  expect(rows.length).toBeGreaterThan(0);
+  return rows.map(r => Boolean(r.paid_flag));
+}
+
+/** Tombstone rows for a company, guarded the same way. */
+async function tombstones(companyId: string, expected: number) {
+  const rows = (await pool.query(
+    `SELECT loan_id, run_id, principal_reversed, reapplied, stranded
+       FROM payroll_loan_payment_reversals WHERE company_id=$1
+      ORDER BY reversed_at`, [companyId])).rows;
+  expect(rows).toHaveLength(expected);
+  return rows;
 }
 
 afterAll(async () => {
@@ -162,9 +188,7 @@ describe('K-022 loan reversal edge cases', () => {
     // Nothing moved: the subledger still agrees with the posted journal.
     expect(await loanState(t.loan)).toEqual(applied);
     expect(await paymentRowCount(t.loan)).toBe(1);
-    const schedule = await pool.query(
-      'SELECT paid_flag FROM payroll_loan_schedule WHERE loan_id=$1', [t.loan]);
-    expect(schedule.rows[0].paid_flag).toBe(true);
+    expect(await schedulePaidFlags(t.loan)).toEqual([true]);
   });
 
   it('records a tombstone when a loan closed between calculations is reversed but not re-applied', async () => {
@@ -185,15 +209,13 @@ describe('K-022 loan reversal edge cases', () => {
     expect(await loanDeductionOnPayslip(t.run)).toBe(0);
 
     // The deleted payment row survives as a tombstone, flagged as never
-    // re-applied.
-    const tombstones = await pool.query(
-      `SELECT loan_id, run_id, principal_reversed, reapplied
-         FROM payroll_loan_payment_reversals WHERE company_id=$1`, [t.company]);
-    expect(tombstones.rowCount).toBe(1);
-    expect(String(tombstones.rows[0].loan_id)).toBe(t.loan);
-    expect(String(tombstones.rows[0].run_id)).toBe(t.run);
-    expect(Number(tombstones.rows[0].principal_reversed)).toBe(1000);
-    expect(tombstones.rows[0].reapplied).toBe(false);
+    // re-applied and as this run's own work rather than a reclaim.
+    const [tomb] = await tombstones(t.company, 1);
+    expect(String(tomb.loan_id)).toBe(t.loan);
+    expect(String(tomb.run_id)).toBe(t.run);
+    expect(Number(tomb.principal_reversed)).toBe(1000);
+    expect(tomb.reapplied).toBe(false);
+    expect(tomb.stranded).toBe(false);
   });
 
   it('keeps the deduction and the single balance reduction under two concurrent calculations', async () => {
@@ -261,9 +283,160 @@ describe('K-022 loan reversal edge cases', () => {
     const after = await loanState(t.loan);
     expect(after.outstanding).toBe(9000);
     expect(after.principalPaid).toBe(1000);
-    const schedule = await pool.query(
-      'SELECT paid_flag FROM payroll_loan_schedule WHERE loan_id=$1', [t.loan]);
-    expect(schedule.rows[0].paid_flag).toBe(true);
+    expect(await schedulePaidFlags(t.loan)).toEqual([true]);
+  });
+
+  it('refuses to take a NEW instalment on a run whose GL journal is still posted', async () => {
+    // The mirror of the reverse-path guard: nothing to undo, but the journal
+    // posted at approval never saw this deduction and will not be re-posted.
+    const t = await createTenant({ principal: 12000, outstanding: 10000, instalment: 1000 });
+    const journal = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,created_by,status)
+       VALUES($1,$2,DATE '2026-03-31','Payroll March 2026',$3,'posted')`,
+      [journal, t.company, crypto.randomUUID()],
+    );
+    await pool.query(
+      "UPDATE payroll_run_headers SET status='calculated', journal_entry_id=$2 WHERE id=$1",
+      [t.run, journal],
+    );
+
+    await expect(calculatePayrollRun(t.run, t.company))
+      .rejects.toBeInstanceOf(PayrollRunJournalPostedError);
+
+    // Nothing taken, nothing tombstoned.
+    expect(await paymentRowCount(t.loan)).toBe(0);
+    expect(await schedulePaidFlags(t.loan)).toEqual([false]);
+    const after = await loanState(t.loan);
+    expect(after.outstanding).toBe(10000);
+    expect(after.principalPaid).toBe(0);
+    await tombstones(t.company, 0);
+  });
+
+  it('classifies a contended loan row as a lock timeout, before writing anything', async () => {
+    // A competing FOR UPDATE on the loan row from a second connection. With the
+    // lock taken up front the wait is classified; without it, execution reaches
+    // the tombstone INSERT and the payment DELETE before blocking, and the
+    // failure surfaces as a raw Postgres cancellation.
+    const t = await createTenant({ principal: 12000, outstanding: 10000, instalment: 1000 });
+    await calculatePayrollRun(t.run, t.company);
+
+    const holder = await pool.connect();
+    const worker = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM payroll_loans WHERE id=$1 FOR UPDATE', [t.loan]);
+      await worker.query('BEGIN');
+
+      const err = await als.run(
+        { client: worker, userId: 'probe', companyId: t.company, claims: {} },
+        () => applyRunLoans({
+          companyId: t.company,
+          runId: t.run,
+          periodYear: 2026,
+          periodMonth: 3,
+          officialRate: 0.085,
+          journalEntryId: null,
+        }),
+      ).then(() => null, (e: unknown) => e);
+
+      expect(err).toBeInstanceOf(PayrollLoanLockTimeoutError);
+
+      await worker.query('ROLLBACK');
+      await holder.query('ROLLBACK');
+    } finally {
+      holder.release();
+      worker.release();
+    }
+
+    // It blocked before touching anything, so no tombstone and the payment
+    // from the first calculation is intact.
+    await tombstones(t.company, 0);
+    expect(await paymentRowCount(t.loan)).toBe(1);
+    const after = await loanState(t.loan);
+    expect(after.outstanding).toBe(9000);
+  });
+
+  it('restores the exact pre-run balance when the forward path clamped at zero', async () => {
+    // Outstanding 400, instalment 1000: applyLoanToRun clamps to 0 and records
+    // loan_balance_before = 400, so the undo must come back to 400 — not to the
+    // 1000 that adding the principal back would give.
+    const t = await createTenant({ principal: 12000, outstanding: 400, instalment: 1000 });
+    await calculatePayrollRun(t.run, t.company);
+    const settled = await loanState(t.loan);
+    expect(settled.outstanding).toBe(0);
+    expect(settled.status).toBe('settled');
+
+    const payment = (await pool.query(
+      'SELECT loan_balance_before, schedule_row_id FROM payroll_loan_payments WHERE loan_id=$1',
+      [t.loan])).rows;
+    expect(payment).toHaveLength(1);
+    expect(Number(payment[0].loan_balance_before)).toBe(400);
+    expect(payment[0].schedule_row_id).not.toBeNull();
+
+    await pool.query("UPDATE payroll_loans SET status='written_off' WHERE id=$1", [t.loan]);
+    await calculatePayrollRun(t.run, t.company);
+
+    const after = await loanState(t.loan);
+    expect(after.outstanding).toBe(400);
+    expect(after.principalPaid).toBe(0);
+    expect(await schedulePaidFlags(t.loan)).toEqual([false]);
+  });
+
+  it('clears only the schedule row the payment flagged, not every row for the period', async () => {
+    // The schedule is unique on (loan_id, sequence), not on period, so two rows
+    // can fall in one period. applyLoanToRun flags exactly one, and the undo
+    // must clear that one — a period-wide clear would wipe a flag it never set.
+    const t = await createTenant({ principal: 12000, outstanding: 10000, instalment: 1000 });
+    await pool.query(
+      `INSERT INTO payroll_loan_schedule(loan_id,sequence,due_period_year,due_period_month,
+         opening_balance,interest,principal,installment,closing_balance,paid_flag)
+       VALUES($1,2,2026,3,9000,0,1000,1000,8000,true)`,
+      [t.loan],
+    );
+    expect(await schedulePaidFlags(t.loan)).toEqual([false, true]);
+
+    await calculatePayrollRun(t.run, t.company);
+    expect(await schedulePaidFlags(t.loan)).toEqual([true, true]);
+
+    // Recalculate: sequence 1 is undone and retaken, sequence 2 is untouched.
+    await calculatePayrollRun(t.run, t.company);
+    expect(await schedulePaidFlags(t.loan)).toEqual([true, true]);
+    expect(await loanDeductionOnPayslip(t.run)).toBe(1000);
+    const after = await loanState(t.loan);
+    expect(after.outstanding).toBe(9000);
+    expect(after.principalPaid).toBe(1000);
+  });
+
+  it('puts the caller\'s lock_timeout back when it returns', async () => {
+    // SET LOCAL is scoped to the transaction, not to the block. Under withAuth
+    // withTransaction only nests a savepoint, so a 5s timeout left in force
+    // would apply to the run-lines rebuild and every later statement.
+    const t = await createTenant({ principal: 12000, outstanding: 10000, instalment: 1000 });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SET LOCAL lock_timeout = '17s'");
+
+      await als.run(
+        { client, userId: 'probe', companyId: t.company, claims: {} },
+        () => applyRunLoans({
+          companyId: t.company,
+          runId: t.run,
+          periodYear: 2026,
+          periodMonth: 3,
+          officialRate: 0.085,
+          journalEntryId: null,
+        }),
+      );
+
+      const after = (await client.query("SELECT current_setting('lock_timeout') AS v")).rows;
+      expect(after).toHaveLength(1);
+      expect(after[0].v).toBe('17s');
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
   });
 
   it('reclaims an instalment stranded by a deleted run', async () => {
@@ -274,9 +447,10 @@ describe('K-022 loan reversal edge cases', () => {
     // leaves the instalment recorded with paid_flag true and no run to undo it.
     await pool.query('DELETE FROM payroll_run_lines WHERE run_id=$1', [t.run]);
     await pool.query('DELETE FROM payroll_run_headers WHERE id=$1', [t.run]);
-    const stranded = await pool.query(
-      'SELECT run_id FROM payroll_loan_payments WHERE loan_id=$1', [t.loan]);
-    expect(stranded.rows[0].run_id).toBeNull();
+    const orphaned = (await pool.query(
+      'SELECT run_id FROM payroll_loan_payments WHERE loan_id=$1', [t.loan])).rows;
+    expect(orphaned).toHaveLength(1);
+    expect(orphaned[0].run_id).toBeNull();
 
     // A replacement run for the same period takes the deduction again.
     const replacement = crypto.randomUUID();
@@ -290,36 +464,15 @@ describe('K-022 loan reversal edge cases', () => {
 
     expect(await loanDeductionOnPayslip(replacement)).toBe(1000);
     expect(await paymentRowCount(t.loan)).toBe(1);
-    // The stranded row was tombstoned against the replacement run and retaken.
-    const tombstones = await pool.query(
-      `SELECT run_id, reapplied FROM payroll_loan_payment_reversals WHERE company_id=$1`,
-      [t.company]);
-    expect(tombstones.rowCount).toBe(1);
-    expect(String(tombstones.rows[0].run_id)).toBe(replacement);
-    expect(tombstones.rows[0].reapplied).toBe(true);
+    // The stranded row was tombstoned against the replacement run, marked as a
+    // reclaim rather than a self-reversal, and retaken.
+    const [tomb] = await tombstones(t.company, 1);
+    expect(String(tomb.run_id)).toBe(replacement);
+    expect(tomb.reapplied).toBe(true);
+    expect(tomb.stranded).toBe(true);
     const after = await loanState(t.loan);
     expect(after.outstanding).toBe(9000);
     expect(after.principalPaid).toBe(1000);
   });
 
-  it('never restores a clamped balance above the loan principal', async () => {
-    // Final instalment exceeds what is left: applyLoanToRun clamps the balance
-    // at zero, so the reversal must not add the full instalment back.
-    const t = await createTenant({ principal: 1000, outstanding: 400, instalment: 1200 });
-    await calculatePayrollRun(t.run, t.company);
-    const settled = await loanState(t.loan);
-    expect(settled.outstanding).toBe(0);
-    expect(settled.status).toBe('settled');
-
-    // closeLoan refuses a settled loan, so the write-off is applied directly.
-    // It only has to stop the forward path re-applying the instalment.
-    await pool.query("UPDATE payroll_loans SET status='written_off' WHERE id=$1", [t.loan]);
-    await calculatePayrollRun(t.run, t.company);
-
-    const after = await loanState(t.loan);
-    expect(after.outstanding).toBeLessThanOrEqual(1000);
-    expect(after.outstanding).toBe(1000);
-    expect(after.principalPaid).toBe(0);
-    expect(after.interestCharged).toBe(0);
-  });
 });
