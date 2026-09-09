@@ -1,3 +1,4 @@
+import {claimAuditJob,failAuditJob} from '@/modules/accounting/services/controls/auditJobLease';
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
@@ -45,4 +46,32 @@ it('rechecks current permissions before enqueue and before returning saved statu
   await expect(actor(()=>enqueueAuditSnapshot(requireControlTx(),request()))).rejects.toThrow(/permissions/);
   await expect(actor(()=>getAuditJob(requireControlTx(),job.id))).rejects.toThrow(/permissions/);
  }finally{await pool.query("UPDATE users u SET is_active=true FROM company_users cu WHERE cu.company_id=$1 AND cu.user_id=u.id AND u.id=$2",[fixture.companyA,fixture.u1.id]);}
+});
+
+it('claims one durable lease across concurrent workers and rejects forged completion authority',async()=>{
+ const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),request()));
+ const leases=await Promise.all([actor(()=>claimAuditJob(requireControlTx(),job.id)),actor(()=>claimAuditJob(requireControlTx(),job.id))]);
+ expect(leases.filter(Boolean)).toHaveLength(1);const lease=leases.find(Boolean)!;
+ await expect(actor(()=>failAuditJob(requireControlTx(),{...lease},'SOURCE_UNAVAILABLE',false))).rejects.toThrow(/lease/);
+ await actor(()=>failAuditJob(requireControlTx(),lease,'SOURCE_UNAVAILABLE',false));
+ const status=await actor(()=>getAuditJob(requireControlTx(),job.id));expect(status.state).toBe('failed');expect(status.attempts).toBe(1);
+});
+it('recovers expired jobs and fences the earlier worker generation',async()=>{
+ const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),request()));
+ const first=await actor(()=>claimAuditJob(requireControlTx(),job.id));expect(first).not.toBeNull();
+ await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1 AND job_id=$2",[fixture.companyA,job.id]);
+ const second=await actor(()=>claimAuditJob(requireControlTx(),job.id));expect(second).not.toBeNull();
+ expect(second!.generation).toBe(first!.generation+1);
+ await expect(actor(()=>failAuditJob(requireControlTx(),first!,'SOURCE_UNAVAILABLE',false))).rejects.toThrow(/expired|replaced/);
+ await actor(()=>failAuditJob(requireControlTx(),second!,'SOURCE_UNAVAILABLE',true));
+ expect((await actor(()=>getAuditJob(requireControlTx(),job.id))).state).toBe('queued');
+});
+it('bounds repeated worker crashes and records exhausted retries without another lease',async()=>{
+ const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),request()));
+ for(let attempt=0;attempt<3;attempt++){
+  expect(await actor(()=>claimAuditJob(requireControlTx(),job.id))).not.toBeNull();
+  await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1 AND job_id=$2",[fixture.companyA,job.id]);
+ }
+ expect(await actor(()=>claimAuditJob(requireControlTx(),job.id))).toBeNull();
+ const status=await actor(()=>getAuditJob(requireControlTx(),job.id));expect(status.state).toBe('failed');expect(status.errorCode).toBe('RETRY_EXHAUSTED');
 });
