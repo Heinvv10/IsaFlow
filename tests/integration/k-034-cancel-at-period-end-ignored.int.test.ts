@@ -297,4 +297,33 @@ describe('K-034 scheduled cancellation ignored at renewal', () => {
     );
     expect(rows[0]).toMatchObject({ cancel_at_period_end: false, status: 'active' });
   });
+  it('does not write off a debt for a period the customer has already been granted', async () => {
+    // The subscription was granted the period and never paid for it: the charge
+    // covers time already taken, so cancelling must not void it.
+    await generateDueCharges(cronNow);
+    const granted = new Date(cronNow.getTime() + 20 * 24 * 3600_000);
+    await pool.query(
+      "UPDATE subscriptions SET status='past_due', current_period_end=$2 WHERE id=$1",
+      [subscriptionId, granted],
+    );
+
+    await cancelSubscription(subscriptionId, true);
+    const generated = await generateDueCharges(cronNow);
+
+    const charges = await pool.query(
+      'SELECT status FROM subscription_charges WHERE company_id=$1',
+      [companyId],
+    );
+    expect(charges.rows[0].status).toBe('queued');
+    expect(generated.voided).toBe(0);
+  });
+
+  it('reports the debits it voided separately from the subscriptions it closed', async () => {
+    await generateDueCharges(cronNow);
+    await cancelSubscription(subscriptionId, true);
+
+    const generated = await generateDueCharges(cronNow);
+
+    expect(generated).toMatchObject({ created: 0, voided: 1, cancelled: 1 });
+  });
 });

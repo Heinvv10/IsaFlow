@@ -17,6 +17,7 @@ import {
   generateDueCharges,
   runQueuedCharges,
 } from '@/modules/billing/services/subscriptionBillingService';
+import { resolveStaleSubmittedCharges } from '@/modules/billing/services/subscriptionChargeVerify';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -36,16 +37,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const started = Date.now();
   log.info('Cron triggered: subscription-charges', {}, 'cron-subscription-charges');
 
+  // Resolve last run's unanswered submissions first, so a charge whose webhook
+  // never arrived does not defer a close-out or block the next period forever.
+  const verified = await resolveStaleSubmittedCharges();
   const generated = await generateDueCharges();
   const ran = await runQueuedCharges();
   const durationMs = Date.now() - started;
 
   log.info(
     'Cron complete: subscription-charges',
-    { durationMs, ...generated, ...ran },
+    { durationMs, ...generated, ...ran, staleVerified: verified },
     'cron-subscription-charges',
   );
-  return apiResponse.success(res, { durationMs, generated, ran });
+  return apiResponse.success(res, { durationMs, verified, generated, ran });
 }
 
 export default withErrorHandler(handler as Parameters<typeof withErrorHandler>[0]);

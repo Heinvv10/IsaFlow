@@ -53,7 +53,7 @@ describe('generateDueCharges', () => {
 
     const result = await generateDueCharges(now);
 
-    expect(result).toEqual({ created: 1, skipped: 0, cancelled: 0 });
+    expect(result).toEqual({ created: 1, skipped: 0, cancelled: 0, voided: 0 });
     expect(mockSql).toHaveBeenCalledTimes(6);
   });
 
@@ -94,7 +94,7 @@ describe('generateDueCharges', () => {
       .mockResolvedValueOnce([] as never);          // close out — none
 
     const result = await generateDueCharges(now);
-    expect(result).toEqual({ created: 0, skipped: 1, cancelled: 0 });
+    expect(result).toEqual({ created: 0, skipped: 1, cancelled: 0, voided: 0 });
   });
 
   it('skips when a charge already exists for the period', async () => {
@@ -111,18 +111,18 @@ describe('generateDueCharges', () => {
       .mockResolvedValueOnce([] as never);          // close out — none
 
     const result = await generateDueCharges(now);
-    expect(result).toEqual({ created: 0, skipped: 1, cancelled: 0 });
+    expect(result).toEqual({ created: 0, skipped: 1, cancelled: 0, voided: 0 });
   });
 
-  it('reports a closed-out subscription separately from a skip', async () => {
+  it('reports voided debits and closed-out subscriptions separately from skips', async () => {
     const now = new Date('2026-05-01T00:00:00Z');
     mockSql
       .mockResolvedValueOnce([] as never)                          // no due subs
-      .mockResolvedValueOnce([] as never)                          // void — none
+      .mockResolvedValueOnce([{ id: 'charge-voided' }] as never)   // void
       .mockResolvedValueOnce([{ id: 'sub-cancelled' }] as never);  // close out
 
     const result = await generateDueCharges(now);
-    expect(result).toEqual({ created: 0, skipped: 0, cancelled: 1 });
+    expect(result).toEqual({ created: 0, skipped: 0, cancelled: 1, voided: 1 });
   });
 });
 

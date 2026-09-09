@@ -14,8 +14,10 @@ import { acquireCronLock, releaseCronLock } from './subscription-cron.lock';
 assertDisposable();
 
 const chargeAuthorization = vi.fn();
+const verifyTransaction = vi.fn();
 vi.mock('@/modules/billing/services/paystackClient', () => ({
   chargeAuthorization: (...args: unknown[]) => chargeAuthorization(...args),
+  verifyTransaction: (...args: unknown[]) => verifyTransaction(...args),
 }));
 
 const { generateDueCharges, runQueuedCharges } = await import(
@@ -23,6 +25,9 @@ const { generateDueCharges, runQueuedCharges } = await import(
 );
 const { advancePeriodForSettledCharge, claimChargeAttempt } = await import(
   '@/modules/billing/services/subscriptionPeriod'
+);
+const { resolveStaleSubmittedCharges } = await import(
+  '@/modules/billing/services/subscriptionChargeVerify'
 );
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -96,6 +101,7 @@ async function readSibling() {
 
 beforeEach(async () => {
   chargeAuthorization.mockReset();
+  verifyTransaction.mockReset();
   await pool.query('DELETE FROM paystack_payment_requests WHERE company_id=$1', [companyId]);
   await pool.query('DELETE FROM subscription_charges WHERE company_id=$1', [companyId]);
   await pool.query('DELETE FROM subscriptions WHERE company_id=$1', [companyId]);
@@ -333,6 +339,113 @@ describe('K-033 subscription period advances before Paystack settles', () => {
     const after = await readCharge();
     expect(after!.attempt_count).toBe(3);
     expect(chargeAuthorization.mock.calls.length).toBe(3);
+    expect((await readSubscription()).status).toBe('past_due');
+  });
+  it('bills both subscriptions of a company that shares one mandate, and settles both', async () => {
+    // The mandate is per company and the settled-charge uniqueness used to be
+    // per mandate, so two due subscriptions produced two debits of which the
+    // second could not be recorded as settled.
+    await pool.query(
+      `INSERT INTO subscriptions(id,company_id,plan_id,status,billing_cycle,
+         current_period_start,current_period_end,cancel_at_period_end,discount_percent)
+       VALUES($1,$2,$3,'active','monthly',$4,$5,false,0)`,
+      [siblingSubscriptionId, companyId, planId, periodStart, originalPeriodEnd],
+    );
+
+    const generated = await generateDueCharges(cronNow);
+    expect(generated.created).toBe(2);
+
+    chargeAuthorization.mockImplementation(async () => ({
+      status: 'success',
+      reference: `ref_${crypto.randomUUID()}`,
+    }));
+    const ran = await runQueuedCharges(new Date());
+    expect(ran).toMatchObject({ submitted: 2, failed: 0 });
+
+    const { rows: charges } = await pool.query(
+      'SELECT subscription_id, status, failure_reason FROM subscription_charges WHERE company_id=$1 ORDER BY subscription_id',
+      [companyId],
+    );
+    expect(charges.map((r) => r.status)).toEqual(['settled', 'settled']);
+    expect(charges.every((r) => r.failure_reason === null)).toBe(true);
+    expect(new Set(charges.map((r) => r.subscription_id)).size).toBe(2);
+
+    // Each subscription got the period its own charge paid for.
+    for (const id of [subscriptionId, siblingSubscriptionId]) {
+      const { rows } = await pool.query(
+        'SELECT status, current_period_end FROM subscriptions WHERE id=$1',
+        [id],
+      );
+      expect(rows[0].status).toBe('active');
+      expect(new Date(rows[0].current_period_end).getTime()).toBeGreaterThan(
+        originalPeriodEnd.getTime(),
+      );
+    }
+  });
+
+  it('settles a submitted charge whose webhook never arrived', async () => {
+    await generateDueCharges(cronNow);
+    chargeAuthorization.mockResolvedValue({ status: 'pending', reference: 'ref_k033_stale' });
+    await runQueuedCharges(new Date());
+    expect((await readCharge())?.status).toBe('submitted');
+
+    // Nothing has moved it for longer than STALE_SUBMITTED_HOURS.
+    await pool.query(
+      "UPDATE subscription_charges SET last_attempt_at = now() - INTERVAL '30 hours' WHERE company_id=$1",
+      [companyId],
+    );
+    verifyTransaction.mockResolvedValue({ status: 'success', reference: 'ref_k033_stale' });
+
+    const resolved = await resolveStaleSubmittedCharges(new Date());
+
+    expect(resolved).toMatchObject({ settled: 1, failed: 0, unresolved: 0 });
+    expect((await readCharge())?.status).toBe('settled');
+    const sub = await readSubscription();
+    expect(new Date(sub.current_period_end).toISOString()).toBe(await expectedPeriodEndIso());
+  });
+
+  it('fails a submitted charge Paystack says never succeeded, and leaves a fresh one alone', async () => {
+    await generateDueCharges(cronNow);
+    chargeAuthorization.mockResolvedValue({ status: 'pending', reference: 'ref_k033_stale2' });
+    await runQueuedCharges(new Date());
+
+    // Still inside the wait window — the resolver must not touch it yet.
+    verifyTransaction.mockResolvedValue({ status: 'failed', reference: 'ref_k033_stale2' });
+    expect(await resolveStaleSubmittedCharges(new Date())).toMatchObject({ settled: 0, failed: 0 });
+    expect((await readCharge())?.status).toBe('submitted');
+    expect(verifyTransaction).not.toHaveBeenCalled();
+
+    await pool.query(
+      "UPDATE subscription_charges SET last_attempt_at = now() - INTERVAL '30 hours' WHERE company_id=$1",
+      [companyId],
+    );
+    const resolved = await resolveStaleSubmittedCharges(new Date());
+
+    expect(resolved).toMatchObject({ settled: 0, failed: 1, unresolved: 0 });
+    const charge = await readCharge();
+    expect(charge?.status).toBe('failed');
+    const sub = await readSubscription();
+    expect(new Date(sub.current_period_end).toISOString()).toBe(originalPeriodEnd.toISOString());
+  });
+  it('flags a trial subscription past_due when its debit exhausts every attempt', async () => {
+    // The due query never bills a trial, so the only way one holds a charge is
+    // an admin moving it to trial after the charge was raised. It is still an
+    // unpaid period, so it is still past_due.
+    await generateDueCharges(cronNow);
+    await pool.query("UPDATE subscriptions SET status='trial' WHERE id=$1", [subscriptionId]);
+    chargeAuthorization.mockRejectedValue(new Error('declined'));
+
+    for (let pass = 0; pass < 3; pass++) {
+      if (pass > 0) {
+        await pool.query(
+          "UPDATE subscription_charges SET last_attempt_at = last_attempt_at - INTERVAL '25 hours' WHERE company_id=$1",
+          [companyId],
+        );
+      }
+      await runQueuedCharges(new Date());
+    }
+
+    // A trial that never converts is as unpaid as an active one.
     expect((await readSubscription()).status).toBe('past_due');
   });
 });

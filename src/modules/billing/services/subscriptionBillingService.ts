@@ -38,6 +38,8 @@ export interface GenerateResult {
   skipped: number;
   /** Subscriptions closed out because their scheduled cancellation came due. */
   cancelled: number;
+  /** Queued debits voided because the customer scheduled a cancellation. */
+  voided: number;
 }
 
 export async function generateDueCharges(now = new Date()): Promise<GenerateResult> {
@@ -140,10 +142,10 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
   // A charge already queued for a subscription the customer has flagged to
   // cancel must be voided before the close-out, or the same cron run would
   // cancel the subscription and still debit the card for it.
-  await voidChargesForCancellingSubscriptions();
+  const voided = await voidChargesForCancellingSubscriptions();
   const cancelled = await closeOutCancelledSubscriptions(now);
 
-  return { created, skipped, cancelled };
+  return { created, skipped, cancelled, voided };
 }
 
 export interface RunChargesResult {

@@ -1,0 +1,70 @@
+=== GREEN (round 3 fixes in place) ===
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+
+=== N1: settled-charge uniqueness back to per-mandate (the pre-624 index) ===
+     × bills both subscriptions of a company that shares one mandate, and settles both 89ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 26 passed (27)
+
+=== N2: void every charge of a cancelling subscription (drop the period predicate) ===
+     × does not write off a debt for a period the customer has already been granted 46ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 26 passed (27)
+
+=== N3a: never resolve a stale submitted charge ===
+     × settles a submitted charge whose webhook never arrived 48ms
+     × fails a submitted charge Paystack says never succeeded, and leaves a fresh one alone 51ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 25 passed (27)
+
+=== N3b: resolve without waiting STALE_SUBMITTED_HOURS ===
+     × fails a submitted charge Paystack says never succeeded, and leaves a fresh one alone 93ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 26 passed (27)
+
+=== L-b: discard the voided count ===
+     × reports the debits it voided separately from the subscriptions it closed 55ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 26 passed (27)
+
+=== L-d: trial subscriptions excluded from past_due again ===
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+
+=== L-d (retested with the new trial case): trial excluded from past_due ===
+     × flags a trial subscription past_due when its debit exhausts every attempt 37ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 27 passed (28)
+=== RESTORED ===
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 27 passed (28)
+
+=== L-d: trial excluded from past_due ===
+     × flags a trial subscription past_due when its debit exhausts every attempt 96ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 27 passed (28)
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  28 passed (28)
+
+=== FULL UNIT SUITE (bunx vitest run --testTimeout=30000, DATABASE_URL and PG* unset) ===
+ Test Files  785 passed | 36 skipped (821)
+      Tests  9326 passed | 234 skipped (9560)
+
+=== GATES ===
+bunx tsc --noEmit                      -> clean
+bunx eslint src pages (the CI scope)   -> clean
+bun scripts/audit-migration-naming.ts  -> no new duplicate prefixes (338 files)
+bun scripts/ci/check-migration-rls.ts  -> OK
+bun run agent-docs:check               -> 74 mirrors match
+
+=== MIGRATION 624 RE-APPLIED ON THE FIXTURE DB (index definition changed) ===
+ux_sub_charges_mandate_period_settled dropped, replaced by
+ux_sub_charges_subscription_period_settled UNIQUE btree
+  (mandate_id, COALESCE(subscription_id, '00000000-0000-0000-0000-000000000000'::uuid),
+   period_start, period_end) WHERE status = 'settled'
