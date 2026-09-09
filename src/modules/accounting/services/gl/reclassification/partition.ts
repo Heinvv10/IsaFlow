@@ -166,12 +166,9 @@ function skipReasonFor(row: CandidateRow, opts: PartitionOptions): ReclassSkipRe
   if (row.is_reclass_contra) return 'reclassification_contra';
   if (row.already_reclassified) return 'already_reclassified';
   if (num(row.debit) === 0 && num(row.credit) === 0) return 'zero_amount';
-  // `JournalLineInput` can express project, cost centre and business unit, but
-  // NOT `cc1_id` / `cc2_id`. A pair posted without them would move the amount
-  // out of one analysis bucket and into none, which is the same silent loss the
-  // journal builder refuses for project and cost centre. Skipped rather than
-  // dropped. Zero production lines carry either column today, so this is a
-  // guard against a future that has not arrived, not a live filter.
+  // The shared journal writer supports CC1/CC2, but this module's source-line
+  // mapping and journal builder do not yet carry them. Keep skipping such lines
+  // until the complete reclassification workflow preserves their attribution.
   if (row.cc1_id !== null || row.cc2_id !== null) return 'unreproducible_analysis_coding';
   if (row.vat_type !== null && !KNOWN_VAT_TYPES.includes(row.vat_type)) return 'unknown_vat_type';
   // A filed VAT period binds a line that CARRIES VAT CODING — that line is
@@ -239,4 +236,3 @@ export function partitionCandidates(
 
   return { movable, skipped };
 }
-
