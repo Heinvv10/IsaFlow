@@ -15,7 +15,7 @@ import type { ControlTx } from '../controls/contracts';
 import type { calculateExactDepreciation, ExactPostingLine } from './glBypassExactPlans';
 type Row=Record<string,unknown>;
 type Calculation=ReturnType<typeof calculateExactDepreciation>;
-interface Facts { asset:Row; intent:Row; accounts:Row[]; period:Row; ledgers:Row[]; input:Row; calculation:Calculation; plan:ExactPostingLine[] }
+interface Facts { company:Row; asset:Row; intent:Row; accounts:Row[]; period:Row; ledgers:Row[]; input:Row; calculation:Calculation; plan:ExactPostingLine[] }
 export interface AssetDepreciationResult { intentId:string; assetId:string; journalEntryId:string|null; policyDep:string; taxDep:string; accountingDate:string }
 const ref=(entityId:string)=>({entityType:'asset_depreciation_intent',entityId,operation:'asset_depreciation.post' as const});
 function actor(companyId:string,userId:string):ControlTx {
@@ -64,6 +64,7 @@ export async function executeAssetDepreciation(companyId:string,userId:string,in
  return executeControlledOperation(ctx,parent,options?.approvalId??null,async permit=>{
   if(await receipt(ctx,intentId))throw new Error('Depreciation intent already executed');
   const material=await materializeAssetDepreciationOperation(ctx,parent),facts=material.observedSources[0]!.facts as unknown as Facts;
+  if(facts.company.lockdown_enabled===true&&(!facts.company.lockdown_date||permit.accountingDate<=String(facts.company.lockdown_date)))throw new Error('Depreciation date is within company lockdown');
   if(facts.period.status!=='open'||facts.accounts.some(a=>a.is_active!==true))throw new Error('Depreciation period or accounts are not open');
   const assetId=String(facts.asset.id),yyyymm=permit.accountingDate.slice(0,7).replace('-','');
   if(facts.ledgers.some(row=>row.yyyymm===yyyymm))throw new Error('Depreciation period already exists; explicit correction required');
