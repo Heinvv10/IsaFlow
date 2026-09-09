@@ -1,0 +1,19 @@
+K-096 GREEN — fix/audit-k095-k096-k097-billing-admin (merged with origin/master @46da1253)
+
+Integration (real fixture DB, bun run test:integration):
+  tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts  1 passed
+  tests/integration/k096-mandate-verify-scoping.int.test.ts                3 passed
+
+Mutation proof — `git show origin/master:pages/api/billing/paystack/mandate/verify.ts`
+restored, both suites re-run:
+  Test Files  2 failed (2) / Tests  2 failed | 2 passed (4)
+The two that still pass are adjacent cases the mutation does not reach (they assert the
+other tenant's mandates and the null-mandate path, neither of which the company-wide
+UPDATE alters). Production file restored; both suites green again (4 passed).
+
+Full unit suite, DATABASE_URL unset (bunx vitest run):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9547 passed | 243 skipped (9790)
+
+bunx tsc --noEmit                                          exit 0, no output
+bunx eslint pages/api/billing/paystack/mandate/verify.ts   exit 0, no output

@@ -1,4 +1,4 @@
-// K-098. CRITICAL_ACTIONS is matched against the `action` string a call site
+// K-097 (adjacent). CRITICAL_ACTIONS is matched against the `action` string a call site
 // passes to logAdminAction. An entry nothing emits protects nothing, and the
 // mismatch is invisible: the audit write for a privileged action is simply
 // treated as best-effort and its failure swallowed. That is exactly what

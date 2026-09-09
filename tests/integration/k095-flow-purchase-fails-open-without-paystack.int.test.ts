@@ -28,7 +28,7 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 const DATABASE_URL = process.env.DATABASE_URL;
 
 const COMPANY = randomUUID();
-const PLAN = randomUUID();
+let PLAN = randomUUID();
 const BUNDLE = randomUUID();
 const BUNDLE_FLOWS = 500;
 const BUNDLE_PRICE_CENTS = 49900;
@@ -50,11 +50,17 @@ describeIfDb('K-095 Flow bundle purchase must not credit without payment', () =>
       `INSERT INTO companies (id, name, is_active) VALUES ($1, 'K095 Flows Fixture', true)`,
       [COMPANY],
     );
+    // plans.code is globally unique and the route requires the company to be
+    // on 'payg', so a sibling suite may already have created the row. Take
+    // whichever id ends up in the table.
     await admin.query(
       `INSERT INTO plans (id, code, name, monthly_price_cents, annual_price_cents, is_active)
-       VALUES ($1, $2, 'Pay As You Go', 0, 0, true)`,
-      [PLAN, `payg`],
+       VALUES ($1, 'payg', 'Pay As You Go', 0, 0, true)
+       ON CONFLICT (code) DO NOTHING`,
+      [PLAN],
     );
+    const planRow = await admin.query(`SELECT id FROM plans WHERE code = 'payg'`);
+    PLAN = planRow.rows[0].id;
     await admin.query(
       `INSERT INTO subscriptions (company_id, plan_id, status) VALUES ($1, $2, 'active')`,
       [COMPANY, PLAN],
@@ -89,7 +95,12 @@ describeIfDb('K-095 Flow bundle purchase must not credit without payment', () =>
       await c.query('DELETE FROM flow_bundles WHERE id = $1', [BUNDLE]);
       await c.query('DELETE FROM subscriptions WHERE company_id = $1', [COMPANY]);
       await c.query('DELETE FROM companies WHERE id = $1', [COMPANY]);
-      await c.query('DELETE FROM plans WHERE id = $1', [PLAN]);
+      // Only if no sibling suite still holds a subscription on it.
+      await c.query(
+        `DELETE FROM plans WHERE id = $1
+           AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE plan_id = $1)`,
+        [PLAN],
+      );
       await c.query('COMMIT');
     } finally {
       c.release();
