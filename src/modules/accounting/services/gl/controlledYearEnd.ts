@@ -1,4 +1,6 @@
 import {randomUUID} from 'node:crypto';
+import {canonicalJson} from '../controls/canonical';
+import {replayKnownOperationEffect} from '../controls/operationReceiptReplay';
 import {fmtDate} from '@/lib/fmtDate';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {requireControlTx} from '../controls/context';
@@ -13,7 +15,7 @@ import type {buildYearEndFinancialMaterial} from '../controls/yearEndFinancialMa
 import type {CloseYearOptions,CloseYearResult,CloseYearDryRunResult,CloseYearError,YearEndJournalPreview} from './yearEndCloseService';
 type Row=Record<string,unknown>;
 type Closing=Awaited<ReturnType<typeof buildYearEndFinancialMaterial>>;
-interface Facts {periods:Row[];accounts:Row[];closing:Closing}
+interface Facts {company:Row;periods:Row[];accounts:Row[];closing:Closing}
 function actor(companyId:string,userId:string):ControlTx {
  const ctx=requireControlTx();if(ctx.principal.companyId!==companyId||ctx.principal.personId!==userId)throw new Error('Year-close actor does not match authenticated context');return ctx;
 }
@@ -25,8 +27,8 @@ function preview(year:string,facts:Facts):YearEndJournalPreview {
    exactDebit:line.debit,exactCredit:line.credit};}),totalDebit:Number(c.amount),totalCredit:Number(c.amount),exactTotal:c.amount};
 }
 async function prior(ctx:ControlTx,year:string):Promise<CloseYearResult|null>{
- const [effect]=await ctx.sql`SELECT result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-  AND entity_type='fiscal_year' AND entity_id=${year} AND operation='year.close' ORDER BY committed_at DESC LIMIT 1` as {result:CloseYearResult}[];
+ const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
+  AND entity_type='fiscal_year' AND entity_id=${year} AND operation='year.close' ORDER BY committed_at DESC LIMIT 1` as {id:string;result:CloseYearResult}[];
  if(!effect)return null;
  const journalId=effect.result.closingEntry.id;
  if(journalId){
@@ -34,14 +36,18 @@ async function prior(ctx:ControlTx,year:string):Promise<CloseYearResult|null>{
    AND source='year_end' AND entry_number=${`YE-${year}`} AND status='posted' AND reversed_at IS NULL FOR SHARE`;
   if(rows.length!==1)throw new Error('Year closing receipt journal changed');
  }
- return effect.result;
+ return replayKnownOperationEffect<CloseYearResult>(ctx,{entityType:'fiscal_year',entityId:year,operation:'year.close'},effect.id);
 }
 export async function closeFiscalYear(companyId:string,yearLabel:string,userId:string,options:CloseYearOptions={}):Promise<CloseYearResult|CloseYearDryRunResult|CloseYearError>{
  const ctx=actor(companyId,userId);await assertEffectivePermission(ctx,options.dryRun?'read:reports':'write:locks');
  if(!/^[1-9][0-9]{3}$/.test(yearLabel))throw new Error('Invalid financial year');
- if(!options.dryRun){await assertEffectivePermission(ctx,'write:post');if(!options.approvalId){const result=await prior(ctx,yearLabel);if(result)return result;}}
  const parent={entityType:'fiscal_year',entityId:yearLabel,operation:'year.close' as const};
+ if(!options.dryRun){
+  await assertEffectivePermission(ctx,'write:post');const result=await prior(ctx,yearLabel);
+  if(result)return options.approvalId?executeControlledOperation<CloseYearResult>(ctx,parent,options.approvalId,async()=>{throw new Error('Receipt replay cannot create a new effect');}):result;
+ }
  const material=await loadOperationMaterial(ctx,parent),facts=material.observedSources[0]!.facts as unknown as Facts;
+ if(facts.company.lockdown_enabled===true&&(!facts.company.lockdown_date||facts.closing.accountingDate<=String(facts.company.lockdown_date)))throw new Error('Year-close date is within company lockdown');
  const open=facts.periods.filter(p=>p.status==='open');
  if(open.length)return{error:'open_periods',count:open.length,openPeriods:open.map(p=>({id:String(p.id),periodName:String(p.period_name),periodNumber:Number(p.period_number)}))};
  if(facts.periods.some(p=>p.status!=='closed'))throw new Error('Financial year contains locked periods');
@@ -50,6 +56,7 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  return executeControlledOperation(ctx,parent,options.approvalId??null,async permit=>{
   if(await prior(ctx,yearLabel))throw new Error('Financial year already closed');
   const current=await loadOperationMaterial(ctx,parent),live=current.observedSources[0]!.facts as unknown as Facts;
+  if(live.company.lockdown_enabled===true&&(!live.company.lockdown_date||permit.accountingDate<=String(live.company.lockdown_date)))throw new Error('Year-close date is within company lockdown');
   if(live.periods.some(p=>p.status!=='closed')||live.closing.retained.is_active!==true)throw new Error('Financial year source is no longer eligible');
   const closing=live.closing,period=live.periods.find(p=>fmtDate(p.end_date as string|Date)===permit.accountingDate);
   if(!period)throw new Error('Closing fiscal period unavailable');
@@ -63,7 +70,10 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
    for(const line of closing.plan)await ctx.sql`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description)
     VALUES(${companyId}::uuid,${id}::uuid,${line.glAccountId}::uuid,${line.debit},${line.credit},'Year-end close')`;
    const parentControl={permit,parent};await registerGeneratedJournal(ctx,parentControl,id,'journal.post');
-   await postJournalEntry(companyId,id,userId,{parentControl});entry={...created,status:'posted'};
+   await postJournalEntry(companyId,id,userId,{parentControl});
+   const [posted]=await ctx.sql`SELECT * FROM gl_journal_entries WHERE company_id=${companyId}::uuid AND id=${id}::uuid` as Row[];
+   if(!posted||posted.status!=='posted')throw new Error('Closing journal posting outcome unavailable');
+   entry=JSON.parse(canonicalJson(posted)) as Row;
   }
   for(const before of live.periods){
    const [after]=await ctx.sql`UPDATE fiscal_periods SET status='locked' WHERE company_id=${companyId}::uuid AND id=${before.id}::uuid AND status='closed' RETURNING *` as Row[];

@@ -14,6 +14,7 @@ import { withControlRequest, requireControlTx } from '@/modules/accounting/servi
 import { materializeBankTransferOperation } from '@/modules/accounting/services/controls/bankTransferOperationMaterializer';
 import { materializeAssetDepreciationOperation } from '@/modules/accounting/services/controls/assetDepreciationOperationMaterializer';
 import { requestOperationApproval, decideOperationApproval } from '@/modules/accounting/services/controls/approvalRequestService';
+import { replayKnownOperationEffect } from '@/modules/accounting/services/controls/operationReceiptReplay';
 import { operationBindingHash } from '@/modules/accounting/services/controls/canonical';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
@@ -91,6 +92,9 @@ it('prepares a durable bank intent without posting and executes it exactly once 
  expect(await actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId))).toEqual(posted);
  expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,prepared.intentId])).rows).toHaveLength(1);
  expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_type='bank_transfer_intent' AND entity_id=$2",[fixture.companyA,prepared.intentId])).rows).toHaveLength(1);
+ const effect=(await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_type='bank_transfer_intent' AND entity_id=$2",[fixture.companyA,prepared.intentId])).rows[0].id as string;
+ await expect(actor('u3',ctx=>replayKnownOperationEffect(ctx,prepared.operation,effect))).rejects.toThrow('association');
+ await expect(actor('u1',ctx=>replayKnownOperationEffect(ctx,{...prepared.operation,entityId:bankIntent},effect))).rejects.toThrow('association');
  await expect(actor('u2',()=>executeBankTransfer(fixture.companyA,fixture.u2.id,prepared.intentId))).rejects.toThrow('requester');
 });
 it('refuses inactive bank metadata and closed dates without leaving a financial journal',async()=>{
@@ -145,6 +149,12 @@ it('requires independent bank approval and refuses an approved transfer after ba
  const posted=await actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId,{approvalId:approval.id}));
  expect(posted).toMatchObject({status:'posted',amount:'45.67'});
  expect(await actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId,{approvalId:approval.id}))).toEqual(posted);
+ try{
+  await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);
+  await expect(actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId))).rejects.toThrow('authority');
+  await expect(actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId,{approvalId:approval.id}))).rejects.toThrow('authority');
+ }finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);}
+
 });
 
 it('refuses zero-book nonzero-tax depreciation inside company lockdown without ledger mutation',async()=>{
