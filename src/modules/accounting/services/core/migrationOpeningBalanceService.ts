@@ -58,11 +58,17 @@ export async function postOpeningBalances(
       unresolved.push(`${acct.sourceCode} ${acct.sourceName}`);
       continue;
     }
+    // A balance CONTRARY to the account's normal side — a bank in overdraft, a
+    // supplier sitting in debit, a negative contra — belongs on the OTHER side.
+    // Zeroing it made a source that foots look unbalanced, and the refusal
+    // quoted totals the operator could not reconcile to their own trial balance.
     const isDebitNormal = acct.mappedNormalBalance === 'debit';
+    const onDebitSide = isDebitNormal === (acct.openingBalance > 0);
+    const amount = Math.abs(acct.openingBalance);
     lines.push({
       glAccountId: String(glRows[0]!.id),
-      debit: isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0,
-      credit: !isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0,
+      debit: onDebitSide ? amount : 0,
+      credit: onDebitSide ? 0 : amount,
       description: `Opening balance — ${source}`,
     });
   }
