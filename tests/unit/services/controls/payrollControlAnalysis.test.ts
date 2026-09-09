@@ -63,3 +63,14 @@ it('does not treat a new empty draft run as a confirmed payroll discrepancy',()=
  const source=payrollPopulation();Object.assign(source.runs[0].header,{status:'draft',employee_count:0});source.runs[0].lines=[];source.runs[0].journal=null;
  const result=analysePayrollControls(source);expect(result.findings).toHaveLength(0);expect(result.missing).toContain('uncalculated_payroll_run');
 });
+it('accepts an explicit UIF settlement using an owned alternate bank account',()=>{
+ const source=payrollPopulation();source.accounts.push({id:'alternate-bank',account_code:'1115',account_type:'asset',account_subtype:'bank',is_active:true});
+ source.declarations=[{id:'declaration',year:2026,month:9,employee:'1.00',employer:'1.00',status:'paid',journal:{id:'uif-journal',status:'posted',source:'auto_payroll',sourceRecordId:null,reversed:false,
+ lines:[{glAccountId:'2150',debit:'2.00',credit:'0.00'},{glAccountId:'alternate-bank',debit:'0.00',credit:'2.00'}]}}];
+ expect(kinds(source)).not.toContain('payroll_uif_settlement_mismatch');
+});
+it('uses distinct stable finding identities for overlapping beneficiary groups',()=>{
+ const source=payrollPopulation();source.beneficiaryGroups=[['employee','other'],['employee','third']];
+ const result=analysePayrollControls(source);expect(new Set(result.findings.map(row=>row.finding.key)).size).toBe(2);
+ expect(result.findings.every(row=>new Set(row.finding.entities.map(e=>e.entityId)).size===row.finding.entities.length)).toBe(true);
+});

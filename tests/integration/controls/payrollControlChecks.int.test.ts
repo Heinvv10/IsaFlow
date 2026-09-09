@@ -63,3 +63,44 @@ it('isolates foreign payroll and rechecks current read authority',async()=>{
  try{await expect(actor(ctx=>checkPayrollControls(ctx))).rejects.toThrow(/permission|scope|payroll/i);}
  finally{await pool.query('UPDATE users SET is_active=$3 WHERE id=$2 AND EXISTS(SELECT 1 FROM company_users WHERE company_id=$1 AND user_id=$2)',[fixture.companyA,fixture.u1.id,old]);}
 });
+it('compares actual recorded salary components and distinguishes unchanged recurring pay',async()=>{
+ const next=randomUUID(),component=randomUUID(),breakdown=[{componentId:component,amount:100}];
+ await pool.query('UPDATE payroll_run_lines SET component_breakdown=$2::jsonb WHERE run_id=$1',[run,JSON.stringify(breakdown)]);
+ await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_taxable,total_paye,total_uif,total_sdl,total_eti,total_net,employee_count) VALUES($1,$2,10,2026,'calculated',100,100,8,2,1,0,91,1)",[next,fixture.companyA]);
+ await pool.query('INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,taxable_income,paye,uif_employee,uif_employer,sdl,eti,net_pay,component_breakdown) VALUES($1,$2,100,100,8,1,1,1,0,91,$3::jsonb)',[next,employee,JSON.stringify(breakdown)]);
+ try{expect((await actor(ctx=>checkPayrollControls(ctx))).findings.map(f=>f.kind)).not.toContain('payroll_component_change');
+  await pool.query('UPDATE payroll_run_lines SET component_breakdown=$2::jsonb WHERE run_id=$1',[next,JSON.stringify([{componentId:component,amount:110}])]);
+  const result=await actor(ctx=>checkPayrollControls(ctx));expect(result.findings.find(f=>f.kind==='payroll_component_change')?.classification).toBe('candidate');
+ }finally{await pool.query('DELETE FROM payroll_run_lines WHERE run_id=$1',[next]);await pool.query('DELETE FROM payroll_run_headers WHERE company_id=$1 AND id=$2',[fixture.companyA,next]);await pool.query("UPDATE payroll_run_lines SET component_breakdown='[]'::jsonb WHERE run_id=$1",[run]);}
+});
+it('reconciles actual UIF declaration and alternate bank settlement then identifies changed settlement',async()=>{
+ const declaration=randomUUID(),paymentJournal=randomUUID(),alternate=randomUUID();
+ await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,level) VALUES($1,$2,'1115','Synthetic alternate bank','asset','bank','debit',true,3)",[alternate,fixture.companyA]);
+ await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,source,status,created_by) VALUES($1,$2,'UIF-DETECTIVE','2026-10-01','Synthetic UIF evidence','auto_payroll','posted',$3)",[paymentJournal,fixture.companyA,fixture.u1.id]);
+ await pool.query('INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit) VALUES($1,$2,$3,2,0),($1,$2,$4,0,2)',[fixture.companyA,paymentJournal,accounts.find(a=>a.code==='2150')!.id,alternate]);
+ await pool.query("INSERT INTO uif_declarations(id,company_id,period_year,period_month,total_employee_contribution,total_employer_contribution,status,journal_entry_id) VALUES($1,$2,2026,9,1,1,'paid',$3)",[declaration,fixture.companyA,paymentJournal]);
+ try{expect((await actor(ctx=>checkPayrollControls(ctx))).findings.map(f=>f.kind)).not.toContain('payroll_uif_settlement_mismatch');
+  await pool.query('UPDATE gl_journal_lines SET debit=debit*2,credit=credit*2 WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,paymentJournal]);
+  expect((await actor(ctx=>checkPayrollControls(ctx))).findings.map(f=>f.kind)).toContain('payroll_uif_settlement_mismatch');
+ }finally{await pool.query('DELETE FROM uif_declarations WHERE company_id=$1 AND id=$2',[fixture.companyA,declaration]);await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,paymentJournal]);await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,paymentJournal]);await pool.query('DELETE FROM gl_accounts WHERE company_id=$1 AND id=$2',[fixture.companyA,alternate]);}
+});
+it('rejects a stale cursor and keeps foreign-party corruption isolated under dual membership',async()=>{
+ await pool.query('UPDATE payroll_run_headers SET employee_count=2 WHERE company_id=$1 AND id=$2',[fixture.companyA,run]);
+ await pool.query("UPDATE payroll_employees SET end_date='2026-08-31' WHERE company_id=$1 AND id=$2",[fixture.companyA,employee]);
+ try{const before=await actor(ctx=>checkPayrollControls(ctx,{limit:1}));expect(before.nextCursor).not.toBeNull();
+  await pool.query('UPDATE payroll_run_headers SET total_gross=101 WHERE company_id=$1 AND id=$2',[fixture.companyA,run]);
+  await expect(actor(ctx=>checkPayrollControls(ctx,{limit:1,cursor:before.nextCursor!}))).rejects.toThrow(/population changed/i);
+ }finally{await pool.query('UPDATE payroll_run_headers SET total_gross=100,employee_count=1 WHERE company_id=$1 AND id=$2',[fixture.companyA,run]);await pool.query('UPDATE payroll_employees SET end_date=NULL WHERE company_id=$1 AND id=$2',[fixture.companyA,employee]);}
+ const foreign=randomUUID();await pool.query("INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date) VALUES($1,$2,'FOREIGN','Private foreign','Employee','2020-01-01')",[foreign,fixture.companyB]);
+ await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')",[fixture.companyB,fixture.u1.id]);
+ await pool.query('UPDATE payroll_run_lines SET employee_id=$2 WHERE run_id=$1',[run,foreign]);
+ try{const result=await actor(ctx=>checkPayrollControls(ctx));expect(result.missingSources).toContain('payroll_employee_ownership_unavailable');expect(JSON.stringify(result)).not.toContain(foreign);}
+ finally{await pool.query('UPDATE payroll_run_lines SET employee_id=$2 WHERE run_id=$1',[run,employee]);await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[fixture.companyB,fixture.u1.id]);await pool.query('DELETE FROM payroll_employees WHERE company_id=$1 AND id=$2',[fixture.companyB,foreign]);}
+});
+it('keeps complete source totals and counts when bounded material requires an async scan',async()=>{
+ await pool.query("INSERT INTO payroll_employees(company_id,employee_number,first_name,last_name,start_date,status) SELECT $1,'BOUNDED-'||n,'Synthetic','Bounded','2020-01-01','active' FROM generate_series(1,10000)n",[fixture.companyA]);
+ try{const result=await actor(ctx=>checkPayrollControls(ctx,{limit:1}));expect(result.status).toBe('unknown');expect(result.findingCount).toBe(0);
+  expect(result.missingSources).toContain('async_scan_required:payroll_population_exceeds_10000');expect(result.coverage).toContain('source_employee_count:10002');
+  expect(result.coverage).toContain('source_total:headerGross:100.00');expect(result.coverage).toContain('source_total:lineNet:91.00');
+ }finally{await pool.query("DELETE FROM payroll_employees WHERE company_id=$1 AND employee_number LIKE 'BOUNDED-%'",[fixture.companyA]);}
+});
