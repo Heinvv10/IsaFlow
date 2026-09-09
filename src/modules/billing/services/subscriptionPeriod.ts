@@ -14,6 +14,8 @@
 import { sql } from '@/lib/neon';
 
 export const MAX_ATTEMPTS = 3;
+/** How long a 'submitted' charge may wait for a webhook before it is verified. */
+export const STALE_SUBMITTED_HOURS = 24;
 
 /**
  * Move the subscription onto the period the settled charge paid for. The
@@ -83,7 +85,8 @@ export async function claimChargeAttempt(
 
 /**
  * The attempt just recorded was the last one the retry query will select, so
- * the subscription is sitting on a period nobody paid for. `attemptCount` is
+ * the subscription — active or still on trial — is sitting on a period nobody
+ * paid for. `attemptCount` is
  * the value RETURNed by the increment, never a pre-read one, so two overlapping
  * cron runs cannot both believe they wrote the final attempt.
  */
@@ -102,7 +105,7 @@ export async function markPastDueIfExhausted(
       AND c.company_id = ${companyId}
       AND s.id = c.subscription_id
       AND s.company_id = ${companyId}
-      AND s.status = 'active'
+      AND s.status IN ('active','trial')
       AND s.current_period_end < c.period_end::timestamp AT TIME ZONE 'UTC'
   `;
 }
@@ -111,7 +114,9 @@ export async function markPastDueIfExhausted(
  * A charge queued for a subscription the customer has since flagged to cancel
  * must not be debited. Only 'queued' and 'failed' rows are voided — 'submitted'
  * means Paystack already has the request, so that one is left to settle and the
- * close-out below waits for it.
+ * close-out below waits for it. A charge whose period starts before the
+ * boundary the subscription has already been granted is money the customer
+ * owes for service taken; cancelling does not write that off.
  */
 export async function voidChargesForCancellingSubscriptions(): Promise<number> {
   const voided = await sql<{ id: string }>`
@@ -124,6 +129,8 @@ export async function voidChargesForCancellingSubscriptions(): Promise<number> {
       AND s.company_id = c.company_id
       AND COALESCE(s.cancel_at_period_end, false) = true
       AND c.status IN ('queued','failed')
+      AND (s.current_period_end IS NULL
+           OR c.period_start >= s.current_period_end::date)
     RETURNING c.id
   `;
   return voided.length;

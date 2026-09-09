@@ -44,7 +44,14 @@ PAYG Flow wallet, subscription billing, and Stitch Express payments. Owns mutati
 - After `MAX_ATTEMPTS` failures the subscription is set `past_due` and no further charge is raised for that period. `past_due` currently gates no feature — dunning (suspend / notify) is not implemented.
 
 ## Gotchas
-- **Stitch recurring debits are gated.** `debitFromMandate` is a deliberate stub — it throws `RECURRING_DISABLED_MSG` until Stitch upgrades the tenant to the `client_recurringpaymentconsentrequest` scope. `subscriptionBillingService.runQueuedCharges` is wired to call it but the success branch is unreachable in prod. Tables stay in place — re-enabling needs no migration. **This stub is NOT a "no-stubs" rule violation** — it is a dependency-boundary guard; do not delete or replace with a fake success.
+- **Recurring debits run through Paystack, not Stitch.** `runQueuedCharges` calls
+  `paystackClient.chargeAuthorization` against the mandate's `paystack_authorization_code`; that
+  path is live in production. The Stitch `debitFromMandate` stub in `stitchClient.ts` is a
+  dependency-boundary guard for the ungranted `client_recurringpaymentconsentrequest` scope and is
+  no longer on the subscription path — do not delete it or replace it with a fake success.
+- **A charge stuck in `submitted` needs `resolveStaleSubmittedCharges`.** Only a webhook moves a
+  charge out of `submitted`; the cron calls the resolver first each run so a charge whose webhook
+  never arrived is verified against Paystack after `STALE_SUBMITTED_HOURS` and settled or failed.
 - Stitch token cache is process-local; in serverless contexts each cold start re-auths. Acceptable today (low call volume).
 - `flowOperationCatalog` is `as const satisfies Record<...>` — adding a new op code MUST update the type-narrowed map; do not push to it dynamically.
 - No tests exist in this module yet — claims of "tested" elsewhere are aspirational; treat the lifecycle as battle-untested in production until covered.

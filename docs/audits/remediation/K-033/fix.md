@@ -57,3 +57,15 @@ charge move every subscription a company owns. The attempt is claimed with a com
 before it is spent. Period boundaries are cast through UTC. Known terminal state, unchanged: after
 three declines no further charge is raised for that period and `past_due` gates nothing — dunning
 is not implemented and needs a follow-up decision.
+
+**Review round 3 (`review-fixes-round3.md`):** migration 624 also replaces
+`ux_sub_charges_mandate_period_settled` with a per-subscription unique index — the widened
+duplicate guard and the old per-mandate index disagreed, so a company with two subscriptions on one
+mandate was debited twice and the second settlement was recorded as a failure. A charge stuck in
+`submitted` is now verified against Paystack after 24 hours by
+`resolveStaleSubmittedCharges`, which the cron runs first. Before deploying, count the charges the
+backfill cannot attribute and set their `subscription_id` by hand:
+```sql
+SELECT count(*) FROM subscription_charges
+WHERE subscription_id IS NULL AND status IN ('queued','submitted','failed');
+```
