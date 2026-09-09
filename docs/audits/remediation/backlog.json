@@ -438,7 +438,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "65580385",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -450,13 +450,14 @@
         "K-011/validation.md"
       ],
       "fixCommit": "65580385",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/378",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k011-credit-note-apply-lock",
-      "reviewRounds": 3
+      "reviewRounds": 3,
+      "mergeCommit": "dc08808d"
     },
     {
       "id": "K-012",
@@ -911,7 +912,7 @@
         "K-023/validation.md"
       ],
       "fixCommit": "abc3ae3c",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/386",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
@@ -973,7 +974,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "24a47b59",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -991,7 +992,8 @@
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k025-once-off-batch-close",
-      "reviewRounds": 3
+      "reviewRounds": 3,
+      "mergeCommit": "1d31eb19"
     },
     {
       "id": "K-026",
@@ -1008,7 +1010,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "7b1018e9",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1026,7 +1028,8 @@
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k026-below-threshold-write-access",
-      "reviewRounds": 2
+      "reviewRounds": 2,
+      "mergeCommit": "1ebdea9b"
     },
     {
       "id": "K-027",
@@ -1055,7 +1058,7 @@
         "K-027/validation.md"
       ],
       "fixCommit": "d1d6211c",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/383",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
@@ -1118,7 +1121,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "de50a3f5",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1130,13 +1133,14 @@
         "K-029/validation.md"
       ],
       "fixCommit": "de50a3f5",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/381",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k029-depreciation-method",
-      "reviewRounds": 6
+      "reviewRounds": 6,
+      "mergeCommit": "c8281e76"
     },
     {
       "id": "K-030",
@@ -1192,7 +1196,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "6263cd63",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1204,13 +1208,14 @@
         "K-031/validation.md"
       ],
       "fixCommit": "5dc684ac;680bbad6;cbf61a69;939e9b6a;6263cd63",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/379",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k031-vat201-ledger-source",
-      "reviewRounds": 4
+      "reviewRounds": 4,
+      "mergeCommit": "54aca2ff"
     },
     {
       "id": "K-032",
@@ -1276,7 +1281,7 @@
         "K-033/validation.md"
       ],
       "fixCommit": "9e387b2e",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/384",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
@@ -1311,7 +1316,7 @@
         "K-034/validation.md"
       ],
       "fixCommit": "9e387b2e",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/384",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
@@ -1334,7 +1339,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "af38f359",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1346,13 +1351,14 @@
         "K-035/validation.md"
       ],
       "fixCommit": "af38f359",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/382",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k035-k036-paystack-webhook",
-      "reviewRounds": 3
+      "reviewRounds": 3,
+      "mergeCommit": "5056b48b"
     },
     {
       "id": "K-036",
@@ -1369,7 +1375,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "af38f359",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1381,13 +1387,14 @@
         "K-036/validation.md"
       ],
       "fixCommit": "af38f359",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/382",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k035-k036-paystack-webhook",
-      "reviewRounds": 3
+      "reviewRounds": 3,
+      "mergeCommit": "5056b48b"
     },
     {
       "id": "K-037",
@@ -1435,7 +1442,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "2be882f0",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1447,13 +1454,14 @@
         "K-038/validation.md"
       ],
       "fixCommit": "2a1380a8;2ca3f9d0;ae56895c;67e4395c;2be882f0",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/380",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k038-sage-payment-balances",
-      "reviewRounds": 4
+      "reviewRounds": 4,
+      "mergeCommit": "227ce684"
     },
     {
       "id": "K-039",
@@ -1523,7 +1531,7 @@
         "K-040/validation.md"
       ],
       "fixCommit": "091900c5;a3afc4b4;ef9989f7",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/385",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
