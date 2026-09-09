@@ -1,5 +1,6 @@
 import {UUID_RE,isRealCalendarDate} from '@/lib/validation';
 import type {ControlCheckResult,ControlFinding} from './contracts';
+import {canonicalJson} from './canonical';
 import {riskOptions,type RiskCheckOptions} from './invoiceRiskQueriesResult';
 export const EXCEPTION_CHECK_VERSIONS={duplicate_invoice_checks:1,payment_risk_checks:1,three_way_match_exceptions:1,
  journal_risk_checks:1,bank_statement_completeness:1} as const;
@@ -15,8 +16,10 @@ export interface ExceptionRow {
  reviewer_person_id:string|null;resolution_reason:string|null;risk_expires_at:Date|string|null;last_recheck:unknown;updated_at:Date|string;
 }
 function object(input:unknown,keys:readonly string[]):Record<string,unknown>{
- if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!keys.includes(k)))throw new Error('Invalid exception input');
- return input as Record<string,unknown>;
+ // Canonicalization validates descriptors before reading values, then detaches all caller state.
+ const detached:unknown=JSON.parse(canonicalJson(input));
+ if(!detached||typeof detached!=='object'||Array.isArray(detached)||Object.keys(detached).some(k=>!keys.includes(k)))throw new Error('Invalid exception input');
+ return detached as Record<string,unknown>;
 }
 export function exceptionCheckId(value:unknown):ExceptionCheckId{
  if(typeof value!=='string'||!Object.hasOwn(EXCEPTION_CHECK_VERSIONS,value))throw new Error('Unsupported exception check');return value as ExceptionCheckId;
@@ -53,7 +56,10 @@ export function canFixException(result:ControlCheckResult,checkId:string,observe
   &&result.status==='pass'&&result.findingCount===0&&result.findings.length===0&&result.nextCursor===null&&result.missingSources.length===0;
 }
 export function exceptionCheckSummary(result:ControlCheckResult){
- const {findings:_findings,sourceVersions:_versions,...summary}=result;return summary;
+ const {findings:_findings,...summary}=result;
+ // Preserve the exact source basis; reserve space below the 1 MiB JSONB storage bound.
+ if(Buffer.byteLength(canonicalJson(summary),'utf8')>900*1024)throw new Error('Complete recheck evidence requires asynchronous retained evidence');
+ return summary;
 }
 export function exceptionView(row:ExceptionRow){
  const date=(value:Date|string|null)=>value===null?null:new Date(value).toISOString();
@@ -63,4 +69,12 @@ export function exceptionView(row:ExceptionRow){
   firstSeenAt:date(row.first_seen_at),lastSeenAt:date(row.last_seen_at),reviewerPersonId:row.reviewer_person_id,
   resolutionReason:row.resolution_reason,riskExpiresAt:date(row.risk_expires_at),riskExpired:row.status==='accepted_risk'&&row.risk_expires_at!==null&&new Date(row.risk_expires_at).getTime()<=Date.now(),
   lastRecheck:row.last_recheck,updatedAt:date(row.updated_at)};
+}
+
+export function parseExceptionList(value:unknown){
+ const input=object(value,['checkId','status','cursor','limit']),checkId=exceptionCheckId(input.checkId),limit=input.limit??20;
+ if(typeof limit!=='number'||!Number.isSafeInteger(limit)||limit<1||limit>100
+  ||(input.cursor!==undefined&&(typeof input.cursor!=='string'||!UUID_RE.test(input.cursor)))
+  ||(input.status!==undefined&&(typeof input.status!=='string'||!['open','fixed','accepted_risk'].includes(input.status))))throw new Error('Invalid exception list');
+ return{checkId,limit,cursor:input.cursor as string|undefined,status:input.status as ExceptionStatus|undefined};
 }

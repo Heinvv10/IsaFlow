@@ -58,7 +58,9 @@ it('actual source correction allows independent fixed resolution once the real c
  const data=await seed();const captured=await actor(ctx=>captureControlExceptions(ctx,{checkId}));
  await pool.query('UPDATE supplier_invoice_items SET unit_price=100,line_total=1000 WHERE supplier_invoice_id=$1',[data.invoice]);
  const result=await actor(ctx=>resolveControlException(ctx,{exceptionId:captured.exceptionIds[0],expectedVersion:1,resolution:'fixed',reason:'Corrected exact PO price'}),'u2');
- expect(result.outcome).toBe('fixed');expect(result.exception.status).toBe('fixed');expect(result.exception.lastRecheck).toMatchObject({status:'pass',findingCount:0});
+ expect(result.outcome).toBe('fixed');expect(result.exception.status).toBe('fixed');expect(result.exception.lastRecheck).toMatchObject({status:'pass',findingCount:0,sourceVersions:[{entityType:'supplier_invoice',entityId:data.invoice,version:1,fingerprint:expect.stringMatching(/^[a-f0-9]{64}$/)}]});
+ const retained=await pool.query("SELECT decision->'recheck' AS recheck FROM control_exception_decisions WHERE company_id=$1 AND exception_id=$2 AND action='fixed'",[fixture.companyA,captured.exceptionIds[0]]);
+ expect(retained.rows[0].recheck).toEqual(result.exception.lastRecheck);
  await pool.query('UPDATE supplier_invoice_items SET unit_price=103,line_total=1030 WHERE supplier_invoice_id=$1',[data.invoice]);
  const recurring=await actor(ctx=>captureControlExceptions(ctx,{checkId}));expect(recurring.exceptionIds).toEqual(captured.exceptionIds);
  expect((await actor(ctx=>listControlExceptions(ctx,{checkId}))).exceptions[0]).toMatchObject({status:'open',occurrenceCount:2});

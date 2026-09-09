@@ -1,13 +1,12 @@
 import {randomUUID} from 'node:crypto';
 import {als} from '@/lib/als';
 import {withSavepoint} from '@/lib/neon';
-import {UUID_RE} from '@/lib/validation';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from './context';
 import type {ControlCheckResult,ControlTx} from './contracts';
 import {assertExceptionReadPermission,runExceptionCheck} from './controlExceptionRecheck';
 import {canFixException,exceptionCheckId,exceptionCheckSummary,exceptionView,parseExceptionAssignment,
- parseExceptionCheck,parseExceptionResolution,type ExceptionRow} from './controlExceptionTypes';
+ parseExceptionCheck,parseExceptionList,parseExceptionResolution,type ExceptionRow} from './controlExceptionTypes';
 async function mutation<T>(ctx:ControlTx,fn:()=>Promise<T>):Promise<T>{
  try{assertControlTx(ctx);return await withSavepoint(`exception_${randomUUID().replaceAll('-','').slice(0,18)}`,fn);}
  catch(error){const store=als.getStore();if(store)store.controlWriteFailed=true;throw error;}
@@ -23,8 +22,9 @@ async function decision(ctx:ControlTx,row:ExceptionRow,action:string,detail:unkn
 }
 /** Explicit bounded capture; callers must follow nextCursor to observe the rest of a finding population. */
 export async function captureControlExceptions(ctx:ControlTx,input:unknown){
+ const parsed=parseExceptionCheck(input);
  return mutation(ctx,async()=>{
-  const parsed=parseExceptionCheck(input),result=await runExceptionCheck(ctx,parsed),ids:string[]=[];
+  const result=await runExceptionCheck(ctx,parsed),ids:string[]=[];
   for(const finding of [...result.findings].sort((a,b)=>a.key<b.key?-1:a.key>b.key?1:0)){
    const inserted=await ctx.sql`INSERT INTO control_exceptions(company_id,id,check_id,finding_key,cutoff,check_version,finding,severity,status,version,reporter_person_id,occurrence_count)
     VALUES(${ctx.principal.companyId}::uuid,${randomUUID()}::uuid,${result.checkId},${finding.key},${result.cutoff}::date,${result.checkVersion},
@@ -51,12 +51,8 @@ export async function captureControlExceptions(ctx:ControlTx,input:unknown){
  });
 }
 /** Retained read only; check ID is required so domain permissions precede all returned evidence. */
-export async function listControlExceptions(ctx:ControlTx,input:{checkId:string;status?:string;cursor?:string;limit?:number}){
- assertControlTx(ctx);
- if(!input||Object.keys(input).some(k=>!['checkId','status','cursor','limit'].includes(k)))throw new Error('Invalid exception list');
- const checkId=exceptionCheckId(input.checkId),limit=input.limit??20;
- if(!Number.isSafeInteger(limit)||limit<1||limit>100||(input.cursor!==undefined&&!UUID_RE.test(input.cursor))
-  ||(input.status!==undefined&&!['open','fixed','accepted_risk'].includes(input.status)))throw new Error('Invalid exception list');
+export async function listControlExceptions(ctx:ControlTx,value:unknown){
+ assertControlTx(ctx);const input=parseExceptionList(value),{checkId,limit}=input;
  await assertExceptionReadPermission(ctx,checkId);
  const rows=await ctx.sql`SELECT * FROM control_exceptions WHERE company_id=${ctx.principal.companyId}::uuid AND check_id=${checkId}
   AND (${input.status??null}::text IS NULL OR status=${input.status??null})
@@ -69,8 +65,9 @@ async function transition(ctx:ControlTx,id:string,version:number){
  if(row.status==='fixed')throw new Error('Exception already fixed');return row;
 }
 export async function assignControlException(ctx:ControlTx,input:unknown){
+ const parsed=parseExceptionAssignment(input);
  return mutation(ctx,async()=>{
-  const parsed=parseExceptionAssignment(input),row=await transition(ctx,parsed.exceptionId,parsed.expectedVersion);
+  const row=await transition(ctx,parsed.exceptionId,parsed.expectedVersion);
   const members=await ctx.sql`SELECT user_id FROM public.control_exception_owner(${ctx.principal.companyId}::uuid,${parsed.ownerPersonId}::text)`;
   if(members.length!==1)throw new Error('Exception owner unavailable');
   const rows=await ctx.sql`UPDATE control_exceptions SET owner_person_id=${parsed.ownerPersonId},due_at=${parsed.dueAt}::timestamptz,
@@ -88,8 +85,9 @@ async function recheck(ctx:ControlTx,row:ExceptionRow):Promise<ControlCheckResul
   cutoff:row.cutoff===null?null:new Date(row.cutoff).toISOString().slice(0,10),sourceVersions:[]};}
 }
 export async function resolveControlException(ctx:ControlTx,input:unknown){
+ const parsed=parseExceptionResolution(input);
  return mutation(ctx,async()=>{
-  const parsed=parseExceptionResolution(input),row=await transition(ctx,parsed.exceptionId,parsed.expectedVersion),p=ctx.principal;
+  const row=await transition(ctx,parsed.exceptionId,parsed.expectedVersion),p=ctx.principal;
   if(row.severity==='high'&&(p.authMethod!=='cookie'||p.provenance!=='human'||p.personId===row.reporter_person_id||p.personId===row.owner_person_id))throw new Error('Independent permitted human reviewer required');
   const result=parsed.resolution==='fixed'?await recheck(ctx,row):null;
   const outcome=result&&!canFixException(result,row.check_id,row.check_version)?'recheck_blocked':parsed.resolution;
