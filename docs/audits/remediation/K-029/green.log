@@ -273,3 +273,31 @@ removed still failed one of them.
 === lint / types ===
 eslint on the page, depreciationRunService.ts and writeDepreciation.ts — clean
 tsc --noEmit — clean
+
+================================================================
+Round 7 — re-review of bd2c51a3 (LOW-N)
+================================================================
+=== GREEN (round 7) ===
+  comp:       Tests  9 passed (9)
+=== R1: summary back to the Processed count (LOW-N) ===
+  comp:       Tests  1 failed | 8 passed (9)
+=== R2: tally stops using runOutcome (LOW-N, drift) ===
+  comp:       Tests  1 failed | 8 passed (9)
+=== RESTORED ===
+  comp:       Tests  9 passed (9)
+  tsc: clean
+
+Both mutations turn the component suite RED; the tree restores GREEN.
+  R1 putting `processed` back at the head of the summary
+  R2 tallying on entryId instead of through runOutcome — the drift the shared
+     helper exists to prevent
+
+=== all three suites, this commit ===
+components   Test Files 56 passed (56) / Tests  393 passed (393)
+integration  Test Files  1 passed (1)  / Tests    7 passed (7)
+full unit    Test Files 786 passed | 36 skipped / Tests 9363 passed | 234 skipped
+No failures anywhere.
+
+=== lint / types ===
+eslint on pages/accounting/depreciation/index.tsx — clean
+tsc --noEmit — clean

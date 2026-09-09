@@ -112,6 +112,25 @@ describe('depreciation page — last run results', () => {
     await waitFor(() => expect(screen.getByText(/GL Failed: 2/)).toBeInTheDocument());
   });
 
+  it('summarises by the labels it renders, not by Processed (LOW-N)', async () => {
+    await renderPage();
+    await runOnce();
+    await waitFor(() => expect(screen.getByText('A-0005')).toBeInTheDocument());
+
+    // The fixture's five rows: two posted, one no charge, two failed. Every
+    // number matches the count of that label in the list underneath it.
+    expect(screen.getByText('GL Posted: 2')).toBeInTheDocument();
+    expect(screen.getByText('No charge: 1')).toBeInTheDocument();
+    expect(screen.getByText(/GL Failed: 2/)).toBeInTheDocument();
+    expect(screen.getAllByText('GL Posted')).toHaveLength(2);
+    expect(screen.getAllByText('No charge')).toHaveLength(1);
+    expect(screen.getAllByText('GL Failed')).toHaveLength(2);
+
+    // `processed` is 2 in the fixture while three rows are listed as posted or
+    // no charge, which is exactly the mismatch that used to lead the summary.
+    expect(document.body.textContent).not.toContain('Processed:');
+  });
+
   it('renders the life-expired note so the balance is visible', async () => {
     await renderPage();
     await runOnce();
