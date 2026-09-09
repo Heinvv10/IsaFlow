@@ -169,6 +169,24 @@ function validateCreate(input: LoanCreateInput): void {
   if (input.originationFee != null && input.originationFee < 0) {
     throw new Error('originationFee must not be negative');
   }
+  assertSkipScheduleRepayable(input.skipMode, input.recurringSkipMonths);
+}
+
+/**
+ * Every calendar month skipped with EXTEND_TERM is a loan that never repays:
+ * each skipped period pushes the term out by one, so the schedule runs to the
+ * year 10000 before the engine's cap stops it.
+ */
+function assertSkipScheduleRepayable(
+  skipMode: string | null | undefined,
+  recurringSkipMonths: number[] | null | undefined,
+): void {
+  const months = new Set((recurringSkipMonths ?? []).filter((m) => m >= 1 && m <= 12));
+  if (skipMode === 'EXTEND_TERM' && months.size >= 12) {
+    throw new Error(
+      'recurringSkipMonths cannot cover all twelve months when skipMode is EXTEND_TERM — the loan would never repay',
+    );
+  }
 }
 
 function validateEventInput(input: LoanEventInput): void {
@@ -252,6 +270,13 @@ export async function updateLoan(
   input: LoanUpdateInput,
   opts?: { force?: boolean },
 ): Promise<Loan | null> {
+  // recurring_skip_months is not editable here, so only a skipMode switch can
+  // turn a stored schedule into the never-repaying one K-084 describes.
+  if (input.skipMode !== undefined) {
+    const existing = await getLoanById(companyId, loanId);
+    if (existing) assertSkipScheduleRepayable(input.skipMode, existing.recurringSkipMonths);
+  }
+
   const financialTermFields = [
     'principal', 'startDate', 'termMonths', 'rateMode', 'margin', 'fixedRate',
     'residual', 'dayCount', 'repriceMode', 'skipMode', 'lumpMode', 'currency',

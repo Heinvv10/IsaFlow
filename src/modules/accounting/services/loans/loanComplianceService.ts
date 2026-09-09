@@ -109,19 +109,16 @@ export function computeEclAmount(
 }
 
 export function computeDaysPastDue(
-  lastPaymentDate: string | null,
+  _lastPaymentDate: string | null,
   asOfDate: string,
   scheduledDate?: string | null,
 ): number {
   if (!scheduledDate) return 0;
+  // scheduledDate is the oldest instalment that is still unsettled; arrears run
+  // from that due date forward to the assessment date. Measuring the lateness of
+  // the last payment received instead answers a different question and reports 0
+  // for a borrower who has simply stopped paying.
   const scheduled = new Date(scheduledDate).getTime();
-  // If a payment arrived on or before schedule, no DPD.
-  if (lastPaymentDate) {
-    const paid = new Date(lastPaymentDate).getTime();
-    if (paid <= scheduled) return 0;
-    const diff = Math.round((paid - scheduled) / (1000 * 60 * 60 * 24));
-    return Math.max(0, diff);
-  }
   const asOf = new Date(asOfDate).getTime();
   if (asOf <= scheduled) return 0;
   return Math.max(0, Math.round((asOf - scheduled) / (1000 * 60 * 60 * 24)));
@@ -277,9 +274,15 @@ export async function assessLoan(
     ? fmtDate(lastPay[0]!.last_payment_date)
     : null;
 
-  // The next scheduled row on or after asOfDate is the earliest unpaid
-  const nextScheduled = schedule.find((r) => !r.skip && r.date >= asOfDate);
-  const scheduledDate = nextScheduled ? nextScheduled.date : null;
+  // Arrears run backwards: the reference date is the OLDEST instalment that
+  // fell due on or before asOfDate and has not been settled. An instalment
+  // counts as settled when a payment posted on or after its due date. Taking
+  // the NEXT instalment instead makes the reference date always future-dated,
+  // which forces days past due to 0 and every exposure to stage 1.
+  const oldestUnsettled = schedule.find(
+    (r) => !r.skip && r.date <= asOfDate && (lastPaymentDate == null || r.date > lastPaymentDate),
+  );
+  const scheduledDate = oldestUnsettled ? oldestUnsettled.date : null;
 
   const dpd = computeDaysPastDue(lastPaymentDate, asOfDate, scheduledDate);
   const stage = determineEclStage(dpd);
