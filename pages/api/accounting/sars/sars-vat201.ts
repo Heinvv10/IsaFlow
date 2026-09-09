@@ -11,10 +11,10 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { isValidDate } from '@/lib/validation';
-import {
-  generateVAT201,
-  saveDraftSubmission,
-} from '@/modules/accounting/services/reports/sarsService';
+import { saveDraftSubmission } from '@/modules/accounting/services/reports/sarsService';
+// The ledger-derived boxes, not the invoice-derived ones: a period's credit
+// notes and manual VAT journals are invisible to `generateVAT201` (audit K-031).
+import { getLedgerVAT201 } from '@/modules/accounting/services/reports/vat201LedgerFields';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -32,7 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      const vat201 = await generateVAT201(companyId, from, to);
+      const vat201 = await getLedgerVAT201(companyId, from, to);
       return apiResponse.success(res, vat201);
     } catch (err) {
       log.error('Failed to generate VAT201', { error: err }, 'sars-api');
@@ -51,7 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      const vat201 = await generateVAT201(companyId, periodStart, periodEnd);
+      const vat201 = await getLedgerVAT201(companyId, periodStart, periodEnd);
       const submission = await saveDraftSubmission(
         companyId,
         'VAT201',
