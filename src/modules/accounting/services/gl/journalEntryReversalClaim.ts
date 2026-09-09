@@ -72,11 +72,10 @@ function isLockTimeout(err: unknown): boolean {
  * nested that reads the request context sees real values.
  */
 export function withReversalTransaction<T>(
-  companyId: string,
-  userId: string,
+  actor: { companyId: string; userId: string },
   fn: () => Promise<T>,
 ): Promise<T> {
-  return withAlsTransaction(userId, companyId, fn);
+  return withAlsTransaction(actor, fn);
 }
 
 /**

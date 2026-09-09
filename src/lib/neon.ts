@@ -56,7 +56,7 @@ let alsBatchSeq = 0;
  * Exported for the one caller that must open its OWN transaction and bind it
  * into ALS: a service reachable both inside a request (where withAuth already
  * holds a transaction) and from a script or cron (where every statement would
- * otherwise autocommit on its own). See journalEntryReversalClaim.
+ * otherwise autocommit on its own). See `@/lib/alsTransaction`.
  */
 export function getPool(): pg.Pool {
   if (!_pool) {
@@ -392,7 +392,6 @@ export async function withTransaction<T>(
     client.release();
   }
 }
-
 
 /**
  * Run `fn` inside a SAVEPOINT on the current request-scoped transaction.
