@@ -17,9 +17,9 @@ export async function bankDimensionsFixture(){
   await f.pool.query("INSERT INTO business_units(id,company_id,code,name,is_active) VALUES($1,$2,left($1::uuid::text,20),'Synthetic bank business unit',true)",[buId,company]);
   return{cc1Id,cc2Id,buId};
  }
- async function changedJournal<T>(journalId:string,cc2Id:string,fn:()=>Promise<T>){
+ async function changedJournal<T>(journalId:string,cc2Id:string,fn:()=>Promise<T>,legacy=false){
   const client=await f.pool.connect(),user=f.fixture.u1,claims={sub:user.id,company_id:user.companyId,role:'authenticated'};
-  try{await client.query('BEGIN');await client.query('UPDATE gl_journal_lines SET cc2_id=$3 WHERE company_id=$1 AND journal_entry_id=$2 AND cc2_id IS NOT NULL',[user.companyId,journalId,cc2Id]);
+  try{await client.query('BEGIN');await client.query(legacy?'UPDATE gl_journal_lines SET cost_center_id=$3 WHERE company_id=$1 AND journal_entry_id=$2 AND cc1_id IS NOT NULL':'UPDATE gl_journal_lines SET cc2_id=$3 WHERE company_id=$1 AND journal_entry_id=$2 AND cc2_id IS NOT NULL',[user.companyId,journalId,cc2Id]);
    await client.query('SET LOCAL ROLE app_user');await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
    return await withControlRequest({client,userId:user.id,companyId:user.companyId,claims},{personId:user.id,companyId:user.companyId,authMethod:'cookie'},fn);
   }finally{await client.query('ROLLBACK');client.release();}

@@ -18,7 +18,7 @@ export async function readBankAllocationReversalJournalRelationship(ctx:ControlT
    AND reversal_of_id=${original.journal.id}::uuid AND source_record_id=${parent.entityId}::uuid
    AND source=${original.journal.source} AND entry_date=${intent.reversal_date}::date FOR SHARE`;
  if(headers.length!==1)return[];
- const lines=await ctx.sql`SELECT gl_account_id,debit::text,credit::text,vat_type,cc1_id,cc2_id,bu_id
+ const lines=await ctx.sql`SELECT gl_account_id,debit::text,credit::text,vat_type,cost_center_id,cc1_id,cc2_id,bu_id
   FROM gl_journal_lines WHERE company_id=${company}::uuid AND journal_entry_id=${journalId}::uuid ORDER BY id FOR SHARE`;
  const contra=original.sources.lines.map(line=>({...line,debit:line.credit,credit:line.debit}));
  return matchesBankAllocationJournalLines(contra,lines as Parameters<typeof matchesBankAllocationJournalLines>[1])?headers:[];

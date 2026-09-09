@@ -8,6 +8,7 @@ import {loadBankAllocationIntent} from '@/modules/accounting/services/bank/bankA
 import {reverseJournalEntry} from '@/modules/accounting/services/gl/journalEntryPostingService';
 import {materializeGlOperation} from '@/modules/accounting/services/controls/glOperationMaterializer';
 import {allocateTransaction} from '@/modules/accounting/services/bank/bankAllocationService';
+import {readBankControlState} from '@/modules/accounting/services/bank/bankControlReadService';
 let f:Awaited<ReturnType<typeof bankDimensionsFixture>>;
 beforeAll(async()=>{f=await bankDimensionsFixture();});afterAll(async()=>{if(f)await f.close();});
 async function planned(){const bankTransactionId=await f.source(),dims=await f.dimensions();return{bankTransactionId,dims,plan:{version:1,kind:'account',bankTransactionId,lines:[{accountId:f.contra,amount:'115.23',...dims}]}};}
@@ -67,6 +68,13 @@ it('actual split REST retains separate line dimensions and refuses mixed executi
  const posted=await f.request({action:'split_allocate',bankTransactionId,intent_id:p.body.data.intentId,approval_id});expect(posted.status).toBe(200);
  const rows=(await f.pool.query('SELECT cc1_id,cc2_id,bu_id FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2 AND gl_account_id=$3',[f.fixture.companyA,posted.body.data.journalEntryId,f.contra])).rows;
  expect(rows).toEqual(expect.arrayContaining([{cc1_id:a.cc1Id,cc2_id:a.cc2Id,bu_id:a.buId},{cc1_id:b.cc1Id,cc2_id:b.cc2Id,bu_id:b.buId}]));
+});
+it.each(['inverse','reader'])('cost-center-only journal tampering refuses %s original proof',async path=>{
+ const p=await planned(),intent=await f.actor(()=>prepareBankAllocation(requireControlTx(),p.plan)),approvalId=await f.approve(intent.operation);
+ const posted=await f.actor(()=>executeBankAllocation(requireControlTx(),intent.intentId,{approvalId})),other=await f.dimensions();
+ await expect(f.changedJournal(posted.journalEntryId,other.cc1Id,()=>path==='inverse'
+  ?prepareBankAllocationReversal(requireControlTx(),{originalIntentId:intent.intentId,reversalDate:'2026-09-10',reason:'Synthetic changed legacy dimension'})
+  :readBankControlState(requireControlTx(),{bankTransactionId:p.bankTransactionId}),true)).rejects.toThrow(/changed|inconsistent/i);
 });
 it('legacy party adapter preserves supplied dimensions in its actual saved plan and journal',async()=>{
  const local=f;

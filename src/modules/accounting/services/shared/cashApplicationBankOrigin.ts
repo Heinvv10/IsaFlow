@@ -35,7 +35,7 @@ export async function verifyCashBankOrigin(ctx:ControlTx,effectId:string,intentI
  if(!bank||bank.bank_account_id!==snapshot.source.bank.bank_account_id||bank.matched_journal_line_id!==snapshot.source.bank.matched_journal_line_id
   ||!new D(String(bank.amount)).eq(snapshot.source.bank.amount)||fmtDate(bank.transaction_date as string|Date)!==fmtDate(snapshot.source.bank.transaction_date)
   ||journal.source_record_id!==bank.id)throw new Error('Original bank transaction source changed');
- const lines=await ctx.sql`SELECT gl_account_id,debit::text,credit::text,vat_type,cc1_id,cc2_id,bu_id FROM gl_journal_lines
+ const lines=await ctx.sql`SELECT gl_account_id,debit::text,credit::text,vat_type,cost_center_id,cc1_id,cc2_id,bu_id FROM gl_journal_lines
   WHERE company_id=${company}::uuid AND journal_entry_id=${journal.id}::uuid ORDER BY id FOR SHARE`;
  if(!matchesBankAllocationJournalLines(snapshot.source.lines,lines as Parameters<typeof matchesBankAllocationJournalLines>[1]))throw new Error('Original bank journal lines changed');
  return{effectId,intentId,bankTransactionId:bank.id,originalLineFingerprint:createHash('sha256').update(canonicalJson(snapshot.source.lines)).digest('hex')};
