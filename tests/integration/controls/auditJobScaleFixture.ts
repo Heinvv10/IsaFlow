@@ -33,8 +33,11 @@ export async function seedAuditScale(pool:Pool,fixture:ForensicFixture,recordCou
   await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_date,entry_number,source,status,created_by) SELECT id,$2,'2026-09-09',id::text,'manual','draft',$3 FROM unnest($1::uuid[]) id",[ids,fixture.companyA,fixture.u1.id]);
   await pool.query("INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit) SELECT id,$2,CASE WHEN n<3 THEN $3::uuid ELSE $4::uuid END,CASE WHEN n<3 THEN n ELSE 0 END,CASE WHEN n=3 THEN 3 ELSE 0 END FROM unnest($1::uuid[]) id CROSS JOIN generate_series(1,3) n",[ids,fixture.companyA,debit,credit]);
  }
- const header=(await pool.query("SELECT COUNT(*)::int AS count FROM gl_journal_entries WHERE company_id=$1 AND entry_date<='2026-09-09'",[fixture.companyA])).rows[0] as {count:number};
- const line=(await pool.query("SELECT COUNT(*)::int AS count,SUM(l.debit)::text AS debit,SUM(l.credit)::text AS credit FROM gl_journal_lines l JOIN gl_journal_entries h ON h.company_id=l.company_id AND h.id=l.journal_entry_id WHERE l.company_id=$1 AND h.entry_date<='2026-09-09'",[fixture.companyA])).rows[0] as {count:number;debit:string;credit:string};
- const rows=(await pool.query("SELECT 'journal_entry' AS source,id::text FROM gl_journal_entries WHERE company_id=$1 AND entry_date<='2026-09-09' UNION ALL SELECT 'journal_line',l.id::text FROM gl_journal_lines l JOIN gl_journal_entries h ON h.company_id=l.company_id AND h.id=l.journal_entry_id WHERE l.company_id=$1 AND h.entry_date<='2026-09-09'",[fixture.companyA])).rows as Array<{source:string;id:string}>;
+ return readScaleCensus(pool,fixture.companyA);
+}
+export async function readScaleCensus(pool:Pool,companyId:string):Promise<ScaleCensus>{
+ const header=(await pool.query("SELECT COUNT(*)::int AS count FROM gl_journal_entries WHERE company_id=$1 AND entry_date<='2026-09-09'",[companyId])).rows[0] as {count:number};
+ const line=(await pool.query("SELECT COUNT(*)::int AS count,SUM(l.debit)::text AS debit,SUM(l.credit)::text AS credit FROM gl_journal_lines l JOIN gl_journal_entries h ON h.company_id=l.company_id AND h.id=l.journal_entry_id WHERE l.company_id=$1 AND h.entry_date<='2026-09-09'",[companyId])).rows[0] as {count:number;debit:string;credit:string};
+ const rows=(await pool.query("SELECT 'journal_entry' AS source,id::text FROM gl_journal_entries WHERE company_id=$1 AND entry_date<='2026-09-09' UNION ALL SELECT 'journal_line',l.id::text FROM gl_journal_lines l JOIN gl_journal_entries h ON h.company_id=l.company_id AND h.id=l.journal_entry_id WHERE l.company_id=$1 AND h.entry_date<='2026-09-09'",[companyId])).rows as Array<{source:string;id:string}>;
  return{headerCount:header.count,lineCount:line.count,debit:money(cents(line.debit)),credit:money(cents(line.credit)),identityHash:identities(rows)};
 }
