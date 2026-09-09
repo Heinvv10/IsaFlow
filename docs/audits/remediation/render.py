@@ -10,7 +10,7 @@ backlog = json.loads((ROOT / 'backlog.json').read_text())
 items = backlog['items']
 assert {item['id'] for item in items if item['id'].startswith('K-')} == {f'K-{n:03}' for n in range(1, 282)}
 assert len({item['id'] for item in items}) == len(items)
-assert {i['id'] for i in items if not i['id'].startswith('K-')} == {'R-001', 'R-002', 'R-003'}
+assert {i['id'] for i in items if not i['id'].startswith('K-')} == {'R-001', 'R-002', 'R-003', 'R-004'}
 sources = backlog['sourceInventory']
 assert len({source['id'] for source in sources}) == len(sources)
 expected_sources = {f'A C{n}' for n in range(1, 22)} | {f'A H{n}' for n in range(1, 56)} | {f'B F{n:02}' for n in range(1, 55)}
@@ -37,7 +37,7 @@ counts = ', '.join(f'{count} {status}' for status, count in Counter(i['status'] 
 <html lang="en"><meta charset="utf-8"><title>IsaFlow remediation evidence</title>
 <style>body{{font:16px system-ui;margin:2rem;max-width:1400px}}table{{border-collapse:collapse;width:100%}}td,th{{padding:.7rem;text-align:left;border-bottom:1px solid #ccc;vertical-align:top}}th{{background:#eee}}a{{color:#164d8c}}</style>
 <h1>IsaFlow remediation evidence</h1>
-<p>{escape(counts)}. Code verification and deployment are separate states; no deployment is authorized by this remediation task.</p>
+<p>{escape(counts)}. Code verification and deployment are separate states; production deployment is authorized, subject to standard gates and live verification.</p>
 <p>{escape(backlog['scopeNote'])}</p>
 <p>Baseline: <code>{escape(backlog['baselineSha'])}</code></p>
 <p><a href="backlog.json">Finding register</a> · <a href="inputs.json">Input hashes</a> · <a href="evidence/baseline-ci.log">Baseline CI output</a> · <a href="HANDOFF.md">Execution handoff</a></p>
