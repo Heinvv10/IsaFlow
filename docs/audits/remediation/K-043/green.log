@@ -84,3 +84,24 @@ The failing SET differs between runs and every failure is a 10s vitest timeout; 
   bankAllocationUnwind, cashFlowReport, bankAllocationService, approvalOperatorFailClosed,
   approverRankLadder → Test Files 5 passed (5) / Tests 28 passed (28).
 No approvals test appears in either failing set.
+
+=== Migration prefix rename 632 → 647 (2026-09-09) ===
+`632_forensic_lockdown_intents.sql` on an unmerged branch already holds that prefix; 626–644 are
+taken. Renamed with `git mv`; references updated in approvalMatching.ts (2 comments),
+approvalOperatorFailClosed.test.ts, services/gl/.claude.md + its AGENTS.md mirror, and the K-108 /
+K-109 fix.md and green.log files. The constraint NAME is unchanged.
+
+Proof, not a skip: the fixture's constraint was dropped first, then the renamed file applied twice.
+  ALTER TABLE approval_rules DROP CONSTRAINT approval_rules_condition_operator_check → DROPPED
+  psql -f scripts/migrations/sql/647_approval_rules_condition_operator_check.sql → DO
+  re-ran the same file                                                             → DO (idempotent)
+  conname=approval_rules_condition_operator_check convalidated=f
+  CHECK ((condition_operator = ANY (ARRAY['any','greater_than','greater_equal']))) NOT VALID
+
+Re-ran after the rename:
+  3 integration files → 18 passed        (k-043 ×2, k108-k109)
+  approvalOperatorFailClosed.test.ts     → 3 passed
+  bun scripts/audit-migration-naming.ts  → 339 files scanned, no new duplicate prefixes
+  bun scripts/ci/check-migration-rls.ts  → OK
+  bun run agent-docs:check               → OK, 74 mirrors match
+  bunx tsc --noEmit → 0   bunx eslint approvalMatching.ts → 0

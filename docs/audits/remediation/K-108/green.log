@@ -18,8 +18,8 @@
    Duration  1.95s (transform 332ms, setup 0ms, import 555ms, tests 63ms, environment 0ms)
 
 
---- migration 632 applied to the fixture ---
-psql -f scripts/migrations/sql/632_approval_rules_condition_operator_check.sql → DO
+--- migration 647 applied to the fixture ---
+psql -f scripts/migrations/sql/647_approval_rules_condition_operator_check.sql → DO
 conname=approval_rules_condition_operator_check  convalidated=f
 CHECK ((condition_operator = ANY (ARRAY['any','greater_than','greater_equal']))) NOT VALID
 Re-ran the same file → DO (idempotent, the DO block finds the constraint and skips).

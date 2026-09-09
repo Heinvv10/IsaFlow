@@ -6,7 +6,7 @@
  * the loop fell through to { requiresApproval: false }. A rule the UI showed as
  * "payments over R1,000" let R999,999 through with no log and no error.
  *
- * Migration 632 now constrains the column, but NOT VALID: rows written before it
+ * Migration 647 now constrains the column, but NOT VALID: rows written before it
  * can still carry an unreadable operator, so the default arm has to fail closed.
  * The constraint makes that state unreachable through the database, which is why
  * this is a unit test over a mocked driver rather than an integration one.

@@ -10,7 +10,7 @@ import type {
   ApprovalCheckResult, ApprovalRequest, ApprovalRule, ApprovalStatus, DocumentType,
 } from './approvalService';
 
-/** The only operators checkApproval can evaluate. Mirrored by the CHECK constraint in 632. */
+/** The only operators checkApproval can evaluate. Mirrored by the CHECK constraint in 647. */
 export const CONDITION_OPERATORS = ['any', 'greater_than', 'greater_equal'] as const;
 export type ConditionOperator = (typeof CONDITION_OPERATORS)[number];
 export const isConditionOperator = (value: unknown): value is ConditionOperator =>
@@ -67,7 +67,7 @@ export async function checkApproval(
         matches = amount >= r.conditionValue;
         break;
       default:
-        // A rule written before migration 632 can carry an operator this switch
+        // A rule written before migration 647 can carry an operator this switch
         // cannot evaluate. Fail closed — an unreadable rule demands approval
         // rather than silently letting the document through.
         log.warn('Approval rule has an unrecognised condition_operator; requiring approval', {
