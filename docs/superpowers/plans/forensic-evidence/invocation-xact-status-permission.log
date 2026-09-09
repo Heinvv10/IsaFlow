@@ -1,0 +1,8 @@
+BEGIN
+SET
+ pg_xact_status 
+----------------
+ in progress
+(1 row)
+
+ROLLBACK
