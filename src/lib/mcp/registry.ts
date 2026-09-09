@@ -19,6 +19,8 @@ import {
   missingSystemAccountText,
 } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { insufficientScopeMessage } from './scopeRemediation';
+import { assertCurrentToolAuthority } from './currentToolAuthority';
+import { validateToolArguments } from './inputValidation';
 
 /**
  * The SAVEPOINT name a write tool runs under.
@@ -77,7 +79,7 @@ export class McpRegistry {
     ctx: McpToolContext,
   ): Promise<McpToolResult> {
     const started = Date.now();
-    const argsHash = hashArgs(args);
+    let argsHash = hashArgs({ invalidArguments: true });
 
     const reject = async (text: string, idempotencyKey: string | null): Promise<McpToolResult> => {
       await recordToolCall({
@@ -103,6 +105,14 @@ export class McpRegistry {
         null,
       );
     }
+
+    const validated = validateToolArguments(tool, args);
+    if (!validated.ok) return reject(validated.message, null);
+    args = validated.args;
+    argsHash = hashArgs(args);
+
+    try { await assertCurrentToolAuthority(tool, ctx); }
+    catch { return reject('Current permissions do not allow this operation.', null); }
 
     // Assert-only company guard. Runs before the idempotency-key check so a
     // mismatch never burns a key, and before any handler so nothing is
@@ -253,30 +263,11 @@ export class McpRegistry {
         ctx, tool: name, argsHash, idempotencyKey: null,
         status: 'error', result: null, durationMs: Date.now() - started,
       });
-      // A BATCH tool that failed on one identifiable line is the one case where
-      // GENERIC_FAILURE is the wrong answer. "The operation failed" tells an
-      // agent holding 124 lines nothing it can act on — the pilot bisected such
-      // a batch by hand. The line index and its transaction id are the agent's
-      // OWN input, so naming them leaks nothing, and the message the tool built
-      // is already free of SQL and stack. Everything else about this path is
-      // unchanged: rolled back by the savepoint, refunded, audited 'error' with
-      // a NULL key so the retry is not burned.
+      // A line-specific refusal contains only safe caller-owned input.
       if (err instanceof BulkAllocationLineError) {
         return errorResult(bulkAllocationLineErrorText(name, err));
       }
-      // A chart that does not hold a required system account role is the other
-      // case GENERIC_FAILURE answers badly. "The operation failed. Please try
-      // again" invites a retry that cannot possibly succeed — the chart is the
-      // same on the second call — and names nothing to fix. Production on
-      // 2026-09-04 was missing `disposal_profit_loss` on all 13 companies, so
-      // every asset disposal on every tenant returned exactly that.
-      //
-      // Handled HERE rather than in each tool because ~40 services resolve
-      // system accounts and any of their tools can raise it; a per-tool catch
-      // would cover whichever ones someone remembered. Nothing leaks: the role
-      // name and the account codes are the company's own chart, and the message
-      // carries no SQL and no stack. Still a throw, so the savepoint has
-      // already unwound and the call is refunded and audited like any failure.
+      // Missing system-account errors are already safe and actionable.
       if (err instanceof MissingSystemAccountError) {
         return errorResult(missingSystemAccountText(name, err));
       }

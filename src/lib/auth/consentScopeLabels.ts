@@ -13,6 +13,15 @@ import type { OAuthScope } from './oauth';
 // Typed against the OAuth vocabulary: adding a scope to OAUTH_SCOPES without a
 // label here fails tsc.
 export const SCOPE_LABELS: Record<OAuthScope, string> = {
+  'read:approvals': 'Read approval requirements and request status.',
+  'write:approvals': 'Request independent approval of a specific operation. Decisions require a signed-in human.',
+  'write:beneficiaries': 'Propose banking changes for independent human verification before use.',
+  'read:access': 'Read current tenant roles and connection grants without credentials.',
+  'read:audit': 'Read protected accounting history and control findings. Sensitive payroll needs separate permission.',
+  'write:audit': 'Create evidence snapshots and audit export jobs.',
+  'write:controls': 'Assign exceptions and request resolution after a fresh control check.',
+  'read:payroll-sensitive': 'Reveal restricted payroll identity and banking evidence with current explicit permission and read:payroll.',
+
   'read:invoices': 'Read your invoices and credit notes',
   // Credit notes are named because they run the OTHER WAY to an invoice: one
   // reduces what a customer owes you, or what you owe a supplier. "Create and
