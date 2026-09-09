@@ -65,9 +65,9 @@ GoTrue-outage test asserts the admin client issued neither `BEGIN` nor `ROLLBACK
 answers JSON instead of a bare Next HTML 500 that `/accept-invite` reported as "Network error" (r3 L7).
 `/register` takes the signup-form decision from `GET /api/invitations/<token>` rather than from the
 attacker-settable `?signup=1` flag (r3 L3). `pages/api/invite/[token].ts` logs the invitation id, not the
-raw token (r3 L6). The three migrations are renumbered (660, 648, 661) and the whole-row `companies` grant
-is deleted from 660 outright, so no re-apply of any of them can re-open it (r3 M2/M3). The
-`ALTER FUNCTION … OWNER TO migration_admin` in 661 is unconditional (r3 M1). One finding is disputed: r3 L2
+raw token (r3 L6). The three migrations are renumbered (662, 648, 663) and the whole-row `companies` grant
+is deleted from 662 outright, so no re-apply of any of them can re-open it (r3 M2/M3). The
+`ALTER FUNCTION … OWNER TO migration_admin` in 663 is unconditional (r3 M1). One finding is disputed: r3 L2
 asked for `email_confirmed_at` to count as "established", but `POST /api/invitations` creates every invitee
 with `email_confirm: true`, so that test is true for every brand-new invitee and would refuse all of them —
 evidence and the residual are in `docs/audits/remediation/R-030/fix.md`.

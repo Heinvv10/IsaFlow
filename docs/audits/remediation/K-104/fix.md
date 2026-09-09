@@ -15,7 +15,9 @@ digest. The mailed link still carries the raw token; the table only ever holds i
 
 **Files.** `src/lib/auth/inviteToken.ts` (new), `pages/api/invitations/index.ts`,
 `pages/api/invitations/[token]/index.ts`, `pages/api/invitations/[token]/accept.ts`,
-`src/lib/auth/withInviteToken.ts`, `scripts/migrations/sql/643_invite_token_encoding_and_companies_read.sql`.
+`src/lib/auth/withInviteToken.ts`, `scripts/migrations/sql/662_invite_token_encoding_retire_stale.sql`
+(renamed from `643_invite_token_encoding_and_companies_read.sql`; see round-3 M2/M3 in
+`docs/audits/remediation/R-030/fix.md`).
 
 **Tests.** `tests/integration/k104-k105-invitation-token-encoding.int.test.ts` — 4 tests, real PostgreSQL.
 The K-104 test invites the SAME address through both systems onto the same row and asserts the digest is
@@ -24,7 +26,7 @@ cases: expired token, accepted token, unknown token, cross-tenant company read. 
 (k-041, k-042, k104-k105, k106) 15 passed. Mutation: storing the raw token again fails the K-104 test;
 setting the GUC to the raw token fails 5 tests across 2 files (green.log M1, M2).
 
-**Migration / rollback.** `643_invite_token_encoding_and_companies_read.sql` expires the outstanding
+**Migration / rollback.** `662_invite_token_encoding_retire_stale.sql` expires the outstanding
 invitations that still hold a raw token (`gotrue_user_id IS NOT NULL AND accepted_at IS NULL AND expires_at >
 now()`) — they can never match again, so they are retired with an `email_error` telling the operator to
 resend. Deliberately cross-tenant: it retires a platform-wide encoding change, not one company's data.

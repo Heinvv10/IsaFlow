@@ -1,6 +1,8 @@
--- 660: retire the invitations whose raw tokens no longer match anything.
+-- 662: retire the invitations whose raw tokens no longer match anything.
 --
--- Renumbered from 643. Two reasons, both from the round-3 review:
+-- Renumbered from 643, then from 660 (K-110 committed
+-- 660_cost_centre_parent_delete_restrict.sql first). Two reasons for the first
+-- renumber, both from the round-3 review:
 --
 --  * prefix 643 is taken by 643_control_exception_workflow.sql on another
 --    unmerged branch, and the repo rule is one file per prefix;
@@ -34,14 +36,16 @@ UPDATE public.company_invitations
 SET expires_at = now(),
     email_error = CASE
       WHEN email_error IS NULL OR email_error = ''
-        THEN 'Invitation link retired by migration 660 (token encoding change) — please resend'
-      ELSE email_error || ' | Invitation link retired by migration 660 (token encoding change) — please resend'
+        THEN 'Invitation link retired by migration 662 (token encoding change) — please resend'
+      ELSE email_error || ' | Invitation link retired by migration 662 (token encoding change) — please resend'
     END
 WHERE gotrue_user_id IS NOT NULL
   AND accepted_at IS NULL
   AND expires_at > now()
-  -- Idempotent: a re-apply must not append a second copy of the note. Matches
-  -- the 643 wording too, for databases that ran this file under its old number.
+  -- Idempotent: a re-apply must not append a second copy of the note. Every
+  -- wording this file has ever written is excluded, not just the current one --
+  -- a database that ran it under 643 or 660 carries that number in the note.
   AND (email_error IS NULL
-       OR email_error NOT LIKE '%retired by migration 660%'
+       OR email_error NOT LIKE '%retired by migration 662%'
+       AND email_error NOT LIKE '%retired by migration 660%'
        AND email_error NOT LIKE '%retired by migration 643%');

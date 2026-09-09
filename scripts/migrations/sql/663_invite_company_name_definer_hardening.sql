@@ -1,6 +1,7 @@
--- 661: harden the SECURITY DEFINER function migration 648 added.
+-- 663: harden the SECURITY DEFINER function migration 648 added.
 -- (Renumbered from 655 so the owner fix below could be corrected without a
---  checksum conflict on databases that already ran it under the old number.)
+--  checksum conflict on databases that already ran it under the old number,
+--  then from 661, which is reserved for a K-140 follow-up.)
 --
 -- Two defects in 648, neither of them a live hole on this schema, both of them
 -- the kind that only stays safe by accident:
