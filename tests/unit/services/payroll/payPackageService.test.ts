@@ -4,6 +4,12 @@ const sqlCalls: Array<{ sql: string; values: unknown[]; viaTx?: boolean }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
+const warnSpy = vi.fn();
+vi.mock('@/lib/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/logger')>();
+  return { ...actual, log: { ...actual.log, info: () => {}, warn: (...args: unknown[]) => warnSpy(...args) } };
+});
+
 vi.mock('@/lib/neon', () => ({
   // withTransaction replaces the raw BEGIN/COMMIT the services used to emit.
   //
@@ -42,6 +48,7 @@ const USER_ID = 'user-1';
 
 beforeEach(() => {
   sqlCalls.length = 0;
+  warnSpy.mockClear();
   mockImpl = () => Promise.resolve([]);
 });
 
@@ -143,6 +150,82 @@ describe('applyPackageToEmployee', () => {
     const writes = sqlCalls.filter(c => /INSERT INTO (pay_package_components|payroll_employee_components)|DELETE FROM pay_package_components|UPDATE payroll_employee_components/.test(c.sql));
     expect(writes.length).toBeGreaterThan(0);
     expect(writes.every(c => c.viaTx === true)).toBe(true);
+  });
+
+  it('closes a once-off package row at the end of effectiveFrom month, leaves a recurring one open', async () => {
+    // The payroll reader (getEmployeeComponents) filters on the date window and
+    // ignores is_recurring, so an open-ended once-off row is paid every month.
+    mockImpl = (strings) => {
+      const q = strings.join('?');
+      if (q.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMP_ID }]);
+      if (q.includes('FROM pay_packages')) return Promise.resolve([{ id: PKG_ID }]);
+      if (q.includes('FROM pay_package_components')) {
+        return Promise.resolve([
+          { component_id: COMP_A, amount: '10000', is_recurring: true },
+          { component_id: COMP_B, amount: '5000', is_recurring: false },
+        ]);
+      }
+      return Promise.resolve([]);
+    };
+    await applyPackageToEmployee(COMPANY_ID, PKG_ID, EMP_ID, '2026-05-01', USER_ID);
+    const inserts = sqlCalls.filter(c => c.sql.includes('INSERT INTO payroll_employee_components'));
+    expect(inserts).toHaveLength(2);
+    expect(inserts[0]!.sql).toContain('effective_to');
+    expect(inserts[0]!.values).toContain(null);          // recurring stays open-ended
+    expect(inserts[1]!.values).toContain('2026-05-31');  // once-off closes at month end
+    // The supersede must reach the already-closed once-off row too, or a second
+    // apply in the same month leaves two overlapping windows and pays it twice.
+    const supersedes = sqlCalls.filter(c => c.sql.includes('UPDATE payroll_employee_components'));
+    expect(supersedes).toHaveLength(2);
+    for (const call of supersedes) {
+      expect(call.sql).toContain('effective_to IS NULL OR effective_to >=');
+    }
+  });
+
+  it('warns, naming the rows, when the apply cancels an assignment it fully overlaps', async () => {
+    // A row starting on or after effectiveFrom is not shortened, it is voided:
+    // the new effective_to lands before its effective_from. Intended, but a
+    // future-dated assignment vanishing from a period nobody is looking at yet
+    // must not be silent.
+    mockImpl = (strings) => {
+      const q = strings.join('?');
+      if (q.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMP_ID }]);
+      if (q.includes('FROM pay_packages')) return Promise.resolve([{ id: PKG_ID }]);
+      if (q.includes('FROM pay_package_components')) {
+        return Promise.resolve([{ component_id: COMP_A, amount: '10000', is_recurring: true }]);
+      }
+      if (q.includes('UPDATE payroll_employee_components')) {
+        return Promise.resolve([
+          { id: 'shortened', effective_from: '2026-01-01' },  // starts before → shortened
+          { id: 'cancelled', effective_from: '2026-06-01' },  // starts after  → voided
+        ]);
+      }
+      return Promise.resolve([]);
+    };
+
+    await applyPackageToEmployee(COMPANY_ID, PKG_ID, EMP_ID, '2026-05-01', USER_ID);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const [, data] = warnSpy.mock.calls[0]! as [string, { cancelled: Array<{ id: string }> }];
+    expect(data.cancelled.map(c => c.id)).toEqual(['cancelled']);
+  });
+
+  it('does not warn when every superseded row is merely shortened', async () => {
+    mockImpl = (strings) => {
+      const q = strings.join('?');
+      if (q.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMP_ID }]);
+      if (q.includes('FROM pay_packages')) return Promise.resolve([{ id: PKG_ID }]);
+      if (q.includes('FROM pay_package_components')) {
+        return Promise.resolve([{ component_id: COMP_A, amount: '10000', is_recurring: true }]);
+      }
+      if (q.includes('UPDATE payroll_employee_components')) {
+        return Promise.resolve([{ id: 'shortened', effective_from: '2026-01-01' }]);
+      }
+      return Promise.resolve([]);
+    };
+
+    await applyPackageToEmployee(COMPANY_ID, PKG_ID, EMP_ID, '2026-05-01', USER_ID);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('propagates a failure so the surrounding transaction unwinds', async () => {

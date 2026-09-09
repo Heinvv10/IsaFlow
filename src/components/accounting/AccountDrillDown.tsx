@@ -41,6 +41,7 @@ interface AccountDrillDownProps {
   accountCode: string;
   periodStart: string;
   periodEnd: string;
+  costCentreId?: string;
   /** Render inside a <table> (uses <tr>/<td>) vs standalone (uses <div>) */
   asTableRow?: boolean;
   /** Column span when rendered as table row */
@@ -51,6 +52,7 @@ export function AccountDrillDown({
   accountCode,
   periodStart,
   periodEnd,
+  costCentreId,
   asTableRow,
   colSpan = 5,
 }: AccountDrillDownProps) {
@@ -69,6 +71,8 @@ export function AccountDrillDown({
       period_end: periodEnd,
     });
 
+    if (costCentreId) params.set('cost_centre_id', costCentreId);
+
     apiFetch(`/api/accounting/reports-account-transactions?${params}`)
       .then(r => r.json())
       .then(json => {
@@ -84,7 +88,7 @@ export function AccountDrillDown({
       });
 
     return () => { cancelled = true; };
-  }, [accountCode, periodStart, periodEnd]);
+  }, [accountCode, periodStart, periodEnd, costCentreId]);
 
   const content = (
     <div className="bg-[var(--ff-bg-primary)] border-t border-[var(--ff-border-light)]">
