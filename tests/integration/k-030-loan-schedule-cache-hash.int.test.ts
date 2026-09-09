@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { getOrComputeSchedule } from '../../src/modules/accounting/services/loans/loanScheduleService';
+import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
@@ -21,6 +22,7 @@ const touchLoanId = crypto.randomUUID();
 const residualLoanId = crypto.randomUUID();
 const revertLoanId = crypto.randomUUID();
 const tieLoanId = crypto.randomUUID();
+const lockLoanId = crypto.randomUUID();
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K-030 loan fixture']);
@@ -31,6 +33,7 @@ beforeAll(async () => {
     [residualLoanId, 'K030-RESIDUAL'],
     [revertLoanId, 'K030-REVERT'],
     [tieLoanId, 'K030-TIE'],
+    [lockLoanId, 'K030-LOCK'],
   ] as const) {
     await pool.query(
       `INSERT INTO loans(id,company_id,reference,principal,start_date,term_months,
@@ -156,4 +159,59 @@ it('stays cached when two events share a date, whatever order the rows come back
     [tieLoanId],
   );
   expect(rows[0]!.n).toBe(1);
+});
+
+it('holds the loan row against a concurrent edit until the touch commits', async () => {
+  // N1: the cache-hit touch must not promote a run built on terms the loan has
+  // since left. FOR SHARE pins the loan for the request transaction, exactly as
+  // withAuth opens it (als.run over a client with BEGIN already issued).
+  await getOrComputeSchedule(company, lockLoanId);
+
+  const reader = await pool.connect();
+  let blocked: boolean;
+  try {
+    await reader.query('BEGIN');
+    blocked = await als.run(
+      { client: reader, userId: 'k030', companyId: company, claims: {} },
+      async () => {
+        const hit = await getOrComputeSchedule(company, lockLoanId);
+        expect(hit.cached).toBe(true);
+        // Still inside the request transaction: an editor must not get in.
+        const editor = await pool.connect();
+        try {
+          await editor.query('BEGIN');
+          await editor.query('SET LOCAL lock_timeout = 1000');
+          await editor.query('UPDATE loans SET principal=999999 WHERE id=$1', [lockLoanId]);
+          return false; // the edit got through — the lock was not held
+        } catch (err) {
+          return /lock timeout|canceling statement/i.test(String(err));
+        } finally {
+          await editor.query('ROLLBACK').catch(() => undefined);
+          editor.release();
+        }
+      },
+    );
+    await reader.query('ROLLBACK');
+  } finally {
+    reader.release();
+  }
+
+  expect(blocked).toBe(true);
+});
+
+it('lets the edit through once the reading transaction has ended', async () => {
+  const editor = await pool.connect();
+  try {
+    await editor.query('BEGIN');
+    await editor.query('SET LOCAL lock_timeout = 2000');
+    await editor.query('UPDATE loans SET principal=180000 WHERE id=$1', [lockLoanId]);
+    await editor.query('COMMIT');
+  } finally {
+    editor.release();
+  }
+
+  const after = await getOrComputeSchedule(company, lockLoanId);
+  expect(after.cached).toBe(false);
+  expect(after.rows[0]!.opening).toBeCloseTo(180000, 2);
+  expect(await latestRunId(lockLoanId)).toBe(after.runId);
 });

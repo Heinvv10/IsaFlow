@@ -50,3 +50,30 @@ introduced here.
 bun run lint: 0 errors, 11 warnings, exit 0.
 bunx tsc --noEmit: clean.
 bun run agent-docs:check: OK, 74 mirrors match.
+
+=== Round 3 (N1 lock + N2 fixture/name) ===
+GREEN:
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+ Test Files  2 passed (2)
+      Tests  18 passed (18)
+
+=== Mutation D: FOR SHARE removed from the loan read (N1) ===
+   × holds the loan row against a concurrent edit until the touch commits 251ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 7 passed (8)
+
+Production file restored after the mutation.
+
+Round 3 gates:
+  bunx tsc --noEmit           clean
+  bunx eslint (both src files) clean, 0 warnings
+  bun run agent-docs:check    OK, 74 mirrors match
+  loanScheduleService.ts      244 lines; loanScheduleInputs.ts 82 lines (both under the cap)
+
+Full tests/unit/services/ (no DATABASE_URL): 3 failed | 4371 passed | 101 skipped.
+The three are cashFlowReport (x2) and bank/bankAllocationUnwind — the same
+pre-existing nondeterministic set seen before this change, all passing in isolation,
+none of them touched here. NOTE: running that suite with DATABASE_URL pointing at the
+schema-only fixture instead adds 6 unrelated failures in
+reports/incomeStatementDisclosureDb.test.ts, which expects a populated ledger.
