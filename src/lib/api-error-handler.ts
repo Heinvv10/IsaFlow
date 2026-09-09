@@ -89,7 +89,9 @@ export function withErrorHandler(
       }
 
       await runWithRequestContext(requestId, async () => {
-      const safeUrl = redactShareToken(req.url ?? '');
+      // MCP arguments may contain arbitrary financial data and nested credentials. Invocation storage records only hashes.
+      const isMcp = (req.url ?? '').split('?')[0]?.replace(/\/$/, '') === '/api/mcp';
+      const safeUrl = isMcp ? '/api/mcp' : redactShareToken(req.url ?? '');
       try {
         // CORS — single source of truth in src/lib/cors.ts (pentest M11).
         const origin = safeCorsOrigin(req.headers.origin);
@@ -110,8 +112,8 @@ export function withErrorHandler(
           type: 'request',
           method: req.method,
           url: safeUrl,
-          query: redactTokenParams(req.query),
-          body: req.method !== 'GET' ? sanitizeBody(req.body) : undefined,
+          query: isMcp ? undefined : redactTokenParams(req.query),
+          body: !isMcp && req.method !== 'GET' ? sanitizeBody(req.body) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 
         // Execute the actual handler

@@ -136,4 +136,22 @@ it('redacts encoded token names and values before logging a WhatsApp callback', 
   expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(encoded);
   expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(TOKEN);
   expect(JSON.stringify(apiLoggerInfo.mock.calls)).toContain('[token]');
+
+
 });
+
+  it.each([false,true])('omits MCP payloads and query values from request logs (batch=%s)',async batch=>{
+    apiLoggerInfo.mockReset();
+    const secret='synthetic-financial-and-token-value';
+    const call={jsonrpc:'2.0',id:secret,method:'tools/call',params:{name:'update_supplier',arguments:{bank_account_number:secret,notes:secret,refresh_token:secret}}};
+    const body=batch?[call]:call;
+    const {req,res}=makeReqRes(`/api/mcp?memo=${secret}`,{memo:secret});
+    req.method='POST';req.body=body;
+    const received=vi.fn();
+    await withErrorHandler(async actual=>{received(actual.body);})(req,res);
+    expect(received).toHaveBeenCalledWith(body);
+    expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(secret);
+    expect(apiLoggerInfo.mock.calls[0]?.[0]).toMatchObject({url:'/api/mcp',method:'POST'});
+    expect(apiLoggerInfo.mock.calls[0]?.[0].body).toBeUndefined();
+    expect(apiLoggerInfo.mock.calls[0]?.[0].query).toBeUndefined();
+  });
