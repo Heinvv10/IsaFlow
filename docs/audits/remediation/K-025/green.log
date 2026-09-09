@@ -1,14 +1,33 @@
  Test Files  1 passed (1)
-      Tests  10 passed (10)
+      Tests  13 passed (13)
 
-Mutation check (production change reverted, tests unchanged):
-  7 of 10 tests RED — is stored closed at the end of its own batch period;
-  is NOT paid again in April 2025; and not in the following tax year either;
-  both reimbursive-travel rows (3702 and 3703) close at the period end;
-  an effective_from after the period end never produces an inverted range;
-  the second tenant is untouched...; R-006 ... skipped in its own period.
-  Production change restored afterwards.
+Unit, the three writers:
+ Test Files  3 passed (3)
+      Tests  34 passed (34)
+
+Mutation check for the review round (all three service files reset to f54247a9,
+tests unchanged) — the four integration and two unit tests added this round go RED:
+  a backdated line pays once in its own month, not every month to the period end
+  a line dated after the batch period is still paid, once, in its own month
+  a once-off package row closes at month end, a recurring one stays open
+  the once-off package amount is paid in March and never again
+  [unit] closes a once-off package row at the end of effectiveFrom month...
+  [unit] closes a once-off assignment on the true last day of the month, in any timezone
+Services restored afterwards. The first commit's own mutation evidence (7 of 10
+red with the original service reverted) is above in this file's first version.
 
 Full unit suite (DATABASE_URL unset):
- Test Files  787 passed | 36 skipped (823)
-      Tests  9335 passed | 234 skipped (9569)
+ Test Files  787 passed | 36 skipped (823)  — 0 failed
+Two earlier full-suite runs on this box showed wandering failures in
+tests/unit/services/bank/bankAllocationUnwind.test.ts and
+tests/unit/services/cashFlowReport.test.ts. Both pass in isolation, neither
+imports any file changed here, and the third full run was clean — load flakes
+from the other fixer suites running concurrently, not this change.
+
+bunx tsc --noEmit         exit 0, no output
+bunx eslint (3 src files) exit 0, no output
+bun run agent-docs:check  OK: 74 mirrors match
+
+Historical-impact SQL: new attributed query verified on the fixture DB inside a
+rolled-back transaction — 2 damaged rows / R3 000 reported as 2 rows / R3 000,
+where the previous component_id-only join reported 4 rows / R6 000.

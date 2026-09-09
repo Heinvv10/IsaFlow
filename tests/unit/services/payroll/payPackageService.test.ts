@@ -145,6 +145,29 @@ describe('applyPackageToEmployee', () => {
     expect(writes.every(c => c.viaTx === true)).toBe(true);
   });
 
+  it('closes a once-off package row at the end of effectiveFrom month, leaves a recurring one open', async () => {
+    // The payroll reader (getEmployeeComponents) filters on the date window and
+    // ignores is_recurring, so an open-ended once-off row is paid every month.
+    mockImpl = (strings) => {
+      const q = strings.join('?');
+      if (q.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMP_ID }]);
+      if (q.includes('FROM pay_packages')) return Promise.resolve([{ id: PKG_ID }]);
+      if (q.includes('FROM pay_package_components')) {
+        return Promise.resolve([
+          { component_id: COMP_A, amount: '10000', is_recurring: true },
+          { component_id: COMP_B, amount: '5000', is_recurring: false },
+        ]);
+      }
+      return Promise.resolve([]);
+    };
+    await applyPackageToEmployee(COMPANY_ID, PKG_ID, EMP_ID, '2026-05-01', USER_ID);
+    const inserts = sqlCalls.filter(c => c.sql.includes('INSERT INTO payroll_employee_components'));
+    expect(inserts).toHaveLength(2);
+    expect(inserts[0]!.sql).toContain('effective_to');
+    expect(inserts[0]!.values).toContain(null);          // recurring stays open-ended
+    expect(inserts[1]!.values).toContain('2026-05-31');  // once-off closes at month end
+  });
+
   it('propagates a failure so the surrounding transaction unwinds', async () => {
     let insertCount = 0;
     mockImpl = (strings) => {
