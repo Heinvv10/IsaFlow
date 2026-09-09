@@ -9882,6 +9882,38 @@
       "severity": "medium",
       "source": "Raised by the K-015 r2 blind reviewer while confirming HIGH 1; recorded 2026-09-09",
       "processNotes": "PR #253 swept the codebase for double-wrapped apiResponse envelopes read as json.data.<field>. Two pages were missed: pages/accounting/migration/ap-invoices.tsx:108-111 (being fixed under K-015) and pages/accounting/suppliers.tsx:82 (out of K-015's scope, still live). apiResponse.success wraps an already-wrapped payload, so json.data.<field> is always undefined and the page silently does nothing or renders empty. Same class as feedback_api_response_shape and feedback_null_fallback_hides_api_error: a ?? [] or ?? 0 fallback turns the mismatch into empty UI instead of an error. Check whether the sweep missed others."
+    },
+    {
+      "id": "R-041",
+      "claim": "",
+      "area": "ci/migrations",
+      "affectedPaths": [
+        "scripts/apply-migrations.ts",
+        "scripts/deploy.sh"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A safety mechanism relied on by migrations that modify financial data, which has never produced output.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-081"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Any prior migration warning intended for an operator was never seen.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "The migration runner discards every NOTICE and WARNING, so any migration that reports to the operator by RAISE WARNING reports to nobody",
+      "severity": "high",
+      "source": "Raised by the K-081 r3 blind reviewer; recorded 2026-09-09",
+      "processNotes": "scripts/apply-migrations.ts:121-130 runs client.query(file.content) on a pg.PoolClient and never registers a 'notice' listener, so node-postgres drops every NOTICE/WARNING the server sends. scripts/deploy.sh:146 runs exactly that path against production. Only RAISE EXCEPTION surfaces, because errors travel as errors. Found via K-081's migration 659, whose entire safety argument is that an ambiguous loan key is REFUSED and named in a WARNING for a human -- the human never sees it, and the refused loans then reclassify their full current portion at the next close, a silent GL movement. This is programme-wide, not a K-081 defect: any past or future migration that reports by RAISE WARNING or RAISE NOTICE has been reporting into a void. AUDIT every migration already applied to production for a RAISE WARNING/NOTICE whose output was assumed to have been read. K-081's fixer is adding the listener as the general fix."
     }
   ],
   "sourceInventory": [
