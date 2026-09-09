@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { buildYearEndFinancialMaterial } from './yearEndFinancialMaterial';
 import { isRealCalendarDate, UUID_RE } from '@/lib/validation';
 import { canonicalJson } from './canonical';
 import { assertControlTx } from './context';
@@ -23,8 +24,8 @@ export async function materializePeriodOperation(ctx: ControlTx, ref: OperationR
   // Company/VAT lock insertion serializes with GL's locked company read, even when no lock row exists yet.
   const exclusive = ['company_lockdown_intent', 'vat_period'].includes(ref.entityType);
   const companies = exclusive
-    ? await ctx.sql`SELECT id,lockdown_enabled,lockdown_date::text,default_currency FROM companies WHERE id=${companyId}::uuid FOR UPDATE`
-    : await ctx.sql`SELECT id,lockdown_enabled,lockdown_date::text,default_currency FROM companies WHERE id=${companyId}::uuid FOR SHARE`;
+    ? await ctx.sql`SELECT id,lockdown_enabled,lockdown_date::text,default_currency,financial_year_start FROM companies WHERE id=${companyId}::uuid FOR UPDATE`
+    : await ctx.sql`SELECT id,lockdown_enabled,lockdown_date::text,default_currency,financial_year_start FROM companies WHERE id=${companyId}::uuid FOR SHARE`;
   const company = companies[0] as Row | undefined;
   if (!company) throw new Error('Operation not found');
   let periods: Row[] = [], start: string | null = null, end: string | null = null, intent: Row | null = null;
@@ -75,7 +76,9 @@ export async function materializePeriodOperation(ctx: ControlTx, ref: OperationR
     vat = { figures: { outputTax: report.totals.outputTax, inputTax: report.totals.inputTax,
       netVat: report.totals.netVat, postedThrough: report.postedThrough }, report, existing: locks[0] ?? null };
   }
-  const parent = await observe(ctx, ref, { company, periods, journals, lines, accounts, intent, vat });
+  const closing = ref.operation === 'year.close'
+    ? await buildYearEndFinancialMaterial(ctx, ref.entityId, { company, periods, journals, lines, accounts }) : null;
+  const parent = await observe(ctx, ref, { company, periods, journals, lines, accounts, intent, vat, closing });
   const observedSources = [parent];
   for (const period of periods) if (ref.entityType !== 'fiscal_period' || period.id !== ref.entityId) {
     observedSources.push(await observe(ctx, { entityType: 'fiscal_period', entityId: String(period.id) }, { period }));
@@ -84,7 +87,7 @@ export async function materializePeriodOperation(ctx: ControlTx, ref: OperationR
   return { supplierId: '', observedSources, versionBasis: observedSources.every(row => row.tracked)
     ? 'recorded_with_current_fingerprint' : 'untracked_current_observation',
     binding: { companyId, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId,
-      entityVersion: parent.version, accountingDate: end, amount: null, currency: null, beneficiaries: [],
+      entityVersion: parent.version, accountingDate: end, amount: closing?.amount ?? null, currency: closing?.currency ?? null, beneficiaries: [],
       sourceVersions: observedSources.map(({ facts: _facts, tracked: _tracked, ...source }) => source) } };
 }
 function date(value: unknown): string {
