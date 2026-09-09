@@ -57,10 +57,12 @@ export async function materializePeriodOperation(ctx: ControlTx, ref: OperationR
     end = clock.day;
   } else throw new Error('Unsupported period operation');
   const journals = start && end ? await ctx.sql`SELECT * FROM gl_journal_entries WHERE company_id=${companyId}::uuid
-    AND entry_date>=${start}::date AND entry_date<=${end}::date ORDER BY id FOR SHARE` as Row[] : [];
+    AND entry_date>=${start}::date AND entry_date<=${end}::date ORDER BY id LIMIT 10001 FOR SHARE` as Row[] : [];
+  if (journals.length > 10000) throw new Error('Period exceeds the 10000-journal synchronous control limit');
   const ids = journals.map(row => String(row.id));
   const lines = ids.length ? await ctx.sql`SELECT * FROM gl_journal_lines WHERE company_id=${companyId}::uuid
-    AND journal_entry_id=ANY(${ids}::uuid[]) ORDER BY id FOR SHARE` as Row[] : [];
+    AND journal_entry_id=ANY(${ids}::uuid[]) ORDER BY id LIMIT 50001 FOR SHARE` as Row[] : [];
+  if (lines.length > 50000) throw new Error('Period exceeds the 50000-line synchronous control limit');
   const accountIds = [...new Set(lines.map(row => String(row.gl_account_id)))].sort();
   const accounts = accountIds.length ? await ctx.sql`SELECT id,account_code,account_name,account_type,account_subtype,is_active
     FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${accountIds}::uuid[]) ORDER BY id FOR SHARE` as Row[] : [];
