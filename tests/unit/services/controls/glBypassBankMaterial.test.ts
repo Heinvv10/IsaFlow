@@ -5,7 +5,7 @@ vi.mock('@/modules/accounting/services/controls/operationVersions', () => ({ rea
 import { materializeBankTransferOperation } from '@/modules/accounting/services/controls/bankTransferOperationMaterializer';
 import type { ControlTx, OperationRef } from '@/modules/accounting/services/controls/contracts';
 const id='11111111-1111-1111-1111-111111111111';
-const ref={entityType:'bank_transfer_intent',entityId:id,operation:'bank_transfer.post'} as unknown as OperationRef;
+const ref:OperationRef={entityType:'bank_transfer_intent',entityId:id,operation:'bank_transfer.post'};
 function context(overrides: Record<string, unknown> = {}) {
  const facts={company:{id,default_currency:'ZAR'},intent:{id,from_gl_account_id:'a',to_gl_account_id:'b',amount:'9007199254740993.01',accounting_date:'2026-09-30'},
   accounts:[{id:'a',account_subtype:'bank',is_active:true},{id:'b',account_subtype:'bank',is_active:true}],
