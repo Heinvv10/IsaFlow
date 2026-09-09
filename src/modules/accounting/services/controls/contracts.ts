@@ -63,6 +63,8 @@ export interface EvidenceRef extends EntityRef {
   evidenceId: string; version: number | null; hash: string | null;
 }
 export interface ChangeEventInput extends EntityRef {
+  /** Persisted server-derived intent ID; never copied from transport arguments. */
+  operationId?: string;
   previousVersion: number | null; newVersion: number; action: string;
   accountingDate: string | null; before: Record<string, unknown> | null;
   after: Record<string, unknown> | null; bindingHash: string | null;
