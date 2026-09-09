@@ -1,3 +1,5 @@
+import {prepareBankAllocation,executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
+import {prepareBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
 import {als} from '@/lib/als';
 import {voidPaymentDocument} from '@/modules/accounting/services/core/paymentVoidService';
 import {unwindOnePayment,unwindBankAllocationApplication} from '@/modules/accounting/services/bank/bankAllocationUnwind';
@@ -15,7 +17,6 @@ import {requireControlTx,withControlRequest} from '@/modules/accounting/services
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 import {approveCustomerInvoice} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import {seedApAccounts} from './apSyntheticAccounts';
-import {seedBankAllocationSupplier} from './bankAllocationSupplierFixture';
 import {approveSupplierInvoice} from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
 process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
@@ -32,6 +33,7 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,'Synthetic allocation September',9,2026,'2026-09-01','2026-09-30','open')",[randomUUID(),fixture.companyA]);
  for(const [id,role] of [[bank,'bank'],[randomUUID(),'receivable']])await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level) VALUES($1,$2,$3,$4,'asset',$4,'debit',true,true,3)",[id,fixture.companyA,id!.slice(0,12),role]);
  for(const [role,type] of [['default_revenue','revenue'],['vat_output','liability']]){const id=randomUUID();await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level) VALUES($1,$2,$3,$4,$5,$4,'credit',true,true,3)",[id,fixture.companyA,id.slice(0,12),role,type]);}
+ await pool.query('UPDATE gl_accounts SET is_system_account=false WHERE company_id=$1 AND id=$2',[fixture.companyA,bank]);
  await pool.query("INSERT INTO bank_accounts(company_id,account_name,gl_account_id,currency) VALUES($1,'Synthetic allocation bank',$2,'ZAR')",[fixture.companyA,bank]);
 });
 afterAll(async()=>{await pool.end();});
@@ -68,6 +70,8 @@ async function document(kind:Kind,legacy=false){
   await actor(()=>approveSupplierInvoice(fixture.companyA,invoice,fixture.u1.id));
   await pool.query("INSERT INTO supplier_payments(id,company_id,supplier_id,payment_number,payment_date,total_amount,status,created_by) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,$4,$5)",[payment,fixture.companyA,party,legacy?'processed':'approved',fixture.u1.id]);
  }
+ if(kind==='customer')await pool.query('UPDATE customer_payments SET bank_account_id=$3 WHERE company_id=$1 AND id=$2',[fixture.companyA,payment,bank]);
+ if(kind==='supplier'&&!legacy)await pool.query('INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,115)',[payment,invoice]);
  if(legacy){
   // Reproduce a pre-existing applied, journal-less legacy document, never certify its provenance.
   if(kind==='customer'){
@@ -113,6 +117,13 @@ for(const kind of ['customer','supplier'] as const){
   await expect(actor(()=>voidPaymentDocument(fixture.companyA,kind,doc.payment,fixture.u1.id))).rejects.toThrow(/approval|journal|source|controlled/i);
   expect(await state(kind,doc.payment,doc.invoice)).toEqual(before);
  });
+ it(`${kind}: revoked current authority refuses legacy void before financial mutation`,async()=>{
+  const doc=await document(kind,true),before=await state(kind,doc.payment,doc.invoice);
+  await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u1.id]);
+  try{await expect(actor(()=>voidPaymentDocument(fixture.companyA,kind,doc.payment,fixture.u1.id))).rejects.toThrow(/permission|authority|denied/i);}
+  finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u1.id]);}
+  expect(await state(kind,doc.payment,doc.invoice)).toEqual(before);
+ });
  it(`${kind}: exported raw unwind cannot erase settlement without an immutable inverse`,async()=>{
   const doc=await document(kind,true),before=await state(kind,doc.payment,doc.invoice);
   await expect(actor(()=>unwindOnePayment(fixture.companyA,kind,doc.payment))).rejects.toThrow(/approved|inverse|controlled/i);
@@ -120,6 +131,17 @@ for(const kind of ['customer','supplier'] as const){
  });
  it(`${kind}: approved non-bank void preserves independently reversed cash history and rollback`,async()=>{
   const doc=await document(kind);
+  if(kind==='supplier'){
+   const ref:OperationRef={entityType:'supplier_payment',entityId:doc.payment,operation:'supplier_payment.void'};
+   const approved=await approval(ref),before=await state(kind,doc.payment,doc.invoice),opts={approvalId:approved};
+   await expect(actor(async()=>{await voidPaymentDocument(fixture.companyA,kind,doc.payment,fixture.u1.id,opts);throw new Error('Synthetic void rollback');})).rejects.toThrow('Synthetic void rollback');
+   expect(await state(kind,doc.payment,doc.invoice)).toEqual(before);
+   const result=await actor(()=>voidPaymentDocument(fixture.companyA,kind,doc.payment,fixture.u1.id,opts));
+   expect(result).toMatchObject({paymentId:doc.payment,kind,bankTransactionId:null,invoicesReopened:1,amountUnapplied:115});
+   const after=await state(kind,doc.payment,doc.invoice);
+   expect(after.payment[0].status).toBe('cancelled');expect(after.invoice[0]).toMatchObject({status:'approved',amount_paid:'0.00'});
+   expect(after.allocations).toEqual(before.allocations);return;
+  }
   const application=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind,paymentId:doc.payment,accountingDate:'2026-09-10',applications:[{invoiceId:doc.invoice,amount:'115'}]}));
   const applyApproval=await approval(application.operation as OperationRef);
   await actor(()=>executeCashApplication(requireControlTx(),application.intentId,{approvalId:applyApproval}));
@@ -143,4 +165,18 @@ for(const kind of ['customer','supplier'] as const){
 }
 it('exported journal-wide raw unwind refuses an unapproved mutation request',async()=>{
  await expect(actor(()=>unwindBankAllocationApplication(fixture.companyA,randomUUID()))).rejects.toThrow(/approved|inverse|controlled/i);
+});
+
+it('bank-backed document delegates its exact independently approved immutable inverse',async()=>{
+ const tx=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',115,'Synthetic document-addressed bank inverse','imported')",[tx,fixture.companyA,bank]);
+ const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ const approved=await approval(prepared.operation);
+ const posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approved}));
+ const inverse=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:prepared.intentId,reversalDate:'2026-09-12',reason:'Synthetic document inverse'}));
+ const inverseApproval=await approval(inverse.operation);
+ const result=await actor(()=>voidPaymentDocument(fixture.companyA,'customer',posted.paymentId!,fixture.u1.id,{intentId:inverse.intentId,approvalId:inverseApproval,reversalDate:'2026-09-12'}));
+ expect(result).toMatchObject({paymentId:posted.paymentId,bankTransactionId:tx,journalEntryId:posted.journalEntryId,invoicesReopened:0,amountUnapplied:0});
+ expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('imported');
+ expect((await pool.query('SELECT status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].status).toBe('cancelled');
 });
