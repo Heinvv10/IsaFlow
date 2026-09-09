@@ -99,7 +99,7 @@ export async function planFromArgs(
     // leaving the key usable for the retry the message asks for. Anything else
     // rethrows: only this one condition is known to be write-free.
     if (typeof err === 'object' && err !== null
-        && (err as { code?: unknown }).code === 'RECLASS_LINE_LOCKED') {
+        && (err as { code?: unknown }).code === 'RECLASS_LINE_LOCK_TIMEOUT') {
       return toolError((err as Error).message);
     }
     throw err;

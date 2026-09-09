@@ -113,3 +113,31 @@ bunx tsc --noEmit — clean.
 bunx eslint on all six changed/added src+pages files — 0 errors, the same 5
 pre-existing unused-import warnings in creditNoteCancelService.ts.
 bun run agent-docs:check — OK: 74 mirrors match.
+
+================================================================
+Round 4 (re-review of b048bb07: LOW E/F/G)
+================================================================
+
+Unit, no fixture env:
+  tests/unit/lib/lockTimeoutSurfacing.test.ts    15 passed (was 7)
+Integration, real disposable DB:
+  Test Files 3 passed (3) | Tests 8 passed (8)
+
+Mutation — RECLASS_LINE_LOCK_TIMEOUT reverted to RECLASS_LINE_LOCKED:
+  × every typed lock-timeout error carries the _LOCK_TIMEOUT suffix > ReclassLineLockTimeoutError
+  Tests 1 failed | 14 passed (15)        Restored.
+
+Suites around the two renamed/collapsed classes, no fixture env:
+  tests/unit/services/ar + tests/unit/mcp + tests/unit/services/gl
+  Test Files 142 passed | 16 skipped (158) | Tests 1928 passed | 89 skipped
+
+Full unit suite, NO fixture env (DATABASE_URL unset), load average 145:
+  Test Files 783 passed | 2 failed | 36 skipped (821)
+  Tests      9333 passed | 2 failed | 234 skipped (9569)
+The two failures are 10s timeouts in bankAllocationUnwind.test.ts and
+cashFlowReport.test.ts. Re-run together in isolation: 2 files / 17 tests, all
+passed. Same load-induced pattern recorded in the round-2 block; the round-3 run
+at load 68 was fully green.
+
+bunx tsc --noEmit — clean.  bunx eslint on the four changed files — clean.
+bun run agent-docs:check — OK: 74 mirrors match.

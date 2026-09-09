@@ -15,6 +15,10 @@ import { safeErrorText } from '@/lib/mcp/tools/toolHelpers';
 import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 import { CreditNoteLockTimeoutError } from '@/modules/accounting/services/ar/creditNoteLock';
 import { SupplierInvoiceLockTimeoutError } from '@/modules/accounting/services/ap/supplierInvoiceLock';
+import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
+import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
+import { GlAccountLockTimeoutError } from '@/modules/accounting/services/gl/glAccountLock';
+import { ReclassLineLockTimeoutError } from '@/modules/accounting/services/gl/reclassification/lineLock';
 
 function driverError(code: string): Error {
   return Object.assign(new Error('duplicate key value violates unique constraint "uq_x"'), { code });
@@ -68,5 +72,36 @@ describe('safeErrorText — what an MCP agent is told', () => {
   it('still passes an ordinary refusal through', () => {
     expect(safeErrorText(new Error('Invoice has no outstanding balance'), 'fallback'))
       .toBe('Invoice has no outstanding balance');
+  });
+});
+
+/**
+ * The suffix is a contract, not a naming preference: `isCallerSafeError` decides
+ * on it whether a typed error's own message may be shown to a caller. A lock
+ * error that drops it silently loses its retry wording the moment its route or
+ * tool adopts one of the two filters — which is what `RECLASS_LINE_LOCKED` was
+ * one adoption away from doing. This enumerates every typed lock error in the
+ * codebase so a new one that forgets the suffix fails here instead.
+ */
+describe('every typed lock-timeout error carries the _LOCK_TIMEOUT suffix', () => {
+  const all = [
+    new CustomerInvoiceLockTimeoutError('Invoice INV-1'),
+    new CreditNoteLockTimeoutError('cn-1'),
+    new SupplierInvoiceLockTimeoutError('si-1'),
+    new BankTransactionLockTimeoutError('tx-1'),
+    new PaymentLockTimeoutError('pay-1'),
+    new GlAccountLockTimeoutError('gl-1'),
+    new ReclassLineLockTimeoutError(3),
+  ];
+
+  it.each(all.map(e => [e.name, e] as const))('%s', (_name, err) => {
+    expect(err.code.endsWith('_LOCK_TIMEOUT')).toBe(true);
+    expect(isCallerSafeError(err)).toBe(true);
+    expect(err.message).toMatch(/retry in a moment/);
+  });
+
+  it('gives each one a distinct code, so a consumer can tell them apart', () => {
+    const codes = all.map(e => e.code);
+    expect(new Set(codes).size).toBe(codes.length);
   });
 });
