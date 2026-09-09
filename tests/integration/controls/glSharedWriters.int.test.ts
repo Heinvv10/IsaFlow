@@ -193,7 +193,7 @@ it('refuses a related generated contra with a different monetary amount',async()
 
 
 it.each(['auto_invoice','auto_payment','auto_credit_note','auto_supplier_invoice','auto_supplier_payment',
- 'auto_batch_payment','auto_depreciation','auto_payroll','auto_bank_transfer','auto_bank_recon','year_end'])(
+ 'auto_batch_payment','auto_depreciation','auto_payroll','auto_bank_transfer','auto_bank_recon','year_end','auto_gl_import'])(
  'requires the domain parent for direct post and reversal of %s journals',async source=>{
   const ref=await journal();
   await pool.query('UPDATE gl_journal_entries SET source=$1 WHERE company_id=$2 AND id=$3',[source,fixture.companyA,ref.entityId]);

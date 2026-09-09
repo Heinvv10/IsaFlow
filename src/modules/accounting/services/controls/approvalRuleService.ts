@@ -68,6 +68,14 @@ export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType
       control_version: Number(policy.control_version), is_active: true, aggregate_window_days: null,
       aggregate_by: null, mandatory: true });
   }
+  if(documentType==='historical_import'){
+    const policies=await ctx.sql`SELECT id,version AS control_version,approver_role FROM control_mandatory_import_policies
+      WHERE company_id=${ctx.principal.companyId}::uuid` as {id:string;control_version:number|string;approver_role:string}[];
+    const policy=policies[0];
+    if(policies.length!==1||!policy||Number(policy.control_version)!==1||policy.approver_role!=='admin')throw new Error('Mandatory import policy is unavailable');
+    rules.push({id:policy.id,document_type:documentType,condition_field:'amount',condition_operator:'any',condition_value:'0',
+      approver_role:policy.approver_role,control_version:1,is_active:true,aggregate_window_days:null,aggregate_by:null,mandatory:true});
+  }
   if(documentType==='invoice_match_override'){
     const policies=await ctx.sql`SELECT id,version AS control_version,approver_role
       FROM control_mandatory_match_override_policies WHERE company_id=${ctx.principal.companyId}::uuid` as {id:string;control_version:number|string;approver_role:string}[];
