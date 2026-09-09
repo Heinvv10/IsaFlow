@@ -9,6 +9,7 @@ import { operationBindingHash } from '@/modules/accounting/services/controls/can
 import type { ControlTx, OperationRef } from '@/modules/accounting/services/controls/contracts';
 import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { requestOperationApproval, decideOperationApproval } from '@/modules/accounting/services/controls/approvalRequestService';
+import {registerGeneratedJournal} from '@/modules/accounting/services/controls/generatedJournalPermit';
 import { executeControlledOperation } from '@/modules/accounting/services/controls/approvalExecutionService';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
 process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
@@ -172,4 +173,20 @@ it('allows a real AP cancellation to reverse its linked legacy journal through a
   }));
   expect(result.status).toBe('posted');
   expect((await pool.query('SELECT reversal_of_id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,result.id])).rows[0].reversal_of_id).toBe(original.entityId);
+});
+
+it('refuses a related generated contra with a different monetary amount',async()=>{
+  const original=await journal();await actor('u1',()=>postJournalEntry(fixture.companyA,original.entityId,fixture.u1.id));
+  const parent={...original,operation:'journal.reverse' as const},childId=randomUUID();
+  await expect(actor('u1',ctx=>executeControlledOperation(ctx,parent,null,async permit=>{
+    await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,source,status,created_by,reversal_of_id)
+      VALUES(${childId}::uuid,${fixture.companyA}::uuid,${permit.accountingDate}::date,${period}::uuid,'manual','draft',${fixture.u1.id}::uuid,${original.entityId}::uuid)`;
+    await ctx.sql`INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit)
+      VALUES(${childId}::uuid,${fixture.companyA}::uuid,${debitAccount}::uuid,100,0),
+      (${childId}::uuid,${fixture.companyA}::uuid,${creditAccount}::uuid,0,100)`;
+    const parentControl={permit,parent};await registerGeneratedJournal(ctx,parentControl,childId,'journal.post');
+    return postJournalEntry(fixture.companyA,childId,fixture.u1.id,{parentControl});
+  }))).rejects.toThrow('amount or currency');
+  expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,childId])).rows).toHaveLength(0);
+  expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='journal.reverse'",[fixture.companyA,original.entityId])).rows).toHaveLength(0);
 });
