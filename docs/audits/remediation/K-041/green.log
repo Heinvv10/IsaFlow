@@ -1,0 +1,40 @@
+=== MUTATION 1: accept.ts restored to origin/master ===
+   × does NOT reset an already-registered account password when its invitation is accepted 38ms
+   × attaches the membership when the existing account proves ownership with its own password 56ms
+   × replaying an accepted invitation token is refused and never patches a password 17ms
+   × still sets the password for a brand-new invitee who has no users row yet 66ms
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+=== MUTATION 2: index.ts ON CONFLICT removed ===
+   × resends an existing invitation instead of raising a unique violation 59ms
+   × a re-invite at a different role rewrites the role and pushes the expiry out 16ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+=== MUTATION 3: withErrorHandler removed from index.ts ===
+   × answers an upstream failure with a JSON error envelope instead of throwing 26ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+=== RESTORED: both green ===
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+
+=== FULL UNIT SUITE (DATABASE_URL unset) ===
+$ env -u DATABASE_URL bunx vitest run
+ Test Files  5 failed | 787 passed | 36 skipped (828)
+      Tests  10 failed | 9428 passed | 234 skipped (9672)
+
+The 5 failing files are load-induced timeouts (10-20s each) on a box running
+many parallel agents, not regressions: none of them import anything this change
+touches. Re-run in isolation, all green:
+$ env -u DATABASE_URL bunx vitest run tests/unit/services/bank/bankAllocationUnwind.test.ts \
+    tests/unit/components/trackerExclusion.test.ts \
+    tests/unit/services/bank/bankAllocationDateShift.test.ts \
+    tests/unit/services/cashFlowReport.test.ts \
+    tests/unit/services/bankAllocationService.test.ts
+ Test Files  5 passed (5)
+      Tests  27 passed (27)
+
+=== GATES ===
+$ bunx tsc --noEmit                                              -> exit 0
+$ bunx eslint pages/api/invitations/index.ts \
+    'pages/api/invitations/[token]/accept.ts'                    -> exit 0
