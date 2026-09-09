@@ -1,0 +1,31 @@
+=== GREEN — real DB (fixture.env, disposable Postgres, production schema) ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+=== Unit suites touching the changed path ===
+$ bunx vitest run tests/unit/sars tests/unit/services/sarsService.test.ts \
+      tests/unit/services/vat201Degraded.test.ts tests/unit/services/vatExceptions
+ Test Files  10 passed (10)
+      Tests  118 passed | 24 skipped (142)
+
+NOT CAUSED BY THIS CHANGE: with fixture.env sourced, the 24 skipped tests run and
+tests/unit/sars/irp5-generation.test.ts fails 11 of them. It reads DB-backed SARS
+source codes (3601/3701/4102/...) which the zero-row schema fixture does not seed.
+Same failure on origin/master; nothing in that file touches VAT201.
+
+=== MUTATION CHECK ===
+Reverted one line of src/modules/accounting/services/reports/vat201LedgerFields.ts:
+  field5_outputVAT: r2(report.totals.outputTax)
+    -> field5_outputVAT: r2(invoiceDerived.field5_outputVAT)
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+      Tests  3 failed | 2 passed (5)
+AssertionError: expected 1500 to be close to 1350, received difference is 150
+Failing: "files the same output VAT the ledger-derived VAT201 reports",
+         "ignores a credit note dated outside the period",
+         "never reads another tenant into the return".
+Production line restored; suite back to 5 passed (5).
+
+=== Gates ===
+$ bunx tsc --noEmit                                              clean
+$ bunx eslint <3 changed src/pages files>                        clean

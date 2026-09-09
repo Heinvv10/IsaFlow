@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({
   getEfilingConfig: vi.fn(),
   getVatExceptions: vi.fn(),
-  generateVAT201: vi.fn(),
+  getLedgerVAT201: vi.fn(),
   authenticate: vi.fn(),
   submitVAT201: vi.fn(),
   pollStatus: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock('@/modules/accounting/services/reports/sarsEfilingConfig', () => ({
   isEfilingConfigured: () => m.getEfilingConfig() !== null,
 }));
 vi.mock('@/modules/accounting/services/reports/vatExceptionsService', () => ({ getVatExceptions: m.getVatExceptions }));
-vi.mock('@/modules/accounting/services/reports/vat201Service', () => ({ generateVAT201: m.generateVAT201 }));
+vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', () => ({ getLedgerVAT201: m.getLedgerVAT201 }));
 vi.mock('@/modules/accounting/services/reports/sarsEfilingClient', () => ({
   authenticate: m.authenticate,
   submitVAT201: m.submitVAT201,
@@ -68,7 +68,7 @@ beforeEach(() => {
     efilingCorrelationId: null, efilingLastStatus: null,
   });
   m.getVatExceptions.mockResolvedValue(cleanReport());
-  m.generateVAT201.mockResolvedValue({
+  m.getLedgerVAT201.mockResolvedValue({
     field1_standardRatedSupplies: 1000000, field5_outputVAT: 150000,
     field10_totalInputVAT: 100000, field11_vatPayableOrRefundable: 50000,
   });
