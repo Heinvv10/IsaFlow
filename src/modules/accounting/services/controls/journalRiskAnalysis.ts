@@ -30,7 +30,7 @@ export function analyseJournalRisks<T extends JournalRiskRow>(rows:readonly T[],
   const groups=new Map<string,T[]>();
   for(const row of rows){
    const actual=parts(row.actualAt),amount=new Money(row.amount);
-   if(!actual||!row.personId||!amount.isFinite()||amount.lte(0)||amount.gte(bound))continue;
+   if(!actual||!row.personId||!amount.isFinite()||amount.lte(0)||(threshold.operator==='greater_than'?amount.gt(bound):amount.gte(bound)))continue;
    const key=JSON.stringify([actual.day,row.personId,row.currency]);groups.set(key,[...(groups.get(key)??[]),row]);
   }
   for(const group of groups.values()){

@@ -23,3 +23,10 @@ it('retains a recorded amendment made during closure even after a later ordinary
   {id:'change2',action:'journal.amended',periodState:'open',periodEventId:'open2'}]};
  expect(analyseJournalRisks([changed],[])[0]?.reasons).toContain('change_after_recorded_period_close');
 });
+it('includes exact-threshold entries for a strict greater-than rule and excludes them for greater-or-equal',()=>{
+ const rows=[{...row('a'),amount:'10000'},{...row('b'),amount:'10000'}];
+ expect(analyseJournalRisks(rows,[{id:'strict',version:1,amount:'10000',operator:'greater_than'}]).map(r=>r.reasons))
+ .toEqual([['possible_threshold_split:strict:v1'],['possible_threshold_split:strict:v1']]);
+ expect(analyseJournalRisks(rows,[{id:'inclusive',version:1,amount:'10000',operator:'greater_equal'}])).toEqual([]);
+ expect(analyseJournalRisks([rows[0]!],[{id:'strict',version:1,amount:'10000',operator:'greater_than'}])).toEqual([]);
+});

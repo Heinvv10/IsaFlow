@@ -110,6 +110,15 @@ it('uses actual owned current journal threshold and reports a6000+6000 lead with
  expect((await actor(ctx=>checkJournalRisks(ctx,{}))).findings.find(f=>f.entities[0]?.entityId===reverse)?.entities)
  .toContainEqual({entityType:'journal_entry',entityId:first});
 });
+it('respects strict and inclusive policy boundaries for two exact-threshold journals',async()=>{
+ const policy=randomUUID();await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
+ VALUES($1,$2,'Synthetic exact threshold','journal_entry','amount','greater_than','10000','admin',true)`,[policy,fixture.companyA]);
+ await journal('10000');expect((await actor(ctx=>checkJournalRisks(ctx,{}))).findingCount).toBe(0);
+ await journal('10000');const strict=await actor(ctx=>checkJournalRisks(ctx,{}));expect(strict.findingCount).toBe(2);
+ expect(strict.amountTotals).toEqual({ZAR:'20000'});expect(strict.findings.every(f=>f.message.includes(`possible_threshold_split:${policy}:v1`))).toBe(true);
+ await pool.query("UPDATE approval_rules SET condition_operator='greater_equal' WHERE company_id=$1 AND id=$2",[fixture.companyA,policy]);
+ expect((await actor(ctx=>checkJournalRisks(ctx,{}))).findingCount).toBe(0);
+});
 it('counts121 statement discrepancies beyond20 and rejects a cursor when equal-value imported identities change',async()=>{
  await pool.query("UPDATE gl_accounts SET account_subtype='bank' WHERE company_id=$1 AND id=$2",[fixture.companyA,debit]);
  const bytes=Buffer.from('Synthetic candidate source statement'),hash=createHash('sha256').update(bytes).digest('hex');
