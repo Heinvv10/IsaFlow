@@ -1,4 +1,5 @@
-import {randomUUID,createHmac} from 'node:crypto';
+import {randomUUID} from 'node:crypto';
+import {releaseConfigurationFingerprint,releaseSourceFingerprint} from './paymentReleaseFingerprint';
 import {als} from '@/lib/als';
 import {withSavepoint} from '@/lib/neon';
 import {UUID_RE} from '@/lib/validation';
@@ -10,10 +11,6 @@ import type {ControlTx} from '../controls/contracts';
 import type {EFTPayment} from './eftService';
 import {loadPreparedBatch,loadBatchBankAccount} from './paymentBatchSource';
 import {sealReleasePayload,EFT_FORMATS,validateReleaseFileFields,type ReleaseChannel,type ReleaseBankFormat,type PaymentReleasePayload} from './paymentReleasePayload';
-export function releaseConfigurationFingerprint(companyId:string,serviceKey:string,payoutsKey:string){
- const key=process.env.CONTROL_FINGERPRINT_KEY;if(!key||key.length<32)throw new Error('Release fingerprint key unavailable');
- return createHmac('sha256',key).update(JSON.stringify({domain:'payment-release-provider-v1',companyId,serviceKey,payoutsKey})).digest('hex');
-}
 function releaseAccountType(value:string):EFTPayment['beneficiaryAccountType']{
  if(value==='cheque'||value==='current')return 'current';
  if(value==='savings'||value==='transmission')return value;
@@ -36,6 +33,7 @@ export async function createPaymentReleaseIntent(ctx:ControlTx,input:{batchId:st
    if(!['current','savings'].includes(bank.bank_account_type))throw new Error('Unsupported sender bank account type');
    const id=randomUUID();
    const payload:PaymentReleasePayload={version:1,companyId:ctx.principal.companyId,intentId:id,channel:input.channel,bankFormat:input.bankFormat??null,
+    sourceFingerprint:releaseSourceFingerprint(batch.batch,batch.payments),
     providerConfigurationFingerprint:input.channel==='netcash'?releaseConfigurationFingerprint(ctx.principal.companyId,company.netcash_service_key!,company.netcash_payouts_key!):null,
     header:{companyName:company.name,bankAccountNumber:bank.bank_account_number??'',branchCode:bank.bank_branch_code??'',accountType:bank.bank_account_type as 'current'|'savings',batchReference:id.slice(0,12),actionDate:batch.batch.batch_date},
     payments:batch.payments.map(p=>({beneficiaryName:'',

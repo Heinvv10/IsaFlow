@@ -8,7 +8,9 @@ import {withControlRequest,requireControlTx} from '@/modules/accounting/services
 import {finalizeRequestTransaction} from '@/lib/auth/transactionFinalization';
 import {voidSupplierPayment} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import {seedReleaseSupplier} from './paymentReleaseFixture';
+import {approveSupplierInvoice,cancelSupplierInvoice} from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import {createBatch,approveBatch,processBatch} from '@/modules/accounting/services/ap/batchPaymentService';
+import {loadPaymentReleaseIntent} from '@/modules/accounting/services/ap/paymentReleaseMaterializer';
 import {createPaymentReleaseIntent,enqueuePaymentRelease} from '@/modules/accounting/services/ap/paymentReleaseService';
 import {schedulePaymentReleaseDispatch,closePaymentReleasePool} from '@/modules/accounting/services/ap/paymentReleaseDispatcher';
 import {getReleasedEftFile} from '@/modules/accounting/services/ap/paymentReleaseFile';
@@ -77,18 +79,21 @@ it('posts one aggregate journal and consumes independent release approval into i
  expect(attempts.rowCount).toBe(1);
 });
 
-async function postedBatch(){
+async function postedBatch(process=true,amount=115){
  const supplier=await seedReleaseSupplier(pool,fixture,(person,fn)=>actor(fn,person));
  const invoice=randomUUID();
  await pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,tax_rate,tax_amount,total_amount,currency,status,created_by)
- VALUES($1,$2,$3,$4,'2026-09-09',100,15,15,115,'ZAR','approved',$5)`,[invoice,fixture.companyA,supplier.supplier,invoice,fixture.u1.id]);
+ VALUES($1,$2,$3,$4,'2026-09-09',100,15,15,115,'ZAR','draft',$5)`,[invoice,fixture.companyA,supplier.supplier,invoice,fixture.u1.id]);
+ await pool.query(`INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,tax_rate,tax_amount,gl_account_id)
+ VALUES($1,'Synthetic release expense',1,100,100,15,15,$2)`,[invoice,accounts.default_expense]);
+ await actor(()=>approveSupplierInvoice(fixture.companyA,invoice,fixture.u1.id));
  await pool.query(`UPDATE gl_accounts SET bank_account_number='00123456789',bank_branch_code='001234',bank_account_type='current'
  WHERE company_id=$1 AND id=$2`,[fixture.companyA,accounts.bank]);
  const batch=await actor(()=>createBatch(fixture.companyA,{batchDate:'2026-09-09',paymentMethod:'eft',bankAccountId:accounts.bank,
- payments:[{supplierId:supplier.supplier,invoiceAllocations:[{invoiceId:invoice,amount:115}]}]},fixture.u1.id));
+ payments:[{supplierId:supplier.supplier,invoiceAllocations:[{invoiceId:invoice,amount}]}]},fixture.u1.id));
  await actor(()=>approveBatch(fixture.companyA,batch.id,fixture.u1.id));
- await actor(()=>processBatch(fixture.companyA,batch.id,fixture.u1.id));
- return{supplier,batch};
+ if(process)await actor(()=>processBatch(fixture.companyA,batch.id,fixture.u1.id));
+ return{supplier,batch,invoice};
 }
 
 it.each(['unknown','accepted'] as const)('commits attempting before fake Netcash transport and never retransmits %s outcome',async expected=>{
@@ -140,4 +145,47 @@ it('rechecks revoked approver authority before taking a queued dispatch claim',a
   const row=await pool.query('SELECT state,attempt_id FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
   expect(row.rows[0]).toEqual({state:'ready',attempt_id:null});
  }finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);}
+});
+
+it.each(['cancel','other settlement'] as const)('refuses release after source %s despite an earlier independent approval',async change=>{
+ const {batch,invoice,supplier}=await postedBatch(false,60);
+ const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ const approval=await actor(ctx=>requestOperationApproval(ctx,{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch'}));
+ await actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');
+ if(change==='cancel')await actor(()=>cancelSupplierInvoice(fixture.companyA,invoice,fixture.u1.id));
+ else{
+  const other=await actor(()=>createBatch(fixture.companyA,{batchDate:'2026-09-09',paymentMethod:'eft',bankAccountId:accounts.bank,
+   payments:[{supplierId:supplier.supplier,invoiceAllocations:[{invoiceId:invoice,amount:55}]}]},fixture.u1.id));
+  await actor(()=>approveBatch(fixture.companyA,other.id,fixture.u1.id));
+  await actor(()=>processBatch(fixture.companyA,other.id,fixture.u1.id));
+ }
+ await expect(actor(ctx=>enqueuePaymentRelease(ctx,intent.intentId,approval.id))).rejects.toThrow();
+ const reservations=await pool.query('SELECT payment_id FROM control_payment_release_reservations WHERE company_id=$1 AND intent_id=$2',[fixture.companyA,intent.intentId]);
+ expect(reservations.rowCount).toBe(0);
+});
+it('preserves payment preparation through its own settlement but requires a new release intent',async()=>{
+ const {batch}=await postedBatch(false);
+ const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ const approval=await actor(ctx=>requestOperationApproval(ctx,{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch'}));
+ await actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');
+ await actor(()=>processBatch(fixture.companyA,batch.id,fixture.u1.id));
+ await expect(actor(ctx=>enqueuePaymentRelease(ctx,intent.intentId,approval.id))).rejects.toThrow('sources changed');
+ const current=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ expect(current.intentId).not.toBe(intent.intentId);
+});
+
+it('direct source materialization refuses a cancelled invoice without central release dispatch',async()=>{
+ const {batch,invoice}=await postedBatch(false);
+ const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ await actor(ctx=>loadPaymentReleaseIntent(ctx,intent.intentId));
+ await actor(()=>cancelSupplierInvoice(fixture.companyA,invoice,fixture.u1.id));
+ await expect(actor(ctx=>loadPaymentReleaseIntent(ctx,intent.intentId))).rejects.toThrow();
+});
+it('direct materialization binds later committed invoice changes without central dispatch',async()=>{
+ const {batch,invoice}=await postedBatch(false);
+ const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ await actor(ctx=>loadPaymentReleaseIntent(ctx,intent.intentId));
+ // Synthetic writer observation: actual committed row change, no external financial transaction.
+ await pool.query('UPDATE supplier_invoices SET amount_paid=1 WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice]);
+ await expect(actor(ctx=>loadPaymentReleaseIntent(ctx,intent.intentId))).rejects.toThrow();
 });

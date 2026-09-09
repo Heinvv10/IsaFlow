@@ -38,7 +38,7 @@ export async function executePaymentBatchEffect(batchId:string,permit:Controlled
   const [after]=await ctx.sql`UPDATE supplier_invoices SET amount_paid=amount_paid+${allocation.amount}::numeric,
    status=CASE WHEN total_amount-amount_paid-${allocation.amount}::numeric<=0.01 THEN 'paid' ELSE 'partially_paid' END
    WHERE company_id=${company}::uuid AND id=${allocation.invoiceId}::uuid RETURNING *` as Record<string,unknown>[];
-  if(!after)throw new Error('Batch invoice disappeared');await recordBatchEntity(ctx,'supplier_invoice',before,after,'payment_applied');
+  if(!after)throw new Error('Batch invoice disappeared');await recordBatchEntity(ctx,'supplier_invoice',before,after,'payment_applied',material.batch.batch_date);
  }
  for(const payment of material.payments){
   const [before]=await ctx.sql`SELECT * FROM supplier_payments WHERE company_id=${company}::uuid AND id=${payment.payment.id}::uuid` as Record<string,unknown>[];

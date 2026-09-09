@@ -8,7 +8,7 @@ import {openReleasePayload,validateReleaseFileFields} from './paymentReleasePayl
 import {validateReleasePopulation} from './paymentReleaseValidation';
 import {observePaymentSource} from './paymentBatchMaterializer';
 import {loadBatchBankAccount} from './paymentBatchSource';
-import {releaseConfigurationFingerprint} from './paymentReleaseService';
+import {releaseConfigurationFingerprint,releaseSourceFingerprint} from './paymentReleaseFingerprint';
 export interface ReleaseIntentRow extends Record<string,unknown>{id:string;batch_id:string;channel:'netcash'|'eft';bank_format:string|null;payload_envelope:ProtectedChange;payload_hash:string;amount:string;currency:string;accounting_date:string;requester_person_id:string}
 export async function loadPaymentReleaseIntent(ctx:ControlTx,intentId:string){
  assertControlTx(ctx);
@@ -28,6 +28,7 @@ export async function loadPaymentReleaseIntent(ctx:ControlTx,intentId:string){
   FROM supplier_payment_batches WHERE company_id=${ctx.principal.companyId}::uuid AND id=${intent.batch_id}::uuid FOR UPDATE` as Array<{id:string;bank_account_id:string|null;batch_date:string;payment_count:number;total_amount:string;status:string}>;
  if(!batch||!['approved','processed'].includes(batch.status)||Number(batch.payment_count)!==items.length||batch.batch_date!==intent.accounting_date
   ||!new Decimal(batch.total_amount).eq(intent.amount))throw new Error('Release batch changed');
+ if(releaseSourceFingerprint(batch,payments)!==payload.sourceFingerprint)throw new Error('Release invoice or settlement sources changed; fresh release approval required');
  const bank=await loadBatchBankAccount(ctx,batch.bank_account_id);
  if(bank.bank_account_number!==payload.header.bankAccountNumber||bank.bank_branch_code!==payload.header.branchCode||bank.bank_account_type!==payload.header.accountType)throw new Error('Sender banking changed');
  for(let i=0;i<payments.length;i++){
