@@ -85,7 +85,7 @@ export async function listEmployeeComponentAssignments(
       pc.name AS component_name,
       pc.component_type
     FROM payroll_employee_components pec
-    JOIN payroll_components pc ON pc.id = pec.component_id
+    JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = ${companyId}::uuid
     WHERE pec.employee_id = ${employeeId}::uuid
     ORDER BY pec.effective_from DESC, pc.name
   `) as Row[];

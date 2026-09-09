@@ -123,3 +123,60 @@ it('posts an approved validated batch through its existing shared service exactl
   expect((await pool.query('SELECT status FROM payroll_batches WHERE company_id=$1 AND id=$2',[fixture.companyA,batchId])).rows[0].status).toBe('posted');
  }finally{await pool.query("UPDATE company_user_permissions SET can_write=false WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);}
 });
+it('refuses currently negative travel operands edited into an already validated batch before approval',async()=>{
+ const travel=randomUUID(),travelComponent=randomUUID();
+ await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,'Synthetic travel','3702','earning')",[travelComponent,fixture.companyA]);
+ await pool.query("INSERT INTO payroll_batches(id,company_id,batch_type,description,period_year,period_month,status,line_count,total_amount) VALUES($1,$2,'reimbursive_travel','Synthetic travel',2026,12,'validated',1,50)",[travel,fixture.companyA]);
+ await pool.query("INSERT INTO payroll_batch_lines(batch_id,employee_id,value,km,rate_per_km,taxable_portion,non_taxable_portion,effective_from) VALUES($1,$2,50,10,5,50,0,'2026-12-01')",[travel,employee]);
+ await pool.query("UPDATE company_user_permissions SET can_write=true WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);
+ try{
+  const {addBatchLines}=await import('@/modules/accounting/services/payroll/payrollBatchService');
+  await actor(()=>addBatchLines(fixture.companyA,travel,[{employeeId:employee,km:-10,ratePerKm:-5,taxablePortion:50,nonTaxablePortion:0,effectiveFrom:new Date('2026-12-01T00:00:00Z')}]));
+  expect((await pool.query('SELECT km::text,rate_per_km::text FROM payroll_batch_lines WHERE batch_id=$1',[travel])).rows[0]).toEqual({km:'-10.00',rate_per_km:'-5.0000'});
+  const {preparePayrollCompensation}=await import('@/modules/accounting/services/controls/payrollCompensationControl');
+  const {requestOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+  await expect(actor(async()=>{
+   const prepared=await preparePayrollCompensation(requireControlTx(),{version:1,source:{kind:'batch',sourceId:travel}});
+   return requestOperationApproval(requireControlTx(),prepared.operation);
+  })).rejects.toThrow(/positive travel|travel.*positive/i);
+ }finally{await pool.query("UPDATE company_user_permissions SET can_write=false WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);}
+});
+it('serializes concurrent approved compensation retries into one assignment and effect',async()=>{
+ await pool.query("UPDATE company_user_permissions SET can_write=true WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);
+ try{
+  const {preparePayrollCompensation,executePayrollCompensation}=await import('@/modules/accounting/services/controls/payrollCompensationControl');
+  const {requestOperationApproval,decideOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+  const prepared=await actor(()=>preparePayrollCompensation(requireControlTx(),{version:1,source:{kind:'manual'},actions:[{kind:'assign',employeeId:employee,componentId:component,amount:'0.00',effectiveFrom:'2029-01-01'}]}));
+  const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));
+  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+  const [first,second]=await Promise.all([actor(()=>executePayrollCompensation(requireControlTx(),prepared.intentId,{approvalId:approval.id})),actor(()=>executePayrollCompensation(requireControlTx(),prepared.intentId,{approvalId:approval.id}))]);
+  expect(second).toEqual(first);expect(first.inserted).toBe(1);
+  expect((await pool.query("SELECT count(*)::int count FROM control_operation_effects WHERE company_id=$1 AND entity_type='payroll_compensation_intent' AND entity_id=$2",[fixture.companyA,prepared.intentId])).rows[0].count).toBe(1);
+ }finally{await pool.query("UPDATE company_user_permissions SET can_write=false WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);}
+});
+it('rolls back compensation assignments, effects and child audit evidence with the outer transaction',async()=>{
+ await pool.query("UPDATE company_user_permissions SET can_write=true WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);
+ try{
+  const {preparePayrollCompensation,executePayrollCompensation}=await import('@/modules/accounting/services/controls/payrollCompensationControl');
+  const {requestOperationApproval,decideOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+  const prepared=await actor(()=>preparePayrollCompensation(requireControlTx(),{version:1,source:{kind:'manual'},actions:[{kind:'assign',employeeId:employee,componentId:component,amount:'175.00',effectiveFrom:'2029-02-01'}]}));
+  const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));
+  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+  let childId='';await expect(actor(async()=>{const result=await executePayrollCompensation(requireControlTx(),prepared.intentId,{approvalId:approval.id});childId=result.assignmentIds[0]!;throw new Error('synthetic outer rollback');})).rejects.toThrow('synthetic outer rollback');
+  expect((await pool.query('SELECT id FROM payroll_employee_components WHERE id=$1',[childId])).rows).toHaveLength(0);
+  expect((await pool.query("SELECT id FROM control_change_events WHERE company_id=$1 AND entity_type='payroll_employee_component' AND entity_id=$2",[fixture.companyA,childId])).rows).toHaveLength(0);
+  expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_type='payroll_compensation_intent' AND entity_id=$2",[fixture.companyA,prepared.intentId])).rows).toHaveLength(0);
+  expect((await actor(()=>executePayrollCompensation(requireControlTx(),prepared.intentId,{approvalId:approval.id}))).inserted).toBe(1);
+ }finally{await pool.query("UPDATE company_user_permissions SET can_write=false WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);}
+});
+it('never exposes a foreign component through an owned legacy assignment to a dual-company member',async()=>{
+ const foreign=randomUUID(),legacy=randomUUID();
+ await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin') ON CONFLICT(company_id,user_id) DO NOTHING",[fixture.companyB,fixture.u1.id]);
+ await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,'FOREIGN-PAYROLL-SECRET','3601','earning')",[foreign,fixture.companyB]);
+ await pool.query("INSERT INTO payroll_employee_components(id,employee_id,component_id,amount,effective_from,is_recurring) VALUES($1,$2,$3,10,'2026-09-01',true)",[legacy,employee,foreign]);
+ try{
+  const {listEmployeeComponentAssignments}=await import('@/modules/accounting/services/payroll/payrollEmployeeComponentService');
+  const rows=await actor(()=>listEmployeeComponentAssignments(fixture.companyA,employee));
+  expect(rows.some(row=>row.componentName==='FOREIGN-PAYROLL-SECRET')).toBe(false);
+ }finally{await pool.query('DELETE FROM payroll_employee_components WHERE id=$1',[legacy]);}
+});

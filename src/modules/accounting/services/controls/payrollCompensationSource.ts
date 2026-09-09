@@ -13,7 +13,7 @@ export async function loadPayrollCompensationSources(ctx:ControlTx,source:Payrol
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-payroll:${company}`},0))`;
  const [companyRow]=await ctx.sql`SELECT id,default_currency,lockdown_enabled,lockdown_date::text FROM companies WHERE id=${company}::uuid FOR SHARE` as CompensationRow[];
  if(!companyRow||companyRow.default_currency!=='ZAR')throw new Error('Owned ZAR payroll company required');
- const employees=await ctx.sql`SELECT id,status,is_active,start_date::text,end_date::text FROM payroll_employees WHERE company_id=${company}::uuid ORDER BY id LIMIT 10001 FOR SHARE` as CompensationRow[];
+ const employees=await ctx.sql`SELECT id,status,start_date::text,end_date::text FROM payroll_employees WHERE company_id=${company}::uuid ORDER BY id LIMIT 10001 FOR SHARE` as CompensationRow[];
  const components=await ctx.sql`SELECT id,name,sars_source_code,component_type,is_taxable,is_uif_applicable,is_sdl_applicable,is_active FROM payroll_components WHERE company_id=${company}::uuid ORDER BY id LIMIT 10001 FOR SHARE` as CompensationRow[];
  const assignments=await ctx.sql`SELECT a.id,a.employee_id,a.component_id,a.amount::text,a.effective_from::text,a.effective_to::text,a.is_recurring,a.created_at
   FROM payroll_employee_components a JOIN payroll_employees e ON e.id=a.employee_id AND e.company_id=${company}::uuid ORDER BY a.id LIMIT 10001 FOR UPDATE OF a` as CompensationRow[];

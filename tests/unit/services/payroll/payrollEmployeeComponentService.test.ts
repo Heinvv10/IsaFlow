@@ -27,90 +27,17 @@ const EMPLOYEE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const COMPONENT_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const ASSIGNMENT_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 
-describe('assignComponentToEmployee', () => {
-  it('inserts and returns the mapped row when employee is in company', async () => {
-    const employeeRow = { id: EMPLOYEE_ID };
-    const insertedRow = {
-      id: ASSIGNMENT_ID,
-      employee_id: EMPLOYEE_ID,
-      component_id: COMPONENT_ID,
-      amount: '5000.00',
-      effective_from: new Date('2025-01-01'),
-      effective_to: null,
-    };
-
-    mockImpl = (strings) => {
-      const query = strings.join('?');
-      if (query.includes('FROM payroll_employees')) {
-        return Promise.resolve([employeeRow]);
-      }
-      if (query.includes('INSERT INTO payroll_employee_components')) {
-        return Promise.resolve([insertedRow]);
-      }
-      return Promise.resolve([]);
-    };
-
-    const result = await assignComponentToEmployee(
-      COMPANY_ID,
-      EMPLOYEE_ID,
-      COMPONENT_ID,
-      5000,
-      new Date('2025-01-01'),
-    );
-
-    expect(result).toEqual({
-      id: ASSIGNMENT_ID,
-      employeeId: EMPLOYEE_ID,
-      componentId: COMPONENT_ID,
-      amount: 5000,
-      effectiveFrom: new Date('2025-01-01'),
-      effectiveTo: null,
-      isRecurring: true,
-    });
-
-    // Verify employee lookup was done
-    const lookupCall = sqlCalls.find(c => c.sql.includes('FROM payroll_employees'));
-    expect(lookupCall).toBeDefined();
-
-    // Verify insert was done
-    const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
-    expect(insertCall).toBeDefined();
-  });
-
-  it('throws when the employee lookup returns empty', async () => {
-    mockImpl = (strings) => {
-      const query = strings.join('?');
-      if (query.includes('FROM payroll_employees')) {
-        return Promise.resolve([]);
-      }
-      return Promise.resolve([]);
-    };
-
-    await expect(
-      assignComponentToEmployee(
-        COMPANY_ID,
-        EMPLOYEE_ID,
-        COMPONENT_ID,
-        5000,
-        new Date('2025-01-01'),
-      ),
-    ).rejects.toThrow(`Payroll employee ${EMPLOYEE_ID} not found in company`);
-  });
-});
-
-describe('endEmployeeComponent', () => {
-  it('issues UPDATE with the effective_to date and company-scope subquery', async () => {
-    mockImpl = () => Promise.resolve([]);
-
-    await endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, new Date('2025-12-31'));
-
-    expect(sqlCalls).toHaveLength(1);
-    const call = sqlCalls[0];
-    expect(call).toBeDefined();
-    expect(call!.sql).toContain('UPDATE payroll_employee_components');
-    expect(call!.sql).toContain('effective_to');
-    expect(call!.sql).toContain('SELECT id FROM payroll_employees');
-  });
+// Real approval, source mutation, replay and protected events are exercised in
+// tests/integration/controls/payrollCompensationControl.int.test.ts.
+describe('compensation writer admission',()=>{
+ it('refuses assignment without an issued transaction before SQL',async()=>{
+  await expect(assignComponentToEmployee(COMPANY_ID,EMPLOYEE_ID,COMPONENT_ID,5000,new Date('2025-01-01'))).rejects.toThrow(/context|transaction/i);
+  expect(sqlCalls).toHaveLength(0);
+ });
+ it('refuses closure without an issued transaction before SQL',async()=>{
+  await expect(endEmployeeComponent(COMPANY_ID,ASSIGNMENT_ID,new Date('2025-01-31'))).rejects.toThrow(/context|transaction/i);
+  expect(sqlCalls).toHaveLength(0);
+ });
 });
 
 describe('listEmployeeComponentAssignments', () => {
