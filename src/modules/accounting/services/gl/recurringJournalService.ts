@@ -7,12 +7,12 @@ import { sql, withTransaction } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { getPeriodStatusForDate } from './periodStatusService';
 import {
   RecurringJournalRequestError,
   readTemplateForUpdate,
   businessToday,
   assertTemplateLinesPostable,
+  assertPostablePeriod,
 } from './recurringJournalGuards';
 import { advanceDate } from './recurringSchedule';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../../types/gl.types';
@@ -99,22 +99,30 @@ export async function updateRecurringJournalStatus(companyId: string,
  * `createJournalEntry` / `postJournalEntry` first; that is a separate change.
  *
  * Four guards the original had none of, in this order — every one of them
- * BEFORE the first write, so a refusal leaves nothing behind for `withAuth` to
- * commit alongside the 400:
+ * before the first JOURNAL write, so a refusal leaves no half-made journal for
+ * `withAuth` to commit alongside the 400. (Guard 3 may create a fiscal year,
+ * which is a write; it is deliberate, and the ordering below is why it is the
+ * only one that can happen on a refused request.):
  *
  * 1. **Due date.** `next_run_date` was read only to compute the next one; a
  *    template scheduled for next year posted on demand.
- * 2. **Period.** `postJournalEntry` raises `ClosedFiscalPeriodError` only after
- *    `createJournalEntry` has INSERTed the draft, so the refusal used to arrive
- *    one write too late and the draft survived the 400.
- * 3. **The template's lines.** Same shape: a deactivated or deleted account, or
- *    an unbalanced template, is raised by `postJournalEntry` after the write.
+ * 2. **The template's lines.** A deactivated or deleted account, or an
+ *    unbalanced template, is raised by `postJournalEntry` after the write.
  *    Read-checked here so the operator gets the account code in a 400 rather
  *    than a 500 reading "an unexpected error occurred".
+ * 3. **Period.** `postJournalEntry` raises `ClosedFiscalPeriodError` only after
+ *    `createJournalEntry` has INSERTed the draft, so the refusal used to arrive
+ *    one write too late and the draft survived the 400. It goes LAST of the
+ *    three because it is the only one that can WRITE — it creates the fiscal
+ *    year on demand, as the posting path does — so every refusable template is
+ *    turned away before it gets there.
  * 4. **The claim.** `UPDATE ... WHERE status = 'active' AND next_run_date = <due>`
- *    is the idempotency key this table never had: exactly one caller can move a
- *    given run date off 'active', so a repeat (a double-click, a retry) finds
- *    the schedule already advanced and is refused as not due.
+ *    is defence in depth, not the mechanism: the `FOR UPDATE` above is held to
+ *    the end of the request, so a second caller blocks and then re-reads an
+ *    already-advanced `next_run_date`, and guard 1 refuses it first. No path
+ *    that exists today reaches the claim's own refusal, which is why no test
+ *    covers it. It is kept because it is what would carry a caller that ever
+ *    reached this without the lock.
  *
  * The journal is dated at `next_run_date`, not today: a run caught up a week
  * late belongs in the period it was scheduled for.
@@ -143,23 +151,10 @@ export async function generateJournalFromRecurring(companyId: string,
     );
   }
 
-  const period = await getPeriodStatusForDate(companyId, dueDate);
-  if (period === 'no_period') {
-    throw new RecurringJournalRequestError(
-      `No fiscal period covers ${dueDate}, the date this run is scheduled for. Create the fiscal `
-      + 'year first — posting outside every period would leave the journal invisible to the trial '
-      + 'balance, the VAT201 and the AFS.',
-    );
-  }
-  if (period !== 'open') {
-    throw new RecurringJournalRequestError(
-      `The fiscal period covering ${dueDate}, the date this run is scheduled for, is ${period}. `
-      + 'Re-open it before generating into it.',
-    );
-  }
-
   const lines: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines as JournalLineInput[] : JSON.parse(typeof rj.lines === 'string' ? rj.lines : '[]');
   await assertTemplateLinesPostable(companyId, lines);
+
+  await assertPostablePeriod(companyId, dueDate);
 
   const nextDate = advanceDate(dueDate, String(rj.frequency));
   const endDate = rj.end_date ? String(rj.end_date) : null;
@@ -175,6 +170,8 @@ export async function generateJournalFromRecurring(companyId: string,
       RETURNING id
     `) as DbRow[];
     if (claimed.length === 0) {
+      // Unreachable today — see guard 4 above. Kept, and worded for a person,
+      // because the alternative to defence in depth here is a double post.
       throw new RecurringJournalRequestError(
         `The ${dueDate} run of this recurring journal has already been generated.`,
       );

@@ -13,7 +13,7 @@ import { sql } from '@/lib/neon';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { inRequestTx } from './recurringJournalRequestTx.helpers';
 import { generateJournalFromRecurring } from '../../src/modules/accounting/services/gl/recurringJournalService';
-import { businessToday } from '../../src/modules/accounting/services/gl/recurringJournalGuards';
+import { businessToday, readTemplateForUpdate } from '../../src/modules/accounting/services/gl/recurringJournalGuards';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -272,6 +272,24 @@ it('a contended template answers 409, and the request transaction survives the l
   const { rows } = await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1', [company]);
   expect(rows).toHaveLength(0);
 }, 40000);
+
+it('restores lock_timeout after the template read, so later locks are not capped at 5s', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  await armTemplate(today);
+
+  await inRequestTx(pool, company, admin, async () => {
+    const before = (await sql`SELECT current_setting('lock_timeout') AS v`) as { v: string }[];
+    expect(before[0]!.v).toBe('0');
+
+    await readTemplateForUpdate(company, template);
+
+    // SET LOCAL survives RELEASE SAVEPOINT, so without the restoration every
+    // later lock in this request — postJournalEntry's own row locks included —
+    // would inherit the 5s cap and fail a slow but legitimate post.
+    const after = (await sql`SELECT current_setting('lock_timeout') AS v`) as { v: string }[];
+    expect(after[0]!.v).toBe('0');
+  });
+});
 
 it('"today" is the SAST calendar date, not the UTC one', async () => {
   const sastNow = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();

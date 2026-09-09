@@ -11,6 +11,8 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { validateJournalEntry } from '../../utils/doubleEntry';
+import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
+import { getPeriodStatusForDate } from './periodStatusService';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 
@@ -158,6 +160,49 @@ export async function assertTemplateLinesPostable(
       `This recurring journal template posts to deactivated GL account`
       + `${inactive.length === 1 ? '' : 's'}: ${inactive.sort().join(', ')}. `
       + 'Reactivate the account, or recode the template.',
+    );
+  }
+}
+
+/**
+ * Refuse a run whose fiscal period cannot take a posting — after creating the
+ * year on demand, the way the posting path already does.
+ *
+ * A plain `getPeriodStatusForDate` here would REVERSE the repo's own policy.
+ * `createJournalEntry` calls `ensureFiscalPeriodForDate`, which creates the
+ * fiscal year within the auto-create window precisely because nothing creates
+ * periods when a company is provisioned: a brand-new tenant has ZERO rows, so
+ * every date falls outside every period. Refusing `no_period` from a read alone
+ * turned a template that posted yesterday into a dead Generate button for any
+ * company whose year nobody had created by hand.
+ *
+ * So the refusal is kept only for the case where creation would NOT have
+ * happened: a year outside the window, where the entry would post with a NULL
+ * `fiscal_period_id` — invisible to the trial balance, the VAT201 and the AFS,
+ * which is the hazard the guard exists for.
+ *
+ * The one thing this does write before a possible later refusal is that fiscal
+ * year. That is deliberate: the periods are correct and needed whatever happens
+ * next, `createJournalEntry` would have created them a moment later anyway, and
+ * the guard order puts every read-only check ahead of this one so a refusable
+ * template never reaches it.
+ */
+export async function assertPostablePeriod(companyId: string, dueDate: string): Promise<void> {
+  await ensureFiscalPeriodForDate(companyId, dueDate);
+
+  const period = await getPeriodStatusForDate(companyId, dueDate);
+  if (period === 'no_period') {
+    throw new RecurringJournalRequestError(
+      `No fiscal period covers ${dueDate}, the date this run is scheduled for, and that year is `
+      + 'too far from today to be created automatically. Create the fiscal year first — posting '
+      + 'outside every period would leave the journal invisible to the trial balance, the VAT201 '
+      + 'and the AFS.',
+    );
+  }
+  if (period !== 'open') {
+    throw new RecurringJournalRequestError(
+      `The fiscal period covering ${dueDate}, the date this run is scheduled for, is ${period}. `
+      + 'Re-open it before generating into it.',
     );
   }
 }
