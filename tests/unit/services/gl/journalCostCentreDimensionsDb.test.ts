@@ -50,6 +50,9 @@ describe('journal cost-centre dimensions (Postgres)', async () => {
           const readback = await getJournalEntryById(companyId, original.id);
           expect(readback?.lines.find(line => line.debit === 137)).toMatchObject(dimensions);
           await postJournalEntry(companyId, original.id, userId);
+          // Withdrawing a picker option must not prevent correcting its history.
+          await sql`UPDATE cost_centres SET is_active = false
+            WHERE company_id = ${companyId}::UUID AND id IN (${ids[1]}::UUID, ${ids[2]}::UUID)`;
           const contra = await reverseJournalEntry(companyId, original.id, userId);
           const reversed = await getJournalEntryById(companyId, contra.id);
           expect(reversed?.lines.find(line => line.credit === 137)).toMatchObject(dimensions);
@@ -63,6 +66,24 @@ describe('journal cost-centre dimensions (Postgres)', async () => {
           `;
           expect(groups).toHaveLength(2);
           expect(groups.every(group => Number(group.net) === 0)).toBe(true);
+
+          const [other] = await sql`SELECT id FROM companies WHERE id <> ${companyId}::UUID LIMIT 1`;
+          if (!other) throw new Error('Need a second company for ownership regression');
+          const foreignId = randomUUID();
+          await sql`INSERT INTO cost_centres (id, company_id, code, name, cc_type)
+            VALUES (${foreignId}::UUID, ${String(other.id)}::UUID, ${foreignId.slice(0, 12)},
+              'Foreign dimension fixture', 'cc1')`;
+          for (const field of ['cc1Id', 'cc2Id']) {
+            for (const invalidId of [foreignId, randomUUID(), 'not-a-uuid']) {
+              await expect(createJournalEntry(companyId, {
+                entryDate: String(fixture.entry_date), fiscalPeriodId: String(fixture.period_id),
+                lines: [
+                  { glAccountId: accountId, debit: 137, credit: 0, [field]: invalidId },
+                  { glAccountId: accountId, debit: 0, credit: 137 },
+                ],
+              }, userId)).rejects.toThrow('Cost centre must belong to this company');
+            }
+          }
         });
       });
     } finally {
