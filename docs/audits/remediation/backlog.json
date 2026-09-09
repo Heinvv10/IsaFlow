@@ -10012,6 +10012,39 @@
       "severity": "high",
       "source": "Found by the K-107 r4 blind reviewer's independent census; recorded 2026-09-09",
       "processNotes": "Two defects outside K-107's named scope, found only because the reviewer was asked to run its OWN census after this branch twice fixed a site and left its twin alive. (1) quoteService.nextQuoteNumber draws the next quote number with NO company_id filter -- a multi-tenant violation on a numbering path, against the project's first rule. (2) practiceWipService.generateWipInvoice and pages/api/accounting/time-entries-invoice.ts mint customer invoices under a status read with no lock, no savepoint, and an IGNORED markEntriesBilled row count, so they double-bill -- the same check-then-act class K-107 has now fixed three times elsewhere (recurring runs, quote->invoice, sales-order->invoice). K-107's round 5 is fixing both, so this item exists to record the class and to ensure the census is repeated across every module rather than patched site by site. If K-107 cannot close the practice-module half within its scope, it stays open here."
+    },
+    {
+      "id": "R-045",
+      "claim": "",
+      "area": "accounting/ar",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/recurringInvoiceService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Same class as K-048's fixed defect, live, in the AR subledger.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-048"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-048/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unquantified.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "The AR twin of the recurring-journal guard is unfixed: recurringInvoiceService.ts:250 carries the same live defect",
+      "severity": "medium",
+      "source": "Identified by the K-048 r5 reviewer and deliberately scoped out by the K-048 fixer; recorded 2026-09-09",
+      "processNotes": "src/modules/accounting/services/ar/recurringInvoiceService.ts:250 carries the same defect K-048 fixed on the GL side. Confirmed live, not speculative. Scoped out deliberately and correctly: different module, different suite, different subledger, and the reviewer asked for it outside K-048's diff -- a cross-module edit would also have collided with the K-107 branch, which owns the recurring paths. Needs its own K-item with its own RED test and its own ledger review round. Do NOT fold it into K-048 or K-107 late; it is the third module of the same class this programme has found (GL recurring, quote/SO convert, practice WIP -- see R-044)."
     }
   ],
   "sourceInventory": [
