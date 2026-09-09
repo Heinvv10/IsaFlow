@@ -1047,7 +1047,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "d1d6211c",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1065,7 +1065,8 @@
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k027-tax-depreciation-carry-forward",
-      "reviewRounds": 4
+      "reviewRounds": 4,
+      "mergeCommit": "a9c3cc32"
     },
     {
       "id": "K-028",
