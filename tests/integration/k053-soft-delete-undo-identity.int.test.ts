@@ -6,7 +6,7 @@
  * tell a chain head this delete killed from one a user reversed on the GL
  * screen. The undo then posted a fresh journal re-instating revenue and VAT
  * output somebody had deliberately reversed. The reversal id is now recorded
- * (soft_delete_journal_reversals, migration 645) and the undo reverses that
+ * (soft_delete_journal_reversals, migration 653) and the undo reverses that
  * entry or nothing.
  *
  * Also covered here: the full cancel-strength payments guard, the refusals

@@ -1,4 +1,4 @@
--- scripts/migrations/sql/645_soft_delete_journal_reversals.sql
+-- scripts/migrations/sql/653_soft_delete_journal_reversals.sql
 -- K-053: record the GL reversal that a soft-delete posted, so the undo can put
 -- back exactly that reversal and nothing else.
 --

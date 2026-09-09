@@ -59,8 +59,8 @@ bunx tsc --noEmit                       -> clean (exit 0)
 bunx eslint <14 changed src/pages files>-> clean (exit 0)
 bun run agent-docs:check                -> OK: 74 mirrors match
 
-## Round 3 (re-review findings) — fixture DB, migration 645 applied
-$ psql "$DATABASE_URL" -f scripts/migrations/sql/645_soft_delete_journal_reversals.sql
+## Round 3 (re-review findings) — fixture DB, migration 653 applied
+$ psql "$DATABASE_URL" -f scripts/migrations/sql/653_soft_delete_journal_reversals.sql
   CREATE TABLE / CREATE INDEX / ALTER TABLE x2 / DO / COMMENT
 $ bunx tsx scripts/ci/check-migration-rls.ts
   OK: every company_id table created by a migration is under RLS.
@@ -93,3 +93,48 @@ env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
 bunx tsc --noEmit                        -> clean (exit 0)
 bunx eslint <5 changed src/pages files>  -> clean (exit 0)
 bun run agent-docs:check                 -> OK: 74 mirrors match
+
+## Round 3b — migration renamed 645 -> 653, dunning cron covered
+Prefix 645 collides with K-081's 645_loan_reclass_postings.sql on an unmerged
+branch. Renamed with git mv; every reference updated (service header, the
+undo-identity test header, core/.claude.md + regenerated mirror, fix-round3.md,
+this log's round-3 heading).
+
+$ psql "$DATABASE_URL" -c "DROP TABLE IF EXISTS soft_delete_journal_reversals;"
+    (first attempt hit a deadlock against another session on the shared fixture
+     DB; retried under SET lock_timeout='10s' and dropped on the next attempt)
+$ psql "$DATABASE_URL" -c "SELECT to_regclass('public.soft_delete_journal_reversals');"
+    -> NULL  (proves the apply below starts from nothing)
+$ psql "$DATABASE_URL" -f scripts/migrations/sql/653_soft_delete_journal_reversals.sql
+    CREATE TABLE / CREATE INDEX / ALTER TABLE x2 / DO / COMMENT
+$ psql -c "... FROM pg_class WHERE relname='soft_delete_journal_reversals'"
+    relrowsecurity = t, relforcerowsecurity = t
+
+$ bun run test:integration -- <the seven k053 files>
+  Test Files  7 passed (7)
+       Tests  28 passed (28)
+
+### Mutation check on the new cron test
+deleted_at IS NULL removed from dunningCronService -> 1 failed (1)
+  AssertionError: expected [ …(2) ] to not include '<deleted invoice id>'
+  i.e. the cron handed the soft-deleted invoice to the sender. Restored;
+  git diff on that file empty afterwards.
+
+## Migration gates
+$ bun scripts/audit-migration-naming.ts   -> Scanned 339 files. No new duplicate prefixes found.
+$ bunx tsx scripts/ci/check-migration-rls.ts -> OK: every company_id table created by a migration is under RLS.
+
+## Full unit suite (DATABASE_URL unset)
+env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+  Test Files  2 failed | 790 passed | 36 skipped (828)
+       Tests  2 failed | 9432 passed | 234 skipped (9668)
+  Failing: tests/unit/services/bank/bankAllocationUnwind.test.ts and
+  tests/unit/services/cashFlowReport.test.ts — the same two 10s-timeout flakes
+  seen in round 2 at high load. Re-run together in isolation immediately after:
+  2 passed (2), 17 tests passed. Host load average 113. Neither file imports
+  anything this change touches.
+
+## Static gates
+bunx tsc --noEmit         -> clean (exit 0)
+bunx eslint               -> clean (exit 0)
+bun run agent-docs:check  -> OK: 74 mirrors match

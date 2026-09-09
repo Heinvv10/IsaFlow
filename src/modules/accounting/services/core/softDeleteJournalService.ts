@@ -16,7 +16,7 @@
  * In the second case the undo posted a fresh journal re-instating revenue and
  * VAT output somebody had deliberately reversed, dated back into a closed VAT
  * period. So the reversal id is now RECORDED (soft_delete_journal_reversals,
- * migration 645) and the undo reverses that row's entry or nothing at all.
+ * migration 653) and the undo reverses that row's entry or nothing at all.
  *
  * The caller runs inside the request transaction and inside a SAVEPOINT — a
  * refusal here (a closed fiscal period is the realistic one) must roll the
