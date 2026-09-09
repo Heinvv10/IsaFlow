@@ -11,7 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
-import { isUuidParam } from '@/lib/validation';
+import { isUuidParam, isRealCalendarDate } from '@/lib/validation';
 
 interface Transaction {
   id: string;
@@ -39,6 +39,11 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
   const { supplier_id } = req.query;
   if (!isUuidParam(supplier_id)) return apiResponse.badRequest(res, 'supplier_id must be a valid UUID');
 
+  const asAtDate = req.query.as_at_date ?? fmtDate(new Date());
+  if (typeof asAtDate !== 'string' || !isRealCalendarDate(asAtDate)) {
+    return apiResponse.badRequest(res, 'as_at_date must be a valid calendar date');
+  }
+
   try {
     // Get supplier info
     const supplierRows = await sql`
@@ -54,6 +59,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       FROM supplier_invoices
       WHERE supplier_id = ${supplier_id} AND company_id = ${companyId}
         AND status NOT IN ('cancelled', 'draft')
+        AND invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date ASC, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
@@ -65,6 +71,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       FROM supplier_payments sp
       WHERE sp.supplier_id = ${supplier_id} AND sp.company_id = ${companyId}
         AND sp.status NOT IN ('cancelled', 'draft')
+        AND sp.payment_date <= ${asAtDate}::DATE
       ORDER BY sp.payment_date ASC, sp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
@@ -77,6 +84,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       WHERE cn.supplier_id = ${supplier_id} AND cn.company_id = ${companyId}
         AND cn.type = 'supplier'
         AND cn.status NOT IN ('cancelled', 'draft')
+        AND cn.credit_date <= ${asAtDate}::DATE
       ORDER BY cn.credit_date ASC, cn.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
@@ -101,14 +109,17 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM supplier_invoices
           WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+            AND invoice_date <= ${asAtDate}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM supplier_payments
           WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+            AND payment_date <= ${asAtDate}::DATE
         ), 0) AS total_paid,
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM credit_notes
           WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND type = 'supplier' AND status NOT IN ('cancelled', 'draft')
+            AND credit_date <= ${asAtDate}::DATE
         ), 0) AS total_returns
     ` as { total_invoiced: number; total_paid: number; total_returns: number }[];
 
@@ -184,6 +195,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
 
     return apiResponse.success(res, {
       supplier,
+      asAtDate,
       transactions,
       summary: {
         totalInvoiced,
