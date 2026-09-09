@@ -36,14 +36,8 @@ export const runDepreciationTool: McpTool = {
     + 'READ glFailed ON THE REPLY. It counts assets whose subledger row and journal were rolled back together as a unit while the rest of the run committed. A success with glFailed above zero is a PARTIAL run and accumulated depreciation is understated by those assets until the cause is fixed and the period re-run. '
     + 'It depreciates on the ACCOUNTING (IAS 16) policy only in the general ledger; the SARS wear-and-tear figure is computed and stored in the subledger but is not journalised. It does not create assets, does not dispose of them, and does not reclassify any account. '
     + 'Call reconcile_fixed_assets afterwards to check the register against the ledger — on these books they do not agree, and a depreciation run does not make them.',
-  // write:journals, NOT write:invoices. This posts DR/CR straight to the
-  // general ledger for every asset on the register, exactly as post_journal
-  // and set_opening_balance do. `requiresPost` ADDS write:post; it does not
-  // substitute for the domain scope, so under write:invoices an ordinary AR
-  // grant — invoices plus post, which finalize_invoice already needs — could
-  // depreciate the whole fixed asset register on a consent screen that said
-  // "invoices".
-  scope: 'write:journals',
+  // Shared depreciation requires current asset authority plus posting consent.
+  scope: 'write:assets',
   write: true,
   requiresPost: true,
   inputSchema: {
