@@ -1,0 +1,32 @@
++   "description": undefined,
++   "glJournalEntryId": undefined,
++   "id": "21d82f8b-6e12-44a8-8ff4-84c6287d55e8",
++   "paymentDate": "2026-06-30",
++   "paymentMethod": "eft",
++   "paymentNumber": "SP-2026-00003",
++   "processedAt": undefined,
++   "reference": undefined,
++   "status": "draft",
++   "supplierId": "689cf38c-b57b-43b8-b460-8d62d0c386d6",
++   "supplierName": undefined,
++   "totalAmount": 115,
++   "updatedAt": "Wed Sep 09 2026 11:18:23 GMT+0200 (South Africa Standard Time)",
+  }
+
+ ❯ tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:136:15
+    134|       bankAccountId: bankAccount,
+    135|       allocations: [{ invoiceId: cancelled, amount: 115 }],
+    136|     }, USER))).rejects.toThrow();
+       |               ^
+    137|   }, 60000);
+    138| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  11:18:21
+   Duration  2.30s (transform 676ms, setup 0ms, import 1.05s, tests 299ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

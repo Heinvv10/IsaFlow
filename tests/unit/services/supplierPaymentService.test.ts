@@ -120,8 +120,12 @@ describe('createSupplierPayment — cross-tenant invoice guard', () => {
 
   it('proceeds when all invoices belong to the correct company', async () => {
     // All requested invoices returned — company_id filter matched
+    // `supplier_id` and `status` are now read and checked (K-063/K-066): the
+    // bill must belong to the payment's supplier and be in a balance-derived
+    // status, or it never credited AP.
     mockSql.mockResolvedValueOnce([
-      { id: INVOICE_ID, invoice_number: 'SI-001', total_amount: '2500.00', amount_paid: '0', balance: '2500.00' },
+      { id: INVOICE_ID, invoice_number: 'SI-001', supplier_id: SUPPLIER_ID, status: 'approved',
+        total_amount: '2500.00', amount_paid: '0', balance: '2500.00' },
     ]);
     // W3-AP: pending-allocation aggregate for unprocessed payments
     mockSql.mockResolvedValueOnce([]);
