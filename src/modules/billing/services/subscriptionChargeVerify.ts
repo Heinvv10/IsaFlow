@@ -31,8 +31,10 @@ export async function resolveStaleSubmittedCharges(
     company_id: string;
     paystack_reference: string | null;
     external_reference: string;
+    updated_at_text: string;
   }>`
-    SELECT id, company_id, paystack_reference, external_reference
+    SELECT id, company_id, paystack_reference, external_reference,
+           updated_at::text AS updated_at_text
     FROM subscription_charges
     WHERE gateway = 'paystack'
       AND status = 'submitted'
@@ -46,6 +48,21 @@ export async function resolveStaleSubmittedCharges(
   let unresolved = 0;
 
   for (const c of stale) {
+    // Claim it: a second cron run holding the same snapshot gets nothing back
+    // and leaves the charge alone rather than verifying it in parallel.
+    const claimed = await sql<{ id: string }>`
+      UPDATE subscription_charges
+      SET updated_at = now()
+      WHERE id = ${c.id}
+        AND status = 'submitted'
+        AND updated_at::text = ${c.updated_at_text}
+      RETURNING id
+    `;
+    if (!claimed[0]) {
+      unresolved++;
+      continue;
+    }
+
     const reference = c.paystack_reference ?? c.external_reference;
     try {
       const result = await verifyTransaction(reference);
@@ -60,13 +77,22 @@ export async function resolveStaleSubmittedCharges(
         continue;
       }
 
-      await sql`
+      // Status-predicated: if the missing webhook arrived while we were asking
+      // Paystack, the row is already 'settled' and must not be overwritten.
+      const marked = await sql<{ id: string }>`
         UPDATE subscription_charges
         SET status = 'failed',
             failure_reason = ${`paystack_${result.status}`},
             updated_at = now()
-        WHERE id = ${c.id} AND company_id = ${c.company_id}
+        WHERE id = ${c.id}
+          AND company_id = ${c.company_id}
+          AND status = 'submitted'
+        RETURNING id
       `;
+      if (!marked[0]) {
+        unresolved++;
+        continue;
+      }
       failed++;
     } catch (err) {
       unresolved++;

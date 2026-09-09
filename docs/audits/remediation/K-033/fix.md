@@ -69,3 +69,9 @@ backfill cannot attribute and set their `subscription_id` by hand:
 SELECT count(*) FROM subscription_charges
 WHERE subscription_id IS NULL AND status IN ('queued','submitted','failed');
 ```
+
+**Review round 4 (`review-fixes-round4.md`):** migration 624 now refuses to apply while any charge
+is unattributed, a CHECK forbids a settled charge without a subscription, and the unique index
+drops its COALESCE — a legacy NULL row and its replacement used to land in different buckets and
+both settle. The stale resolver's failure write and the settle write are status-predicated, so a
+webhook landing mid-verify is not overwritten and a voided charge is not resurrected.
