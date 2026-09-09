@@ -111,6 +111,14 @@ export interface SupplierInvoiceItemInput {
   quantity: number;
   unitPrice: number;
   taxRate?: number;
+  /**
+   * Exact tax for this line, used INSTEAD of deriving it from `taxRate`.
+   * Only for importers that carry an authoritative tax figure from the source
+   * system: re-deriving it from a 2 dp rate moves the total by cents, and the
+   * migrated row then disagrees with the journal posted for the same document.
+   * Must be finite and >= 0. Everything else leaves it unset.
+   */
+  taxAmount?: number;
   vatClassification?: VatType;
   glAccountId?: string;
   projectId?: string;

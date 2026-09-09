@@ -79,6 +79,9 @@ export async function createSupplierInvoice(
       if (Number(item.unitPrice) < 0) {
         throw new Error(`Line "${item.description}": unit price cannot be negative`);
       }
+      if (item.taxAmount !== undefined && !(Number.isFinite(Number(item.taxAmount)) && Number(item.taxAmount) >= 0)) {
+        throw new Error(`Line "${item.description}": tax amount must be a non-negative number`);
+      }
     }
     const invoiceTaxRate = input.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE;
     let subtotal = 0;
@@ -87,7 +90,11 @@ export async function createSupplierInvoice(
     const computedItems = input.items.map((item) => {
       const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100;
       const itemTaxRate = item.taxRate ?? invoiceTaxRate;
-      const itemTax = Math.round(lineTotal * itemTaxRate / 100 * 100) / 100;
+      // An importer may supply the source system's exact tax; deriving it from
+      // the rounded rate is what makes a migrated row disagree with its journal.
+      const itemTax = item.taxAmount !== undefined
+        ? Math.round(Number(item.taxAmount) * 100) / 100
+        : Math.round(lineTotal * itemTaxRate / 100 * 100) / 100;
       // Warn when a 0% line has no explicit vatClassification — exempt and zero-rated
       // both have 0% rate but differ in input VAT recoverability under the VAT Act.
       if (itemTaxRate === 0 && !item.vatClassification) {

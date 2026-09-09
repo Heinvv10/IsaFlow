@@ -207,7 +207,12 @@ export async function commitAPInvoice(
   const created = await createSupplierInvoice(companyId, {
     supplierId, invoiceNumber: inv.invoiceNumber, invoiceDate: inv.invoiceDate,
     dueDate: inv.dueDate ?? undefined, taxRate, reference: inv.reference,
-    items: [{ description: inv.reference ?? `Invoice ${inv.invoiceNumber}`, quantity: 1, unitPrice: inv.subtotal, taxRate }],
+    // taxAmount, not just taxRate: `taxRate` is rounded to 2 dp above, and
+    // re-deriving the tax from it moves the stored total off Sage's by cents —
+    // which put the row and the journal posted for the SAME bill R0.44 apart on
+    // a 9,999.99 / 1,234.56 document. Passing the source figure makes the row,
+    // the journal and Sage agree by construction.
+    items: [{ description: inv.reference ?? `Invoice ${inv.invoiceNumber}`, quantity: 1, unitPrice: inv.subtotal, taxRate, taxAmount: inv.taxAmount }],
   }, userId);
 
   // What Sage says is still OUTSTANDING is the figure to preserve, not what it
@@ -220,9 +225,14 @@ export async function commitAPInvoice(
   // cannot see because it only binds upwards). Re-deriving from the outstanding
   // amount makes the row agree with the source by construction: AmountDue 0
   // settles the bill exactly, whatever the recomputed total came to.
+  // An absent field states nothing about the source and must stay silent: with
+  // the totals now equal the derivation gives 0 anyway, but going through it
+  // would report a rounding artefact as a "negative" source amount.
   const dueAtSource = Number(inv.totalAmount) - Number(inv.amountPaid ?? 0);
   const paidAgainstStored = Math.round((created.totalAmount - dueAtSource) * 100) / 100;
-  const settled = settledAtSource(inv.invoiceNumber, paidAgainstStored, created.totalAmount);
+  const settled = inv.amountPaid === undefined
+    ? { amountPaid: 0, warning: undefined }
+    : settledAtSource(inv.invoiceNumber, paidAgainstStored, created.totalAmount);
   const amountPaid = settled.amountPaid;
 
   // Post JE directly — bypasses workflow helper that blocks backdated periods.

@@ -18,16 +18,17 @@ is clamped to the total. Every refusal and material clamp is logged and returned
 which `SageCommitSummary` renders as an expanded disclosure on the import page — the row keeps
 no trace of a discarded credit and a re-run cannot recover it, so the operator has to see it
 at commit time.
-AP does not carry the source's PAID amount across at all — it preserves what the source says
-is still OUTSTANDING. `createSupplierInvoice` re-derives its own total from a 2 dp tax rate, so
-a bill at a non-round blended rate stores a total that differs from Sage's in either direction:
-700 / 33.33 stores 733.32 against Sage's 733.33, and 812.50 / 58.40 stores 870.92 against
-870.90. Carrying the paid amount across stored a −0.01 balance in the first case and stranded
-the second at `partially_paid` with a residual no clamp could reach, because a clamp only binds
-upwards. Re-deriving `amount_paid` as `stored total − source AmountDue` makes the row agree with
-the source by construction: `AmountDue 0` settles the bill exactly, whatever the recompute came
-to. Sub-cent excess is treated as recompute dust and clamped silently — warning only past a
-cent, so real overpayments are not buried under an artefact of IsaFlow's own arithmetic.
+The AP total divergence is fixed at its root. `createSupplierInvoice` re-derived each line's
+tax from a 2 dp rate, so a bill at a non-round blended rate stored a total that differed from
+Sage's in either direction — 700 / 33.33 stored 733.32, 812.50 / 58.40 stored 870.92 — leaving
+the invoice row and the journal posted for that same bill up to R0.44 apart before any payment
+was considered. `SupplierInvoiceItemInput.taxAmount` now lets an importer pass the source's
+exact tax, and the Sage commit does; the row, the journal and Sage agree by construction. The
+field is optional, validated non-negative and finite, and every existing caller is unchanged.
+AP additionally derives `amount_paid` from what the source says is still OUTSTANDING
+(`stored total − source AmountDue`) rather than carrying its paid figure across, so any future
+divergence cannot strand a settled bill at `partially_paid`. Sub-cent excess is treated as
+arithmetic dust and clamped silently, so real overpayments are not buried.
 
 **R-001 — period close now FAILS on migrated companies, by design.** Before this commit
 `arSubLedgerCheck`/`apSubLedgerCheck` passed only because both sides were equally wrong. Now:
@@ -37,12 +38,15 @@ full total, and **fully-paid invoices drop out of the sub-ledger sum entirely** 
 `apSubLedgerCheck.ts:38` to `('approved','partially_paid')`. Both flip to `fail` past the R100
 threshold, and `periodCloseReadinessService.ts:106` rolls that up to an overall `fail`.
 Direction: GL AR/AP overstated and GL bank understated by exactly the settled amount, so net
-assets are unaffected — only the two line items are misallocated. There is no in-repo remedy:
+assets are unaffected — only the two line items are misallocated. The AP journal and its own
+invoice row now agree to the cent, so nothing in this variance is rounding: a reconciler seeing
+a residual is seeing the settled cash, not a recompute artefact. There is no in-repo remedy:
 `CommitPayload.pulled` has no opening-balance step and the settled cash arrives only as
 `bank_transactions` at `status='imported'` with no GL leg. The fix is an opening-balance step
 in `CommitPayload` (or allocating those imported bank rows). **R-001 stays open.**
 
-**Files.** `sageMigrationTypes.ts`, `sageMigrationCommitService.ts`, new
+**Files.** `ap.types.ts` and `supplierInvoiceService.ts` (the optional exact-tax field),
+`sageMigrationTypes.ts`, `sageMigrationCommitService.ts`, new
 `sageMigrationOrchestrator.ts` (the orchestrator moved verbatim so both files clear the
 300-line cap; `sage-commit.ts` and one unit test now import it from there), new
 `src/components/admin/SageCommitSummary.tsx` (the result panel lifted out of
@@ -58,8 +62,9 @@ balanced full-total journal / recomputed total below Sage's / above Sage's / par
 non-round rate / genuine overpayment / fully paid / unpaid. Mutation-checked four times:
 reverting the original change takes 6 of 9 red; disabling the non-finite guard, the negative
 guard or the AP anchor takes their tests red; re-anchoring AP to the source paid amount takes
-3 red; hiding the warnings disclosure takes 3 component tests red. Full unit suite 9391 passed,
-components 395 passed, `tsc --noEmit`, `eslint` and `agent-docs:check` clean — `green.log`.
+3 red; hiding the warnings disclosure takes 3 component tests red. Also 6 unit tests on the exact-tax field, reading the values bound into the INSERT rather than
+a mocked row. Full unit suite 9397 passed, components 395 passed, `tsc --noEmit`, `eslint` and
+`agent-docs:check` clean — `green.log`.
 
 **Migration / rollback.** None. Code-only.
 
@@ -75,7 +80,11 @@ FROM customer_invoices WHERE amount_paid = 0 AND status = 'approved'
 GROUP BY company_id ORDER BY 3 DESC;
 ```
 
-**Limits.** The import page itself was not loaded in a browser — the extracted result panel is
+**Limits.** The guard that treats an absent `amountPaid` as unpaid rather than deriving one is
+defence-in-depth and is NOT mutation-proof: with the totals now equal the derivation returns 0
+anyway, so removing the guard leaves all 17 integration tests green. It is kept because the
+field is optional and the commit route does not validate its body. The import page itself was
+not loaded in a browser — the extracted result panel is
 covered by a rendered component test, and the page change is the import plus one JSX swap.
 `paid_at` on a migrated settlement is the MIGRATION timestamp, not the real
 settlement date — `recomputeInvoiceStatus` sets `COALESCE(paid_at, NOW())` and the Sage payload
