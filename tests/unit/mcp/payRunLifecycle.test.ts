@@ -32,6 +32,10 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import {
+  PayrollLoanLockTimeoutError,
+  PayrollRunJournalPostedError,
+} from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { approvePayRunTool, calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -111,6 +115,20 @@ describe('calculate_pay_run', () => {
     vi.mocked(calculatePayrollRun).mockRejectedValue(new PayrollRunLockedError('approved'));
     const r = await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
     expect(r.isError).toBe(true);
+  });
+
+  it('returns the posted-journal refusal so the agent reads the instruction', async () => {
+    vi.mocked(calculatePayrollRun).mockRejectedValue(new PayrollRunJournalPostedError(RUN));
+    const r = await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+    expect(errText(r)).toContain('Reverse the payroll journal first');
+  });
+
+  it('returns the loan lock timeout so the agent can retry', async () => {
+    vi.mocked(calculatePayrollRun).mockRejectedValue(new PayrollLoanLockTimeoutError(RUN));
+    const r = await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+    expect(errText(r)).toContain('retry in a moment');
   });
 
   it('RETHROWS anything else so the savepoint sees it', async () => {
