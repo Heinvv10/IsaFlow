@@ -543,25 +543,29 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "b2644bc8",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "PR open; GitHub checks pending"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/integration/k014-supplier-bill-double-gl-post.int.test.ts"
    ],
    "evidencePaths": [
+    "K-014/ci.log",
+    "K-014/fix.md",
+    "K-014/green.log",
     "K-014/red.log",
     "K-014/validation.md"
    ],
-   "fixCommit": "b2644bc8",
+   "fixCommit": "aea77e85;64f3d09e;2a0d6d12",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/360",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k014-supplier-bill-gl-lock",
-   "reviewRounds": 2
+   "reviewRounds": 2,
+   "mergeCommit": "cd90d904"
   },
   {
    "id": "K-015",
@@ -1070,25 +1074,29 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "11b27034",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "PR open; GitHub checks pending"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/integration/k-030-loan-schedule-cache-hash.int.test.ts"
    ],
    "evidencePaths": [
+    "K-030/ci.log",
+    "K-030/fix.md",
+    "K-030/green.log",
     "K-030/red.log",
     "K-030/validation.md"
    ],
-   "fixCommit": "11b27034",
+   "fixCommit": "1e41ba30;c51b7bb9;1257632e;f89bf20b",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/362",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k030-loan-schedule-hash",
-   "reviewRounds": 4
+   "reviewRounds": 4,
+   "mergeCommit": "a11ce73a"
   },
   {
    "id": "K-031",
