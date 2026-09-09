@@ -501,6 +501,97 @@ describeIfDb('take-on posting for imported documents', () => {
     }
   }, 60000);
 
+  it('the remedy the refusal names actually works: re-run without the control line and the documents go in', async () => {
+    // M-B. `assertNoOpeningControlTotal` tells the operator to remove the
+    // control account row and re-run the opening balances step. Before this fix
+    // that instruction was a dead end in two ways: `updateSession` merges
+    // steps_completed and the flag was only ever written `true`, so re-running
+    // left the document step still refusing; and `importOpeningBalances` had no
+    // idempotency, so following the instruction posted a SECOND full trial
+    // balance on top of the first — the double count the whole rule exists to
+    // prevent.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const session = await newSession(c);
+      await run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '1100', debit: 5000, credit: 0 },
+        { accountCode: '2100', debit: 0, credit: 2000 },
+        { accountCode: '3100', debit: 0, credit: 3000 },
+      ], USER));
+      await expect(run(c, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-oneway` }),
+      ], USER))).rejects.toThrow(/accounts payable control total/);
+
+      // The remedy: same trial balance, control lines removed, plug on equity.
+      await run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '6000', debit: 5000, credit: 0 },
+        { accountCode: '3100', debit: 0, credit: 5000 },
+      ], USER));
+
+      // The flags are recomputed from THIS run, not merged with the last one.
+      const flags = (await c.query(
+        `SELECT steps_completed FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [session, COMPANY],
+      )).rows[0].steps_completed;
+      expect(flags.opening_balances_ap_control).toBe(false);
+      expect(flags.opening_balances_ar_control).toBe(false);
+
+      // The first run's entry was reversed, so the control accounts carry
+      // nothing from the trial balance at all — not 2000, and certainly not
+      // 4000, which is what a second unreversed post would have left.
+      expect(await net(c, 'payable', 'cr')).toBe(0);
+      expect(await net(c, 'receivable', 'dr')).toBe(0);
+
+      // And the document step is now open, which is what the message promised.
+      const ap = await run(c, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-oneway` }),
+      ], USER));
+      expect(ap.imported).toBe(1);
+      expect(await net(c, 'payable', 'cr')).toBe(750);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('a re-run of the opening balances replaces the previous trial balance rather than adding to it', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const session = await newSession(c);
+      await run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '6000', debit: 1000, credit: 0 },
+        { accountCode: '3100', debit: 0, credit: 1000 },
+      ], USER));
+      // Corrected figures.
+      await run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '6000', debit: 1500, credit: 0 },
+        { accountCode: '3100', debit: 0, credit: 1500 },
+      ], USER));
+
+      const expense = (await c.query(
+        `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS net
+           FROM gl_journal_lines l
+           JOIN gl_accounts a ON a.id = l.gl_account_id
+          WHERE l.company_id = $1 AND a.account_code = '6000'`,
+        [COMPANY],
+      )).rows[0];
+      // 1500, not 2500: the first entry is reversed, not stacked under it.
+      expect(Number(expense.net)).toBe(1500);
+
+      const reversed = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM gl_journal_entries
+          WHERE company_id = $1 AND source = 'auto_migration' AND reversed_at IS NOT NULL`,
+        [COMPANY],
+      )).rows[0];
+      expect(reversed.n).toBe(1);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
   it('a document step that imported nothing does not bar the summary-only route', async () => {
     // The step flag is written even by a run where every row was skipped. Gating
     // the trial-balance control total on that flag permanently barred an

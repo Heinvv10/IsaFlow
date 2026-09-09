@@ -154,8 +154,9 @@ export async function resolveTakeOnClearingAccountId(companyId: string): Promise
 
 /**
  * 42P10 — "there is no unique or exclusion constraint matching the ON CONFLICT
- * specification". Both invoice imports name an arbiter index by its columns, so
- * this code means the index the step depends on is absent from this database.
+ * specification". The AR import is the only step that still names an arbiter
+ * index by its columns (AP is a lookup, not a constraint), so this code means
+ * uq_customer_invoices_company_number is absent from this database.
  *
  * The per-row savepoint would otherwise contain it and the step would answer
  * 200 with `imported: 0` and a raw Postgres message on every row. Rethrow so

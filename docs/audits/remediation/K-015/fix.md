@@ -296,3 +296,86 @@ HAVING COUNT(*) > 1;
 response envelopes, not by a browser load against a running dev server — no dev server was
 available in this worktree. That crosses the envelope → page state → banner seam H1 lived in, but
 not CSS, layout, or the live auth/company header path.
+
+---
+
+## Round 4 — dispositions for the round-3 blind review (11 findings)
+
+**HIGH-1 — the schema forbade the blank invoice number the fallback exists for. FIXED, by making
+the schema agree with the design, not by deleting the fallback.** Blank supplier invoice numbers
+are legitimate: migration 412's fingerprint substitutes `no-inv` for exactly that case, K-107's
+`uq_supplier_invoices_supplier_number` exempts `invoice_number = ''`, and a take-on file of till
+slips and cash purchases carries them. So `APInvoiceRowSchema.invoiceNumber` is now
+`z.string().trim().max(100)` — the fingerprint fallback and migration 625 are on the live path —
+while `ARInvoiceRowSchema` still requires a number, because `uq_customer_invoices_company_number`
+is company-wide with no blank exemption and a second blank AR number cannot be inserted at all.
+And a bad row no longer costs the file: see M-C.
+
+**M-A — `DROP INDEX` took ACCESS EXCLUSIVE on a table 18 other test files read. FIXED.** The test
+now creates a per-run schema holding `supplier_invoices (LIKE public.supplier_invoices INCLUDING
+ALL)` with the borrowed unique index dropped **from the copy**, and each test that needs
+production's shape sets `SET LOCAL search_path` to it — transaction-scoped, so it unwinds with the
+ROLLBACK, and it locks nothing anyone else touches. The property the reviewer asked to keep is
+kept and asserted: the test proves the table it writes to carries no unique index on
+`(company_id, supplier_id, invoice_number)` before it runs. Proof it no longer blocks: 40
+consecutive `SET lock_timeout='3s'; SELECT count(*) FROM public.supplier_invoices` probes ran
+against the shared fixture for the whole duration of the suite, zero cancellations (green.log).
+
+**M-B — `assertNoOpeningControlTotal` was a one-way door whose remedy double-posted. FIXED.**
+`importOpeningBalances` now (a) rewrites BOTH control flags from each run's own trial balance,
+including `false`, so re-running without the control line clears the refusal, and (b) reverses the
+entry its previous run posted for this session (`reverseJournalEntry`, scoped by
+`created_at >= migration_sessions.started_at`) before posting the new one, so following the
+instruction replaces the trial balance instead of stacking a second one on it.
+
+**M-C — one malformed row rejected the whole file with no row index. FIXED.** The routes parse the
+envelope only; `parseInvoiceRows` then parses each row and returns the good rows, their positions,
+and one error per bad row naming the field and the row. The services take an `ImportRowContext`, so
+every `row` they report — and every row they persist to the session — is a position in the
+operator's file, not in the shortened array.
+
+**M-D — soft-delete then re-import doubled the AP control. FIXED.** The idempotency lookup no
+longer carries `deleted_at IS NULL`. Soft-deleting a migrated bill leaves its take-on entry posted,
+so the money is still in the control account; the re-import is refused with a message that says so
+and names the remedy (reverse the entry first). This also removes the AR/AP asymmetry that was
+**L-5**.
+
+**M-E — the key was case-sensitive where the fingerprint was not. FIXED.** The lookup compares
+`LOWER(invoice_number)` on both sides.
+
+**L-1 / L-3 adjudication — the file-size measurements were right and the deferral is withdrawn.
+FIXED.** `sageImportService.ts` 539 → **281** (`importSupplierInvoices` and its two JSON helpers
+moved to `sageSupplierInvoiceImportService.ts`, 217; the relink decision moved to
+`sageLedgerRelinkGuard.ts`, 91 — logic unchanged, comments carried with it). `migrationImportService.ts`
+301 → **199** (`importOpeningBalances` moved to `migrationWizardOpeningBalanceService.ts`, 180).
+Both original modules re-export what they used to own, so no caller changed.
+
+**L-2 — fingerprint scale. UPHELD, no action.** Adjudicated final by the team lead.
+
+**L-3 (stale docstring) — FIXED.** `rethrowIfConflictTargetMissing` now says AR is the only
+`ON CONFLICT` caller.
+
+**L-4 — the AP page's supplier override was discarded. FIXED.** `supplierId` is on
+`APInvoiceRowSchema` and honoured by `importAPInvoices`, but only after being resolved against the
+importing company's own suppliers; an id from another tenant is refused with `field: 'supplierId'`.
+
+**L-5 — AR/AP asymmetry on soft-deleted documents. FIXED** as a consequence of M-D.
+
+**Migration.** None added this round. 625 is unchanged and is now genuinely reachable.
+
+**Historical data.** Unchanged from round 3 — the AP wizard imported nothing before this branch.
+The M-D impact query, for any tenant that re-imported over a soft-deleted migrated bill:
+```sql
+SELECT si.company_id, si.supplier_id, si.invoice_number, COUNT(*) AS rows,
+       SUM(je.total_debit) AS taken_on
+  FROM supplier_invoices si
+  JOIN gl_journal_entries je ON je.id = si.gl_journal_entry_id AND je.company_id = si.company_id
+ WHERE je.source = 'auto_migration' AND je.reversed_at IS NULL
+ GROUP BY 1, 2, 3
+HAVING COUNT(*) > 1 AND COUNT(*) FILTER (WHERE si.deleted_at IS NOT NULL) > 0;
+```
+
+**Limits.** Unchanged: the wizard pages are proven at the component level, not by a browser load.
+The soft-delete defect in `softDeleteService` (its reversal guard only fires on `status = 'posted'`,
+which a migrated bill never is) is NOT fixed here — this branch stops the wizard doubling the
+control account, it does not make soft-delete reverse a take-on. Register item.

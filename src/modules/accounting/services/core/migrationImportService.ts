@@ -1,15 +1,16 @@
 /**
- * Migration Import Service — Opening Balances + AR Invoices
+ * Migration Import Service — AR Invoices
  * PRD: Customer Migration Wizard — Phase 1
  *
- * AP invoice import is in migrationApService.ts.
+ * AP invoice import is in migrationApService.ts; opening balances are in
+ * migrationWizardOpeningBalanceService.ts.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
-import { updateSession, type ImportResult, type MigrationError } from './migrationService';
+import { updateSession, type ImportResult, type ImportRowContext, type MigrationError } from './migrationService';
 import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
 import { matchContact } from './migrationContactMatch';
 import type { DbRow } from '@/types/db';
@@ -18,12 +19,10 @@ import type { DbRow } from '@/types/db';
 // matchContact from here since before it moved to its own module.
 export { matchContact };
 
-
-export interface OpeningBalanceRow {
-  accountCode: string;
-  debit: number;
-  credit: number;
-}
+// Re-exported: the opening-balance step moved to its own module when the
+// take-on work pushed this file past the 300-line cap. Every caller — the route,
+// core/index.ts and the wizard's tests — has imported it from here.
+export { importOpeningBalances, type OpeningBalanceRow } from './migrationWizardOpeningBalanceService';
 
 export interface ARInvoiceRow {
   invoiceNumber: string;
@@ -38,113 +37,6 @@ export interface ARInvoiceRow {
   reference?: string;
 }
 
-// ── Opening Balances ─────────────────────────────────────────────────────────
-
-export async function importOpeningBalances(
-  companyId: string,
-  sessionId: string,
-  effectiveDate: string,
-  balances: OpeningBalanceRow[],
-  userId: string,
-): Promise<{ journalEntryId: string; errors: MigrationError[] }> {
-  const errors: MigrationError[] = [];
-
-  // R-020 is a rule about DOUBLE counting, not about control accounts. A trial
-  // balance may bring the AR or AP control total in INSTEAD of the documents —
-  // a summary-only take-on. It may not do both. So: refuse the control line once
-  // the matching side has actually taken documents on, otherwise accept it and
-  // record it on the session, where the document step reads it and refuses.
-  //
-  // The interlock is a read-then-write on the same session row the document
-  // steps read and write, so it needs the same lock they take — otherwise an
-  // opening-balances request carrying a control line and a document request
-  // overlap, each reads a session without the other's mark, both pass, and both
-  // post. Transaction-scoped and re-entrant; `withAuth` gives the request one
-  // transaction, so the window without it is the whole request.
-  await lockMigrationImport(companyId);
-
-  const sessRows = (await sql`
-    SELECT ar_invoices_imported, ap_invoices_imported
-    FROM migration_sessions
-    WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  // Gate on documents actually TAKEN ON, not on "the step ran". The step flag is
-  // written even by a run that imported nothing (every supplier unmatched, say),
-  // and gating on it permanently barred an operator whose first file failed from
-  // ever bringing the control total in — with nothing imported there is nothing
-  // to double count.
-  const documentsTakenOn: Record<string, boolean> = {
-    ar_invoices: Number(sessRows[0]?.ar_invoices_imported ?? 0) > 0,
-    ap_invoices: Number(sessRows[0]?.ap_invoices_imported ?? 0) > 0,
-  };
-  const controlTotals: Record<string, boolean> = {};
-
-  const totalDebit  = balances.reduce((s, b) => s + (b.debit ?? 0), 0);
-  const totalCredit = balances.reduce((s, b) => s + (b.credit ?? 0), 0);
-
-  if (Math.abs(totalDebit - totalCredit) > 0.01) {
-    throw new Error(
-      `Trial balance is not balanced: debits ${totalDebit.toFixed(2)} ≠ credits ${totalCredit.toFixed(2)}`
-    );
-  }
-
-  const lines = [];
-  for (let i = 0; i < balances.length; i++) {
-    const bal = balances[i]!;
-    if (bal.debit === 0 && bal.credit === 0) continue;
-
-    const acctRows = (await sql`
-      SELECT id, account_subtype FROM gl_accounts
-      WHERE account_code = ${bal.accountCode} AND company_id = ${companyId}::UUID
-    `) as DbRow[];
-
-    if (acctRows.length === 0) {
-      errors.push({ step: 'opening_balances', row: i, field: 'accountCode', message: `Account ${bal.accountCode} not found` });
-      continue;
-    }
-
-    const subtype = String(acctRows[0]!.account_subtype ?? '');
-    if (subtype === 'receivable' || subtype === 'payable') {
-      const documentStep = subtype === 'receivable' ? 'ar_invoices' : 'ap_invoices';
-      if (documentsTakenOn[documentStep]) {
-        throw new Error(
-          `Opening trial balance carries ${bal.accountCode}, a ${subtype} control account, and the ${subtype === 'receivable' ? 'customer' : 'supplier'} invoice step has already taken those documents on, one line per outstanding document. Importing the control total as well posts the same money a second time. Remove the control account rows from the trial balance.`,
-        );
-      }
-      controlTotals[documentStep === 'ar_invoices' ? 'opening_balances_ar_control' : 'opening_balances_ap_control'] = true;
-    }
-
-    lines.push({
-      glAccountId: String(acctRows[0]!.id),
-      debit: bal.debit ?? 0,
-      credit: bal.credit ?? 0,
-      description: `Opening balance — ${bal.accountCode}`,
-    });
-  }
-
-  if (lines.length === 0) {
-    throw new Error('No valid balance rows to import');
-  }
-
-  const entry = await createJournalEntry(companyId, {
-    entryDate: effectiveDate,
-    description: 'Opening balances — migration import',
-    source: 'auto_migration',
-    lines,
-  }, userId);
-
-  await postJournalEntry(companyId, entry.id, userId);
-
-  await updateSession(sessionId, companyId, {
-    openingBalancesSet: true,
-    stepsCompleted: { opening_balances: true, ...controlTotals },
-    errors,
-  });
-
-  log.info('Opening balances imported', { companyId, journalEntryId: entry.id, lines: lines.length }, 'migration');
-  return { journalEntryId: entry.id, errors };
-}
-
 // ── AR Invoice Import ────────────────────────────────────────────────────────
 
 export async function importARInvoices(
@@ -152,11 +44,17 @@ export async function importARInvoices(
   sessionId: string,
   invoices: ARInvoiceRow[],
   userId: string,
+  rowContext?: ImportRowContext,
 ): Promise<ImportResult> {
-  const errors: MigrationError[] = [];
+  // Rows the route's schema already rejected lead the list; they were never
+  // handed to this loop but they belong to this step's report and to the
+  // session, which is the only place the operator sees them after a reload.
+  const errors: MigrationError[] = [...(rowContext?.priorErrors ?? [])];
   const warnings: MigrationError[] = [];
+  /** The position of the service's row `i` in the operator's file. */
+  const fileRow = (i: number) => rowContext?.sourceRows?.[i] ?? i;
   let imported = 0;
-  let skipped = 0;
+  let skipped = errors.length;
 
   // Before any read: the idempotency check below is a read-then-write.
   await lockMigrationImport(companyId);
@@ -185,7 +83,7 @@ export async function importARInvoices(
     try {
       const customerId = matchContact(inv.customerName, custRows);
       if (!customerId) {
-        errors.push({ step: 'ar_invoices', row: i, field: 'customerName', message: `Customer not found: ${inv.customerName}` });
+        errors.push({ step: 'ar_invoices', row: fileRow(i), field: 'customerName', message: `Customer not found: ${inv.customerName}` });
         skipped++;
         continue;
       }
@@ -200,14 +98,14 @@ export async function importARInvoices(
         const detail = `subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`;
         if (amountsDrift > 0.05) {
           errors.push({
-            step: 'ar_invoices', row: i, field: 'totalAmount',
+            step: 'ar_invoices', row: fileRow(i), field: 'totalAmount',
             message: `Amounts do not add up for ${inv.invoiceNumber}: ${detail}`,
           });
           skipped++;
           continue;
         }
         warnings.push({
-          step: 'ar_invoices', row: i, field: 'totalAmount',
+          step: 'ar_invoices', row: fileRow(i), field: 'totalAmount',
           message: `Imported with a rounding difference: ${inv.invoiceNumber} — ${detail}`,
         });
       }
@@ -243,7 +141,7 @@ export async function importARInvoices(
         // operator saw a skip count with no reason and no invoice number.
         if (invRows.length === 0) {
           errors.push({
-            step: 'ar_invoices', row: i, field: 'invoiceNumber',
+            step: 'ar_invoices', row: fileRow(i), field: 'invoiceNumber',
             message: `Invoice number already exists: ${inv.invoiceNumber}`,
           });
           return false;
@@ -283,7 +181,7 @@ export async function importARInvoices(
     } catch (err) {
       rethrowIfConflictTargetMissing(err, 'uq_customer_invoices_company_number');
       const msg = err instanceof Error ? err.message : String(err);
-      errors.push({ step: 'ar_invoices', row: i, message: msg });
+      errors.push({ step: 'ar_invoices', row: fileRow(i), message: msg });
       skipped++;
     }
   }

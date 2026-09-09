@@ -44,6 +44,21 @@ const NO_EQUITY_COMPANY = randomUUID();
 /** June 2026 is a CLOSED fiscal period here; August is open. */
 const CLOSED_PERIOD_COMPANY = randomUUID();
 const TAG = `K015-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+/**
+ * A private schema holding a copy of `supplier_invoices` WITHOUT
+ * uq_supplier_invoices_supplier_number, so the tests that must see production's
+ * shape can see it.
+ *
+ * The previous revision did this with `DROP INDEX` inside the test's own
+ * transaction. That was proved non-corrupting — DDL is transactional, so the
+ * ROLLBACK always restores the index — but it takes ACCESS EXCLUSIVE on
+ * `supplier_invoices` for the length of the test, and the fixture database is
+ * shared: eighteen other integration files read that table, and every one of
+ * them blocked, timing out with a signature that pointed nowhere near here.
+ * A per-run schema locks nothing anyone else touches, and `SET LOCAL
+ * search_path` is transaction-scoped, so it unwinds with the ROLLBACK.
+ */
+const NO_INDEX_SCHEMA = `k015_noidx_${TAG.replace(/-/g, '_').toLowerCase()}`;
 
 let pool: Pool;
 let sessionId: string;
@@ -112,6 +127,23 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
              (${CLOSED_PERIOD_COMPANY}::UUID, 'Aug 2026', 6, 2027, '2026-08-01', '2026-08-31', 'open')`;
     clearSystemAccountCache();
 
+    // Production's shape: everything `supplier_invoices` has except the unique
+    // index K-107's migration 646 adds, which is on no origin ref and would
+    // mask the defect these tests exist for by raising 23505 first.
+    await sql`CREATE SCHEMA IF NOT EXISTS ${sql.unsafe(NO_INDEX_SCHEMA)}`;
+    await sql`CREATE TABLE ${sql.unsafe(NO_INDEX_SCHEMA)}.supplier_invoices
+                (LIKE public.supplier_invoices INCLUDING ALL)`;
+    const borrowed = (await sql`
+      SELECT indexname FROM pg_indexes
+      WHERE schemaname = ${NO_INDEX_SCHEMA}
+        AND indexdef ILIKE '%UNIQUE%'
+        AND indexdef LIKE '%supplier_id%'
+        AND indexdef LIKE '%invoice_number%'
+    `) as { indexname: string }[];
+    for (const idx of borrowed) {
+      await sql`DROP INDEX ${sql.unsafe(NO_INDEX_SCHEMA)}.${sql.unsafe(idx.indexname)}`;
+    }
+
     const session = async (companyId: string) => ((await sql`
       INSERT INTO migration_sessions (company_id, source_system, started_by, steps_completed, errors)
       VALUES (${companyId}::UUID, 'sage', ${USER}::UUID,
@@ -141,6 +173,7 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
     await sql`DELETE FROM companies WHERE id IN (
       ${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NO_EQUITY_COMPANY}::UUID, ${CLOSED_PERIOD_COMPANY}::UUID)`;
+    await sql`DROP SCHEMA IF EXISTS ${sql.unsafe(NO_INDEX_SCHEMA)} CASCADE`;
     await pool.end();
   }, 60000);
 
@@ -512,19 +545,22 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     //
     // The fixture DB carries uq_supplier_invoices_supplier_number — K-107's
     // migration 646, on no origin ref and NOT in production — which would raise
-    // 23505 and mask the defect entirely. It is dropped inside this
-    // transaction, so the test runs against production's shape and the ROLLBACK
-    // in `finally` puts it back.
+    // 23505 and mask the defect entirely. The transaction's search_path points
+    // at a copy of the table without it, so this runs against production's
+    // shape without touching the index every other test file depends on.
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      await c.query('DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number');
-      const gone = (await c.query(
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
+      // Prove the table this test writes to really is the one production has:
+      // no unique index on (company_id, supplier_id, invoice_number).
+      const borrowed = (await c.query(
         `SELECT COUNT(*)::INT AS n FROM pg_indexes
-          WHERE tablename = 'supplier_invoices'
-            AND indexname = 'uq_supplier_invoices_supplier_number'`,
+          WHERE schemaname = $1 AND indexdef ILIKE '%UNIQUE%'
+            AND indexdef LIKE '%supplier_id%' AND indexdef LIKE '%invoice_number%'`,
+        [NO_INDEX_SCHEMA],
       )).rows[0];
-      expect(gone.n).toBe(0);
+      expect(borrowed.n).toBe(0);
 
       const first = await run(c, () => importAPInvoices(COMPANY, sessionId, [
         bill({ invoiceNumber: `${TAG}-corrected`, subtotal: 100, taxAmount: 15, totalAmount: 115 }),
@@ -573,7 +609,7 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      await c.query('DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number');
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
 
       const first = await run(c, () => importAPInvoices(COMPANY, sessionId, [
         bill({ invoiceNumber: '', subtotal: 200, taxAmount: 30, totalAmount: 230 }),
@@ -603,7 +639,7 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      await c.query('DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number');
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
       const result = await run(c, () => importAPInvoices(COMPANY, sessionId, [
         bill({ invoiceNumber: `${TAG}-cross`, supplierName: `ACME ${TAG}` }),
         bill({ invoiceNumber: `${TAG}-cross`, supplierName: `BETA ${TAG}` }),
@@ -616,10 +652,17 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
-  it('a soft-deleted bill does not block re-importing a corrected one', async () => {
+  it('a soft-deleted bill still blocks the re-import, because its take-on entry is still posted', async () => {
+    // Soft-deleting a migrated bill does not touch the ledger: softDeleteService
+    // only reverses when status = 'posted', and a migrated bill is approved,
+    // partially_paid or paid. So the balance is still in the payable control
+    // account, and re-importing would carry it twice for one visible bill. An
+    // earlier revision scoped the lookup with `deleted_at IS NULL` and blessed
+    // exactly that.
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
       await run(c, () => importAPInvoices(COMPANY, sessionId, [
         bill({ invoiceNumber: `${TAG}-softdel` }),
       ], USER));
@@ -632,8 +675,121 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       const again = await run(c, () => importAPInvoices(COMPANY, sessionId, [
         bill({ invoiceNumber: `${TAG}-softdel` }),
       ], USER));
-      expect(again.imported).toBe(1);
-      expect(again.errors).toEqual([]);
+      expect(again.imported).toBe(0);
+      expect(again.skipped).toBe(1);
+      expect(again.errors[0]!.field).toBe('invoiceNumber');
+      expect(again.errors[0]!.message).toContain('still in the ledger');
+
+      // One take-on journal, not two: the payable control carries 115 once.
+      const payable = (await c.query(
+        `SELECT COALESCE(SUM(l.credit - l.debit), 0) AS net
+           FROM gl_journal_lines l
+           JOIN gl_accounts a ON a.id = l.gl_account_id
+          WHERE l.company_id = $1 AND a.account_subtype = 'payable'
+            AND l.journal_entry_id IN (
+              SELECT id FROM gl_journal_entries
+               WHERE company_id = $1 AND description LIKE $2)`,
+        [COMPANY, `%${TAG}-softdel%`],
+      )).rows[0];
+      expect(Number(payable.net)).toBe(115);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('a re-export that changes only the CASE of the invoice number is still the same bill', async () => {
+    // computeFingerprint lowercases, so the key this replaced ignored case.
+    // Keying on the raw column would have let `inv-1` mint a second bill and a
+    // second take-on journal against the payable control.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
+      const first = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-CASE` }),
+      ], USER));
+      expect(first.imported).toBe(1);
+
+      const second = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-case`.toLowerCase() }),
+      ], USER));
+      expect(second.imported).toBe(0);
+      expect(second.errors[0]!.field).toBe('invoiceNumber');
+
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM supplier_invoices
+          WHERE company_id = $1 AND LOWER(invoice_number) = LOWER($2)`,
+        [COMPANY, `${TAG}-CASE`],
+      )).rows[0];
+      expect(rows.n).toBe(1);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('honours the page\'s supplier override, and refuses one from another tenant', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const beta = (await c.query(
+        `SELECT id FROM suppliers WHERE company_id = $1 AND name = $2`,
+        [COMPANY, `BETA ${TAG}`],
+      )).rows[0].id;
+      const foreign = (await c.query(
+        `SELECT id FROM suppliers WHERE company_id = $1`, [OTHER_COMPANY],
+      )).rows[0].id;
+
+      // The name says ACME; the operator corrected it to BETA in the wizard.
+      const ok = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        { ...bill({ invoiceNumber: `${TAG}-override` }), supplierId: beta },
+      ], USER));
+      expect(ok.imported).toBe(1);
+      const row = (await c.query(
+        `SELECT supplier_id FROM supplier_invoices
+          WHERE company_id = $1 AND invoice_number = $2`,
+        [COMPANY, `${TAG}-override`],
+      )).rows[0];
+      expect(row.supplier_id).toBe(beta);
+
+      const bad = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        { ...bill({ invoiceNumber: `${TAG}-override-x` }), supplierId: foreign },
+      ], USER));
+      expect(bad.imported).toBe(0);
+      expect(bad.errors[0]!.field).toBe('supplierId');
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('reports a bad row against its position in the operator\'s file, not in the shortened array', async () => {
+    // The routes validate row by row and hand the service only the rows that
+    // parsed. Reporting row 1 for what was line 3 of the spreadsheet names the
+    // wrong line, so the mapping travels with the rows.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const result = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-ctx`, supplierName: 'Nobody at all' }),
+      ], USER, {
+        sourceRows: [7],
+        priorErrors: [{ step: 'ap_invoices', row: 2, field: 'invoiceDate', message: 'invoiceDate: Must be a date as YYYY-MM-DD' }],
+      }));
+
+      expect(result.imported).toBe(0);
+      expect(result.skipped).toBe(2);
+      expect(result.errors.map(e => e.row)).toEqual([2, 7]);
+
+      // And both reached the session, which is the only place the operator sees
+      // them after a page reload.
+      const sess = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1`, [sessionId],
+      )).rows[0];
+      const rows = (sess.errors as { step: string; row: number }[])
+        .filter(e => e.step === 'ap_invoices').map(e => e.row).sort((a, b) => a - b);
+      expect(rows).toEqual([2, 7]);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();

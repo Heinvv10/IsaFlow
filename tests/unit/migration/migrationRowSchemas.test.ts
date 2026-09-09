@@ -3,14 +3,23 @@
  * straight to the row type, so wrong types, negative amounts and missing
  * fields reached the numeric and DATE columns unchecked and surfaced as raw
  * Postgres messages. These schemas stop that at the edge.
+ *
+ * Round 4 adds the two decisions the previous revision got wrong:
+ *   - a BLANK AP invoice number is legitimate, because the service's
+ *     fingerprint fallback exists for it and production carries such rows;
+ *   - validation is per ROW, so one bad line costs one line rather than the
+ *     whole 5000-row file, and the failure names its position in that file.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  APImportRequestSchema,
-  ARImportRequestSchema,
+  APInvoiceRowSchema,
+  ARInvoiceRowSchema,
+  ImportEnvelopeSchema,
+  parseInvoiceRows,
 } from '@/modules/accounting/services/core/migrationRowSchemas';
 
 const SESSION = '3f8a1c22-9b7e-4d61-8a03-27c5e9d41b6f';
+const SUPPLIER = '9c1d5e70-4a2b-4c88-9f31-6e0b7a45d213';
 
 const apRow = {
   invoiceNumber: 'INV-1',
@@ -26,14 +35,14 @@ const body = (rows: unknown[]) => ({ sessionId: SESSION, invoices: rows });
 
 describe('migration invoice request schemas', () => {
   it('accepts a row with amountPaid omitted', () => {
-    const parsed = APImportRequestSchema.safeParse(body([apRow]));
+    const parsed = APInvoiceRowSchema.safeParse(apRow);
     expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.invoices[0]!.amountPaid).toBeUndefined();
+    expect(parsed.success && parsed.data.amountPaid).toBeUndefined();
   });
 
   it('trims and keeps an optional reference', () => {
-    const parsed = APImportRequestSchema.safeParse(body([{ ...apRow, reference: '  PO-9  ' }]));
-    expect(parsed.success && parsed.data.invoices[0]!.reference).toBe('PO-9');
+    const parsed = APInvoiceRowSchema.safeParse({ ...apRow, reference: '  PO-9  ' });
+    expect(parsed.success && parsed.data.reference).toBe('PO-9');
   });
 
   it.each([
@@ -43,24 +52,83 @@ describe('migration invoice request schemas', () => {
     ['a blank supplier name', { ...apRow, supplierName: '   ' }],
     ['a date that is not YYYY-MM-DD', { ...apRow, invoiceDate: '30/06/2026' }],
     ['a non-finite amount', { ...apRow, taxAmount: Number.POSITIVE_INFINITY }],
+    ['a supplier override that is not a UUID', { ...apRow, supplierId: 'nope' }],
   ])('rejects %s', (_label, row) => {
-    expect(APImportRequestSchema.safeParse(body([row])).success).toBe(false);
+    expect(APInvoiceRowSchema.safeParse(row).success).toBe(false);
   });
 
-  it('rejects an empty invoice array', () => {
-    expect(APImportRequestSchema.safeParse(body([])).success).toBe(false);
+  it('accepts a BLANK AP invoice number, which the fingerprint fallback exists for', () => {
+    // The service keys a numbered bill on its number and a blank one on its
+    // duplicate fingerprint. Requiring a number here made that fallback — and
+    // migration 625's index — unreachable through the only API that calls it,
+    // and 400ed a whole take-on file over one unnumbered till slip.
+    for (const invoiceNumber of ['', '   ']) {
+      const parsed = APInvoiceRowSchema.safeParse({ ...apRow, invoiceNumber });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.invoiceNumber).toBe('');
+    }
   });
 
-  it('rejects a sessionId that is not a UUID, before it reaches a ::UUID cast', () => {
-    const parsed = APImportRequestSchema.safeParse({ sessionId: 'not-a-uuid', invoices: [apRow] });
+  it('keeps the page\'s supplier override, and treats an empty one as absent', () => {
+    const withId = APInvoiceRowSchema.safeParse({ ...apRow, supplierId: SUPPLIER });
+    expect(withId.success && withId.data.supplierId).toBe(SUPPLIER);
+    // The wizard page sends '' when it has no match to offer.
+    expect(APInvoiceRowSchema.safeParse({ ...apRow, supplierId: '' }).success).toBe(true);
+  });
+
+  it('the AR schema still REQUIRES a number, because its unique index has no blank exemption', () => {
+    const { supplierName, ...rest } = apRow;
+    expect(supplierName).toBe('ACME');
+    const arRow = { ...rest, customerName: 'ACME' };
+    expect(ARInvoiceRowSchema.safeParse(arRow).success).toBe(true);
+    expect(ARInvoiceRowSchema.safeParse({ ...arRow, invoiceNumber: '' }).success).toBe(false);
+  });
+
+  it('the AR schema wants a customer name, not a supplier name', () => {
+    expect(ARInvoiceRowSchema.safeParse(apRow).success).toBe(false);
+  });
+
+  it('rejects an empty invoice array and a sessionId that is not a UUID', () => {
+    expect(ImportEnvelopeSchema.safeParse(body([])).success).toBe(false);
+    const parsed = ImportEnvelopeSchema.safeParse({ sessionId: 'not-a-uuid', invoices: [apRow] });
     expect(parsed.success).toBe(false);
     expect(parsed.success === false && parsed.error.flatten().fieldErrors.sessionId).toBeTruthy();
   });
 
-  it('the AR schema wants a customer name, not a supplier name', () => {
-    expect(ARImportRequestSchema.safeParse(body([apRow])).success).toBe(false);
-    const { supplierName, ...rest } = apRow;
-    expect(supplierName).toBe('ACME');
-    expect(ARImportRequestSchema.safeParse(body([{ ...rest, customerName: 'ACME' }])).success).toBe(true);
+  it('does not look at the rows: they are parsed one at a time', () => {
+    expect(ImportEnvelopeSchema.safeParse(body(['nonsense', 42])).success).toBe(true);
+  });
+});
+
+describe('parseInvoiceRows', () => {
+  it('imports the good rows and reports each bad one against its file position', () => {
+    const raw = [
+      apRow,
+      { ...apRow, invoiceDate: '30/06/2026' },   // the SA-locale Excel export
+      { ...apRow, invoiceNumber: 'INV-3' },
+    ];
+    const { rows, sourceRows, errors } = parseInvoiceRows(APInvoiceRowSchema, 'ap_invoices', raw);
+
+    expect(rows).toHaveLength(2);
+    expect(sourceRows).toEqual([0, 2]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ step: 'ap_invoices', row: 1, field: 'invoiceDate' });
+    expect(errors[0]!.message).toContain('YYYY-MM-DD');
+  });
+
+  it('names every bad row, not only the first', () => {
+    const { rows, errors } = parseInvoiceRows(APInvoiceRowSchema, 'ap_invoices', [
+      { ...apRow, totalAmount: -1 },
+      apRow,
+      { ...apRow, supplierName: '' },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(errors.map(e => e.row)).toEqual([0, 2]);
+  });
+
+  it('returns no rows at all when every row is bad, rather than throwing', () => {
+    const { rows, errors } = parseInvoiceRows(ARInvoiceRowSchema, 'ar_invoices', ['x', null]);
+    expect(rows).toEqual([]);
+    expect(errors.map(e => e.step)).toEqual(['ar_invoices', 'ar_invoices']);
   });
 });
