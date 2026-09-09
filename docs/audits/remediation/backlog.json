@@ -9853,6 +9853,35 @@
       "severity": "high",
       "source": "Raised by the K-140 fixer while closing review-k140-r1 H-1; recorded 2026-09-09",
       "processNotes": "The SQL arm of bank rule matching interpolated match_pattern raw, so any pattern containing _ or % over-matched. Those rows had suggested_gl_account_id / suggested_supplier_id / suggested_client_id / suggested_vat_code written onto them, and autoPostGateService.sweep's non-import branch POSTS exactly those suggestions unattended -- so misallocations may already sit in the ledger, posted by an agent rather than a person. K-140 closes the defect forward and migration 657 releases the losing side of existing double-bindings, but no already-written suggestion or posting is corrected. The over-matched-suggestion query and the double-binding census are in docs/audits/remediation/K-140/fix.md and have NOT been run against production. HEIN'S CALL: posting_agent identifies which postings came from the sweep."
+    },
+    {
+      "id": "R-040",
+      "claim": "",
+      "area": "accounting/ui",
+      "affectedPaths": [
+        "pages/accounting/suppliers.tsx"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None; display only.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "suppliers.tsx still reads the un-unwrapped API envelope, the second page PR #253's sweep missed",
+      "severity": "medium",
+      "source": "Raised by the K-015 r2 blind reviewer while confirming HIGH 1; recorded 2026-09-09",
+      "processNotes": "PR #253 swept the codebase for double-wrapped apiResponse envelopes read as json.data.<field>. Two pages were missed: pages/accounting/migration/ap-invoices.tsx:108-111 (being fixed under K-015) and pages/accounting/suppliers.tsx:82 (out of K-015's scope, still live). apiResponse.success wraps an already-wrapped payload, so json.data.<field> is always undefined and the page silently does nothing or renders empty. Same class as feedback_api_response_shape and feedback_null_fallback_hides_api_error: a ?? [] or ?? 0 fallback turns the mismatch into empty UI instead of an error. Check whether the sweep missed others."
     }
   ],
   "sourceInventory": [
