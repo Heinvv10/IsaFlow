@@ -1,0 +1,14 @@
+-- 654: converge the reversal-link index on databases that ran 623 before 619.
+--
+-- 619 creates ux_gl_je_reversal_of (company_id, reversal_of_id) WHERE
+-- reversal_of_id IS NOT NULL and drops the older non-unique
+-- idx_gl_je_reversal_of(reversal_of_id). Production applied 623 first, so it
+-- ends with the unique index alone; a database built from scratch replays
+-- 619 then 623 and keeps both. Every probe of reversal_of_id in the product
+-- -- vatBoxBasisQuery's two cancelled-document arms included -- filters on
+-- company_id, so the unique index (leading column company_id) serves them and
+-- the single-column index only costs write amplification.
+--
+-- Dropping it here leaves both shapes identical: a no-op on production, the
+-- reconciliation on a fresh database.
+DROP INDEX IF EXISTS idx_gl_je_reversal_of;
