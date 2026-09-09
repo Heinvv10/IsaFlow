@@ -1,6 +1,6 @@
 -- Migration 627: admit `source = 'year_end'` on gl_journal_entries.
 --
--- yearEndCloseService.postClosingJournal has always written 'year_end', which
+-- yearEndJournalPoster.postClosingJournal has always written 'year_end', which
 -- gl_journal_entries_source_check has never accepted, so EVERY year-end close
 -- of EVERY company aborted with 23514 at the header INSERT before a single
 -- line was attempted. The whole close runs inside withTransaction, so nothing
@@ -30,6 +30,16 @@
 --
 -- No existing row can carry 'year_end' — none could ever have been written —
 -- so there is nothing to backfill.
+--
+-- NOT VALID, deliberately. A plain ADD CONSTRAINT ... CHECK validates every
+-- existing row under ACCESS EXCLUSIVE, which blocks all reads and writes on the
+-- busiest table in the schema for the length of a full scan. It is also
+-- pointless here: the new list is a strict SUPERSET of the list the old
+-- constraint already enforced on every row, so no existing row can violate it.
+-- NOT VALID skips the scan and still checks every future INSERT and UPDATE,
+-- which is the whole point of the constraint. The runner wraps each migration
+-- file in one transaction (scripts/apply-migrations.ts), so there is no window
+-- in which the constraint is absent.
 --
 -- Idempotent: the constraint is dropped IF EXISTS before being re-added.
 
@@ -66,4 +76,4 @@ ALTER TABLE gl_journal_entries
       'auto_expense_receipt',
       'year_end'
     ]::text[])
-  );
+  ) NOT VALID;

@@ -33,6 +33,8 @@ function tenant(): Tenant {
 
 const a = tenant();
 const b = tenant();
+const c = tenant();  // break-even year: revenue exactly equals expenses
+const d = tenant();  // dormant year: nothing posted at all
 
 async function seed(t: Tenant, name: string) {
   await pool.query('INSERT INTO companies(id,name,financial_year_start) VALUES($1,$2,1)', [t.company, name]);
@@ -68,6 +70,8 @@ beforeAll(async () => {
     [user, `k046adj-${user}@test.local`]);
   await seed(a, 'K046 tenant A');
   await seed(b, 'K046 tenant B');
+  await seed(c, 'K046 tenant C');
+  await seed(d, 'K046 tenant D');
   // Tenant A: revenue 4000 carries a net DEBIT of 500 (a refund bigger than the
   // year's billing), expense 5000 carries a normal debit of 200.
   await post(a, a.revenue, a.bank, 500, 'A-REFUND');
@@ -76,11 +80,15 @@ beforeAll(async () => {
   // rebate) — plus normal revenue of 1000.
   await post(b, b.bank, b.expense, 300, 'B-REBATE');
   await post(b, b.bank, b.revenue, 1000, 'B-SALE');
+  // Tenant C: revenue 1000 and expenses 1000 — a break-even year, netIncome 0.
+  await post(c, c.bank, c.revenue, 1000, 'C-SALE');
+  await post(c, c.expense, c.bank, 1000, 'C-COST');
+  // Tenant D: nothing posted at all.
 });
 
 afterAll(async () => {
   try {
-    for (const t of [a, b]) {
+    for (const t of [a, b, c, d]) {
       clearSystemAccountCache(t.company);
       await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [t.company]);
       await pool.query(
@@ -156,13 +164,22 @@ describe('year-end close with a contra revenue account (tenant A)', () => {
     expect(periods.rows.map((r) => r.status)).toEqual(['closed']);
   });
 
-  it('refuses a second close of the same year rather than posting twice', async () => {
-    // K-113 (a separate, UNFIXED finding): there is still no already-closed
-    // guard, so the second call fails late instead of reporting the state. It
-    // no longer reaches the 23505 on uq_gl_je_company_entry_number, because the
-    // new validateJournalEntry check refuses the single zero retained-earnings
-    // line first. What matters here is that no second journal is written.
-    await expect(closeFiscalYear(a.company, '2025', user)).rejects.toThrow(/invalid/i);
+  it('reports the existing journal on a second close instead of posting twice', async () => {
+    // The first close flattens the P&L, so a re-run's aggregates are empty and
+    // it lands on the same branch a DORMANT year takes. Without the
+    // already-closed lookup it would answer "closed, nothing to post" and hide
+    // that the real close happened earlier, so the two are told apart.
+    //
+    // K-113 (the missing already-closed guard on the whole close) is a
+    // separate, UNFIXED finding: the dry run of a closed year still reports a
+    // false zero. What is pinned here is only that the live re-run writes no
+    // second journal and does not misreport.
+    const again = await closeFiscalYear(a.company, '2025', user) as
+      { alreadyClosed: boolean; closingEntry: { entry_number: string } | null; message: string };
+    expect(again.alreadyClosed).toBe(true);
+    expect(again.closingEntry?.entry_number).toBe('YE-2025');
+    expect(again.message).toMatch(/already closed/i);
+
     const count = await pool.query(
       "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'", [a.company]);
     expect(count.rows[0].n).toBe(1);
@@ -193,5 +210,57 @@ describe('year-end close with a contra expense account (tenant B)', () => {
       [result.closingEntry.id, b.company]);
     expect(Number(totals.rows[0].d)).toBe(1300 + 1000 + 300 - 1300);
     expect(Number(totals.rows[0].d)).toBe(Number(totals.rows[0].c));
+  });
+});
+
+describe('a year with nothing to transfer still closes', () => {
+  it('closes a BREAK-EVEN year without a zero retained-earnings line (tenant C)', async () => {
+    // netIncome is exactly 0. Appending a `debit: 0, credit: 0` line to say so
+    // makes the journal illegal — validateJournalEntry requires a non-zero
+    // amount on exactly one side of every line — so the close refused a
+    // perfectly balanced journal. The P&L lines already offset each other.
+    const result = await closeFiscalYear(c.company, '2025', user) as
+      { netIncome: number; alreadyClosed: boolean; closingEntry: { id: string } };
+    expect(result.netIncome).toBe(0);
+    expect(result.alreadyClosed).toBe(false);
+
+    const lines = await pool.query(
+      `SELECT ga.account_code, jl.debit::numeric AS debit, jl.credit::numeric AS credit
+       FROM gl_journal_lines jl JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+       WHERE jl.journal_entry_id=$1 AND jl.company_id=$2 ORDER BY ga.account_code`,
+      [result.closingEntry.id, c.company]);
+    expect(lines.rows.map((r) => ({
+      code: r.account_code, debit: Number(r.debit), credit: Number(r.credit),
+    }))).toEqual([
+      { code: '4000', debit: 1000, credit: 0 },
+      { code: '5000', debit: 0, credit: 1000 },
+    ]);
+    // No retained-earnings line at all, and the journal still balances.
+    expect(lines.rows.map((r) => r.account_code)).not.toContain('3200');
+
+    const periods = await pool.query(
+      'SELECT DISTINCT status FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2', [c.company, '2025']);
+    expect(periods.rows.map((r) => r.status)).toEqual(['locked']);
+  });
+
+  it('closes a DORMANT year with no journal at all, and still locks it (tenant D)', async () => {
+    // Nothing was posted to any P&L account, so there are no lines and there is
+    // no such thing as a legal empty journal. The year must still close: a
+    // company that traded not at all would otherwise carry it open forever.
+    const result = await closeFiscalYear(d.company, '2025', user) as
+      { netIncome: number; closingEntry: null; periodsLocked: true; alreadyClosed: boolean; message: string };
+    expect(result.netIncome).toBe(0);
+    expect(result.closingEntry).toBeNull();
+    expect(result.periodsLocked).toBe(true);
+    expect(result.alreadyClosed).toBe(false);
+    expect(result.message).toMatch(/no posted profit or loss/i);
+
+    const written = await pool.query(
+      'SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1', [d.company]);
+    expect(written.rows[0].n).toBe(0);
+
+    const periods = await pool.query(
+      'SELECT DISTINCT status FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2', [d.company, '2025']);
+    expect(periods.rows.map((r) => r.status)).toEqual(['locked']);
   });
 });

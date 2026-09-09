@@ -8,6 +8,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { roundToCents } from '../../utils/doubleEntry';
 import { getSystemAccountCandidates } from './systemAccountResolver';
 import type {
   CloseYearError,
@@ -93,12 +94,23 @@ export function buildPreview(
         debit: balance < 0 ? -balance : 0, credit: balance >= 0 ? balance : 0,
       };
     }),
-    {
-      accountId: retained.id, accountCode: retained.accountCode, accountName: retained.accountName,
-      debit: netIncome < 0 ? Math.abs(netIncome) : 0,
-      credit: netIncome >= 0 ? netIncome : 0,
-    },
   ];
+
+  // A BREAK-EVEN YEAR HAS NOTHING TO TRANSFER, and appending a 0/0 line to say
+  // so makes the journal illegal: `validateJournalEntry` requires a non-zero
+  // amount on exactly one side of every line, so the close refused a journal
+  // that was perfectly balanced. A dormant year is the same case with no P&L
+  // lines either, and leaves `lines` EMPTY — the caller posts no journal at all
+  // and just locks the year. The P&L lines already balance each other whenever
+  // the result is zero, so dropping this line cannot unbalance anything.
+  const transfer = roundToCents(netIncome);
+  if (transfer !== 0) {
+    lines.push({
+      accountId: retained.id, accountCode: retained.accountCode, accountName: retained.accountName,
+      debit: transfer < 0 ? -transfer : 0,
+      credit: transfer > 0 ? transfer : 0,
+    });
+  }
 
   return {
     entryDate,

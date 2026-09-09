@@ -90,6 +90,32 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
               `(${result.accountCodes.join(', ')}). Year-end close posts the whole year's ` +
               `result to one account, so it will not guess — un-flag all but one and try again.`
           );
+        case 'no_fiscal_period':
+          return apiResponse.badRequest(
+            res,
+            `No fiscal period covers ${result.entryDate}, where the closing journal has to ` +
+              `land. Create the period that covers the last day of the year, then close again.`
+          );
+        case 'period_range_mismatch':
+          return apiResponse.badRequest(
+            res,
+            `The periods labelled this fiscal year run ${result.actual.startDate} to ` +
+              `${result.actual.endDate}, but this company's financial year starts in month ` +
+              `${result.startMonth}, so the year is ${result.expected.startDate} to ` +
+              `${result.expected.endDate}. Closing the labelled span would roll the wrong ` +
+              `twelve months into equity and lock them. Fix the period dates, then close again.`
+          );
+        default: {
+          // Exhaustive over CloseYearError: `unhandled` stops being `never` the
+          // moment a member is added without a case. Without this the refusal
+          // fell through to the success response below and the route answered
+          // 200 with an `error` body — which is exactly what `no_fiscal_period`
+          // and `period_range_mismatch` did.
+          const unhandled: never = result;
+          log.error('Year-end close refused with an unhandled error shape',
+            { unhandled, yearLabel, module: 'accounting' });
+          return apiResponse.badRequest(res, 'Year-end close was refused.');
+        }
       }
     }
 
