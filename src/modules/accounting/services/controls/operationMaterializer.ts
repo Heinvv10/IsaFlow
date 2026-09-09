@@ -1,3 +1,4 @@
+import { materializePayrollOperation } from './payrollOperationMaterializer';
 import { materializePeriodOperation } from './periodOperationMaterializer';
 import { isRealCalendarDate } from '@/lib/validation';
 import { materializeGlOperation } from './glOperationMaterializer';
@@ -85,6 +86,7 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
 
 /** Authoritative source material is shared by approval, execution and after-effect evidence. */
 export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
+  if(ref.entityType==='payroll_run')return materializePayrollOperation(ctx,ref);
   if(['fiscal_period','fiscal_year','vat_period','company_lockdown_intent'].includes(ref.entityType))return materializePeriodOperation(ctx,ref);
   return ref.entityType==='journal_entry' ? materializeGlOperation(ctx,ref) : materializeApOperation(ctx,ref);
 }

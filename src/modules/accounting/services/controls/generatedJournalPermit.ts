@@ -37,6 +37,19 @@ export async function registerGeneratedJournal(ctx: ControlTx, control: ParentJo
                 AND original.status='posted' AND original.source=je.source FOR SHARE))
           OR (${operation}='journal.reverse' AND ${parent.operation}='supplier_payment.void' AND p.gl_journal_entry_id=je.id AND je.status='posted'))
       FOR SHARE OF p,je`;
+  } else if (parent.entityType === 'payroll_run' && ['payroll_run.post','payroll_run.reopen'].includes(parent.operation)) {
+    related = await ctx.sql`SELECT je.id,je.entry_date::text AS entry_date FROM gl_journal_entries je
+      JOIN payroll_run_headers p ON p.company_id=je.company_id AND p.id=${parent.entityId}::uuid
+      WHERE je.company_id=${company}::uuid AND je.id=${journalId}::uuid
+        AND ((${operation}='journal.post' AND ${parent.operation}='payroll_run.post'
+          AND je.status='draft' AND je.source='auto_payroll' AND je.source_record_id=p.id)
+          OR (${operation}='journal.reverse' AND ${parent.operation}='payroll_run.reopen'
+            AND p.journal_entry_id=je.id AND je.status='posted')
+          OR (${operation}='journal.post' AND ${parent.operation}='payroll_run.reopen' AND je.status='draft'
+            AND je.reversal_of_id=p.journal_entry_id AND EXISTS(SELECT 1 FROM gl_journal_entries original
+              WHERE original.company_id=je.company_id AND original.id=je.reversal_of_id
+                AND original.status='posted' AND original.source=je.source FOR SHARE)))
+      FOR SHARE OF p,je`;
   } else if (parent.entityType === 'journal_entry' && parent.operation === 'journal.reverse' && operation === 'journal.post') {
     related = await ctx.sql`SELECT je.id, je.entry_date::text AS entry_date FROM gl_journal_entries je JOIN gl_journal_entries p
       ON p.company_id=je.company_id AND p.id=je.reversal_of_id

@@ -1,0 +1,36 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/services/controls/glGeneratedPermit.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/glGeneratedPermit.test.ts (13 tests | 2 failed) 16ms
+   × registers only a persisted owned payroll_run.post journal 5ms
+   × registers only a persisted owned payroll_run.reopen journal 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/glGeneratedPermit.test.ts > registers only a persisted owned payroll_run.post journal
+ FAIL  tests/unit/services/controls/glGeneratedPermit.test.ts > registers only a persisted owned payroll_run.reopen journal
+AssertionError: promise rejected "Error: Generated journal has no authorize…" instead of resolving
+ ❯ tests/unit/services/controls/glGeneratedPermit.test.ts:53:84
+     51| it.each(['payroll_run.post','payroll_run.reopen'] as const)('registers…
+     52|  const parent={entityType:'payroll_run',entityId:journal,operation};
+     53|  await expect(registerGeneratedJournal(ctx,{permit,parent},journal,'jo…
+       |                                                                                    ^
+     54|  expect(sql.mock.calls.map(call=>String(call[0])).join(' ')).toContain…
+     55|  sql.mockResolvedValue([]);
+
+Caused by: Error: Generated journal has no authorized parent relationship
+ ❯ Module.registerGeneratedJournal src/modules/accounting/services/controls/generatedJournalPermit.ts:47:35
+ ❯ tests/unit/services/controls/glGeneratedPermit.test.ts:53:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 11 passed (13)
+   Start at  10:54:12
+   Duration  367ms (transform 66ms, setup 0ms, import 88ms, tests 16ms, environment 0ms)
+
+error: script "test:unit" exited with code 1
