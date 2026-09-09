@@ -33,13 +33,23 @@ error: script "test:integration" exited with code 1
 
 
 === NOTE on the "GREEN: full unit suite" line above ===
-That step was piped through `tail -3`, which cut the counts and left only a bare
-exit code 1. It is NOT reproducible: `bun run test:unit` was then run three more
-times from this worktree at this tree state, each time
-  Test Files  784 passed | 36 skipped (820)
-       Tests  9320 passed | 234 skipped (9554)
-  EXIT=0
-with no FAIL line (full output: scratchpad/k012-unit3.log). The suite runs ~9.5k
-tests in ~46-63s while other agents share this box, so a load-induced flake is
-the likely cause, but the failing test was not captured and I cannot name it.
-Recorded rather than dropped.
+That step was piped through `tail -3`, which cut the counts and left a bare exit
+code 1. The cause is environmental and NOT a flake, and not K-012:
+tests/unit/services/reports/incomeStatementDisclosureDb.test.ts skips itself when
+DATABASE_URL is unset and runs against a real ledger when it is set. That step ran
+in the same shell that had sourced the disposable zero-row fixture env for the
+integration mutations, so it hit an empty database. Reproduced both ways from this
+worktree at this tree state:
+
+  $ source <fixture.env>; bunx vitest run tests/unit/services/reports/incomeStatementDisclosureDb.test.ts
+    Test Files  1 failed (1)
+         Tests  7 failed | 1 passed (8)
+
+  $ env -u DATABASE_URL bunx vitest run tests/unit/services/reports/incomeStatementDisclosureDb.test.ts
+    Test Files  1 passed (1)
+         Tests  1 passed | 7 skipped (8)
+
+That file was the only failure in ~9.5k tests. `bun run test:unit` in a shell with
+no DATABASE_URL passes: 784 files passed / 36 skipped, 9320 tests passed / 234
+skipped, exit 0 (full output: scratchpad/k012-unit3.log). Run the unit suite in a
+clean shell; do not carry the integration fixture env into it.
