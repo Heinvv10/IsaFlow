@@ -192,3 +192,38 @@ it('retains an original multi-date CSV artifact and independently approves each 
  }
  expect(new Set(journals).size).toBe(2);
 });
+it('routes the legacy GL importer through an exact saved independently approved original CSV group',async()=>{
+ const {extractHistoricalCsvGroups}=await import('@/modules/accounting/services/controls/historicalImportCsvAdapter');
+ const {importJournalEntries}=await import('@/modules/accounting/services/gl/glImportExecuteService');
+ const reference=randomUUID(),bytes=Buffer.from(`date,reference,accountCode,debit,credit,description\n2023-02-28,${reference},HI-C,10,0,Legacy debit\n2023-02-28,${reference},HI-R,0,10,Legacy credit`);
+ const options={sourceKey:randomUUID(),sourceSystem:'csv' as const,kind:'gl' as const},group=extractHistoricalCsvGroups(bytes,options).groups[0]!;
+ const stored=await actor('u1',ctx=>storeHistoricalImportSource(ctx,{bytes,mimeType:'text/csv',artifact:{artifactVersion:2,extractor:{id:'gl_csv',version:1},evidenceKind:'original_upload',extraction:{options,groupKey:group.groupKey}}}));
+ const preparedGroup=await actor('u1',ctx=>prepareHistoricalImport(ctx,{sourceSystem:'csv',sourceKey:group.normalized!.sourceKey,kind:'gl',mode:'post_journal',accountingDate:'2023-02-28',evidenceId:stored.sourceId,sourceRecordIds:group.sourceRecordIds}));
+ const ref:OperationRef={entityType:'historical_import',entityId:preparedGroup.importId,operation:'historical_import.post'},approvalId=await approved(ref);
+ const rows=[{date:'2023-02-28',reference,accountCode:'HI-C',debit:10,credit:0,description:'Legacy debit'},
+  {date:'2023-02-28',reference,accountCode:'HI-R',debit:0,credit:10,description:'Legacy credit'}];
+ const bindings={imports:[{importId:preparedGroup.importId,approvalId}]};
+ await expect(actor('u1',()=>importJournalEntries(fixture.companyA,rows,fixture.u1.id,true,bindings))).resolves.toMatchObject({entriesCreated:1,linesCreated:2,totalValue:10});
+ await expect(actor('u1',()=>importJournalEntries(fixture.companyA,rows.map(row=>({...row,description:'Changed caller data'})),fixture.u1.id,true,bindings))).rejects.toThrow('differs');
+ await expect(actor('u1',()=>importJournalEntries(fixture.companyA,rows,fixture.u1.id,true))).rejects.toThrow('saved');
+});
+it('rolls back the first legacy group when a caught second-group approval refusal occurs',async()=>{
+ const {extractHistoricalCsvGroups}=await import('@/modules/accounting/services/controls/historicalImportCsvAdapter');
+ const {importJournalEntries}=await import('@/modules/accounting/services/gl/glImportExecuteService');
+ const references=[randomUUID(),randomUUID()],rows=references.flatMap(reference=>[
+  {date:'2023-02-28',reference,accountCode:'HI-C',debit:10,credit:0,description:'Batch debit'},
+  {date:'2023-02-28',reference,accountCode:'HI-R',debit:0,credit:10,description:'Batch credit'}]);
+ const bytes=Buffer.from('date,reference,accountCode,debit,credit,description\n'+rows.map(row=>[row.date,row.reference,row.accountCode,row.debit,row.credit,row.description].join(',')).join('\n'));
+ const options={sourceKey:randomUUID(),sourceSystem:'csv' as const,kind:'gl' as const};
+ const imports:Array<{importId:string;approvalId:string}>=[];
+ for(const group of extractHistoricalCsvGroups(bytes,options).groups){
+  const stored=await actor('u1',ctx=>storeHistoricalImportSource(ctx,{bytes,mimeType:'text/csv',artifact:{artifactVersion:2,extractor:{id:'gl_csv',version:1},evidenceKind:'original_upload',extraction:{options,groupKey:group.groupKey}}}));
+  const preparedGroup=await actor('u1',ctx=>prepareHistoricalImport(ctx,{sourceSystem:'csv',sourceKey:group.normalized!.sourceKey,kind:'gl',mode:'post_journal',accountingDate:'2023-02-28',evidenceId:stored.sourceId,sourceRecordIds:group.sourceRecordIds}));
+  imports.push({importId:preparedGroup.importId,approvalId:await approved({entityType:'historical_import',entityId:preparedGroup.importId,operation:'historical_import.post'})});
+ }
+ const supplied={imports:[imports[0]!,{...imports[1]!,approvalId:randomUUID()}]};
+ await actor('u1',async()=>{await expect(importJournalEntries(fixture.companyA,rows,fixture.u1.id,true,supplied)).rejects.toThrow();});
+ expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=ANY($2::uuid[])',[fixture.companyA,imports.map(item=>item.importId)])).rows).toHaveLength(0);
+ expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_type='historical_import' AND entity_id=ANY($2::text[])",[fixture.companyA,imports.map(item=>item.importId)])).rows).toHaveLength(0);
+ await expect(actor('u1',()=>importJournalEntries(fixture.companyA,rows,fixture.u1.id,true,{imports}))).resolves.toMatchObject({entriesCreated:2,linesCreated:4,totalValue:20});
+});
