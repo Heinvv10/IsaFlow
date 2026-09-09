@@ -9,18 +9,29 @@ import { TrendingDown, Play, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import {
+  calculatePolicyDepreciation,
+  toDepreciationMethod,
+} from '@/modules/accounting/services/items/farDepreciationService';
+import { fmtDate } from '@/lib/fmtDate';
+// Type-only, so it is erased at compile time and the service never reaches the
+// client bundle. The page used to redeclare this shape with an `amount` field
+// the API has never returned, which rendered "RNaN" in every row — `tsc` could
+// not see it because the local interface was asserted over the parsed JSON.
+import type {
+  DepreciationRunResult,
+  DepreciationRunResultRow,
+} from '@/modules/accounting/services/items/depreciationRunService';
 
-interface DepResult {
-  assetNumber: string;
-  amount: number;
-  entryId: string | null;
-}
+type DepRun = Pick<DepreciationRunResult, 'processed' | 'skipped' | 'total' | 'results'>;
 
-interface DepRun {
-  processed: number;
-  skipped: number;
-  total: number;
-  results: DepResult[];
+/** Posted, no charge this period, or a real failure. Only the last is red. */
+function runOutcome(r: DepreciationRunResultRow): { label: string; className: string } {
+  if (r.entryId) return { label: 'GL Posted', className: 'text-teal-400 text-xs' };
+  // A life-expired asset simply has no charge. Rendering it as "GL Failed"
+  // sent an operator hunting for a failure that never happened.
+  if (r.lifeExpiredNote) return { label: 'No charge', className: 'text-[var(--ff-text-tertiary)] text-xs' };
+  return { label: 'GL Failed', className: 'text-red-400 text-xs' };
 }
 
 interface AssetRow {
@@ -32,11 +43,32 @@ interface AssetRow {
   accumulated_depreciation: number;
   useful_life_years: number;
   salvage_value: number;
+  depreciation_method: string | null;
+  purchase_date: string | null;
+  disposal_date: string | null;
   category?: string;
 }
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+
+/** The charge the run would post for this asset — its method, not straight line. */
+export function monthlyCharge(a: AssetRow, today: Date = new Date()): number {
+  const pp = Number(a.purchase_price);
+  const sv = Number(a.salvage_value || 0);
+  const uly = Number(a.useful_life_years);
+  if (!(pp > 0) || !(uly > 0)) return 0;
+  return calculatePolicyDepreciation({
+    cost: pp,
+    residualPct: sv / pp,
+    usefulLifeYears: uly,
+    purchaseDate: fmtDate(a.purchase_date ?? today),
+    periodDate: fmtDate(today),
+    openingAccDep: Number(a.accumulated_depreciation || 0),
+    method: toDepreciationMethod(a.depreciation_method),
+    ...(a.disposal_date ? { disposalDate: fmtDate(a.disposal_date) } : {}),
+  }).monthlyDep;
+}
 
 export default function DepreciationPage() {
   const [assets, setAssets] = useState<AssetRow[]>([]);
@@ -107,7 +139,7 @@ export default function DepreciationPage() {
                   Asset Depreciation
                 </h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
-                  Straight-line monthly depreciation with GL posting
+                  Monthly depreciation on each asset&apos;s own method, posted to the GL
                 </p>
               </div>
             </div>
@@ -162,24 +194,21 @@ export default function DepreciationPage() {
               </div>
               {lastRun.results.length > 0 && (
                 <div className="space-y-1">
-                  {lastRun.results.map((r, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between text-sm px-2 py-1 rounded bg-[var(--ff-bg-primary)]"
-                    >
-                      <span className="text-[var(--ff-text-primary)]">{r.assetNumber}</span>
-                      <span className="text-[var(--ff-text-secondary)]">{fmt(r.amount)}</span>
-                      <span
-                        className={
-                          r.entryId
-                            ? 'text-teal-400 text-xs'
-                            : 'text-red-400 text-xs'
-                        }
-                      >
-                        {r.entryId ? 'GL Posted' : 'GL Failed'}
-                      </span>
-                    </div>
-                  ))}
+                  {lastRun.results.map((r, i) => {
+                    const outcome = runOutcome(r);
+                    return (
+                      <div key={i} className="px-2 py-1 rounded bg-[var(--ff-bg-primary)]">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-[var(--ff-text-primary)]">{r.assetNumber}</span>
+                          <span className="text-[var(--ff-text-secondary)]">{fmt(r.policyDep)}</span>
+                          <span className={outcome.className}>{outcome.label}</span>
+                        </div>
+                        {r.lifeExpiredNote && (
+                          <p className="text-xs text-amber-400 mt-0.5">{r.lifeExpiredNote}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -215,9 +244,11 @@ export default function DepreciationPage() {
                 )}
                 {filteredAssets.map((a) => {
                   const pp = Number(a.purchase_price);
-                  const sv = Number(a.salvage_value || 0);
                   const uly = Number(a.useful_life_years);
-                  const monthly = Math.round(((pp - sv) / uly / 12) * 100) / 100;
+                  // The run's own calculator. This column used to hard-code
+                  // straight line and so contradicted the journals for exactly
+                  // the assets this programme corrected.
+                  const monthly = monthlyCharge(a);
                   const bv = Number(a.current_book_value ?? pp);
                   const accum = Number(a.accumulated_depreciation || 0);
                   return (
