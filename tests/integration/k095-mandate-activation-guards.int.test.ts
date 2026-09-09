@@ -260,7 +260,11 @@ describeIfDb('K-095 a second active mandate is refused, not thrown', () => {
 
     const run = async (client: PoolClient, mandateId: string) =>
       als.run({ client, claims: {} }, () =>
-        activateAuthorisedMandate(RACE_CO, { id: mandateId, status: 'pending' }, auth),
+        activateAuthorisedMandate(
+          RACE_CO,
+          { id: mandateId, status: 'pending', authorizationCode: null, linked: true },
+          auth,
+        ),
       );
 
     const a = await admin.connect();
@@ -324,14 +328,18 @@ describeIfDb('K-095 a second active mandate is refused, not thrown', () => {
 
     expect(handlerError).toBeNull();
     expect(res.statusCode).toBe(200);
-    const body = (res.body as { data: { status: string; mandateId: string; maxAmountCents?: number; cardLast4?: string } }).data;
+    const body = (res.body as { data: { status: string; mandateId: string; failureReason?: string; maxAmountCents?: number; cardLast4?: string } }).data;
 
     // The activation was blocked by the newer active row, so this reference's
     // mandate is still pending — and that, with ITS ceiling, is what the caller
     // is told. Reading the company's newest row instead answered 'active' with
     // 222222 and card 9999 for a reference that authorised neither.
     expect(body.mandateId).toBe(linkedMandate);
-    expect(body.status).toBe('pending');
+    // The payment completed and activated nothing, so the reference reports
+    // `failed` with its reason — not 'pending' forever to an admin who was
+    // just charged.
+    expect(body.status).toBe('failed');
+    expect(body.failureReason).toBe('authorisation_blocked');
     expect(body.maxAmountCents).toBe(111111);
     expect(body.cardLast4).toBeUndefined();
 

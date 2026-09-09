@@ -27,6 +27,7 @@ interface PrRow {
   status: string;
   paystack_reference: string;
   mandate_id: string | null;
+  failure_reason: string | null;
 }
 
 interface MandateView {
@@ -36,7 +37,6 @@ interface MandateView {
   card_last4: string | null;
   card_brand: string | null;
   max_amount_cents: string | null;
-  authorised_at: Date | string | null;
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -47,7 +47,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!ref) return apiResponse.badRequest(res, 'Missing ref');
 
   const prRows = await sql<PrRow>`
-    SELECT id, status, paystack_reference, mandate_id
+    SELECT id, status, paystack_reference, mandate_id, failure_reason
     FROM paystack_payment_requests
     WHERE paystack_reference = ${ref}
       AND company_id = ${req.companyId}
@@ -61,6 +61,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // written before it have no recoverable link (the id lives in Paystack
   // metadata) and keep the old newest-first heuristic.
   const mandate: MandateRow | null = await resolveAuthorisedMandate(req.companyId, pr.mandate_id);
+
+  // Why this reference's money attached to nothing, if it did. Carried through
+  // to the response: a completed authorisation that activated no mandate must
+  // not be reported as 'pending' to the admin whose card was just charged.
+  let failureReason: string | null = pr.failure_reason;
 
   // If the webhook hasn't fired, ask Paystack directly. The webhook is the
   // source of truth long-term — this is just to avoid stalling the UI.
@@ -86,12 +91,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
             // The reference is now spent — pr.status is no longer 'pending', so
             // this block never runs again — and nothing was activated. Record
             // why rather than letting the route report 'pending' forever.
-            log.warn(
+            log.error(
               'Paystack authorisation succeeded but resolved to no mandate row',
               { prId: pr.id, companyId: req.companyId },
               'PaystackMandate',
             );
-            await noteAuthorisationNotAttached(pr.id, req.companyId, 'authorisation_no_mandate_row');
+            failureReason = 'authorisation_no_mandate_row';
+            await noteAuthorisationNotAttached(pr.id, req.companyId, failureReason);
             return;
           }
           const outcome = await activateAuthorisedMandate(req.companyId, mandate, {
@@ -104,12 +110,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
             bank: live.authorization.bank ?? null,
           });
           if (outcome !== 'activated' && outcome !== 'already_active') {
-            log.warn(
+            log.error(
               'Paystack authorisation could not activate its mandate',
               { prId: pr.id, companyId: req.companyId, mandateId: mandate.id, outcome },
               'PaystackMandate',
             );
-            await noteAuthorisationNotAttached(pr.id, req.companyId, `authorisation_${outcome}`);
+            failureReason = `authorisation_${outcome}`;
+            await noteAuthorisationNotAttached(pr.id, req.companyId, failureReason);
           }
         } else if (live.status === 'failed' || live.status === 'abandoned') {
           await sql`
@@ -139,32 +146,47 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // company's newest row instead reported another checkout's ceiling, card and
   // id under this reference, which is the mis-attribution migration 651 exists
   // to retire. Only a pre-651 row with no resolvable link falls back.
-  const fresh = mandate
-    ? await sql<MandateView>`
-        SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents, authorised_at
-        FROM subscription_mandates
-        WHERE id = ${mandate.id} AND company_id = ${req.companyId}
-        LIMIT 1
-      `
-    : await sql<MandateView>`
-        SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents, authorised_at
-        FROM subscription_mandates
-        WHERE company_id = ${req.companyId}
-          AND gateway = 'paystack'
-          AND status IN ('active','pending','failed')
-        ORDER BY (status = 'active') DESC, created_at DESC
-        LIMIT 1
-      `;
+  let fresh: MandateView[] = [];
+  if (mandate) {
+    fresh = await sql<MandateView>`
+      SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents
+      FROM subscription_mandates
+      WHERE id = ${mandate.id} AND company_id = ${req.companyId}
+      LIMIT 1
+    `;
+  } else if (pr.mandate_id === null) {
+    fresh = await sql<MandateView>`
+      SELECT id, status, bank_name, card_last4, card_brand, max_amount_cents
+      FROM subscription_mandates
+      WHERE company_id = ${req.companyId}
+        AND gateway = 'paystack'
+        AND status IN ('active','pending','failed')
+      ORDER BY (status = 'active') DESC, created_at DESC
+      LIMIT 1
+    `;
+  }
+  // else: pr named a mandate that no longer resolves. Answering with the
+  // company's newest row would re-introduce the mis-attribution 651 retired,
+  // so this reference reports no mandate at all.
   const m = fresh[0];
 
+  // A recorded failure_reason outranks the mandate row: the row may well be
+  // 'active' (it belongs to an EARLIER checkout) while this reference's payment
+  // attached to nothing.
   const publicStatus =
-    m?.status === 'active' ? 'active'
+    failureReason ? 'failed'
+    : m?.status === 'active' ? 'active'
     : m?.status === 'failed' ? 'failed'
     : 'pending';
 
   return apiResponse.success(res, {
     status: publicStatus,
-    mandateId: m?.id ?? null,
+    // A row is only named when it IS this reference's mandate: either the
+    // payment request linked it (migration 651), or nothing went wrong. A
+    // fallback resolution that ended in a failure landed on some OTHER
+    // checkout's row, and naming it is the mis-attribution 651 retired.
+    mandateId: !failureReason || mandate?.linked ? (m?.id ?? null) : null,
+    failureReason: failureReason ?? undefined,
     bankName: m?.bank_name ?? undefined,
     cardLast4: m?.card_last4 ?? undefined,
     cardBrand: m?.card_brand ?? undefined,

@@ -186,7 +186,7 @@ async function handleChargeSuccess(
     // paystackMandateActivation.ts for how the constraint stays the arbiter.
     const mandate = await resolveAuthorisedMandate(pr.company_id, pr.mandate_id);
     if (!mandate) {
-      log.warn(
+      log.error(
         'charge.success authorisation has no mandate row to activate',
         { reference, companyId: pr.company_id },
         'PaystackWebhook',
@@ -204,10 +204,13 @@ async function handleChargeSuccess(
       bank: auth.bank ?? null,
     });
     if (outcome === 'activated' || outcome === 'already_active') return;
-    // 'blocked' (the company already has a different active mandate) and
-    // 'not_pending' (revoked/expired/failed) are both settled states, not
-    // transient ones: throwing would only buy an unbreakable redelivery loop.
-    log.warn(
+    // 'blocked' (the company already has a different active mandate),
+    // 'already_active_other_code' (the pre-651 fallback landed on an earlier
+    // checkout's mandate) and 'not_pending' (revoked/expired/failed) are all
+    // settled states, not transient ones: throwing would only buy an
+    // unbreakable redelivery loop. Logged at error level because the card was
+    // charged and nothing was activated.
+    log.error(
       'charge.success authorisation could not activate its mandate',
       { reference, companyId: pr.company_id, mandateId: mandate.id, status: mandate.status, outcome },
       'PaystackWebhook',

@@ -112,6 +112,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     await sql`
       UPDATE subscription_mandates SET status = 'failed', updated_at = now()
       WHERE id = ${mandateId}
+        AND company_id = ${req.companyId}
     `;
     log.error(
       'Paystack mandate authorisation failed to initialise',

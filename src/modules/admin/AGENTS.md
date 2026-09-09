@@ -39,3 +39,5 @@ Platform administration for ISAFlow SaaS operations — company management, user
 - Separate from accounting module — different auth scope
 - Feature flags stored in `platform_features` table
 - Plans stored in `platform_plans` table
+- **`logAdminAction` fails closed.** `BEST_EFFORT_ACTIONS` is empty, so an audit-write failure — including for an action nobody has added to a list yet — raises `CriticalAuditError`, `withPlatformAdmin` ROLLBACKs the request transaction and the route answers 4xx/500. An unaudited admin mutation must not commit.
+- **Fail-closed rolls back the DB, not the outside world.** Actions whose side effect has already left the process before the audit write — `invoice.send` (email dispatched), `user.reset_password` / `user.force_logout` (GoTrue already mutated) — leave that effect done with no DB trace when the audit INSERT fails. An operator reading such a 500 must assume the email or the password change DID happen. Where a route allows it, order the external call AFTER the audit write.
