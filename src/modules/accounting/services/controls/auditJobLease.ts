@@ -10,7 +10,7 @@ import {AUDIT_JOB_LIMITS} from './auditJobContract';
 import {getAuditJob} from './auditJobService';
 export interface AuditJobLease {readonly companyId:string;readonly personId:string;readonly jobId:string;readonly leaseId:string;readonly generation:number}
 const issued=new WeakSet<AuditJobLease>();
-const ERROR_CODES=['SOURCE_UNAVAILABLE','AUTHORITY_REVOKED','EVIDENCE_CHANGED','RESOURCE_LIMIT','WORKER_ERROR','RETRY_EXHAUSTED'] as const;
+const ERROR_CODES=['SOURCE_UNAVAILABLE','AUTHORITY_REVOKED','EVIDENCE_CHANGED','RESOURCE_LIMIT','WORKER_ERROR','RETRY_EXHAUSTED','CANCELLED'] as const;
 export type AuditJobErrorCode=typeof ERROR_CODES[number];
 /** A lease is an internal capability; copying its visible identifiers never creates authority. */
 export function assertAuditJobLease(ctx:ControlTx,lease:AuditJobLease):void{
@@ -64,12 +64,22 @@ async function claimPendingJob(ctx:{sql:TxSql;principal:{companyId:string;person
 }
 /** Sanitized failure publication still needs the exact unexpired active lease; no financial/source mutation. */
 export async function failAuditJob(ctx:ControlTx,lease:AuditJobLease,code:AuditJobErrorCode,retryable:boolean):Promise<void>{
- assertAuditJobLease(ctx,lease);if(!ERROR_CODES.includes(code))throw new Error('Invalid audit job error code');
- const rows=await ctx.sql`UPDATE control_audit_jobs SET
+ assertAuditJobLease(ctx,lease);
+ return writeAuditJobFailure(ctx.sql,lease,code,retryable);
+}
+/** Failure metadata only: the original issued capability survives revoked business authority. */
+export async function failAuditJobForWorker(store:RequestContext,lease:AuditJobLease,code:AuditJobErrorCode,retryable:boolean):Promise<void>{
+ if(als.getStore()||store.controlPrincipal||!store.companyId||!UUID_RE.test(store.companyId)||!store.userId)throw new Error('Invalid cold audit worker transaction');
+ assertIssuedAuditJobLease(lease,store.companyId,store.userId);
+ return als.run(store,()=>writeAuditJobFailure(sql,lease,code,retryable));
+}
+async function writeAuditJobFailure(query:TxSql,lease:AuditJobLease,code:AuditJobErrorCode,retryable:boolean):Promise<void>{
+ if(!ERROR_CODES.includes(code))throw new Error('Invalid audit job error code');
+ const rows=await query`UPDATE control_audit_jobs SET
   state=CASE WHEN ${retryable} AND attempts<${AUDIT_JOB_LIMITS.maxAttempts} THEN 'queued' ELSE 'failed' END,
   completed_at=CASE WHEN ${retryable} AND attempts<${AUDIT_JOB_LIMITS.maxAttempts} THEN NULL ELSE clock_timestamp() END,
   lease_id=NULL,lease_expires_at=NULL,last_error_code=${code},updated_at=clock_timestamp()
-  WHERE company_id=${ctx.principal.companyId}::uuid AND job_id=${lease.jobId}::uuid AND state='running'
+  WHERE company_id=${lease.companyId}::uuid AND job_id=${lease.jobId}::uuid AND state='running'
    AND lease_id=${lease.leaseId}::uuid AND generation=${lease.generation} AND lease_expires_at>clock_timestamp()
   RETURNING job_id`;
  if(rows.length!==1)throw new Error('Audit job lease expired or was replaced');
