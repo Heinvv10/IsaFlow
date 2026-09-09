@@ -1,0 +1,170 @@
+=== GREEN after fix (K-016, K-017, adjacent) ===
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts" "tests/integration/k017-bank-rule-vat-net-control-account.int.test.ts" "tests/integration/k016-k017-settlement-vat-adjacent.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-016
+
+
+ Test Files  3 passed (3)
+      Tests  7 passed (7)
+   Start at  05:52:47
+   Duration  1.17s (transform 821ms, setup 0ms, import 1.19s, tests 1.39s, environment 2ms)
+
+
+=== MUTATION 1: isControlAccountSettlement() => false (defect restored) ===
+4 failed / 3 passed — K-016, K-017, customer receipt and supplier refund all go RED; the two account-arm controls stay GREEN.
+
+=== MUTATION 2: isControlAccountSettlement() => true (fix too wide) ===
+1 failed / 4 passed — 'still splits an account RULE 15% exclusive' goes RED.
+The attended account arm is unreachable by this mutation: bankAllocationService ANDs the predicate with Boolean(entityId), and an account allocation has none.
+
+=== unit suite (bun run test:unit, no DATABASE_URL) ===
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9323 passed | 234 skipped (9557)
+
+Three pre-existing unit tests asserted the defect and were rewritten to the
+corrected behaviour (see fix.md). With DATABASE_URL exported the suite reports
+200 failures in tests/unit/**/*Db.test.ts — those files opt into a seeded
+database and the disposable fixture has none. Unrelated to this change: the
+named failures are VAT-submission-journal exclusion and system-account roles.
+
+================================================================
+REVIEW ROUND — 2 MEDIUM + 3 LOW from the blind review of 87bee9d7/e0b1aab1
+================================================================
+
+M1 rules modal offers a discarded VAT treatment — FIXED (CreateRuleModal.tsx)
+M2 the drop was invisible on all three paths     — FIXED (settlementDropped + 2 logs + reason 'settlement')
+L1 prepayment out of scope, undocumented         — FIXED (settlementVat.ts doc block + K-016 fix.md Limits)
+L2 entityId asymmetry undocumented               — FIXED (settlementVat.ts doc block)
+L3 bankAllocationService.ts 683 > 300 line cap   — NOT FIXED, noted in K-016 fix.md Limits.
+   Pre-existing (673 on master) and splitting the allocation arms is a
+   different change; this round adds 10 lines to it.
+
+=== gates, after the review round ===
+bunx tsc --noEmit                                     clean
+bun run test:unit (no DATABASE_URL)   784 files, 9329 passed | 234 skipped
+bun run test:components                56 files,  390 passed
+integration (real DB, fixture)          3 files,    7 passed
+bun scripts/ci/check-vat-guard-coverage.ts  OK, 1899 files, 13 allowlisted
+bun run agent-docs:check                    OK, 74 mirrors match
+
+=== mutation, review-round changes ===
+CreateRuleModal: drop the `setVatCode('none')` effect line AND force the VAT
+  block to render unconditionally -> 3 of 6 component tests RED
+  (both N/A cases and the stale-code-on-save case).
+CreateRuleModal: seed vatCode from `selection.vatCode` regardless of its type
+  -> 'seeds no treatment when it opens onto a supplier selection' RED. The
+  effect only fires on a CHANGE of alloc type, so a modal opened straight onto
+  a supplier row never runs it and the seed has to be correct by itself.
+ruleVatResolution: delete the log.info    -> 'logs the drop once' RED
+bankAllocationService: delete the log.info -> 'logs the code it discarded' RED
+allocationVatGuard: drop settlementDropped from the early-return condition
+  -> 'reports a settlement drop as its own reason' RED
+All four restored; the three suites go back to green.
+
+=== one pre-existing test corrected ===
+tests/unit/mcp/writeBankBulkAllocate.posting.test.ts asserted that a supplier
+line's 'standard' reached `allocateTransaction` unchanged. It runs the REAL
+resolver, so reporting the drop at the MCP layer now hands 'none' down instead.
+The posted journal is identical either way — `allocateTransaction` drops it too
+— so this is a reporting change, not a posting one. The test now asserts the
+'none' handed down AND the `vat_coerced` reason, with a new `account`-line case
+alongside it proving a real claim still passes through unreported.
+
+================================================================
+RE-REVIEW ROUND — 1 MEDIUM (M1 half-done) + 1 LOW, on 3dc5f63b
+================================================================
+
+M1b BankRuleForm.tsx — the OTHER rule editor, untouched by 3dc5f63b — FIXED.
+    It is also the EDIT path, so the code is CLEARED on load, not just hidden:
+    hiding alone would submit a pre-K-016 'standard' straight back. This makes
+    the K-017 fix.md sentence "re-saving such a rule clears it" true; it was
+    false when written, and is now corrected to name both forms.
+LOW a transfer RULE still split — FIXED. `bank_categorisation_rules` has no
+    transfer column, so such a rule stores the counterparty BANK in
+    gl_account_id and reaches the sweep as allocType 'account'. New file
+    gl/bankContraVat.ts drops the code on a `bank`-subtype contra, reported as
+    nonSupplyCoerced (which is what it is), third batched fact through the
+    sweep and the MCP prefetch.
+
+=== mutation, this round ===
+BankRuleForm: delete the clearing effect AND force the select to render
+  -> 4 of 7 new component tests RED (both N/A cases, the stale-code-on-load
+  case, and the switch-to-supplier case).
+bankContraVat: change BANK_SUBTYPE so it never matches
+  -> 'looks the subtype up itself when the caller did not resolve it' RED.
+Both restored; both suites green again.
+
+=== gates, after the re-review round ===
+bunx tsc --noEmit                                     clean
+bun run test:unit (no DATABASE_URL)   784 files, 9339 passed | 234 skipped
+bun run test:components                57 files,  397 passed
+integration (real DB, fixture)          3 files,    7 passed
+bun scripts/ci/check-vat-guard-coverage.ts  OK, 1900 files, 13 allowlisted
+bun run agent-docs:check                    OK, 74 mirrors match
+
+NOTE ON FLAKES. The box is running many parallel agents, and both suites
+produce load-induced 10s testTimeout expiries in files unrelated to this
+change (trackerExclusion, serviceWorkerExclusion, shareProviderFetches,
+cashFlowReport, bankAllocationDateShift, bankAllocationService). Every one
+passes in isolation, and the reviewer saw the same set independently on
+e0b1aab1. The counts above are from a run with --testTimeout=45000.
+
+=== five pre-existing test files corrected, none silently ===
+allocationVatGuardBatch, bulkAllocateSkipAllocated, bulkAllocateSkipUnresolved
+and writeBankBulkAllocate mock the batched fetches; each gained the third one.
+provisionalPostingService drives the REAL resolver with a positional sql queue
+and gained one row for the subtype lookup — which only happens because its
+line survives both statutory guards, the exact case the new check is for.
+
+================================================================
+ROUND-3 RE-REVIEW — 4 LOW, on f82f9e88
+================================================================
+
+L1 a transfer rule is not RECORDED as a transfer — NAMED, NOT FIXED.
+   The reviewer's own recommendation ("Fix: none here — worth its own finding").
+   `bank_categorisation_rules` has no transfer column, so the sweep writes
+   source 'auto_bank_recon' / allocation_type 'account' with no
+   counterparty_account_id, no transfer_journal_entry_id and no
+   duplicate-transfer guard. Amounts are right, shape is not. Giving rules a
+   transfer shape is a schema change and its own work, not part of a VAT
+   correction — doing it inside this commit would be the wrong call. Written
+   up in K-017 fix.md and in the bank/.claude.md recent-changes entry so it
+   cannot be lost.
+L2 the batched caller converted "absent" into "not a bank" — FIXED.
+   bankRulesMatchingService now passes `ruleAccountIsBank.get(id)` unchanged.
+   NO TEST ASSERTS THIS, deliberately: the map is built from the same id list,
+   so an id can only be absent when the account does not exist for the company,
+   and the journal insert then fails on the FK first. It is a contract
+   alignment with no reachable behaviour change, and a test would prove
+   nothing. The contract it aligns TO is reachable at the MCP prefetch and is
+   tested there — 'falls back when only the bank fact is missing from the
+   prefetch' in allocationVatGuardBatch.test.ts.
+L3 BankRuleForm still offered a treatment for a TRANSFER rule — FIXED.
+   `accountSubtype` now flows from the chart of accounts through
+   useBankRuleRefData into GLAccountOption, and `postsNoVat` covers the bank
+   contra as well as the two settlement shapes. Wording differs per case, and
+   a rule that is both a settlement and a bank contra says settlement, because
+   a supplier rule ignores its GL account entirely.
+L4 the bank-contra guard had no real-database test — FIXED.
+   New case in k016-k017-settlement-vat-adjacent.int.test.ts drives the real
+   `applyRules` over a rule pointing at a second gl_accounts row with
+   account_subtype = 'bank': one entry, two lines, R345 gross on the
+   counterparty bank, vat_input untouched, journal balanced.
+
+=== mutation, this round ===
+bankContraVat BANK_SUBTYPE changed so it never matches
+  -> the new INTEGRATION case goes RED against the real database (it went red
+     as a unit test in round 2; this is the end-to-end proof round 2 lacked).
+BankRuleForm `postsNoVat = isSettlementRule` (drop the transfer half)
+  -> 3 of 11 component tests RED: the N/A case, the stale-code-on-load case,
+     and the switch-back-to-an-expense-account case.
+Both restored; both suites green again.
+
+=== gates, after the round-3 re-review ===
+bunx tsc --noEmit                                     clean
+bun run test:unit (no DATABASE_URL)   784 files, 9339 passed | 234 skipped
+bun run test:components                57 files,  401 passed
+integration (real DB, fixture)          3 files,    8 passed
+bun scripts/ci/check-vat-guard-coverage.ts  OK, 13 allowlisted
+bun run agent-docs:check                    OK, 74 mirrors match
+Both suites run with --testTimeout=45000; see the flake note above.

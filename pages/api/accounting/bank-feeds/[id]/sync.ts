@@ -8,7 +8,10 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { syncBankFeed } from '@/modules/accounting/services/bank/openBankingService';
+import {
+  syncBankFeed,
+  BankFeedProviderNotImplementedError,
+} from '@/modules/accounting/services/bank/openBankingService';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -20,8 +23,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const result = await syncBankFeed(companyId, connectionId, userId);
-    return apiResponse.success(res, result);
+    try {
+      const result = await syncBankFeed(companyId, connectionId, userId);
+      return apiResponse.success(res, result);
+    } catch (err) {
+      // A provider with no integration is a permanent, expected answer, not a
+      // server fault. Answering 4xx keeps the failed sync log and the
+      // connection's last_sync_error — withAuth only ROLLBACKs on >= 500.
+      if (err instanceof BankFeedProviderNotImplementedError) {
+        return apiResponse.badRequest(res, err.message);
+      }
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['POST']);

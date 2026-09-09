@@ -11,9 +11,10 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
+import { isUuidParam, isRealCalendarDate } from '@/lib/validation';
 
 interface Transaction {
-  id: number;
+  id: string;
   date: string;
   type: 'invoice' | 'payment' | 'debit_note';
   reference: string;
@@ -36,23 +37,29 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
 
   const { companyId } = req as CompanyAuthedRequest;
   const { supplier_id } = req.query;
-  if (!supplier_id) return apiResponse.badRequest(res, 'supplier_id is required');
+  if (!isUuidParam(supplier_id)) return apiResponse.badRequest(res, 'supplier_id must be a valid UUID');
+
+  const asAtDate = req.query.as_at_date ?? fmtDate(new Date());
+  if (typeof asAtDate !== 'string' || !isRealCalendarDate(asAtDate)) {
+    return apiResponse.badRequest(res, 'as_at_date must be a valid calendar date');
+  }
 
   try {
     // Get supplier info
     const supplierRows = await sql`
-      SELECT id, name, email, phone FROM suppliers WHERE id = ${Number(supplier_id)} AND company_id = ${companyId}
+      SELECT id, name, email, phone FROM suppliers WHERE id = ${supplier_id} AND company_id = ${companyId}
     `;
     if (supplierRows.length === 0) return apiResponse.notFound(res, 'Supplier', supplier_id as string);
-    const supplier = supplierRows[0] as { id: number; name: string; email: string | null; phone: string | null };
+    const supplier = supplierRows[0] as { id: string; name: string; email: string | null; phone: string | null };
 
     // Get invoices
     const invoicesRaw = await sql`
       SELECT id, invoice_number as reference, invoice_date as date,
         total_amount as amount, amount_paid, notes as description
       FROM supplier_invoices
-      WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId}
+      WHERE supplier_id = ${supplier_id} AND company_id = ${companyId}
         AND status NOT IN ('cancelled', 'draft')
+        AND invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date ASC, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
@@ -62,8 +69,9 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT sp.id, sp.payment_number as reference, sp.payment_date as date,
         sp.total_amount as amount, sp.description
       FROM supplier_payments sp
-      WHERE sp.supplier_id = ${Number(supplier_id)} AND sp.company_id = ${companyId}
+      WHERE sp.supplier_id = ${supplier_id} AND sp.company_id = ${companyId}
         AND sp.status NOT IN ('cancelled', 'draft')
+        AND sp.payment_date <= ${asAtDate}::DATE
       ORDER BY sp.payment_date ASC, sp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
@@ -73,9 +81,10 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT cn.id, cn.credit_note_number as reference, cn.credit_date as date,
         cn.total_amount as amount, cn.reason as description
       FROM credit_notes cn
-      WHERE cn.supplier_id = ${Number(supplier_id)} AND cn.company_id = ${companyId}
+      WHERE cn.supplier_id = ${supplier_id} AND cn.company_id = ${companyId}
         AND cn.type = 'supplier'
         AND cn.status NOT IN ('cancelled', 'draft')
+        AND cn.credit_date <= ${asAtDate}::DATE
       ORDER BY cn.credit_date ASC, cn.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
@@ -99,15 +108,18 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM supplier_invoices
-          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+          WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+            AND invoice_date <= ${asAtDate}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM supplier_payments
-          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+          WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+            AND payment_date <= ${asAtDate}::DATE
         ), 0) AS total_paid,
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM credit_notes
-          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND type = 'supplier' AND status NOT IN ('cancelled', 'draft')
+          WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND type = 'supplier' AND status NOT IN ('cancelled', 'draft')
+            AND credit_date <= ${asAtDate}::DATE
         ), 0) AS total_returns
     ` as { total_invoiced: number; total_paid: number; total_returns: number }[];
 
@@ -124,7 +136,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
     // Merge into chronological transactions
     const transactions: Transaction[] = [];
 
-    for (const inv of invoices as { id: number; reference: string; date: string; amount: number; description: string }[]) {
+    for (const inv of invoices as { id: string; reference: string; date: string; amount: number; description: string }[]) {
       transactions.push({
         id: inv.id,
         date: toISODate(inv.date),
@@ -137,7 +149,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       });
     }
 
-    for (const pmt of payments as { id: number; reference: string; date: string; amount: number; description: string }[]) {
+    for (const pmt of payments as { id: string; reference: string; date: string; amount: number; description: string }[]) {
       transactions.push({
         id: pmt.id,
         date: toISODate(pmt.date),
@@ -150,7 +162,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       });
     }
 
-    for (const ret of returns as { id: number; reference: string; date: string; amount: number; description: string }[]) {
+    for (const ret of returns as { id: string; reference: string; date: string; amount: number; description: string }[]) {
       transactions.push({
         id: ret.id,
         date: toISODate(ret.date),
@@ -183,6 +195,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
 
     return apiResponse.success(res, {
       supplier,
+      asAtDate,
       transactions,
       summary: {
         totalInvoiced,
