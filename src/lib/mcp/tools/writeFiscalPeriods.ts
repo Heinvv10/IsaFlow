@@ -227,6 +227,15 @@ export const yearEndCloseTool: McpTool = {
           + 'Nothing was posted.',
         );
       }
+      if (result.error === 'closing_journal_not_posted') {
+        return toolError(
+          `Fiscal year ${year} has a closing journal (${result.entryNumber}, id ${result.entryId}) `
+          + `in status ${result.status}. The year is NOT closed — a reversed or draft closing `
+          + 'journal has posted nothing — but it cannot be closed again either, because that row '
+          + 'holds the entry number and it is unique per company. A person has to delete or '
+          + 'renumber that journal first. Nothing was posted.',
+        );
+      }
       if (result.error === 'no_retained_earnings') {
         return toolError(
           'No account carries the retained_earnings system role for this company. Create one with '
@@ -257,7 +266,15 @@ export const yearEndCloseTool: McpTool = {
               credit: l.credit,
             })),
           },
-          would_lock_every_period_in_year: true,
+          // A year that is ALREADY closed would lock nothing and post nothing:
+          // its aggregates are flat because its own closing journal flattened
+          // them, so the preview above is empty for the same reason a dormant
+          // year's is. Saying so is the point — this is the read the agent is
+          // told to make before authorising the irreversible half.
+          already_closed: result.alreadyClosed,
+          existing_entry_number: result.existingEntry
+            ? String(result.existingEntry.entry_number) : null,
+          would_lock_every_period_in_year: !result.alreadyClosed,
         }),
         ...DRY,
       };
@@ -272,6 +289,8 @@ export const yearEndCloseTool: McpTool = {
       // periods still lock, which is what the caller acts on.
       journal_entry_id: result.closingEntry ? String(result.closingEntry.id) : null,
       entry_number: result.closingEntry ? String(result.closingEntry.entry_number) : null,
+      // A COUNT, not a boolean: how many periods this call actually locked
+      // (zero on an already-closed year, which locks nothing).
       periods_locked: result.periodsLocked,
       already_closed: result.alreadyClosed,
       message: result.message,

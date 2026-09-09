@@ -257,6 +257,9 @@ describe('yearEndService — tenant isolation (S-002)', () => {
         id: RE_ACCOUNT_ID, accountCode: '3200', accountName: 'Retained Earnings',
         accountType: 'equity', accountSubtype: 'retained_earnings', createdAt: 0,
       }]);
+      // The year's own closing journal, read before the dry-run return and
+      // before the write (K-113). No row: this year has never been closed.
+      sqlMock.mockResolvedValueOnce([]);
       // The fiscal period covering the closing date, resolved BEFORE the
       // transaction opens. A NULL fiscal_period_id would put the year-end
       // journal outside the trial balance permanently, and the periods are

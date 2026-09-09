@@ -45,13 +45,17 @@ const txMock = (neon as unknown as { tx: ReturnType<typeof vi.fn> }).tx;
 const COMPANY = 'aaaaaaaa-0000-0000-0000-000000000001';
 const USER = 'cccccccc-0000-0000-0000-000000000003';
 
-/** No open periods, then the year's date range, then the two balance queries. */
+/**
+ * No open periods, the year's date range, the two balance queries, then the
+ * already-closed lookup (empty: this year has never been closed).
+ */
 function stubReadsUpToPreview() {
   sqlMock
     .mockResolvedValueOnce([])                                                        // open periods
     .mockResolvedValueOnce([{ start_date: '2026-01-01', end_date: '2026-12-31' }])     // range
     .mockResolvedValueOnce([])                                                        // revenue
-    .mockResolvedValueOnce([]);                                                       // expense
+    .mockResolvedValueOnce([])                                                        // expense
+    .mockResolvedValueOnce([]);                                                       // findPostedClosingJournal
 }
 
 function preview(lines: Array<{ debit: number; credit: number }>) {
@@ -100,8 +104,12 @@ describe('postClosingJournal refuses an invalid closing journal before writing',
     stubReadsUpToPreview();
     buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
 
-    const result = await closeFiscalYear(COMPANY, '2026', USER) as { closingEntry: { id: string } };
+    const result = await closeFiscalYear(COMPANY, '2026', USER) as
+      { closingEntry: { id: string }; periodsLocked: number; alreadyClosed: boolean };
     expect(result.closingEntry.id).toBe('entry-1');
+    expect(result.alreadyClosed).toBe(false);
+    // Counted from the lock UPDATE's RETURNING, not asserted as a literal.
+    expect(result.periodsLocked).toBe(1);
     // header INSERT + 2 line INSERTs + the period lock
     expect(txMock).toHaveBeenCalledTimes(4);
   });

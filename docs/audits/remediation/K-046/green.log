@@ -92,3 +92,50 @@ POST-MERGE GATE (origin/master 53539623 merged into the branch, LOW-5)
       check-vat-guard-coverage, check-raw-transaction-control,
       audit-user-id-casts, check-is-active-in-balances -> all OK
   migration prefix 627 still unused on origin/master
+
+────────────────────────────────────────────────────────────────────────────
+ROUND-2 REVIEW FOLLOW-UP (2 MEDIUM, 4 LOW — includes closing K-113)
+────────────────────────────────────────────────────────────────────────────
+
+GREEN (fixture DB)
+  bunx vitest run --config vitest.integration.config.ts
+      tests/integration/k-046-year-end-close-adjacent.int.test.ts            (8)
+      tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts (3)
+      tests/integration/k113-year-end-close-rerun.int.test.ts                (3)
+  Test Files  3 passed (3)     Tests  14 passed (14)
+
+  env -u DATABASE_URL bunx vitest run --config vitest.components.config.ts
+      tests/unit/components/yearEndCloseMessage.test.tsx
+  Test Files  1 passed (1)     Tests  4 passed (4)
+
+MUTATION A — the page hardcodes "Closing journal created" again
+  yearEndCloseMessage: Tests 3 failed | 1 passed (4)
+MUTATION B — the dry run stops reporting alreadyClosed/existingEntry (K-113 signal removed)
+  k113-year-end-close-rerun: Tests 1 failed | 2 passed (3)
+MUTATION C — findClosingJournal filters `AND status = 'posted'` (the literal LOW-2 suggestion)
+  k-046-adjacent: Tests 1 failed | 7 passed (8)   [reversed header falls through to a raw 23505]
+MUTATION D — the non-posted branch removed, any status counts as closed
+  k-046-adjacent: Tests 1 failed | 7 passed (8)
+MUTATION E — lockYear returns a literal instead of the UPDATE's row count
+  k-046-adjacent: Tests 1 failed | 7 passed (8)
+MUTATION F — the revenue query filters `ga.is_active = true` (the inactive exemption withdrawn)
+  k-046-adjacent: Tests 1 failed | 7 passed (8)
+
+MOCKED FIXTURES REPAIRED (the addendum's hazard, caught by the full suite)
+  The hoisted lookup adds one sql call to closeFiscalYear, which broke three
+  queue-ordered unit fixtures: yearEndCloseDryRun (8), yearEndRetainedEarnings,
+  yearEndService. All three now queue the lookup explicitly. 33 passed.
+
+FULL SUITES
+  env -u DATABASE_URL bunx vitest run --maxWorkers=4
+      Test Files  800 passed | 40 skipped (840)
+      Tests       9549 passed | 243 skipped (9792)
+  env -u DATABASE_URL bunx vitest run --config vitest.components.config.ts
+      Test Files  68 passed (68)      Tests  445 passed (445)
+
+GATES
+  bunx tsc --noEmit                        -> exit 0
+  bunx eslint <the six changed src/pages files> -> exit 0
+  bun run agent-docs:check                 -> OK, 74 mirrors match
+  six CI security guards                   -> all exit 0
+  migration prefix 627 absent from origin/master (a9c3cc32) -> still free

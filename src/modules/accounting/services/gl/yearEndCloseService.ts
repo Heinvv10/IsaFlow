@@ -36,7 +36,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
 import { getFiscalYearStartMonth } from './fiscalYearBasis';
 import { buildPreview, resolveRetainedEarnings } from './yearEndJournalBuilder';
-import { postClosingJournal } from './yearEndJournalPoster';
+import { findClosingJournal, postClosingJournal } from './yearEndJournalPoster';
 import { fiscalYearRange } from './fiscalYearCalendar';
 
 export interface YearEndJournalLine {
@@ -66,8 +66,13 @@ export interface CloseYearResult {
    * read the null.
    */
   closingEntry: Record<string, unknown> | null;
-  periodsLocked: true;
-  /** True when the year already had a closing journal and nothing was written. */
+  /**
+   * How many periods carry `locked` for this year — counted, never assumed.
+   * On a close that wrote, this is the UPDATE's row count; on an already-closed
+   * year it is a read, because that call locks nothing.
+   */
+  periodsLocked: number;
+  /** True when the year already had a posted closing journal and nothing was written. */
   alreadyClosed: boolean;
   netIncome: number;
   message: string;
@@ -77,6 +82,18 @@ export interface CloseYearDryRunResult {
   dryRun: true;
   netIncome: number;
   preview: YearEndJournalPreview;
+  /**
+   * True when the year already has a posted closing journal (K-113).
+   *
+   * A closed year's aggregates are flat — its own closing journal is what
+   * flattened them — so `netIncome: 0` with an EMPTY preview is exactly what a
+   * company that never traded returns. The dry run is the read a person makes
+   * before authorising the irreversible half, and telling them a year that
+   * traded and was closed is empty is a false statement about the books.
+   */
+  alreadyClosed: boolean;
+  /** The existing closing journal, when `alreadyClosed`. */
+  existingEntry: Record<string, unknown> | null;
 }
 
 export type CloseYearError =
@@ -85,6 +102,17 @@ export type CloseYearError =
   | { error: 'no_retained_earnings' }
   | { error: 'ambiguous_retained_earnings'; accountCodes: string[] }
   | { error: 'no_fiscal_period'; entryDate: string }
+  | {
+      /**
+       * The year has a `year_end` header that is NOT posted — reversed, or left
+       * in draft. The year is not closed, and it also cannot be closed while
+       * that row holds the entry number.
+       */
+      error: 'closing_journal_not_posted';
+      entryNumber: string;
+      entryId: string;
+      status: string;
+    }
   | {
       error: 'period_range_mismatch';
       expected: { startDate: string; endDate: string };
@@ -192,7 +220,43 @@ export async function closeFiscalYear(
     yearLabel, fmtDate(yearRange.end_date), revenueAccounts, expenseAccounts, retained, netIncome,
   );
 
-  if (dryRun) return { dryRun: true, netIncome, preview };
+  // BEFORE the dry-run return, and before the write, because both halves have
+  // to tell an already-closed year apart from a dormant one. Reading it here
+  // also gives the live path a typed answer for the case the poster's own
+  // lookup could never see: a re-run after P&L movement landed in the closed
+  // year has a NON-empty preview, so it used to reach the INSERT and die on
+  // uq_gl_je_company_entry_number as a raw 23505.
+  const existing = await findClosingJournal(companyId, preview.entryNumber);
+  if (existing && existing.status !== 'posted') {
+    return {
+      error: 'closing_journal_not_posted',
+      entryNumber: preview.entryNumber,
+      entryId: String(existing.id),
+      status: String(existing.status),
+    };
+  }
+  const existingEntry = existing;
+
+  if (dryRun) {
+    return { dryRun: true, netIncome, preview, alreadyClosed: existingEntry !== null, existingEntry };
+  }
+
+  if (existingEntry) {
+    const lockedRows = (await sql`
+      SELECT count(*)::int AS n FROM fiscal_periods
+      WHERE company_id = ${companyId} AND fiscal_year = ${yearLabel} AND status = 'locked'
+    `) as Array<{ n: number }>;
+    log.info('Year-end close re-run: the year already has its closing journal',
+      { companyId, year: yearLabel, entryId: existingEntry.id, module: 'accounting' });
+    return {
+      closingEntry: existingEntry,
+      periodsLocked: lockedRows[0]?.n ?? 0,
+      alreadyClosed: true,
+      netIncome,
+      message: `Year ${yearLabel} was already closed. Its closing journal `
+        + `${String(existingEntry.entry_number ?? '')} is unchanged and nothing was posted.`,
+    };
+  }
 
   // Resolved BEFORE the transaction opens. A journal with a NULL
   // fiscal_period_id is outside the trial balance, the VAT201 and the AFS
@@ -203,24 +267,21 @@ export async function closeFiscalYear(
   const fiscalPeriodId = await getFiscalPeriodIdForDate(companyId, preview.entryDate);
   if (!fiscalPeriodId) return { error: 'no_fiscal_period', entryDate: preview.entryDate };
 
-  const { entry: closingEntry, alreadyClosed } = await postClosingJournal(
+  const { entry: closingEntry, periodsLocked } = await postClosingJournal(
     companyId, userId, yearLabel, preview, fiscalPeriodId,
   );
 
   log.info('Year-end processed', {
-    year: yearLabel, entryId: closingEntry?.id ?? null, alreadyClosed, netIncome, module: 'accounting',
+    year: yearLabel, entryId: closingEntry?.id ?? null, periodsLocked, netIncome, module: 'accounting',
   });
 
   return {
     closingEntry,
-    periodsLocked: true,
-    alreadyClosed,
+    periodsLocked,
+    alreadyClosed: false,
     netIncome,
-    message: alreadyClosed
-      ? `Year ${yearLabel} was already closed. Its closing journal `
-        + `${String(closingEntry?.entry_number ?? '')} is unchanged and nothing was posted.`
-      : closingEntry
-        ? `Year ${yearLabel} closed. Net income R${netIncome.toFixed(2)} transferred to Retained Earnings.`
-        : `Year ${yearLabel} closed. No posted profit or loss in the year, so no closing journal was needed.`,
+    message: closingEntry
+      ? `Year ${yearLabel} closed. Net income R${netIncome.toFixed(2)} transferred to Retained Earnings.`
+      : `Year ${yearLabel} closed. No posted profit or loss in the year, so no closing journal was needed.`,
   };
 }
