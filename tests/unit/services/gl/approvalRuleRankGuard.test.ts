@@ -29,6 +29,7 @@ import { sql } from '@/lib/neon';
 import { createRule, updateRule, requestApproval } from '@/modules/accounting/services/gl/approvalService';
 import { ApprovalRuleAuthorityError, type RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 import { ApprovalNotRequiredError } from '@/modules/accounting/services/gl/approvalAuthority';
+import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
 
 const sqlMock = sql as unknown as MockedFunction<() => Promise<unknown[]>>;
 const COMPANY = 'company-1';
@@ -97,46 +98,75 @@ describe('updateRule — the rank the rule is being moved TO', () => {
   });
 });
 
-describe('requestApproval — the governing rule is resolved, not named', () => {
-  /** checkApproval runs two statements: the pending lookup, then the rule list. */
-  const resolves = (rules: unknown[]) => {
+describe('requestApproval — the governing rule is resolved from the document, not named', () => {
+  const pendingRow = (over: Record<string, unknown> = {}) => ({
+    id: 'req-existing', rule_id: 'lax', document_type: 'supplier_invoice', document_id: 'doc-1',
+    amount: 1, status: 'pending', requested_by: 'someone-else', requested_at: '2026-01-01',
+    decided_by: null, decided_at: null, decision_notes: null, document_reference: null, ...over,
+  });
+
+  /**
+   * Three statements before any write: the DOCUMENT lookup (the amount and the
+   * type are server facts now, not body fields), then checkApproval's pending
+   * lookup and rule list.
+   */
+  const resolves = (document: unknown[], pending: unknown[], rules: unknown[]) => {
     sqlMock.mockReset();
-    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce(rules);
+    sqlMock.mockResolvedValueOnce(document).mockResolvedValueOnce(pending).mockResolvedValueOnce(rules);
   };
 
-  it('stores the strictest matching rule, not the laxest one', async () => {
-    resolves([ruleRow({ id: 'lax', approver_role: 'viewer' }), ruleRow({ id: 'strict', approver_role: 'owner' })]);
-    sqlMock.mockResolvedValueOnce([{
-      id: 'req-1', rule_id: 'strict', document_type: 'payment', document_id: 'doc-1',
-      amount: 100, status: 'pending', requested_by: 'user-1', requested_at: '2026-01-01',
-      decided_by: null, decided_at: null, decision_notes: null, document_reference: null,
-    }]);
-    const request = await requestApproval(COMPANY, {
-      documentType: 'payment', documentId: 'doc-1', amount: 100, requestedBy: 'user-1',
-    });
+  const raise = () => requestApproval(COMPANY, {
+    documentType: 'supplier_invoice', documentId: 'doc-1', requestedBy: 'user-1',
+  });
+
+  it('refuses a documentId that names no document, before looking at any rule', async () => {
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(raise()).rejects.toBeInstanceOf(ApprovalDocumentNotFoundError);
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('matches the rules on the document\'s own amount, so the strictest one governs', async () => {
+    // The document is worth 500000. Under the old body-supplied amount an
+    // understated request dropped the owner rule out of the candidate set.
+    resolves(
+      [{ amount: '500000', reference: 'INV-1' }],
+      [],
+      [ruleRow({ id: 'lax', approver_role: 'manager', condition_operator: 'any' }),
+       ruleRow({ id: 'strict', approver_role: 'owner', condition_operator: 'greater_than', condition_value: 100000 })],
+    );
+    sqlMock.mockResolvedValueOnce([pendingRow({ id: 'req-1', rule_id: 'strict', amount: 500000 })]);
+    const request = await raise();
     expect(request.ruleId).toBe('strict');
+    expect(request.amount).toBe(500000);
   });
 
   it('refuses when no active rule of this company governs the document', async () => {
-    resolves([]);
-    await expect(requestApproval(COMPANY, {
-      documentType: 'payment', documentId: 'doc-1', amount: 100, requestedBy: 'user-1',
-    })).rejects.toBeInstanceOf(ApprovalNotRequiredError);
-    // The pending lookup and the rule list, and nothing else: no INSERT ran.
-    expect(sqlMock).toHaveBeenCalledTimes(2);
+    resolves([{ amount: '100', reference: null }], [], []);
+    await expect(raise()).rejects.toBeInstanceOf(ApprovalNotRequiredError);
+    // Document, pending lookup, rule list — and nothing else: no INSERT ran.
+    expect(sqlMock).toHaveBeenCalledTimes(3);
   });
 
   it('returns the pending request a document already has rather than raising a second', async () => {
-    sqlMock.mockReset();
-    sqlMock.mockResolvedValueOnce([{
-      id: 'req-existing', rule_id: 'strict', document_type: 'payment', document_id: 'doc-1',
-      amount: 100, status: 'pending', requested_by: 'someone-else', requested_at: '2026-01-01',
-      decided_by: null, decided_at: null, decision_notes: null, document_reference: null,
-    }]);
-    const request = await requestApproval(COMPANY, {
-      documentType: 'payment', documentId: 'doc-1', amount: 100, requestedBy: 'user-1',
-    });
+    resolves([{ amount: '1', reference: null }], [pendingRow({ rule_id: 'lax' })],
+      [ruleRow({ id: 'lax', approver_role: 'manager' })]);
+    const request = await raise();
     expect(request.id).toBe('req-existing');
-    expect(sqlMock).toHaveBeenCalledTimes(1);
+    // Already on the governing rule at the stored amount: nothing is written.
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('re-binds a pending request the current facts no longer put under that rule', async () => {
+    // The pin: a request raised under the lax rule at an understated amount used
+    // to be returned unchanged for ever, so the first mover fixed the authority.
+    resolves([{ amount: '500000', reference: 'INV-1' }], [pendingRow({ rule_id: 'lax' })],
+      [ruleRow({ id: 'strict', approver_role: 'owner' })]);
+    sqlMock.mockResolvedValueOnce([pendingRow({ rule_id: 'strict', amount: 500000 })]);
+    const request = await raise();
+    expect(request.id).toBe('req-existing');
+    expect(request.ruleId).toBe('strict');
+    expect(request.amount).toBe(500000);
+    expect(sqlMock).toHaveBeenCalledTimes(4);
   });
 });

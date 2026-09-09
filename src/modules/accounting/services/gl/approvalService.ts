@@ -8,17 +8,18 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
   assertMayDecide, isApproverRole, APPROVER_ROLES,
-  ApprovalNotRequiredError, ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
+  ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
-import {
-  checkApproval as checkApprovalRules, mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS,
-} from './approvalMatching';
+import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 
 // Re-exported so every existing import site keeps working after the
 // checkApproval/mapper split that kept this file under the 300-line ceiling.
 export { checkApproval, CONDITION_OPERATORS, isConditionOperator } from './approvalMatching';
 export type { ConditionOperator } from './approvalMatching';
+// requestApproval lives beside the document resolution it is built on; re-exported
+// so every existing import site keeps working.
+export { requestApproval } from './approvalDocuments';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -182,54 +183,6 @@ export async function deleteRule(companyId: string, id: string, actor: RuleActor
 }
 
 // ── Approval Requests ────────────────────────────────────────────────────────
-
-/**
- * Create an approval request for a document.
- *
- * The governing rule is RESOLVED here, by `checkApproval`, from the document and
- * its amount — never accepted from the caller. A caller-supplied `ruleId` let the
- * requester nominate which rule governed their own request, so an admin could
- * mint a manager-level rule and name it instead of the owner-only one.
- *
- * LIMIT: `amount` still arrives from the caller, so a requester who understates
- * it can land on a laxer rule (or on none). Reading the amount from the document
- * belongs to the posting-path item R-035, which is where requests get raised as
- * part of a document's lifecycle at all.
- */
-export async function requestApproval(companyId: string, input: {
-  documentType: DocumentType;
-  documentId: string;
-  documentReference?: string;
-  amount?: number;
-  requestedBy: string;
-}): Promise<ApprovalRequest> {
-  const check = await checkApprovalRules(companyId, input.documentType, input.documentId, input.amount || 0);
-  // One pending request per document: returning it is idempotent, and creating a
-  // second under a different rule would be another way to choose the rule.
-  if (check.existingRequest) return check.existingRequest;
-  if (!check.matchedRule) throw new ApprovalNotRequiredError(input.documentType, input.documentId);
-
-  // INSERT ... SELECT so the rule's ownership is part of the write itself: a rule
-  // belonging to another company matches no row and nothing is inserted. The FK
-  // alone does not help — a foreign-key check bypasses RLS and is global.
-  const rows = (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by)
-    SELECT ${companyId}::UUID, rl.id, ${input.documentType}::TEXT, ${input.documentId}::UUID,
-           ${input.documentReference || null}::TEXT, ${input.amount || null}::NUMERIC,
-           ${input.requestedBy}::UUID
-    FROM approval_rules rl
-    WHERE rl.id = ${check.matchedRule.id}::UUID AND rl.company_id = ${companyId}
-    RETURNING *
-  `) as Record<string, unknown>[];
-  if (!rows[0]) throw new ApprovalRuleNotFoundError(check.matchedRule.id);
-  log.info('Approval requested', {
-    id: rows[0]!.id,
-    documentType: input.documentType,
-    documentId: input.documentId,
-    ruleId: check.matchedRule.id,
-  }, 'accounting');
-  return mapRequest(rows[0]!);
-}
 
 /** List approval requests with optional status filter */
 export async function listRequests(companyId: string, status?: ApprovalStatus): Promise<ApprovalRequest[]> {

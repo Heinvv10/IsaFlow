@@ -282,3 +282,126 @@ ORDER BY ar.requested_at DESC;
 ```
 Rank `named_role` against `other_matching_roles` by hand (the ladder is in `approvalAuthority.ts`);
 a row where another matching rule demands MORE is one that was decided under the wrong authority.
+
+## Round-5 review dispositions (scratchpad/review-k043-r5.md — 2 HIGH / 2 MEDIUM / 4 LOW)
+
+All eight addressed. R-032 (admin impersonation), R-033 (sole-owner deadlock) and R-035 (no
+posting-path enforcement) stay registered as open and were not touched. `priority`'s unwritability
+and the totality of the rank order were re-verified by the reviewer; not redone here.
+
+**H1 + H2 — the requester still chose their own governing rule, via `amount` and via
+`documentType`/`documentId`. FIXED as one change: the rule is derived from a REAL document.**
+The reviewer's ruling is accepted — this is the branch's own defect, not R-035. `checkApproval`
+filters candidates by the operator/threshold comparison BEFORE strictest-wins ranks them, so a
+rule that does not match is not a rule the ranking can pick: `amount: 1` for a R500 000 supplier
+invoice dropped the `owner over 100k` rule out of the candidate set and bound the `manager any`
+one. `documentType` did the same one level up, and nothing checked the document existed at all.
+`src/modules/accounting/services/gl/approvalDocuments.ts` (new) resolves the document by
+`(company_id, documentType, documentId)` — five types, one statement each; `payment` looks in
+`customer_payments` then `supplier_payments`; a journal entry has no amount column so its size is
+`SUM(gl_journal_lines.debit)` — and throws `ApprovalDocumentNotFoundError` (400) when the id names
+nothing of that type in this company. `requestApproval` now takes only
+`{ documentType, documentId, requestedBy }`: the amount AND the document reference come from the
+stored row, so no caller-supplied field reaches the rule match at all. **Every other body field was
+re-examined**: `ruleId` was already unread (round 4), `documentReference` is now server-derived,
+`requestedBy` was already `req.user.id`, and on the decide branch `requestId` is UUID-validated and
+`notes` is free text that reaches no decision. `?action=check` resolves the same way and ignores
+the query `amount`, so the advisory answer is the rule the request path would actually bind.
+*The pin.* `checkApproval` no longer short-circuits on an existing pending request — it returns
+the governing rule ALONGSIDE it — and `rebindPendingRequest` moves a pending row onto the rule
+today's facts choose (status-predicated UPDATE; a row decided in between is left alone). Both
+inputs are server-derived, so re-binding cannot be steered by a caller. A pending request survives
+unchanged only when it is already on the governing rule at the stored amount, or when no active
+rule governs the document any more.
+
+**M1 — "one pending request per document" was a comment. FIXED by migration 665.**
+`uq_approval_requests_pending`, a partial unique index on
+`(company_id, document_type, document_id) WHERE status = 'pending'`. Existing duplicates are
+collapsed first, keeping the row whose rule demands the highest rank (ties: earliest request) and
+cancelling the rest with a note; the ladder is inlined as a CASE because SQL cannot call
+`approvalAuthority.ts`. `requestApproval` runs its INSERT inside
+`withSavepoint('approval_request_insert', ...)` and treats `23505` as "re-read and return the
+existing row", re-bound the same way. Rows with a NULL `company_id` (migration 234's unscoped
+seeds) are outside the index, since NULLs are distinct; every path in this module writes it.
+
+**M2 — deleting a used rule was a 500 leaking the raw FK message. FIXED.**
+`respondToRuleWriteError` gained a `23503` arm returning 400 — "this rule has approval requests
+recorded against it and cannot be deleted. Deactivate it instead." A test asserts the message does
+NOT contain `approval_requests_rule_id_fkey`.
+
+**L1 — the `INSERT ... SELECT` did not re-check `is_active`. FIXED.** `AND rl.is_active = true`
+added, so a rule deactivated between the resolve and the insert aborts the request rather than
+binding it — the conservative direction, and consistent with `checkApproval` having considered
+only active rules. `assertMayDecide` still reads the rule WITHOUT an `is_active` filter, which is
+deliberate and unchanged: deactivating a rule must not free its pending requests. *Limit:* the
+intra-statement window is not reachable through the route in one process, so the added predicate is
+defence in depth; the test that covers it deactivates the only governing rule and asserts the
+request is refused with nothing written, which is red if the resolve stops filtering on
+`is_active` but green if only the insert predicate is removed.
+
+**L2 — stale file line counts. FIXED.** At this commit:
+`approvalAuthority.ts` 157, `approvalMatching.ts` 134, `approvalService.ts` 244,
+`approvalDocuments.ts` 213 (new), `approvalRuleGuards.ts` 131, `approval-requests.ts` 142,
+`approval-rules.ts` 137. All under the 300-line ceiling. These numbers belong to THIS commit and
+will drift again if the branch moves.
+
+**L3 — the module doc contradicted itself about `?action=check`. FIXED.** The original entry's
+"the advisory `GET ?action=check` the approvals page polls" now says plainly that no UI calls it,
+and the round-4 entry's closing claim that `amount` still arrives from the caller is marked
+superseded. `bun run agent-docs:check`: 74 mirrors match.
+
+**L4 — no enumeration query for rules whose `approver_role` is off the ladder. FIXED** (query
+added under Round-5 historical impact below). The fail-open-to-`admin` behaviour itself is
+unchanged: it is the column's own DEFAULT, applied consistently on all three paths, and
+`assertApproverRole` stops new bad values.
+
+**Round-5 tests.** `tests/integration/k-043-r5-server-derived-rule.int.test.ts` (13, real
+Postgres): the reviewer's understated-amount sequence end to end with the manager 403 and the owner
+200; the mirror case where an honestly small invoice IS manager-governed and an OVERSTATED body
+amount does not raise the bar; the pin, re-requested by the owner; a ghost id, a mistyped id and
+another company's document all refused with nothing written; a journal entry resolved by the sum of
+its debits; `?action=check` answered from the document; the unique index refusing a second pending
+row; a document re-requested after its first request was decided; the 23503 delete; and the
+inactive rule. `tests/integration/approval-document.helpers.ts` (new) plants the documents.
+`tests/unit/services/gl/approvalRuleRankGuard.test.ts` grew to 13 (five on `requestApproval`,
+including the re-bind and the document refusal). Existing files adapted: `k-043-r4-rule-rank` and
+`k108-k109` plant real documents, since a random UUID no longer names one.
+Suite: 60 integration cases across the six approval files, 60 unit cases across the eight approval
+unit files, three `--sequence.shuffle` runs of the three request-path files (34/34 each), and the
+full unit suite with `DATABASE_URL` unset — 9504 passed / 234 skipped. Mutations, each red:
+caller `amount` honoured again (5 red), `resolveApprovalDocument` not refusing an unknown document
+(4 red), `rebindPendingRequest` returning the existing row unconditionally (1 red), the unique
+index dropped (1 red), the `23503` arm removed (1 red). See `green.log`.
+
+**Round-5 migration / rollback.** `665_approval_requests_one_pending_per_document.sql`. Applied
+twice to the fixture: the second run is a no-op (`IF NOT EXISTS` on the index, and the dedupe
+UPDATE matches nothing). Rolling back means `DROP INDEX uq_approval_requests_pending`; the
+cancelled duplicate rows are not restored by that and would have to be un-cancelled by hand — the
+dedupe UPDATE names itself in `decision_notes`, so they are findable.
+
+**Round-5 historical impact.** Two populations. (a) Requests raised under a caller-supplied amount
+may be bound to a rule the document's real amount would not have chosen — the round-4 query above
+finds requests whose stored rule is not the strictest matching one, and with the amount itself
+suspect it should be re-run reading the amount from the document. (b) Requests naming a document
+that does not exist could be minted freely; read-only, not run here:
+```sql
+SELECT ar.id, ar.company_id, ar.document_type, ar.document_id, ar.amount, ar.status,
+       ar.requested_by, ar.decided_by, ar.decided_at
+FROM approval_requests ar
+WHERE NOT EXISTS (SELECT 1 FROM customer_invoices d WHERE d.id = ar.document_id AND d.company_id = ar.company_id)
+  AND NOT EXISTS (SELECT 1 FROM supplier_invoices d WHERE d.id = ar.document_id AND d.company_id = ar.company_id)
+  AND NOT EXISTS (SELECT 1 FROM credit_notes      d WHERE d.id = ar.document_id AND d.company_id = ar.company_id)
+  AND NOT EXISTS (SELECT 1 FROM customer_payments d WHERE d.id = ar.document_id AND d.company_id = ar.company_id)
+  AND NOT EXISTS (SELECT 1 FROM supplier_payments d WHERE d.id = ar.document_id AND d.company_id = ar.company_id)
+  AND NOT EXISTS (SELECT 1 FROM gl_journal_entries d WHERE d.id = ar.document_id AND d.company_id = ar.company_id)
+ORDER BY ar.requested_at DESC;
+```
+And (c), for LOW-4 — rules whose stored `approver_role` is off the ladder and therefore rank as
+`admin`:
+```sql
+SELECT id, company_id, name, approver_role, is_active
+FROM approval_rules
+WHERE approver_role NOT IN ('super_admin','owner','system','admin','manager',
+                            'accountant','bookkeeper','storeman','technician','user','viewer');
+```
+No rows are rewritten by the code change; migration 665 cancels duplicate PENDING requests only.

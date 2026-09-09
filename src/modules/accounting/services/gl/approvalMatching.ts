@@ -36,13 +36,11 @@ export async function checkApproval(
     LIMIT 1
   `) as Record<string, unknown>[];
 
-  if (existing.length > 0) {
-    return {
-      requiresApproval: true,
-      matchedRule: null,
-      existingRequest: mapRequest(existing[0]!),
-    };
-  }
+  // The existing request does NOT short-circuit the match. Returning it with no
+  // matched rule made the first request for a document pin its own authority:
+  // the caller of this function had nothing to compare the stored binding
+  // against, so a request raised under a laxer rule stayed governed by it.
+  const existingRequest = existing.length > 0 ? mapRequest(existing[0]!) : null;
 
   // Find matching active rules. The ORDER BY is the tiebreak, not the decision:
   // `priority` is INTEGER DEFAULT 100 and no write path sets it, so every rule a
@@ -91,11 +89,11 @@ export async function checkApproval(
     }
   }
 
-  if (matched) {
-    return { requiresApproval: true, matchedRule: matched, existingRequest: null };
-  }
-
-  return { requiresApproval: false, matchedRule: null, existingRequest: null };
+  return {
+    requiresApproval: matched !== null || existingRequest !== null,
+    matchedRule: matched,
+    existingRequest,
+  };
 }
 
 // ── Mappers ──────────────────────────────────────────────────────────────────

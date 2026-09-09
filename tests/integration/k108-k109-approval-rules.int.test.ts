@@ -6,6 +6,7 @@ import { SignJWT } from 'jose';
 import approvalRules from '../../pages/api/accounting/approval-rules';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { deletePlantedDocuments, plantDocument } from './approval-document.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -29,6 +30,7 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM approval_requests WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM approval_rules WHERE company_id=ANY($1::uuid[])', [companies]);
+    await deletePlantedDocuments(pool, companies);
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
@@ -84,8 +86,11 @@ describe('K-108 — condition_operator allowlist', () => {
       `INSERT INTO approval_rules(company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
        VALUES($1,'fires over 1000','payment','amount','greater_than',1000,'admin')`, [alpha]);
 
+    // The amount is read from the document now, so the payment has to exist and
+    // has to be over the threshold the rule names.
+    const documentId = await plantDocument(pool, alpha, 'payment', 999999, user);
     const checked = await call(approvalRequests, 'GET', undefined, {
-      action: 'check', documentType: 'payment', documentId: crypto.randomUUID(), amount: '999999',
+      action: 'check', documentType: 'payment', documentId,
     });
     const payload = checked.state.body as { data: { requiresApproval: boolean } };
     expect(payload.data.requiresApproval).toBe(true);
@@ -138,7 +143,7 @@ describe('K-109 — a request is governed by this company\'s own rule, never a n
       `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
        VALUES($1,$2,'beta only','journal_entry','amount','any',0,'admin')`, [betaRule, beta]);
 
-    const documentId = crypto.randomUUID();
+    const documentId = await plantDocument(pool, alpha, 'journal_entry', 5000, user);
     const made = await call(approvalRequests, 'POST', {
       action: 'request', ruleId: betaRule, documentType: 'journal_entry', documentId, amount: 5000,
     });
@@ -149,7 +154,7 @@ describe('K-109 — a request is governed by this company\'s own rule, never a n
   });
 
   it('refuses a document no active rule of this company governs', async () => {
-    const documentId = crypto.randomUUID();
+    const documentId = await plantDocument(pool, alpha, 'credit_note', 5000, user);
     const made = await call(approvalRequests, 'POST', {
       action: 'request', documentType: 'credit_note', documentId, amount: 5000,
     });
@@ -165,7 +170,7 @@ describe('K-109 — a request is governed by this company\'s own rule, never a n
       `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
        VALUES($1,$2,'alpha own','supplier_invoice','amount','any',0,'admin')`, [ownRule, alpha]);
 
-    const documentId = crypto.randomUUID();
+    const documentId = await plantDocument(pool, alpha, 'supplier_invoice', 5000, user);
     const made = await call(approvalRequests, 'POST', {
       // A foreign rule id in the body is simply not read any more.
       action: 'request', ruleId: crypto.randomUUID(), documentType: 'supplier_invoice', documentId, amount: 5000,

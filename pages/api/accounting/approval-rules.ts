@@ -32,6 +32,16 @@ function isConstraintViolation(error: unknown): boolean {
 }
 
 /**
+ * `approval_requests.rule_id` references the rule with no ON DELETE action, so
+ * deleting a rule that has ever been used is a 23503. That fell through to a 500
+ * whose body carried the raw Postgres message — table and constraint names — for
+ * an ordinary user action.
+ */
+function isForeignKeyViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '23503';
+}
+
+/**
  * Every mutation maps the same four outcomes. The service is the one place that
  * validates, so the route only has to translate.
  */
@@ -46,6 +56,10 @@ function respondToRuleWriteError(res: NextApiResponse, error: unknown): boolean 
   }
   if (error instanceof ApprovalRuleNotFoundError) {
     apiResponse.notFound(res, error.message);
+    return true;
+  }
+  if (isForeignKeyViolation(error)) {
+    apiResponse.badRequest(res, 'This rule has approval requests recorded against it and cannot be deleted. Deactivate it instead.');
     return true;
   }
   if (isConstraintViolation(error)) {

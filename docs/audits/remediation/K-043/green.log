@@ -257,3 +257,32 @@ Mutation proof (production change reverted, tests re-run, then restored):
 bunx tsc --noEmit ... clean
 bunx eslint (4 service files + approval-requests.ts) ... clean
 bun run agent-docs:check ... OK, 74 mirrors match
+
+=== Round 5 (2026-09-09) — server-derived governing rule ===
+
+Integration (disposable fixture Postgres, fixture.env):
+  k-043-r5-server-derived-rule.int.test.ts                13 passed
+  all six approval integration files                      60 passed
+  --sequence.shuffle x3 over the three request-path files 34 passed each run
+
+Unit (no DATABASE_URL):
+  eight approval unit files                               60 passed
+  FULL suite, DATABASE_URL unset                          801 files, 9504 passed / 234 skipped
+
+Mutations (each applied, run, restored byte-identical):
+  M1 requestApproval honours input.amount again           5 failed / 12
+  M2 resolveApprovalDocument returns a default instead of throwing
+                                                          4 failed / 12
+  M3 rebindPendingRequest returns `existing` unconditionally
+                                                          1 failed / 12  (the pin test)
+  M4 DROP INDEX uq_approval_requests_pending              1 failed / 13  (the constraint test)
+  M5 23503 arm removed from respondToRuleWriteError       1 failed / 12
+  NOT covered by a red test: removing `AND rl.is_active = true` from the
+  INSERT ... SELECT. The window it closes is not reachable through the route in
+  one process; recorded as defence in depth in fix.md (LOW-1).
+
+Gates: bunx tsc --noEmit clean; eslint on the five changed src/pages files clean;
+bun run agent-docs:check OK (74 mirrors); bun scripts/audit-migration-naming.ts
+no new duplicate prefixes; bunx tsx scripts/ci/check-migration-rls.ts OK.
+
+Migration 665 applied twice to the fixture; second run a no-op.
