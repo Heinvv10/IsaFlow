@@ -125,8 +125,15 @@ describe('reverseJournalEntry — semantics', () => {
       const lines = original.lines.map((line, i) => ({ ...line, vatType: i === 0 ? vatType : undefined }));
       mockGetById.mockResolvedValueOnce({ ...original, lines }).mockResolvedValueOnce(contraEntryDraft());
       mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID });
-      mockSql.mockResolvedValueOnce([{ status: 'open' }]).mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ status: 'posted' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+      mockSql
+        // reverseJournalEntry claims the reversal BEFORE creating the contra:
+        // one row back means this caller won it (journalEntryReversalClaim).
+        .mockResolvedValueOnce([{ id: ENTRY_ID }])
+        .mockResolvedValueOnce([{ status: 'open' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ status: 'posted' }])
+        // the contra link-back
+        .mockResolvedValueOnce([]);
 
       await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
 
