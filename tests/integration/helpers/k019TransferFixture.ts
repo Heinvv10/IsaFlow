@@ -24,7 +24,7 @@ function code(prefix: string): string {
   return `${prefix}${String(seq).padStart(4, '0')}`;
 }
 
-async function addAccount(pool: Pool, companyId: string): Promise<string> {
+export async function addAccount(pool: Pool, companyId: string): Promise<string> {
   const id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance)

@@ -17,27 +17,39 @@ exactly one bank line.
    `NOT EXISTS`).
 2. Both add a `winners` CTE keeping one bank line per journal line, and drive the UPDATE
    from it. Ties break on the new transaction id, so a pass is repeatable.
-3. Both repeat until a pass links nothing (`runLinkPasses`, cap 100), so a runner-up
-   beaten on one line still gets its own free line in the same call.
+3. Both rank every candidate pair from both sides and keep the `tx_rank = line_rank`
+   diagonal, then narrow it per line and per transaction. N rows contending for N free
+   lines settle in ONE statement; the diagonal alone is not a matching, so both narrowing
+   stages are load-bearing. `runLinkPasses` repeats for the leftovers of a partial
+   overlap. Termination is proved in its doc comment: the pair minimising
+   (date_distance, new_tx_id, target_je_line_id) is always rank 1 on both axes, so every
+   non-empty candidate set links at least one row and the set strictly shrinks.
 4. `source_allocs` gained `ORDER BY bt_src.id, jl_mine.id` — a `DISTINCT ON` without one
    takes an arbitrary row in heap order.
 5. The import pass joins `gl_journal_lines` INNER, so no row is allocated without a line.
 6. The relink now writes `transfer_journal_entry_id`; the duplicate-transfer guard in
    `bankAllocationService` selects on it, so relinked rows were invisible to that guard.
-7. Both run inside one savepoint, and return `{ linked, failed }` so a swallowed error is
-   no longer indistinguishable from "nothing to link".
+7. Both run inside one savepoint, and return `{ linked, failed }`. That signal now
+   reaches consumers rather than stopping at the contract: a failed pass adds an entry to
+   the import result's `errors[]`, and the bank transactions page reads the relink
+   response and shows a non-blocking notice.
 
-**Files.** `src/modules/accounting/services/bank/bankTransferLinkService.ts` (the import
-batch pass moved here from `bankImportService.ts`, which kept a second copy of the same
-defective SQL), `src/modules/accounting/services/bank/bankImportService.ts`,
-`pages/api/accounting/bank-relink-transfers.ts`.
+**Files.** `bankTransferLinkService.ts` (the import batch pass moved here from
+`bankImportService.ts`, which kept a second copy of the same defective SQL),
+`bankTransferLinkPasses.ts` (new — the shared savepoint and repeat loop, split out to
+keep both files under 300 lines), `bankImportService.ts`,
+`pages/api/accounting/bank-relink-transfers.ts`,
+`pages/accounting/bank-transactions/index.tsx`.
 
-**Tests.** 13 passed against the real fixture DB across
-`tests/integration/k019-transfer-relink-double-bind.int.test.ts` (8) and
-`tests/integration/k019-import-autolink-double-bind.int.test.ts` (5), plus
-`tests/unit/services/bank/bankImportService.bulk.test.ts` (7). Eleven mutations, one per
-production change, each go RED; see `green.log`. Full unit suite green twice: 9320
-passed. RED on origin/master in `red.log`.
+**Tests.** 19 passed against the real fixture DB across
+`tests/integration/k019-transfer-relink-double-bind.int.test.ts` (10) and
+`tests/integration/k019-import-autolink-double-bind.int.test.ts` (9), plus
+`tests/unit/services/bank/bankImportService.bulk.test.ts` (9). Fifteen mutations, one per
+production behaviour, each go RED; see `green.log`, which also records that two of them
+survived at first and what closed them. Full unit suite green at 9322 passed with the
+test timeout raised; at the default 10s it is flaky on this box and this branch trips
+more of it than origin/master — measured interleaved, and detailed in `green.log`. RED on
+origin/master in `red.log`.
 
 **Migration.** None. **Rollback.** Revert the commit; no schema or data change.
 
@@ -58,5 +70,10 @@ Neither was run against production.
 
 **Limits.** The relink pass cannot source from a legacy row that carries
 `transfer_journal_entry_id` but a NULL `matched_journal_line_id`; the import pass still
-can, which is why it was fixed rather than deleted. The UI's relink call discards the
-response, so `failed` reaches the API contract but no toast yet.
+can, which is why it was fixed rather than deleted. The rank diagonal is a greedy pairing,
+not a maximum matching: a partial overlap can still need a second pass, which is what the
+loop is for. Because the relink now writes `transfer_journal_entry_id`, rows it links
+become eligible SOURCES for a later import pass, where before they were invisible to it;
+the anti-join makes that safe, and it is the correct widening, but it is a behaviour
+change. This branch is measurably slower under heavy parallel load, enough to trip more
+10s test timeouts; no assertion fails.

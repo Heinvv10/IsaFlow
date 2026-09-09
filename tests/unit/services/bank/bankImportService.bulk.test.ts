@@ -222,4 +222,26 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
     // Both transfer passes run on the UI path; the batch pass runs first.
     expect(autoLinkImportedBatchTransfers).toHaveBeenCalled();
   });
+
+  it('reports a failed transfer pass in the import result instead of a clean import', async () => {
+    // Both passes swallow their error to keep the import non-fatal. Without
+    // this the import returns errors: [] and the failure lives only in a log.
+    const { relinkTransferCounterparts } =
+      await import('@/modules/accounting/services/bank/bankTransferLinkService');
+    vi.mocked(relinkTransferCounterparts).mockResolvedValueOnce({ linked: 0, failed: true });
+
+    const result = await importParsedTransactions(
+      'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
+    );
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].error).toMatch(/Transfer counterpart linking failed/);
+  });
+
+  it('reports no error when both transfer passes succeed', async () => {
+    const result = await importParsedTransactions(
+      'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
+    );
+    expect(result.errors).toHaveLength(0);
+  });
 });

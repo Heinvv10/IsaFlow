@@ -220,11 +220,18 @@ export async function importParsedTransactions(
     // both must honour one-bank-line-per-GL-movement and both must run inside
     // a savepoint, and keeping two copies of that SQL here is what let this
     // one keep the defect the other had fixed.
-    await autoLinkImportedBatchTransfers(companyId, batchId);
+    const batchLink = await autoLinkImportedBatchTransfers(companyId, batchId);
 
     // Broader re-link pass: catches account-type allocations to bank GL accounts
     // (e.g. user allocated the other leg as 'Account' rather than 'Transfer')
-    await relinkTransferCounterparts(companyId, bankAccountId);
+    const accountLink = await relinkTransferCounterparts(companyId, bankAccountId);
+
+    // Both passes swallow their error to keep the import non-fatal. Reporting a
+    // clean import when the transfer linking failed outright is what left the
+    // failure visible only in a log line, so it joins the import's own errors.
+    const linkErrors = batchLink.failed || accountLink.failed
+      ? [{ row: 0, error: 'Transfer counterpart linking failed — transfers may still show as unallocated. Re-link from the bank transactions page.' }]
+      : [];
 
     // Auto-provisional posting for outflows (best-effort)
     try {
@@ -246,7 +253,7 @@ export async function importParsedTransactions(
     return {
       batchId,
       transactionCount: parseResult.transactions.length,
-      errors: parseResult.errors,
+      errors: [...parseResult.errors, ...linkErrors],
     };
   } catch (err) {
     log.error('Failed to import parsed bank transactions', { error: err }, 'accounting');

@@ -20,64 +20,10 @@
  * that is the state this whole file exists to produce correctly.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
-import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
+import { runLinkPasses, type Row, type TransferLinkResult } from './bankTransferLinkPasses';
 
-type Row = Record<string, unknown>;
-
-/**
- * Outcome of a link pass. `failed` distinguishes "nothing to link" from "the
- * pass errored": both used to return 0, so a caller (and the UI behind
- * `bank-relink-transfers`) could not tell them apart.
- */
-export interface TransferLinkResult {
-  linked: number;
-  failed: boolean;
-}
-
-/**
- * Each repeat claims at least one journal line, so the loop converges long
- * before this. The cap only bounds a pathological plan.
- */
-const MAX_LINK_PASSES = 100;
-
-/**
- * Repeat `pass` until it links nothing, inside ONE savepoint.
- *
- * The savepoint is what makes the swallowing catch safe: both callers run
- * inside the request transaction, where an error rolled back only by the catch
- * leaves the connection aborted (25P02) and every later statement in the
- * request fails.
- */
-async function runLinkPasses(
-  label: string,
-  savepointName: string,
-  context: Record<string, unknown>,
-  pass: () => Promise<Row[]>,
-): Promise<TransferLinkResult> {
-  try {
-    return await withSavepoint(savepointName, async () => {
-      let linked = 0;
-      let passes = 0;
-      for (;;) {
-        const rows = await pass();
-        if (rows.length === 0) break;
-        linked += rows.length;
-        passes += 1;
-        if (passes >= MAX_LINK_PASSES) {
-          log.warn(`${label} hit the pass cap; some counterparts may be unlinked`,
-            { ...context, linked }, 'accounting');
-          break;
-        }
-      }
-      if (linked > 0) log.info(label, { ...context, linked }, 'accounting');
-      return { linked, failed: false };
-    });
-  } catch (err) {
-    log.warn(`${label} failed — non-fatal`, { ...context, error: err }, 'accounting');
-    return { linked: 0, failed: true };
-  }
-}
+export type { TransferLinkResult };
 
 /**
  * Link the `imported` rows of one import batch to the JE of an existing
@@ -100,8 +46,8 @@ export async function autoLinkImportedBatchTransfers(
           AND import_batch_id = ${batchId}::UUID
           AND status          = 'imported'
       ),
-      matching AS (
-        SELECT DISTINCT ON (n.id)
+      candidates AS (
+        SELECT
           n.id                         AS new_tx_id,
           et.transfer_journal_entry_id AS je_id,
           et.bank_account_id           AS counterparty_bank_id,
@@ -120,7 +66,8 @@ export async function autoLinkImportedBatchTransfers(
                                       AND (n.transaction_date::DATE + INTERVAL '2 days')
         -- INNER, not LEFT: a JE with no leg on this bank account is not the
         -- counterpart, and a NULL line would mark the row allocated with no GL
-        -- movement behind it.
+        -- movement behind it. The anti-join cannot catch that case — NOT EXISTS
+        -- is trivially true against a NULL line.
         JOIN gl_journal_lines jl
           ON  jl.journal_entry_id = et.transfer_journal_entry_id
           AND jl.gl_account_id    = n.bank_account_id
@@ -131,15 +78,23 @@ export async function autoLinkImportedBatchTransfers(
           WHERE bt_used.company_id              = ${companyId}::UUID
             AND bt_used.matched_journal_line_id = jl.id
         )
-        ORDER BY n.id,
-                 ABS(et.transaction_date::DATE - n.transaction_date::DATE) ASC,
-                 jl.id
+      ),
+      ranked AS (
+        SELECT *,
+          ROW_NUMBER() OVER (PARTITION BY new_tx_id ORDER BY date_distance, je_line_id) AS tx_rank,
+          ROW_NUMBER() OVER (PARTITION BY je_line_id ORDER BY date_distance, new_tx_id) AS line_rank
+        FROM candidates
+      ),
+      per_line AS (
+        SELECT DISTINCT ON (je_line_id) *
+        FROM ranked
+        WHERE tx_rank = line_rank
+        ORDER BY je_line_id, date_distance, new_tx_id
       ),
       winners AS (
-        SELECT DISTINCT ON (je_line_id)
-          new_tx_id, je_id, counterparty_bank_id, je_line_id, entity_name
-        FROM matching
-        ORDER BY je_line_id, date_distance ASC, new_tx_id
+        SELECT DISTINCT ON (new_tx_id) *
+        FROM per_line
+        ORDER BY new_tx_id, date_distance, je_line_id
       )
       UPDATE bank_transactions bt
       SET status                    = 'allocated',
@@ -218,9 +173,9 @@ export async function relinkTransferCounterparts(
         -- sees the first claimed, then offers the next.
         ORDER BY bt_src.id, jl_mine.id
       ),
-      best_matches AS (
-        -- For each unlinked imported transaction, pick the closest source alloc
-        SELECT DISTINCT ON (bt_new.id)
+      candidates AS (
+        -- Every compatible (imported row, free counterpart line) pair.
+        SELECT
           bt_new.id               AS new_tx_id,
           sa.target_je_id,
           sa.target_je_line_id,
@@ -237,21 +192,31 @@ export async function relinkTransferCounterparts(
         WHERE bt_new.bank_account_id = ${bankAccountId}::UUID
           AND bt_new.company_id      = ${companyId}::UUID
           AND bt_new.status          = 'imported'
-        ORDER BY bt_new.id,
-                 ABS(bt_new.transaction_date::DATE - sa.src_date::DATE) ASC,
-                 sa.target_je_line_id
+      ),
+      ranked AS (
+        -- Rank each pair from both sides. N rows contending for N equally close
+        -- lines rank 1..N identically on both axes, so the diagonal below is a
+        -- full pairing: all N link in this pass rather than one per pass.
+        SELECT *,
+          ROW_NUMBER() OVER (PARTITION BY new_tx_id
+                             ORDER BY date_distance, target_je_line_id) AS tx_rank,
+          ROW_NUMBER() OVER (PARTITION BY target_je_line_id
+                             ORDER BY date_distance, new_tx_id)         AS line_rank
+        FROM candidates
+      ),
+      per_line AS (
+        -- One bank line per GL movement.
+        SELECT DISTINCT ON (target_je_line_id) *
+        FROM ranked
+        WHERE tx_rank = line_rank
+        ORDER BY target_je_line_id, date_distance, new_tx_id
       ),
       winners AS (
-        -- One bank line per GL movement. Closest date wins; new_tx_id breaks
-        -- the tie so a re-run of the same pass picks the same winner.
-        SELECT DISTINCT ON (target_je_line_id)
-          new_tx_id,
-          target_je_id,
-          target_je_line_id,
-          counterparty_bank_id,
-          allocated_entity_name
-        FROM best_matches
-        ORDER BY target_je_line_id, date_distance ASC, new_tx_id
+        -- ...and one GL movement per bank line. Both directions are enforced,
+        -- so a pass can never claim a row or a line twice.
+        SELECT DISTINCT ON (new_tx_id) *
+        FROM per_line
+        ORDER BY new_tx_id, date_distance, target_je_line_id
       )
       UPDATE bank_transactions bt
       SET status                  = 'allocated',

@@ -9,7 +9,7 @@ import { als } from '@/lib/als';
 import { getPoolForTests } from '@/lib/neon';
 import { relinkTransferCounterparts } from '@/modules/accounting/services/bank/bankTransferLinkService';
 import {
-  AMOUNT, DAY, addSecondLegToJournal, cleanup, rowsOn, seedScenario,
+  AMOUNT, DAY, addAccount, addSecondLegToJournal, cleanup, rowsOn, seedScenario,
 } from './helpers/k019TransferFixture';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -110,6 +110,96 @@ describe('K-019 relinkTransferCounterparts', () => {
       .filter((r) => r.matched_journal_line_id !== null);
     expect(claimed).toHaveLength(1);
     expect(claimed[0].matched_journal_line_id).toBe(low);
+  });
+
+  it('links five contending rows in a SINGLE statement, not one per pass', async () => {
+    // Five rows and five equally close free lines rank 1..5 identically on both
+    // axes, so tx_rank = line_rank pairs them all in one pass. Before the rank
+    // join every row was handed the same lowest line and the pass linked one.
+    const s = await seedScenario(pool, company, user, 5, 5);
+
+    const client = await getPoolForTests().connect();
+    const updates: string[] = [];
+    const recording = new Proxy(client, {
+      get(target, prop) {
+        if (prop !== 'query') return Reflect.get(target, prop);
+        return (text: unknown, params?: unknown) => {
+          const sqlText = typeof text === 'string' ? text : String((text as { text?: string })?.text ?? '');
+          if (/UPDATE bank_transactions/i.test(sqlText)) updates.push(sqlText);
+          return (target.query as (t: unknown, p?: unknown) => unknown)(text, params);
+        };
+      },
+    }) as PoolClient;
+
+    try {
+      await client.query('BEGIN');
+      const { linked } = await als.run(ctxFor(recording, company), () =>
+        relinkTransferCounterparts(company, s.targetBank),
+      );
+      expect(linked).toBe(5);
+      // One linking statement; the second is the pass that finds nothing.
+      expect(updates).toHaveLength(2);
+      await client.query('COMMIT');
+    } finally {
+      client.release();
+    }
+
+    const claimed = (await rowsOn(pool, company, s.targetBank))
+      .filter((r) => r.matched_journal_line_id !== null);
+    expect(claimed).toHaveLength(5);
+    expect(new Set(claimed.map((r) => r.matched_journal_line_id)).size).toBe(5);
+  });
+
+  it('keeps two rows off one line when the diagonal alone would let both through', async () => {
+    // The rank diagonal is not by itself a matching. Two sources four days
+    // apart, and a middle row two days from each: the middle row is rank 2 on
+    // its chosen line AND rank 2 in that line's own order, so it survives the
+    // diagonal and lands on a line the closer row has already won. Only the
+    // per-line stage stops the double-bind.
+    const targetBank = await addAccount(pool, company);
+    const [lineNear, lineFar] = [crypto.randomUUID(), crypto.randomUUID()].sort();
+    const built = [
+      { line: lineNear, day: 0 },
+      { line: lineFar, day: 4 },
+    ];
+    for (const b of built) {
+      const srcBank = await addAccount(pool, company);
+      const je = crypto.randomUUID();
+      const srcLine = crypto.randomUUID();
+      await pool.query(
+        `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,status,created_by)
+         VALUES($1,$2,DATE '${DAY}' + $3::int,'K019 diag','posted',$4)`,
+        [je, company, b.day, user],
+      );
+      await pool.query(
+        `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
+         VALUES($1,$3,$4,$5,0,${AMOUNT}),($2,$3,$4,$6,${AMOUNT},0)`,
+        [srcLine, b.line, company, je, srcBank, targetBank],
+      );
+      await pool.query(
+        `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,matched_journal_line_id,transfer_journal_entry_id,allocation_type)
+         VALUES($1,$2,$3,DATE '${DAY}' + $4::int,${-AMOUNT},'K019 diag out','allocated',$5,$6,'transfer')`,
+        [crypto.randomUUID(), company, srcBank, b.day, srcLine, je],
+      );
+    }
+    // Exact matches for each line, plus one row equidistant from both.
+    for (const [day, label] of [[0, 'near'], [4, 'far'], [2, 'middle']] as const) {
+      await pool.query(
+        `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
+         VALUES($1,$2,$3,DATE '${DAY}' + $4::int,${AMOUNT},$5,'imported')`,
+        [crypto.randomUUID(), company, targetBank, day, `K019 diag in ${label}`],
+      );
+    }
+
+    const { linked } = await relinkTransferCounterparts(company, targetBank);
+    expect(linked).toBe(2);
+
+    const rows = await rowsOn(pool, company, targetBank);
+    const claimed = rows.filter((r) => r.matched_journal_line_id !== null);
+    expect(claimed).toHaveLength(2);
+    expect(new Set(claimed.map((r) => r.matched_journal_line_id)))
+      .toEqual(new Set([lineNear, lineFar]));
+    expect(rows.filter((r) => r.status === 'imported')).toHaveLength(1);
   });
 
   it('is idempotent: a second pass claims nothing already claimed', async () => {
