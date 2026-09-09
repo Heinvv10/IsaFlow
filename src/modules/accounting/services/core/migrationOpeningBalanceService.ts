@@ -49,9 +49,16 @@ export async function postOpeningBalances(
   const unresolved: string[] = [];
 
   for (const acct of balanceAccounts) {
+    // Scoped to accounts THIS source wrote. Resolving on the code alone posted
+    // the source's opening balance onto whatever the company happened to have
+    // at that code — including an account the import's conflict guard refused
+    // to touch, which the operator was told was "left unchanged". An account
+    // the import did not write is not resolvable, and falls into `unresolved`
+    // below, which refuses the whole journal.
     const glRows = (await sql`
       SELECT id FROM gl_accounts
       WHERE company_id = ${companyId}::UUID AND account_code = ${acct.sourceCode}
+        AND imported_from = ${source}
       LIMIT 1
     `) as DbRow[];
     if (glRows.length === 0) {
