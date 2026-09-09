@@ -109,7 +109,7 @@ export function mapRule(r: Record<string, unknown>): ApprovalRule {
 export function mapRequest(r: Record<string, unknown>): ApprovalRequest {
   return {
     id: String(r.id),
-    ruleId: String(r.rule_id),
+    ruleId: r.rule_id != null ? String(r.rule_id) : null,
     ruleName: r.rule_name ? String(r.rule_name) : undefined,
     documentType: String(r.document_type) as DocumentType,
     documentId: String(r.document_id),

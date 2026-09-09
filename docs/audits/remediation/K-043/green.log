@@ -105,3 +105,50 @@ Re-ran after the rename:
   bun scripts/ci/check-migration-rls.ts  → OK
   bun run agent-docs:check               → OK, 74 mirrors match
   bunx tsc --noEmit → 0   bunx eslint approvalMatching.ts → 0
+
+=== Round-2 review fixes (2026-09-09) — 2 MEDIUM / 7 LOW, all nine closed ===
+
+--- integration (fixture DB) ---
+k-043-self-approval-and-approver-role   1 passed
+k-043-approval-authority               10 passed  (+2: malformed request id → 404, rule id → 400)
+k108-k109-approval-rules               12 passed  (+3: deactivate / reactivate / correct a legacy
+                                                   unreadable rule)
+                                       ── 3 files, 23 passed
+Every test in both files also passes run alone with `-t` (round-2 LOW-1):
+  k108 ×8 checked individually, k-043 "refuses a manager…" and "already decided" likewise.
+
+--- unit ---
+approvalOperatorFailClosed    3 passed
+approverRankLadder            7 passed  (+2: covers both role allowlists)
+approvalDecisionAuthority    10 passed  (new — the two rank fallbacks)
+approvalRequestMapper         3 passed  (new — NULL rule_id)
+                              ── 4 files, 23 passed
+--- components --- approvalDecisionErrorSurface 3 passed
+
+--- migration 647 re-applied after scoping the CHECK ---
+DROP, apply, apply again → DO / DO (idempotent)
+CHECK (((condition_operator = ANY (ARRAY['any','greater_than','greater_equal']))
+        OR (is_active IS NOT TRUE))) NOT VALID
+
+--- mutation proof (restored after each) ---
+M.  deciderRank fallback 0 → 99            2 failed | 7 passed  (unknown role / prototype key)
+N.  requiredRank admin floor → 0           2 failed | 7 passed  (legacy 'Owner' / prototype key)
+O.  no-membership refusal → if (false)     2 failed | 7 passed  (no row / viewer rule)
+P2. 'bookkeeper' removed from the ladder   3 failed | 14 passed (2 ladder, 1 decision)
+Q.  route id validation removed            2 failed | 8 passed  (404 and 400 cases)
+R2. CHECK unscoped on the fixture          2 failed | 10 passed (deactivate / reactivate)
+S.  23514 → 400 mapping removed            1 failed | 11 passed (reactivate answers 500)
+T.  mapRequest NULL handling removed       1 failed | 2 passed
+R (first attempt) SURVIVED and the test was wrong, not the code: `plantLegacyRule` restated the
+constraint text when restoring it, so it reinstated the scoped form even under an unscoped
+migration. It now reads `pg_get_constraintdef` back out of the catalogue; R2 is the re-run.
+
+--- tsc --noEmit --- 0     --- eslint (7 files) --- 0
+--- agent-docs:check --- OK, 74 mirrors
+--- file sizes --- approvalAuthority 140, approvalService 228, approvalMatching 127,
+                   approval-rules 88, approval-requests 119, approvals/index.tsx 261
+
+--- full unit suite (fixture env unset) ---
+Test Files 5 failed | 791 passed | 36 skipped (832)   Tests 10 failed | 9451 passed (9695)
+(+15 tests over the previous round, which is exactly the new unit cases.) All five failures are
+10s timeouts at load average 143; re-run in isolation → 5 files / 27 tests passed.

@@ -15,6 +15,22 @@ import { listRules, createRule, updateRule, deleteRule, isConditionOperator, CON
 
 const OPERATOR_ERROR = `conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')}`;
 
+/**
+ * Migration 647's CHECK is NOT VALID, which Postgres still enforces on any row
+ * it UPDATES, and `updateRule` re-presents the stored operator through COALESCE.
+ * A legacy row carrying an unreadable operator can therefore refuse an edit that
+ * never touched that column. The constraint is scoped to active rules so
+ * deactivating one always works, but a 23514 from any other edit of such a row
+ * belongs to the caller, not to the server.
+ */
+function badRequestIfConstraintViolation(res: NextApiResponse, error: unknown): boolean {
+  if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '23514') {
+    apiResponse.badRequest(res, `${OPERATOR_ERROR}. This rule was saved with an operator that is no longer accepted; deactivate it or set a valid operator.`);
+    return true;
+  }
+  return false;
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
@@ -37,6 +53,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, rule);
     } catch (error) {
       if (error instanceof ApprovalRoleInvalidError) return apiResponse.badRequest(res, error.message);
+      if (badRequestIfConstraintViolation(res, error)) return;
       throw error;
     }
   }
@@ -52,6 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, rule);
     } catch (error) {
       if (error instanceof ApprovalRoleInvalidError) return apiResponse.badRequest(res, error.message);
+      if (badRequestIfConstraintViolation(res, error)) return;
       throw error;
     }
   }

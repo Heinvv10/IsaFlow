@@ -37,17 +37,22 @@ export class ApprovalRequestNotFoundError extends Error {
 }
 
 // Rank ladder for approver authority. ROLE_HIERARCHY in @/lib/auth/types has no
-// entry for 'accountant' or 'user', and its `?? 0` fallback would let anybody
-// satisfy a rule whose approver_role is 'accountant' — one of the defaults
-// seeded by migration 234. tests/unit/services/gl/approverRankLadder.test.ts
-// locks this ladder's ordering against ROLE_HIERARCHY so the two cannot drift.
+// entry for 'accountant', 'bookkeeper' or 'user', and its `?? 0` fallback would
+// let anybody satisfy a rule whose approver_role is 'accountant' — one of the
+// defaults seeded by migration 234. The roles a company can actually hold come
+// from two allowlists: ALLOWED_COMPANY_ROLES in adminUserActionsService and the
+// invitation route's own list. Every one of them must appear here, or the person
+// holding it can never approve anything.
+// tests/unit/services/gl/approverRankLadder.test.ts locks this ladder's ordering
+// against ROLE_HIERARCHY and its coverage against both allowlists.
 export const APPROVER_RANK: Record<string, number> = {
-  super_admin: 7,
-  owner: 6,
-  system: 5,
-  admin: 4,
-  manager: 3,
-  accountant: 2,
+  super_admin: 8,
+  owner: 7,
+  system: 6,
+  admin: 5,
+  manager: 4,
+  accountant: 3,
+  bookkeeper: 2,
   storeman: 1,
   technician: 1,
   user: 1,
@@ -59,11 +64,18 @@ export const APPROVER_ROLES = Object.keys(APPROVER_RANK);
 export const isApproverRole = (value: unknown): value is string =>
   typeof value === 'string' && Object.prototype.hasOwnProperty.call(APPROVER_RANK, value);
 
+// Both helpers go through isApproverRole rather than indexing and falling back on
+// `??`: APPROVER_RANK is a plain object, so APPROVER_RANK['toString'] is a
+// function, not undefined, and neither fallback would fire — the comparison
+// would then be NaN < NaN, which is false, and the decision would be allowed.
+
 /** An unrecognised rule role falls back to 'admin', the column default in 234. */
-const requiredRank = (role: string): number => APPROVER_RANK[role] ?? APPROVER_RANK.admin!;
+const requiredRank = (role: string): number =>
+  isApproverRole(role) ? APPROVER_RANK[role]! : APPROVER_RANK.admin!;
 
 /** An unrecognised decider role carries no authority. */
-const deciderRank = (role: string): number => APPROVER_RANK[role] ?? 0;
+const deciderRank = (role: string): number =>
+  isApproverRole(role) ? APPROVER_RANK[role]! : 0;
 
 /**
  * Throws ApprovalDecisionError when `decidedBy` may not decide `requestId`.
@@ -107,8 +119,18 @@ export async function assertMayDecide(
     );
   }
 
+  // No company_users row means no role to rank. Refuse outright rather than
+  // ranking '' as 0: a rule demanding 'viewer' is also rank 0, and 0 < 0 is
+  // false, so the comparison below would let a non-member decide it.
+  if (row.decider_role == null) {
+    throw new ApprovalDecisionError(
+      'APPROVER_ROLE_REQUIRED',
+      'You have no role in this company and cannot decide approvals'
+    );
+  }
+
   const ruleRole = row.approver_role != null ? String(row.approver_role) : 'admin';
-  const userRole = row.decider_role != null ? String(row.decider_role) : '';
+  const userRole = String(row.decider_role);
   if (deciderRank(userRole) < requiredRank(ruleRole)) {
     throw new ApprovalDecisionError(
       'APPROVER_ROLE_REQUIRED',

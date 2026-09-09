@@ -56,7 +56,8 @@ describe('K-108 — condition_operator allowlist', () => {
     });
     expect(created.state.statusCode).toBe(400);
 
-    const stored = await pool.query('SELECT id FROM approval_rules WHERE company_id=$1', [alpha]);
+    const stored = await pool.query(
+      'SELECT id FROM approval_rules WHERE company_id=$1 AND name=$2', [alpha, 'Payments over 1000']);
     expect(stored.rowCount).toBe(0);
   });
 
@@ -76,6 +77,12 @@ describe('K-108 — condition_operator allowlist', () => {
   });
 
   it('the rule the UI describes actually fires once the operator is a real one', async () => {
+    // Its own rule: this test must not depend on one an earlier test happened
+    // to leave behind, or it passes only in declaration order.
+    await pool.query(
+      `INSERT INTO approval_rules(company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
+       VALUES($1,'fires over 1000','payment','amount','greater_than',1000,'admin')`, [alpha]);
+
     const checked = await call(approvalRequests, 'GET', undefined, {
       action: 'check', documentType: 'payment', documentId: crypto.randomUUID(), amount: '999999',
     });
@@ -160,5 +167,78 @@ describe('K-109 — a request may only name a rule this company owns', () => {
 
     const stored = await pool.query('SELECT company_id, rule_id FROM approval_requests WHERE document_id=$1', [documentId]);
     expect(stored.rows[0]).toMatchObject({ company_id: alpha, rule_id: ownRule });
+  });
+});
+
+describe('K-108 — a legacy unreadable rule can still be switched off (review LOW-2)', () => {
+  /**
+   * Migration 647's CHECK is NOT VALID, which Postgres still enforces on any row
+   * it UPDATES, and updateRule re-presents condition_operator through COALESCE.
+   * An UNSCOPED constraint would therefore refuse an update that only sets
+   * is_active = false, with a 23514 the route reported as a 500 — so precisely
+   * the rules that now demand approval on every document could not be switched
+   * off, only deleted. The constraint is scoped `OR is_active IS NOT TRUE`.
+   *
+   * Planting the legacy row needs the constraint out of the way, since that is
+   * the whole point: it cannot be created through any current path. Dropped and
+   * restored in a finally, so a failure here does not leave the fixture open.
+   */
+  const CONSTRAINT = 'approval_rules_condition_operator_check';
+
+  const plantLegacyRule = async (id: string) => {
+    // Read the LIVE definition back out of the catalogue and restore that,
+    // rather than restating it here. A copy would silently reinstate the scoped
+    // form even when the migration no longer produces it, which makes these
+    // tests pass against an unscoped constraint — the exact thing they exist to
+    // rule out.
+    const { rows } = await pool.query(
+      'SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname=$1', [CONSTRAINT]);
+    const def = rows[0]?.def as string | undefined;
+    if (!def) throw new Error(`${CONSTRAINT} is not on the fixture — apply migration 647 first`);
+
+    await pool.query(`ALTER TABLE approval_rules DROP CONSTRAINT ${CONSTRAINT}`);
+    try {
+      await pool.query(
+        `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
+         VALUES($1,$2,'legacy less_than','payment','amount','less_than',1000,'admin',true)`, [id, alpha]);
+    } finally {
+      await pool.query(`ALTER TABLE approval_rules ADD CONSTRAINT ${CONSTRAINT} ${def}`);
+    }
+  };
+
+  it('deactivates a rule whose stored operator the allowlist would refuse', async () => {
+    const ruleId = crypto.randomUUID();
+    await plantLegacyRule(ruleId);
+
+    const updated = await call(approvalRules, 'PUT', { id: ruleId, isActive: false });
+    expect(updated.state.statusCode).toBe(200);
+
+    const stored = await pool.query('SELECT is_active, condition_operator FROM approval_rules WHERE id=$1', [ruleId]);
+    // Switched off, and its operator left exactly as it was for the impact query.
+    expect(stored.rows[0]).toMatchObject({ is_active: false, condition_operator: 'less_than' });
+  });
+
+  it('refuses to reactivate it while the operator is still unreadable, as a 400 not a 500', async () => {
+    const ruleId = crypto.randomUUID();
+    await plantLegacyRule(ruleId);
+    await call(approvalRules, 'PUT', { id: ruleId, isActive: false });
+
+    const reactivated = await call(approvalRules, 'PUT', { id: ruleId, isActive: true });
+    expect(reactivated.state.statusCode).toBe(400);
+
+    const stored = await pool.query('SELECT is_active FROM approval_rules WHERE id=$1', [ruleId]);
+    expect(stored.rows[0].is_active).toBe(false);
+  });
+
+  it('lets the operator be corrected and the rule brought back', async () => {
+    const ruleId = crypto.randomUUID();
+    await plantLegacyRule(ruleId);
+    await call(approvalRules, 'PUT', { id: ruleId, isActive: false });
+
+    const fixed = await call(approvalRules, 'PUT', { id: ruleId, conditionOperator: 'greater_than', isActive: true });
+    expect(fixed.state.statusCode).toBe(200);
+
+    const stored = await pool.query('SELECT is_active, condition_operator FROM approval_rules WHERE id=$1', [ruleId]);
+    expect(stored.rows[0]).toMatchObject({ is_active: true, condition_operator: 'greater_than' });
   });
 });
