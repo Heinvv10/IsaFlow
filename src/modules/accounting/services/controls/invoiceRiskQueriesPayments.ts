@@ -1,16 +1,16 @@
 import type {ControlTx} from './contracts';
 import {RISK_SOURCE_LIMIT} from './invoiceRiskQueriesResult';
-export interface PaymentRiskRow {id:string;supplier_id:string;payment_date:string;total_amount:string;status:string;reference:string|null;version:number|string|null;
+export interface PaymentRiskRow {supplier_owned?:boolean;id:string;supplier_id:string;payment_date:string;total_amount:string;status:string;reference:string|null;version:number|string|null;
  allocations:Array<{invoice_id:string;amount:string;currency:string|null}>;
  attempts:Array<{intent_id:string;preparation_id:string;attempted_at:string;verified_at?:string|null;beneficiary_version_id?:string|null}>;
  allocation_count?:number;attempt_count?:number;processed_at?:string|null;legacy_verified_at?:string|null}
 export async function loadPaymentRiskPopulation(ctx:ControlTx,cutoff:string|null){
  const company=ctx.principal.companyId;
  const rows=await ctx.sql`WITH population AS (
-  SELECT p.id,p.supplier_id,p.payment_date::text,p.total_amount::text,p.status,p.reference,p.processed_at::text,v.version,
+  SELECT p.id,(s.id IS NOT NULL) AS supplier_owned,p.supplier_id,p.payment_date::text,p.total_amount::text,p.status,p.reference,p.processed_at::text,v.version,
    COALESCE(a.allocations,'[]'::jsonb) AS allocations,COALESCE(a.n,0)::int AS allocation_count,
    COALESCE(r.attempts,'[]'::jsonb) AS attempts,COALESCE(r.n,0)::int AS attempt_count,b.verified_at::text AS legacy_verified_at
-  FROM supplier_payments p JOIN suppliers s ON s.company_id=p.company_id AND s.id=p.supplier_id
+  FROM supplier_payments p LEFT JOIN suppliers s ON s.company_id=p.company_id AND s.id=p.supplier_id
   LEFT JOIN control_entity_versions v ON v.company_id=p.company_id AND v.entity_type='supplier_payment' AND v.entity_id=p.id::text
   LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('invoice_id',x.invoice_id,'amount',x.amount_allocated::text,'currency',x.currency) ORDER BY x.invoice_id) AS allocations,max(x.n) AS n
    FROM (SELECT pa.invoice_id,pa.amount_allocated,i.currency,count(*) OVER() AS n FROM payment_allocations pa

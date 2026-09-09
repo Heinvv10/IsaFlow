@@ -76,3 +76,45 @@ it('refuses revoked read permission and leaves verified comparison unknown witho
  await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[fixture.companyA,fixture.u1.id]);
  await expect(actor(ctx=>checkDuplicateInvoices(ctx,{}))).rejects.toThrow();
 });
+it('detects actual activation within48h before payment but does not attribute a later activation',async()=>{
+ const s=await seedReleaseSupplier(pool,fixture,(person,fn)=>actor(fn,person)),bill=await invoice(s.supplier);
+ const p=randomUUID();await pool.query(`INSERT INTO supplier_payments(id,company_id,supplier_id,payment_date,total_amount,status,processed_at,created_by)
+ VALUES($1,$2,$3,'2026-09-09',1150,'processed',clock_timestamp(),$4)`,[p,fixture.companyA,s.supplier,fixture.u1.id]);
+ await pool.query('INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,1150)',[p,bill]);
+ expect((await actor(ctx=>checkPaymentRisks(ctx,{}))).findings.some(f=>f.kind==='recent_beneficiary_change')).toBe(true);
+ await pool.query(`UPDATE supplier_payments SET processed_at=(SELECT min(verified_at)-interval '1 second' FROM control_beneficiary_versions
+ WHERE company_id=$1 AND entity_id=$2) WHERE company_id=$1 AND id=$3`,[fixture.companyA,s.supplier,p]);
+ expect((await actor(ctx=>checkPaymentRisks(ctx,{}))).findings.some(f=>f.kind==='recent_beneficiary_change')).toBe(false);
+});
+it('reports exact oversized populations as unknown rather than truncating to a passing check',async()=>{
+ const s=await supplier();await pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,tax_amount,total_amount,currency,status,created_by)
+ SELECT gen_random_uuid(),$1,$2,'BOUND-'||g,'2026-09-09',1000,150,1150,'ZAR','approved',$3 FROM generate_series(1,10001)g`,[fixture.companyA,s,fixture.u1.id]);
+ const result=await actor(ctx=>checkDuplicateInvoices(ctx,{}));expect(result.populationCount).toBe(10001);expect(result.status).toBe('unknown');
+ expect(result.missingSources).toContain('async_scan_required:invoice_population_exceeds_10000');expect(result.findings).toEqual([]);
+});
+it('does not confirm duplicate source bytes from mutable hash metadata alone',async()=>{
+ const s=await supplier(),bytes=Buffer.from('original synthetic bytes');await invoice(s,'2026-09-09',bytes);const changed=await invoice(s,'2026-09-09',bytes);
+ await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND matched_invoice_id=$3',[Buffer.from('changed synthetic bytes'),fixture.companyA,changed]);
+ const result=await actor(ctx=>checkDuplicateInvoices(ctx,{}));expect(result.findings[0]?.classification).toBe('candidate');expect(result.missingSources).toContain('verified_source_file_bytes_unavailable');
+});
+it('counts owned invoices and payments with foreign supplier parents as unknown, never hidden passes',async()=>{
+ const foreign=await supplier(fixture.companyB),bill=randomUUID(),payment=randomUUID();
+ await pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,tax_amount,total_amount,currency,status,created_by)
+ VALUES($1,$2,$3,'FOREIGN-PARENT','2026-09-09',1000,150,1150,'ZAR','approved',$4)`,[bill,fixture.companyA,foreign,fixture.u1.id]);
+ await pool.query(`INSERT INTO supplier_payments(id,company_id,supplier_id,payment_date,total_amount,status,created_by)
+ VALUES($1,$2,$3,'2026-09-09',1150,'approved',$4)`,[payment,fixture.companyA,foreign,fixture.u1.id]);
+ const invoices=await actor(ctx=>checkDuplicateInvoices(ctx,{})),payments=await actor(ctx=>checkPaymentRisks(ctx,{}));
+ expect(invoices.populationCount).toBe(1);expect(invoices.status).toBe('unknown');expect(invoices.missingSources).toContain('owned_supplier_parent_unavailable');
+ expect(payments.populationCount).toBe(1);expect(payments.status).toBe('unknown');expect(payments.missingSources).toContain('owned_supplier_parent_unavailable');
+ expect(JSON.stringify({invoices,payments})).not.toContain(foreign);
+});
+it('reports unmapped staging imports as unknown and excludes an explicit owned native import mirror',async()=>{
+ const stage=randomUUID();await pool.query(`INSERT INTO sage_supplier_invoices(id,company_id,sage_id,invoice_number,supplier_name,invoice_date,total_amount)
+ VALUES($1,$2,'SYNTHETIC','IMPORT1','Unmapped supplier','2026-09-09',1150)`,[stage,fixture.companyA]);
+ const unknown=await actor(ctx=>checkDuplicateInvoices(ctx,{}));expect(unknown.populationCount).toBe(1);expect(unknown.status).toBe('unknown');
+ expect(unknown.missingSources).toContain('unmapped_import_invoice_financial_material_unavailable');
+ const s=await supplier(),native=await invoice(s,'2026-09-09',Buffer.from('imported synthetic invoice'));
+ await pool.query("UPDATE sage_supplier_invoices SET gl_supplier_invoice_id=$1,migration_status='imported' WHERE company_id=$2 AND id=$3",[native,fixture.companyA,stage]);
+ const linked=await actor(ctx=>checkDuplicateInvoices(ctx,{}));expect(linked.populationCount).toBe(2);expect(linked.excludedCount).toBe(1);expect(linked.findingCount).toBe(0);
+ expect(linked.missingSources).not.toContain('unmapped_import_invoice_financial_material_unavailable');
+});

@@ -13,8 +13,17 @@ it('does not confuse recurring months with a same-date duplicate',()=>{
 import {riskHash,riskResult} from '@/modules/accounting/services/controls/invoiceRiskQueriesResult';
 it('keeps complete findings and exact totals across page20 and rejects a stale cursor',()=>{
  const rows=Array.from({length:122},(_,i)=>row(String(i).padStart(3,'0'))),findings=detectInvoiceDuplicates(rows);
- const args={id:'duplicate_invoice_checks',options:{limit:20},populationCount:122,excludedCount:0,findings,missing:[],coverage:[],capturedAt:'2026-09-09T00:00:00Z',sourceVersions:[],sourceHash:riskHash(rows)};
+ const args={companyId:'company',id:'duplicate_invoice_checks',options:{limit:20},populationCount:122,excludedCount:0,findings,missing:[],coverage:[],capturedAt:'2026-09-09T00:00:00Z',sourceVersions:[],sourceHash:riskHash(rows)};
  const first=riskResult(args);expect(first.findingCount).toBe(121);expect(first.findings).toHaveLength(20);expect(first.amountTotals).toEqual({ZAR:'139150'});
  const second=riskResult({...args,options:{limit:20,cursor:first.nextCursor!}});expect(second.findingCount).toBe(121);expect(second.findings[0]?.key).not.toBe(first.findings[0]?.key);
  expect(()=>riskResult({...args,sourceHash:'changed',options:{cursor:first.nextCursor!}})).toThrow('changed');
+});
+it('excludes void and cancelled invoice lifecycles',()=>{
+ expect(detectInvoiceDuplicates([row('a'),row('b',{status:'void'}),row('c',{status:'cancelled'})])).toEqual([]);
+});
+it('binds finding cursors explicitly to the authenticated tenant',()=>{
+ const findings=detectInvoiceDuplicates(Array.from({length:3},(_,i)=>row(String(i))));
+ const args={companyId:'company-a',id:'duplicate_invoice_checks',options:{limit:1},populationCount:3,excludedCount:0,findings,missing:[],coverage:[],capturedAt:'2026-09-09T00:00:00Z',sourceVersions:[],sourceHash:'same-observed-rows'};
+ const first=riskResult(args);
+ expect(()=>riskResult({...args,companyId:'company-b',options:{cursor:first.nextCursor!}})).toThrow('changed');
 });
