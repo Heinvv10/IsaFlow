@@ -19,3 +19,9 @@ it('foreign tenant, wrong bank and mixed detail references cannot broaden review
  const p=await requested();
  for(const r of [await f.read(p.bankTransactionId,undefined,'u3',p.approvalId),await f.read(await f.source(),undefined,'u2',p.approvalId),await f.read(p.bankTransactionId,p.intentId,'u2',p.approvalId)])expect(r.status).toBeGreaterThanOrEqual(400);
 });
+it('state exposes current signed statement amount for both directions without foreign lookup',async()=>{
+ for(const amount of ['-115.23','115.23']){
+  const bank=await f.source(amount),r=await f.read(bank);expect(r.status).toBe(200);expect(Number(r.body.data.bankAmount)).toBe(Number(amount));expect(typeof r.body.data.bankAmount).toBe('string');
+  expect((await f.read(bank,undefined,'u3')).status).toBeGreaterThanOrEqual(400);
+ }
+});

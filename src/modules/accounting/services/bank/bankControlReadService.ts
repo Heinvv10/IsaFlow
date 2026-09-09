@@ -35,5 +35,5 @@ export async function readBankControlState(ctx:ControlTx,input:unknown){
  const selectedRows=query.intentId||query.approvalId?await readBankPreparedRows(ctx,bank.id,visible,query.intentId??null,query.approvalId??null) as Row[]:[];
  if((query.intentId||query.approvalId)&&selectedRows.length!==1)throw new Error('Prepared bank intent not found');
  const items=rows.map(map),total=rows[0]?.total??0;
- return{bankTransactionId:bank.id,...original,prepared:{items,total,hasMore:total>items.length},selected:selectedRows[0]?map(selectedRows[0]):null};
+ return{bankTransactionId:bank.id,bankAmount:bank.amount,...original,prepared:{items,total,hasMore:total>items.length},selected:selectedRows[0]?map(selectedRows[0]):null};
 }
