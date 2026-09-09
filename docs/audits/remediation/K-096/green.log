@@ -17,3 +17,37 @@ Full unit suite, DATABASE_URL unset (bunx vitest run):
 
 bunx tsc --noEmit                                          exit 0, no output
 bunx eslint pages/api/billing/paystack/mandate/verify.ts   exit 0, no output
+
+--- Round 2 (blind review findings HIGH-1, MEDIUM-1, LOW-2) ---
+
+Integration (real fixture DB):
+  tests/integration/k096-webhook-mandate-scoping.int.test.ts   3 passed
+  tests/integration/k096-mandate-link-persisted.int.test.ts    3 passed
+  (round 1 suites re-run unchanged: 4 passed)
+
+Mutation proofs:
+  src/modules/billing/services/paystackEventHandlers.ts reverted to origin/master
+    -> k096-webhook-mandate-scoping  Test Files 1 failed / Tests 3 failed, with
+       'duplicate key value violates unique constraint "ux_sub_mandates_company_active"',
+       code 23505 — the exact failure the review reproduced by hand.
+  pages/api/billing/paystack/mandate/create.ts reverted (link not persisted)
+    -> k096-mandate-link-persisted  Tests 1 failed | 2 passed
+  the `AND (pr.mandate_id IS NULL OR m.id = pr.mandate_id)` predicate removed from verify.ts
+    -> k096-mandate-link-persisted  Tests 2 failed | 1 passed
+  All three restored; 6 passed again.
+
+Migration 651_paystack_payment_request_mandate_id.sql applied to the fixture DB:
+  ALTER TABLE / COMMENT / CREATE INDEX all OK; \d paystack_payment_requests shows the column,
+  the partial index and the ON DELETE SET NULL FK.
+
+bunx tsc --noEmit   exit 0, no output
+bunx eslint pages/api/billing/paystack/mandate/{verify,create}.ts
+             src/modules/billing/services/paystackEventHandlers.ts   exit 0, no output
+
+Full unit suite, round 2, DATABASE_URL unset (bunx vitest run --maxWorkers=4):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9548 passed | 243 skipped (9791)
+At the default worker count this box was at load average 150-160 from other agents and a
+SHIFTING set of 4-5 unrelated suites (bank allocation, cash flow, tracker exclusion) timed out
+— a different set each run, all passing in isolation, none importing anything changed here.
+--maxWorkers=4 removes the contention and the suite is clean.

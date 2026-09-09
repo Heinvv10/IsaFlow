@@ -17,16 +17,57 @@ skipped when `mandate_id` is null; the failure branch additionally keeps `AND st
 so any error it raises rolls back to the savepoint and leaves the request transaction usable
 — the existing best-effort `catch` now actually is best-effort.
 
-**Files.** `pages/api/billing/paystack/mandate/verify.ts`.
+**Round 2 (blind review of fb63f304).** Two findings, both fixed here.
 
-**Tests.** `tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts` (1) and
+*HIGH-1 — the webhook was left broken.* The commit scoped `verify.ts` and left the identical
+company-wide statement in `src/modules/billing/services/paystackEventHandlers.ts`, the path the
+route's own comment calls the source of truth, with a wider predicate still
+(`status IN ('pending','active')`). `processEvent` runs handlers in one transaction, so the
+23505 rolled the whole event back, the webhook answered 500, and every Paystack redelivery hit
+the same constraint — the mandate never activated through the webhook at all. It now resolves
+one mandate id and writes only that row.
+
+*MEDIUM-1 — `row.mandate_id` was a heuristic, not a link.* Nothing in the schema resolved a
+reference to a mandate: `create.ts` passed the mandate id only in the Paystack *metadata*,
+which `VerifyTransactionResult` does not expose. The LEFT JOIN was really picking the company's
+newest pending paystack mandate, so verifying an *older* reference activated a *newer* mandate
+— and the row that went live carried a `max_amount_cents` recurring-debit ceiling the customer
+never authorised on that reference. Migration 651 adds
+`paystack_payment_requests.mandate_id`, `create.ts` sets it, and both readers use it. The
+column is nullable: rows written before 651 have no recoverable link and keep the
+newest-pending fallback, now scoped to one row rather than the whole company.
+
+*LOW-2.* A successful authorisation that resolves to no mandate row now logs a warning. The
+reference is spent at that point (the block is gated on `pr_status = 'pending'`), so the route
+would otherwise report `pending` forever with nothing said.
+
+**Files.** `pages/api/billing/paystack/mandate/verify.ts`,
+`pages/api/billing/paystack/mandate/create.ts`,
+`src/modules/billing/services/paystackEventHandlers.ts`,
+`scripts/migrations/sql/651_paystack_payment_request_mandate_id.sql`.
+
+**Tests.** `tests/integration/k096-webhook-mandate-scoping.int.test.ts` (3) drives
+`processEvent` against the real DB with two pending mandates: the linked mandate activates, the
+abandoned sibling stays pending, exactly one active row remains, a pre-651 request still
+resolves to one mandate, and another tenant is untouched. Reverting the handler to master takes
+all 3 red with the 23505 the review reproduced.
+`tests/integration/k096-mandate-link-persisted.int.test.ts` (3) proves `create.ts` writes the
+link, that verify activates the LINKED mandate rather than the newest pending one (with the
+ceiling that belongs to that reference), and that a link pointing at another tenant's mandate
+activates nothing. Reverting `create.ts` takes 1 red; removing the link predicate from the
+verify JOIN takes 2 red.
+`tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts` (1) and
 `tests/integration/k096-mandate-verify-scoping.int.test.ts` (3) — real fixture DB, handler
 driven inside a real BEGIN/ALS transaction the way `withAuth` runs it. 4 passed. Adjacent
 cases: the abandoned sibling stays pending; another tenant's mandates are untouched; the
 failed/abandoned branch marks only the resolved mandate. Mutation: reverting the production
 file takes 2 of the 4 red (the other two do not reach the mutated statement). See `green.log`.
 
-**Migration / rollback.** None. Rollback is reverting the one file.
+**Migration / rollback.** `651_paystack_payment_request_mandate_id.sql` — one nullable column
+plus a partial index, `ADD COLUMN IF NOT EXISTS`, `ON DELETE SET NULL`. Applied to the fixture
+DB. Rollback is `ALTER TABLE paystack_payment_requests DROP COLUMN mandate_id`; both readers
+treat a missing link as the legacy case, so reverting the code without the column also works.
+Prefix 651 taken from the register; recorded there.
 
 **Historical-data impact.** Nothing wrong was written; the signature is a write that did not
 happen. Any company with more than one pending paystack mandate cannot complete authorisation
@@ -44,6 +85,8 @@ HAVING COUNT(m.id) FILTER (WHERE m.status = 'active') = 0
    AND COUNT(m.id) FILTER (WHERE m.status = 'pending') > 1;
 ```
 
-**Limits.** Stale pending mandates still accumulate — expiring them is a separate change.
-The first SELECT's ordering decides which mandate wins when several are pending; it picks the
-newest, i.e. the retry, which is the right one, but it is an ordering choice not a lock.
+**Limits.** Rows created before migration 651 still resolve by "newest pending", which is a
+guess — it is now a guess that touches exactly one row instead of a statement that raises
+23505, but it can still activate the wrong mandate for a company that has two pending rows from
+before the migration. Nothing recovers the true link for those; it lived in Paystack metadata.
+Stale pending mandates still accumulate — expiring them is a separate change.

@@ -20,3 +20,16 @@ Note: the two K-095 suites both need plans.code = 'payg', which is globally uniq
 Their fixtures were changed to ON CONFLICT (code) DO NOTHING + resolve the id, and to
 drop the plan row only when no sibling suite still holds a subscription on it. Without
 that the pair collides on plans_code_key when vitest runs the files in parallel.
+
+--- Round 2 (blind review finding LOW-1) ---
+
+ALLOW_UNPAID_FLOW_PURCHASE documented in .env.example (commented out, next to the Paystack
+keys). Docs-only; the two K-095 suites are unchanged and still 4 passed.
+
+Full unit suite, round 2, DATABASE_URL unset (bunx vitest run --maxWorkers=4):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9548 passed | 243 skipped (9791)
+At the default worker count this box was at load average 150-160 from other agents and a
+SHIFTING set of 4-5 unrelated suites (bank allocation, cash flow, tracker exclusion) timed out
+— a different set each run, all passing in isolation, none importing anything changed here.
+--maxWorkers=4 removes the contention and the suite is clean.

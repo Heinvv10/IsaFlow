@@ -12,7 +12,7 @@ no payment taken.
 Local dev and pilot deployments keep working by setting the flag; production cannot opt in.
 
 **Files.** `pages/api/billing/flows/purchase.ts` (new `unpaidFallbackAllowed()`, refusal
-branch, doc comment).
+branch, doc comment); `.env.example` (documents the flag).
 
 **Tests.** `tests/integration/k095-flow-purchase-fails-open-without-paystack.int.test.ts`
 (1) and `tests/integration/k095-flow-purchase-fallback-gate.int.test.ts` (3) — real fixture
@@ -39,6 +39,11 @@ WHERE  fp.status = 'succeeded'
 GROUP  BY fp.company_id
 ORDER  BY rand_not_collected DESC;
 ```
+
+**Round 2 (blind review of fb63f304) — LOW-1.** `ALLOW_UNPAID_FLOW_PURCHASE` appeared nowhere
+but the route, its tests and these docs, so a dev or pilot deployment that started returning 503
+had no discoverable way to find the switch. It is now documented in `.env.example`, commented
+out, next to the Paystack keys.
 
 **Limits.** The fallback still writes `payment_method = 'admin_recorded'`. Giving it its own
 value would make future rows separable, but it changes a stored enum-like value that reports

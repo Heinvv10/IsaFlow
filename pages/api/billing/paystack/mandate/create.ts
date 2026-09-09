@@ -62,6 +62,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Insert a pending mandate row so the webhook has somewhere to attach the
   // captured authorization_code. status='pending' until charge.success fires.
+  // Its id is stored on the payment request below (migration 651) so both the
+  // webhook and the verify route write to THIS mandate rather than guessing
+  // from the company's newest pending row.
   const mandateRows = await sql<{ id: string }>`
     INSERT INTO subscription_mandates (
       company_id, gateway, max_amount_cents, currency,
@@ -90,11 +93,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     await sql`
       INSERT INTO paystack_payment_requests (
-        company_id, purpose,
+        company_id, purpose, mandate_id,
         paystack_reference, paystack_access_code, authorization_url,
         amount_cents, currency, status, payer_email
       ) VALUES (
-        ${req.companyId}, 'authorization',
+        ${req.companyId}, 'authorization', ${mandateId},
         ${init.reference}, ${init.accessCode}, ${init.authorizationUrl},
         ${AUTH_VERIFICATION_CENTS}, 'ZAR', 'pending', ${userEmail}
       )
