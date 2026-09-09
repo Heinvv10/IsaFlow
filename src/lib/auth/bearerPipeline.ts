@@ -13,7 +13,7 @@ import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
 // Register the DATE parser independently of neon.ts import order.
 import '@/lib/pgTypes';
-import { als } from '@/lib/als';
+import { withControlRequest } from '@/modules/accounting/services/controls/context';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
@@ -31,7 +31,6 @@ const AUTO_RATE_LIMIT: Array<{ prefix: string; key: string; max: number; windowS
   { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
 ];
 
-/** Postgres SQLSTATE for invalid_text_representation — i.e. UUID cast errors. */
 const PG_INVALID_TEXT_REPRESENTATION = '22P02';
 
 export interface BearerAuthedRequest extends CompanyAuthedRequest {
@@ -239,10 +238,11 @@ export async function runBearerRequest(
       return res;
     };
 
-    const runHandler = async () =>
-      als.run({ client, userId: ctx.userId, companyId: ctx.companyId, claims }, async () => {
-        await handler(authedReq, res);
-      });
+    const runHandler = async () => withControlRequest(
+      { client, userId: ctx.userId, companyId: ctx.companyId, claims },
+      { personId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method,
+        connectionId: ctx.patId ?? ctx.oauthAuthorisationId, grantId: ctx.patId ?? ctx.oauthAuthorisationId,
+        grantedScopes: ctx.scopes }, async () => { await handler(authedReq, res); });
 
     if (process.env.SENTRY_ENABLED === 'true') {
       await Sentry.withIsolationScope(async () => {

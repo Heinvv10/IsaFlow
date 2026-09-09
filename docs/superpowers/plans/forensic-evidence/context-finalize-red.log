@@ -1,0 +1,26 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/context.test.ts (5 tests | 1 failed) 6ms
+     × propagates authenticated context and refuses completion when required audit failed 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/context.test.ts > transaction-bound control authority > propagates authenticated context and refuses completion when required audit failed
+TypeError: withControlRequest is not a function
+ ❯ tests/unit/services/controls/context.test.ts:42:18
+     40|   it('propagates authenticated context and refuses completion when req…
+     41|     const store = { client, userId: 'u1', companyId: 'a', claims: {} };
+     42|     await expect(withControlRequest(store, { personId: 'u1', companyId…
+       |                  ^
+     43|       expect(requireControlTx().principal.authMethod).toBe('cookie');
+     44|       als.getStore()!.controlWriteFailed = true;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  08:51:42
+   Duration  201ms (transform 53ms, setup 0ms, import 77ms, tests 6ms, environment 0ms)
+

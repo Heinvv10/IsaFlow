@@ -2,6 +2,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { log } from '@/lib/logger';
 import type { PoolClient } from 'pg';
+import type { ControlPrincipal } from '@/modules/accounting/services/controls/contracts';
 
 export interface RequestContext {
   client: PoolClient;
@@ -9,6 +10,10 @@ export interface RequestContext {
   /** Absent for platform-admin requests (admin is global, not tenant-scoped). */
   companyId?: string;
   claims: Record<string, unknown>;
+  /** Set only after authentication; financial services reject missing authority. */
+  controlPrincipal?: ControlPrincipal;
+  /** An indispensable change/effect audit failed; request must not commit. */
+  controlWriteFailed?: boolean;
   /**
    * Set by auditService.logAdminAction when a CRITICAL_ACTIONS audit write
    * fails. The platform-admin middleware (withPlatformAdmin) checks this before
