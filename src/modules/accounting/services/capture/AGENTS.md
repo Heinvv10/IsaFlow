@@ -6,7 +6,7 @@
 PRD-05 autonomous capture + evidence-first ledger. Pure business logic — HTTP handlers live under `pages/api/accounting/capture/`.
 
 ## Modules
-- **Ingress**: `captureInboxService.ts` (mint `cap-<6hex>@inbox.isaflow.co.za`), `inboundEmailService.ts` (Postmark webhook → `capture_events` + `captured_documents`), `imapMirrorService.ts` + `mirrorConnectionService.ts`, `whatsAppInboundService.ts` (Twilio WABA; includes bank-tx query reply hook), `whatsAppTextCommandParser.ts` (pure SA expense shorthand parser), `whatsAppReplyService.ts`, `whatsAppChaseService.ts`.
+- **Ingress**: `captureInboxService.ts` (mint `cap-<32hex>@inbox.isaflow.co.za`), `inboundEmailService.ts` (Postmark webhook → `capture_events` + `captured_documents`), `imapMirrorService.ts` + `mirrorConnectionService.ts`, `whatsAppInboundService.ts` (Twilio WABA; includes bank-tx query reply hook), `whatsAppTextCommandParser.ts` (pure SA expense shorthand parser), `whatsAppReplyService.ts`, `whatsAppChaseService.ts`.
 - **Bank-Tx Client Query (Workstream D)**: `bankTxQueryMessage.ts` (pure compose + normalize, no DB/clock), `bankTxQueryService.ts` (create/send/list/status/settings), `bankTxQueryReplyService.ts` (find open query, attach reply media, mark replied), `twilioMediaFetch.ts` (HTTP basic-auth Twilio media download, extracted from inbound service for file-size cap).
 - **Routing / query**: `captureRouterService.ts` (`routeEvent` orchestrates VLM fire-and-forget), `captureQueryService.ts` (inbox listing w/ joins).
 - **Rules + auto-publish**: `supplierRulesService.ts` (per-supplier GL defaults, learning loop → `auto_publish=true` at 5 consecutive matches), `autoPublishGateService.ts` (decision ladder), `duplicateDetectionService.ts` (fingerprint + fuzzy fallback).
@@ -17,10 +17,10 @@ PRD-05 autonomous capture + evidence-first ledger. Pure business logic — HTTP 
 - **Bank-Tx Attach (Workstream G)**: `captureBankTxAttachService.ts` — tenant-preflighted link of captured doc → bank tx + ≤2MB data-URL mirror into bank_transaction_attachments, dedupe key `${documentId}_${fileName}`, mirror fail-soft link-only.
 
 ## Caller contract
-Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/capture/**` (and siblings like `/supplier-rules`, `/supplier-expectations`, `/provisional/**`, `/evidence/**`). Every public function takes `companyId` as first arg; not request-bound — callable from cron jobs or inline.
+Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (and siblings like `/supplier-rules`, `/supplier-expectations`, `/provisional/**`, `/evidence/**`). Every public function takes `companyId` as first arg; not request-bound — callable from cron jobs or inline.
 
 ## Main function signatures
-- `getOrCreateEmailInbox(companyId)`; `regenerateEmailAddress(companyId, inboxId)`.
+- `getOrCreateEmailInbox(companyId)`; `regenerateEmailAddress(companyId, userId?)`.
 - `ingestPostmarkPayload(payload): Promise<{ captureEventIds: string[] }>`; `ingestTwilioPayload(payload)`.
 - `routeEvent(captureEventId, companyId): Promise<void>` — kicks VLM extraction.
 - `decide(opts): Promise<GateDecision>` — auto-publish gate; ladder duplicate → no rule → disabled → confidence → amount cap → PO match → publish.
@@ -68,3 +68,9 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/capture/**`
 - 2026-04-23: rules + expectations API joins supplier name.
 - 2026-04-23: closed 3 post-Phase-8 caveats.
 - 2026-04-22: verifyPortalToken debug logging dropped after green e2e.
+
+## Email destination identity
+
+New email inboxes use128 random bits (32hex). Migration616 reserves each normalized email address globally, including retired rows. Collisions in existing rows stop migration for review; no address is silently reassigned. Existing short unique addresses remain supported until an authorized rotation.
+
+Minting uses INSERT ON CONFLICT DO NOTHING and at most5attempts, so a collision does not abort the outer withAuth transaction. Rotation failure rolls back its deactivation when called through the authenticated route. Inbound routing compares lower(address), requires exactly one active match, and rejects ambiguous legacy destinations before document/storage/event writes. Sender allow-list checks remain in place. External storage tests are contract-only; SQL routing/migration checks use real disposable PostgreSQL.
