@@ -29,7 +29,11 @@ vi.mock('@/modules/accounting/services/core/recurringTransactionService', () => 
 }));
 
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
-import { RecurringTemplateNotFoundError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import {
+  RecurringTemplateNotDueError,
+  RecurringTemplateNotFoundError,
+} from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
 import handler from '../../../pages/api/accounting/recurring-transactions-execute';
 
 const mockExecute = executeRecurring as unknown as ReturnType<typeof vi.fn>;
@@ -65,6 +69,24 @@ describe('recurring-transactions-execute error mapping', () => {
     await expect(handler(post() as never, res as never)).rejects.toBe(dbError);
     // Nothing was answered, so nothing was committed by a 4xx.
     expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 when the schedule has not come round — the double-click answer', async () => {
+    // Raised by the template row lock BEFORE the first INSERT, so the 4xx
+    // COMMIT is a commit of nothing.
+    mockExecute.mockRejectedValueOnce(new RecurringTemplateNotDueError('t1', '2026-09-10'));
+    const res = makeRes();
+    await handler(post() as never, res as never);
+    expect.soft(res.statusCode).toBe(409);
+    expect((res as { body?: { error?: { details?: unknown } } }).body?.error?.details)
+      .toEqual({ nextRunDate: '2026-09-10' });
+  });
+
+  it('answers 409 when another request holds the template row past lock_timeout', async () => {
+    mockExecute.mockRejectedValueOnce(new RecurringTemplateLockTimeoutError('t1'));
+    const res = makeRes();
+    await handler(post() as never, res as never);
+    expect(res.statusCode).toBe(409);
   });
 
   it('still succeeds normally', async () => {

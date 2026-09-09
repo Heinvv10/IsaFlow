@@ -69,3 +69,54 @@ audit-migration-naming -> OK. check-migration-rls -> OK.
 File sizes after MEDIUM-5: recurringTransactionService 296, recurringInvoiceService 288,
 quoteConvertService 184, salesOrderWorkflowService 88, documentNumberRetry 44,
 recurringTransactionErrors 15 — all under 300.
+
+================================================================================
+ROUND 3 — the 9 blind-review findings from review-k107-r2.md (1 HIGH, 2 MEDIUM,
+6 LOW), all dispositioned. H1 required a real guard, not a restored accident.
+================================================================================
+
+GREEN (fixture DB, bun run test:integration):
+  k107-recurring-invoice-number-collision.int.test.ts   (4)  REWRITTEN for H1 —
+      it previously asserted the double-execution as correct behaviour
+  k107-recurring-number-sequence-adjacent.int.test.ts   (5)  +2 line-footing cases (L6)
+  k107-ap-recurring-number-clash.int.test.ts            (3)
+  k120-invoice-numbering-bypasses-sequence.int.test.ts  (2)
+  k120-invoice-sequence-adjacent.int.test.ts            (3)
+  k120-invoice-number-concurrency.int.test.ts           (1)
+  k121-quote-convert-adjacent.int.test.ts               (4)
+  k121-quote-convert-status-allowlist.int.test.ts       (9)
+  k121-quote-convert-to-order-no-status-guard.int.test.ts (1)
+  api/BL-53-57-insert-not-null-fixes.test.ts            (3)  L5, repointed
+  => Test Files 10 passed (10) / Tests 35 passed (35)
+
+New unit tests:
+  tests/unit/api/recurringExecuteNo4xxAfterWrite.test.ts        (5, +2 for the 409s)
+  tests/unit/api/companySettingsRetiredDocumentType.test.ts     (3, new — M1 route)
+  tests/unit/services/core/retiredDocumentNumberType.test.ts    (3, new — M1 service)
+
+H1 proved in BOTH directions and under concurrency:
+  - immediate second AR run -> RecurringTemplateNotDueError, 1 invoice, counter +1 only
+  - immediate second AP run -> refused, 1 bill; then next-day run -> 2 bills,
+    2 distinct numbers, 2 distinct duplicate_fingerprints, counter +2
+  - genuinely due next-day AR run -> 2 invoices, distinct numbers, SAME calendar
+    month (the original K-107 claim, which the schedule guard must not break)
+  - two pool clients, two open transactions: B parked on A's FOR UPDATE for the
+    full 300 ms hold (settled === false), then read the advanced date and was
+    refused; exactly 1 invoice minted for that template
+
+MUTATION PROOF, round 3 (change reverted, test re-run, then restored):
+  M10 schedule guard removed from executeRecurring   -> 4 failed | 0 passed (collision)
+  M11 FOR UPDATE removed from recurringTemplateLock  -> 1 failed | 3 passed (the race case only,
+        which is the point: only the concurrency test can see the missing lock)
+  M12 RETIRED_DOC_NUMBER_TYPES emptied + filter cut  -> 2 failed | 4 passed (service)
+  M12b route retired-type check disabled             -> 2 failed | 1 passed (route)
+  M13 normaliseLines inverted (lines never written)  -> 3 failed | 2 passed (adjacent)
+  All restored; the 10-file green above is the restored state.
+
+FULL UNIT SUITE (DATABASE_URL unset, bunx vitest run):
+  Test Files 802 passed | 40 skipped (842)
+  Tests      9556 passed | 243 skipped (9799)
+
+bunx tsc --noEmit -> clean. bunx eslint <10 changed src/pages files> -> clean.
+File sizes: recurringTransactionService 215, recurringTransactionInvoices 206,
+recurringTemplateLock 88, companySettingsService 212 — all under 300.

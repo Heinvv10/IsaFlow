@@ -2,8 +2,8 @@
  * Reserve a company document number and insert under it, retrying past a
  * number some legacy row already holds.
  *
- * Extracted so the four callers that mint into a unique numbering domain share
- * one loop instead of four copies. Two properties make it terminate and make it
+ * Extracted so every caller that mints into a unique numbering domain shares
+ * one loop instead of carrying its own copy. Two properties make it terminate and make it
  * safe to use inside a request transaction:
  *
  * - `reserveNextDocumentNumber` runs OUTSIDE the savepoint, so the number a

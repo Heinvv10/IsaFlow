@@ -25,7 +25,6 @@ const DEFAULT_DOC_NUMBERS: { type: string; prefix: string }[] = [
   { type: 'credit_note', prefix: 'CRN' },
   { type: 'customer_receipt', prefix: 'RCP' },
   { type: 'customer_write_off', prefix: 'WRI' },
-  { type: 'recurring_invoice', prefix: 'RINV' },
   { type: 'customer_adjustment', prefix: 'CADJ' },
   { type: 'purchase_order', prefix: 'PO' },
   { type: 'supplier_invoice', prefix: 'SIV' },
@@ -35,10 +34,31 @@ const DEFAULT_DOC_NUMBERS: { type: string; prefix: string }[] = [
   { type: 'delivery_note', prefix: 'DN' },
 ];
 
+/**
+ * Types the settings screen must no longer offer, because nothing reserves from
+ * them any more.
+ *
+ * 'recurring_invoice' (prefix RINV) was the recurring runner's own sequence.
+ * Both recurring paths now mint from 'customer_invoice' — the same sequence
+ * every other writer of that table uses — so the row was left showing a prefix
+ * and a next-number the user could edit to no effect whatsoever. A tenant that
+ * customised RINV to match their stationery would have found new recurring
+ * invoices coming out as INV0000123 anyway. Filtered on read rather than
+ * deleted: the row carries the historical counter for existing
+ * RINV-<slug>-<YYYYMM> documents, and dropping it is not reversible.
+ */
+const RETIRED_DOC_NUMBER_TYPES = new Set(['recurring_invoice']);
+
+/** True for a document type the settings screen no longer shows or accepts. */
+export function isRetiredDocumentNumberType(documentType: string): boolean {
+  return RETIRED_DOC_NUMBER_TYPES.has(documentType);
+}
+
 export async function getDocumentNumbers(companyId: string): Promise<DocumentNumber[]> {
-  const rows = (await sql`
+  const rows = ((await sql`
     SELECT * FROM company_document_numbers WHERE company_id = ${companyId}::UUID ORDER BY document_type
-  `) as Record<string, unknown>[];
+  `) as Record<string, unknown>[])
+    .filter((r) => !RETIRED_DOC_NUMBER_TYPES.has(String(r.document_type)));
   return rows.map((r: Record<string, unknown>) => ({
     id: String(r.id), companyId: String(r.company_id), documentType: String(r.document_type),
     prefix: String(r.prefix), nextNumber: Number(r.next_number), padding: Number(r.padding),

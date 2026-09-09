@@ -12,10 +12,10 @@
  * non-request caller (cron/script) must provide its own transaction.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { reserveNextDocumentNumber } from '../core/companySettingsService';
+import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { getQuote } from './quoteService';
 import type { Quote } from './quoteService';
 
@@ -139,35 +139,22 @@ export async function convertToInvoice(
   // walked straight into historical INV-xxxxx rows (uq violation, found live
   // 2026-07-05). Same savepoint-isolated retry as the create path: a clash
   // with a legacy number must not poison the request transaction.
-  let invoiceId = '';
-  let invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      invoiceId = await withSavepoint(`quote_conv_inv_${attempt}`, async () => {
-        const invRows = (await sql`
-          INSERT INTO customer_invoices (
-            company_id, invoice_number, client_id, customer_id,
-            invoice_date, due_date, subtotal, tax_amount, total_amount,
-            notes, status, created_by
-          ) VALUES (
-            ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
-            ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate},
-            ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
-            ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
-          ) RETURNING id
-        `) as Row[];
-        return String(invRows[0]!.id);
-      });
-      break;
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code === '23505' && attempt < 4) {
-        invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
-        continue;
-      }
-      throw err;
-    }
-  }
+  const invoiceId = await insertWithReservedNumber(
+    companyId, 'customer_invoice', 'quote_conv_inv_', async (invoiceNumber) => {
+      const invRows = (await sql`
+        INSERT INTO customer_invoices (
+          company_id, invoice_number, client_id, customer_id,
+          invoice_date, due_date, subtotal, tax_amount, total_amount,
+          notes, status, created_by
+        ) VALUES (
+          ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
+          ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate},
+          ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
+          ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
+        ) RETURNING id
+      `) as Row[];
+      return String(invRows[0]!.id);
+    });
 
   for (const line of quote.lines || []) {
     await sql`

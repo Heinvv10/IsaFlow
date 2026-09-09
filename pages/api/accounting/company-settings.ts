@@ -12,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
-  getDocumentNumbers, ensureDocumentNumbers, updateDocumentNumber,
+  getDocumentNumbers, ensureDocumentNumbers, updateDocumentNumber, isRetiredDocumentNumberType,
   getCompanyMessages, upsertCompanyMessages,
 } from '@/modules/accounting/services/core/companyService';
 import type { CompanyMessage } from '@/modules/accounting/services/core/companyService';
@@ -38,6 +38,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { updates } = req.body as { updates: { documentType: string; prefix: string; nextNumber?: number }[] };
       if (!updates || !Array.isArray(updates)) {
         return apiResponse.badRequest(res, 'updates array required');
+      }
+      // Validated BEFORE the first write, not inside the loop: `withAuth`
+      // COMMITs the request transaction on a 4xx, so refusing halfway would
+      // persist the updates already applied.
+      const retired = updates.filter((u) => isRetiredDocumentNumberType(u.documentType));
+      if (retired.length > 0) {
+        return apiResponse.badRequest(
+          res,
+          `Document type no longer in use: ${retired.map((u) => u.documentType).join(', ')}`,
+        );
       }
       for (const u of updates) {
         await updateDocumentNumber(companyId, u.documentType, u.prefix, u.nextNumber);
