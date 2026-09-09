@@ -1,3 +1,4 @@
+import {compareSealedAuditSnapshots} from '@/modules/accounting/services/controls/auditSnapshotCompare';
 import {afterEach,expect,it,vi} from 'vitest';
 import {createHash} from 'node:crypto';
 import {sealAuditSnapshot,verifyAuditSnapshot,verifySnapshotArtifact} from '@/modules/accounting/services/controls/auditSnapshotSeal';
@@ -90,4 +91,22 @@ it('preserves old snapshot canonical bytes without inventing evidence relations'
  const body=verifyAuditSnapshot(sealed,{companyId,snapshotId});
  expect(body.evidence[0]).not.toHaveProperty('relations');
  expect(sealAuditSnapshot(body)).toEqual(sealed);
+});
+
+it('authenticates explicit missing evidence identities and their retained parents',()=>{
+ key();const input=capture(),gap={id:'captured:missing',reason:'source_unavailable',relations:[{parentSource:'journals',parentId:'j1',relation:'supporting_document'}]};
+ const sealed=sealAuditSnapshot({...input,evidenceGaps:[gap]});
+ expect(verifyAuditSnapshot(sealed,{companyId,snapshotId})).toMatchObject({evidenceGaps:[gap]});
+ expect(()=>sealAuditSnapshot({...input,evidenceGaps:[{...gap,relations:[{...gap.relations[0]!,parentId:'absent'}]}]})).toThrow(/parent/);
+ expect(()=>sealAuditSnapshot({...input,evidenceGaps:[gap,gap]})).toThrow(/duplicate/i);
+ expect(()=>sealAuditSnapshot({...input,evidenceGaps:[{...gap,id:'original-statement'}]})).toThrow(/identity/i);
+ expect(verifyAuditSnapshot(sealAuditSnapshot(input),{companyId,snapshotId})).not.toHaveProperty('evidenceGaps');
+});
+
+it('compares newly missing document identities as explicit evidence gaps',()=>{
+ key();const input=capture(),first=sealAuditSnapshot(input);
+ const second=sealAuditSnapshot({...input,evidenceGaps:[{id:'captured:missing',reason:'source_unavailable',relations:[{parentSource:'journals',parentId:'j1',relation:'source_document'}]}]});
+ expect(compareSealedAuditSnapshots(companyId,{id:snapshotId,sealed:first},{id:snapshotId,sealed:second})).toMatchObject({
+  evidenceGaps:{added:[{id:'captured:missing'}],removed:[],changed:[]}
+ });
 });
