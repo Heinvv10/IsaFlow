@@ -19,7 +19,10 @@ without the savepoint that guard would leave the orphan invoice it meant to prev
 The invoice-number retry loop now takes a savepoint per attempt. A peer's number arrives as
 a 23505 that aborts the transaction, so before this the caught error made `continue` unable to
 run one further statement: the five attempts never happened and the caller got a raw
-"current transaction is aborted" as a 400. It retries for real now.
+"current transaction is aborted" as a 400. It retries for real now, and it retries contiguously:
+the number is `MAX + 1`, never `MAX + 1 + attempt`. The re-read after a rollback already sees
+the peer's committed number, so the old offset skipped one and gapped the VAT invoice sequence
+(a collision on INV-00001 produced INV-00003).
 
 **Files.**
 - `src/modules/accounting/services/practice/wipEntryLock.ts` (new) — `lockEligibleWipEntries`,
@@ -27,8 +30,11 @@ run one further statement: the five attempts never happened and the caller got a
   is re-issued per call rather than memoised. `40P01` (deadlock, which `lock_timeout` does not
   bound) maps to the same retryable error as `55P03`; both `LEFT JOIN`s carry `company_id`.
 - `src/modules/accounting/services/practice/practiceWipService.ts` — step 2 delegates to the
-  lock helper; steps 3-5 wrapped in `withSavepoint('wip_invoice_build')`; a savepoint per
-  invoice-number attempt; billed-count guard.
+  lock helper; steps 3-5 wrapped in `withSavepoint('wip_invoice_build')`; billed-count guard.
+  290 -> 246 lines.
+- `src/modules/accounting/services/practice/wipInvoiceNumber.ts` (new) — `insertWipInvoice`:
+  the header INSERT, its savepoint per attempt and the contiguous number retry, lifted out of
+  the service so the 300-line module limit is not the next change's problem.
 - `scripts/simulate-fy2026-workflows.ts` — the one non-route caller. It had no transaction, so
   every WIP invoice it attempted would now be refused; it supplies its own `als.run` client.
 - `src/modules/accounting/services/practice/.claude.md` (+ AGENTS.md mirror).
@@ -42,7 +48,10 @@ billed; an empty selection writes no invoice; an unreleasable lock refuses the r
 `tests/integration/k-040-wip-billed-count-rollback.int.test.ts` — 1 passed, stubs
 `markEntriesBilled` short and proves the savepoint removes the invoice it had written while the
 transaction stays usable. `tests/unit/services/practice/practiceWipService.test.ts` — 9 passed.
-Full unit suite 9394 passed. Four production changes mutation-proofed; see `green.log`,
+`tests/unit/services/practice/wipInvoiceNumber.test.ts` — 5 passed: the number is `MAX + 1`,
+stays contiguous across one and two collisions, gives up after five, and does not retry a
+non-23505 error. Full unit suite 9399 passed. Five production changes mutation-proofed; see
+`green.log`,
 including the honest note that with only the lock removed the losing run dies on
 `uq_customer_invoices_company_number` in that ordering.
 
