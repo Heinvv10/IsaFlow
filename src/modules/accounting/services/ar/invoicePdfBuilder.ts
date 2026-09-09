@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { allocateVatToLines } from './vatLineAllocation';
 import {
   fmtZAR, fmtDate, COLORS,
   getCompanyDetailsFromCompany, renderPageFooters,
@@ -31,8 +32,12 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
            c.contact_person AS client_contact,
            p.name AS project_name
     FROM customer_invoices ci
+    -- Both joins carry company_id. customer_invoices.client_id has no FK, so a
+    -- drifted id would print another tenant's customer name, VAT number and
+    -- billing address onto a customer-facing tax invoice.
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-    LEFT JOIN projects p ON p.id = ci.project_id
+                         AND c.company_id = ci.company_id
+    LEFT JOIN projects p ON p.id = ci.project_id AND p.company_id = ci.company_id
     WHERE ci.id = ${invoiceId}::UUID
       AND ci.company_id = ${companyId}::UUID
   `) as Row[];
@@ -151,17 +156,31 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   const totalsVatLabel = distinctRates.length === 1
     ? `VAT (${distinctRates[0]}%)`
     : distinctRates.length === 0 ? `VAT (${headerTaxRate}%)` : 'VAT';
+  // The printed column must ADD UP to the printed VAT total. Rounding each line
+  // independently does not — see vatLineAllocation — so the header aggregate is
+  // shared out across the lines instead. `unattributed` is non-zero only when
+  // the header states VAT that no line's rate can account for, which is a data
+  // disagreement rather than rounding and is printed and logged, not hidden.
+  const headerVat = Number(inv.tax_amount || 0);
+  const { lineVats, unattributed } = allocateVatToLines(
+    headerVat,
+    items.map((item: Row) => Number(item.line_total || item.amount || 0) * (lineRate(item) / 100)),
+  );
+  if (unattributed !== 0) {
+    log.warn('Invoice VAT total is not attributable to its lines', {
+      invoiceId, headerVat, unattributed,
+    }, 'invoicePdfBuilder');
+  }
   autoTable(doc, {
     startY: y,
     head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
-    body: items.map((item: Row) => {
+    body: items.map((item: Row, index: number) => {
       const lineAmount = Number(item.line_total || item.amount || 0);
-      const lineVat = Math.round(lineAmount * (lineRate(item) / 100) * 100) / 100;
       return [
         item.description || '—',
         Number(item.quantity || 0).toFixed(2),
         fmtZAR(Number(item.unit_price || 0)),
-        fmtZAR(lineVat),
+        fmtZAR(lineVats[index] ?? 0),
         fmtZAR(lineAmount),
       ];
     }),
@@ -191,9 +210,21 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
 
   y = getLastAutoTableY(doc, y + 40) + 8;
 
+  if (unattributed !== 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...COLORS.DANGER);
+    doc.text(
+      `The VAT total includes ${fmtZAR(unattributed)} that no line item accounts for.`,
+      MARGIN, y,
+    );
+    doc.setTextColor(...COLORS.TEXT_PRIMARY);
+    y += 6;
+  }
+
   // ── Totals ────────────────────────────────────────────────────────────────
   const subtotal = Number(inv.subtotal || 0);
-  const taxAmount = Number(inv.tax_amount || 0);
+  const taxAmount = headerVat;
   const totalAmount = Number(inv.total_amount || 0);
   const amountPaid = Number(inv.amount_paid || 0);
   const balanceDue = totalAmount - amountPaid;

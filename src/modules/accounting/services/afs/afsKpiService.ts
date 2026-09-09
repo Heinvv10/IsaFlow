@@ -4,6 +4,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { KpiResult, KpiScorecard, FinancialSnapshot, RagThresholds } from './afsTypes';
 import { marginPct } from '../reports/marginPct';
+import { CASH_SUBTYPES } from '../gl/accountSubtypes';
 
 export type { FinancialSnapshot, RagThresholds };
 
@@ -225,6 +226,16 @@ async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promi
   };
 }
 
+/**
+ * Opening cash, on the SAME definition the cash-flow statement uses.
+ *
+ * The literal `account_subtype = 'bank'` missed petty cash (subtype `cash`) and
+ * counted a credit card spelled `bank_account` as cash, so the KPI block and the
+ * cash-flow reconciliation printed beside it in the same AFS export disagreed by
+ * exactly those balances. `CASH_SUBTYPES` plus `account_type = 'asset'` is the
+ * definition `cashBalanceService`, `cashFlowDirectService` and
+ * `cashFlowReconciliationService` all carry.
+ */
 async function fetchCash(companyId: string, beforeDate: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
@@ -233,7 +244,8 @@ async function fetchCash(companyId: string, beforeDate: string): Promise<number>
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = 'bank'
+    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
+      AND ga.account_type = 'asset'
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
@@ -252,7 +264,8 @@ async function fetchClosingCash(companyId: string, upToDate: string): Promise<nu
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = 'bank'
+    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
+      AND ga.account_type = 'asset'
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID

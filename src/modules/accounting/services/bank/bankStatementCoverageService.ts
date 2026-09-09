@@ -54,6 +54,13 @@ export interface BankAccountCoverage {
   accountName: string;
   /** The picker flag. Reported; never used to exclude an account from here. */
   isActive: boolean;
+  /**
+   * The account carries subtype `bank` but is not typed `asset`, so it holds
+   * statement lines while `cash.balance.v1` correctly refuses to count it as
+   * cash. `glBalance` is 0 for such a row and the whole statement balance shows
+   * as unexplained — which is the finding. Reported, never used to exclude.
+   */
+  misclassified: boolean;
   firstTransactionDate: string | null;
   lastTransactionDate: string | null;
   transactionCount: number;
@@ -186,12 +193,14 @@ export async function getBankStatementCoverage(
     const opening = row.openingBalanceAmount;
     const statementBalance = row.netMovement;
     const computedBalance = (opening ?? 0) + statementBalance;
-    // The cash figure and fetchCoverageAccounts share one definition of a bank
-    // account -- subtype `bank`, type `asset` -- so an account listed here is
-    // always one the cash figure also lists, and this fallback is unreachable
-    // in practice. It stays as a floor rather than an assumption: if the two
-    // ever drift again, the difference states the whole statement balance as
-    // unexplained instead of hiding the row.
+    // `fetchCoverageAccounts` lists every subtype-`bank` account; `cash.balance.v1`
+    // counts only the asset-typed ones. That difference is intentional and this
+    // fallback is where it lands: a mis-classified account has no cash balance,
+    // so its GL side reads 0 and the difference states the whole statement
+    // balance as unexplained rather than hiding the row. `misclassified` says
+    // which rows those are, so a reader is never left guessing why the GL side
+    // is empty.
+    const misclassified = row.accountType !== 'asset';
     const glBalance = glBy.get(row.bankAccountId) ?? 0;
     const direction = directionBy.get(row.bankAccountId);
     const glOnlyMovement = direction?.glOnlyMovement ?? 0;
@@ -202,6 +211,7 @@ export async function getBankStatementCoverage(
       accountCode: row.accountCode,
       accountName: row.accountName,
       isActive: row.isActive,
+      misclassified,
       firstTransactionDate: row.firstTransactionDate,
       lastTransactionDate: row.lastTransactionDate,
       transactionCount: row.transactionCount,
@@ -252,6 +262,15 @@ export async function getBankStatementCoverage(
     { companyId, asAt, accounts: accounts.length, gaps: gapRows.length },
     'accounting',
   );
+
+  const misclassifiedCodes = accounts.filter((a) => a.misclassified).map((a) => a.accountCode);
+  if (misclassifiedCodes.length > 0) {
+    log.warn(
+      'Bank-subtype GL accounts are not typed asset; their GL balance is excluded from cash',
+      { companyId, asAt, accountCodes: misclassifiedCodes },
+      'accounting',
+    );
+  }
 
   return {
     asAt,

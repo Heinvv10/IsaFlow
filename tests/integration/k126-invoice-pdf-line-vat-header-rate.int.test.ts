@@ -22,6 +22,10 @@ const invoice = crypto.randomUUID();
 const legacyInvoice = crypto.randomUUID();
 const zeroHeaderInvoice = crypto.randomUUID();
 const uniformZeroInvoice = crypto.randomUUID();
+const roundingInvoice = crypto.randomUUID();
+const unattributableInvoice = crypto.randomUUID();
+const driftedInvoice = crypto.randomUUID();
+const otherCustomer = crypto.randomUUID();
 
 /**
  * jsPDF writes uncompressed content streams: `(text) Tj` in document order.
@@ -81,7 +85,8 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)',
     [company, 'K126 fixture', otherCompany, 'K126 other tenant']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
-  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, company, 'K126 customer']);
+  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3),($4,$5,$6)',
+    [customer, company, 'K126 customer', otherCustomer, otherCompany, 'K126 OTHER TENANT CUSTOMER']);
   // One 15% line and one zero-rated line. tax_amount/total are the correct
   // per-line figures: R100 × 15% + R100 × 0% = R15.
   await seedInvoice(invoice, 'K126-INV-1', null, 200, 15,
@@ -101,14 +106,24 @@ beforeAll(async () => {
   // label fell back to the header rate that both lines contradict.
   await seedInvoice(uniformZeroInvoice, 'K126-INV-4', null, 200, 0,
     [['Export line A', 100, 0], ['Export line B', 100, 0]]);
+  // Seven lines of R14.29 at 15%. Each rounds to R2.14, so a column derived
+  // line-by-line sums to R14.98 while the header aggregate on the same R100.03
+  // subtotal is R15.00 — a tax invoice whose VAT column does not add up.
+  await seedInvoice(roundingInvoice, 'K126-INV-5', 15, 100.03, 15.00,
+    Array.from({ length: 7 }, (_, i) => [`Rounding line ${i + 1}`, 14.29, 15] as [string, number, number]));
+  // Header states VAT that NO line's rate can account for. Rounding cannot
+  // explain R15 across two zero-rated lines; it is a data disagreement.
+  await seedInvoice(unattributableInvoice, 'K126-INV-6', null, 200, 15,
+    [['Unattributable A', 100, 0], ['Unattributable B', 100, 0]]);
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id = ANY($1::uuid[])',
-      [[invoice, legacyInvoice, zeroHeaderInvoice, uniformZeroInvoice]]);
+      [[invoice, legacyInvoice, zeroHeaderInvoice, uniformZeroInvoice,
+        roundingInvoice, unattributableInvoice, driftedInvoice]]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM customers WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM customers WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }
@@ -159,6 +174,50 @@ it('states the rate the lines carry, not the header default they contradict', as
   // A fully zero-rated export invoice must not claim 15% in its totals block.
   expect(vatLabelOf(text)).toBe('VAT (0%)');
   expect(totalsVatOf(text)).toBe('R 0.00');
+});
+
+it('makes the VAT column sum to the VAT total the same page prints', async () => {
+  const text = pdfText(await generateInvoicePdf(company, roundingInvoice));
+  const rands = (v: string | undefined) => Number(String(v).replace(/[^0-9.]/g, ''));
+
+  const columnVat = Array.from({ length: 7 }, (_, i) =>
+    rands(vatCellOf(text, `Rounding line ${i + 1}`))).reduce((sum, v) => sum + v, 0);
+
+  // Derived line-by-line this is 14.98. The header aggregate is authoritative
+  // (total_amount and the AR ledger are built on it), so the lines carry it.
+  expect(rands(totalsVatOf(text))).toBeCloseTo(15.00, 2);
+  expect(columnVat).toBeCloseTo(15.00, 2);
+  // The residual cents land on lines, not on a phantom eighth row: every line
+  // stays within a cent of its own 15%.
+  for (let i = 1; i <= 7; i += 1) {
+    expect.soft(rands(vatCellOf(text, `Rounding line ${i}`))).toBeGreaterThanOrEqual(2.14);
+    expect.soft(rands(vatCellOf(text, `Rounding line ${i}`))).toBeLessThanOrEqual(2.15);
+  }
+});
+
+it('says so on the page when the VAT total is not attributable to any line', async () => {
+  const text = pdfText(await generateInvoicePdf(company, unattributableInvoice));
+  const rands = (v: string | undefined) => Number(String(v).replace(/[^0-9.]/g, ''));
+
+  // Spreading R15 over zero-rated lines would print VAT the same page labels 0%.
+  expect.soft(rands(vatCellOf(text, 'Unattributable A'))).toBe(0);
+  expect.soft(rands(vatCellOf(text, 'Unattributable B'))).toBe(0);
+  // The totals stay authoritative, and the gap is stated rather than hidden.
+  expect(rands(totalsVatOf(text))).toBeCloseTo(15.00, 2);
+  expect(text.some((t) => /no line item accounts for/.test(t))).toBe(true);
+});
+
+it('will not print another tenant\'s customer on a customer-facing invoice', async () => {
+  // client_id has no FK, so a drifted id resolves to a customer row that belongs
+  // to a different company unless the join is scoped.
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,client_id,invoice_date,due_date,subtotal,tax_rate,tax_amount,total_amount,status,created_by)
+     VALUES($1,$2,'K126-INV-7',$3,$4,'2026-01-01','2026-01-31',100,15.00,15,115,'approved',$5)`,
+    [driftedInvoice, company, customer, otherCustomer, user]);
+
+  const text = pdfText(await generateInvoicePdf(company, driftedInvoice));
+
+  expect(text).not.toContain('K126 OTHER TENANT CUSTOMER');
 });
 
 it('will not render another tenant\'s invoice', async () => {

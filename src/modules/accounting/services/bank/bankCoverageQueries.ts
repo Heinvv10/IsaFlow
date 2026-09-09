@@ -7,6 +7,18 @@
  * picker flag and a deactivated account still holds money (Brightsphere's
  * account 1110 is deactivated and carries R6,550 of cash today).
  *
+ * "Bank-subtype account" is deliberately NOT narrowed by `account_type` here.
+ * Two different questions share the word "bank": which GL accounts HOLD bank
+ * transactions (subtype `bank`, whatever its type), and which balances count as
+ * CASH for the cash-flow statement (`CASH_SUBTYPES` and `account_type = 'asset'`,
+ * answered by `cashBalanceService`). Narrowing this query to assets answered the
+ * second question in the first question's place, and an overdraft or credit card
+ * typed `liability` with subtype `bank` — the shape the module's 27 mis-classified
+ * production paycards take — silently left the coverage report along with every
+ * transaction imported against it. It stays listed, flagged `misclassified`, so
+ * the difference states the whole statement balance as unexplained rather than
+ * hiding the row.
+ *
  * A note on the reference column: the statement reference lives in `reference`.
  * `bank_reference` holds a feed's external id and is empty on every production
  * row, so the duplicate check reads `reference` first and falls back — the same
@@ -21,6 +33,8 @@ export interface CoverageAccountRow {
   bankAccountId: string;
   accountCode: string;
   accountName: string;
+  /** `asset` for a real bank account; anything else is a mis-classification. */
+  accountType: string;
   isActive: boolean;
   firstTransactionDate: string | null;
   lastTransactionDate: string | null;
@@ -87,6 +101,7 @@ export async function fetchCoverageAccounts(
     SELECT ga.id,
            ga.account_code,
            ga.account_name,
+           ga.account_type,
            ga.is_active,
            ga.bank_opening_balance,
            ga.bank_opening_balance_date,
@@ -102,9 +117,8 @@ export async function fetchCoverageAccounts(
             AND bt.transaction_date <= ${asAt}::DATE
      WHERE ga.company_id      = ${companyId}::UUID
        AND ga.account_subtype = 'bank'
-       AND ga.account_type    = 'asset'
        AND (${bankAccountId ?? null}::UUID IS NULL OR ga.id = ${bankAccountId ?? null}::UUID)
-     GROUP BY ga.id, ga.account_code, ga.account_name, ga.is_active,
+     GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.is_active,
               ga.bank_opening_balance, ga.bank_opening_balance_date
      ORDER BY ga.account_code
   `) as DbRow[];
@@ -113,6 +127,7 @@ export async function fetchCoverageAccounts(
     bankAccountId: String(r.id),
     accountCode: String(r.account_code),
     accountName: String(r.account_name),
+    accountType: String(r.account_type),
     isActive: r.is_active === true,
     firstTransactionDate: r.first_date === null || r.first_date === undefined ? null : fmtDate(r.first_date),
     lastTransactionDate: r.last_date === null || r.last_date === undefined ? null : fmtDate(r.last_date),

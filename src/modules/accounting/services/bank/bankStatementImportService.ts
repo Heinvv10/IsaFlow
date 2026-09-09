@@ -65,6 +65,14 @@ export interface AgentImportResult {
  * bank_import_batches' FK to bank_accounts for exactly this reason ("drop the
  * broken FK so writes succeed"). This mirrors the check in
  * bank-transactions-bulk-commit so both paths accept the same ids.
+ *
+ * It deliberately does NOT require `account_type = 'asset'`. Whether a balance
+ * counts as CASH is a different question, owned by `cashBalanceService`, and
+ * answering it here refused statement imports for an overdraft or credit card
+ * typed `liability` — an account that already holds bank_transactions and is
+ * still offered by /api/accounting/bank-accounts, bulk preview, bulk commit and
+ * the feed pairing. The importer must accept every id those paths accept; the
+ * coverage report flags the mis-classification instead.
  */
 export async function bankGlAccountBelongsToCompany(
   companyId: string,
@@ -75,7 +83,6 @@ export async function bankGlAccountBelongsToCompany(
     WHERE id = ${bankAccountId}::UUID
       AND company_id = ${companyId}::UUID
       AND account_subtype = 'bank'
-      AND account_type = 'asset'
       AND is_active = true
     LIMIT 1
   `) as Array<{ id: string }>;
