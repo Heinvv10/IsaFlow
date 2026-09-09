@@ -40,7 +40,12 @@ function sample(schema: Schema): unknown {
   if (type === 'number' || type === 'integer') return Math.max(schema.minimum ?? 1, (schema.exclusiveMinimum ?? -1) + 1);
   if (type === 'boolean') return false;
   if (type === 'null') return null;
-  if(schema.pattern==='^(0|[1-9][0-9]{0,5})$')return '0';
+  if(schema.pattern){
+    const pattern=new RegExp(schema.pattern,'u');
+    const value=['0','1.00','1234567890','001234','a'.repeat(64),UUID].find(candidate=>pattern.test(candidate));
+    if(value===undefined)throw new Error(`Missing structural sample for ${schema.pattern}`);
+    return value;
+  }
   return schema.format === 'date' ? '2026-09-09' : UUID;
 }
 function requiredPaths(schema: Schema, prefix: Array<string | number> = []): Array<Array<string | number>> {
@@ -60,9 +65,9 @@ const context = (scopes: string[]): McpToolContext => ({ companyId: UUID, userId
   scopes, tokenJti: UUID, oauthAppId: null });
 
 describe('every registered tool has a frozen schema/auth fixture', () => {
-  it('matches all 141 tool names and all schema keywords without silently skipping a new tool', () => {
-    expect(MCP_TOOLS).toHaveLength(141);
-    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(141);
+  it('matches all 148 tool names and all schema keywords without silently skipping a new tool', () => {
+    expect(MCP_TOOLS).toHaveLength(148);
+    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(148);
     expect(MCP_TOOLS.map(t => t.name).sort()).toEqual(frozen.tools.map(t => t.name).sort());
     expect([...CLIENT_MCP_TOOL_NAMES].sort()).toEqual(MCP_TOOLS.map(t => t.name).sort());
     const visit = (s: Schema) => {
@@ -71,8 +76,8 @@ describe('every registered tool has a frozen schema/auth fixture', () => {
       if (s.items) visit(s.items);
     };
     for (const t of MCP_TOOLS) visit(t.inputSchema);
-    expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(64);
-    expect(MCP_TOOLS.filter(t => t.requiresPost)).toHaveLength(30);
+    expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(68);
+    expect(MCP_TOOLS.filter(t => t.requiresPost)).toHaveLength(32);
   });
 
   it.each(MCP_TOOLS)('$name: full structural sample, every nested required field, flags and safe containers', t => {
