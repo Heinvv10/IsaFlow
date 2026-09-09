@@ -8,10 +8,12 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
   assertMayDecide, isApproverRole, APPROVER_ROLES,
-  ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
+  ApprovalNotRequiredError, ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
-import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
-import { assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
+import {
+  checkApproval as checkApprovalRules, mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS,
+} from './approvalMatching';
+import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 
 // Re-exported so every existing import site keeps working after the
 // checkApproval/mapper split that kept this file under the 300-line ceiling.
@@ -118,6 +120,10 @@ export async function createRule(companyId: string, input: {
 }, actor: RuleActor): Promise<ApprovalRule> {
   assertApproverRole(input.approverRole);
   assertConditionOperator(input.conditionOperator);
+  // The rank the NEW rule will demand, defaulted the same way the INSERT does.
+  // Without this an admin refused a weakening of the owner-only rule simply
+  // creates a manager-level rule beside it and the control is gone.
+  assertMayDemand(actor, input.approverRole || 'admin');
   const rows = (await sql`
     INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role)
     VALUES (
@@ -141,6 +147,10 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
 }>, actor: RuleActor): Promise<ApprovalRule> {
   assertApproverRole(input.approverRole);
   assertConditionOperator(input.conditionOperator);
+  // Both ends: assertMayEditRule ranks the role the rule demands TODAY, this
+  // ranks the one it is being moved to. Ranking only the current role let an
+  // admin lower an admin-level rule to `viewer`.
+  assertMayDemand(actor, input.approverRole);
   const before = await assertMayEditRule(companyId, id, actor);
   if (!before) throw new ApprovalRuleNotFoundError(id);
   const rows = (await sql`
@@ -173,15 +183,32 @@ export async function deleteRule(companyId: string, id: string, actor: RuleActor
 
 // ── Approval Requests ────────────────────────────────────────────────────────
 
-/** Create an approval request for a document */
+/**
+ * Create an approval request for a document.
+ *
+ * The governing rule is RESOLVED here, by `checkApproval`, from the document and
+ * its amount — never accepted from the caller. A caller-supplied `ruleId` let the
+ * requester nominate which rule governed their own request, so an admin could
+ * mint a manager-level rule and name it instead of the owner-only one.
+ *
+ * LIMIT: `amount` still arrives from the caller, so a requester who understates
+ * it can land on a laxer rule (or on none). Reading the amount from the document
+ * belongs to the posting-path item R-035, which is where requests get raised as
+ * part of a document's lifecycle at all.
+ */
 export async function requestApproval(companyId: string, input: {
-  ruleId: string;
   documentType: DocumentType;
   documentId: string;
   documentReference?: string;
   amount?: number;
   requestedBy: string;
 }): Promise<ApprovalRequest> {
+  const check = await checkApprovalRules(companyId, input.documentType, input.documentId, input.amount || 0);
+  // One pending request per document: returning it is idempotent, and creating a
+  // second under a different rule would be another way to choose the rule.
+  if (check.existingRequest) return check.existingRequest;
+  if (!check.matchedRule) throw new ApprovalNotRequiredError(input.documentType, input.documentId);
+
   // INSERT ... SELECT so the rule's ownership is part of the write itself: a rule
   // belonging to another company matches no row and nothing is inserted. The FK
   // alone does not help — a foreign-key check bypasses RLS and is global.
@@ -191,14 +218,15 @@ export async function requestApproval(companyId: string, input: {
            ${input.documentReference || null}::TEXT, ${input.amount || null}::NUMERIC,
            ${input.requestedBy}::UUID
     FROM approval_rules rl
-    WHERE rl.id = ${input.ruleId}::UUID AND rl.company_id = ${companyId}
+    WHERE rl.id = ${check.matchedRule.id}::UUID AND rl.company_id = ${companyId}
     RETURNING *
   `) as Record<string, unknown>[];
-  if (!rows[0]) throw new ApprovalRuleNotFoundError(input.ruleId);
+  if (!rows[0]) throw new ApprovalRuleNotFoundError(check.matchedRule.id);
   log.info('Approval requested', {
     id: rows[0]!.id,
     documentType: input.documentType,
     documentId: input.documentId,
+    ruleId: check.matchedRule.id,
   }, 'accounting');
   return mapRequest(rows[0]!);
 }

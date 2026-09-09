@@ -194,3 +194,91 @@ WHERE rl.updated_at > rl.created_at
 GROUP BY rl.id
 ORDER BY rl.updated_at DESC;
 ```
+
+## Round-4 review dispositions (scratchpad/review-k043-r4.md — 1 HIGH / 2 MEDIUM / 4 LOW)
+
+All seven addressed. R-032 (admin impersonation) and R-033 (sole-owner deadlock) stay registered
+as open and were not touched. Migration 658 was re-verified by the reviewer on real PostgreSQL in
+all three directions; not redone here.
+
+**H1 — `createRule` had no rank guard and `requestApproval` took `ruleId` from the request body,
+so the admin refused a weakening of the owner-only rule just minted a manager-level rule and named
+it. FIXED, both halves.**
+*Rank.* `assertMayDemand(actor, role)` in `approvalRuleGuards.ts` ranks the actor against the role
+a rule is about to DEMAND: on create, against `input.approverRole || 'admin'` — the INSERT's own
+default, because ranking only what the caller typed let a manager create an admin-level rule by
+omitting the field — and on update, against the role it is being moved TO, which
+`assertMayEditRule` never saw (it ranks the stored role, and still does; both run). Synchronous, so
+no statement executes on a refusal. An actor may still set a rule anywhere at or BELOW their own
+rank; what they cannot do is mint or touch one above it, which is the property the decide path
+leans on.
+*Rule selection.* `requestApproval` no longer accepts `ruleId`; the route does not read it. The
+governing rule is resolved by `checkApproval` from the document type and amount, and the request is
+returned unchanged if the document already has a pending one — a second request under a different
+rule was the other way to choose. `ApprovalNotRequiredError` → 400 when no active rule governs.
+
+**M1 — the branch's security claim is much narrower than the commit subject implies. ACCEPTED, and
+the doc now says so plainly.** `services/gl/.claude.md` and its `AGENTS.md` mirror state that
+`checkApproval` and `requestApproval` have exactly one caller each — this one route — that no UI
+calls `?action=check`, and therefore that an operator can post a customer invoice, supplier
+invoice, payment, journal entry or credit note of any amount under an active owner-only rule with
+no approval request ever existing. Nothing creates a request as part of a document's lifecycle and
+nothing reads a request's status before a write. The DECIDE path is enforced; the WORKFLOW is not.
+Registered as R-035 (five posting services, needs a document-level `approval_status`).
+
+**M2 — equal-priority rule selection was heap order and `priority` is unreachable. FIXED, and by
+rank rather than by ordering alone.** The STRICTEST matching rule governs; `ORDER BY priority ASC,
+created_at ASC, id ASC` is now only the tiebreak among rules of EQUAL rank. Ordering alone would
+have left a laxer rule shadowing an owner-only one in whichever direction the tiebreak ran.
+`priority` is deliberately still not writable through the API — exposing it would hand back a way
+to reorder which rule governs — and the doc says so instead of pretending it is a control.
+
+**L1 — `k108-k109` was order-coupled on a shared rule name. FIXED.** The second rule is
+`'Payments over 1000 (valid operator)'`. Six `--sequence.shuffle` runs of the three files, green.
+**L2 — `plantLegacyRule` dropped the constraint at auto-commit. FIXED.** It now runs
+`BEGIN; LOCK TABLE approval_rules IN ACCESS EXCLUSIVE MODE; DROP; INSERT; ADD; COMMIT` on one
+client, so no concurrent file observes the fixture without the constraint. Ten parallel runs of the
+pair, 27/27 each.
+**L3 — the round-3 doc entry was appended to the bottom of a newest-first list. FIXED.** Moved
+above the round-2 line, with the round-4 entry above it.
+**L4 — 658 skips 656 and 657. NOT A DEFECT, and no longer true.** Both are now claimed on other
+branches (656 released as unused, 657 used by K-140/K-144); this branch changes nothing there.
+
+**Round-4 tests.** `tests/integration/k-043-r4-rule-rank.int.test.ts` (9: the reviewer's bypass
+sequence end to end including the manager 403 and the owner 200, a manager-only document still
+decided by a manager, strictest-wins with the lax rule created FIRST, idempotent re-request, and
+five rank cases on create/update),
+`tests/unit/services/gl/approvalRuleRankGuard.test.ts` (11),
+`tests/unit/services/gl/approvalStrictestRule.test.ts` (6). Five mutations, each red — see
+`green.log`. Existing files adapted to the new contract: `k108-k109`'s K-109 block now asserts the
+property that replaced `ruleId` (whatever the body names, the stored `rule_id` is resolved or
+nothing is written), and `k-043-approval-authority`'s malformed-id case moved from `ruleId` to
+`documentId`.
+
+**Round-4 migration / rollback.** None. Revert the commit.
+
+**Round-4 historical impact.** No rows are rewritten. Requests raised before this could name any
+rule of the company, so a pending or decided request may be governed by a laxer rule than the one
+that should have applied. Read-only, not run here — pending requests whose stored rule is not the
+strictest active rule matching their document type and amount:
+```sql
+SELECT ar.id, ar.company_id, ar.document_type, ar.document_id, ar.amount,
+       ar.status, ar.requested_by, ar.decided_by,
+       named.approver_role AS named_role,
+       array_agg(DISTINCT other.approver_role) AS other_matching_roles
+FROM approval_requests ar
+JOIN approval_rules named ON named.id = ar.rule_id AND named.company_id = ar.company_id
+JOIN approval_rules other ON other.company_id = ar.company_id
+                         AND other.document_type = ar.document_type
+                         AND other.is_active = true
+                         AND other.id <> named.id
+                         AND (other.condition_operator = 'any'
+                              OR (other.condition_operator = 'greater_than'
+                                  AND COALESCE(ar.amount,0) > other.condition_value)
+                              OR (other.condition_operator = 'greater_equal'
+                                  AND COALESCE(ar.amount,0) >= other.condition_value))
+GROUP BY ar.id, named.approver_role
+ORDER BY ar.requested_at DESC;
+```
+Rank `named_role` against `other_matching_roles` by hand (the ladder is in `approvalAuthority.ts`);
+a row where another matching rule demands MORE is one that was decided under the wrong authority.

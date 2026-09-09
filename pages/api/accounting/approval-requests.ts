@@ -14,7 +14,8 @@ import {
   type ApprovalStatus, type DocumentType,
 } from '@/modules/accounting/services/gl/approvalService';
 import {
-  ApprovalDecisionError, ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
+  ApprovalDecisionError, ApprovalNotRequiredError, ApprovalRuleNotFoundError,
+  ApprovalRequestNotFoundError,
 } from '@/modules/accounting/services/gl/approvalAuthority';
 import { isUuidParam } from '@/lib/validation';
 
@@ -62,23 +63,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { action } = req.body;
 
     if (action === 'request') {
-      const { ruleId, documentType, documentId, documentReference, amount } = req.body;
-      if (!ruleId || !documentType || !documentId) {
-        return apiResponse.badRequest(res, 'ruleId, documentType, and documentId are required');
+      // No `ruleId`: the governing rule is resolved server-side from the document
+      // and its amount. Letting the caller name it meant the requester chose which
+      // rule constrained their own request — an admin blocked from weakening the
+      // owner-only rule just created a manager-level one and named that instead.
+      const { documentType, documentId, documentReference, amount } = req.body;
+      if (!documentType || !documentId) {
+        return apiResponse.badRequest(res, 'documentType and documentId are required');
       }
-      // Both are cast `::UUID` downstream. Unchecked, a malformed id is a
-      // 22P02 from inside the transaction — a 500 and a logged stack for what
-      // is plainly a bad request.
-      if (!isUuidParam(ruleId)) return apiResponse.badRequest(res, 'ruleId must be a UUID');
+      if (!isDocumentType(documentType)) {
+        return apiResponse.badRequest(res, 'Invalid documentType');
+      }
+      // Cast `::UUID` downstream. Unchecked, a malformed id is a 22P02 from
+      // inside the transaction — a 500 and a logged stack for a bad request.
       if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'documentId must be a UUID');
       try {
         const request = await requestApproval(companyId, {
-          ruleId, documentType, documentId, documentReference, amount, requestedBy: userId,
+          documentType, documentId, documentReference, amount, requestedBy: userId,
         });
         return apiResponse.success(res, request);
       } catch (error) {
-        // A rule id belonging to another company is a bad request, not a fault.
-        if (error instanceof ApprovalRuleNotFoundError) {
+        // Nothing to approve, or a rule that vanished between the resolve and the
+        // insert: both are bad requests, not faults.
+        if (error instanceof ApprovalNotRequiredError || error instanceof ApprovalRuleNotFoundError) {
           return apiResponse.badRequest(res, error.message);
         }
         throw error;

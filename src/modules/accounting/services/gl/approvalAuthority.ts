@@ -28,6 +28,19 @@ export class ApprovalRuleNotFoundError extends Error {
   }
 }
 
+/**
+ * No active rule of this company governs the document, so there is nothing to
+ * approve. Raised because the rule is resolved server-side now: the caller can
+ * no longer nominate one, so "which rule?" has an answer or the request is not
+ * a request.
+ */
+export class ApprovalNotRequiredError extends Error {
+  constructor(documentType: string, documentId: string) {
+    super(`No active approval rule requires approval for ${documentType} ${documentId}`);
+    this.name = 'ApprovalNotRequiredError';
+  }
+}
+
 /** The request is gone, belongs elsewhere, or someone else already decided it. */
 export class ApprovalRequestNotFoundError extends Error {
   constructor(requestId: string) {

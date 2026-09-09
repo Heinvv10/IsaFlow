@@ -219,3 +219,41 @@ GATES:
 MIGRATION PREFIX: renamed 655 → 658. 655 was taken by K-041's committed
 655_invite_company_name_definer_hardening.sql on another branch; 656 (K-095) and
 657 (K-140/K-144) are reserved. Every prose reference renumbered with it.
+
+=== Round 4 (2026-09-09) ===
+Fixture: disposable PostgreSQL, production schema, zero rows.
+
+Integration (bun run test:integration):
+  k-043-r4-rule-rank.int.test.ts ............................ 9 passed  (new)
+  five approval files together .............................. 47 passed (5 files)
+    k-043-r4-rule-rank / k-043-r3-rule-authority / k108-k109-approval-rules /
+    k-043-approval-authority / k-043-self-approval-and-approver-role
+  LOW-1 order coupling: 6 x --sequence.shuffle over the three rule files .. 36/36 each
+    (before the fix the same loop was red 4 of 5 runs; the first failure it
+     exposed was in the NEW r4 file, not the old one — the idempotency case shared
+     document_type 'payment' with the rank block, and two owner-rank rules tie on
+     created_at. Moved to customer_invoice.)
+  LOW-2 writer isolation: 10 x k108-k109 + k-043-r3 in parallel ......... 27/27 each
+
+Unit (DATABASE_URL unset):
+  approvalRuleRankGuard.test.ts ............................. 11 passed (new)
+  approvalStrictestRule.test.ts ............................. 6 passed  (new)
+  FULL SUITE: 801 files passed | 36 skipped, 9502 tests passed | 234 skipped
+
+Mutation proof (production change reverted, tests re-run, then restored):
+  M1 createRule: assertMayDemand removed
+       -> k-043-r4 3 failed / 6 passed; approvalRuleRankGuard 3 failed / 8 passed
+  M2 updateRule: assertMayDemand(new role) removed
+       -> k-043-r4 1 failed / 8 passed; approvalRuleRankGuard 1 failed / 10 passed
+  M3 requestApproval + route: caller-supplied ruleId honoured again
+       -> k-043-r4 1 failed / 8 passed (the bypass sequence itself)
+  M4 checkApproval: first match wins instead of strictest
+       -> k-043-r4 1 failed / 8 passed; approvalStrictestRule 2 failed / 4 passed
+  M5 checkApproval: ORDER BY priority ASC only
+       -> approvalStrictestRule 1 failed / 5 passed
+  Not mutation-proofed: LOW-2 (a race window; proven instead by 10 parallel runs)
+  and LOW-3 (doc ordering).
+
+bunx tsc --noEmit ... clean
+bunx eslint (4 service files + approval-requests.ts) ... clean
+bun run agent-docs:check ... OK, 74 mirrors match
