@@ -174,6 +174,7 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
 
     // 3. Insert through the existing pipeline.
     let importedCount = 0;
+    let importWarnings: string[] = [];
     if (dedupedTxs.length > 0) {
       const parseResult: BankCsvParseResult = {
         transactions: dedupedTxs,
@@ -191,6 +192,7 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
         },
       );
       importedCount = result.transactionCount;
+      importWarnings = result.errors.map((e) => e.error);
     }
 
     // 4. Apply rules if asked.
@@ -245,6 +247,9 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
       imported: importedCount,
       duplicate: duplicateCount,
       appliedRules: appliedRuleCount,
+      // See bank-transactions-bulk-commit: non-fatal problems the import
+      // swallowed, so a caller is not told the ingest was clean when it was not.
+      warnings: importWarnings,
     });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
