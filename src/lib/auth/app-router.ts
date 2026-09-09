@@ -1,3 +1,4 @@
+import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 /**
  * Auth utilities for Next.js App Router routes (NextRequest).
  * Phase 2: Uses GoTrue JWT verification via parseCookies + verifyToken.
@@ -46,7 +47,7 @@ export async function getUserFromRequest(req: NextRequest): Promise<AppRouterUse
   if (!token) return null;
 
   try {
-    const claims = await verifyToken(token);
+    const claims = await verifyToken(token, req.cookies.get(IMPERSONATION_PROOF_COOKIE)?.value);
     if (!claims.sub) return null;
     // A suspended account resolves to null, so every caller's existing
     // null-check turns into a 401 with no extra work. This helper has no

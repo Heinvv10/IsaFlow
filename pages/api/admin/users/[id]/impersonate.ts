@@ -1,3 +1,5 @@
+import { verifyTokenSignature } from '@/lib/auth/gotrue';
+import { mintImpersonationProof } from '@/lib/auth/impersonationAssurance';
 /**
  * POST /api/admin/users/:id/impersonate
  * Super-admin "Login as X" — swaps admin's session for target's via GoTrue
@@ -15,7 +17,7 @@ import {
   REFRESH_COOKIE,
 } from '@/lib/auth/cookies';
 import { generateLink, verifyMagicLink, GotrueAdminLinkError } from '@/lib/auth/gotrue-admin-link';
-import { stashAdminTokens, validateImpersonationTarget, deleteStash } from '@/modules/admin/services/userImpersonationService';
+import { stashAdminTokens, validateImpersonationTarget, deleteStash, loadStash } from '@/modules/admin/services/userImpersonationService';
 import { setImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -97,6 +99,27 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     throw auditErr;
   }
 
+  let proof: string;
+  try {
+    const [actorClaims, targetClaims, stash] = await Promise.all([
+      verifyTokenSignature(adminAccess), verifyTokenSignature(targetTokens.access_token), loadStash(stashId),
+    ]);
+    if (actorClaims.sub !== req.user.id || targetClaims.sub !== target.userId
+      || !stash || stash.admin_user_id !== req.user.id || stash.target_user_id !== target.userId
+      || typeof targetClaims.session_id !== 'string' || typeof actorClaims.exp !== 'number') {
+      throw new Error('Impersonation session identity mismatch');
+    }
+    proof = await mintImpersonationProof({
+      actorUserId: req.user.id, targetUserId: target.userId, targetSessionId: targetClaims.session_id,
+      actorExpiresAt: actorClaims.exp, stashExpiresAt: Math.floor(new Date(stash.expires_at).getTime() / 1000),
+    });
+  } catch (proofErr) {
+    await deleteStash(stashId).catch((cleanupErr: unknown) =>
+      log.error('impersonate: proof setup cleanup failed', { stashId, error: String(cleanupErr) }, 'Admin'),
+    );
+    throw proofErr;
+  }
+
   setAuthCookies(res, {
     accessToken: targetTokens.access_token,
     refreshToken: targetTokens.refresh_token,
@@ -111,7 +134,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
   `;
   if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
 
-  setImpersonationCookies(res, stashId);
+  setImpersonationCookies(res, stashId, proof);
 
   res.status(200).json({ success: true, data: { redirect: '/accounting' } });
 }

@@ -41,9 +41,9 @@ describe('impersonation-cookies', () => {
     const { res, headers } = mkRes();
     clearImpersonationCookies(res);
     const cookies = headers['set-cookie'];
-    expect(cookies).toHaveLength(4);
+    expect(cookies).toHaveLength(6);
     for (const c of cookies) expect(c).toMatch(/Max-Age=0/);
-    expect(cookies.filter((c) => /Domain=\.isaflow\.co\.za/.test(c))).toHaveLength(2);
+    expect(cookies.filter((c) => /Domain=\.isaflow\.co\.za/.test(c))).toHaveLength(3);
   });
 
   it('clearImpersonationCookies emits single-scope clears when COOKIE_DOMAIN unset', async () => {
@@ -51,7 +51,15 @@ describe('impersonation-cookies', () => {
     const { clearImpersonationCookies } = await import('@/lib/auth/impersonation-cookies');
     const { res, headers } = mkRes();
     clearImpersonationCookies(res);
-    expect(headers['set-cookie']).toHaveLength(2);
+    expect(headers['set-cookie']).toHaveLength(3);
     for (const c of headers['set-cookie']) expect(c).toMatch(/Max-Age=0/);
   });
+});
+
+it('delegation proof is HttpOnly and expires on return', async () => {
+  const { setImpersonationCookies, clearImpersonationCookies } = await import('@/lib/auth/impersonation-cookies');
+  const created = mkRes(); setImpersonationCookies(created.res, 'stash', 'signed-proof');
+  expect(created.headers['set-cookie'].find((c) => c.startsWith('sb-impersonation-proof=signed-proof;'))).toMatch(/HttpOnly/);
+  const cleared = mkRes(); clearImpersonationCookies(cleared.res);
+  expect(cleared.headers['set-cookie'].find((c) => c.startsWith('sb-impersonation-proof=;'))).toMatch(/Max-Age=0/);
 });

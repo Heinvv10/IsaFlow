@@ -1,3 +1,4 @@
+import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withUserAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import { verifyToken } from './gotrue';
@@ -25,7 +26,7 @@ export function withUserAuth(handler: Handler): NextApiHandler {
     }
     let claims;
     try {
-      claims = await verifyToken(token);
+      claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
       log.warn('withUserAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
       clearAuthCookies(res);

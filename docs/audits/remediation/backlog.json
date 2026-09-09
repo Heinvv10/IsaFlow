@@ -16,18 +16,36 @@
       "sourceIds": [
         "B F01"
       ],
-      "correctedTrigger": null,
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Password login for a verified TOTP user yields an AAL1 token in sb-pending-mfa; transplanting it into sb-access-token reaches withAuth handler without completing TOTP.",
+      "severityRationale": "Confirmed application-contract bypass of enrolled second factor using a valid password token; no claim of passwordless account compromise.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
-      "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
+      "currentSha": "d626b33f",
+      "status": "code-verified",
+      "dependencies": [
+        "Deployment requires separate authorization; no deployed verification",
+        "Global pristine historical migration replay remains open at migration 253; current-schema K-001 SQL/RLS workflow passed"
+      ],
+      "testNames": [
+        "tests/unit/auth/pending-mfa-access.test.ts",
+        "tests/integration/mfa-impersonation-postgres.int.test.ts",
+        "tests/unit/auth/impersonationAssurance.test.ts"
+      ],
+      "evidencePaths": [
+        "K-001/plan.md",
+        "K-001/red.log",
+        "K-001/auth-regression-final.log",
+        "K-001/provider-workflow-final.log",
+        "K-001/review-open.md",
+        "K-001/delegation-review.md",
+        "K-001/delegation-ci.log",
+        "K-001/delegation-postgres-rerun.log",
+        "evidence/schema-fixture.md",
+        "K-001/final-push-ci.log"
+      ],
+      "fixCommit": "23608ad7",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/345",
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "No historical records changed. Prior misuse not assessed; no retrospective repair authorized.",
       "canonicalItem": null,
       "reportedSeverity": "critical"
     },
