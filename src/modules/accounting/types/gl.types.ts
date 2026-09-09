@@ -236,6 +236,7 @@ export interface JournalLine {
   description?: string;
   projectId?: string;
   costCenterId?: string;
+  buId?: string;
   vatType?: VatType;
   createdAt: string;
   // Joined

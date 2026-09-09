@@ -29,6 +29,9 @@ vi.mock('@/modules/accounting/services/gl/inputVatDenial', () => ({
 vi.mock('@/modules/accounting/services/gl/nonSupplyVatGuard', () => ({
   fetchAccountNames: vi.fn(async () => new Map()),
 }));
+vi.mock('@/modules/accounting/services/gl/bankContraVat', () => ({
+  fetchBankContraFlags: vi.fn(async () => new Map()),
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(),
   reverseReconciledTransaction: vi.fn(),
