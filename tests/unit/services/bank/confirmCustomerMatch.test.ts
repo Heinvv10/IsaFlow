@@ -26,6 +26,7 @@ vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
 }));
 
 import { confirmCustomerInvoiceMatch } from '@/modules/accounting/services/bank/confirmCustomerMatch';
+import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 
 const COMPANY = 'company-1';
 const TX = 'tx-1';
@@ -100,7 +101,7 @@ describe('confirmCustomerInvoiceMatch', () => {
   it('turns a pre-write validation refusal into its message, with nothing written', async () => {
     invoice(600);
     validateBankReceiptApplication.mockRejectedValueOnce(
-      new Error('Bank transaction tx-1 is "allocated" and cannot be allocated.'),
+      new ReceiptRefusal('Bank transaction tx-1 is "allocated" and cannot be allocated.'),
     );
     const outcome = await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600);
     expect(outcome).toMatchObject({ ok: false, kind: 'refused' });
@@ -121,6 +122,20 @@ describe('confirmCustomerInvoiceMatch', () => {
 
     await expect(confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600))
       .rejects.toThrow(/aborted/);
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
+  });
+
+  // The same mirror, for a fault that carries NO code at all. "Code-less" used
+  // to be the whole test for a refusal, and a TypeError satisfies it — the
+  // caller would have answered `badRequest(err.message)` with internal text.
+  it('re-throws a code-less internal bug instead of reporting it as a refusal', async () => {
+    invoice(600);
+    validateBankReceiptApplication.mockRejectedValueOnce(
+      new TypeError("Cannot read properties of undefined (reading 'amount')"),
+    );
+
+    await expect(confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600))
+      .rejects.toThrow(TypeError);
     expect(confirmReceiptMatch).not.toHaveBeenCalled();
   });
 

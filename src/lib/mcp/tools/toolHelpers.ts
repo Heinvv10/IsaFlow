@@ -126,16 +126,34 @@ function truncateForMessage(value: unknown): string {
 }
 
 /**
+ * A code this codebase's own refusal classes carry: SCREAMING_SNAKE, so it
+ * always contains an underscore. A pg SQLSTATE is five upper-case
+ * alphanumerics and never does, and neither does a Node system code (ENOENT,
+ * ECONNRESET) — so "has an underscore" admits exactly the application refusals
+ * and nothing whose text could carry schema or filesystem detail.
+ */
+const NAMED_CODE_RE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
+
+/**
  * Surface a service error's message ONLY when it is an application-level
- * validation error (a hand-thrown Error with no SQLSTATE `code`). pg / driver
- * errors always carry a `code` (e.g. '23505', '42703') and could leak schema
- * names — those return the generic fallback instead.
+ * refusal. pg / driver errors always carry a SQLSTATE `code` and could leak
+ * schema names — those return the generic fallback instead.
+ *
+ * "No `code` at all" is NOT the test, and used to be: the services now raise
+ * their refusals as typed classes carrying a NAMED code
+ * (`SUPPLIER_PAYMENT_REFUSED`, `BANK_ALLOCATION_REFUSED`, `RECEIPT_REFUSED`),
+ * and the old predicate read every one of them as a driver error and replaced
+ * the remedy with the fallback. An agent that is told "Could not apply this
+ * payment." instead of "Invoice INV-9 is cancelled and cannot receive a
+ * payment." retries the same call. So the SHAPE of the code decides, the way
+ * `safeLineDetail` already decides it — tighter here, because this helper
+ * returns the raw message rather than a capped one.
  */
 export function safeErrorText(err: unknown, fallback: string): string {
-  if (err instanceof Error && (err as { code?: unknown }).code === undefined) {
-    return err.message;
-  }
-  return fallback;
+  if (!(err instanceof Error)) return fallback;
+  const code = (err as { code?: unknown }).code;
+  if (code === undefined) return err.message;
+  return typeof code === 'string' && NAMED_CODE_RE.test(code) ? err.message : fallback;
 }
 
 /**

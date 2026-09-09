@@ -38,6 +38,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
+import { ReceiptRefusal } from './receiptRefusal';
 import {
   EPS,
   applyLineToInvoice,
@@ -81,17 +82,17 @@ export async function planReceiptApplication(
   paymentId: string,
   allocations: readonly ReceiptAllocationInput[],
 ): Promise<ReceiptApplicationPlan> {
-  if (allocations.length === 0) throw new Error('Provide at least one allocation.');
+  if (allocations.length === 0) throw new ReceiptRefusal('Provide at least one allocation.');
 
   const payment = await lockCustomerPaymentForUpdate(companyId, paymentId);
-  if (!payment) throw new Error(`Customer payment ${paymentId} not found`);
+  if (!payment) throw new ReceiptRefusal(`Customer payment ${paymentId} not found`);
 
   const status = String(payment.status);
   if (status === 'cancelled') {
-    throw new Error('Cannot apply a cancelled payment.');
+    throw new ReceiptRefusal('Cannot apply a cancelled payment.');
   }
   if (status === 'draft') {
-    throw new Error(
+    throw new ReceiptRefusal(
       'This receipt is still a draft — no journal has posted for it, so there is no cash to '
       + 'apply. Confirm the payment first (POST /api/accounting/customer-payments-action), '
       + 'which posts DR Bank / CR Accounts Receivable and applies its own allocations.',
@@ -105,7 +106,7 @@ export async function planReceiptApplication(
 
   const requested = round2(allocations.reduce((s, a) => s + a.amount, 0));
   if (requested > unappliedBefore + EPS) {
-    throw new Error(
+    throw new ReceiptRefusal(
       `Allocations total R${requested.toFixed(2)} but only R${unappliedBefore.toFixed(2)} of this `
       + `receipt is unapplied (R${paymentTotal.toFixed(2)} received, `
       + `R${allocatedBefore.toFixed(2)} already applied).`,
