@@ -1,3 +1,5 @@
+// Durable invocation lifecycle is exercised separately by registryInvocation and PostgreSQL suites.
+vi.mock('@/lib/mcp/invocationBoundary', () => ({ withMcpInvocation: async (_name: string, _args: unknown, run: (mark: () => void) => Promise<unknown>) => run(() => undefined) }));
 // Tool argument contracts are independently covered for every registered schema.
 vi.mock('@/lib/mcp/inputValidation', () => ({ validateToolArguments: (_tool: unknown, args: unknown) => ({ ok: true, args }) }));
 // Current authority is independently covered by forensic/currentToolAuthority and real PostgreSQL permission tests.
@@ -70,10 +72,17 @@ function auditInserts(): Array<{ text: string; values: unknown[] }> {
     .filter((c) => c.text.includes('INSERT INTO mcp_tool_calls'));
 }
 
+function receiptInserts() {
+  return sqlMock.mock.calls.map((_, i) => ({ text: sqlCallText(i), values: sqlCallValues(i) }))
+    .filter(c => c.text.includes('INSERT INTO mcp_idempotency_results'));
+}
+
 let registry: McpRegistry;
 
 beforeEach(() => {
   resetSqlMock();
+  sqlMock.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) =>
+    strings.join('').includes('INSERT INTO mcp_idempotency_results') ? [{ args_hash: values[3] }] : []);
   savepointMock.mockClear();
   registry = new McpRegistry();
 });
@@ -111,37 +120,27 @@ describe('McpRegistry — a handler refusal must not burn the idempotency key', 
     expect(insert.values.some((v) => typeof v === 'string' && v.includes('Not found'))).toBe(false);
   });
 
-  it('still audits a SUCCESS under the key, so a genuine replay is served', async () => {
+  it('stores a successful replay receipt independently from history', async () => {
     const ok = async () => ({ content: [{ type: 'text' as const, text: '"done"' }] });
     registry.register(makeTool({ name: 'w', scope: null, write: true, handler: ok }));
     await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes([]));
 
-    const insert = auditInserts().at(-1)!;
-    expect(insert.values).toContain('ok');
-    expect(insert.values).toContain('k1');
+    expect(auditInserts().at(-1)!.values).toContain('ok');
+    expect(auditInserts().at(-1)!.values).not.toContain('k1');
+    expect(receiptInserts().at(-1)!.values).toContain('k1');
   });
 });
 
-// The dangerous corollary of freeing the key on refusal: a handler that WROTE
-// and then returned a toolError gets its key freed too, so the retry re-runs
-// and writes a second time. The rule that closes it is a tool-side one — only
-// PRE-write validation may return toolError — and this pins the registry half:
-// the key really is free, so nothing at this layer stops the second write.
-describe('McpRegistry — a freed key means the handler must not have written', () => {
-  it('re-runs a write-then-refuse handler on the same key (which is why tools rethrow)', async () => {
-    let writes = 0;
-    const writeThenRefuse = async () => {
-      writes += 1;                                    // stands in for a posted journal
-      return { content: [{ type: 'text' as const, text: 'Not found' }], isError: true };
-    };
-    registry.register(makeTool({ name: 'w', scope: null, write: true, handler: writeThenRefuse }));
-
-    await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes([]));
-    await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes([]));
-
-    // Two writes from one key. No MCP tool may be shaped like this handler:
-    // rethrow instead, and the savepoint unwinds the first write.
-    expect(writes).toBe(2);
+// Refusals leave keys free; real PostgreSQL tests prove their writes roll back.
+describe('McpRegistry — refusal retry and successful idempotency', () => {
+  it('retries a refused handler without caching its refusal', async () => {
+    const handler=vi.fn(async()=>({content:[{type:'text' as const,text:'Not found'}],isError:true}));
+    registry.register(makeTool({name:'w',scope:null,write:true,handler}));
+    await registry.call('w',{idempotency_key:'k1'},ctxWithScopes([]));
+    await registry.call('w',{idempotency_key:'k1'},ctxWithScopes([]));
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(receiptInserts()).toHaveLength(0);
+    expect(auditInserts()).toHaveLength(2);
   });
 
   it('serves the stored result on a repeated key once the handler SUCCEEDS, so one write stays one', async () => {
@@ -231,7 +230,7 @@ describe('McpRegistry — perUserIdempotency namespaces the key by caller', () =
     }));
     await registry.call('w', { idempotency_key: 'shared' }, ctxFor('user-a'));
 
-    const insert = auditInserts().at(-1)!;
+    const insert = receiptInserts().at(-1)!;
     expect(insert.values).toContain('u:user-a:shared');
     // The bare key must NOT be what lands in the column — that is the collision.
     expect(insert.values).not.toContain('shared');
@@ -244,7 +243,7 @@ describe('McpRegistry — perUserIdempotency namespaces the key by caller', () =
     await registry.call('w', { idempotency_key: 'shared' }, ctxFor('user-a'));
     await registry.call('w', { idempotency_key: 'shared' }, ctxFor('user-b'));
 
-    const keys = auditInserts().map((i) => i.values.find(
+    const keys = receiptInserts().map((i) => i.values.find(
       (v) => typeof v === 'string' && v.startsWith('u:'),
     ));
     expect(keys).toEqual(['u:user-a:shared', 'u:user-b:shared']);
@@ -254,7 +253,7 @@ describe('McpRegistry — perUserIdempotency namespaces the key by caller', () =
     registry.register(makeTool({ name: 'c', scope: null, write: true, handler: write }));
     await registry.call('c', { idempotency_key: 'shared' }, ctxFor('user-a'));
 
-    const insert = auditInserts().at(-1)!;
+    const insert = receiptInserts().at(-1)!;
     expect(insert.values).toContain('shared');
     expect(insert.values.some((v) => typeof v === 'string' && v.startsWith('u:'))).toBe(false);
   });

@@ -19,7 +19,7 @@ class InputValidationError extends Error {}
 function failure(path: string, reason: string): never { throw new InputValidationError(`${path || 'arguments'} ${reason}`); }
 
 /** Reject values JSON would drop/coerce, and never invoke user-supplied getters. */
-function inspectInput(args: Record<string, unknown>, write: boolean): void {
+export function inspectInput(args: Record<string, unknown>, write: boolean): void {
   const ancestors = new Set<object>();
   let nodes = 0;
   function visit(value: unknown, depth: number): void {
