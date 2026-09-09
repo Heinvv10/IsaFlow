@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { adminCreateUser } from '@/lib/auth/gotrue';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -41,7 +42,11 @@ const createInvitation: NextApiHandler = async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
+  // The raw token goes in the email; only its digest is stored. The other
+  // invitation system (userInvitationService) has always stored the digest, and
+  // UNIQUE(company_id, email) makes both write the same row — so one encoding.
   const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashInviteToken(token);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   // 1. Insert invitation row. UNIQUE(company_id, email) means a resend — or a
@@ -54,7 +59,7 @@ const createInvitation: NextApiHandler = async (req, res) => {
   //    another company's invitation for the same address.
   const inv = await sql<{ id: string }>`
     INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
-    VALUES (${companyId}::uuid, ${cleanEmail}, ${role}, ${user.id}, ${token}, ${expiresAt})
+    VALUES (${companyId}::uuid, ${cleanEmail}, ${role}, ${user.id}, ${tokenHash}, ${expiresAt})
     ON CONFLICT (company_id, email) DO UPDATE SET
       role = EXCLUDED.role,
       invited_by = EXCLUDED.invited_by,
@@ -100,10 +105,16 @@ const createInvitation: NextApiHandler = async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     log.warn('invite email send failed', { inviteId: inv[0]!.id, message: msg }, 'Invitations');
     await sql`UPDATE company_invitations SET email_error = ${msg} WHERE id = ${inv[0]!.id}::uuid`;
-    return res.status(502).json({ success: false, error: { code: 'EMAIL_FAILED', message: 'Invitation created but email delivery failed. You can resend.' } });
+    // 201, not 502: withAuth ROLLBACKs the request transaction on any status
+    // >= 500, so the 502 this used to return discarded the invitation row, the
+    // gotrue_user_id and the email_error it had just written — and then told the
+    // caller to resend an invitation that no longer existed. Reporting the
+    // failure in the body keeps the row and matches what
+    // pages/api/accounting/company-invitations.ts already does.
+    return res.status(201).json({ success: true, data: { id: inv[0]!.id, email: cleanEmail, role, expiresAt, emailSent: false, emailError: msg } });
   }
 
-  return res.status(201).json({ success: true, data: { id: inv[0]!.id, email: cleanEmail, role, expiresAt } });
+  return res.status(201).json({ success: true, data: { id: inv[0]!.id, email: cleanEmail, role, expiresAt, emailSent: true } });
 };
 
 const handler: NextApiHandler = async (req, res) => {

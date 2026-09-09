@@ -1,0 +1,62 @@
+# K-104 / K-105 / K-106 / R-030 — GREEN + mutation proof
+# Re-run after the migration was renumbered 628 -> 637 -> 643 (643 is the first
+# prefix free of every branch: `git ls-tree` over all refs plus every worktree
+# shows 619-642 taken, highest 642_bank_statement_attestation_intents.sql).
+# Fixture: disposable PostgreSQL, migration 643 applied, production schema.
+# Files: k-041, k-042, k104-k105, k106 integration tests.
+=== GREEN baseline (migration 643 applied) ===
+ Test Files  4 passed (4)
+      Tests  15 passed (15)
+=== M1: POST /api/invitations stores the RAW token again (K-104) ===
+0
+   × K-104: both invitation systems store one encoding, and either link resolves 627ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 14 passed (15)
+=== M2: withInviteToken sets the GUC to the raw token (K-104/R-030) ===
+1
+   × does NOT reset an already-registered account password when its invitation is accepted 51ms
+   × attaches the membership when the existing account proves ownership with its own password 6ms
+   × still sets the password for a brand-new invitee who has no users row yet 3ms
+   × K-104: both invitation systems store one encoding, and either link resolves 684ms
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 28ms
+ Test Files  2 failed | 2 passed (4)
+      Tests  5 failed | 10 passed (15)
+=== M3: the lookup stops masking the email (R-030) ===
+1
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 25ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 14 passed (15)
+=== M4: the email-failure branch returns 502 again (K-106) ===
+   × the response after a failed invite email describes what actually survived 430ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 14 passed (15)
+=== RESTORED ===
+ Test Files  4 passed (4)
+      Tests  15 passed (15)
+=== M1 (redo, asserted patch): POST /api/invitations stores the RAW token again (K-104) ===
+   × K-104: both invitation systems store one encoding, and either link resolves 937ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 14 passed (15)
+=== restored ===
+ Test Files  4 passed (4)
+      Tests  15 passed (15)
+=== M5: drop policy companies_invite_token_read (R-030 migration half) ===
+DROP POLICY
+   × K-104: both invitation systems store one encoding, and either link resolves 565ms
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 10ms
+   × R-030: the invite-token session can read that one company and no other 4ms
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+DROP POLICY
+CREATE POLICY
+UPDATE 0
+=== restored ===
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+=== full unit suite, fixture env UNSET (DATABASE_URL etc. removed) ===
+ Test Files  792 passed | 36 skipped (828)
+      Tests  9438 passed | 234 skipped (9672)
+
+=== bunx tsc --noEmit ===  exit 0, no output
+=== bunx eslint <5 changed src/pages files> ===  exit 0, no output

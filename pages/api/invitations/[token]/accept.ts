@@ -30,7 +30,7 @@ const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } });
   }
-  const token = (req as InviteTokenRequest).inviteToken;
+  const tokenHash = (req as InviteTokenRequest).inviteTokenHash;
   const { password, firstName, lastName } = req.body ?? {};
   if (typeof password !== 'string' || password.length < 10) {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
@@ -42,7 +42,7 @@ const handler: NextApiHandler = async (req, res) => {
   }>`
     SELECT id, email, role, company_id, gotrue_user_id
     FROM company_invitations
-    WHERE token = ${token} AND accepted_at IS NULL AND expires_at > now()
+    WHERE token = ${tokenHash} AND accepted_at IS NULL AND expires_at > now()
     LIMIT 1
   `;
   if (rows.length === 0) {
