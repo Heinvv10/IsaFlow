@@ -1087,22 +1087,28 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
-   "dependencies": [],
+   "currentSha": "3a4156c9",
+   "status": "code-verified",
+   "dependencies": [
+    "Merged to master; production deployment pending (batch 2)"
+   ],
    "testNames": [
     "tests/integration/k-032-cancelled-credit-note-vat201.int.test.ts"
    ],
    "evidencePaths": [
+    "K-032/ci.log",
+    "K-032/fix.md",
+    "K-032/green.log",
     "K-032/red.log",
     "K-032/validation.md"
    ],
-   "fixCommit": null,
-   "pr": null,
+   "fixCommit": "c76280e5;58c300cb;3a4156c9",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/357",
    "deployedSha": null,
-   "historicalDataImpact": "Not assessed",
+   "historicalDataImpact": "Read path only; no rows change. Periods holding a cancelled credit note recompute lower for output VAT; locked periods will show drift from what was filed. Cancelled invoices are out of scope (R-010).",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "mergeCommit": "e1d46268"
   },
   {
    "id": "K-033",
@@ -7968,11 +7974,11 @@
    "correctedTrigger": "Authenticated own-company user submits query_to_xml/table_to_xml over a non-allowlisted relation; reproduced on real PostgreSQL through the API (postgres-red.log) returning a webhook signing secret. Both guards accepted the query.",
    "severityRationale": "Confirmed application relation allowlist bypass. Production role/RLS impact and live reachability are not verified.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "b3b4a71d",
-   "status": "in-progress",
+   "currentSha": "fcf3e4ca",
+   "status": "code-verified",
    "dependencies": [
-    "Independent review of b3b4a71d and full CI pending",
-    "Production role/RLS impact not verified: the fixture runs the API under the postgres superuser role, so RLS on webhook_endpoints in production may already have limited exposure to own-company rows; the allowlist bypass itself is proven regardless"
+    "Production role/RLS impact not verified: the fixture runs the API under the postgres superuser role, so RLS on webhook_endpoints in production may already have limited exposure to own-company rows; the allowlist bypass itself is proven regardless",
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/unit/services/core/nlQueryFunctions.test.ts",
@@ -7980,19 +7986,23 @@
    ],
    "evidencePaths": [
     "R-004/assessment.md",
-    "R-004/probe.ts.txt",
-    "R-004/plan.md",
-    "R-004/red.log",
-    "R-004/postgres-red.log",
+    "R-004/ci.log",
     "R-004/green.log",
-    "R-004/postgres-green.log"
+    "R-004/plan.md",
+    "R-004/postgres-green.log",
+    "R-004/postgres-red.log",
+    "R-004/probe.ts.txt",
+    "R-004/red.log",
+    "R-004/review-remaining.md",
+    "R-004/review.md"
    ],
-   "fixCommit": "b3b4a71d",
-   "pr": null,
+   "fixCommit": "b3b4a71d;6c63df7d;fcf3e4ca",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/359",
    "deployedSha": null,
    "historicalDataImpact": "No production data queried or changed. Disposable temporary fixture transaction rolled back.",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "mergeCommit": "faa2ef39"
   },
   {
    "id": "R-005",
@@ -8112,25 +8122,27 @@
    "correctedTrigger": "Own-company seed on assets a1 joined through asset_categories to assets a2 passed both guards; reproduced on real PostgreSQL through the authenticated API returning another company's asset (nl-query-global-reference-hub-postgres.int.test.ts, mutation run in review-followup-green.log).",
    "severityRationale": "Confirmed cross-tenant read through the NL query endpoint; pre-existing, not introduced by R-004.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "b3b4a71d",
-   "status": "in-progress",
+   "currentSha": "6c63df7d",
+   "status": "code-verified",
    "dependencies": [
-    "Fixed in the R-004 branch: tables without company_id no longer propagate scope"
+    "Fixed in the R-004 branch: tables without company_id no longer propagate scope",
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/unit/services/core/nlQueryScopeGuard.test.ts",
     "tests/integration/nl-query-global-reference-hub-postgres.int.test.ts"
    ],
    "evidencePaths": [
-    "R-004/review.md",
-    "R-004/review-followup-green.log"
+    "R-004/review-followup-green.log",
+    "R-004/review.md"
    ],
-   "fixCommit": null,
-   "pr": null,
+   "fixCommit": "6c63df7d",
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/359",
    "deployedSha": null,
    "historicalDataImpact": "No data changed. Prior cross-tenant reads through this path not assessed; nl-query requests are logged with question and company only, not the generated SQL.",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "mergeCommit": "faa2ef39"
   },
   {
    "id": "R-010",
