@@ -7,7 +7,7 @@ import { verifyToken } from './gotrue';
 import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
-import { withControlRequest } from '@/modules/accounting/services/controls/context';
+import { ControlIntegrityError, withControlRequest } from '@/modules/accounting/services/controls/context';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -201,12 +201,23 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res;
       };
 
-      const runHandler = async () =>
-        withControlRequest(
-          { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
-          { personId: claims.sub, companyId: activeCompanyId, authMethod: 'cookie' },
-          async () => { await handler(req, res); }
-        );
+      const runHandler = async () => {
+        try {
+          await withControlRequest(
+            { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
+            { personId: claims.sub, companyId: activeCompanyId, authMethod: 'cookie' },
+            async () => { await handler(req, res); }
+          );
+        } catch (error) {
+          if (!(error instanceof ControlIntegrityError)) throw error;
+          const body = JSON.stringify({ success: false, data: null,
+            message: 'An unexpected error occurred', code: 'CONTROL_INTEGRITY_FAILED' });
+          res.statusCode = 500;
+          if (!res.headersSent) res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          if (!res.headersSent) res.setHeader('Content-Length', Buffer.byteLength(body));
+          bufferedEndArgs = res.headersSent ? [] : [body]; handlerEnded = true;
+        } finally { res.end = realEnd as typeof res.end; }
+      };
 
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
