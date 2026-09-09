@@ -22,9 +22,9 @@ describe('gotrue client', () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-dummy';
   });
 
-  it('verifyToken accepts a valid HS256 token and returns claims', async () => {
+  it('verifyToken accepts a valid completed AAL2 session and returns claims', async () => {
     const { verifyToken } = await import('@/lib/auth/gotrue');
-    const token = await makeToken({ sub: 'user-uuid', email: 'a@b.c', role: 'authenticated' });
+    const token = await makeToken({ sub: 'user-uuid', email: 'a@b.c', role: 'authenticated', aal: 'aal2' });
     const claims = await verifyToken(token);
     expect(claims.sub).toBe('user-uuid');
     expect(claims.email).toBe('a@b.c');

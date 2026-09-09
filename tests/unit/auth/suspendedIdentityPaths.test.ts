@@ -19,7 +19,7 @@ const TEST_SECRET = 'a'.repeat(40);
 const USER_ID = '11111111-1111-1111-1111-111111111111';
 
 async function makeToken(sub: string) {
-  return new SignJWT({ sub, email: 'x@y.z', aud: 'authenticated', role: 'authenticated' })
+  return new SignJWT({ sub, email: 'x@y.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(TEST_SECRET));
 }

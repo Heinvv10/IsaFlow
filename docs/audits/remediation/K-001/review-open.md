@@ -1,0 +1,21 @@
+# Named fix review — OPEN
+
+Reviewed candidate `11cb46aa` against `ccf22ee4`. Independent review found one material workflow regression:
+
+The impersonation-start endpoint still installs a magic-link AAL1 target token. For an MFA-enrolled target, a normal protected GET now rejects and clears access/refresh cookies. The end-impersonation signature-only recovery path cannot recover after that intervening GET because it requires an access cookie. The initial exit regression only tested return before the GET. Do not claim K-001 complete or publish this candidate as ready.
+
+Required next reproduction: authorized admin start → protected target GET → return to admin, applying emitted cookies between each request, plus wrong-stash/target/session/actor and expired proof negatives. Preserve the completed-session MFA gate. Preserve legitimate admin impersonation instead of silently disabling MFA-target impersonation as an easier alternative.
+
+Proposed design under independent review: a separate server-signed short-lived HttpOnly delegation cookie issued by the authorized admin start flow, cryptographically bound to actor user, target user and the GoTrue target session_id. Use a purpose-derived signing key, explicit issuer/audience, no `sub` in the envelope, and expiry bounded by the original admin session and stash lifetime. Completed-session callers may accept this proof only for the exact target session; never relabel the target as AAL2. Missing/forged/mismatched/expired proof preserves normal MFA denial. Clear on return. Verify refresh retains session binding. No schema changes proposed. This design is not implemented or accepted yet.
+
+Verification already obtained: failing original login/middleware reproduction (200 instead of 401), initial green reproduction, 336 auth regressions, actual disposable GoTrue no-factor → enrollment → denied password token → completed TOTP session. Full broad CI passed in an interim working tree, but code changed during the run; it is not a final named-commit gate. The foundation pre-push hook subsequently passed CI on stable candidate application source: 9278 unit tests and 384 component tests passed, 234 unit tests skipped, database integration skipped. This does not resolve the review regression or prove full workflow acceptance. Full schema/RLS acceptance remains open at migration 220.
+
+## Delegation design review result
+
+Independent reviewer accepted the proposal in principle with strict constraints: target JWT must pass signature/expiry verification first; delegation requires nonempty target session_id and exact subject/session match; fixed algorithm, purpose-derived key, issuer/audience/version and typed IDs; expiry bounded to actual administrator JWT and stash expiration with no missing-expiry fallback; issuance only after authorization/target validation/audit/stash success. Missing/invalid proof falls back to normal MFA checking. Preserve original target AAL in claims/GUCs. Clear delegation on return, logout and ordinary session replacement.
+
+Required regression additions: MFA target start→GET→refresh→GET→return; different target or same target/different session; expired/tampered/wrong-key/issuer/audience proof; pending password token without proof; missing session_id; failed authorization/audit/stash; admin expiry bounds refreshed target; consistent protected callers; stash ownership recovery. Explicit limits: actor authority is captured at issuance (later actor suspension/role removal does not immediately revoke delegation, matching existing issued impersonation behavior); this is application authorization, not elevation of GoTrue or database AAL policies.
+
+## Resolution evidence
+
+The impersonation regression was corrected in 23608ad7 and independently approved in delegation-review.md. Real PostgreSQL/GoTrue start, tenant GET, refresh and return now pass (delegation-postgres-rerun.log). Original findings above are preserved as history. Final test-commit publication remains pending; no deployment occurred.

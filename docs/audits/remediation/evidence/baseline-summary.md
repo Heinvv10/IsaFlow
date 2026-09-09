@@ -19,3 +19,9 @@ Container: `isaflow-remediation-pg-20260908` (`postgres:16-alpine`), label `isaf
 4. `disposable-migrations-after-236.log`: replay still fails at migration 220 with 42883, `operator does not exist: uuid = character varying`. Migration 000 creates `users.id VARCHAR(255)`; migration 236 creates `company_users.user_id UUID`; migration 220's final membership INSERT compares these without conversion.
 
 This is an incomplete fresh migration replay, not a representative full schema. Two-company fixtures, roles, RLS, GoTrue and provider workflow acceptance remain OPEN. No migrations were skipped or backfilled as applied. No speculative schema replacement was added.
+
+## Disposable setup continuation
+
+The original pristine-replay failure evidence remains unchanged. To continue preparing a representative disposable environment, applied an explicit local-only adapter converting `company_users.user_id` to text. Migration 348 itself documents that both users.id and company_users.user_id are text, and its auth.uid helper returns text; migration 220 compares those columns. This adapter is not a committed production migration or a claim that pristine replay works. Output: disposable-auth-id-prerequisite.log.
+
+Replay then advanced to migration 235, which required pgcrypto's gen_random_bytes. Installed the real pgcrypto extension in the disposable database, then replay advanced through migration 252 and failed at 253: its stock_items view expects products.sku, absent from the earlier schema. See disposable-migrations-after-user-id.log, disposable-pgcrypto-prerequisite.log, and disposable-migrations-after-pgcrypto.log. Full-schema/RLS acceptance remains OPEN; do not substitute placeholder columns or views.

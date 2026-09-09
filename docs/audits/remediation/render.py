@@ -37,7 +37,7 @@ counts = ', '.join(f'{count} {status}' for status, count in Counter(i['status'] 
 <html lang="en"><meta charset="utf-8"><title>IsaFlow remediation evidence</title>
 <style>body{{font:16px system-ui;margin:2rem;max-width:1400px}}table{{border-collapse:collapse;width:100%}}td,th{{padding:.7rem;text-align:left;border-bottom:1px solid #ccc;vertical-align:top}}th{{background:#eee}}a{{color:#164d8c}}</style>
 <h1>IsaFlow remediation evidence</h1>
-<p>{escape(counts)}. No fixes or deployed workflows verified yet.</p>
+<p>{escape(counts)}. Code verification and deployment are separate states; no deployment is authorized by this remediation task.</p>
 <p>{escape(backlog['scopeNote'])}</p>
 <p>Baseline: <code>{escape(backlog['baselineSha'])}</code></p>
 <p><a href="backlog.json">Finding register</a> · <a href="inputs.json">Input hashes</a> · <a href="evidence/baseline-ci.log">Baseline CI output</a> · <a href="HANDOFF.md">Execution handoff</a></p>

@@ -1,3 +1,4 @@
+import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withPlatformAdmin.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
@@ -42,7 +43,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
 
     let claims;
     try {
-      claims = await verifyToken(token);
+      claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
       log.warn(
         'withPlatformAdmin: invalid token',

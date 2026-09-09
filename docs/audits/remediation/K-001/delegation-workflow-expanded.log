@@ -1,0 +1,15 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/mfa-impersonation-workflow.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-08T16:13:25.861Z","component":"Admin","data":{"admin":"00000000-0000-0000-0000-000000000ad1","target":"00000000-0000-0000-0000-000000000ab1"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T16:13:25.866Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T16:13:25.872Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T16:13:25.876Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  18:13:25
+   Duration  629ms (transform 189ms, setup 0ms, import 412ms, tests 68ms, environment 0ms)

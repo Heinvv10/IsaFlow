@@ -1,0 +1,57 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/mfa-impersonation-exit.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/auth/mfa-impersonation-exit.test.ts (2 tests | 2 failed) 30ms
+   × restoring the admin session retains stash ownership checks: target-user 28ms
+   × restoring the admin session retains stash ownership checks: unrelated-user 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/auth/mfa-impersonation-exit.test.ts > restoring the admin session retains stash ownership checks: target-user
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ tests/unit/auth/mfa-impersonation-exit.test.ts:36:26
+     34|     cookie: `sb-access-token=${token}; ${ADMIN_STASH_COOKIE}=synthetic…
+     35|   } } as NextApiRequest, res as unknown as NextApiResponse);
+     36|   expect(res.statusCode).toBe(sub === 'target-user' ? 200 : 403);
+       |                          ^
+     37|   expect(fixture.deleteStash).toHaveBeenCalledTimes(sub === 'target-us…
+     38| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/auth/mfa-impersonation-exit.test.ts > restoring the admin session retains stash ownership checks: unrelated-user
+AssertionError: expected 401 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 401
+
+ ❯ tests/unit/auth/mfa-impersonation-exit.test.ts:36:26
+     34|     cookie: `sb-access-token=${token}; ${ADMIN_STASH_COOKIE}=synthetic…
+     35|   } } as NextApiRequest, res as unknown as NextApiResponse);
+     36|   expect(res.statusCode).toBe(sub === 'target-user' ? 200 : 403);
+       |                          ^
+     37|   expect(fixture.deleteStash).toHaveBeenCalledTimes(sub === 'target-us…
+     38| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  17:58:25
+   Duration  217ms (transform 43ms, setup 0ms, import 76ms, tests 30ms, environment 0ms)
+
+error: script "test:unit" exited with code 1

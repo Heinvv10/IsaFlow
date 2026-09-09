@@ -35,3 +35,17 @@ No accounting writes or historical ledger repair expected. Existing password-onl
 ## Completion gates still open
 
 Failing test, correction, regressions, disposable provider workflow, named-fix review, full CI, commit and draft PR. Full fresh database replay currently fails at migration 220; see ../evidence/baseline-summary.md. This plan does not close K-001.
+
+## Selected implementation after failing reproduction
+
+The two-case regression ran on unchanged application code: enrolled AAL1 transplant returned 200 instead of required 401; no-MFA control passed. See red.log.
+
+Keep `verifyToken` as the secure default for every existing completed-auth caller. Extract signature-only validation into explicitly named `verifyTokenSignature`, used only by the pending challenge route and internally by the completed-session verifier. For a non-AAL2 token, fetch authoritative GoTrue `/user` factor state and deny if any factor is verified; validate the returned identity and factor shape. AAL2 remains accepted after signature verification. GoTrue lookup errors deny access through existing INVALID_TOKEN handling (401), with no cached permissive result. This introduces an online GoTrue dependency for non-MFA sessions; record and verify that availability tradeoff. No schema change. Existing synthetic JWT fixtures representing completed sessions must explicitly carry AAL2; dedicated AAL1 tests cover permitted no-factor and denied verified-factor flows.
+
+Exact behavior files: src/lib/auth/gotrue.ts and pages/api/auth/2fa-challenge.ts. Tests: pending-mfa-access.test.ts, assurance-specific GoTrue tests, relevant existing auth/print/caller suites. Follow-up tests must cover phone factors, malformed/mismatched provider identity, provider failure, AAL2, and pending challenge semantics. Do not move to K-002 before K-001's remaining gates are accounted for.
+
+Caller-review correction: end-impersonation is also a restricted identity-only recovery caller. Its new regression showed the initial gate stranded an admin on an MFA target (401 instead of 200). Preserve raw signature + existing stash ownership validation there; it only restores the stashed admin session, whose subsequent requests remain MFA-gated. The unrelated-user ownership negative case must remain 403. Behavior scope now includes pages/api/auth/end-impersonation.ts.
+
+## Final code verification
+
+The historical open gates above are superseded by delegation-result.md and final-push-ci.log: regression, real provider/current-schema workflow, named commit review, full CI and draft PR345 are complete. Pristine historical migration replay and deployment remain separate open requirements.
