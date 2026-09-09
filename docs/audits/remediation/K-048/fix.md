@@ -8,11 +8,13 @@
 
 **Request-only.** The function throws outside a request transaction. `withTransaction` joins the ALS client `withAuth` opened; outside one it takes its own pooled connection for the claim while `createJournalEntry` takes others that autocommit, so a posting failure would roll the claim back and leave an orphan draft entry committed in the GL — worse than the defect. A cron path needs a `tx` threaded through the posting services first.
 
-**Files.** `src/modules/accounting/services/gl/recurringJournalService.ts` (223), `recurringJournalGuards.ts` (162, new), `pages/api/accounting/recurring-journals-action.ts` (71), the module `.claude.md` / `AGENTS.md`.
+**Files.** `src/modules/accounting/services/gl/recurringJournalService.ts` (213), `recurringJournalGuards.ts` (162, new), `recurringSchedule.ts` (64, new), `pages/api/accounting/recurring-journals-action.ts` (71), the module `.claude.md` / `AGENTS.md`.
 
-**Tests.** Real Postgres, 16 passed across four files: `k048-recurring-journal-no-due-date-no-lock.int.test.ts` (2, validator's RED), `k048-k049-recurring-journal-adjacent.int.test.ts` (12), `k049-recurring-journal-400-commits-draft.int.test.ts` (1, validator's RED), `k049-recurring-journal-post-write-failure.int.test.ts` (1, new). Adjacent cases: concurrent generation, wrong tenant, overdue run posting into its own period balanced 1000/1000, deactivated account, unbalanced template, deleted account, malformed action, end_date completion, contention, the SAST date boundary, and the outside-a-request refusal.
+**Tests.** Real Postgres, 16 passed across four files: `k048-recurring-journal-no-due-date-no-lock.int.test.ts` (2, validator's RED), `k048-k049-recurring-journal-adjacent.int.test.ts` (12), `k049-recurring-journal-400-commits-draft.int.test.ts` (1, validator's RED), `k049-recurring-journal-post-write-failure.int.test.ts` (1, new). Adjacent cases: concurrent generation, wrong tenant, overdue run posting into its own period balanced 1000/1000, deactivated account, unbalanced template, deleted account, malformed action, end_date completion, contention, the SAST date boundary, a month-end run landing on the last day of February, and the outside-a-request refusal. Plus `tests/unit/services/gl/recurringSchedule.test.ts` (20) for the calendar arithmetic.
 
-**Mutation.** Nine of ten reverts go RED (green.log). The claim predicate alone stays green: on the request path the row lock serialises the second caller so the due-date guard refuses it first. The claim remains as the second line of defence and is what would carry a caller that ever reached this without the lock.
+**Schedule arithmetic.** `advanceDate` moved to a pure `recurringSchedule.ts`. It clamps a day the target month does not have (31 Jan + 1 month = 28 or 29 Feb) and carries month end forward (28 Feb + 1 month = 31 Mar, 31 Aug + 1 month = 30 Sep). Before, `setMonth(+1)` overflowed February to 3 March and the template drifted onto the 3rd for good — and because the run is claimed on `next_run_date` and the journal is DATED at it, the drift reached the general ledger.
+
+**Mutation.** Twelve of thirteen reverts go RED (green.log). The claim predicate alone stays green: on the request path the row lock serialises the second caller so the due-date guard refuses it first. The claim remains as the second line of defence and is what would carry a caller that ever reached this without the lock.
 
 **Migration.** None.
 
@@ -30,4 +32,4 @@ HAVING COUNT(je.id) <> rj.run_count OR COUNT(je.id) > 1;
 
 Journals of one template sharing an `entry_date` are same-day double-posts. Nothing is corrected automatically.
 
-**Limits.** `advanceDate` overflows a month-end template (Jan 31 + 1 month = Mar 3, skipping February), which the claim now pins into the GL entry date; pre-existing, follow-up ticket, not fixed here. An operator who used `generate` to fire a template early now gets a 400 naming the due date; the remedy is in the message.
+**Limits.** The table stores no anchor day, so a template deliberately scheduled on the 28th in a non-leap February cannot be told apart from one clamped there from the 30th or 31st: both advance to 31 March. Month end is the accounting convention for a monthly accrual, so that is the side chosen; a per-template anchor day needs a column and a migration. An operator who used `generate` to fire a template early now gets a 400 naming the due date; the remedy is in the message.

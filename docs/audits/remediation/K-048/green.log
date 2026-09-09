@@ -4,6 +4,11 @@ RED (baseline, before the fix) — docs/audits/remediation/K-048/red-fixer.log
   Test Files  2 failed (2)
        Tests  3 failed (3)
 
+GREEN — unit, the schedule arithmetic (no DB):
+  bunx vitest run tests/unit/services/gl/recurringSchedule.test.ts
+  Test Files  1 passed (1)
+       Tests  20 passed (20)
+
 GREEN (after the fix + the blind-review follow-ups), real Postgres fixture:
   bunx vitest run --config vitest.integration.config.ts \
     tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts \
@@ -11,7 +16,7 @@ GREEN (after the fix + the blind-review follow-ups), real Postgres fixture:
     tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts \
     tests/integration/k049-recurring-journal-post-write-failure.int.test.ts
   Test Files  4 passed (4)
-       Tests  16 passed (16)
+       Tests  17 passed (17)
 
 MUTATION CHECKS (production change reverted one at a time, then restored and re-run green):
   M1  request-only guard removed                 -> 1 failed   RED
@@ -24,6 +29,9 @@ MUTATION CHECKS (production change reverted one at a time, then restored and re-
   M8  fiscal-period pre-check disabled           -> 1 failed   RED
   M9  route maps every throw to 400 again        -> 1 failed   RED
   M10 FOR UPDATE removed from the template SELECT-> 4 failed   RED
+  M11 advanceDate reverted to setMonth(+1)       -> unit 9 failed, integration 1 failed  RED
+  M12 month-end stickiness removed (clamp only)  -> unit 4 failed   RED
+  M13 clamp removed (Math.min dropped)           -> unit 4 failed   RED
 
   M7 is honest and stated in fix.md. The tests now run the service inside real
   request transactions, as the route does, so the row lock serialises the second
@@ -34,8 +42,8 @@ MUTATION CHECKS (production change reverted one at a time, then restored and re-
   went RED — that path is now refused outright.)
 
 FULL UNIT SUITE (no fixture env; DATABASE_URL / ISAFLOW_DISPOSABLE_AUTH_TEST unset):
-  Test Files  792 passed | 36 skipped (828)
-       Tests  9434 passed | 234 skipped (9668)
+  Test Files  793 passed | 36 skipped (829)
+       Tests  9454 passed | 234 skipped (9688)
   Zero failures. (The earlier run on this branch recorded 4 failing files under
   parallel load on this box; they pass here and are unrelated to this change.)
   No recurring-journal unit test exists to regress.

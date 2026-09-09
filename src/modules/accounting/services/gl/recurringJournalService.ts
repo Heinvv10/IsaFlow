@@ -14,6 +14,7 @@ import {
   businessToday,
   assertTemplateLinesPostable,
 } from './recurringJournalGuards';
+import { advanceDate } from './recurringSchedule';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 
@@ -190,17 +191,6 @@ export async function generateJournalFromRecurring(companyId: string,
     log.info('Generated journal from recurring', { recurringId: id, journalId: je.id, runDate: dueDate }, 'accounting');
     return je.id;
   });
-}
-
-function advanceDate(dateStr: string, frequency: string): string {
-  const d = new Date(dateStr);
-  switch (frequency) {
-    case 'weekly': d.setDate(d.getDate() + 7); break;
-    case 'monthly': d.setMonth(d.getMonth() + 1); break;
-    case 'quarterly': d.setMonth(d.getMonth() + 3); break;
-    case 'annually': d.setFullYear(d.getFullYear() + 1); break;
-  }
-  return d.toISOString().split('T')[0]!;
 }
 
 function mapRow(row: DbRow): RecurringJournal {
