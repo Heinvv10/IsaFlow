@@ -85,6 +85,62 @@ export function fiscalRangeFor(fiscalYear: number, fyStartMonth: number): Fiscal
   };
 }
 
+/** A financial year expressed in 'YYYYMM' ledger periods rather than dates. */
+export interface FiscalPeriodWindow {
+  /** First period of the financial year containing the requested period. */
+  start: string;
+  /** The requested period itself — the window's inclusive last period. */
+  end: string;
+  /** The period immediately before `start`: the prior year's closing period. */
+  priorEnd: string;
+}
+
+/**
+ * The financial year containing `period`, as `asset_period_ledger.yyyymm`
+ * periods.
+ *
+ * The date-keyed helpers above cannot serve a caller that compares `yyyymm`
+ * strings: it needs the boundaries in the same shape as the column. Rolling
+ * `start` back one month for `priorEnd` also has a December wrap that is worth
+ * writing exactly once — a caller doing it inline is how the PPE movement note
+ * ended up with `${year}01` hardcoded for every tenant.
+ *
+ * Deliberately period-keyed and unlabelled by fiscal year, so it takes no
+ * position on the two year-naming conventions in this codebase (this module
+ * names a year by its end, `gl/fiscalYearBasis` by its start).
+ *
+ * @param period       'YYYYMM'.
+ * @param fyStartMonth an already-resolved month 1-12 — see
+ *   `resolveFiscalYearStartMonth`. Out of range throws rather than assuming
+ *   March.
+ */
+export function fiscalWindowForPeriod(period: string, fyStartMonth: number): FiscalPeriodWindow {
+  if (!/^\d{4}(0[1-9]|1[0-2])$/.test(period)) {
+    throw new Error(`fiscalWindowForPeriod: period must be YYYYMM with a month 01-12, got '${period}'.`);
+  }
+
+  const startMonth = Math.trunc(Number(fyStartMonth));
+  if (!Number.isFinite(startMonth) || startMonth < 1 || startMonth > 12) {
+    throw new Error(
+      `fiscalWindowForPeriod: fyStartMonth must be a month 1-12, got ${String(fyStartMonth)}. ` +
+      `Resolve it with resolveFiscalYearStartMonth() first — never assume March.`,
+    );
+  }
+
+  const year = Number(period.slice(0, 4));
+  const month = Number(period.slice(4, 6));
+  const startYear = month >= startMonth ? year : year - 1;
+
+  const priorMonth = startMonth === 1 ? 12 : startMonth - 1;
+  const priorYear = startMonth === 1 ? startYear - 1 : startYear;
+
+  return {
+    start: `${String(startYear).padStart(4, '0')}${String(startMonth).padStart(2, '0')}`,
+    end: period,
+    priorEnd: `${String(priorYear).padStart(4, '0')}${String(priorMonth).padStart(2, '0')}`,
+  };
+}
+
 /**
  * The date range of `fiscalYear` for a specific company, resolved from the
  * financial year start configured in its settings.
