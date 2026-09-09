@@ -104,8 +104,12 @@ export function useBankTransactionsController() {
     debounceTimer.current = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 500);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
   }, [searchTerm]);
-  // Load transactions
+  // Only the latest owned request may update rows, errors or loading state.
+  const transactionRequest=useRef<{generation:number;abort:AbortController|null}>({generation:0,abort:null});
+  useEffect(()=>()=>{transactionRequest.current.generation++;transactionRequest.current.abort?.abort();},[]);
   const loadTransactions = useCallback(async () => {
+    const generation=++transactionRequest.current.generation;transactionRequest.current.abort?.abort();
+    const abort=new AbortController();transactionRequest.current.abort=abort;
     if (!selectedBank) { setIsLoading(false); setTransactions([]); setTotal(0); return; }
     setIsLoading(true); setError('');
     try {
@@ -120,12 +124,14 @@ export function useBankTransactionsController() {
       if (txType !== 'all') params.set('tx_type', txType);
       if (allocType !== 'all') params.set('alloc_type', allocType);
       if (hasSuggestion !== 'all') params.set('has_suggestion', hasSuggestion);
-      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`);
+      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`,{signal:abort.signal});
+      if(!res.ok)throw new Error('Bank transaction request refused');
       const json = await res.json();
       const data = json.data || json;
+      if(generation!==transactionRequest.current.generation)return;
       setTransactions(data.transactions || []); setTotal(data.total || 0);
-    } catch { setError('Failed to load transactions'); }
-    finally { setIsLoading(false); }
+    } catch { if(generation===transactionRequest.current.generation&&!abort.signal.aborted)setError('Failed to load transactions'); }
+    finally { if(generation===transactionRequest.current.generation)setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
