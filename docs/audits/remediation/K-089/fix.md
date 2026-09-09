@@ -76,3 +76,38 @@ a rounding line would need a designated rounding account, which is Hein's call.
 Two things stay open by choice, both in `review-response.md`: the opening-balances step and the
 invoice import still double the control accounts, and `customer_invoices.external_ref` has no
 reader.
+
+---
+
+# Follow-up 2: second blind review (N1-N6)
+
+Full detail in `review-response-2.md`.
+
+- **Migration 625 is now keyed on `(company_id, supplier_id, duplicate_fingerprint)`.** Keying it
+  on company and fingerprint alone made two different VAT-less suppliers collide, because
+  `computeFingerprint` folds a missing VAT number to the literal `no-vat`. It also hard-constrained
+  five unrelated AP write paths. `createSupplierInvoice` now reports that 23505 by name.
+- **Missing-migration guard.** The AP import aborts on `42P10` with a message naming migration
+  625, instead of answering 200 with `imported: 0` and a raw Postgres message on every row.
+- **The clearing account is resolved once per step**, and only when some row is part-paid, so a
+  company without one fails once with a clear message and can still import unpaid invoices.
+- **`errors` supersedes the step's own entries** rather than appending, so a re-run does not
+  report the same row twice or grow the column without bound.
+
+## Before deploying
+
+1. **Run this against production first.** It was NOT run from this session, which is barred from
+   the production database. Rows mean migration 625 aborts the deploy before the rsync.
+   ```sql
+   SELECT company_id, supplier_id, duplicate_fingerprint, COUNT(*)
+     FROM supplier_invoices
+    WHERE duplicate_fingerprint IS NOT NULL AND deleted_at IS NULL
+    GROUP BY 1, 2, 3
+   HAVING COUNT(*) > 1;
+   ```
+2. **Apply 625 before this code ships.** Without the index the AP step aborts with a named error.
+3. **Out of hours on a large tenant.** `CREATE UNIQUE INDEX` cannot run `CONCURRENTLY` inside a
+   migration transaction, so it blocks writes to `supplier_invoices` while it builds.
+
+`idx_supplier_invoices_duplicate_fp` (migration 412) is deliberately kept: `findDuplicate`'s probe
+has no `deleted_at` predicate, so it cannot use an index partial on `deleted_at IS NULL`.

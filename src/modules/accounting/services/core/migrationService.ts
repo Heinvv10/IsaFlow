@@ -134,11 +134,24 @@ export async function updateSession(
       opening_balances_set = COALESCE(${updates.openingBalancesSet ?? null}, opening_balances_set),
       ar_invoices_imported = COALESCE(${updates.arInvoicesImported ?? null}, ar_invoices_imported),
       ap_invoices_imported = COALESCE(${updates.apInvoicesImported ?? null}, ap_invoices_imported),
-      -- APPEND, and only when there is something to append. An empty array is
-      -- truthy in JS, so a clean run used to write '[]' over the errors the
-      -- earlier steps had recorded.
-      errors               = COALESCE(errors, '[]'::JSONB)
-                             || COALESCE(${updates.errors?.length ? JSON.stringify(updates.errors) : null}::JSONB, '[]'::JSONB),
+      -- Keep the OTHER steps' errors and replace this step's own. A whole-value
+      -- assignment erased every other step (an empty array is truthy in JS, so
+      -- even a clean run wrote '[]' over them); a plain append made a re-run
+      -- report the same row again and grew the column without bound. The step
+      -- being superseded is named by steps_completed, so a clean re-run clears
+      -- the errors its previous attempt left behind.
+      errors               = (
+                               SELECT COALESCE(jsonb_agg(e), '[]'::JSONB)
+                                 FROM jsonb_array_elements(COALESCE(errors, '[]'::JSONB)) e
+                                WHERE e->>'step' IS NULL
+                                   OR NOT (e->>'step' IN (
+                                        SELECT k FROM jsonb_object_keys(
+                                          COALESCE(${updates.stepsCompleted ? JSON.stringify(updates.stepsCompleted) : null}::JSONB, '{}'::JSONB)) k
+                                        UNION
+                                        SELECT n->>'step' FROM jsonb_array_elements(
+                                          COALESCE(${updates.errors?.length ? JSON.stringify(updates.errors) : null}::JSONB, '[]'::JSONB)) n
+                                      ))
+                             ) || COALESCE(${updates.errors?.length ? JSON.stringify(updates.errors) : null}::JSONB, '[]'::JSONB),
       notes                = COALESCE(${updates.notes ?? null}, notes),
       completed_at         = COALESCE(${updates.completedAt ?? null}::TIMESTAMPTZ, completed_at)
     WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID

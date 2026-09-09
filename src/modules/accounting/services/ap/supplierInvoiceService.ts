@@ -177,6 +177,18 @@ export async function createSupplierInvoice(
 
     return mapInvoiceRow(invoiceRow);
   } catch (err) {
+    // Migration 625 made duplicate_fingerprint unique per (company, supplier),
+    // so what used to be an advisory duplicate flag can now refuse the write.
+    // Say which invoice collided instead of surfacing a bare 23505.
+    const e = err as { code?: unknown; constraint?: unknown } | null;
+    if (e?.code === '23505' && e.constraint === 'uq_supplier_invoices_supplier_fingerprint') {
+      log.warn('Duplicate supplier invoice refused', {
+        invoiceNumber: input.invoiceNumber, supplierId: input.supplierId,
+      }, 'accounting');
+      throw new Error(
+        `This supplier already has an invoice ${input.invoiceNumber} for the same amount. Change the invoice number or amount, or open the existing bill.`,
+      );
+    }
     log.error('Failed to create supplier invoice', { error: err }, 'accounting');
     throw err;
   }
