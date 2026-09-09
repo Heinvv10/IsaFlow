@@ -34,19 +34,19 @@ export async function writeHistoricalImportDocument(ctx:ControlTx,permit:Control
   :await ctx.sql`SELECT id FROM supplier_invoices WHERE company_id=${company}::uuid AND gl_journal_entry_id=${journalId}::uuid FOR UPDATE`;
  if(linked.some(row=>(row as Row).id!==before?.id))throw new Error('Historical journal already belongs to another document');
  const id=before?String(before.id):randomUUID(),paid=new D(doc.amountPaid),status=paid.eq(doc.totalAmount)?'paid':paid.gt(0)?'partially_paid':'approved';
- const balance=new D(doc.totalAmount).sub(paid).toFixed(),notes=`Historical source summary: ${source.sourceSystem}/${source.sourceKey}. Exact accounting evidence is linked by import ${ref.entityId}.`;
+ const notes=`Historical source summary: ${source.sourceSystem}/${source.sourceKey}. Exact accounting evidence is linked by import ${ref.entityId}.`;
  if(!before){
   if(ar)await ctx.sql`INSERT INTO customer_invoices(id,company_id,customer_id,client_id,invoice_number,invoice_date,due_date,subtotal,tax_rate,tax_amount,total_amount,
     amount_paid,status,currency_code,exchange_rate,functional_total,gl_journal_entry_id,created_by,internal_notes)
    VALUES(${id}::uuid,${company}::uuid,${doc.partyId}::uuid,${doc.partyId}::uuid,${doc.invoiceNumber},${source.accountingDate}::date,${doc.dueDate}::date,
     ${doc.subtotal},NULL,${doc.taxAmount},${doc.totalAmount},${doc.amountPaid},${status},'ZAR',1,${doc.totalAmount},${journalId}::uuid,${user},${notes})`;
   else await ctx.sql`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,due_date,subtotal,tax_rate,tax_amount,total_amount,
-    amount_paid,balance_due,status,currency,currency_code,exchange_rate,functional_total,gl_journal_entry_id,created_by,notes)
+    amount_paid,status,currency,currency_code,exchange_rate,functional_total,gl_journal_entry_id,created_by,notes)
    VALUES(${id}::uuid,${company}::uuid,${doc.partyId}::uuid,${doc.invoiceNumber},${source.accountingDate}::date,${doc.dueDate}::date,${doc.subtotal},NULL,${doc.taxAmount},${doc.totalAmount},
-    ${doc.amountPaid},${balance},${status},'ZAR','ZAR',1,${doc.totalAmount},${journalId}::uuid,${user}::uuid,${notes})`;
+    ${doc.amountPaid},${status},'ZAR','ZAR',1,${doc.totalAmount},${journalId}::uuid,${user}::uuid,${notes})`;
  }else if(ar)await ctx.sql`UPDATE customer_invoices SET gl_journal_entry_id=${journalId}::uuid,amount_paid=${doc.amountPaid},status=${status},updated_at=clock_timestamp()
   WHERE company_id=${company}::uuid AND id=${id}::uuid`;
- else await ctx.sql`UPDATE supplier_invoices SET gl_journal_entry_id=${journalId}::uuid,amount_paid=${doc.amountPaid},balance_due=${balance},status=${status},updated_at=clock_timestamp()
+ else await ctx.sql`UPDATE supplier_invoices SET gl_journal_entry_id=${journalId}::uuid,amount_paid=${doc.amountPaid},status=${status},updated_at=clock_timestamp()
   WHERE company_id=${company}::uuid AND id=${id}::uuid`;
  const rows=ar?await ctx.sql`SELECT * FROM customer_invoices WHERE company_id=${company}::uuid AND id=${id}::uuid`
   :await ctx.sql`SELECT * FROM supplier_invoices WHERE company_id=${company}::uuid AND id=${id}::uuid`;
