@@ -47,15 +47,26 @@ export async function postOpeningBalances(
 
   const lines: JournalLineInput[] = [];
   const unresolved: string[] = [];
+  const notOwned: string[] = [];
 
   for (const acct of balanceAccounts) {
+    // Only an account THIS source owns may receive its opening balance.
+    // Resolving on the code alone posted the balance onto whatever the company
+    // happened to have at that code — including an account the import's
+    // conflict guard refused to touch, which the operator was told was "left
+    // unchanged". The two ways a code can fail to resolve are reported apart,
+    // because they need different things from the operator.
     const glRows = (await sql`
-      SELECT id FROM gl_accounts
+      SELECT id, imported_from FROM gl_accounts
       WHERE company_id = ${companyId}::UUID AND account_code = ${acct.sourceCode}
       LIMIT 1
     `) as DbRow[];
     if (glRows.length === 0) {
       unresolved.push(`${acct.sourceCode} ${acct.sourceName}`);
+      continue;
+    }
+    if (glRows[0]!.imported_from !== source) {
+      notOwned.push(`${acct.sourceCode} ${acct.sourceName}`);
       continue;
     }
     const isDebitNormal = acct.mappedNormalBalance === 'debit';
@@ -67,12 +78,26 @@ export async function postOpeningBalances(
     });
   }
 
+  // Both classes of failure in ONE throw. Reporting only the first sends the
+  // operator round the loop again: they fix the missing account, re-run, and
+  // meet the second message for the first time. Dropping either and posting
+  // the remainder is what produced an unbalanced opening trial balance, so
+  // whichever occurred, the whole journal is refused.
+  const problems: string[] = [];
   if (unresolved.length > 0) {
-    // Dropping these and posting the remainder is what produced an unbalanced
-    // opening trial balance. Refuse the whole journal.
-    throw new Error(
-      `no GL account was created for ${unresolved.join('; ')} — opening balances not imported (fix the account import, then re-run)`,
-    );
+    problems.push(`no GL account was created for ${unresolved.join('; ')} (fix the account import, then re-run)`);
+  }
+  if (notOwned.length > 0) {
+    // The account exists; this source does not own it. That is the company's
+    // own account, another source's, or one a partial rollback released back
+    // to the company — and in every case posting the source's balance to it
+    // would be a write to an account the operator did not offer up. Say which
+    // it is, because "no GL account was created" sent the operator looking for
+    // an import failure that never happened.
+    problems.push(`${notOwned.join('; ')} already exists as an account the ${source} import does not own (renumber the source row, or delete the existing account, then re-run)`);
+  }
+  if (problems.length > 0) {
+    throw new Error(`opening balances not imported: ${problems.join('; and ')}`);
   }
 
   if (lines.length === 0) return 0;
