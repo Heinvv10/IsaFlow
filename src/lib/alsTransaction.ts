@@ -29,14 +29,28 @@ import { log } from '@/lib/logger';
  * `fn` simply runs on it — opening a second would take another pool client and
  * deadlock against the rows this request already holds.
  *
- * `userId` and `companyId` become the synthetic request context, so anything
- * nested that reads `requireCtx()` sees real values rather than placeholders.
+ * `actor` becomes the synthetic request context, so anything nested that reads
+ * `requireCtx()` sees the caller's real tenant and user rather than
+ * placeholders. It is an OBJECT rather than two positional strings on purpose:
+ * both are plain `string`, so a transposed pair would type-check and quietly
+ * bind a company id as the user id.
+ *
+ * It sets no RLS GUCs — no `request.jwt.claims`, no `app.current_company_id`,
+ * unlike `withAuth` and the bearer pipeline. Passing a `companyId` configures
+ * the CONTEXT, not the database session, so every statement inside must still
+ * carry its own `company_id` predicate. That matches what out-of-request
+ * callers had before, where `sql` reached the pool with no GUCs at all.
  */
+export interface AlsTransactionActor {
+  userId: string;
+  companyId: string | undefined;
+}
+
 export async function withAlsTransaction<T>(
-  userId: string,
-  companyId: string | undefined,
+  actor: AlsTransactionActor,
   fn: () => Promise<T>,
 ): Promise<T> {
+  const { userId, companyId } = actor;
   if (als.getStore()?.client) {
     assertTxUsable();
     return fn();

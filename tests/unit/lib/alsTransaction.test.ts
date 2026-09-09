@@ -48,7 +48,7 @@ function statements(): string[] {
 
 describe('withAlsTransaction', () => {
   it('binds the caller tenant and user, so nothing nested reads a placeholder', async () => {
-    const seen = await withAlsTransaction(USER, COMPANY, async () => als.getStore());
+    const seen = await withAlsTransaction({ userId: USER, companyId: COMPANY }, async () => als.getStore());
 
     expect(seen?.userId).toBe(USER);
     expect(seen?.companyId).toBe(COMPANY);
@@ -62,7 +62,7 @@ describe('withAlsTransaction', () => {
     const requestClient = { query: vi.fn(), release: vi.fn() } as never;
     const seen = await als.run(
       { client: requestClient, userId: 'request-user', companyId: 'request-company', claims: {} },
-      () => withAlsTransaction(USER, COMPANY, async () => als.getStore()),
+      () => withAlsTransaction({ userId: USER, companyId: COMPANY }, async () => als.getStore()),
     );
 
     // Opening a second transaction would take another pool client and deadlock
@@ -72,7 +72,7 @@ describe('withAlsTransaction', () => {
   });
 
   it('rolls back and returns the connection when the callback throws', async () => {
-    await expect(withAlsTransaction(USER, COMPANY, async () => { throw new Error('boom'); }))
+    await expect(withAlsTransaction({ userId: USER, companyId: COMPANY }, async () => { throw new Error('boom'); }))
       .rejects.toThrow('boom');
 
     expect(statements()).toContain('ROLLBACK');
@@ -86,7 +86,7 @@ describe('withAlsTransaction', () => {
       return { rows: [] };
     });
 
-    await expect(withAlsTransaction(USER, COMPANY, async () => { throw new Error('the real cause'); }))
+    await expect(withAlsTransaction({ userId: USER, companyId: COMPANY }, async () => { throw new Error('the real cause'); }))
       .rejects.toThrow('the real cause');
 
     // Handing this back to the pool would give the next caller an aborted

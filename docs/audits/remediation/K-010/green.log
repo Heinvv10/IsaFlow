@@ -69,3 +69,12 @@ bun scripts/audit-migration-naming.ts                                   OK
 bun run agent-docs:check                                                OK: 74 mirrors match
 619 still unused on origin/master                                       re-checked
 No production query was run.
+
+### Round-3 review (3 LOW) — verification
+reversal + alsTransaction unit suites (5 files)                        32 passed
+k010 integration (2 files)                                              7 passed
+full unit suite, DATABASE_URL unset, --testTimeout=30000     786 files / 9329 passed
+bunx tsc --noEmit                                                       clean
+bunx eslint <4 changed src files>                                       clean
+src/lib/neon.ts diff vs branch base is now the getPool export only (stray blank line dropped)
+No production query was run.

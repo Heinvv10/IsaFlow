@@ -54,12 +54,15 @@ vi.mock('@/lib/alsTransaction', async () => {
     // the reversal claim cannot outlive the contra, and the claim REFUSES to run
     // without one. Bind a client whose BEGIN/COMMIT and lock_timeout statements
     // are no-ops, so this suite keeps asserting reversal semantics.
-    withAlsTransaction: (userId: string, companyId: string | undefined, fn: () => Promise<unknown>) =>
+    withAlsTransaction: (
+      actor: { userId: string; companyId: string | undefined },
+      fn: () => Promise<unknown>,
+    ) =>
       als.run(
         {
           client: { query: async () => ({ rows: [{ v: '0' }] }) } as never,
-          userId,
-          companyId,
+          userId: actor.userId,
+          companyId: actor.companyId,
           claims: {},
         },
         fn,
