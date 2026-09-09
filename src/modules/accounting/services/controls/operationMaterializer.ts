@@ -22,7 +22,7 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
       : ref.entityType === 'journal_entry' ? ['journal.post','journal.reverse']
         : ref.entityType === 'payroll_run' ? ['payroll_run.post','payroll_run.reopen']
           : ref.entityType === 'fiscal_period' ? ['fiscal_period.close','fiscal_period.lock','fiscal_period.reopen']
-            : ref.entityType === 'fiscal_year' ? ['year.close']
+            : ref.entityType === 'fiscal_year' ? ['year.close','year.periods_close']
               : ref.entityType === 'vat_period' ? ['vat_period.lock']
                 : ref.entityType === 'company_lockdown_intent' ? ['company_lockdown.change'] : [];
   if (!operations.includes(ref.operation)) throw new Error('Unsupported controlled operation');
