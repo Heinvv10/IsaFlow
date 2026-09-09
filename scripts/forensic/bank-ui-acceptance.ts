@@ -4,6 +4,7 @@ import {randomBytes} from 'node:crypto';
 import {chromium,expect,type Page,type BrowserContext} from '@playwright/test';
 import {SignJWT} from 'jose';
 import {bankBrowserFixture} from '../../tests/integration/controls/bankBrowserFixture';
+import {prepareBrowserSupplier} from '../../tests/integration/controls/bankBrowserSupplierFixture';
 const supplied=process.env.ISAFLOW_FORENSIC_UI_ORIGIN;
 if(!supplied)throw new Error('Explicit local browser origin required');
 const target=new URL(supplied);
@@ -104,6 +105,22 @@ try{
  const defaultPosted=await approvalCycle(maker,reviewer,defaultId,defaultPrepared.intentId);assert.ok(defaultPosted?.paymentId);
  const balances=(await f.pool.query('SELECT id,amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.fixture.companyA,[oldest,recent]])).rows;
  assert.equal(Number(balances.find(row=>row.id===oldest)?.amount_paid),100);assert.equal(Number(balances.find(row=>row.id===recent)?.amount_paid),50.23);
+ const beneficiary=await prepareBrowserSupplier(f),supplierOldest=await f.draftSupplierInvoice('2026-09-01'),supplierRecent=await f.draftSupplierInvoice('2026-09-08');
+ for(const invoiceId of [supplierOldest,supplierRecent]){
+  const response=await maker.evaluate(async id=>{const csrf=document.cookie.split('; ').find(value=>value.startsWith('isaflow_csrf='))?.split('=')[1]??'';
+   const result=await fetch('/api/accounting/supplier-invoices-action',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({invoiceId:id,action:'approve'})});return{status:result.status,body:await result.json()};},invoiceId);
+  assert.equal(response.status,200,JSON.stringify(response.body));
+ }
+ const supplierDefaultId=await f.source('Browser supplier default applications','-150.23','supplier');
+ await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.bank}`,{waitUntil:'domcontentloaded'});
+ const supplierDefaultRow=maker.getByRole('row').filter({hasText:'Browser supplier default applications'});await expect(supplierDefaultRow).toBeVisible();await supplierDefaultRow.getByTitle('Accept',{exact:true}).click();
+ const supplierPrepared=await action(maker,'Prepare allocation','prepare_allocate');
+ const supplierPlan=(await f.pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[f.fixture.companyA,supplierPrepared.intentId])).rows[0].payload;
+ assert.deepEqual(supplierPlan.applications,[{invoiceId:supplierOldest,amount:'100'},{invoiceId:supplierRecent,amount:'50.23'}]);
+ const supplierPosted=await approvalCycle(maker,reviewer,supplierDefaultId,supplierPrepared.intentId);assert.ok(supplierPosted?.paymentId);
+ const supplierBalances=(await f.pool.query('SELECT id,amount_paid::text FROM supplier_invoices WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.fixture.companyA,[supplierOldest,supplierRecent]])).rows;
+ assert.equal(Number(supplierBalances.find(row=>row.id===supplierOldest)?.amount_paid),100);assert.equal(Number(supplierBalances.find(row=>row.id===supplierRecent)?.amount_paid),50.23);
+ proof.push({prerequisite:'two-person shared beneficiary verification with real local evidence; invoice approvals through cookie REST',...beneficiary});
  const staleBankId=await f.source('Browser stale approved source','-115.23');
  await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.bank}`,{waitUntil:'domcontentloaded'});
  const staleRow=maker.getByRole('row').filter({hasText:'Browser stale approved source'});await expect(staleRow).toBeVisible();await staleRow.getByTitle('Accept',{exact:true}).click();
@@ -113,7 +130,7 @@ try{
  assert.equal(foreignRefusal.status(),400);
  await expect(foreign.getByRole('dialog').getByRole('alert')).toContainText('Bank control state unavailable',{timeout:30000});await expect(foreign.getByRole('button',{name:'Execute approved allocation',exact:true})).toHaveCount(0);
  await maker.screenshot({path:`${artifacts}/maker-final.png`,fullPage:true});await reviewer.screenshot({path:`${artifacts}/reviewer-final.png`,fullPage:true});
- await writeFile(`${artifacts}/evidence.json`,JSON.stringify({runId:f.fixture.runId,origin,companyId:f.fixture.companyA,proof,coverage:'actual account VAT request/independent approval/refresh/execute and reversal; both party refund directions; exact split; stale source and foreign-tenant refusal',limitations:'normal party default applications and transfer browser cases remain separate'},null,2));
+ await writeFile(`${artifacts}/evidence.json`,JSON.stringify({runId:f.fixture.runId,origin,companyId:f.fixture.companyA,proof,coverage:'actual account VAT request/independent approval/refresh/execute and reversal; both party refund directions; exact split; both party default invoice applications; stale source and foreign-tenant refusal',limitations:'transfer browser cases remain separate; supplier beneficiary prerequisite uses shared service, not browser verification UI'},null,2));
  process.stdout.write(`PASS actual local bank browser account VAT and reversal workflows; evidence ${artifacts}/evidence.json\n`);
 }catch(error){
  for(const [index,context]of browser.contexts().entries())for(const page of context.pages())await page.screenshot({path:`${artifacts}/failure-context-${index}.png`,fullPage:true}).catch(()=>process.stderr.write('Could not capture browser failure screenshot.\n'));

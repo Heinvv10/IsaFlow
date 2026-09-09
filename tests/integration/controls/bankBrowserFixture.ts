@@ -26,6 +26,11 @@ export async function bankBrowserFixture(){
    await pool.query("INSERT INTO customer_invoices(id,company_id,customer_id,invoice_number,invoice_date,subtotal,total_amount,currency_code,exchange_rate,functional_total,created_by) VALUES($1,$2,$3,$1::uuid::text,$4,100,100,'ZAR',1,100,$5)",[id,fixture.companyA,customer,date,fixture.u1.id]);
    await pool.query("INSERT INTO customer_invoice_items(invoice_id,description,quantity,unit_price,amount,tax_rate) VALUES($1,'Synthetic browser default source',1,100,100,0)",[id]);return id;
   }
-  return{fixture,pool,bank,expense,vat,customer,supplier,source,draftCustomerInvoice,close:()=>pool.end()};
+  async function draftSupplierInvoice(date:string){
+   const id=randomUUID();
+   await pool.query("INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,total_amount,currency,created_by) VALUES($1,$2,$3,$1::uuid::text,$4,100,100,'ZAR',$5)",[id,fixture.companyA,supplier,date,fixture.u1.id]);
+   await pool.query("INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,tax_rate,tax_amount,gl_account_id) VALUES($1,'Synthetic browser supplier source',1,100,100,0,0,$2)",[id,expense]);return id;
+  }
+  return{fixture,pool,bank,expense,vat,customer,supplier,source,draftCustomerInvoice,draftSupplierInvoice,close:()=>pool.end()};
  }catch(error){await pool.end();throw error;}
 }
