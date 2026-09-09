@@ -46,6 +46,9 @@ import {
   PeriodNotCloseableError,
 } from '@/modules/accounting/services/gl/fiscalPeriodCloseService';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
+import type {
+  CloseYearDryRunResult, CloseYearResult,
+} from '@/modules/accounting/services/gl/yearEndService';
 import {
   listFiscalPeriodsTool,
   getFiscalPeriodTool,
@@ -326,20 +329,42 @@ describe('reopen_fiscal_period', () => {
   });
 });
 
+/**
+ * Typed builders, because the hand-rolled literal they replace had drifted:
+ * it omitted `alreadyClosed` and `existingEntry`, so the tool emitted
+ * `already_closed: undefined` and `would_lock_every_period_in_year: true` for a
+ * mock meant to be a fresh year, and the assertions never looked. tests/** sits
+ * outside tsconfig.json, so tsc cannot catch that — a builder with a declared
+ * return type is the only thing that does.
+ */
+function dryRun(o: Partial<CloseYearDryRunResult> = {}): CloseYearDryRunResult {
+  return {
+    dryRun: true, netIncome: 600000, alreadyClosed: false, existingEntry: null,
+    preview: {
+      entryDate: '2027-02-28', entryNumber: 'YE-2027', description: 'Year-End Closing: 2027',
+      totalDebit: 1000000, totalCredit: 1000000,
+      lines: [
+        { accountId: 'r', accountCode: '4000', accountName: 'Sales', debit: 1000000, credit: 0 },
+        { accountId: 'e', accountCode: '5000', accountName: 'Wages', debit: 0, credit: 400000 },
+        { accountId: 're', accountCode: '3200', accountName: 'RE', debit: 0, credit: 600000 },
+      ],
+    },
+    ...o,
+  };
+}
+
+function live(o: Partial<CloseYearResult> = {}): CloseYearResult {
+  return {
+    closingEntry: { id: 'je-1', entry_number: 'YE-2027' },
+    periodsLocked: 12, alreadyClosed: false, netIncome: 600000, unclosedNetIncome: 0,
+    message: 'Year 2027 closed. Net income R600000.00 transferred to Retained Earnings.',
+    ...o,
+  };
+}
+
 describe('year_end_close', () => {
   it('returns the whole journal on a dry run and frees the key', async () => {
-    vi.mocked(closeFiscalYear).mockResolvedValue({
-      dryRun: true, netIncome: 600000,
-      preview: {
-        entryDate: '2027-02-28', entryNumber: 'YE-2027', description: 'Year-End Closing: 2027',
-        totalDebit: 1000000, totalCredit: 1000000,
-        lines: [
-          { accountId: 'r', accountCode: '4000', accountName: 'Sales', debit: 1000000, credit: 0 },
-          { accountId: 'e', accountCode: '5000', accountName: 'Wages', debit: 0, credit: 400000 },
-          { accountId: 're', accountCode: '3200', accountName: 'RE', debit: 0, credit: 600000 },
-        ],
-      },
-    });
+    vi.mocked(closeFiscalYear).mockResolvedValue(dryRun());
 
     const res = await yearEndCloseTool.handler({ fiscal_year: 2027, dry_run: true, ...KEY }, ctx);
 
@@ -397,6 +422,96 @@ describe('year_end_close', () => {
     vi.mocked(closeFiscalYear).mockRejectedValue(Object.assign(new Error('boom'), { code: '23505' }));
     await expect(yearEndCloseTool.handler({ fiscal_year: 2027, ...KEY }, ctx))
       .rejects.toThrow('boom');
+  });
+
+  it('says on a DRY RUN that the year is already closed, and that nothing would lock', async () => {
+    // The empty preview of an already-closed year is indistinguishable from a
+    // dormant one — its own closing journal is what flattened the aggregates.
+    // This read is the one an agent makes before authorising the irreversible
+    // half, so the two must not look alike.
+    vi.mocked(closeFiscalYear).mockResolvedValue(dryRun({
+      netIncome: 0, alreadyClosed: true,
+      existingEntry: { id: 'je-old', entry_number: 'YE-2027' },
+      preview: { ...dryRun().preview, totalDebit: 0, totalCredit: 0, lines: [] },
+    }));
+
+    const b = body(await yearEndCloseTool.handler(
+      { fiscal_year: 2027, dry_run: true, ...KEY }, ctx,
+    ));
+    expect(b.already_closed).toBe(true);
+    expect(b.existing_entry_number).toBe('YE-2027');
+    expect(b.would_lock_every_period_in_year).toBe(false);
+  });
+
+  it('reports a DORMANT live close as no journal, not as a failure', async () => {
+    vi.mocked(closeFiscalYear).mockResolvedValue(live({
+      closingEntry: null, netIncome: 0,
+      message: 'Year 2027 closed. No posted profit or loss in the year, so no closing journal was needed.',
+    }));
+
+    const res = await yearEndCloseTool.handler({ fiscal_year: 2027, ...KEY }, ctx);
+    const b = body(res);
+    expect(res.isError).toBeFalsy();
+    expect(b.journal_entry_id).toBeNull();
+    expect(b.entry_number).toBeNull();
+    expect(b.periods_locked).toBe(12);
+    expect(b.unclosed_net_income).toBe(0);
+  });
+
+  it('reports ZERO periods locked on an already-closed re-run, and the residual it cannot sweep', async () => {
+    // periods_locked is what THIS call locked. The service's count is how many
+    // are locked NOW, which on a re-run is the twelve an earlier close locked —
+    // reporting that as this call's work told an agent a no-op had locked
+    // twelve periods. The residual is P&L posted into the year AFTER its close:
+    // in no closing journal, in no equity account, and unreachable by this tool
+    // because the entry number is taken.
+    vi.mocked(closeFiscalYear).mockResolvedValue(live({
+      closingEntry: { id: 'je-old', entry_number: 'YE-2027' },
+      alreadyClosed: true, netIncome: 150, unclosedNetIncome: 150,
+      message: 'Year 2027 was already closed. Its closing journal YE-2027 is unchanged and '
+        + 'nothing was posted. WARNING: R150.00 of profit or loss has been posted into this year '
+        + 'SINCE it was closed, and it is NOT in YE-2027 and NOT in retained earnings.',
+    }));
+
+    const b = body(await yearEndCloseTool.handler({ fiscal_year: 2027, ...KEY }, ctx));
+    expect(b.already_closed).toBe(true);
+    expect(b.periods_locked).toBe(0);
+    expect(b.periods_locked_in_year).toBe(12);
+    expect(b.unclosed_net_income).toBe(150);
+    expect(String(b.message)).toMatch(/NOT in retained earnings/);
+  });
+
+  it('names the journal holding the number when the closing journal is not posted', async () => {
+    vi.mocked(closeFiscalYear).mockResolvedValue({
+      error: 'closing_journal_not_posted',
+      entryNumber: 'YE-2027', entryId: 'je-rev', status: 'reversed',
+    });
+    const res = await yearEndCloseTool.handler({ fiscal_year: 2027, ...KEY }, ctx);
+    const text = res.content[0]!.text;
+    expect(res.isError).toBe(true);
+    expect(text).toMatch(/je-rev/);
+    expect(text).toMatch(/status reversed/);
+    expect(text).toMatch(/NOT closed/);
+    expect(text).toMatch(/Nothing was posted/);
+  });
+
+  it('names a SQUATTER of another source holding the closing entry number', async () => {
+    // uq_gl_je_company_entry_number has no predicate on source, so a manual
+    // journal numbered YE-2027 blocks the INSERT just as hard. Without this
+    // refusal the close fell through to a raw 23505 → HTTP 500, which reads to
+    // an agent as a transient failure worth retrying. It is not.
+    vi.mocked(closeFiscalYear).mockResolvedValue({
+      error: 'closing_entry_number_taken',
+      entryNumber: 'YE-2027', entryId: 'je-manual', source: 'manual', status: 'posted',
+    });
+    const res = await yearEndCloseTool.handler({ fiscal_year: 2027, ...KEY }, ctx);
+    const text = res.content[0]!.text;
+    expect(res.isError).toBe(true);
+    expect(text).toMatch(/je-manual/);
+    expect(text).toMatch(/manual journal/);
+    expect(text).toMatch(/NOT a year-end close/);
+    expect(text).toMatch(/do not retry/);
+    expect(text).toMatch(/nothing was posted/i);
   });
 
   it('refuses a non-integer fiscal_year before any service call', async () => {

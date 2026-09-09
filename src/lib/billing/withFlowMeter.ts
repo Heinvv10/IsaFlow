@@ -6,7 +6,8 @@
  * Contract:
  *   - Non-PAYG tenants:          handler runs unchanged.
  *   - PAYG with sufficient flows: debit first → run handler → if handler
- *                                 throws or returns a 4xx/5xx, refund.
+ *                                 throws, returns a 4xx/5xx, or called
+ *                                 `markFlowNoOp`, refund.
  *   - PAYG with insufficient flows:
  *       • If auto-topup is enabled and succeeds, retry the debit.
  *       • Otherwise return 402 `{ reason: 'insufficient_flows', balance, required }`.
@@ -33,6 +34,20 @@ type Handler = (req: any, res: NextApiResponse<any>) => unknown | Promise<unknow
 
 interface CompanyReq extends NextApiRequest {
   companyId: string;
+  flowNoOp?: boolean;
+}
+
+/**
+ * Declares that this request did no billable work, so the debit is refunded
+ * even though the handler answers 2xx.
+ *
+ * For the idempotent-success shape: a retry that finds the work already done
+ * and writes nothing answers 200, not 4xx, because the caller's goal IS met —
+ * but charging it turns a timeout-retry loop into a bill for one operation
+ * repeated. Only the handler can know, so only the handler may say so.
+ */
+export function markFlowNoOp(req: NextApiRequest): void {
+  (req as CompanyReq).flowNoOp = true;
 }
 
 export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number) {
@@ -94,7 +109,7 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
       const statusCode = res.statusCode;
       const responded4xxOr5xx = statusCode >= 400 && statusCode < 600;
 
-      if (handlerError || responded4xxOr5xx) {
+      if (handlerError || responded4xxOr5xx || req.flowNoOp) {
         try {
           await refundFlows(companyId, flowCost, operationCode, null);
           res.setHeader('X-Flow-Refunded', 'true');

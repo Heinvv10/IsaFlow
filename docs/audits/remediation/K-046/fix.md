@@ -99,8 +99,64 @@ the ACCESS EXCLUSIVE scan buys nothing). LOW-2: 627 re-checked against `origin/m
 (`53539623`) and still free. LOW-3 fixed by the new behavioural unit test. LOW-4 fixed.
 LOW-5: `origin/master` merged into the branch before the final gate run.
 
-**Limits.** K-113 (no already-closed guard) is NOT fixed and was not in scope. The dry run of an
-already-closed year still reports a false zero. A LIVE re-run no longer fails and no longer
+**Round-3 review dispositions (0 HIGH, 2 MEDIUM, 5 LOW — all 7 fixed, none disputed).**
+
+- **M-1 — a closed year that gained P&L was reported as fully closed.** `CloseYearResult` gains
+  `unclosedNetIncome`, and `alreadyClosedResult` appends a WARNING naming the amount, saying it is
+  in neither the closing journal nor retained earnings and that no re-run can sweep it up. The MCP
+  tool returns it as `unclosed_net_income`; the page renders the banner RED, not as a green tick.
+- **M-2 — a squatted entry number restored the raw 23505.** `findClosingJournal` no longer filters
+  `source`, matching `uq_gl_je_company_entry_number`, which has no predicate on source or status.
+  A non-`year_end` row is the new typed refusal `closing_entry_number_taken`, naming the row and
+  its source; route → 409, MCP → a "do not retry" tool error. Renumbering it unblocks the year.
+- **L-1 — concurrent closes.** The header INSERT's 23505 is caught, the winner re-read, and the
+  loser answers `alreadyClosed` instead of 500 — but ONLY when the winner is a POSTED `year_end`
+  row; anything else rethrows. Writing that test exposed a second bug in M-1's own fix: the
+  residual cannot be inferred from the `netIncome` the close read on the way in, because a caller
+  that raced a close read the P&L BEFORE the winner wrote, and reporting that as money left
+  outside equity raises the alarm on a year that is correctly closed. It applied to the ordinary
+  already-closed path too, not only the race branch. `alreadyClosedResult` therefore RE-READS the
+  P&L (`reloadNetIncome`) once the closing journal is known to exist; `netIncome` still reports
+  what this call read.
+- **L-2 — `periods_locked` meant two things.** The MCP tool now reports what THIS call locked
+  (0 on an already-closed re-run) and the year's current count separately as
+  `periods_locked_in_year`. The wrong comment is corrected.
+- **L-3 — untyped MCP fixture.** The literal is replaced by typed `dryRun()` / `live()` builders,
+  plus cases for the already-closed dry run, the dormant live result, the re-run counts and both
+  refusal branches.
+- **L-4 — a dormant year refused for want of a period.** `getFiscalPeriodIdForDate` is called only
+  when `preview.lines.length > 0`. Unreachable in practice (the entry date IS a period's own
+  `end_date`), so it is proved by unit test — the mock must not be called — not by outcome.
+- **L-5 — an idempotent no-op was billed.** `withFlowMeter` gains `markFlowNoOp(req)`: a handler
+  that answers 2xx having written nothing gets the debit refunded. The year-end route calls it on
+  `alreadyClosed`, so an MCP timeout-retry loop is not billed per attempt.
+
+**Round-3 files (in addition to the above).** `src/lib/mcp/tools/yearEndCloseRefusal.ts` (NEW —
+the `year_end_close` refusal sentences, split out to keep `writeFiscalPeriods.ts` under 300
+lines); `src/lib/billing/withFlowMeter.ts`; `pages/accounting/year-end/index.tsx`;
+`src/modules/accounting/services/gl/yearEndJournalBuilder.ts` (`loadPLBalances` moved here so
+`yearEndCloseService.ts` stays under 300 lines, plus `reloadNetIncome`).
+
+**Round-3 tests.** NEW `tests/integration/k-046-year-end-entry-number-taken.int.test.ts` (4, real
+Postgres: the squatter refusal, the identical dry-run refusal, renumbering unblocks the year with
+a balanced journal tying to the year's result, and two `Promise.all` closes leaving ONE journal
+with the loser raising no false residual). `k113-year-end-close-rerun.int.test.ts` extended to
+assert the residual against the ledger. Unit: `yearEndClosePostingGuard.test.ts` +5,
+`fiscalPeriodTools.test.ts` +5, `withFlowMeter.test.ts` +1, `yearEndCloseMessage.test.tsx` +1.
+Seven mutations — one per finding — each go RED; see `green.log`.
+
+**Migration prefix (unchanged, deliberately).** 627 collides with an unmerged local branch that
+also claims it. Renaming is a MERGE-TIME action and must move three coupled references together:
+this file, the `.claude.md`/`AGENTS.md` recent-changes entries, and — behaviourally —
+`tests/unit/services/glEntrySourceConstraint.test.ts`, which resolves the owning migration by
+HIGHEST numeric prefix among files mentioning `gl_journal_entries_source_check`. Renumbering it
+BELOW another migration that redefines that constraint makes the test pin a stale list and pass.
+
+**Limits.** REVERSAL/RE-OPEN of a closed year is still refused, not supported: a `year_end`
+header in any non-posted status returns `closing_journal_not_posted` and a person must delete or
+renumber it. Nothing stops a posted journal landing in a locked period — there is no DB trigger
+refusing it — so `unclosedNetIncome` reports that state but cannot prevent or repair it. A LIVE
+re-run no longer fails and no longer
 masquerades as a dormant year: the poster looks the year's journal up by entry number and
 returns it with `alreadyClosed: true`. No second journal is written; the adjacent test pins that. Once the close actually writes, running it LOCKS every period in the year — run
 `dryRun` per company and read the preview before any live close.

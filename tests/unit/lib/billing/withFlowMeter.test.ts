@@ -30,7 +30,7 @@ import {
   recalculateNudge,
   InsufficientFlowsError,
 } from '@/modules/billing/services/flowWalletService';
-import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { withFlowMeter, markFlowNoOp } from '@/lib/billing/withFlowMeter';
 
 const mockGetPlan = getCompanyPlan as MockedFunction<typeof getCompanyPlan>;
 const mockDeduct  = deductFlows as MockedFunction<typeof deductFlows>;
@@ -188,5 +188,25 @@ describe('withFlowMeter', () => {
     await wrapped({ companyId: 'co-1' } as never, res as never);
 
     expect(mockRefund).not.toHaveBeenCalled();
+  });
+  it('refunds a 2xx the handler declared a NO-OP', async () => {
+    // An idempotent retry that finds the work already done answers 200 — the
+    // caller's goal IS met — and writes nothing. Charging it turns a
+    // timeout-retry loop into a bill for one operation repeated, which is why
+    // the handler, the only party that can know, gets to say so.
+    mockGetPlan.mockResolvedValueOnce({ planCode: 'payg', planId: 'p', subscriptionId: 's' });
+    mockDeduct.mockResolvedValueOnce({ balanceAfter: 97 });
+    mockRefund.mockResolvedValueOnce({ balanceAfter: 100 });
+
+    const handler = vi.fn(async (req, res: ReturnType<typeof mockRes>) => {
+      markFlowNoOp(req as never);
+      res.statusCode = 200;
+    });
+    const wrapped = withFlowMeter('invoice.create', 3)(handler);
+    const res = mockRes();
+    await wrapped({ companyId: 'co-1' } as never, res as never);
+
+    expect(mockRefund).toHaveBeenCalledOnce();
+    expect(res.headers['X-Flow-Refunded']).toBe('true');
   });
 });

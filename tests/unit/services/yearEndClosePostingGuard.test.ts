@@ -37,6 +37,7 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
 }));
 
 import * as neon from '@/lib/neon';
+import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndCloseService';
 
 const sqlMock = neon.sql as unknown as ReturnType<typeof vi.fn>;
@@ -112,5 +113,112 @@ describe('postClosingJournal refuses an invalid closing journal before writing',
     expect(result.periodsLocked).toBe(1);
     // header INSERT + 2 line INSERTs + the period lock
     expect(txMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+/** A duplicate-key violation shaped exactly like the one the index raises. */
+function entryNumberConflict(): Error {
+  return Object.assign(new Error(
+    'duplicate key value violates unique constraint "uq_gl_je_company_entry_number"',
+  ), { code: '23505', constraint: 'uq_gl_je_company_entry_number' });
+}
+
+/** A gl_journal_entries header row as `SELECT *` returns it. */
+function header(o: Record<string, unknown> = {}): Record<string, unknown> {
+  return { id: 'entry-1', entry_number: 'YE-2026', source: 'year_end', status: 'posted', ...o };
+}
+
+describe('a DORMANT year is closed, not refused for want of a period to stamp', () => {
+  it('never resolves a fiscal period when there is no journal to stamp', async () => {
+    // The close writes no journal for a year with no posted P&L — it only locks
+    // the periods. Resolving the period anyway meant a `no_fiscal_period`
+    // refusal could block a close that would have stamped nothing.
+    stubReadsUpToPreview();
+    buildPreviewMock.mockReturnValue(preview([]));
+
+    const result = await closeFiscalYear(COMPANY, '2026', USER) as
+      { closingEntry: null; alreadyClosed: boolean; unclosedNetIncome: number; message: string };
+
+    expect(getFiscalPeriodIdForDate).not.toHaveBeenCalled();
+    expect(result.closingEntry).toBeNull();
+    expect(result.alreadyClosed).toBe(false);
+    expect(result.unclosedNetIncome).toBe(0);
+    expect(result.message).toMatch(/no closing journal was needed/);
+    // Only the period lock ran inside the transaction.
+    expect(txMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('two simultaneous closes: the ledger holds, and the loser tells the truth', () => {
+  it('reports the WINNER as already closed instead of a raw 23505', async () => {
+    // The already-closed lookup is a separate statement from the INSERT, so
+    // both callers read `null` and both reach the write. The unique index keeps
+    // the ledger to one journal; what the loser must not do is answer 500 for a
+    // year that is now correctly closed.
+    stubReadsUpToPreview();
+    sqlMock
+      .mockResolvedValueOnce([header({ id: 'winner' })])   // re-read after the conflict
+      .mockResolvedValueOnce([{ n: 12 }])                  // periods currently locked
+      .mockResolvedValueOnce([])                           // residual: revenue, re-read
+      .mockResolvedValueOnce([]);                          // residual: expense, re-read
+    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
+    txMock.mockReset();
+    txMock.mockRejectedValueOnce(entryNumberConflict());
+
+    const result = await closeFiscalYear(COMPANY, '2026', USER) as
+      { alreadyClosed: boolean; closingEntry: { id: string }; periodsLocked: number };
+
+    expect(result.alreadyClosed).toBe(true);
+    expect(result.closingEntry.id).toBe('winner');
+    expect(result.periodsLocked).toBe(12);
+    // Re-read AFTER the winner's journal exists, not taken from the netIncome
+    // this call computed before it: the loser must not report the P&L the
+    // winner has just moved into equity as money left outside it.
+    expect((result as unknown as { unclosedNetIncome: number }).unclosedNetIncome).toBe(0);
+  });
+
+  it('RETHROWS when the row that took the number is not a posted close', async () => {
+    // A squatter that appeared between the lookup and the INSERT is not a
+    // close, and calling it one would be the lie the branch exists to avoid.
+    stubReadsUpToPreview();
+    sqlMock.mockResolvedValueOnce([header({ id: 'squatter', source: 'manual' })]);
+    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
+    txMock.mockReset();
+    txMock.mockRejectedValueOnce(entryNumberConflict());
+
+    await expect(closeFiscalYear(COMPANY, '2026', USER))
+      .rejects.toThrow(/uq_gl_je_company_entry_number/);
+  });
+
+  it('RETHROWS a failure that is not the entry-number conflict', async () => {
+    stubReadsUpToPreview();
+    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
+    txMock.mockReset();
+    txMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+
+    await expect(closeFiscalYear(COMPANY, '2026', USER)).rejects.toThrow(/deadlock detected/);
+  });
+});
+
+describe('a journal of ANOTHER source holding YE-<year> is a typed refusal, not a 500', () => {
+  it('names the squatting journal and writes nothing', async () => {
+    // uq_gl_je_company_entry_number has no predicate on source, so a manual
+    // journal numbered YE-2026 blocks the INSERT just as hard as a real close.
+    sqlMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ start_date: '2026-01-01', end_date: '2026-12-31' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([header({ id: 'squatter', source: 'manual', status: 'posted' })]);
+    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
+
+    const result = await closeFiscalYear(COMPANY, '2026', USER) as
+      { error: string; entryId: string; source: string; status: string; entryNumber: string };
+
+    expect(result.error).toBe('closing_entry_number_taken');
+    expect(result.entryId).toBe('squatter');
+    expect(result.source).toBe('manual');
+    expect(result.entryNumber).toBe('YE-2026');
+    expect(txMock).not.toHaveBeenCalled();
   });
 });
