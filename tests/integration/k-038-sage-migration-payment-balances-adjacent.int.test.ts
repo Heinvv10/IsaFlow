@@ -117,14 +117,50 @@ describe('K-038 adjacent — AR', () => {
     expect(row.paid_at).toBeNull();
   });
 
-  it('an overpaid source (AmountDue negative) clamps at the total, never a negative balance', async () => {
+  it('an overpaid source (AmountDue negative) clamps at the total and REPORTS the discarded credit', async () => {
     const [m] = mapSageARInvoices([arSource(`${tag}-AR-OVER`, 1150, -200)]);
     expect(m!.amountPaid).toBe(1350);
-    const { invoiceId } = await commitARInvoice(companyId, userId, m as never);
+    const { invoiceId, warning } = await commitARInvoice(companyId, userId, m as never);
     const row = await arRow(invoiceId);
     expect(Number(row.amount_paid)).toBe(1150);
     expect(Number(row.balance)).toBe(0);
     expect(row.status).toBe('paid');
+    // The R200 credit leaves no other trace, so the operator must be told.
+    expect(warning).toContain('200');
+    expect(warning).toContain(`${tag}-AR-OVER`);
+  });
+
+  it('a non-numeric source paid amount is refused, never written as NaN', async () => {
+    // AmountDue absent is the real shape: `Total - undefined` is NaN, `numeric`
+    // ACCEPTS NaN, and one NaN balance turns the company's whole sub-ledger sum
+    // into NaN. Must import as unpaid, with a warning.
+    const src = { ...arSource(`${tag}-AR-NAN`, 1150, 0) } as Record<string, unknown>;
+    delete src.AmountDue;
+    const [m] = mapSageARInvoices([src as never]);
+    expect(Number.isNaN(m!.amountPaid)).toBe(true);
+
+    const { invoiceId, warning } = await commitARInvoice(companyId, userId, m as never);
+    const row = await arRow(invoiceId);
+    expect(Number(row.amount_paid)).toBe(0);
+    expect(Number(row.balance)).toBe(1150);
+    expect(Number.isNaN(Number(row.balance))).toBe(false);
+    expect(row.status).toBe('approved');
+    expect(warning).toContain('finite');
+
+    // And the company's sub-ledger sum stays a number.
+    const { rows } = await pool.query(
+      'SELECT SUM(balance) AS s FROM customer_invoices WHERE company_id=$1', [companyId]);
+    expect(Number.isNaN(Number(rows[0]!.s))).toBe(false);
+  });
+
+  it('a negative source paid amount is refused, not stored as a balance above the total', async () => {
+    const [m] = mapSageARInvoices([arSource(`${tag}-AR-NEG`, 1000, 1400)]);
+    expect(m!.amountPaid).toBe(-400);
+    const { invoiceId, warning } = await commitARInvoice(companyId, userId, m as never);
+    const row = await arRow(invoiceId);
+    expect(Number(row.amount_paid)).toBe(0);
+    expect(Number(row.balance)).toBe(1000);
+    expect(warning).toContain('negative');
   });
 
   it('writes into the named company only — the second tenant sees nothing', async () => {
@@ -164,6 +200,27 @@ describe('K-038 adjacent — AP', () => {
       [row.gl_journal_entry_id]);
     expect(Number(lines[0]!.d)).toBeCloseTo(Number(lines[0]!.c), 2);
     expect(Number(lines[0]!.c)).toBeCloseTo(Number(row.total_amount), 2);
+  });
+
+  it('a fully settled bill at a NON-ROUND blended VAT rate still lands paid, never a negative balance', async () => {
+    // createSupplierInvoice recomputes total_amount from a 2 dp tax rate, so a
+    // bill whose effective rate is not exact stores a total that differs from
+    // Sage's by cents. Clamping to the SOURCE total would store -0.01 here.
+    const [m] = mapSageAPInvoices([{
+      ID: 1, SupplierId: 1, Supplier: { Name: 'K-038 Supplier' },
+      DocumentNumber: `${tag}-AP-ODD`, Reference: `${tag}-AP-ODD`,
+      Date: '2026-03-01T00:00:00', DueDate: '2026-03-31T00:00:00',
+      Exclusive: 700, Tax: 33.33, Total: 733.33, AmountDue: 0, Status: 'x',
+    } as never]);
+    const { invoiceId } = await commitAPInvoice(companyId, userId, m as never);
+    const row = await apRow(invoiceId);
+    // The stored total is the recomputed one, not Sage's 733.33.
+    expect(Number(row.total_amount)).toBe(733.32);
+    expect(Number(row.amount_paid)).toBe(733.32);
+    expect(Number(row.balance)).toBe(0);
+    expect(Number(row.balance)).toBeGreaterThanOrEqual(0);
+    expect(row.status).toBe('paid');
+    expect(row.payment_matched).toBe(true);
   });
 
   it('a fully settled bill lands paid, matched, zero balance', async () => {
