@@ -28,9 +28,14 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
            c.contact_person AS client_contact,
            s.name AS supplier_name,
            ci.invoice_number AS original_invoice_number,
-           u.full_name AS approved_by_name
+           NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), '') AS approved_by_name
     FROM credit_notes cn
-    LEFT JOIN customers c ON c.id = COALESCE(cn.client_id, cn.customer_id)
+    -- Two columns named here did not exist: cn.customer_id and u.full_name
+    -- (users carries first_name/last_name). credit_notes has NO customer_id; the repo's
+    -- COALESCE(client_id, customer_id) rule is about customer_invoices and was
+    -- applied here by pattern. Postgres raised 42703 on every call, so this
+    -- endpoint returned 500 for every credit note.
+    LEFT JOIN customers c ON c.id = cn.client_id
     LEFT JOIN suppliers s ON s.id = cn.supplier_id
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
     LEFT JOIN users u ON u.id = cn.approved_by::TEXT
@@ -41,14 +46,22 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
   if (rows.length === 0) throw new Error(`Credit note not found: ${creditNoteId}`);
   const cn = rows[0]!;
 
-  let items: DbRow[] = [];
-  try {
-    items = (await sql`
-      SELECT * FROM credit_note_items
-      WHERE credit_note_id = ${creditNoteId}::UUID
-      ORDER BY created_at
-    `) as DbRow[];
-  } catch { /* credit_note_items table may not exist — proceed without items */ }
+  // credit_note_items does not exist in the current schema. Asking for it and
+  // catching the failure is not free: the 42P01 aborts the request's
+  // transaction (this builder runs under withAuth), and every query added to
+  // this route afterwards would fail with 25P02 for a reason no log names.
+  // to_regclass answers the same question without raising.
+  const [presence] = (await sql`
+    SELECT to_regclass('public.credit_note_items') IS NOT NULL AS has_items_table
+  `) as Array<{ has_items_table: boolean }>;
+
+  const items: DbRow[] = presence?.has_items_table
+    ? (await sql`
+        SELECT * FROM credit_note_items
+        WHERE credit_note_id = ${creditNoteId}::UUID
+        ORDER BY created_at
+      `) as DbRow[]
+    : [];
 
   log.info('Generating premium credit note PDF', {
     creditNoteId, creditNoteNumber: cn.credit_note_number,
