@@ -3299,7 +3299,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k095-flow-purchase-fails-open-without-paystack.int.test.ts"
@@ -3308,12 +3308,13 @@
         "K-095/red.log",
         "K-095/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "fb63f304",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k095-k096-k097-billing-admin"
     },
     {
       "id": "K-096",
@@ -3331,7 +3332,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [
         "Plan correction H50/F13 applied: ux_sub_mandates_company_active raises 23505, so the consequence is a 500 (25P02) not multiple active mandates"
       ],
@@ -3342,12 +3343,13 @@
         "K-096/red.log",
         "K-096/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "fb63f304",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k095-k096-k097-billing-admin"
     },
     {
       "id": "K-097",
@@ -3364,7 +3366,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k097-audit-log-failure-poisons-admin-tx.int.test.ts"
@@ -3373,12 +3375,13 @@
         "K-097/red.log",
         "K-097/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "fb63f304",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/audit-k095-k096-k097-billing-admin"
     },
     {
       "id": "K-098",
@@ -3681,7 +3684,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k107-recurring-invoice-number-collision.int.test.ts"
@@ -3690,7 +3693,7 @@
         "K-107/red.log",
         "K-107/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "4b4d3937",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3698,7 +3701,8 @@
       "sourceReferences": [
         "inputs/gl-core.md:131"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k107-k120-k121-document-numbering"
     },
     {
       "id": "K-108",
@@ -4101,7 +4105,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts"
@@ -4110,7 +4114,7 @@
         "K-120/red.log",
         "K-120/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "4b4d3937",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4118,7 +4122,8 @@
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:502"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k107-k120-k121-document-numbering"
     },
     {
       "id": "K-121",
@@ -4133,7 +4138,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts"
@@ -4142,7 +4147,7 @@
         "K-121/red.log",
         "K-121/validation.md"
       ],
-      "fixCommit": null,
+      "fixCommit": "4b4d3937",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -4150,7 +4155,8 @@
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:337"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-k107-k120-k121-document-numbering"
     },
     {
       "id": "K-122",
