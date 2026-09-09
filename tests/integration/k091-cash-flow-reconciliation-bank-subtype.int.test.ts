@@ -19,6 +19,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
+import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -44,6 +45,7 @@ const PETTY_FLOAT = 400;     // bank -> petty cash, inside the period
 const SALES_RECEIPT = 1000;  // into bank
 const PETTY_SPEND = 150;     // petty cash -> operating expense
 const CARD_SPEND = 900;      // credit card -> operating expense (NOT cash)
+const CARD_OPENING = 750;    // credit card balance carried in BEFORE the period
 const OTHER_CASH = 7777;     // the second tenant's bank balance
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -110,6 +112,14 @@ describeIfDb('K-091 cash flow reconciliation must not hardcode the bank subtype'
       { account: GL_OPEX, debit: CARD_SPEND, credit: 0 },
       { account: GL_CREDIT_CARD, debit: 0, credit: CARD_SPEND },
     ]);
+
+    // A credit card balance carried in from BEFORE the period. The in-period
+    // card spend above never reaches `openingCash`, so it cannot detect a
+    // missing guard on the opening half of the direct statement; this one can.
+    await postEntry(admin, 'k091-card-open', '2025-12-01', [
+      { account: GL_OPEX, debit: CARD_OPENING, credit: 0 },
+      { account: GL_CREDIT_CARD, debit: 0, credit: CARD_OPENING },
+    ], { matchBankLeg: false });
 
     // Second tenant, same period, its own bank balance.
     await admin.query(
@@ -180,6 +190,21 @@ describeIfDb('K-091 cash flow reconciliation must not hardcode the bank subtype'
     // it in and report 4950.
     expect(recon.bankBalance).toBeCloseTo(5850, 2);
     expect(recon.indirectClosing).toBeCloseTo(5850, 2);
+  });
+
+  it('keeps the credit card out of OPENING cash as well as closing cash', async () => {
+    // getCashBalance is what fetchOpeningCash reads. Without an
+    // `account_type = 'asset'` guard it summed the card's credit balance into
+    // opening cash, directClosing came back short by that amount, and the
+    // reconciliation reported a variance on correct books.
+    const opening = await getCashBalance(COMPANY, PERIOD_START, { exclusive: true });
+    expect(opening.total).toBeCloseTo(OPENING_BANK, 2);
+    expect(opening.accounts.map((a) => a.accountCode)).not.toContain('K0912000');
+
+    const recon = await getCashFlowReconciliation(COMPANY, PERIOD_START, PERIOD_END);
+    expect(recon.directClosing).toBeCloseTo(5850, 2);
+    expect(recon.variance).toBeCloseTo(0, 2);
+    expect(recon.isReconciled).toBe(true);
   });
 
   it('does not read the other tenant\'s cash', async () => {

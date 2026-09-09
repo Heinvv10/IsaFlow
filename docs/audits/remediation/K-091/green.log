@@ -28,3 +28,31 @@ FULL UNIT SUITE, fixture env unset (env -u DATABASE_URL bunx vitest run):
 $ bunx tsc --noEmit                              -> clean (exit 0)
 $ bunx eslint invoicePdfBuilder.ts cashFlowReconciliationService.ts sales-by-customer.ts
                                                  -> clean (exit 0)
+
+================================================================================
+Review remediation round (7 findings from the blind review of ade12166)
+================================================================================
+
+$ bun run test:integration -- k091 k093 k126 k126b
+ Test Files  4 passed (4)
+      Tests  17 passed (17)
+   (K-091 4, K-093 5, K-126 5, K-126b quote label 3)
+
+MUTATION MATRIX for the new changes:
+ M9  delete `AND ga.account_type = 'asset'` from getCashBalance
+       -> K-091: 2 failed | 2 passed (4)   [petty-cash tie, opening-cash test]
+ M10 LEFT JOIN customers -> JOIN customers (sales-by-customer)
+       -> K-093: 3 failed | 2 passed (5)
+ M11 SUM(total_amount - COALESCE(amount_paid,0)) -> SUM(total_amount - amount_paid)
+       -> K-093: 1 failed | 4 passed (5)
+ M12 quote totals label -> the literal 'VAT (15%)'
+       -> K-126b: 1 failed | 2 passed (3)
+All four restored and re-run green.
+
+FULL UNIT SUITE, fixture env unset (env -u DATABASE_URL bunx vitest run):
+ Test Files  793 passed | 36 skipped (829)
+      Tests  9447 passed | 234 skipped (9681)
+
+$ bunx tsc --noEmit   -> clean
+$ bunx eslint cashBalanceService.ts quotePdfBuilder.ts invoicePdfBuilder.ts sales-by-customer.ts
+                      -> clean
