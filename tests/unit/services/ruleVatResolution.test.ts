@@ -104,9 +104,25 @@ describe('per-line fallback', () => {
 });
 
 describe('non-account allocations', () => {
-  it('passes the code straight through for a supplier line', async () => {
+  // K-017. This used to pass the rule's code straight through, and
+  // `buildAutoCreateLines` then relieved AP by the NET while the bank leg and
+  // the payment document both carried the gross. A settlement is not a supply:
+  // the code is dropped, and neither guard flag is raised because neither guard
+  // is what dropped it.
+  it.each(['supplier', 'customer'])('drops the code on a %s settlement', async (allocType) => {
     const r = await resolveRuleVatCode({
-      ...BASE, allocType: 'supplier', requestedVatCode: 'standard',
+      ...BASE, allocType, requestedVatCode: 'standard',
+      ruleGlAccountVatDenied: false, ruleGlAccountName: 'Salaries & Wages',
+    });
+    expect(r).toEqual({ vatCode: 'none', denied: false, nonSupplyCoerced: false });
+    expect(vi.mocked(sql)).not.toHaveBeenCalled();
+  });
+
+  // The boundary on the other side: a transfer has no supply either, but it
+  // never reaches a VAT line, so it keeps passing through untouched.
+  it('passes the code straight through for a transfer line', async () => {
+    const r = await resolveRuleVatCode({
+      ...BASE, allocType: 'transfer', requestedVatCode: 'standard',
       ruleGlAccountVatDenied: false, ruleGlAccountName: 'Salaries & Wages',
     });
     expect(r).toEqual({ vatCode: 'standard', denied: false, nonSupplyCoerced: false });
