@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
+import { journalAffectsVatReturn } from './journalVatFootprint';
 import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
 import { canonicalJson, canonicalMoney } from './canonical';
 import { assertControlTx } from './context';
@@ -68,7 +69,12 @@ export async function materializeGlOperation(ctx: ControlTx, ref: OperationRef):
     FROM fiscal_periods WHERE company_id=${companyId}::uuid AND start_date<=${accountingDate}::date AND end_date>=${accountingDate}::date
     ORDER BY id FOR SHARE` as Row[];
   if (targets.length !== 1) throw new Error('Target fiscal period is missing or ambiguous');
-  const facts = { header, lines, accounts, company, originalPeriod: periods[0]!, targetPeriod: targets[0]!, accountingDate };
+  const vatLocks = journalAffectsVatReturn(lines, accounts) ? await ctx.sql`
+    SELECT id,period_start::text,period_end::text,locked_at FROM vat_period_locks
+    WHERE company_id=${companyId}::uuid AND period_start<=${accountingDate}::date
+      AND period_end>=${accountingDate}::date ORDER BY id FOR SHARE
+  ` as Row[] : [];
+  const facts = { header, lines, accounts, company, vatLocks, originalPeriod: periods[0]!, targetPeriod: targets[0]!, accountingDate };
   const parent = await observe(ctx, ref.entityType, ref.entityId, facts);
   if (ref.expectedVersion !== undefined && ref.expectedVersion !== parent.version) throw new Error('Journal version changed');
   const sources = [parent, await observe(ctx, 'company_gl_settings', companyId, company)];

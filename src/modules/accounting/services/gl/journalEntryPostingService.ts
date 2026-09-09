@@ -31,9 +31,9 @@ export async function assertNoInactiveAccountLines(companyId: string, entryId: s
     ORDER BY ga.account_code` as Row[];
   if (rows.length) throw new InactiveAccountError(rows.map(r => ({ code: String(r.account_code), name: String(r.account_name) })));
 }
-function facts(material: ApMaterial): { header: Row; targetPeriod: Row; company: Row; accounts: Row[] } {
+function facts(material: ApMaterial): { header: Row; targetPeriod: Row; company: Row; accounts: Row[]; vatLocks: Row[] } {
   return material.observedSources.find(s => s.entityType === 'journal_entry' && s.entityId === material.binding.entityId)!.facts as
-    { header: Row; targetPeriod: Row; company: Row; accounts: Row[] };
+    { header: Row; targetPeriod: Row; company: Row; accounts: Row[]; vatLocks: Row[] };
 }
 function assertPostingGuards(material: ApMaterial, authorizedYearEnd = false): ReturnType<typeof facts> {
   const state = facts(material);
@@ -42,6 +42,7 @@ function assertPostingGuards(material: ApMaterial, authorizedYearEnd = false): R
   }
   if (state.company.lockdown_enabled === true && (!state.company.lockdown_date
     || material.binding.accountingDate! <= String(state.company.lockdown_date))) throw new Error('Journal date is within company lockdown');
+  if (state.vatLocks.length) throw new Error('Journal date is within a filed VAT period');
   const inactive = state.accounts.filter(a => a.is_active !== true);
   if (inactive.length) throw new InactiveAccountError(inactive.map(a => ({ code: String(a.account_code), name: String(a.account_name) })));
   return state;
