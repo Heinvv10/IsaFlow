@@ -133,3 +133,31 @@ describe('K-127 sanitizeClientResponse drops the whole offending sentence', () =
     expect(clean).toBe('Your balance is R1 200. Let me know.');
   });
 });
+
+describe('K-127 round-4 review — the mirror holes in the narrowed guard', () => {
+  // M-4: a lower-case SELECT with no trailing clause and a table not on the
+  // hard-coded name list went through the portal unchanged.
+  it.each([
+    'select name, email from customers',
+    'Sure: select id, total from customer_payments',
+    'select invoice_number from dunning_sends',
+  ])('drops %j', (leaked) => {
+    expect(sanitizeClientResponse(leaked)).toBe(SANITIZED_FALLBACK);
+  });
+
+  // L-7: the mirror of that — the guard fired on shouty prose and on the
+  // English word "where".
+  it.each([
+    'Your balance where applicable = 0 right now.',
+    'PLEASE UPDATE YOUR DETAILS AND SET UP A DEBIT ORDER.',
+    'WE CAN ORDER BY FRIDAY IF THAT SUITS YOU.',
+    'You may select an option from the menu.',
+  ])('leaves %j untouched', (reply) => {
+    expect(sanitizeClientResponse(reply)).toBe(reply);
+  });
+
+  it('still drops an all-upper-case leaked query, which has no lower-case letter', () => {
+    const clean = sanitizeClientResponse("SELECT * FROM CUSTOMER_INVOICES WHERE COMPANY_ID = '1'");
+    expect(clean).toBe(SANITIZED_FALLBACK);
+  });
+});

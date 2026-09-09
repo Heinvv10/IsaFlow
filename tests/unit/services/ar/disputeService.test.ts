@@ -353,17 +353,17 @@ describe('resolveDispute', () => {
       disputed_amount: '1500.00',
     };
 
-    mockSql
-      .mockResolvedValueOnce([openDispute])
-      .mockResolvedValueOnce([
-        {
-          ...openDispute,
-          status: 'resolved',
-          resolution_mode: 'resolve_no_credit',
-          resolved_at: new Date(),
-          resolved_by: USER_ID,
-        },
-      ]);
+    // One statement now: the claim is a single status-predicated UPDATE …
+    // RETURNING, not a read followed by a write.
+    mockSql.mockResolvedValueOnce([
+      {
+        ...openDispute,
+        status: 'resolved',
+        resolution_mode: 'resolve_no_credit',
+        resolved_at: new Date(),
+        resolved_by: USER_ID,
+      },
+    ]);
 
     const updated = await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
       mode: 'resolve_no_credit',
@@ -386,17 +386,15 @@ describe('resolveDispute', () => {
       disputed_amount: '1500.00',
     };
 
-    mockSql
-      .mockResolvedValueOnce([openDispute])
-      .mockResolvedValueOnce([
-        {
-          ...openDispute,
-          status: 'rejected',
-          resolution_mode: 'rejected',
-          resolved_at: new Date(),
-          resolved_by: USER_ID,
-        },
-      ]);
+    mockSql.mockResolvedValueOnce([
+      {
+        ...openDispute,
+        status: 'rejected',
+        resolution_mode: 'rejected',
+        resolved_at: new Date(),
+        resolved_by: USER_ID,
+      },
+    ]);
 
     const updated = await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
       mode: 'rejected',
@@ -409,13 +407,41 @@ describe('resolveDispute', () => {
   });
 
   it('refuses to act on an already-closed dispute', async () => {
-    mockSql.mockResolvedValueOnce([
-      { id: DISPUTE_ID, company_id: COMPANY_ID, status: 'resolved' },
-    ]);
+    // The claim UPDATE carries `AND status = 'open'`, so a closed dispute
+    // matches no row; the second read is only there to say WHY.
+    mockSql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'resolved' }]);
 
     await expect(
       resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, { mode: 'resolve_no_credit' }),
     ).rejects.toThrow(/not open/i);
+  });
+
+  it('reports an unknown or cross-tenant dispute as not found, and writes nothing', async () => {
+    mockSql
+      .mockResolvedValueOnce([])   // claim matched nothing
+      .mockResolvedValueOnce([]);  // …and the row does not exist for this company
+
+    await expect(
+      resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, { mode: 'resolve_no_credit' }),
+    ).rejects.toThrow(/not found/i);
+    expect(mockCreateCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('never reaches createCreditNote when the claim loses the race', async () => {
+    // The whole point of claiming before creating the document: the loser
+    // must not mint a second credit note for the same disputed amount.
+    mockSql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'resolved' }]);
+
+    await expect(
+      resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
+        mode: 'resolve_with_credit', creditDate: '2026-04-23',
+      }),
+    ).rejects.toThrow(/not open/i);
+    expect(mockCreateCreditNote).not.toHaveBeenCalled();
   });
 });
 

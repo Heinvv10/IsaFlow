@@ -10,13 +10,14 @@
 
 import crypto from 'node:crypto';
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '../core/emailService';
 import { BRAND, emailLayout } from '@/lib/email-templates';
 import {
   loadInvoiceCtx,
+  PORTAL_LINK_UNAVAILABLE,
   renderTemplate,
   type SendResult,
   type TriggerSource,
@@ -55,6 +56,15 @@ export async function sendDunning(input: SendDunningInput): Promise<SendResult> 
     input.portalBaseUrl,
   );
   if (!rendered) throw new Error('Failed to render template');
+  // renderTemplate falls back to the placeholder when there is no portal base
+  // URL configured or the invoice is not portal-eligible. Emailing that text
+  // and recording email_status 'sent' is the same failure as the swallowed
+  // mint: the customer gets a reminder with no way to pay and the send looks
+  // successful. Refuse instead.
+  if (rendered.body.includes(PORTAL_LINK_UNAVAILABLE)
+      || rendered.subject.includes(PORTAL_LINK_UNAVAILABLE)) {
+    throw new Error('Refusing to send dunning: the portal link could not be resolved');
+  }
 
   const insertRows = (await sql`
     INSERT INTO dunning_sends (
@@ -97,39 +107,62 @@ export async function sendDunning(input: SendDunningInput): Promise<SendResult> 
     },
   });
 
-  // Seal a captured_documents row so every dunning send is a first-class
-  // evidence row per PRD §4.6. Bytes-only — no storage upload, since the
-  // authoritative copy lives in dunning_sends.rendered_{subject,body}.
-  const evidenceBytes = Buffer.from(`${rendered.subject}\n\n${bodyWithToken}`, 'utf8');
-  const evidenceHash = crypto.createHash('sha256').update(evidenceBytes).digest('hex');
-  const [evidenceDoc] = (await sql`
-    INSERT INTO captured_documents (
-      company_id, file_name, file_type, file_size,
-      document_type, status,
-      raw_bytes_sha256, raw_bytes_size,
-      notes
-    ) VALUES (
-      ${input.companyId}::uuid,
-      ${`dunning-${messageToken}.txt`},
-      'text/plain',
-      ${evidenceBytes.length},
-      'dunning',
-      'matched',
-      ${evidenceHash},
-      ${evidenceBytes.length},
-      ${`Dunning · invoice ${ctx.invoice_number} · to ${ctx.customer_email}`}
-    )
-    RETURNING id
-  `) as DbRow[];
-  const evidenceDocId = String(evidenceDoc!.id);
-
+  // The email has left the building. Record its outcome BEFORE anything that
+  // can still fail: everything below runs inside the cron's per-invoice
+  // savepoint, and a rollback there would erase the dunning_sends row while
+  // the customer keeps the email — the cron's "no existing send for this
+  // (invoice, template)" gate would then re-send the same escalation tomorrow.
   await sql`
     UPDATE dunning_sends
     SET email_status = ${result.success ? 'sent' : 'failed'},
-        email_error  = ${result.success ? null : (result.error ?? 'unknown')},
-        source_document_id = ${evidenceDocId}::uuid
+        email_error  = ${result.success ? null : (result.error ?? 'unknown')}
     WHERE id = ${sendId}::uuid AND company_id = ${input.companyId}::uuid
   `;
+
+  // Seal a captured_documents row so every dunning send is a first-class
+  // evidence row per PRD §4.6. Bytes-only — no storage upload, since the
+  // authoritative copy lives in dunning_sends.rendered_{subject,body}.
+  //
+  // Evidence is secondary to the send itself, so its failure is logged, never
+  // allowed to unwind the record of an email that was already delivered. Its
+  // own savepoint, because a caught PG error would otherwise abort the
+  // surrounding transaction and every later statement would raise 25P02.
+  const evidenceBytes = Buffer.from(`${rendered.subject}\n\n${bodyWithToken}`, 'utf8');
+  const evidenceHash = crypto.createHash('sha256').update(evidenceBytes).digest('hex');
+  try {
+    await withSavepoint('dunning_send_evidence', async () => {
+      const [evidenceDoc] = (await sql`
+        INSERT INTO captured_documents (
+          company_id, file_name, file_type, file_size,
+          document_type, status,
+          raw_bytes_sha256, raw_bytes_size,
+          notes
+        ) VALUES (
+          ${input.companyId}::uuid,
+          ${`dunning-${messageToken}.txt`},
+          'text/plain',
+          ${evidenceBytes.length},
+          'dunning',
+          'matched',
+          ${evidenceHash},
+          ${evidenceBytes.length},
+          ${`Dunning · invoice ${ctx.invoice_number} · to ${ctx.customer_email}`}
+        )
+        RETURNING id
+      `) as DbRow[];
+      await sql`
+        UPDATE dunning_sends
+        SET source_document_id = ${String(evidenceDoc!.id)}::uuid
+        WHERE id = ${sendId}::uuid AND company_id = ${input.companyId}::uuid
+      `;
+    });
+  } catch (err) {
+    log.warn('Dunning evidence row failed; the send itself stands', {
+      sendId,
+      invoiceId: input.invoiceId,
+      error: err instanceof Error ? err.message : String(err),
+    }, 'dunningService');
+  }
 
   log.info('Dunning send', {
     sendId, invoiceId: input.invoiceId, templateId: input.templateId,

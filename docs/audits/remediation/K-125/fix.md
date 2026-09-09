@@ -45,3 +45,11 @@ report balance expressions for both customer and supplier invoices, and the bank
 ordering. `emailNotificationService.ts:63` already coalesced in JS and needed no change.
 `tests/integration/k125b-null-amount-paid-report-parity.int.test.ts` asserts the aging report and
 the debtors page now agree on the same data.
+
+## Round 3 (blind review M-1)
+M4 changed the AR aging report to `COALESCE(ci.client_id, ci.customer_id)` but left
+`debtorsManagerService` joining bare `ci.client_id`, so on a legacy invoice the aging report and the
+debtors page disagreed — and the debtors page disagreed with its own tiles, since `getCollectionStats`
+has no `customers` join and counted the row anyway. All six sites now use the COALESCE, and the
+`customers` join is company-scoped. `k125b` carries a `client_id IS NULL` invoice and asserts summary,
+detail, overdue and stats all agree on it.

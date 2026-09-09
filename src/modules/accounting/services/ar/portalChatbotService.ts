@@ -113,36 +113,59 @@ export const SANITIZED_FALLBACK =
 const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 /**
- * A sentence matching any of these is dropped whole, never edited in place.
- * Partial stripping is what leaked fragments verbatim — a column list longer
- * than the bound, a quoted identifier, or a bare `WHERE company_id = '...'`
- * survived the edit with the tenant id intact.
+ * Statement keywords as a leaked query actually writes them — in caps.
  *
- * The SELECT rules deliberately do NOT match case-insensitive prose: "Please
- * select the invoice from the list below" is the most likely sentence on an
- * invoice portal, so a lower-case select/from pair must also carry SQL
- * structure (a star, a semicolon, or a following clause keyword) to count.
+ * These fire ONLY on a sentence that also contains a lower-case letter.
+ * Shouty customer prose ("PLEASE UPDATE YOUR DETAILS AND SET UP A DEBIT
+ * ORDER.", "ORDER BY FRIDAY") is otherwise indistinguishable from SQL at this
+ * level, and a leaked query is embedded in lower-case identifiers anyway; a
+ * fully-upper-case query is still caught by the case-insensitive rules below.
  */
-const SQL_SENTENCE_PATTERNS: RegExp[] = [
-  // Statement keywords in caps — how a leaked query is actually written.
+const CAPS_SQL_PATTERNS: RegExp[] = [
   /\bSELECT\b[\s\S]{0,2000}?\bFROM\b/,
   /\bINSERT\s+INTO\b/,
   /\bUPDATE\b[\s\S]{0,200}?\bSET\b/,
   /\bDELETE\s+FROM\b/,
   /\bGROUP\s+BY\b|\bORDER\s+BY\b/,
   /\bJOIN\b[\s\S]{0,200}?\bON\b/,
-  // Lower-case select ... from, but only with SQL structure alongside.
+];
+
+/**
+ * A sentence matching any of these is dropped whole, never edited in place.
+ * Partial stripping is what leaked fragments verbatim — a column list longer
+ * than the bound, a quoted identifier, or a bare `WHERE company_id = '...'`
+ * survived the edit with the tenant id intact.
+ *
+ * The lower-case SELECT rules deliberately do NOT match plain prose: "Please
+ * select the invoice from the list below" is the most likely sentence on an
+ * invoice portal, so a lower-case select/from pair must also carry SQL
+ * structure — a star, a semicolon, a following clause keyword, a
+ * comma-separated column list, or a snake_case table name.
+ */
+const SQL_SENTENCE_PATTERNS: RegExp[] = [
   /\bselect\b\s*\*/i,
   /\bselect\b[\s\S]{0,2000}?\bfrom\b[\s\S]{0,400}?(?:\bwhere\b|\bjoin\b|\bgroup\s+by\b|\border\s+by\b|\blimit\b|[*;])/i,
+  // `select name, email from customers` — a comma-separated bare-identifier
+  // column list before FROM is SQL shape whatever the case, and carries no
+  // trailing clause to trip the rule above.
+  /\bselect\s+[a-z_][a-z0-9_.]*(?:\s*,\s*[a-z_][a-z0-9_.]*)+\s+from\s+[a-z_][a-z0-9_.]*/i,
+  // `select x from dunning_sends` — a snake_case FROM target is a table name,
+  // never the English noun a prose "from" introduces.
+  /\bselect\b[\s\S]{0,2000}?\bfrom\s+[a-z][a-z0-9]*_[a-z0-9_]*/i,
   // Predicates and internal identifiers, which leak tenant ids on their own.
-  /\bwhere\b[\s\S]{0,200}?[a-z_]+\s*=\s*(?:['"$]|\d)/i,
+  // The WHERE rule requires a qualified or snake_case column: "your balance
+  // where applicable = 0" is prose, `where ci.company_id = '…'` is not.
+  /\bwhere\b[\s\S]{0,200}?(?:[a-z_]+\.[a-z_]+|[a-z]+_[a-z_]+)\s*=\s*(?:['"$]|\d)/i,
   /\b\w+\s*\.\s*\w+\s*=\s*['"$]/,
   /\b(?:customer_invoices|supplier_invoices|customer_invoice_disputes|gl_accounts|gl_journal_entries|gl_journal_lines|bank_transactions|dunning_sends|credit_notes|captured_documents)\b/i,
   /\b(?:company_id|customer_id|client_id|invoice_id|supplier_id|deleted_at|amount_paid|total_amount|portal_token|created_by)\b/i,
 ];
 
+const HAS_LOWERCASE = /[a-z]/;
+
 function isInternal(sentence: string): boolean {
-  return SQL_SENTENCE_PATTERNS.some(p => p.test(sentence));
+  if (SQL_SENTENCE_PATTERNS.some(p => p.test(sentence))) return true;
+  return HAS_LOWERCASE.test(sentence) && CAPS_SQL_PATTERNS.some(p => p.test(sentence));
 }
 
 /**

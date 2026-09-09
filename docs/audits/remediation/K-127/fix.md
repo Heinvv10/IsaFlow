@@ -37,3 +37,13 @@ The first fix left the headline false positive in place and failed OPEN. The san
 classifies whole SENTENCES and drops the offending one rather than editing in place, normalises
 zero-width characters first, and returns `SANITIZED_FALLBACK` — never the raw text — when nothing
 survives. The test asserting the fail-open as correct behaviour is inverted.
+
+## Round 3 (blind review M-4, L-7)
+The narrowed guard had the mirror hole the H1 fix created: a lower-case `select … from <table>` with no
+trailing clause and a table not on the hard-coded list (`select name, email from customers`) went
+through the public portal unchanged. Two rules added — a comma-separated bare-identifier column list
+before FROM, and a snake_case FROM target. In the other direction, the caps-only statement rules now
+fire only on a sentence that also contains a lower-case letter (so "PLEASE UPDATE YOUR DETAILS AND SET
+UP A DEBIT ORDER." survives) and the WHERE rule requires a qualified or snake_case column (so "your
+balance where applicable = 0" survives). An all-upper-case leaked query is still caught by the
+case-insensitive rules.

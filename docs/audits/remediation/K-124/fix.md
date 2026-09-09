@@ -44,3 +44,15 @@ Widening the population via `COALESCE(client_id, customer_id)` made a dormant de
 booking the whole amount to revenue and nothing to VAT output. The rate is now derived from the
 invoice (`tax_amount / subtotal`) and the disputed amount split back out. Existing zero-VAT credit
 notes are identified by the read-only SQL in `../K-122/fix.md` and left for an accountant.
+
+## Round 3 (blind review M-3, L-3)
+`resolveDispute` was check-then-act: it read `status = 'open'` and then updated on `id` alone, so two
+concurrent resolves both created a credit note for the same disputed amount and the second UPDATE
+orphaned the first. It now claims the dispute with one status-predicated UPDATE BEFORE any document is
+created, and links `credit_note_id` afterwards. The VAT split also passes an exact `taxAmount`
+(`gross − subtotal`) so `subtotal + tax` equals the disputed amount to the cent. The dead `ci.client_id`
+select and its `LEFT JOIN customer_invoices` are gone.
+`tests/integration/k124b-dispute-resolve-concurrency.int.test.ts` — 4 passed (real DB): two concurrent
+resolves produce exactly one credit note and the dispute points at it; a closed dispute is refused with
+nothing written; another tenant gets "not found" and the row stays open; 10.00 at 15% splits to
+8.70 + 1.30 = 10.00.

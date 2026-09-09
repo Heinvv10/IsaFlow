@@ -14,6 +14,12 @@
  * This test drives the real cron inside a real transaction, raises a real PG
  * error (22012) inside the first invoice's send, and asserts by OUTCOME: the
  * second invoice still sends, and the transaction still executes statements.
+ *
+ * No production caller enters an ALS transaction today — the cron route
+ * (pages/api/cron/dunning-send.ts) is wrapped in withErrorHandler only, so
+ * withSavepoint degrades to a plain call there. The transaction is built by
+ * hand below so the invariant is guarded for the in-request caller (any
+ * withAuth handler that sends dunning) the moment one exists.
  */
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -55,7 +61,7 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K122c fixture']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query('INSERT INTO customers(id,company_id,name,email) VALUES($1,$2,$3,$4)', [customer, company, 'K122c customer', 'k122c@test.local']);
-  for (const [id, number] of [[poisoned, 'K122C-INV-POISON'], [healthy, 'K122C-INV-OK']] as const) {
+  for (const [id, number] of [[poisoned, 'K122C-INV-1-POISON'], [healthy, 'K122C-INV-2-OK']] as const) {
     await pool.query(
       `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,client_id,invoice_date,due_date,subtotal,tax_amount,total_amount,status,created_by)
        VALUES($1,$2,$3,$4,$4,'2026-01-01','2026-01-31',1000,150,1150,'approved',$5)`,
@@ -100,7 +106,7 @@ it('rolls one failing invoice back to its savepoint and leaves the transaction u
       { client, userId: user, companyId: company, claims: {} },
       async () => {
         // A Monday, so the weekend guard does not short-circuit the run.
-        const r = await runDunningCron({ portalBaseUrl: 'https://app.isaflow.co.za', now: new Date('2026-03-02T09:00:00Z') });
+        const r = await runDunningCron({ companyId: company, portalBaseUrl: 'https://app.isaflow.co.za', now: new Date('2026-03-02T09:00:00Z') });
         // The statement a handler would run after the cron. On an aborted
         // transaction this raises 25P02 instead of returning a row.
         const rows = await sql`SELECT 1 AS still_alive`;
@@ -121,7 +127,9 @@ it('rolls one failing invoice back to its savepoint and leaves the transaction u
   expect(result.failed).toBe(1);
   expect(result.errors.join(' ')).toMatch(new RegExp(poisoned));
 
-  // The invoice AFTER it still sent — the failure did not cascade.
+  // The invoice AFTER it still sent — the failure did not cascade. The cron
+  // orders candidates by invoice_number, so K122C-INV-1-POISON is genuinely
+  // processed before K122C-INV-2-OK rather than by luck of heap order.
   expect(result.sent).toBe(1);
   expect(result.errors.join(' ')).not.toMatch(/25P02|current transaction is aborted/i);
 
