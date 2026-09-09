@@ -74,17 +74,43 @@ afterAll(async () => {
   } finally { await pool.end(); }
 });
 
+/** Post, and report which journal entry the call created so assertions can be
+ *  scoped to it rather than to everything the file has posted so far. */
 async function post(accounts: ParsedAccount[]) {
+  const before = await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1', [company]);
+  const priorIds = before.rows.map(r => r.id as string);
   const c = await pool.connect();
   await c.query('BEGIN');
   try {
     const lines = await run(c, () => postOpeningBalances(company, user, 'xero', accounts));
     await c.query('COMMIT');
-    return lines;
+    const after = await pool.query(
+      'SELECT id FROM gl_journal_entries WHERE company_id=$1 AND NOT (id = ANY($2::uuid[]))',
+      [company, priorIds],
+    );
+    return { lines, entryIds: after.rows.map(r => r.id as string) };
   } finally {
     await c.query('ROLLBACK').catch(() => {});
     c.release();
   }
+}
+
+/** Signed balance per account code, on each account's own normal side, for one entry. */
+async function signedByCode(entryIds: string[]) {
+  const { rows } = await pool.query(
+    `SELECT a.account_code,
+            CASE WHEN a.normal_balance = 'debit'
+                 THEN COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0)
+                 ELSE COALESCE(SUM(l.credit),0) - COALESCE(SUM(l.debit),0)
+            END::float8 AS signed,
+            COALESCE(SUM(l.debit),0)::float8  AS dr,
+            COALESCE(SUM(l.credit),0)::float8 AS cr
+       FROM gl_journal_lines l JOIN gl_accounts a ON a.id = l.gl_account_id
+      WHERE l.company_id=$1 AND l.journal_entry_id = ANY($2::uuid[])
+      GROUP BY a.account_code, a.normal_balance ORDER BY a.account_code`,
+    [company, entryIds],
+  );
+  return rows;
 }
 
 it('a footing trial balance with a bank in overdraft is imported, not refused', async () => {
@@ -107,17 +133,29 @@ it('a footing trial balance with a bank in overdraft is imported, not refused', 
 });
 
 it('offsetting contra balances are not silently dropped', async () => {
-  // Debit-normal -500 and credit-normal -500: the current totals check sees
-  // 0 = 0 and posts an entry in which both balances have disappeared.
-  const lines = await post([
+  // Debit-normal -500 and credit-normal -500. On master the totals check saw
+  // 0 = 0 and the entry was refused for zero-value lines; the balances had
+  // disappeared. Assert the SIGNED balance of this entry alone — the earlier
+  // test posted into the same company, so a total over the whole company
+  // would be non-zero whatever this call wrote.
+  const { lines, entryIds } = await post([
     acct('1010', 'K087 Bank', 'asset', 'debit', -500),
     acct('2000', 'K087 Trade payables', 'liability', 'credit', -500),
   ]);
   expect(lines).toBe(2);
+  expect(entryIds).toHaveLength(1);
 
-  const { rows } = await pool.query(
-    `SELECT COALESCE(SUM(l.debit),0)::float8 AS dr, COALESCE(SUM(l.credit),0)::float8 AS cr
-       FROM gl_journal_lines l JOIN gl_accounts a ON a.id = l.gl_account_id
-      WHERE l.company_id=$1 AND a.account_code IN ('1010','2000')`, [company]);
-  expect(rows[0].dr + rows[0].cr).toBeGreaterThan(0);
+  const rows = await signedByCode(entryIds);
+  const by = Object.fromEntries(rows.map(r => [r.account_code, r]));
+  expect(Object.keys(by).sort()).toEqual(['1010', '2000']);
+  // Each balance survives, on the side opposite its account's normal side.
+  expect(by['1010'].signed).toBe(-500);
+  expect(by['1010'].cr).toBe(500);
+  expect(by['1010'].dr).toBe(0);
+  expect(by['2000'].signed).toBe(-500);
+  expect(by['2000'].dr).toBe(500);
+  expect(by['2000'].cr).toBe(0);
+  // And the entry is still a balanced journal.
+  const totals = rows.reduce((s2, r) => ({ dr: s2.dr + r.dr, cr: s2.cr + r.cr }), { dr: 0, cr: 0 });
+  expect(totals.dr).toBe(totals.cr);
 });
