@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { planSupplierAllocationLines } from './supplierAllocationLines';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -54,12 +55,51 @@ export async function getBatchById(companyId: string, id: string): Promise<Suppl
   return mapRow(rows[0]);
 }
 
+/**
+ * Check every line of the batch against the live bills BEFORE anything is
+ * written. This function used to loop the request body straight into
+ * `payment_allocations`: no statement read `supplier_invoices`, and that table's
+ * only relevant constraint is an FK to `supplier_invoices(id)` with no company
+ * predicate — so another tenant's bill id, another supplier's bill, an
+ * unapproved bill and an over-payment were all accepted. `processBatch` then
+ * debited Accounts Payable for the batch's FULL total while its subledger
+ * UPDATE is company-scoped and silently skipped the foreign bill.
+ *
+ * `planSupplierAllocationLines` is the gate the single-payment AP path already
+ * uses; it enforces tenant, supplier, status and outstanding balance in one
+ * company-scoped read. `paymentId` is null because these payments do not exist
+ * yet — which also means it cannot see the batch's OWN other lines, so the
+ * cross-payment duplicate check below is what stops one bill being named twice
+ * in the same batch to get round the balance check.
+ */
+async function assertBatchAllocatable(
+  companyId: string,
+  payments: BatchPaymentCreateInput['payments'],
+): Promise<void> {
+  if (payments.length === 0) throw new Error('Provide at least one payment.');
+  const seen = new Set<string>();
+  for (const p of payments) {
+    await planSupplierAllocationLines(companyId, p.invoiceAllocations, {
+      paymentId: null,
+      supplierId: p.supplierId,
+    });
+    for (const alloc of p.invoiceAllocations) {
+      if (seen.has(alloc.invoiceId)) {
+        throw new Error(`Invoice ${alloc.invoiceId} appears in more than one payment in this batch.`);
+      }
+      seen.add(alloc.invoiceId);
+    }
+  }
+}
+
 export async function createBatch(companyId: string,
   input: BatchPaymentCreateInput,
   userId: string
 ): Promise<SupplierPaymentBatch> {
   const paymentMethod = input.paymentMethod || 'eft';
   const batchDate = input.batchDate || new Date().toISOString().split('T')[0]!;
+
+  await assertBatchAllocatable(companyId, input.payments);
 
   const batchId = await withTransaction(async (tx) => {
     const batchRows = (await tx`
