@@ -195,3 +195,65 @@ predicate turns 2 of them red. `tests/integration/k011-invoice-lock-review.int.t
 fourth real-DB test: the cancel gives up inside the budget with the typed error and leaves the note
 applied and the invoice's credit intact. Reverting the cancel wrapping makes it hang to the 30s
 timeout.
+
+---
+
+# Round 4 — the three findings of the re-review of b048bb07
+
+**LOW E — the new test's closing comment credited the wrong mechanism (fixed).** It read as though
+the cancel refusal was safe because the transaction rolled back, but that rollback is the test's
+own. Production answers 400 and `withAuth` COMMITs for any status under 500. The outcome is still
+correct, for a reason the comment now names: 55P03 has already ABORTED the transaction, so that
+COMMIT degenerates to a rollback and the journal reversal `cancelCreditNote` issued earlier cannot
+survive. The comment also now says what that guarantee does NOT cover — see the register item below.
+
+**LOW F — the `_LOCK_TIMEOUT` suffix is load-bearing and one error dropped it (fixed).**
+`isCallerSafeError` decides on that suffix whether a typed error's message may reach a caller, so
+`ReclassLineLockTimeoutError`'s `RECLASS_LINE_LOCKED` was one `safeErrorText` adoption away from
+silently losing its retry wording. Renamed to `RECLASS_LINE_LOCK_TIMEOUT`; its single consumer in
+`reclassificationShared.ts` updated. The convention is now enforced by a test that enumerates all
+seven classes rather than by a comment.
+
+**LOW G — two classes shared one code (fixed).** `customerInvoiceApprovalService` declared a second
+`CustomerInvoiceLockTimeoutError` with the same `CUSTOMER_INVOICE_LOCK_TIMEOUT` code as
+`customerInvoiceLock`, so `bulkApproveRunner`'s retryable-skip list matched both while nothing could
+tell an approval-path timeout from an apply-path one. They mean the same thing, so the approval
+service now imports and re-exports the one class; the throw site passes `Customer invoice <id>` so
+its message is unchanged. The new test asserts all seven codes are distinct.
+
+**Tests.** `tests/unit/lib/lockTimeoutSurfacing.test.ts` grows to 15: every typed lock error is
+enumerated and must carry the suffix, be caller-safe, and say "retry in a moment", and all seven
+codes must be distinct. Restoring `RECLASS_LINE_LOCKED` turns it red.
+
+---
+
+# Register item — cancelCreditNote can commit a GL reversal behind a 400
+
+**Pre-existing, NOT introduced and NOT fixed here. Found while reviewing the round-3 change.**
+
+`cancelCreditNote` reverses the note's journal (`creditNoteCancelService.ts:50-57`) BEFORE it
+un-applies the invoice (`:71-91`). The un-apply's own refusal — "Cannot cancel credit note X:
+invoice Y has less applied than the Z this note credited" — is a hand-thrown Error on a LIVE
+transaction. `credit-notes-action.ts:52-56` catches everything and answers 400, and `withAuth`
+COMMITs for any status under 500. So that refusal commits the GL reversal while the receivable is
+never restored: the AR control account moves and the aging does not.
+
+The lock timeout added in round 3 does NOT have this problem — 55P03 aborts the transaction, which
+was verified on the fixture DB — and this is why the distinction is now written into the test.
+
+**Fix (separate change):** take the invoice lock and run the `amount_paid >= unapply` check
+immediately after the note lock, before `reverseJournalEntry`, so every refusal in this function is
+pre-write. Lock order stays legal: note, then invoice, then journal.
+
+**Exposure — NOT RUN. Read-only:**
+```sql
+SELECT je.company_id, je.id AS reversal_entry_id, je.entry_date, cn.id AS credit_note_id,
+       cn.credit_note_number, cn.status, cn.applied_amount
+FROM credit_notes cn
+JOIN gl_journal_entries je ON je.reversal_of_entry_id = cn.gl_journal_entry_id
+                          AND je.company_id = cn.company_id
+WHERE cn.status <> 'cancelled';
+```
+A reversal whose credit note is still `approved`/`applied` is a cancel that committed its GL half
+and then refused. Confirm the column name for the reversal link before running — this repo has
+carried more than one shape for it.

@@ -182,8 +182,19 @@ it('bounds the cancel path\'s un-apply on the same budget and says to retry', as
   expect(caught.code).toBe('CUSTOMER_INVOICE_LOCK_TIMEOUT');
   expect(caught.message).toMatch(/retry in a moment/);
 
-  // The note is still applied and the invoice still carries its credit: the
-  // refusal rolled back, it did not half-cancel.
+  // The note is still applied and the invoice still carries its credit.
+  //
+  // The ROLLBACK above is this test's own. Production does the opposite: the
+  // route answers 400 and `withAuth` COMMITs for any status under 500. The
+  // outcome is still correct, but for a reason worth naming — 55P03 has already
+  // ABORTED the transaction, so that COMMIT degenerates to a rollback and the
+  // journal reversal issued earlier in `cancelCreditNote` cannot survive.
+  //
+  // That guarantee is specific to a Postgres error. It does NOT cover the
+  // hand-thrown "invoice has less applied than this note credited" refusal
+  // later in the same function, which runs on a live transaction after the
+  // reversal has been written and so really does commit it. Pre-existing, out
+  // of scope here, recorded in docs/audits/remediation/K-011/fix.md.
   const inv = await pool.query('SELECT amount_paid::text AS paid FROM customer_invoices WHERE id=$1', [invoice]);
   const cn = await pool.query('SELECT status, applied_amount::text AS applied FROM credit_notes WHERE id=$1', [note]);
   expect(inv.rows[0].paid).toBe('100.00');
