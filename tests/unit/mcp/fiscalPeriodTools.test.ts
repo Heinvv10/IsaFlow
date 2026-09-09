@@ -340,6 +340,7 @@ describe('reopen_fiscal_period', () => {
 function dryRun(o: Partial<CloseYearDryRunResult> = {}): CloseYearDryRunResult {
   return {
     dryRun: true, netIncome: 600000, alreadyClosed: false, existingEntry: null,
+    unclosedNetIncome: 0,
     preview: {
       entryDate: '2027-02-28', entryNumber: 'YE-2027', description: 'Year-End Closing: 2027',
       totalDebit: 1000000, totalCredit: 1000000,
@@ -356,7 +357,7 @@ function dryRun(o: Partial<CloseYearDryRunResult> = {}): CloseYearDryRunResult {
 function live(o: Partial<CloseYearResult> = {}): CloseYearResult {
   return {
     closingEntry: { id: 'je-1', entry_number: 'YE-2027' },
-    periodsLocked: 12, alreadyClosed: false, netIncome: 600000, unclosedNetIncome: 0,
+    periodsLockedInYear: 12, alreadyClosed: false, netIncome: 600000, unclosedNetIncome: 0,
     message: 'Year 2027 closed. Net income R600000.00 transferred to Retained Earnings.',
     ...o,
   };
@@ -440,6 +441,37 @@ describe('year_end_close', () => {
     ));
     expect(b.already_closed).toBe(true);
     expect(b.existing_entry_number).toBe('YE-2027');
+    expect(b.would_lock_every_period_in_year).toBe(false);
+    expect(b.would_post).toBeNull();
+    expect(b.unclosed_net_income).toBe(0);
+  });
+
+  it('does NOT offer to post the residual of a closed year that has since gained P&L', async () => {
+    // The one case where an already-closed year has a NON-empty preview: R150
+    // was posted into the year after its close. That movement is in no closing
+    // journal and no equity account, and the LIVE call refuses to write it —
+    // the entry number is taken, so no close can ever sweep it up. Returning it
+    // under `would_post` handed the agent a complete, balanced journal that the
+    // authorising read is supposed to describe and the live path will never
+    // write. It is a residual, and it is reported as one.
+    vi.mocked(closeFiscalYear).mockResolvedValue(dryRun({
+      netIncome: 150, alreadyClosed: true, unclosedNetIncome: 150,
+      existingEntry: { id: 'je-old', entry_number: 'YE-2027' },
+      preview: {
+        ...dryRun().preview, totalDebit: 150, totalCredit: 150,
+        lines: [
+          { accountId: 'r', accountCode: '4000', accountName: 'Sales', debit: 150, credit: 0 },
+          { accountId: 're', accountCode: '3200', accountName: 'RE', debit: 0, credit: 150 },
+        ],
+      },
+    }));
+
+    const b = body(await yearEndCloseTool.handler(
+      { fiscal_year: 2027, dry_run: true, ...KEY }, ctx,
+    ));
+    expect(b.already_closed).toBe(true);
+    expect(b.would_post).toBeNull();
+    expect(b.unclosed_net_income).toBe(150);
     expect(b.would_lock_every_period_in_year).toBe(false);
   });
 

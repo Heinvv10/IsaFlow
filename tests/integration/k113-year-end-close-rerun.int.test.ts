@@ -131,7 +131,7 @@ describe('K-113: the dry run of an already-closed year says so', () => {
     // surfaced as a 500 "Failed to process year-end".
     const again = await closeFiscalYear(traded.company, '2026', user) as {
       alreadyClosed: boolean; closingEntry: { entry_number: string } | null;
-      periodsLocked: number; message: string;
+      periodsLockedInYear: number; message: string;
     };
     expect(again.alreadyClosed).toBe(true);
     expect(again.closingEntry?.entry_number).toBe('YE-2026');

@@ -143,7 +143,7 @@ a balanced journal tying to the year's result, and two `Promise.all` closes leav
 with the loser raising no false residual). `k113-year-end-close-rerun.int.test.ts` extended to
 assert the residual against the ledger. Unit: `yearEndClosePostingGuard.test.ts` +5,
 `fiscalPeriodTools.test.ts` +5, `withFlowMeter.test.ts` +1, `yearEndCloseMessage.test.tsx` +1.
-Seven mutations — one per finding — each go RED; see `green.log`.
+Eight mutations — one per finding — each go RED; see `green.log`.
 
 **Migration prefix (unchanged, deliberately).** 627 collides with an unmerged local branch that
 also claims it. Renaming is a MERGE-TIME action and must move three coupled references together:
@@ -160,3 +160,50 @@ re-run no longer fails and no longer
 masquerades as a dormant year: the poster looks the year's journal up by entry number and
 returns it with `alreadyClosed: true`. No second journal is written; the adjacent test pins that. Once the close actually writes, running it LOCKS every period in the year — run
 `dryRun` per company and read the preview before any live close.
+
+
+## Round 5 — the eight findings of `review-k046-r4.md` (0 HIGH / 1 MEDIUM / 7 LOW)
+
+- **MEDIUM-1 FIXED — the dry run of an already-closed year offered to post its residual.** The
+  preview of a closed year is non-empty in exactly one case: P&L that landed in the year AFTER the
+  close. The live call refuses to write it (the entry number is taken), but the tool returned it
+  under `would_post` — a complete balanced journal, on the read an agent is told to make before
+  authorising the irreversible half. `CloseYearDryRunResult` now carries `unclosedNetIncome`
+  (RE-READ, for the same reason `alreadyClosedResult` re-reads), and `year_end_close` emits
+  `would_post: null` plus `unclosed_net_income` when `already_closed`.
+- **LOW-1 FIXED** — the `.claude.md`/`AGENTS.md` clause claiming the loser's residual "is passed as
+  `0` explicitly" is gone; it described an implementation that does not exist and that a reader
+  restoring it would use to kill the residual warning on the ordinary already-closed path.
+- **LOW-2 FIXED** — `loadPLBalances` / `reloadNetIncome` take `Date | string`, and `yearRange` is a
+  named `FiscalYearRange` rather than `Record<string, unknown>`, so passing the wrong object no
+  longer compiles into a silently wrong residual.
+- **LOW-3 FIXED** — `CloseYearResult.periodsLocked` → `periodsLockedInYear`, named for the meaning
+  it actually has. The MCP tool still derives `periods_locked` (this call's work) from
+  `alreadyClosed`; the REST route returns the result verbatim and no longer hands a consumer a
+  field with two meanings.
+- **LOW-4 FIXED** — deterministic cover for the residual re-read: a test drives
+  `alreadyClosedResult` with a `netIncome` the ledger cannot produce (999999) and asserts the
+  residual comes back as the ledger's 150. The mutation that reuses the caller's number now fails
+  on a fixed assertion instead of on a scheduling artefact.
+- **LOW-5 FIXED** — a squatter taking the number BETWEEN the lookup and the INSERT returns the same
+  typed refusal the lookup returns (`classifyClosingJournal` is now shared by both) instead of
+  rethrowing a raw 23505 → HTTP 500. A non-posted `year_end` winner returns
+  `closing_journal_not_posted`; nothing holding the number at all still rethrows, because then the
+  conflict is not the one the branch explains.
+- **LOW-6 FIXED** — `X-Flow-Balance-After` is re-stated from `refundFlows`' `balanceAfter` in the
+  refund branch, so a refunded no-op 2xx no longer advertises the charge it reversed. A FAILED
+  refund leaves the debit balance standing, which is the true one.
+- **LOW-7 FIXED** — "Seven mutations" corrected to eight, matching the commit message and
+  `green.log`.
+
+**Round-5 files.** `yearEndCloseService.ts`, `yearEndCloseTypes.ts` (NEW — the result/error shapes,
+split out so the service stays inside the 300-line cap once the dry run gained its residual; the
+service re-exports every name, so no importer changes), `yearEndJournalPoster.ts`,
+`yearEndJournalBuilder.ts`, `writeFiscalPeriods.ts`, `withFlowMeter.ts`, `gl/.claude.md` + mirror.
+
+**Round-5 tests.** NEW `tests/integration/k-046-year-end-squatter-race.int.test.ts` (1, real
+Postgres and the real unique index; the lookup/INSERT window is opened deterministically by
+blinding the FIRST `findClosingJournal` only). `k-046-year-end-entry-number-taken.int.test.ts` +2
+(the deterministic residual re-read, and dry-run/live agreement on a closed year carrying R150).
+Unit: `yearEndClosePostingGuard.test.ts` +2, `fiscalPeriodTools.test.ts` +1,
+`withFlowMeter.test.ts` +2. Four round-5 mutations, each RED — see `green.log`.

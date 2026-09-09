@@ -198,7 +198,14 @@ export const yearEndCloseTool: McpTool = {
           fiscal_year: year,
           dry_run: true,
           net_income: result.netIncome,
-          would_post: {
+          // NULL when the year is ALREADY closed, because the live call would
+          // post nothing. The preview is non-empty in exactly one such case —
+          // P&L that landed in the year AFTER its close — and it is a residual,
+          // not an offer: the entry number is taken, so no close can ever sweep
+          // it up. Returning it under `would_post` promised an agent a balanced
+          // journal the live call refuses to write. `unclosed_net_income` below
+          // is that money, as a number.
+          would_post: result.alreadyClosed ? null : {
             entry_number: result.preview.entryNumber,
             entry_date: result.preview.entryDate,
             description: result.preview.description,
@@ -221,6 +228,7 @@ export const yearEndCloseTool: McpTool = {
           existing_entry_number: result.existingEntry
             ? String(result.existingEntry.entry_number) : null,
           would_lock_every_period_in_year: !result.alreadyClosed,
+          unclosed_net_income: result.unclosedNetIncome,
         }),
         ...DRY,
       };
@@ -241,8 +249,8 @@ export const yearEndCloseTool: McpTool = {
       // periods in the year are locked now, which on a re-run is the twelve an
       // earlier close locked. Reporting the latter as the former told an agent
       // its no-op call had locked twelve periods.
-      periods_locked: result.alreadyClosed ? 0 : result.periodsLocked,
-      periods_locked_in_year: result.periodsLocked,
+      periods_locked: result.alreadyClosed ? 0 : result.periodsLockedInYear,
+      periods_locked_in_year: result.periodsLockedInYear,
       already_closed: result.alreadyClosed,
       // Non-zero ONLY on an already-closed year that gained posted P&L after
       // its close: that movement is in no closing journal and in no equity

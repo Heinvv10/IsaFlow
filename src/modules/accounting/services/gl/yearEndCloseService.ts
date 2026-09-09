@@ -34,116 +34,27 @@ import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
 import { getFiscalYearStartMonth } from './fiscalYearBasis';
-import { buildPreview, loadPLBalances, resolveRetainedEarnings } from './yearEndJournalBuilder';
+import { roundToCents } from '../../utils/doubleEntry';
 import {
-  alreadyClosedResult, findClosingJournal, isClosingNumberConflict, postClosingJournal,
+  buildPreview, loadPLBalances, reloadNetIncome, resolveRetainedEarnings, type FiscalYearRange,
+} from './yearEndJournalBuilder';
+import {
+  alreadyClosedResult, classifyClosingJournal, findClosingJournal, isClosingNumberConflict,
+  postClosingJournal,
 } from './yearEndJournalPoster';
 import { fiscalYearRange } from './fiscalYearCalendar';
 
-export interface YearEndJournalLine {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  debit: number;
-  credit: number;
-}
-
-export interface YearEndJournalPreview {
-  /** The year's last day — where the closing journal lands. */
-  entryDate: string;
-  entryNumber: string;
-  description: string;
-  lines: YearEndJournalLine[];
-  totalDebit: number;
-  totalCredit: number;
-}
-
-export interface CloseYearResult {
-  /**
-   * NULL for a year with nothing to close. A dormant year — no posted P&L
-   * movement at all — has an empty journal, and an empty journal is not a
-   * legal one to write. The year still CLOSES: every period is locked, which
-   * is the part callers act on. `periodsLocked` says so without making them
-   * read the null.
-   */
-  closingEntry: Record<string, unknown> | null;
-  /**
-   * How many periods carry `locked` for this year — counted, never assumed.
-   * On a close that wrote, this is the UPDATE's row count; on an already-closed
-   * year it is a read, because that call locks nothing.
-   */
-  periodsLocked: number;
-  /** True when the year already had a posted closing journal and nothing was written. */
-  alreadyClosed: boolean;
-  netIncome: number;
-  /**
-   * P&L posted INSIDE an already-closed year that is NOT in its closing journal
-   * — zero on every other path. Nothing stops a posted journal landing in a
-   * locked year, and once one does the entry number is taken, so this service
-   * can never sweep it into equity. See `alreadyClosedResult`.
-   */
-  unclosedNetIncome: number;
-  message: string;
-}
-
-export interface CloseYearDryRunResult {
-  dryRun: true;
-  netIncome: number;
-  preview: YearEndJournalPreview;
-  /**
-   * True when the year already has a posted closing journal (K-113).
-   *
-   * A closed year's aggregates are flat — its own closing journal is what
-   * flattened them — so `netIncome: 0` with an EMPTY preview is exactly what a
-   * company that never traded returns. The dry run is the read a person makes
-   * before authorising the irreversible half, and telling them a year that
-   * traded and was closed is empty is a false statement about the books.
-   */
-  alreadyClosed: boolean;
-  /** The existing closing journal, when `alreadyClosed`. */
-  existingEntry: Record<string, unknown> | null;
-}
-
-export type CloseYearError =
-  | { error: 'open_periods'; count: number; openPeriods: Array<{ id: string; periodName: string; periodNumber: number }> }
-  | { error: 'year_not_found' }
-  | { error: 'no_retained_earnings' }
-  | { error: 'ambiguous_retained_earnings'; accountCodes: string[] }
-  | { error: 'no_fiscal_period'; entryDate: string }
-  | {
-      /**
-       * The year has a `year_end` header that is NOT posted — reversed, or left
-       * in draft. The year is not closed, and it also cannot be closed while
-       * that row holds the entry number.
-       */
-      error: 'closing_journal_not_posted';
-      entryNumber: string;
-      entryId: string;
-      status: string;
-    }
-  | {
-      /**
-       * A journal that is NOT a year-end close already carries `YE-<year>`.
-       * `uq_gl_je_company_entry_number` has no source predicate, so the year is
-       * unclosable until that row is renumbered.
-       */
-      error: 'closing_entry_number_taken';
-      entryNumber: string;
-      entryId: string;
-      source: string;
-      status: string;
-    }
-  | {
-      error: 'period_range_mismatch';
-      expected: { startDate: string; endDate: string };
-      actual: { startDate: string; endDate: string };
-      startMonth: number;
-    };
-
-export interface CloseYearOptions {
-  /** Run every guard and return the journal, writing nothing. */
-  dryRun?: boolean;
-}
+export type {
+  CloseYearDryRunResult,
+  CloseYearError,
+  CloseYearOptions,
+  CloseYearResult,
+  YearEndJournalLine,
+  YearEndJournalPreview,
+} from './yearEndCloseTypes';
+import type {
+  CloseYearDryRunResult, CloseYearError, CloseYearOptions, CloseYearResult,
+} from './yearEndCloseTypes';
 
 export async function closeFiscalYear(
   companyId: string,
@@ -177,8 +88,14 @@ export async function closeFiscalYear(
     SELECT MIN(start_date) AS start_date, MAX(end_date) AS end_date
     FROM fiscal_periods WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
   `;
-  const yearRange = rangeRows[0];
-  if (!yearRange || yearRange.start_date === null) return { error: 'year_not_found' };
+  const aggregate = rangeRows[0] as
+    { start_date: Date | string | null; end_date: Date | string | null } | undefined;
+  if (!aggregate || aggregate.start_date === null || aggregate.end_date === null) {
+    return { error: 'year_not_found' };
+  }
+  const yearRange: FiscalYearRange = {
+    start_date: aggregate.start_date, end_date: aggregate.end_date,
+  };
 
   // 2a. The periods must actually BE this company's fiscal year.
   //
@@ -218,28 +135,24 @@ export async function closeFiscalYear(
   // an already-closed year apart from a dormant one, and a re-run after P&L
   // landed in the closed year has a NON-empty preview, so it used to reach the
   // INSERT and die on uq_gl_je_company_entry_number as a raw 23505.
-  const existing = await findClosingJournal(companyId, preview.entryNumber);
-  if (existing && String(existing.source) !== 'year_end') {
-    return {
-      error: 'closing_entry_number_taken',
-      entryNumber: preview.entryNumber,
-      entryId: String(existing.id),
-      source: String(existing.source),
-      status: String(existing.status),
-    };
+  const existingEntry = await findClosingJournal(companyId, preview.entryNumber);
+  if (existingEntry) {
+    const refusal = classifyClosingJournal(preview.entryNumber, existingEntry);
+    if (refusal) return refusal;
   }
-  if (existing && existing.status !== 'posted') {
-    return {
-      error: 'closing_journal_not_posted',
-      entryNumber: preview.entryNumber,
-      entryId: String(existing.id),
-      status: String(existing.status),
-    };
-  }
-  const existingEntry = existing;
 
   if (dryRun) {
-    return { dryRun: true, netIncome, preview, alreadyClosed: existingEntry !== null, existingEntry };
+    // RE-READ for the same reason `alreadyClosedResult` re-reads: the netIncome
+    // above was read before the closing-journal lookup, so a close that
+    // committed in between would have it report the winner's own movement as
+    // stranded.
+    const unclosedNetIncome = existingEntry
+      ? roundToCents(await reloadNetIncome(companyId, yearRange.start_date, yearRange.end_date))
+      : 0;
+    return {
+      dryRun: true, netIncome, preview, alreadyClosed: existingEntry !== null, existingEntry,
+      unclosedNetIncome,
+    };
   }
 
   if (existingEntry) {
@@ -274,10 +187,15 @@ export async function closeFiscalYear(
     // answer 500 for a year that is now correctly closed.
     if (!isClosingNumberConflict(err)) throw err;
     const winner = await findClosingJournal(companyId, preview.entryNumber);
-    // Only a POSTED year_end row means the year is closed. Anything else that
-    // took the number between the lookup and the INSERT is not a close, and
-    // calling it one would be the lie this branch exists to avoid.
-    if (!winner || String(winner.source) !== 'year_end' || winner.status !== 'posted') throw err;
+    // Nothing holds the number now: the 23505 is not the one this branch
+    // explains, so it must not be dressed up as a closed year.
+    if (!winner) throw err;
+    // Only a POSTED year_end row means the year is closed. Anything else took
+    // the number BETWEEN the lookup and the INSERT — the same squatter the
+    // lookup refuses by name, arriving a moment later — so it earns the same
+    // typed refusal rather than a rethrown 23505 → HTTP 500.
+    const refusal = classifyClosingJournal(preview.entryNumber, winner);
+    if (refusal) return refusal;
     log.info('Year-end close lost the race for the closing entry number; reporting the winner',
       { companyId, year: yearLabel, entryId: winner.id, module: 'accounting' });
     return alreadyClosedResult(companyId, yearLabel, winner, netIncome, yearRange);
@@ -289,7 +207,7 @@ export async function closeFiscalYear(
 
   return {
     closingEntry,
-    periodsLocked,
+    periodsLockedInYear: periodsLocked,
     alreadyClosed: false,
     netIncome,
     unclosedNetIncome: 0,

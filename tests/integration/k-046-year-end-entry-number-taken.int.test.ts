@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { closeFiscalYear } from '../../src/modules/accounting/services/gl/yearEndCloseService';
+import { alreadyClosedResult } from '../../src/modules/accounting/services/gl/yearEndJournalPoster';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -34,6 +35,7 @@ function tenant(): Tenant {
 
 const squatted = tenant();  // a manual journal already numbered YE-2026
 const raced = tenant();     // two closes fired at once
+const residual = tenant();  // closed, then P&L landed in the closed year
 
 async function seed(t: Tenant, name: string) {
   await pool.query('INSERT INTO companies(id,name,financial_year_start) VALUES($1,$2,1)', [t.company, name]);
@@ -74,15 +76,22 @@ beforeAll(async () => {
     [user, `k046ent-${user}@test.local`]);
   await seed(squatted, 'K046 squatted');
   await seed(raced, 'K046 raced');
+  await seed(residual, 'K046 residual');
   // A user numbered an ordinary journal YE-2026. It is a real posted journal
   // with real lines — it is simply not a year-end close.
   squatterId = await post(squatted, squatted.bank, squatted.revenue, 900, 'YE-2026');
   await post(raced, raced.bank, raced.revenue, 700, 'R-SALE');
+  // Closed on R800, and then R150 of sales landed IN the closed year. Nothing
+  // in the DB refuses a posting into a locked period, and once one lands the
+  // close can never sweep it up: YE-2026 is taken by the close itself.
+  await post(residual, residual.bank, residual.revenue, 800, 'RES-SALE');
+  await closeFiscalYear(residual.company, '2026', user);
+  await post(residual, residual.bank, residual.revenue, 150, 'RES-LATE');
 });
 
 afterAll(async () => {
   try {
-    for (const t of [squatted, raced]) {
+    for (const t of [squatted, raced, residual]) {
       clearSystemAccountCache(t.company);
       await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [t.company]);
       await pool.query(
@@ -192,5 +201,60 @@ describe('two closes fired at once', () => {
        WHERE jl.company_id=$1 AND je.source='year_end' AND jl.gl_account_id=$2`,
       [raced.company, raced.retained]);
     expect(Number(equity.rows[0].n)).toBe(700);
+  });
+});
+
+describe('P&L that landed in a year AFTER its close', () => {
+  const range = { start_date: '2026-01-01', end_date: '2026-12-31' };
+
+  it('is re-read from the LEDGER, not taken from the netIncome the caller carried in', async () => {
+    // The deterministic cover for the residual re-read. The race test cannot
+    // provide it — it deliberately does not pin `netIncome`, because which
+    // value the loser read is a scheduling artefact — so an implementation that
+    // reported the netIncome it was handed would pass there under the common
+    // interleaving. Here the number handed in is one the ledger cannot produce:
+    // if it comes back as the residual, the re-read is gone.
+    const entry = (await pool.query(
+      "SELECT * FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'",
+      [residual.company])).rows[0];
+
+    const result = await alreadyClosedResult(
+      residual.company, '2026', entry, 999999, range,
+    );
+
+    expect(result.unclosedNetIncome).toBe(150);
+    // `netIncome` still reports what THIS call read — it is the caller's own
+    // number, and only the residual is re-read.
+    expect(result.netIncome).toBe(999999);
+    expect(result.alreadyClosed).toBe(true);
+    expect(result.message).toMatch(/WARNING: R150\.00/);
+  });
+
+  it('is reported by the DRY RUN as a residual, never as a journal it would post', async () => {
+    // A closed year that gained P&L has a NON-EMPTY preview — that movement is
+    // exactly what it contains — and the live call refuses to write it. The dry
+    // run is the authorising read, so it must not describe a posting the live
+    // path will never make.
+    const dry = await closeFiscalYear(residual.company, '2026', user, { dryRun: true }) as
+      { alreadyClosed: boolean; unclosedNetIncome: number; netIncome: number;
+        preview: { lines: unknown[]; totalDebit: number } };
+
+    expect(dry.alreadyClosed).toBe(true);
+    expect(dry.unclosedNetIncome).toBe(150);
+    // The preview IS the residual: non-empty, balanced, and unpostable.
+    expect(dry.preview.lines.length).toBeGreaterThan(0);
+    expect(dry.preview.totalDebit).toBe(150);
+
+    // And the live call agrees with it — same number, and it writes nothing.
+    const live = await closeFiscalYear(residual.company, '2026', user) as
+      { alreadyClosed: boolean; unclosedNetIncome: number; message: string };
+    expect(live.alreadyClosed).toBe(true);
+    expect(live.unclosedNetIncome).toBe(150);
+    expect(live.message).toMatch(/WARNING: R150\.00/);
+
+    const closes = await pool.query(
+      "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'",
+      [residual.company]);
+    expect(closes.rows[0].n).toBe(1);
   });
 });

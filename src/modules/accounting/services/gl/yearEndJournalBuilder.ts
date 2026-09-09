@@ -15,7 +15,17 @@ import type {
   CloseYearError,
   YearEndJournalLine,
   YearEndJournalPreview,
-} from './yearEndCloseService';
+} from './yearEndCloseTypes';
+
+/**
+ * The year's span, as `fiscal_periods` reports it. `Date | string` because pg's
+ * DATE parser is registered for some paths and not others; every consumer here
+ * hands it straight back to a parameterised query.
+ */
+export interface FiscalYearRange {
+  start_date: Date | string;
+  end_date: Date | string;
+}
 
 export interface AccountBalanceRow {
   id: string;
@@ -36,8 +46,8 @@ export interface AccountBalanceRow {
  */
 export async function loadPLBalances(
   companyId: string,
-  startDate: unknown,
-  endDate: unknown,
+  startDate: Date | string,
+  endDate: Date | string,
 ): Promise<{ revenueAccounts: AccountBalanceRow[]; expenseAccounts: AccountBalanceRow[] }> {
   const revenueAccounts = (await sql`
     SELECT ga.id, ga.account_code, ga.account_name,
@@ -85,8 +95,8 @@ export async function loadPLBalances(
  */
 export async function reloadNetIncome(
   companyId: string,
-  startDate: unknown,
-  endDate: unknown,
+  startDate: Date | string,
+  endDate: Date | string,
 ): Promise<number> {
   const { revenueAccounts, expenseAccounts } = await loadPLBalances(companyId, startDate, endDate);
   return revenueAccounts.reduce((s, a) => s + Number(a.balance), 0)

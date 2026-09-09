@@ -111,7 +111,12 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
 
       if (handlerError || responded4xxOr5xx || req.flowNoOp) {
         try {
-          await refundFlows(companyId, flowCost, operationCode, null);
+          const refund = await refundFlows(companyId, flowCost, operationCode, null);
+          // Re-stated from the REFUND, not left at the debit. `markFlowNoOp`
+          // makes this branch reachable on a 2xx, which is where the "X Flows
+          // used" toast this header exists for is actually rendered — a client
+          // reading the stale value shows a charge that was reversed.
+          res.setHeader('X-Flow-Balance-After', String(refund.balanceAfter));
           res.setHeader('X-Flow-Refunded', 'true');
         } catch (refundErr) {
           log.error(

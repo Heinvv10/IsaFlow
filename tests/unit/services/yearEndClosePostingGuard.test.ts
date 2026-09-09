@@ -106,11 +106,11 @@ describe('postClosingJournal refuses an invalid closing journal before writing',
     buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
 
     const result = await closeFiscalYear(COMPANY, '2026', USER) as
-      { closingEntry: { id: string }; periodsLocked: number; alreadyClosed: boolean };
+      { closingEntry: { id: string }; periodsLockedInYear: number; alreadyClosed: boolean };
     expect(result.closingEntry.id).toBe('entry-1');
     expect(result.alreadyClosed).toBe(false);
     // Counted from the lock UPDATE's RETURNING, not asserted as a literal.
-    expect(result.periodsLocked).toBe(1);
+    expect(result.periodsLockedInYear).toBe(1);
     // header INSERT + 2 line INSERTs + the period lock
     expect(txMock).toHaveBeenCalledTimes(4);
   });
@@ -166,22 +166,64 @@ describe('two simultaneous closes: the ledger holds, and the loser tells the tru
     txMock.mockRejectedValueOnce(entryNumberConflict());
 
     const result = await closeFiscalYear(COMPANY, '2026', USER) as
-      { alreadyClosed: boolean; closingEntry: { id: string }; periodsLocked: number };
+      { alreadyClosed: boolean; closingEntry: { id: string }; periodsLockedInYear: number };
 
     expect(result.alreadyClosed).toBe(true);
     expect(result.closingEntry.id).toBe('winner');
-    expect(result.periodsLocked).toBe(12);
+    expect(result.periodsLockedInYear).toBe(12);
     // Re-read AFTER the winner's journal exists, not taken from the netIncome
     // this call computed before it: the loser must not report the P&L the
     // winner has just moved into equity as money left outside it.
     expect((result as unknown as { unclosedNetIncome: number }).unclosedNetIncome).toBe(0);
   });
 
-  it('RETHROWS when the row that took the number is not a posted close', async () => {
-    // A squatter that appeared between the lookup and the INSERT is not a
-    // close, and calling it one would be the lie the branch exists to avoid.
+  it('REFUSES BY NAME when a squatter took the number between the lookup and the INSERT', async () => {
+    // A squatter that appeared in that window is not a close, and calling it
+    // one would be the lie the branch exists to avoid — but rethrowing the
+    // 23505 answers HTTP 500 "Failed to process year-end", which is the exact
+    // opacity `closing_entry_number_taken` was written to remove. It differs
+    // from the squatter the lookup catches only in timing, so it earns the
+    // same typed refusal.
     stubReadsUpToPreview();
     sqlMock.mockResolvedValueOnce([header({ id: 'squatter', source: 'manual' })]);
+    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
+    txMock.mockReset();
+    txMock.mockRejectedValueOnce(entryNumberConflict());
+
+    const result = await closeFiscalYear(COMPANY, '2026', USER) as
+      { error: string; entryId: string; source: string; status: string; entryNumber: string };
+
+    expect(result.error).toBe('closing_entry_number_taken');
+    expect(result.entryId).toBe('squatter');
+    expect(result.source).toBe('manual');
+    expect(result.entryNumber).toBe('YE-2026');
+  });
+
+  it('REFUSES a DRAFT year_end winner as not-posted rather than reporting the year closed', async () => {
+    // A draft or reversed `year_end` row holding the number means the year is
+    // NOT closed and cannot be closed while it sits there. Reporting it as
+    // alreadyClosed would lie twice: nothing was posted, and nothing ever will
+    // be until a person renumbers it.
+    stubReadsUpToPreview();
+    sqlMock.mockResolvedValueOnce([header({ id: 'draft-close', status: 'draft' })]);
+    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
+    txMock.mockReset();
+    txMock.mockRejectedValueOnce(entryNumberConflict());
+
+    const result = await closeFiscalYear(COMPANY, '2026', USER) as
+      { error: string; entryId: string; status: string };
+
+    expect(result.error).toBe('closing_journal_not_posted');
+    expect(result.entryId).toBe('draft-close');
+    expect(result.status).toBe('draft');
+  });
+
+  it('RETHROWS the 23505 when NOTHING holds the number on the re-read', async () => {
+    // Then the conflict is not the one this branch explains — the row was
+    // deleted, or the violation came from somewhere else entirely — and
+    // dressing it up as a closed year would report a close that never happened.
+    stubReadsUpToPreview();
+    sqlMock.mockResolvedValueOnce([]);
     buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
     txMock.mockReset();
     txMock.mockRejectedValueOnce(entryNumberConflict());
