@@ -97,6 +97,21 @@ it('books the credit note against the legacy customer for the disputed amount', 
   expect(Number(rows[0].total_amount)).toBe(100);
 });
 
+it('splits the disputed amount at the invoice VAT rate instead of booking it all to revenue', async () => {
+  // disputed_amount is a slice of the VAT-INCLUSIVE total (invoice 1000 + 150
+  // VAT). taxRate 0 would credit all 100 to revenue and nothing to VAT output.
+  const { rows } = await pool.query(
+    `SELECT cn.subtotal, cn.tax_rate, cn.tax_amount, cn.total_amount
+     FROM credit_notes cn WHERE cn.company_id=$1 AND cn.customer_invoice_id=$2`,
+    [company, invoice]);
+  expect(rows).toHaveLength(1);
+  expect(Number(rows[0].tax_rate)).toBeCloseTo(15, 2);
+  expect(Number(rows[0].subtotal)).toBeCloseTo(86.96, 2);
+  expect(Number(rows[0].tax_amount)).toBeCloseTo(13.04, 2);
+  expect(Number(rows[0].subtotal) + Number(rows[0].tax_amount))
+    .toBeCloseTo(Number(rows[0].total_amount), 2);
+});
+
 it('does not list the legacy dispute for another tenant', async () => {
   const other = crypto.randomUUID();
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [other, 'K124 other tenant']);

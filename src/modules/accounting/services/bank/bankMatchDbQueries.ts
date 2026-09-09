@@ -108,7 +108,7 @@ export async function fetchCustomerInvoiceCandidates(
     JOIN customers c ON c.id = ci.customer_id
     WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
       AND ci.company_id = ${companyId}
-    ORDER BY ABS(ci.total_amount - ci.amount_paid - ${absAmount}::NUMERIC) ASC
+    ORDER BY ABS(ci.total_amount - COALESCE(ci.amount_paid, 0) - ${absAmount}::NUMERIC) ASC
     LIMIT 50
   `) as DbRow[];
 

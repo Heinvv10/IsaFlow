@@ -37,3 +37,10 @@ GROUP BY d.company_id;
 The disagreement case is covered behaviourally instead: COALESCE prefers `client_id`, asserted by the
 third test. `disputeService.ts` was already 398 lines (over the 300-line cap) before this change and
 is now 415; splitting it is out of scope here.
+
+## Round 2 (blind review M6)
+Widening the population via `COALESCE(client_id, customer_id)` made a dormant defect reachable:
+`resolveDispute` called `createCreditNote` with `taxRate: 0` and the VAT-INCLUSIVE disputed amount,
+booking the whole amount to revenue and nothing to VAT output. The rate is now derived from the
+invoice (`tax_amount / subtotal`) and the disputed amount split back out. Existing zero-VAT credit
+notes are identified by the read-only SQL in `../K-122/fix.md` and left for an accountant.

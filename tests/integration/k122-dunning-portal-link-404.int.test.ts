@@ -72,15 +72,35 @@ it('keeps the fallback when no portal base URL is supplied', async () => {
   expect(rendered!.body).toBe('Pay online at (portal link unavailable)');
 });
 
-it('falls back rather than throwing when the invoice is not portal-eligible', async () => {
+it('aborts rather than emailing a placeholder when the invoice is not portal-eligible', async () => {
   const cancelled = crypto.randomUUID();
   await pool.query(
     `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,client_id,invoice_date,due_date,subtotal,tax_amount,total_amount,status,created_by)
      VALUES($1,$2,'K122-INV-CANCELLED',$3,$3,'2026-01-01','2026-01-31',1000,150,1150,'cancelled',$4)`,
     [cancelled, company, customer, user]);
 
-  const rendered = await renderTemplate(company, template, cancelled, 'https://app.isaflow.co.za');
+  // Swallowing this would (a) abort the surrounding request transaction, so the
+  // dunning_sends / captured_documents INSERTs that follow fail with 25P02, and
+  // (b) email the customer '(portal link unavailable)' recorded as sent.
+  await expect(
+    renderTemplate(company, template, cancelled, 'https://app.isaflow.co.za'),
+  ).rejects.toThrow(/not found or not eligible/i);
+});
+
+it('previews without minting a token, and mints nothing for an ineligible invoice', async () => {
+  const fresh = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,client_id,invoice_date,due_date,subtotal,tax_amount,total_amount,status,created_by)
+     VALUES($1,$2,'K122-INV-PREVIEW',$3,$3,'2026-01-01','2026-01-31',1000,150,1150,'approved',$4)`,
+    [fresh, company, customer, user]);
+
+  const rendered = await renderTemplate(company, template, fresh, 'https://app.isaflow.co.za', {
+    mintPortalToken: false,
+  });
   expect(rendered!.body).toBe('Pay online at (portal link unavailable)');
+
+  const { rows } = await pool.query('SELECT portal_token FROM customer_invoices WHERE id=$1', [fresh]);
+  expect(rows[0].portal_token).toBeNull();
 });
 
 it('does not render another tenant’s invoice', async () => {

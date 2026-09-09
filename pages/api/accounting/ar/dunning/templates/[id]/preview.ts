@@ -42,7 +42,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
 
   try {
     const portalBaseUrl = process.env.PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
-    const rendered = await renderTemplate(companyId, templateId, invoiceId, portalBaseUrl);
+    // Read-shaped: never mint a portal token here. Previewing must not persist
+    // a permanent unauthenticated-access credential for an invoice that may
+    // never be sent (and withAuth COMMITs on 4xx, so it would survive a 404).
+    // An invoice with no token yet previews the '(portal link unavailable)'
+    // placeholder; the real link is minted when the reminder is sent.
+    const rendered = await renderTemplate(companyId, templateId, invoiceId, portalBaseUrl, {
+      mintPortalToken: false,
+    });
     if (!rendered) {
       apiResponse.notFound(res, 'Invoice', invoiceId);
       return;

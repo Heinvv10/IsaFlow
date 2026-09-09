@@ -37,3 +37,11 @@ GROUP BY company_id;
 **Limits.** The validator traced all 14 writers and found none that can store a NULL today, so this
 is defensive hardening against direct SQL, a restore, or a future nullable write path — unless the
 impact SQL above returns rows.
+
+## Round 2 (blind review M4)
+Scope widened from `debtorsManagerService.ts` to every site the review named: the AR aging report
+(rows, `> 0` filter and bucket SUM), the AFS receivables and payables disclosure notes, the custom
+report balance expressions for both customer and supplier invoices, and the bank-match candidate
+ordering. `emailNotificationService.ts:63` already coalesced in JS and needed no change.
+`tests/integration/k125b-null-amount-paid-report-parity.int.test.ts` asserts the aging report and
+the debtors page now agree on the same data.
