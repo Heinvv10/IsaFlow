@@ -25,7 +25,7 @@ async function action(page:Page,name:string,actionName:string){
  const [response]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/api/accounting/bank-transactions-action')&&r.request().method()==='POST'&&r.request().postDataJSON()?.action===actionName,{timeout:30000}),page.getByRole('button',{name,exact:true}).click()]);
  const body=await response.json();assert.equal(response.status(),200,JSON.stringify(body));return body.data;
 }
-async function approvalCycle(maker:Page,reviewer:Page,bankId:string,intentId:string,reverse=false,changeSource?:()=>Promise<void>){
+async function approvalCycle(maker:Page,reviewer:Page,bankId:string,intentId:string,reverse=false,changeSource?:()=>Promise<void>,split=false){
  const saved=`${origin}/accounting/bank-transactions?bankControlBank=${bankId}&bankControlIntent=${intentId}&account_id=${f.bank}`;
  await maker.getByRole('button',{name:'Request approval',exact:true}).click();
  await expect(maker.getByText('Awaiting independent approval',{exact:true})).toBeVisible({timeout:30000});
@@ -45,7 +45,7 @@ async function approvalCycle(maker:Page,reviewer:Page,bankId:string,intentId:str
   assert.equal((await f.pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_type='bank_allocation_intent' AND entity_id=$2",[f.fixture.companyA,intentId])).rowCount,0);
   proof.push({bankId,intentId,independentDecision:true,staleSourceRefused:true});return null;
  }
- const result=await action(maker,reverse?'Execute approved reversal':'Execute approved allocation',reverse?'reverse':'allocate');
+ const result=await action(maker,reverse?'Execute approved reversal':'Execute approved allocation',reverse?'reverse':split?'split_allocate':'allocate');
  const approvalId=new URL(origin+approvalLink).searchParams.get('approvalId');
  const row=(await f.pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[f.fixture.companyA,approvalId])).rows[0];assert.equal(row.status,'consumed');
  proof.push({bankId,intentId,approvalId,independentDecision:true,refreshResumed:true,result});return result;
@@ -76,6 +76,34 @@ try{
   assert.equal(Number(refundLines.find(line=>line.gl_account_id===f.bank)?.[kind==='supplier'?'debit':'credit']),115.23);
   assert.equal((await f.pool.query('SELECT id FROM customer_payments WHERE company_id=$1 AND gl_journal_entry_id=$2 UNION ALL SELECT id FROM supplier_payments WHERE company_id=$1 AND gl_journal_entry_id=$2',[f.fixture.companyA,refund.journalEntryId])).rowCount,0);
  }
+ const splitId=await f.source('Browser exact split','-115.23');
+ await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.bank}`,{waitUntil:'domcontentloaded'});
+ const splitRow=maker.getByRole('row').filter({hasText:'Browser exact split'});await expect(splitRow).toBeVisible();await splitRow.getByTitle('Split transaction',{exact:true}).click();
+ await maker.getByRole('button',{name:'Select GL Account',exact:true}).click();await maker.getByRole('button',{name:'4000 Browser office costs',exact:true}).click();
+ await maker.getByPlaceholder('0.00').fill('100.01');await maker.getByRole('button',{name:'Add Line',exact:true}).click();
+ await maker.getByRole('button',{name:'Select GL Account',exact:true}).click();await maker.getByRole('button',{name:'4000 Browser office costs',exact:true}).last().click();
+ await maker.getByPlaceholder('0.00').nth(1).fill('15.22');await maker.getByRole('button',{name:'Review split',exact:true}).click();
+ const splitPrepared=await action(maker,'Prepare allocation','prepare_split_allocate');
+ const splitPlan=(await f.pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[f.fixture.companyA,splitPrepared.intentId])).rows[0].payload;
+ assert.equal(splitPlan.kind,'split');assert.deepEqual(splitPlan.lines.map((line:{amount:string})=>line.amount),['100.01','15.22']);
+ const splitPosted=await approvalCycle(maker,reviewer,splitId,splitPrepared.intentId,false,undefined,true);assert.ok(splitPosted);
+ const splitLines=(await f.pool.query('SELECT gl_account_id,debit::text,credit::text FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[f.fixture.companyA,splitPosted.journalEntryId])).rows;
+ assert.equal(splitLines.length,3);assert.deepEqual(splitLines.filter(line=>line.gl_account_id===f.expense).map(line=>Number(line.debit)).sort((a,b)=>a-b),[15.22,100.01]);
+ const oldest=await f.draftCustomerInvoice('2026-09-01'),recent=await f.draftCustomerInvoice('2026-09-08');
+ for(const id of [oldest,recent]){
+  const response=await maker.evaluate(async invoiceId=>{const csrf=document.cookie.split('; ').find(value=>value.startsWith('isaflow_csrf='))?.split('=')[1]??'';
+   const result=await fetch('/api/accounting/customer-invoices-detail',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({id:invoiceId,action:'approve'})});return{status:result.status,body:await result.json()};},id);
+  assert.equal(response.status,200,JSON.stringify(response.body));
+ }
+ const defaultId=await f.source('Browser customer default applications','150.23','customer');
+ await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.bank}`,{waitUntil:'domcontentloaded'});
+ const defaultRow=maker.getByRole('row').filter({hasText:'Browser customer default applications'});await expect(defaultRow).toBeVisible();await defaultRow.getByTitle('Accept',{exact:true}).click();
+ const defaultPrepared=await action(maker,'Prepare allocation','prepare_allocate');
+ const defaultPlan=(await f.pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[f.fixture.companyA,defaultPrepared.intentId])).rows[0].payload;
+ assert.deepEqual(defaultPlan.applications,[{invoiceId:oldest,amount:'100'},{invoiceId:recent,amount:'50.23'}]);
+ const defaultPosted=await approvalCycle(maker,reviewer,defaultId,defaultPrepared.intentId);assert.ok(defaultPosted?.paymentId);
+ const balances=(await f.pool.query('SELECT id,amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.fixture.companyA,[oldest,recent]])).rows;
+ assert.equal(Number(balances.find(row=>row.id===oldest)?.amount_paid),100);assert.equal(Number(balances.find(row=>row.id===recent)?.amount_paid),50.23);
  const staleBankId=await f.source('Browser stale approved source','-115.23');
  await maker.goto(`${origin}/accounting/bank-transactions?account_id=${f.bank}`,{waitUntil:'domcontentloaded'});
  const staleRow=maker.getByRole('row').filter({hasText:'Browser stale approved source'});await expect(staleRow).toBeVisible();await staleRow.getByTitle('Accept',{exact:true}).click();
@@ -85,7 +113,7 @@ try{
  assert.equal(foreignRefusal.status(),400);
  await expect(foreign.getByRole('dialog').getByRole('alert')).toContainText('Bank control state unavailable',{timeout:30000});await expect(foreign.getByRole('button',{name:'Execute approved allocation',exact:true})).toHaveCount(0);
  await maker.screenshot({path:`${artifacts}/maker-final.png`,fullPage:true});await reviewer.screenshot({path:`${artifacts}/reviewer-final.png`,fullPage:true});
- await writeFile(`${artifacts}/evidence.json`,JSON.stringify({runId:f.fixture.runId,origin,companyId:f.fixture.companyA,proof,coverage:'actual account VAT request/independent approval/refresh/execute and reversal; both party refund directions; stale source and foreign-tenant refusal',limitations:'split, normal party default applications and transfer browser cases remain separate'},null,2));
+ await writeFile(`${artifacts}/evidence.json`,JSON.stringify({runId:f.fixture.runId,origin,companyId:f.fixture.companyA,proof,coverage:'actual account VAT request/independent approval/refresh/execute and reversal; both party refund directions; exact split; stale source and foreign-tenant refusal',limitations:'normal party default applications and transfer browser cases remain separate'},null,2));
  process.stdout.write(`PASS actual local bank browser account VAT and reversal workflows; evidence ${artifacts}/evidence.json\n`);
 }catch(error){
  for(const [index,context]of browser.contexts().entries())for(const page of context.pages())await page.screenshot({path:`${artifacts}/failure-context-${index}.png`,fullPage:true}).catch(()=>process.stderr.write('Could not capture browser failure screenshot.\n'));
