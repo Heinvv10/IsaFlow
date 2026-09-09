@@ -33,7 +33,7 @@ it('actual PAT HTTP delivers cold snapshot and poller export with authenticated 
  await f.pool.query("UPDATE bank_transaction_attachments SET file_url='data:text/plain;base64,Y2hhbmdlZA==' WHERE id=$1 AND bank_transaction_id=$2",[f.attachment,f.bank]);
  const exported=await f.call<Job>('export_audit_evidence',{snapshot_id:job.id,idempotency_key:randomUUID(),company_id:f.fixture.companyA});
  expect(await f.call<Job>('audit_job_status',{job_id:exported.id})).toMatchObject({state:'queued',attempts:0});
- await createAuditJobPoller({companyIds:[f.fixture.companyA],batchSize:10},{pool:f.pool}).pollOnce();
+ await createAuditJobPoller({companyIds:[f.fixture.companyA],batchSize:10},{pool:f.pool,executeJob:(identity,options)=>runAuditJob(identity,{pool:f.pool,...options})}).pollOnce();
  expect(await f.call<Job>('audit_job_status',{job_id:exported.id})).toMatchObject({state:'succeeded',resultExportId:exported.id});
  const files:EvidenceExportFile[]=[];let cursor:string|undefined;
  do{const page=await f.call<Files>('audit_export_files',{job_id:exported.id,limit:2,...(cursor?{cursor}:{})});

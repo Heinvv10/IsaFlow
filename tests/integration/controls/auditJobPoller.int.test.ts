@@ -1,3 +1,4 @@
+import {runAuditJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
@@ -25,7 +26,7 @@ it('polls actual queued jobs, skips revoked oldest authority, and publishes only
  try{
   await actor('u1',()=>getAuditJob(requireControlTx(),good.id));
   expect((await pool.query('SELECT state FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,good.id])).rows[0].state).toBe('queued');
-  const poller=createAuditJobPoller({companyIds:[fixture.companyA],batchSize:1},{pool});
+  const poller=createAuditJobPoller({companyIds:[fixture.companyA],batchSize:1},{pool,executeJob:(identity,options)=>runAuditJob(identity,{pool,...options})});
   const first=await poller.pollOnce();expect(first.attempted).toBe(1);expect(first.results[0]?.state).toBe('failed');
   const second=await poller.pollOnce();expect(second.results[0]).toMatchObject({state:'succeeded',snapshotId:good.id});
   expect((await pool.query('SELECT id FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[fixture.companyA,good.id])).rows).toHaveLength(1);
