@@ -7,7 +7,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Plus, Trash2, Search, Scissors } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import Decimal from 'decimal.js';
+import {buildBankSplitPreparation,type BankPreparation} from './bank-transactions/bankControlClient';
 import type { BankTx, SelectOption, VatCode } from './BankTxTable';
 import { VAT_OPTIONS } from './BankTxTable';
 
@@ -24,7 +25,7 @@ interface Props {
   transaction: BankTx;
   glAccounts: SelectOption[];
   onClose: () => void;
-  onSplit: () => void;
+  onPrepare: (payload:BankPreparation) => void;
 }
 
 function fmtCurrency(n: number): string {
@@ -42,7 +43,7 @@ function newLine(amount = ''): SplitLineState {
   };
 }
 
-export function SplitTransactionModal({ transaction, glAccounts, onClose, onSplit }: Props) {
+export function SplitTransactionModal({ transaction, glAccounts, onClose, onPrepare }: Props) {
   const total = Math.abs(transaction.amount);
   const [lines, setLines] = useState<SplitLineState[]>([newLine(total.toFixed(2))]);
   const [submitting, setSubmitting] = useState(false);
@@ -80,33 +81,22 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
     setLines(prev => prev.filter(l => l.id !== id));
   };
 
-  const allocated = lines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
-  const remaining = Math.round((total - allocated) * 100) / 100;
-  const canSubmit = Math.abs(remaining) <= 0.01 && lines.every(l => l.contraAccountId && parseFloat(l.amount) > 0);
+  const validAmounts=lines.every(line=>/^(0|[1-9]\d*)(\.\d{1,2})?$/.test(line.amount)&&new Decimal(line.amount).gt(0));
+  const allocatedExact=lines.reduce((sum,line)=>sum.add(/^(0|[1-9]\d*)(\.\d{1,2})?$/.test(line.amount)?line.amount:'0'),new Decimal(0));
+  const allocated=allocatedExact.toNumber(),remainingExact=new Decimal(String(total)).sub(allocatedExact),remaining=remainingExact.toNumber();
+  const canSubmit=validAmounts&&remainingExact.eq(0)&&lines.every(line=>line.contraAccountId);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const payload = {
-        action: 'split_allocate',
-        bankTransactionId: transaction.id,
-        lines: lines.map(l => ({
+      const payload = buildBankSplitPreparation(transaction.id,lines.map(l => ({
           contraAccountId: l.contraAccountId,
-          amount: parseFloat(l.amount),
+          amount: l.amount,
           vatCode: l.vatCode,
           description: l.description || undefined,
-        })),
-      };
-      const res = await apiFetch('/api/accounting/bank-transactions-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json?.error?.message || 'Split failed');
-      notify.success(`Transaction split into ${lines.length} lines and allocated`);
-      onSplit();
+        })));
+      onPrepare(payload);
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'Split allocation failed');
     } finally {
@@ -244,7 +234,7 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
               <span>Allocated: <span className="font-mono font-medium text-[var(--ff-text-primary)]">{fmtCurrency(allocated)}</span></span>
               <span>Remaining:
                 <span className={`font-mono font-medium ml-1 ${
-                  Math.abs(remaining) <= 0.01 ? 'text-teal-400' : 'text-amber-400'
+                  remainingExact.eq(0) ? 'text-teal-400' : 'text-amber-400'
                 }`}>{fmtCurrency(remaining)}</span>
               </span>
             </div>
@@ -255,7 +245,7 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
               </button>
               <button onClick={handleSubmit} disabled={!canSubmit || submitting}
                 className="px-4 py-1.5 rounded text-xs font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white transition-colors">
-                {submitting ? 'Splitting…' : 'Split & Allocate'}
+                {submitting ? 'Opening review…' : 'Review split'}
               </button>
             </div>
           </div>
