@@ -38,7 +38,11 @@ it('party default preparation and split preparation use actual shared services',
  const bankTransactionId=await f.source('115.23');
  const party=await f.request({action:'prepare_allocate',bankTransactionId,allocationType:'customer',entityId:f.customer});expect(party.status).toBe(200);
  expect((await f.pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[f.fixture.companyA,party.body.data.intentId])).rows[0].payload).toMatchObject({kind:'customer',partyId:f.customer,applications:[]});
- const split=await f.request({action:'prepare_split_allocate',bankTransactionId:await f.source(),lines:[{contraAccountId:f.contra,amount:'50'},{contraAccountId:f.contra,amount:'65.23'}]});expect(split.status).toBe(200);
+ const splitBank=await f.source();
+ const split=await f.request({action:'prepare_split_allocate',bankTransactionId:splitBank,lines:[{contraAccountId:f.contra,amount:'50'},{contraAccountId:f.contra,amount:'65.23'}]});expect(split.status).toBe(200);
+ const partyApproval=await f.approve(party.body.data.operation),splitApproval=await f.approve(split.body.data.operation);
+ expect((await f.request({action:'allocate',bankTransactionId,intent_id:party.body.data.intentId,approval_id:partyApproval})).status).toBe(200);
+ expect((await f.request({action:'split_allocate',bankTransactionId:splitBank,intent_id:split.body.data.intentId,approval_id:splitApproval})).status).toBe(200);
 });
 it('foreign tenant, missing CSRF and revoked current permission refuse HTTP effects',async()=>{
  const p=await prepare(),approval_id=await f.approve(p.operation),body={action:'allocate',bankTransactionId:p.bankTransactionId,intent_id:p.intentId,approval_id};
