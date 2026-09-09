@@ -9822,6 +9822,37 @@
       "severity": "high",
       "source": "Raised by the K-122 fixer while closing review-k122 findings; recorded 2026-09-09",
       "processNotes": "K-122 fixes the VAT split going forward. Credit notes already created from disputes carry the GROSS disputed amount against revenue with no VAT line, so both revenue and the VAT control account are wrong for those documents, and the VAT201 for the affected periods was filed off those figures. Read-only identification SQL is in docs/audits/remediation/K-122/fix.md and has NOT been run against production. HEIN'S CALL: this needs an accountant, not an agent -- a correcting journal touches filed VAT periods. Also note sent dunning emails keep dead links because dunning_sends bodies are immutable; only future sends are fixed."
+    },
+    {
+      "id": "R-039",
+      "claim": "",
+      "area": "accounting/bank",
+      "affectedPaths": [],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-140"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-140/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unquantified until the census queries are run.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Over-matched bank rule suggestions already written by the unescaped LIKE arm were auto-posted unattended and are not corrected",
+      "severity": "high",
+      "source": "Raised by the K-140 fixer while closing review-k140-r1 H-1; recorded 2026-09-09",
+      "processNotes": "The SQL arm of bank rule matching interpolated match_pattern raw, so any pattern containing _ or % over-matched. Those rows had suggested_gl_account_id / suggested_supplier_id / suggested_client_id / suggested_vat_code written onto them, and autoPostGateService.sweep's non-import branch POSTS exactly those suggestions unattended -- so misallocations may already sit in the ledger, posted by an agent rather than a person. K-140 closes the defect forward and migration 657 releases the losing side of existing double-bindings, but no already-written suggestion or posting is corrected. The over-matched-suggestion query and the double-binding census are in docs/audits/remediation/K-140/fix.md and have NOT been run against production. HEIN'S CALL: posting_agent identifies which postings came from the sweep."
     }
   ],
   "sourceInventory": [
