@@ -472,25 +472,29 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "35d0d7e7",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "PR open; GitHub checks pending"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/integration/k012-statement-partial-receipt-credit.int.test.ts"
    ],
    "evidencePaths": [
+    "K-012/ci.log",
+    "K-012/fix.md",
+    "K-012/green.log",
     "K-012/red.log",
     "K-012/validation.md"
    ],
-   "fixCommit": "35d0d7e7",
+   "fixCommit": "f1d62655;5decca74;2dc0588d",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/358",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k012-statement-receipt-credit",
-   "reviewRounds": 2
+   "reviewRounds": 2,
+   "mergeCommit": "dd06ecbc"
   },
   {
    "id": "K-013",
@@ -881,7 +885,7 @@
    "currentSha": "89024a8c",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "PR open; GitHub checks pending"
    ],
    "testNames": [
     "tests/integration/k024-annual-export-declarable-status.int.test.ts"
@@ -891,7 +895,7 @@
     "K-024/validation.md"
    ],
    "fixCommit": "89024a8c",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/364",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
@@ -8099,14 +8103,14 @@
    "currentSha": "89024a8c",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "PR open; GitHub checks pending"
    ],
    "testNames": [],
    "evidencePaths": [
     "K-024/validation.md"
    ],
    "fixCommit": "89024a8c",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/364",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
