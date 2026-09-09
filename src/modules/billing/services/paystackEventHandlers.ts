@@ -109,6 +109,36 @@ async function handleChargeSuccess(
   `;
   const pr = prRows[0];
   if (!pr) {
+    // The guarded UPDATE matched nothing because the request is ALREADY
+    // completed — normally because the portal return page's verify route got
+    // there first. That route banks the receipt but carries no fee, and this
+    // delivery does, so the settlement still needs the fee leg. Re-read the row
+    // and let recordGatewayInvoiceReceipt decide: it is idempotent on the
+    // reference and will post only what is missing.
+    const settled = await sql<{
+      id: string;
+      company_id: string;
+      purpose: string;
+      customer_invoice_id: string | null;
+      amount_cents: string;
+    }>`
+      SELECT id, company_id, purpose, customer_invoice_id, amount_cents
+      FROM paystack_payment_requests
+      WHERE paystack_reference = ${reference} AND status = 'completed'
+      LIMIT 1
+    `;
+    const done = settled[0];
+    if (done && done.purpose === 'customer_invoice' && done.customer_invoice_id) {
+      await recordGatewayInvoiceReceipt({
+        companyId: done.company_id,
+        invoiceId: done.customer_invoice_id,
+        amountRand: Number(done.amount_cents) / 100,
+        reference,
+        paidAt: event.data.paid_at ?? null,
+        feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,
+      });
+      return;
+    }
     log.info(
       'charge.success — no matching payment request (possible duplicate or out-of-band)',
       { reference },
