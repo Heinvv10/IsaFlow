@@ -1,3 +1,4 @@
+import { settleControlTransaction } from '@/modules/accounting/services/controls/transactionObservers';
 import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
 import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withAuth.ts
@@ -236,6 +237,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       const handlerFailed = res.statusCode >= 500;
       try {
         await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
+        await settleControlTransaction(client, handlerFailed ? 'rolled_back' : 'committed');
       } catch (finalizeErr) {
         // The transaction could not be finalised after the handler "responded".
         // Best-effort rollback, then (for the common deferred-flush case where
@@ -281,6 +283,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       throw err;
     } finally {
+      await settleControlTransaction(client, 'unknown');
       client.release();
       const ms = Date.now() - startedAt;
       if (ms > 100) log.info('withAuth slow request', { ms, url: req.url }, 'Auth');

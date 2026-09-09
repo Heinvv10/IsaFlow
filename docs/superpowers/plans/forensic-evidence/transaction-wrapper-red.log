@@ -1,0 +1,28 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts (9 tests | 2 failed | 7 skipped) 966ms
+     × notifies transaction observers after database finalization for status200 952ms
+     × notifies transaction observers after database finalization for status500 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/auth/withAuth-commit-order.test.ts > withAuth — commit-before-respond ordering > notifies transaction observers after database finalization for status200
+ FAIL  tests/unit/auth/withAuth-commit-order.test.ts > withAuth — commit-before-respond ordering > notifies transaction observers after database finalization for status500
+AssertionError: expected -1 to be greater than 2
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:254:51
+    252|     })(mkReq(await makeToken('user-1'),COMPANY_ID),res);
+    253|     const verb=status===200?'COMMIT':'ROLLBACK',outcome=status===200?'…
+    254|     expect(events.indexOf(`OBSERVED_${outcome}`)).toBeGreaterThan(even…
+       |                                                   ^
+    255|     expect(events.indexOf(`OBSERVED_${outcome}`)).toBeLessThan(events.…
+    256|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 7 skipped (9)
+   Start at  09:46:30
+   Duration  1.67s (transform 581ms, setup 0ms, import 448ms, tests 966ms, environment 0ms)
+
