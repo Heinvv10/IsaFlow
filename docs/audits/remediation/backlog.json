@@ -8026,15 +8026,18 @@
    "severityRationale": "Reproduced on the fixed K-015 path and confirmed on the Sage path: subledger and control account disagree by the already-paid amount for every migrated paid document.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "confirmed",
+   "status": "in-progress",
    "dependencies": [
     "K-015",
     "K-015 fixed (branch 5672a828): R-001 still reproduces on the fixed path \u2014 a fully paid bill imports with amount_paid 115 and balance 0 while the only journal leaves the payable control at a net credit of 115 with no settlement entry (K-015/fix.md)",
     "K-038 fixer confirms the Sage path has no opening-balance step; paid cash arrives only as unallocated imported bank rows with no GL leg, so after K-038 the subledger is right and the control account is not (K-038/fix.md)",
-    "K-038 reviewer: once amount_paid is carried, both AR and AP sub-ledger close-readiness checks flip to fail for migrated companies because the control account still carries the full invoice; fixing R-001 is therefore a prerequisite for month-end close on migrated books"
+    "K-038 reviewer: once amount_paid is carried, both AR and AP sub-ledger close-readiness checks flip to fail for migrated companies because the control account still carries the full invoice; fixing R-001 is therefore a prerequisite for month-end close on migrated books",
+    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001"
    ],
    "testNames": [],
-   "evidencePaths": [],
+   "evidencePaths": [
+    "R-001/design.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -8061,13 +8064,16 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "confirmed",
+   "status": "in-progress",
    "dependencies": [
     "K-015",
-    "K-015 fixed: still reproduces \u2014 subtotal 33.33 + tax 5.00 vs total 38.34 gives DR 38.33 / CR 38.34, rejected as unbalanced and the document dropped with an error entry (K-015/fix.md)"
+    "K-015 fixed: still reproduces \u2014 subtotal 33.33 + tax 5.00 vs total 38.34 gives DR 38.33 / CR 38.34, rejected as unbalanced and the document dropped with an error entry (K-015/fix.md)",
+    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001"
    ],
    "testNames": [],
-   "evidencePaths": [],
+   "evidencePaths": [
+    "R-001/design.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -8594,12 +8600,15 @@
    "severityRationale": "Named by an independent reviewer or fixer; not yet reproduced as its own test.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "faa2ef39",
-   "status": "candidate",
+   "status": "in-progress",
    "dependencies": [
-    "Design decision: import either the opening balance or the open documents, not both"
+    "Design decision: import either the opening balance or the open documents, not both",
+    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001"
    ],
    "testNames": [],
-   "evidencePaths": [],
+   "evidencePaths": [
+    "R-001/design.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -8745,6 +8754,36 @@
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Existing bills are not wrong by themselves; any true duplicates among the groups are undetected.",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
+  },
+  {
+   "id": "R-026",
+   "claim": "Wizard AP/AR take-on documents post revenue/expense and VAT lines with vat_type NULL, which getVATReturn sweeps into VAT201 boxes 1/15, re-declaring VAT already declared under the previous system.",
+   "area": "reports",
+   "affectedPaths": [
+    "src/modules/accounting/services/ap/migrationApService.ts",
+    "src/modules/accounting/services/core/migrationImportService.ts",
+    "src/modules/accounting/services/reports/vatBoxBasisQuery.ts"
+   ],
+   "sourceLabel": "R-001 design memo",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Latent until K-015 makes the wizard import work; then every imported document would inflate the next VAT201.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "confirmed",
+   "dependencies": [
+    "Closed by the same K-015 take-on posting change (no VAT line on take-on entries); Sage path separately"
+   ],
+   "testNames": [],
+   "evidencePaths": [
+    "R-001/design.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "None yet: the wizard import never succeeded before K-015 (production probe pending)",
    "canonicalItem": null,
    "reportedSeverity": "high"
   }
