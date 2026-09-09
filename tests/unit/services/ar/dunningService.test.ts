@@ -51,6 +51,7 @@ const INVOICE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const SEND_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const TOKEN = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 const EVIDENCE_DOC_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+const PORTAL_TOKEN = 'a'.repeat(64);  // the 64-hex shape the portal route accepts
 
 function templateRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -96,6 +97,7 @@ describe('renderTemplate', () => {
   it('substitutes known tokens and leaves unknown tokens literal', async () => {
     mockSql.mockResolvedValueOnce([templateRow()]);
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
+    mockSql.mockResolvedValueOnce([{ portal_token: PORTAL_TOKEN }]);  // getOrMintInvoicePortalToken
 
     const rendered = await renderTemplate(
       COMPANY_ID, TEMPLATE_ID, INVOICE_ID, 'https://app.example.com',
@@ -104,7 +106,7 @@ describe('renderTemplate', () => {
     expect(rendered!.subject).toContain('INV-100');
     expect(rendered!.subject).toMatch(/R1[ \s]150,00/);
     expect(rendered!.body).toContain('Acme Corp');
-    expect(rendered!.body).toContain('https://app.example.com/portal/invoice/');
+    expect(rendered!.body).toContain(`https://app.example.com/portal/invoice/${PORTAL_TOKEN}`);
     expect(rendered!.body).toContain('{{unknown_token}}');  // left literal
     expect(rendered!.to_email).toBe('ap@acme.co.za');
   });

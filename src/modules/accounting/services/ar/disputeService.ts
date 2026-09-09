@@ -193,10 +193,11 @@ export async function listDisputes(
   let rows: DbRow[];
   if (filters.status && filters.customerInvoiceId) {
     rows = (await sql`
-      SELECT d.*, ci.invoice_number, ci.client_id, c.name AS client_name
+      SELECT d.*, ci.invoice_number, COALESCE(ci.client_id, ci.customer_id) AS client_id,
+             c.name AS client_name
       FROM customer_invoice_disputes d
       JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-      LEFT JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE d.company_id = ${companyId}::uuid
         AND d.status = ${filters.status}
         AND d.customer_invoice_id = ${filters.customerInvoiceId}::uuid
@@ -205,10 +206,11 @@ export async function listDisputes(
     `) as DbRow[];
   } else if (filters.status) {
     rows = (await sql`
-      SELECT d.*, ci.invoice_number, ci.client_id, c.name AS client_name
+      SELECT d.*, ci.invoice_number, COALESCE(ci.client_id, ci.customer_id) AS client_id,
+             c.name AS client_name
       FROM customer_invoice_disputes d
       JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-      LEFT JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE d.company_id = ${companyId}::uuid
         AND d.status = ${filters.status}
       ORDER BY d.raised_at DESC
@@ -216,10 +218,11 @@ export async function listDisputes(
     `) as DbRow[];
   } else if (filters.customerInvoiceId) {
     rows = (await sql`
-      SELECT d.*, ci.invoice_number, ci.client_id, c.name AS client_name
+      SELECT d.*, ci.invoice_number, COALESCE(ci.client_id, ci.customer_id) AS client_id,
+             c.name AS client_name
       FROM customer_invoice_disputes d
       JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-      LEFT JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE d.company_id = ${companyId}::uuid
         AND d.customer_invoice_id = ${filters.customerInvoiceId}::uuid
       ORDER BY d.raised_at DESC
@@ -227,10 +230,11 @@ export async function listDisputes(
     `) as DbRow[];
   } else {
     rows = (await sql`
-      SELECT d.*, ci.invoice_number, ci.client_id, c.name AS client_name
+      SELECT d.*, ci.invoice_number, COALESCE(ci.client_id, ci.customer_id) AS client_id,
+             c.name AS client_name
       FROM customer_invoice_disputes d
       JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-      LEFT JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE d.company_id = ${companyId}::uuid
       ORDER BY d.raised_at DESC
       LIMIT ${limit} OFFSET ${offset}
@@ -243,7 +247,20 @@ export async function listDisputes(
     clientName: r.client_name != null ? String(r.client_name) : null,
   })) as Dispute[];
 
-  return { disputes, total: disputes.length };
+  // total is the count of every matching dispute, not the size of this page.
+  // Repeats the branch predicates above; deliberately no LIMIT/OFFSET.
+  const statusFilter = filters.status ?? null;
+  const invoiceFilter = filters.customerInvoiceId ?? null;
+  const countRows = (await sql`
+    SELECT COUNT(*)::int AS cnt
+    FROM customer_invoice_disputes d
+    JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
+    WHERE d.company_id = ${companyId}::uuid
+      AND (${statusFilter}::text IS NULL OR d.status = ${statusFilter})
+      AND (${invoiceFilter}::uuid IS NULL OR d.customer_invoice_id = ${invoiceFilter}::uuid)
+  `) as DbRow[];
+
+  return { disputes, total: Number(countRows[0]?.cnt ?? 0) };
 }
 
 export async function getDispute(
@@ -288,7 +305,7 @@ export async function resolveDispute(
     }
 
     const invoiceRows = (await sql`
-      SELECT client_id FROM customer_invoices
+      SELECT COALESCE(client_id, customer_id) AS client_id FROM customer_invoices
       WHERE id = ${existing[0].customer_invoice_id}::uuid
         AND company_id = ${companyId}::uuid
       LIMIT 1
