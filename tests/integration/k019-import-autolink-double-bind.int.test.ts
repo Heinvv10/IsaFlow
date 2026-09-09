@@ -198,7 +198,7 @@ describe('K-019 import batch auto-link', () => {
       [theirJe, other, user],
     );
     // The target leg names OUR bank account under THEIR company_id — the
-    // cross-company shape migration 660 now refuses, kept here because rows
+    // cross-company shape migration 664 now refuses, kept here because rows
     // written before it still exist and this test is about ignoring them.
     await insertPreConstraintRow(
       pool,

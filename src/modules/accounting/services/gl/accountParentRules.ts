@@ -113,7 +113,7 @@ export async function assertParentUsable(
     // MCP bearer pipeline) — every production caller of `createAccount` and
     // `reclassifyAccount` runs inside one.
     await lockGlAccountsForUpdate(companyId, [parentId]);
-    // `company_id` is LOAD-BEARING, not habit. Until migration 660 a journal
+    // `company_id` is LOAD-BEARING, not habit. Until migration 664 a journal
     // line could name this company's account while carrying another company's
     // `company_id` — `POST /api/accounting/journal-entries` wrote exactly that
     // — and rows from before it still can. `balanceSheetService` filters

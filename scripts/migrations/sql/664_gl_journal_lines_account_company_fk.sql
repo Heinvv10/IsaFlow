@@ -1,4 +1,4 @@
--- 660: a journal line may not name a GL account belonging to another company.
+-- 664: a journal line may not name a GL account belonging to another company.
 --
 -- `gl_journal_lines_gl_account_id_fkey` references `gl_accounts(id)` ALONE, so a
 -- line whose `company_id` is tenant A's and whose `gl_account_id` is tenant B's
