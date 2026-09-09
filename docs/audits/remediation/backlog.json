@@ -9979,6 +9979,39 @@
       "severity": "medium",
       "source": "Scoped out by the K-048 fixer and confirmed by the K-048 r4 reviewer's outcome probe; recorded 2026-09-09",
       "processNotes": "Two concurrent posts of the same company's journal collide on uq_gl_je_company_entry_number. The r4 reviewer confirmed BY OUTCOME that the ledger stays safe -- loser gets a full rollback: one posted balanced journal with non-null fiscal_period_id, loser's run_count 0, zero orphan lines -- so this is a liveness/UX defect, not a correctness one. K-048 has mapped the collision to a 409 on the recurring-journal route so callers can retry, which is the right local fix. The underlying trigger is untouched: making it safe needs either a per-company sequence or an in-trigger lock, and that touches EVERY posting path, so it needs its own item with its own ledger review. Note only the recurring route currently maps the 23505 to 409; every other posting path still surfaces it as a 500."
+    },
+    {
+      "id": "R-044",
+      "claim": "",
+      "area": "accounting/numbering",
+      "affectedPaths": [
+        "quoteService.nextQuoteNumber",
+        "practiceWipService.generateWipInvoice",
+        "pages/api/accounting/time-entries-invoice.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Cross-tenant numbering plus a duplicate customer invoice reachable by an ordinary retry.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unquantified: duplicate WIP invoices may already exist.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "quoteService.nextQuoteNumber mints quote numbers with no company_id filter, and the practice WIP invoice path double-bills",
+      "severity": "high",
+      "source": "Found by the K-107 r4 blind reviewer's independent census; recorded 2026-09-09",
+      "processNotes": "Two defects outside K-107's named scope, found only because the reviewer was asked to run its OWN census after this branch twice fixed a site and left its twin alive. (1) quoteService.nextQuoteNumber draws the next quote number with NO company_id filter -- a multi-tenant violation on a numbering path, against the project's first rule. (2) practiceWipService.generateWipInvoice and pages/api/accounting/time-entries-invoice.ts mint customer invoices under a status read with no lock, no savepoint, and an IGNORED markEntriesBilled row count, so they double-bill -- the same check-then-act class K-107 has now fixed three times elsewhere (recurring runs, quote->invoice, sales-order->invoice). K-107's round 5 is fixing both, so this item exists to record the class and to ensure the census is repeated across every module rather than patched site by site. If K-107 cannot close the practice-module half within its scope, it stays open here."
     }
   ],
   "sourceInventory": [
