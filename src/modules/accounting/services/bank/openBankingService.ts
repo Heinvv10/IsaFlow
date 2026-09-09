@@ -1,9 +1,9 @@
 /**
  * Open Banking Service — multi-provider bank feed connection management.
  *
- * Supports providers: manual_csv | basiq | tink | plaid
- * Real integrations (basiq/tink/plaid) are stubbed — they produce sample
- * transactions until real API keys are wired in via environment variables.
+ * Supports providers: extension | manual_csv. basiq/tink/plaid have no
+ * integration behind them: creating one is refused, and syncing a legacy one
+ * fails rather than importing anything.
  *
  * Deduplication: uses bank_transactions.bank_reference (external tx ID).
  * Fallback dedup when bank_reference is unavailable: amount + date + description.

@@ -1,0 +1,40 @@
+=== GREEN: bun run test:integration -- tests/integration/k018-open-banking-fabricated-transactions.int.test.ts ===
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+
+=== GREEN: bunx vitest run tests/unit/services/openBankingSyncService.test.ts ===
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+=== MUTATION CHECK: production file reverted to origin/master, same integration suite ===
+     × writes no transactions for the unimplemented provider basiq 56ms
+     × writes no transactions for the unimplemented provider tink 20ms
+     × writes no transactions for the unimplemented provider plaid 115ms
+     × marks the sync log and the connection failed when it refuses 51ms
+     × retrying the refused sync still imports nothing 14ms
+     × still returns instructions and imports nothing for the implemented provider manual_csv 21ms
+     × still returns instructions and imports nothing for the implemented provider extension 15ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  7 failed | 4 passed (11)
+(production file restored afterwards; git diff confirms 8 insertions / 110 deletions vs origin/master)
+
+=== FULL UNIT SUITE — env -u DATABASE_URL bunx vitest run (fixture env NOT sourced) ===
+Run 1 (with the fix):     Test Files 1 failed | 783 passed | 36 skipped (820)
+                          Tests      1 failed | 9319 passed | 234 skipped (9554)
+                          failure: tests/unit/services/cashFlowReport.test.ts (10s timeout)
+Run 2 (with the fix):     Test Files 5 failed | 779 passed | 36 skipped (820)
+                          Tests     10 failed | 9310 passed | 234 skipped (9554)
+                          failures: bankAllocationService, cashFlowReport,
+                                    bank/bankAllocationDateShift, bank/bankAllocationUnwind
+
+Control — the five changed source files reverted to origin/master, same command:
+                          Test Files 5 failed | 779 passed | 36 skipped (820)
+                          Tests     10 failed | 9310 passed | 234 skipped (9554)
+                          same failures plus unit/components/trackerExclusion
+
+The failing set drifts between runs and is identical with and without the fix, so these are
+pre-existing load/timeout flakes on origin/master, not a consequence of this change. Every failing
+file passes in isolation (bankAllocationService + cashFlowReport + bankAllocationDateShift +
+bankAllocationUnwind: 24/24 passed) and none of them imports any file this commit touches.
+No query was run against the production database at any point.
