@@ -10,17 +10,24 @@
  * instead of joining the inviting one. Redirect those links to the real
  * acceptance page rather than re-implementing it.
  *
- * `&signup=1` opts out of that redirect. The OTHER invitation system
- * (userInvitationService) mails /invite/<token>, whose acceptance endpoint is
- * withUserAuth — so its invitee needs an account before they can accept, and
- * its "Create an Account" CTA is the only route to one. Without the opt-out
- * that CTA bounced here, here bounced to /accept-invite, and /accept-invite
- * answers 409 WRONG_INVITE_FLOW for those tokens and bounced back: a closed
- * loop with no signup form in it. Only that page and /login?invite= set the
- * flag, and both learn the token is theirs from GET /api/invite/<token>.
+ * The exception is the OTHER invitation system (userInvitationService), which
+ * mails /invite/<token> and whose acceptance endpoint is withUserAuth — so its
+ * invitee needs an account before they can accept, and the "Create an Account"
+ * CTA is the only route to one. Without an exception that CTA bounced here,
+ * here bounced to /accept-invite, and /accept-invite answers 409
+ * WRONG_INVITE_FLOW for those tokens and bounced back: a closed loop with no
+ * signup form in it.
+ *
+ * The exception is decided by the SERVER, not by the `&signup=1` query flag
+ * this page used to trust (round-3 L3). The flag is attacker-settable: anyone
+ * could append it to /register?invite=<a token the accept-invite flow can
+ * complete> and reach a signup form that has no invitation handling at all, so
+ * they registered their own tenant and the invitation stayed pending. Ask
+ * GET /api/invitations/<token> instead — a 409 is that endpoint's own verdict
+ * that this token belongs to the other flow, and nothing else opts out.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { SignupForm } from '@/components/auth/SignupForm';
 
@@ -32,17 +39,40 @@ export default function RegisterPage() {
       ? router.query.invite
       : null;
 
-  const skipAcceptRedirect = router.query.signup === '1';
+  // 'pending' until the server has ruled, so an invited user never sees the
+  // signup form flash before the redirect fires.
+  const [verdict, setVerdict] = useState<'pending' | 'signup' | 'redirecting'>('pending');
 
   useEffect(() => {
-    if (!router.isReady || !inviteToken || skipAcceptRedirect) return;
-    void router.replace(`/accept-invite?token=${encodeURIComponent(inviteToken)}`);
-  }, [router, router.isReady, inviteToken, skipAcceptRedirect]);
+    if (!router.isReady) return;
+    if (!inviteToken) {
+      setVerdict('signup');
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      let wrongFlow = false;
+      try {
+        const res = await fetch(`/api/invitations/${encodeURIComponent(inviteToken)}`);
+        wrongFlow = res.status === 409;
+      } catch {
+        // Unreachable endpoint: fall through to the acceptance page, which is
+        // the routing this page had before the exception existed and which
+        // shows the invitee a real error rather than the wrong form.
+        wrongFlow = false;
+      }
+      if (cancelled) return;
+      if (wrongFlow) {
+        setVerdict('signup');
+        return;
+      }
+      setVerdict('redirecting');
+      void router.replace(`/accept-invite?token=${encodeURIComponent(inviteToken)}`);
+    })();
+    return () => { cancelled = true; };
+  }, [router, router.isReady, inviteToken]);
 
-  // Wait for the client-side query to hydrate so an invited user doesn't see
-  // the signup form flash before the redirect fires.
-  if (!router.isReady) return null;
-  if (inviteToken && !skipAcceptRedirect) return null;
+  if (verdict !== 'signup') return null;
 
   return <SignupForm />;
 }

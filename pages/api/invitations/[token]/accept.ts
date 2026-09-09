@@ -6,6 +6,7 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
+import { withErrorHandler } from '@/lib/api-error-handler';
 import { als } from '@/lib/als';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
@@ -207,4 +208,7 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: { userId: tok.user.id, companyId: inv.company_id } });
 };
 
-export default withInviteToken(handler);
+// withErrorHandler OUTSIDE withInviteToken -- see the note on
+// pages/api/invitations/[token]/index.ts. A GoTrue outage rethrows out of the
+// handler and must reach the caller as JSON, not as a Next HTML 500.
+export default withErrorHandler(withInviteToken(handler));

@@ -11,12 +11,16 @@
  * ?invite= to /accept-invite, which answers 409 for these tokens and bounces
  * back: the signup form was unreachable.
  *
- * `?signup=1` is set ONLY by /accept-invite's 409 branch, so an invitation that
- * the accept-invite flow CAN complete keeps its old routing.
+ * Round-3 L3: which invitation this is, is decided by the SERVER. /register
+ * asks GET /api/invitations/<token> and only a 409 WRONG_INVITE_FLOW opts out
+ * of the bounce. `?signup=1` used to decide it, and anyone could append that
+ * flag to an accept-flow token to reach a signup form with no invitation
+ * handling in it — registering their own tenant while the invitation stayed
+ * pending.
  *
- * Rendered, not grepped: both behaviours are conditionals inside the page.
+ * Rendered, not grepped: every behaviour here is a conditional inside a page.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, waitFor } from '@testing-library/react';
 
@@ -42,23 +46,66 @@ import AcceptInvitePage from '../../../pages/accept-invite';
 
 describe('/register invitation routing', () => {
   beforeEach(() => { replace.mockClear(); });
+  afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('still forwards a plain ?invite= link to the acceptance page', () => {
+  /** GET /api/invitations/<token> answering with the given status. */
+  function stubVerdict(status: number) {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      status === 409
+        ? JSON.stringify({ success: false, error: { code: 'WRONG_INVITE_FLOW', message: 'wrong flow' } })
+        : JSON.stringify({ success: true, data: {} }),
+      { status, headers: { 'content-type': 'application/json' } },
+    )));
+  }
+
+  it('still forwards a plain ?invite= link to the acceptance page', async () => {
     query = { invite: 'accept-flow-token' };
+    stubVerdict(200);
 
     const { queryByTestId } = render(<RegisterPage />);
 
-    expect(replace).toHaveBeenCalledWith('/accept-invite?token=accept-flow-token');
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/accept-invite?token=accept-flow-token'));
     expect(queryByTestId('signup-form')).toBeNull();
   });
 
-  it('shows the signup form instead of bouncing when accept-invite said 409', () => {
+  it('shows the signup form when the server says WRONG_INVITE_FLOW', async () => {
     query = { invite: 'invite-flow-token', signup: '1' };
+    stubVerdict(409);
+
+    const { findByTestId } = render(<RegisterPage />);
+
+    expect(await findByTestId('signup-form')).not.toBeNull();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('ignores ?signup=1 on a token the accept flow can complete', async () => {
+    // The flag is attacker-settable. Only the server's 409 opts out.
+    query = { invite: 'accept-flow-token', signup: '1' };
+    stubVerdict(200);
 
     const { queryByTestId } = render(<RegisterPage />);
 
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/accept-invite?token=accept-flow-token'));
+    expect(queryByTestId('signup-form')).toBeNull();
+  });
+
+  it('falls back to the acceptance page when the verdict cannot be fetched', async () => {
+    query = { invite: 'accept-flow-token' };
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+
+    const { queryByTestId } = render(<RegisterPage />);
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/accept-invite?token=accept-flow-token'));
+    expect(queryByTestId('signup-form')).toBeNull();
+  });
+
+  it('shows the signup form immediately when there is no invitation at all', async () => {
+    query = {};
+
+    const { findByTestId } = render(<RegisterPage />);
+
+    expect(await findByTestId('signup-form')).not.toBeNull();
     expect(replace).not.toHaveBeenCalled();
-    expect(queryByTestId('signup-form')).not.toBeNull();
   });
 });
 

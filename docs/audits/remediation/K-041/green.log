@@ -85,3 +85,84 @@ GATES: bunx tsc --noEmit exit 0. bunx eslint on the six changed pages/ files exi
   check-migration-rls OK. check-raw-transaction-control OK (2679 files).
   audit-migration-naming: 341 files, no new duplicate prefixes.
   mirror-agent-docs --check: 74 mirrors match.
+
+---
+
+## Round 3 (fix of review-k041-r3.md) — gates executed 2026-09-09
+
+Integration, disposable PostgreSQL fixture (`isaflow_schema_fixture`), five invitation files:
+
+```
+ Test Files  5 passed (5)
+      Tests  28 passed (28)
+```
+
+(26 before this round; +1 k106 "a genuine throw from sendEmail is still recorded",
++1 k-041-invite-page "L6: accepting an invitation never writes the raw token to the log".
+The round-3 L1 and L7 assertions were added to the existing GoTrue-outage test.)
+
+Component suite (`vitest.components.config.ts`), DATABASE_URL unset:
+
+```
+ Test Files  62 passed (62)
+      Tests  424 passed (424)
+```
+
+Full unit suite, fixture env UNSET (`env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL -u JWT_SECRET bunx vitest run`):
+
+```
+ Test Files  792 passed | 36 skipped (828)
+      Tests  9438 passed | 234 skipped (9672)
+```
+
+`bunx tsc --noEmit`: clean. `bunx eslint` on every changed `pages/` file: clean.
+(`tests/**` is outside `tsconfig.json`, so eslint's project service cannot parse test files;
+`bun run lint` only covers `src pages`.)
+
+### Mutation proofs
+
+| Mutation | Result |
+|---|---|
+| `if (!emailResult.success) emailError = …` → `void emailResult` (H1) | RED — k106 "a resolved send failure is recorded and reported, not read as success": `expected { status: 201, rowsPersisted: 1, …} to deeply equal {…}` (`emailSent: true, emailError: undefined`) |
+| `if (opened) await client.query('ROLLBACK')` → unconditional (L1) | RED — `expected [ …(2) ] to not include 'ROLLBACK'` at the admin-client assertion |
+| `withErrorHandler(withInviteToken(handler))` → `withInviteToken(handler)` on accept.ts (L7) | RED — `Error: disposable gotrue outage` escapes the handler again |
+| `log.info(…, { inviteId: inv.id, … })` → `{ token, … }` (L6) | RED — `expected '[["Invitation accepted via token page…' not to contain 'k041l000…'` |
+| `/register` reads `router.query.signup === '1'` instead of the server verdict (L3) | RED — "ignores ?signup=1 on a token the accept flow can complete" |
+
+### Direct fixture probes (not tests)
+
+M1 — the guarded `ALTER FUNCTION … OWNER TO` silently no-ops when the role is absent, and
+the unconditional form fails loudly (both inside `BEGIN … ROLLBACK`):
+
+```
+--- guarded form, role absent (silent no-op) ---
+ owner_after_guarded_form | rolsuper
+ postgres                 | t
+--- unconditional form, role absent (fails loudly) ---
+ERROR:  role "role_absent_probe" does not exist
+```
+
+Applied state after 661:
+
+```
+invite_token_company_name|migration_admin|f|t|{"search_path=pg_catalog, public"}|t
+```
+
+L5 — 660 applied twice inside one transaction against two seeded invitations
+(one with a prior SMTP error), with `expires_at` reset between applications:
+
+```
+UPDATE 2      <- first application
+UPDATE 0      <- second application, nothing left to do
+ tok660a | Invitation link retired by migration 660 (token encoding change) — please resend
+ tok660b | SMTP boom | Invitation link retired by migration 660 (token encoding change) — please resend
+```
+
+M2 — policies on `public.companies` on the fixture after 660 → 648 → 661:
+
+```
+companies_admin_update
+companies_member_read
+```
+
+No invite policy. Nothing left behind: every probe ran inside `BEGIN … ROLLBACK`.

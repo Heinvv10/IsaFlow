@@ -133,7 +133,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     UPDATE users SET onboarding_completed = true WHERE id = ${userId}
   `;
 
-  log.info('Invitation accepted via token page', { token, userId, companyId: inv.company_id }, 'invite');
+  // The invitation id, not the raw token: src/lib/auth/inviteToken.ts exists so
+  // the secret never leaves the request, and a log line is exactly where it must
+  // not land.
+  log.info('Invitation accepted via token page', { inviteId: inv.id, userId, companyId: inv.company_id }, 'invite');
 
   // Set the onboarding-done cookie so middleware stops redirecting
   const cookieStr = serialize('ff_onboarding_done', '1', {

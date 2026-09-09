@@ -1,4 +1,6 @@
--- 655: harden the SECURITY DEFINER function migration 648 added.
+-- 661: harden the SECURITY DEFINER function migration 648 added.
+-- (Renumbered from 655 so the owner fix below could be corrected without a
+--  checksum conflict on databases that already ran it under the old number.)
 --
 -- Two defects in 648, neither of them a live hole on this schema, both of them
 -- the kind that only stays safe by accident:
@@ -41,13 +43,16 @@ AS $$
   LIMIT 1
 $$;
 
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'migration_admin') THEN
-    EXECUTE 'ALTER FUNCTION public.invite_token_company_name() OWNER TO migration_admin';
-  END IF;
-END
-$$;
+-- Unconditional, and deliberately so. This ALTER is the one statement that
+-- carries the security property: without it CREATE OR REPLACE above has just
+-- (re-)created the function owned by whatever DATABASE_URL connects as, which
+-- is the superuser `postgres` in .env.local and .env.production -- the exact
+-- defect this migration exists to close. Guarding it on the role's existence
+-- made the hardening silently absent, with a success report, on any database
+-- lacking the role. migration_admin is created by 348_rls_and_auth_helpers.sql
+-- and granted to unconditionally there, so a database that reaches this point
+-- without it is broken and must fail loudly.
+ALTER FUNCTION public.invite_token_company_name() OWNER TO migration_admin;
 
 -- CREATE OR REPLACE keeps the existing ACL, but re-state it so the grant does
 -- not depend on 648 having run first on a database restored from elsewhere.

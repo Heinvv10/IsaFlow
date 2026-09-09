@@ -7,7 +7,7 @@
 //        invite-token session has no JWT, so the join dropped every row and every
 //        valid invitation answered 410 — the whole /accept-invite flow was dead.
 //        Migration 648 exposes the one column the endpoint needs through a
-//        SECURITY DEFINER function; 643's whole-row policy on companies (163
+//        SECURITY DEFINER function; 643 (now 660) originally added a whole-row policy on companies (163
 //        columns, including the Netcash keys and the bank account number) is
 //        dropped. K-105's own claim (email leak, expiry ignored) was a false
 //        positive; the email is masked here for defence in depth and
@@ -21,7 +21,7 @@ import { assertDisposable, response } from './mfa-impersonation-postgres.helpers
 
 const sentEmails: Array<{ html: string }> = [];
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
-  sendEmail: vi.fn(async (msg: { html: string }) => { sentEmails.push(msg); }),
+  sendEmail: vi.fn(async (msg: { html: string }) => { sentEmails.push(msg); return { success: true, messageId: 'disposable' }; }),
 }));
 const gotrueUserId = crypto.randomUUID();
 vi.mock('@/lib/auth/gotrue', async (importOriginal) => ({
@@ -160,7 +160,7 @@ it('R-030: the invite session gets the company NAME and no other column of it', 
   const seen = await inviteSession(freshToken, async (c) => ({
     name: (await c.query('SELECT invite_token_company_name() AS n')).rows[0].n,
     // The row itself stays unreadable: migration 648 dropped the whole-row
-    // policy 643 added, so the 163 columns of `companies` — netcash_service_key,
+    // policy the old 643 added, so the 163 columns of `companies` — netcash_service_key,
     // netcash_payouts_key, bank_account_number, bank_branch_code among them —
     // are not exposed to whoever holds an invitation link.
     rows: (await c.query('SELECT id FROM companies')).rows.length,
@@ -226,7 +226,7 @@ it('round-2 L2: the SECURITY DEFINER function pins pg_catalog first and is not o
   // operators. With `public` ahead of the catalog, any role holding CREATE on
   // public could shadow one of those and have it executed with the definer's
   // rights — and 648 created the function as `postgres`, so those rights were
-  // a superuser's. Migration 655 pins the catalog and hands ownership to
+  // a superuser's. Migration 661 pins the catalog and hands ownership to
   // migration_admin, whose rolbypassrls is the only privilege the body needs.
   expect(meta.rows).toEqual([
     { owner: 'migration_admin', superuser: false, config: ['search_path=pg_catalog, public'] },

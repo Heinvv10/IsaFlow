@@ -18,8 +18,11 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import type { NextApiRequest } from 'next';
 import invitations from '../../pages/api/invitations/index';
 
+// The real sendEmail resolves { success, messageId? } and never throws on a
+// delivery failure — the route branches on `success`, so the mock has to carry
+// it or a successful resend reads as a failed one.
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
-  sendEmail: vi.fn(async () => ({ id: 'disposable-message-id' })),
+  sendEmail: vi.fn(async () => ({ success: true, messageId: 'disposable-message-id' })),
 }));
 
 assertDisposable();
