@@ -1,0 +1,52 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"error","message":"Subscription debit failed","timestamp":"2026-09-09T03:36:57.477Z","component":"BillingCron","data":{"chargeId":"5e74cfd4-70e2-4f08-a53c-1761a77e43f6","companyId":"27863cab-082c-43f0-b068-c51902e9cc12","msg":"Paystack declined: insufficient funds"}}
+{"level":"error","message":"Subscription debit failed","timestamp":"2026-09-09T03:36:57.490Z","component":"BillingCron","data":{"chargeId":"5e74cfd4-70e2-4f08-a53c-1761a77e43f6","companyId":"27863cab-082c-43f0-b068-c51902e9cc12","msg":"Paystack declined: insufficient funds"}}
+{"level":"error","message":"Subscription debit failed","timestamp":"2026-09-09T03:36:57.502Z","component":"BillingCron","data":{"chargeId":"5e74cfd4-70e2-4f08-a53c-1761a77e43f6","companyId":"27863cab-082c-43f0-b068-c51902e9cc12","msg":"Paystack declined: insufficient funds"}}
+ ❯ tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts (2 tests | 2 failed) 256ms
+     × must not roll the period forward while the debit is still unsettled 37ms
+     × must stop granting the advanced period once every attempt has failed 115ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts > K-033 subscription period advances before Paystack settles > must not roll the period forward while the debit is still unsettled
+AssertionError: expected '2026-10-08T03:36:57.312Z' to be '2026-09-08T03:36:57.312Z' // Object.is equality
+
+Expected: "2026-09-08T03:36:57.312Z"
+Received: "2026-10-08T03:36:57.312Z"
+
+ ❯ tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts:109:60
+    107|     // The charge has not been submitted to Paystack, let alone settle…
+    108|     // paid-up period must still end where it did.
+    109|     expect(new Date(sub.current_period_end).toISOString()).toBe(
+       |                                                            ^
+    110|       originalPeriodEnd.toISOString(),
+    111|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts > K-033 subscription period advances before Paystack settles > must stop granting the advanced period once every attempt has failed
+AssertionError: expected 'active' to be 'past_due' // Object.is equality
+
+Expected: "past_due"
+Received: "active"
+
+ ❯ tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts:137:24
+    135|     // MAX_ATTEMPTS is spent and the charge will never be retried, yet…
+    136|     // subscription is still 'active' on a period nobody paid for.
+    137|     expect(sub.status).toBe('past_due');
+       |                        ^
+    138|   });
+    139| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  05:36:57
+   Duration  452ms (transform 54ms, setup 0ms, import 97ms, tests 256ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

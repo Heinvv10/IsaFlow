@@ -6,10 +6,16 @@
  *  - per-id error isolation (one failure doesn't poison the rest)
  *  - per-id results are reported with succeeded/failed counts
  *  - method guard returns 405 for non-POST
+ *  - the per-id SAVEPOINT nests correctly inside a service's own savepoint
+ *  - a FAILED savepoint rollback is reported as a thrown error, never as success
+ *
+ * `@/lib/neon` is deliberately NOT mocked: the last two need the real
+ * `withSavepoint`, driven against a stub pg client inside a real `als.run`.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import type { PoolClient } from 'pg';
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -56,6 +62,8 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () =>
 }));
 
 import handler from '../../../pages/api/accounting/supplier-invoices-bulk-action';
+import { als } from '@/lib/als';
+import { withSavepoint } from '@/lib/neon';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
 const USER_ID = 'bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb';
@@ -164,6 +172,74 @@ describe('supplier-invoices-bulk-action', () => {
     expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID);
     expect(approveMock).not.toHaveBeenCalled();
     expect(postGlMock).not.toHaveBeenCalled();
+  });
+
+  // The route's per-id savepoint is the guarantee that one bad row cannot take
+  // the batch, so it must survive a service that opens a savepoint of its own —
+  // which cancelSupplierInvoice does. Nested SAVEPOINTs must be established and
+  // released strictly LIFO, and the outer name must never coexist with itself
+  // across two iterations.
+  it('nests the per-id savepoint around a service savepoint in LIFO order', async () => {
+    const statements: string[] = [];
+    const client = {
+      query: vi.fn(async (text: string) => {
+        statements.push(text);
+        return { rows: [] };
+      }),
+    } as unknown as PoolClient;
+    cancelMock.mockImplementation(() =>
+      withSavepoint('cancel_supplier_invoice', async () => ({})),
+    );
+
+    const result = await als.run(
+      { client, userId: USER_ID, companyId: COMPANY_ID, claims: {} },
+      () => (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+        req('POST', { action: 'cancel', invoiceIds: [ID_A, ID_B] }),
+        res(),
+      ),
+    );
+
+    expect((result as { data: { succeeded: number } }).data.succeeded).toBe(2);
+    expect(statements.filter((t) => t.includes('SAVEPOINT'))).toEqual([
+      'SAVEPOINT bulk_supplier_invoice_item',
+      'SAVEPOINT cancel_supplier_invoice',
+      'RELEASE SAVEPOINT cancel_supplier_invoice',
+      'RELEASE SAVEPOINT bulk_supplier_invoice_item',
+      'SAVEPOINT bulk_supplier_invoice_item',
+      'SAVEPOINT cancel_supplier_invoice',
+      'RELEASE SAVEPOINT cancel_supplier_invoice',
+      'RELEASE SAVEPOINT bulk_supplier_invoice_item',
+    ]);
+  });
+
+  // The one path where a regression reinstates the defect this route exists to
+  // prevent: when ROLLBACK TO SAVEPOINT itself fails the connection is aborted,
+  // nothing this request wrote can commit, and withAuth's COMMIT on a <500
+  // response is executed as ROLLBACK without raising. Reporting the earlier id
+  // as succeeded would be a lie the caller cannot detect, so the handler must
+  // THROW and let withErrorHandler answer 5xx.
+  it('throws instead of reporting success when a savepoint rollback fails', async () => {
+    const client = {
+      query: vi.fn(async (text: string) => {
+        if (text.startsWith('ROLLBACK TO SAVEPOINT')) {
+          throw new Error('connection aborted');
+        }
+        return { rows: [] };
+      }),
+    } as unknown as PoolClient;
+    approveMock
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('lock timeout'));
+
+    const store = { client, userId: USER_ID, companyId: COMPANY_ID, claims: {} };
+    await expect(
+      als.run(store, () => (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+        req('POST', { action: 'approve', invoiceIds: [ID_A, ID_B] }),
+        res(),
+      )),
+    ).rejects.toThrow(/transaction became unusable/);
+    // And the reason is recorded, not invented by the route.
+    expect(store).toHaveProperty('txUnusable');
   });
 
   it('routes action=post_gl to postSupplierInvoiceToGL with userId', async () => {

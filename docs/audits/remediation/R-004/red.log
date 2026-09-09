@@ -1,0 +1,30 @@
+ FAIL  tests/unit/services/core/nlQueryFunctions.test.ts > R-004 NL query function capability gate > rejects SELECT public.query_to_xml('SELECT 1', true, false, '')
+ FAIL  tests/unit/services/core/nlQueryFunctions.test.ts > R-004 NL query function capability gate > rejects SELECT "query_to_xml"('SELECT 1', true, false, '')
+ FAIL  tests/unit/services/core/nlQueryFunctions.test.ts > R-004 NL query function capability gate > rejects SELECT name, (SELECT query_to_xml('SELECT 1', true, false, '')) FROM customers WHERE company_id = '11111111-1111-1111-1111-111111111111'
+ FAIL  tests/unit/services/core/nlQueryFunctions.test.ts > R-004 NL query function capability gate > rejects SELECT name FROM customers WHERE company_id = '11111111-1111-1111-1111-111111111111' AND length(query_to_xml('SELECT 1', true, false, '')::text) > 0
+ FAIL  tests/unit/services/core/nlQueryFunctions.test.ts > R-004 NL query function capability gate > rejects WITH c AS (SELECT query_to_xml('SELECT 1', true, false, '') AS x) SELECT x FROM c
+ FAIL  tests/unit/services/core/nlQueryFunctions.test.ts > R-004 NL query function capability gate > rejects SELECT public.count(*) FROM customers WHERE company_id = '11111111-1111-1111-1111-111111111111'
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/services/core/nlQueryFunctions.test.ts:20:26
+     18|   ])('rejects %s', (sql) => {
+     19|     const result = validateGeneratedSQL(sql);
+     20|     expect(result.valid).toBe(false);
+       |                          ^
+     21|     expect(result.error).toMatch(/not allowed|schema/i);
+     22|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 9 passed (19)
+   Start at  05:36:13
+   Duration  238ms (transform 26ms, setup 0ms, import 65ms, tests 56ms, environment 0ms)
+
