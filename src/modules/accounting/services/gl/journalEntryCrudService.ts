@@ -14,6 +14,7 @@ import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus,
 import { defaultHumanMeta } from './journalEntryMeta';
 import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
 import type { JournalEntryMeta } from './journalEntryMeta';
+import { assertJournalCostCentres } from './journalCostCentreValidation';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -211,6 +212,7 @@ export async function createJournalEntry(
   try {
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
+    await assertJournalCostCentres(companyId, input.lines);
 
     let fiscalPeriodId = input.fiscalPeriodId;
     if (!fiscalPeriodId) {
