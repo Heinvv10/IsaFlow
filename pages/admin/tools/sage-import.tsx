@@ -10,6 +10,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
+import { SageCommitSummary, type SageCommitSummaryData } from '@/components/admin/SageCommitSummary';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { apiFetch } from '@/lib/apiFetch';
 import {
@@ -38,8 +39,6 @@ const INITIAL_STEPS: PullStep[] = [
   { id: 'arInvoices', label: 'Customer Invoices (AR)', icon: FileText,  description: 'Outstanding sales invoices',       status: 'pending' },
   { id: 'apInvoices', label: 'Supplier Invoices (AP)', icon: FileText,  description: 'Outstanding purchase invoices',    status: 'pending' },
 ];
-
-const COMMIT_KEYS = ['accounts','customers','suppliers','arInvoices','apInvoices'] as const;
 
 interface ExtensionReply {
   ok: boolean;
@@ -106,7 +105,7 @@ export default function AdminSageImportPage() {
   const [pulling, setPulling] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [pulledAt, setPulledAt] = useState<Date | null>(null);
-  const [commitSummary, setCommitSummary] = useState<null | Record<typeof COMMIT_KEYS[number], { created: number; skipped: number; failed: string[] }>>(null);
+  const [commitSummary, setCommitSummary] = useState<SageCommitSummaryData | null>(null);
   const [error, setError] = useState('');
   const [showPaste, setShowPaste] = useState(false);
   const [pastedCookie, setPastedCookie] = useState('');
@@ -370,30 +369,7 @@ export default function AdminSageImportPage() {
               </p>
             )}
 
-            {commitSummary && (
-              <div className="space-y-2 text-sm">
-                {COMMIT_KEYS.map(k => (
-                  <div key={k} className="flex items-center justify-between gap-4 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/40">
-                    <span className="font-medium text-gray-900 dark:text-white capitalize">{k.replace('Invoices', ' Invoices')}</span>
-                    <span className="text-gray-600 dark:text-gray-400">
-                      <span className="text-teal-600 dark:text-teal-400">{commitSummary[k].created} created</span>{' · '}
-                      <span>{commitSummary[k].skipped} skipped</span>
-                      {commitSummary[k].failed.length > 0 && (
-                        <>{' · '}<span className="text-red-600 dark:text-red-400">{commitSummary[k].failed.length} failed</span></>
-                      )}
-                    </span>
-                  </div>
-                ))}
-                {COMMIT_KEYS.some(k => commitSummary[k].failed.length > 0) && (
-                  <details className="pt-2">
-                    <summary className="cursor-pointer text-xs text-red-600 dark:text-red-400">Show failures</summary>
-                    <pre className="text-xs mt-2 p-3 rounded bg-red-500/5 text-red-700 dark:text-red-300 max-h-64 overflow-auto whitespace-pre-wrap">
-{COMMIT_KEYS.flatMap(k => commitSummary[k].failed.map(f => `[${k}] ${f}`)).join('\n')}
-                    </pre>
-                  </details>
-                )}
-              </div>
-            )}
+            {commitSummary && <SageCommitSummary summary={commitSummary} />}
 
             <div className="flex items-center gap-3 flex-wrap">
               <button
