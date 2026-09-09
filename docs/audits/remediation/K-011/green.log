@@ -25,3 +25,58 @@ K-011 GREEN + mutation check
    the post-restore state.
 
 4) bunx tsc --noEmit — clean. bunx eslint on the changed src file — clean.
+
+================================================================
+Review round (blind review of c1d36ffc: 0 HIGH, 2 MEDIUM, 3 LOW)
+================================================================
+
+Integration, real disposable DB, two pool clients per race case:
+  k011-credit-note-apply-lost-update.int.test.ts   1 passed
+  k011-credit-note-apply-adjacent.int.test.ts      3 passed
+  k011-invoice-lock-review.int.test.ts             3 passed
+  Test Files 3 passed (3) | Tests 7 passed (7)
+
+Mutation check on the three NEW tests — src reverted to c1d36ffc
+(creditNoteCancelService.ts + receiptAllocationLines.ts checked out from HEAD,
+customerInvoiceLock.ts moved aside), same file re-run:
+  × refuses a receipt that would over-apply an invoice a credit note took in the meantime
+      expected 'undefined' to match /R200\.00 exceeds the R100\.00 outstanding/
+      (no refusal happened: the R200 receipt landed on top of the note's R100)
+  × gives up on the invoice row after the lock budget and says to retry
+      Test timed out in 30000ms  (pre-fix the wait is unbounded)
+  × leaves no lock budget behind ...  (collateral: the hung holder lock)
+  Tests 3 failed (3)
+Files restored; the 7-pass run above is the post-restore state.
+
+Targeted mutation for the third test — `SET LOCAL lock_timeout = DEFAULT`
+removed from customerInvoiceLock.ts only:
+  × leaves no lock budget behind for the rest of the request after a successful apply
+      expected '5s' to be '0'
+  Tests 1 failed | 2 passed (3)
+Restored.
+
+Full unit suite, NO fixture env (DATABASE_URL unset), per the brief addendum:
+  Test Files 783 passed | 1 failed | 36 skipped (820)
+  Tests      9319 passed | 1 failed | 234 skipped (9554)
+The one failure is `tests/unit/services/cashFlowReport.test.ts` — "Test timed
+out in 10000ms" on a file this change does not touch. It passes in isolation.
+Machine load average was 124 (other worktrees running CI in parallel); repeated
+full runs failed a DIFFERENT set of files each time (27, then 1, then 10, then
+1), every one a 10s timeout, and every one green when re-run alone.
+
+Four unit files were adjusted because `planAllocationLines` now takes a row
+lock and so requires an ALS request transaction: `enterFakeRequestCtx()` added
+to receiptApplicationService.test.ts and receiptMatchConfirmService.test.ts
+(the helper bankAllocationService.test.ts already used for bankTxLock). One
+assertion in receiptApplicationService.test.ts matched the bare word UPDATE and
+so tripped on `FOR UPDATE`; it now matches the statement forms
+(INSERT INTO | DELETE FROM | UPDATE <table> SET) and still fires on a real write.
+
+tests/integration/api/creditNotePartialApply.test.ts fails in beforeAll on this
+fixture DB ("customers_company_id_fkey") — it expects a seeded company and never
+reaches the changed code. Pre-existing, not caused by this change.
+
+bunx tsc --noEmit — clean.
+bunx eslint on all three changed/added src files — 0 errors, 5 pre-existing
+unused-import warnings in creditNoteCancelService.ts (unchanged count).
+bun run agent-docs:check — OK: 74 mirrors match.
