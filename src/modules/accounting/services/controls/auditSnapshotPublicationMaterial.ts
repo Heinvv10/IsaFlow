@@ -2,6 +2,7 @@ import {canonicalJson} from './canonical';
 import {verifySnapshotArtifact,type AuditSnapshotData} from './auditSnapshotSeal';
 import type {AuditSnapshotRequest} from './auditJobContract';
 export interface SnapshotArtifactBytes {id:string;bytes:Uint8Array}
+const actualByteLength=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype),'byteLength')!.get!;
 const families:Record<AuditSnapshotRequest['sources'][number],readonly string[]>={
  journals:['journal_entry','journal_line'],
  ar:['customer_invoice','customer_invoice_line','customer_payment','customer_payment_allocation'],
@@ -24,8 +25,8 @@ export function copySnapshotArtifacts(value:readonly SnapshotArtifactBytes[]):Sn
   const descriptors=Object.getOwnPropertyDescriptors(item.value),id=descriptors.id,bytes=descriptors.bytes;
   if(Reflect.ownKeys(item.value).length!==2||!id||!bytes||!('value'in id)||!('value'in bytes)
    ||typeof id.value!=='string'||!id.value||id.value.length>256||!(bytes.value instanceof Uint8Array)||ids.has(id.value))throw new Error('Invalid snapshot artifact');
-  total+=bytes.value.byteLength;if(total>100*1024*1024)throw new Error('Snapshot artifact resource limit');
-  ids.add(id.value);copied.push({id:id.value,bytes:Buffer.from(bytes.value)});
+  total+=actualByteLength.call(bytes.value);if(total>100*1024*1024)throw new Error('Snapshot artifact resource limit');
+  ids.add(id.value);copied.push({id:id.value,bytes:new Uint8Array(bytes.value)});
  }
  return copied;
 }
