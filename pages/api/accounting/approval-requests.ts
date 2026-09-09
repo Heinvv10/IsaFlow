@@ -17,6 +17,9 @@ import {
   ApprovalDecisionError, ApprovalNotRequiredError, ApprovalRuleNotFoundError,
   ApprovalRequestNotFoundError,
 } from '@/modules/accounting/services/gl/approvalAuthority';
+import {
+  ApprovalDocumentNotFoundError, resolveApprovalDocument,
+} from '@/modules/accounting/services/gl/approvalDocuments';
 import { isUuidParam } from '@/lib/validation';
 
 const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
@@ -30,7 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const status = req.query.status as ApprovalStatus | undefined;
 
     if (req.query.action === 'check') {
-      const { documentType, documentId, amount } = req.query;
+      const { documentType, documentId } = req.query;
       if (!documentType || !documentId) {
         return apiResponse.badRequest(res, 'documentType and documentId are required');
       }
@@ -41,13 +44,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!isUuidParam(documentId)) {
         return apiResponse.badRequest(res, 'documentId must be a UUID');
       }
-      const result = await checkApproval(
-        companyId,
-        documentType,
-        documentId as string,
-        Number(amount) || 0
-      );
-      return apiResponse.success(res, result);
+      // The amount is NOT read from the query. The advisory answer has to be the
+      // same rule the request path would bind, and that one is resolved from the
+      // stored document — otherwise this endpoint reports the rule a caller-chosen
+      // amount would have selected.
+      try {
+        const document = await resolveApprovalDocument(companyId, documentType, documentId as string);
+        const result = await checkApproval(companyId, documentType, documentId as string, document.amount);
+        return apiResponse.success(res, result);
+      } catch (error) {
+        if (error instanceof ApprovalDocumentNotFoundError) {
+          return apiResponse.badRequest(res, error.message);
+        }
+        throw error;
+      }
     }
 
     if (req.query.action === 'count') {
@@ -63,11 +73,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { action } = req.body;
 
     if (action === 'request') {
-      // No `ruleId`: the governing rule is resolved server-side from the document
-      // and its amount. Letting the caller name it meant the requester chose which
-      // rule constrained their own request — an admin blocked from weakening the
-      // owner-only rule just created a manager-level one and named that instead.
-      const { documentType, documentId, documentReference, amount } = req.body;
+      // Only the document is named. No `ruleId`, no `amount`, no
+      // `documentReference`: every input the rule is matched on is read from the
+      // stored row, because each of them in turn let the requester choose the rule
+      // that constrained them — `ruleId` by naming it outright, `amount` by
+      // understating the document until only the laxest rule matched.
+      const { documentType, documentId } = req.body;
       if (!documentType || !documentId) {
         return apiResponse.badRequest(res, 'documentType and documentId are required');
       }
@@ -79,13 +90,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'documentId must be a UUID');
       try {
         const request = await requestApproval(companyId, {
-          documentType, documentId, documentReference, amount, requestedBy: userId,
+          documentType, documentId, requestedBy: userId,
         });
         return apiResponse.success(res, request);
       } catch (error) {
-        // Nothing to approve, or a rule that vanished between the resolve and the
-        // insert: both are bad requests, not faults.
-        if (error instanceof ApprovalNotRequiredError || error instanceof ApprovalRuleNotFoundError) {
+        // Nothing to approve, a document that is not this company's, or a rule
+        // that vanished between the resolve and the insert: bad requests, not faults.
+        if (error instanceof ApprovalNotRequiredError || error instanceof ApprovalRuleNotFoundError
+            || error instanceof ApprovalDocumentNotFoundError) {
           return apiResponse.badRequest(res, error.message);
         }
         throw error;

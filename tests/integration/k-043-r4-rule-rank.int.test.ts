@@ -18,6 +18,7 @@ import { SignJWT } from 'jose';
 import approvalRules from '../../pages/api/accounting/approval-rules';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { deletePlantedDocuments, plantDocument } from './approval-document.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -49,6 +50,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM audit_log WHERE company_id=$1', [alpha]);
     await pool.query('DELETE FROM approval_requests WHERE company_id=$1', [alpha]);
     await pool.query('DELETE FROM approval_rules WHERE company_id=$1', [alpha]);
+    await deletePlantedDocuments(pool, [alpha]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [alpha]);
     await pool.query('DELETE FROM companies WHERE id=$1', [alpha]);
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [users]);
@@ -100,7 +102,7 @@ describe('HIGH-1 — the round-4 separation-of-duties bypass, reproduced end to 
 
     // Step 3 — raising the request while naming the new rule. The body is no
     // longer read: the owner-only rule is resolved and stored.
-    const documentId = crypto.randomUUID();
+    const documentId = await plantDocument(pool, alpha, 'supplier_invoice', 250000, admin);
     const raised = await call(approvalRequests, admin, 'POST', {
       action: 'request', ruleId: managerRule,
       documentType: 'supplier_invoice', documentId, amount: 250000,
@@ -132,7 +134,7 @@ describe('HIGH-1 — the round-4 separation-of-duties bypass, reproduced end to 
     // credit notes, so the manager rule governs and the manager may clear it.
     const managerRule = await plantRule('r4 manager only', 'credit_note', 'manager');
 
-    const documentId = crypto.randomUUID();
+    const documentId = await plantDocument(pool, alpha, 'credit_note', 500, admin);
     const raised = await call(approvalRequests, admin, 'POST', {
       action: 'request', documentType: 'credit_note', documentId, amount: 500,
     });
@@ -150,7 +152,7 @@ describe('HIGH-1 — the round-4 separation-of-duties bypass, reproduced end to 
     await plantRule('r4 lax first', 'journal_entry', 'viewer');
     const ownerRule = await plantRule('r4 strict second', 'journal_entry', 'owner');
 
-    const documentId = crypto.randomUUID();
+    const documentId = await plantDocument(pool, alpha, 'journal_entry', 10, admin);
     const raised = await call(approvalRequests, admin, 'POST', {
       action: 'request', documentType: 'journal_entry', documentId, amount: 10,
     });
@@ -164,7 +166,7 @@ describe('HIGH-1 — the round-4 separation-of-duties bypass, reproduced end to 
     // rules of EQUAL rank tie, and the tiebreak is creation order, so sharing a
     // type with the rank block below made this order-coupled.
     const ownerRule = await plantRule('r4 idempotent', 'customer_invoice', 'owner');
-    const documentId = crypto.randomUUID();
+    const documentId = await plantDocument(pool, alpha, 'customer_invoice', 1, admin);
 
     const first = await call(approvalRequests, admin, 'POST', {
       action: 'request', documentType: 'customer_invoice', documentId, amount: 1,
