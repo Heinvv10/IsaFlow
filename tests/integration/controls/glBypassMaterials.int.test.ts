@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { randomUUID, randomBytes } from 'node:crypto';
+import { postDualDepreciationToLedger } from '@/modules/accounting/services/gl/assetDepreciationPosting';
 import { prepareAssetDepreciation, executeAssetDepreciation } from '@/modules/accounting/services/gl/controlledAssetDepreciation';
 import { prepareBankTransfer, executeBankTransfer } from '@/modules/accounting/services/bank/bankTransferPostingService';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -10,6 +11,7 @@ import { provisionForensicFixture, validateFixtureTarget, type ForensicFixture }
 import { withControlRequest, requireControlTx } from '@/modules/accounting/services/controls/context';
 import { materializeBankTransferOperation } from '@/modules/accounting/services/controls/bankTransferOperationMaterializer';
 import { materializeAssetDepreciationOperation } from '@/modules/accounting/services/controls/assetDepreciationOperationMaterializer';
+import { requestOperationApproval, decideOperationApproval } from '@/modules/accounting/services/controls/approvalRequestService';
 import { operationBindingHash } from '@/modules/accounting/services/controls/canonical';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
@@ -113,4 +115,42 @@ it('posts depreciation from persisted asset values and reuses the immutable asse
  expect(await actor('u1',()=>executeAssetDepreciation(fixture.companyA,fixture.u1.id,another.intentId))).toEqual(result);
  await expect(actor('u2',()=>prepareAssetDepreciation(fixture.companyA,fixture.u2.id,asset,'2026-02-28'))).rejects.toThrow('another requester');
  expect((await pool.query('SELECT id FROM asset_period_ledger WHERE company_id=$1 AND asset_id=$2',[fixture.companyA,asset])).rows).toHaveLength(1);
+});
+
+it('legacy dual-run entry point ignores forged caller financial amounts and reuses its exact persisted effect',async()=>{
+ const result=await actor('u1',()=>postDualDepreciationToLedger(fixture.companyA,asset,{cost:999999,residualPct:0,usefulLifeYears:1,taxLifeYears:1,purchaseDate:'2020-01-01',periodDate:'2026-02-28',openingAccDep:0,taxOpeningAccDep:0,deferredTaxRate:0.99},'202602',fixture.u1.id));
+ expect(result).toMatchObject({policyDep:100,taxDep:100,glFailed:false});
+ expect((await pool.query('SELECT id FROM asset_period_ledger WHERE company_id=$1 AND asset_id=$2',[fixture.companyA,asset])).rows).toHaveLength(1);
+ await expect(actor('u3',()=>postDualDepreciationToLedger(fixture.companyA,asset,{cost:1,residualPct:0,usefulLifeYears:1,taxLifeYears:1,purchaseDate:'2026-01-01',periodDate:'2026-02-28',openingAccDep:0,taxOpeningAccDep:0,deferredTaxRate:0},'202602',fixture.u3.id))).rejects.toThrow('match');
+});
+
+it('requires independent bank approval and refuses an approved transfer after bank metadata changes',async()=>{
+ const rule=randomUUID();await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
+  VALUES($1,$2,'Synthetic transfer approval','payment','amount','any',0,'admin')`,[rule,fixture.companyA]);
+ const prepared=await actor('u1',()=>prepareBankTransfer(fixture.companyA,fixture.u1.id,{fromAccountId:accounts[0]!.id,toAccountId:accounts[1]!.id,amount:'45.67',transferDate:'2026-02-28'}));
+ expect(prepared.requiresApproval).toBe(true);
+ await expect(actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId))).rejects.toThrow('Independent operation approval is required');
+ const approval=await actor('u1',ctx=>requestOperationApproval(ctx,prepared.operation));
+ await actor('u2',ctx=>decideOperationApproval(ctx,approval.id,'approved'));
+ try{
+  await pool.query("UPDATE gl_accounts SET account_name='Changed synthetic bank' WHERE company_id=$1 AND id=$2",[fixture.companyA,accounts[0]!.id]);
+  await expect(actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId,{approvalId:approval.id}))).rejects.toThrow('material');
+ }finally{await pool.query("UPDATE gl_accounts SET account_name='Synthetic GL control' WHERE company_id=$1 AND id=$2",[fixture.companyA,accounts[0]!.id]);}
+ const posted=await actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId,{approvalId:approval.id}));
+ expect(posted).toMatchObject({status:'posted',amount:'45.67'});
+ expect(await actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId,{approvalId:approval.id}))).toEqual(posted);
+});
+
+it('refuses zero-book nonzero-tax depreciation inside company lockdown without ledger mutation',async()=>{
+ const zeroAsset=randomUUID();
+ await pool.query(`INSERT INTO assets(id,company_id,category_id,asset_number,name,purchase_date,purchase_price,useful_life_years,tax_useful_life_years,accumulated_depreciation,current_book_value,tax_accumulated_depreciation)
+  VALUES($1,$2,$3,'SYNTHETIC-ZERO','Synthetic fully book-depreciated asset','2026-01-01',1200,1,1,1200,0,0)`,[zeroAsset,fixture.companyA,category]);
+ const prepared=await actor('u1',()=>prepareAssetDepreciation(fixture.companyA,fixture.u1.id,zeroAsset,'2026-02-28'));
+ expect(prepared.amount).toBe('0');
+ try{
+  await pool.query("UPDATE companies SET lockdown_enabled=true,lockdown_date='2026-02-28' WHERE id=$1",[fixture.companyA]);
+  await expect(actor('u1',()=>executeAssetDepreciation(fixture.companyA,fixture.u1.id,prepared.intentId))).rejects.toThrow('lockdown');
+ }finally{await pool.query('UPDATE companies SET lockdown_enabled=false,lockdown_date=NULL WHERE id=$1',[fixture.companyA]);}
+ expect((await pool.query('SELECT id FROM asset_period_ledger WHERE company_id=$1 AND asset_id=$2',[fixture.companyA,zeroAsset])).rows).toHaveLength(0);
+ expect((await pool.query('SELECT tax_accumulated_depreciation::text AS amount FROM assets WHERE company_id=$1 AND id=$2',[fixture.companyA,zeroAsset])).rows[0].amount).toBe('0.00');
 });

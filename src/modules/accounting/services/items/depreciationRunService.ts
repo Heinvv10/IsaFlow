@@ -50,6 +50,8 @@ export interface DepreciationRunResultRow {
   policyDep: number;
   taxDep: number;
   entryId: string | null;
+  intentId?: string;
+  requiresApproval?: boolean;
 }
 
 export interface DepreciationRunResult {
@@ -143,7 +145,7 @@ export async function executeDepreciationRun(
     const a = byId.get(row.assetId)!;
     const usefulLifeYears = Number(a.useful_life_years ?? 0);
 
-    const { policyDep, taxDep, entryId, glFailed: assetGlFailed } =
+    const { policyDep, taxDep, entryId, glFailed: assetGlFailed, intentId, requiresApproval } =
       await postDualDepreciationToLedger(
         companyId,
         row.assetId,
@@ -168,12 +170,12 @@ export async function executeDepreciationRun(
       // The whole period rolled back for this asset. Count it loudly — a silent
       // partial run understates accumulated depreciation until someone notices.
       glFailed += 1;
-      results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId: null });
+      results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId: null, intentId, requiresApproval });
       continue;
     }
     if (policyDep < 0.01 && taxDep < 0.01) { skipped += 1; continue; }
 
-    results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId });
+    results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId, intentId, requiresApproval });
     processed += 1;
   }
 
