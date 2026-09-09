@@ -629,7 +629,7 @@
     "K-016/validation.md"
    ],
    "fixCommit": "30b0e8af",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/366",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
@@ -660,7 +660,7 @@
     "K-017/validation.md"
    ],
    "fixCommit": "30b0e8af",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/366",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
@@ -791,25 +791,30 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "480e2060",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/integration/k021-failed-reversal-commits-unwind.int.test.ts"
    ],
    "evidencePaths": [
+    "K-021/ci-load-timeout.log",
+    "K-021/ci.log",
+    "K-021/fix.md",
+    "K-021/green.log",
     "K-021/red.log",
     "K-021/validation.md"
    ],
-   "fixCommit": "480e2060",
+   "fixCommit": "9e669241;480e2060",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/365",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k021-reversal-unwind-atomic",
-   "reviewRounds": 2
+   "reviewRounds": 2,
+   "mergeCommit": "1274b68a"
   },
   {
    "id": "K-022",
