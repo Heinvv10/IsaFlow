@@ -1,0 +1,13 @@
+CREATE INDEX
+CREATE TABLE
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+psql:scripts/migrations/sql/633_forensic_employee_beneficiary_evidence.sql:18: NOTICE:  policy "tenant_read" for relation "control_employee_beneficiary_evidence" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:scripts/migrations/sql/633_forensic_employee_beneficiary_evidence.sql:21: NOTICE:  policy "tenant_create" for relation "control_employee_beneficiary_evidence" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
