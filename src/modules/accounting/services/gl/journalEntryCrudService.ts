@@ -65,6 +65,7 @@ export function mapLineRow(row: Row): JournalLine {
     description: row.description ? String(row.description) : undefined,
     projectId: row.project_id ? String(row.project_id) : undefined,
     costCenterId: row.cost_center_id ? String(row.cost_center_id) : undefined,
+    buId: row.bu_id ? String(row.bu_id) : undefined,
     vatType: row.vat_type ? String(row.vat_type) as VatType : undefined,
     createdAt: String(row.created_at),
     accountCode: row.account_code ? String(row.account_code) : undefined,
