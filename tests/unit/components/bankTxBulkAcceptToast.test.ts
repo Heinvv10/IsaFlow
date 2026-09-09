@@ -31,7 +31,7 @@ function actionsFor(selected: string[]) {
 }
 
 describe('bulk accept toast', () => {
-  beforeEach(() => { success.mockReset(); warning.mockReset(); fetchMock.mockReset(); });
+  beforeEach(() => { success.mockReset(); warning.mockReset(); fetchMock.mockReset(); vi.mocked(notify.error).mockReset(); });
 
   it('warns, naming the skipped count, when fewer rows moved than were selected', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ success: true, data: { accepted: 7 } }) } as unknown as Response);
@@ -48,6 +48,16 @@ describe('bulk accept toast', () => {
     await actionsFor(['a', 'b']).handleBulkAccept();
     expect(warning).not.toHaveBeenCalled();
     expect(success).toHaveBeenCalledWith('2 transaction(s) marked as reviewed');
+  });
+
+  it('surfaces the API refusal from the nested error envelope', async () => {
+    // review round 3 LOW-5: apiResponse.error() nests at json.error.message, so
+    // reading json.message alone reported a generic failure over the real reason.
+    fetchMock.mockResolvedValue({
+      ok: false, json: async () => ({ success: false, error: { message: 'Bank account is locked' } }),
+    } as unknown as Response);
+    await actionsFor(['a', 'b']).handleBulkAccept();
+    expect(vi.mocked(notify.error)).toHaveBeenCalledWith('Bank account is locked');
   });
 
   it('warns when nothing moved at all', async () => {

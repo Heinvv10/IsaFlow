@@ -20,6 +20,7 @@ vi.mock('@/components/layout/AppLayout', () => ({
 vi.mock('@/components/shared/ExportCSVButton', () => ({ ExportCSVButton: () => <button>Export CSV</button> }));
 
 import CostCentresPage from '@/../pages/accounting/cost-centres/index';
+import { CostCentreActionError } from '@/modules/accounting/services/core/costCentreUsageGuard';
 
 const REFUSAL = 'Cannot delete cost centre that is used by 1 employee(s). Deactivate instead.';
 const listBody = {
@@ -86,5 +87,13 @@ describe('cost centres page delete refusal', () => {
 
     render(<CostCentresPage />);
     await waitFor(() => expect(screen.getByText('Database unavailable')).toBeTruthy());
+  });
+
+  // review round 3 LOW-3: the refusal logged as "name":"Error", so an operator
+  // refusal grouped with genuine failures in the error tracker.
+  it('names the refusal type so it does not log as a plain Error', () => {
+    const err = new CostCentreActionError(REFUSAL);
+    expect(err.name).toBe('CostCentreActionError');
+    expect(err.message).toBe(REFUSAL);
   });
 });

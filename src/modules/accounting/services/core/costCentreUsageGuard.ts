@@ -6,6 +6,11 @@
  * Migration 649 makes the payroll and asset FKs ON DELETE RESTRICT, and this
  * guard covers the FK-less columns that live code writes, so the operator gets a
  * counted 400 instead of a dangling reference or a raw 23503.
+ *
+ * The FK-less counts take no locks, so a row written against the centre between
+ * the count and the DELETE is still stranded; only more foreign keys can close
+ * that window. The FK-backed columns are immune because the database re-checks
+ * at delete time.
  */
 
 import { sql } from '@/lib/neon';
@@ -19,7 +24,12 @@ export const FK_VIOLATION = '23503';
  * throw away the counted message this guard exists to produce, so the messages
  * that are safe to read carry this type instead of being matched by string.
  */
-export class CostCentreActionError extends Error {}
+export class CostCentreActionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CostCentreActionError';
+  }
+}
 
 export const CANNOT_DELETE_PREFIX = 'Cannot delete cost centre that is used by ';
 const CANNOT_DELETE_SUFFIX = '. Deactivate instead.';
