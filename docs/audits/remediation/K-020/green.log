@@ -97,3 +97,27 @@ bunx tsc --noEmit → clean. eslint on the service, the page and the new compone
 No browser proof of the reconciliation page: no dev server is running on :3200 and
 starting a build on this box would disrupt the other agents' suites. The two conditionals
 are covered by a real jsdom render instead.
+
+================= ROUND-3 RE-REVIEW (1 LOW) =================
+
+== COMPONENT SUITE ==
+$ bun run test:components
+ Test Files  56 passed (56)
+      Tests  388 passed (388)
+reconciliationBalances.test.tsx is now 4 tests (was 2).
+
+== MUTATION CHECK on the status gate ==
+Ungating the sentence (always "Post an adjustment to recompute.") →
+ Tests  1 failed | 3 passed (4)  — the completed-row test goes red. Component restored.
+
+== FULL UNIT SUITE (no fixture env; DATABASE_URL unset) ==
+ Test Files  782 passed | 2 failed | 36 skipped (820)
+      Tests  9318 passed | 2 failed | 234 skipped (9554)
+The same two contention timeouts as round 2: tests/unit/services/cashFlowReport.test.ts
+and tests/unit/services/bank/bankAllocationUnwind.test.ts. Re-run together in isolation
+on this tree: 2 files, 17 tests passed. Neither module is touched by this change.
+
+== tsc / eslint ==
+bunx tsc --noEmit → clean. eslint on ReconciliationBalances.tsx → clean. eslint cannot
+lint tests/** at all here: those paths are outside tsconfig, so the project service
+rejects them ("was not found by the project service"). Pre-existing, not from this change.
