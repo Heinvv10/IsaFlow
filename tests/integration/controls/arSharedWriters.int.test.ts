@@ -215,3 +215,18 @@ it('invalidates a credit application approval when the target posted journal cha
  await pool.query("UPDATE gl_journal_entries SET description='Synthetic edited source journal' WHERE company_id=$1 AND id=$2",[fixture.companyA,posted.glJournalEntryId]);
  await expect(actor(()=>applyCreditNoteToInvoice(fixture.companyA,credit,id,fixture.u1.id,{applicationId:ref.entityId,approvalId}))).rejects.toThrow('changed');
 });
+
+it('rechecks the original approver on an omitted-approval invoice receipt retry',async()=>{
+ const id=await invoice(),rule=randomUUID();
+ await pool.query("INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role) VALUES($1,$2,'AR retry policy','customer_invoice','amount','any',0,'admin')",[rule,fixture.companyA]);
+ try{
+  const approvalId=await approval(invoiceRef(id));
+  await actor(()=>approveCustomerInvoice(fixture.companyA,id,fixture.u1.id,{approvalId}));
+  await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);
+  await expect(actor(()=>approveCustomerInvoice(fixture.companyA,id,fixture.u1.id))).rejects.toThrow();
+  expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='customer_invoice.post'",[fixture.companyA,id])).rows).toHaveLength(1);
+ }finally{
+  await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);
+  await pool.query('DELETE FROM approval_rules WHERE company_id=$1 AND id=$2',[fixture.companyA,rule]);
+ }
+});
