@@ -105,9 +105,10 @@ export function useBankTransactionsController() {
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
   }, [searchTerm]);
   // Only the latest owned request may update rows, errors or loading state.
-  const transactionRequest=useRef<{generation:number;abort:AbortController|null}>({generation:0,abort:null});
-  useEffect(()=>()=>{transactionRequest.current.generation++;transactionRequest.current.abort?.abort();},[]);
-  const loadTransactions = useCallback(async () => {
+  const transactionRequest=useRef<{generation:number;abort:AbortController|null;mounted:boolean}>({generation:0,abort:null,mounted:true});
+  useEffect(()=>{const request=transactionRequest.current;request.mounted=true;return()=>{request.mounted=false;request.generation++;request.abort?.abort();};},[]);
+  const loadSelectedTransactions = useCallback(async () => {
+    if(!transactionRequest.current.mounted)return;
     const generation=++transactionRequest.current.generation;transactionRequest.current.abort?.abort();
     const abort=new AbortController();transactionRequest.current.abort=abort;
     if (!selectedBank) { setIsLoading(false); setTransactions([]); setTotal(0); return; }
@@ -134,7 +135,9 @@ export function useBankTransactionsController() {
     finally { if(generation===transactionRequest.current.generation)setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
-  useEffect(() => { void loadTransactions(); }, [loadTransactions]);
+  const latestTransactionLoader=useRef(loadSelectedTransactions);
+  useEffect(()=>{latestTransactionLoader.current=loadSelectedTransactions;void loadSelectedTransactions();},[loadSelectedTransactions]);
+  const loadTransactions=useCallback(()=>latestTransactionLoader.current(),[]);
   useBankControlResume(bankControl,()=>{void loadTransactions();refreshBankAccounts();transferRelink.refresh();});
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
