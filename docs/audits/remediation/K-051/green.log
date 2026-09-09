@@ -1,0 +1,31 @@
+K-051 / K-052 — GREEN evidence (branch fix/audit-k051-k052-header-account-guard, off origin/master 0f16391e)
+
+1. RED on origin/master (my worktree, before any production edit):
+   bun run test:integration -- k051... k052...
+   -> Test Files 2 failed (2); Tests 2 failed | 1 passed (3)
+   K-051: expected +0 to be close to 1500 (total assets after the merge).
+   K-052: admitReclassification admitted the level-2 header target.
+
+2. GREEN after the fix (tests reshaped to assert the refusal, plus adjacent cases):
+   -> Test Files 2 passed (2); Tests 9 passed (9)
+      K-051 4 tests, K-052 5 tests, real disposable Postgres.
+
+3. Mutation check — both guards disabled in place (`if (false && ...)`), tests re-run:
+   -> Tests 3 failed | 6 passed (9)
+      x refuses a merge that would turn the target into a header account
+      x refuses a level-2 target that is ALREADY a header, even from a childless source
+      x refuses a reclassification whose target is a parent header account
+   Production files restored from backup afterwards; `grep -c "if (false"` = 0 in both.
+
+4. Full unit suite, DATABASE_URL unset (`env -u DATABASE_URL bunx vitest run`):
+   run A -> 1 failed | 9427 passed | 234 skipped  (reclassificationLockSequence: its mocked
+            getAccountById omitted `level`; fixture updated)
+   run B -> 6 failed | 9428 passed  (bankAllocationService x4, cashFlowReport, bankAllocationUnwind)
+   run C -> 1 failed | 9433 passed  (bankAllocationUnwind only)
+   The failing set changes between runs and all four files pass in isolation
+   (4 files / 28 tests passed). None of them import accountMergeGuards, planGuards or
+   isReportVisibleLeaf. Treated as pre-existing flakiness under full-suite load, NOT verified
+   against a clean origin/master run.
+
+5. bunx tsc --noEmit: clean. bunx eslint on the three changed src files: clean.
+   bun run agent-docs:check: OK, 74 mirrors match.

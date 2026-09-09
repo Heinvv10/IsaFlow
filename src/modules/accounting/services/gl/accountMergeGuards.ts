@@ -19,6 +19,7 @@
  */
 import { sql } from '@/lib/neon';
 import { reportingClassFor } from './accountReportingClass';
+import { hasChildAccounts, isReportVisibleLeaf } from './isReportVisibleLeaf';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
   findConfigurationReferences,
@@ -112,6 +113,7 @@ export type MergeRefusalCode =
   | 'account_type_mismatch'
   | 'account_subtype_reporting_class'
   | 'target_is_inactive'
+  | 'target_becomes_header'
   | 'target_is_descendant_of_source'
   | 'source_is_system_account'
   | 'source_bank_subtype_referenced'
@@ -163,6 +165,25 @@ export async function assertMergeable(
       + 'picker and every report that filters on is_active — the same "money the write path '
       + 'cannot reach" state this merge exists to end.',
       'target_is_inactive',
+    );
+  }
+  // The same failure as `target_is_inactive`, reached through the chart rather
+  // than the flag: the balance sheet and the trend report select an account
+  // only when `level >= 3 OR it has no children`. A level 1 or 2 target is on
+  // the reports while it is childless — and `mergeAccounts` reparents every
+  // direct child of the source onto it, so a source WITH children turns the
+  // target into a header and drops the target's own balance and the merged one
+  // off both reports, with the trial balance identical either way.
+  if (target.level < 3
+    && (await hasChildAccounts(companyId, source.id)
+      || !(await isReportVisibleLeaf(companyId, target.id, target.level)))) {
+    throw new AccountMergeError(
+      `${target.accountCode} sits at level ${target.level} and would carry children after this `
+      + 'merge. The balance sheet and the trend report select an account only when its level is '
+      + '3 or higher or it has no children, so the merged balance would vanish from both while '
+      + 'the trial balance still foots. Merge into a leaf account, or give the chart a leaf '
+      + `child under ${target.accountCode} and merge into that.`,
+      'target_becomes_header',
     );
   }
   if (source.accountType !== target.accountType) {
