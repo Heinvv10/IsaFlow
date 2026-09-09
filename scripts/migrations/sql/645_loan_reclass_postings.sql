@@ -49,49 +49,75 @@ CREATE POLICY tenant_isolation ON loan_reclass_postings
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON loan_reclass_postings TO app_user;
 
--- ── Backfill from the reclass journals that were actually posted ────────────
+-- ── Backfill from the reclass journals that were actually posted ───────────
 --
 -- Without this, the first close after deploy would read no prior, post the
 -- full current portion again on top of the balance the old code compounded,
--- and make the overstatement worse.
+-- and make the overstatement worse. With it, that close posts one correcting
+-- movement instead.
 --
 -- closeLoanPeriod builds its narrative deterministically as
 --   'Reclassification – loan ' || COALESCE(reference, id::text) || ' for ' || yyyymm
--- (en dash), and puts it on both the entry description and every line. That
--- makes an exact equality join, not a LIKE guess. The balance after each close
--- is the running sum of the net CREDIT posted to that loan's current-portion
--- account, so this reconstructs the real history including the compounding —
--- which means the first close after deploy posts one correcting movement that
--- brings the account back to the right figure.
+-- (en dash), on the entry description and every line. That is an exact equality
+-- join, not a LIKE guess. The balance after each close is the running sum of the
+-- net CREDIT posted to that loan's current-portion account, so this reconstructs
+-- the real history including the compounding.
 --
--- A loan whose reference was renamed after a close will not match; it gets no
--- backfill row for that month, and its next close reclassifies from the last
--- month that did match. Detection SQL for that case is in
--- docs/audits/remediation/K-081/fix.md.
-INSERT INTO loan_reclass_postings (company_id, loan_id, yyyymm, st_liability, journal_entry_id)
-SELECT company_id, loan_id, yyyymm, running_balance, journal_entry_id
-FROM (
-  SELECT je.company_id,
-         l.id AS loan_id,
-         RIGHT(je.description, 6) AS yyyymm,
-         je.id AS journal_entry_id,
-         SUM(SUM(jl.credit - jl.debit)) OVER (
-           PARTITION BY je.company_id, l.id
-           ORDER BY RIGHT(je.description, 6)
-           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-         ) AS running_balance
-    FROM gl_journal_entries je
-    JOIN gl_journal_lines jl
-      ON jl.journal_entry_id = je.id AND jl.company_id = je.company_id
-    JOIN loans l
-      ON l.company_id = je.company_id
-     AND l.current_portion_account_id = jl.gl_account_id
-     AND je.description = 'Reclassification – loan '
-                       || COALESCE(l.reference, l.id::text)
-                       || ' for ' || RIGHT(je.description, 6)
-   WHERE je.status = 'posted'
-     AND je.description LIKE 'Reclassification – loan % for %'
-     AND RIGHT(je.description, 6) ~ '^[0-9]{6}$'
-   GROUP BY je.company_id, l.id, RIGHT(je.description, 6), je.id
-) reclass_history
-ON CONFLICT (company_id, loan_id, yyyymm) DO NOTHING;
+-- SCOPING: the INSERT runs once per company, with company_id bound as a
+-- parameter and repeated on every join, so no statement can read or write
+-- across tenants even if a gl_account_id or loan_id were reused.
+--
+-- IDEMPOTENT: ON CONFLICT DO NOTHING, so re-running changes nothing and rows
+-- written by the running application always win over a reconstructed figure.
+-- Safe to re-run after a partial failure.
+--
+-- A loan whose reference was renamed after a close will not match and gets no
+-- row for that month; its next close then reclassifies from the last month that
+-- did match. Detection SQL is in docs/audits/remediation/K-081/fix.md.
+DO $$
+DECLARE
+  target_company UUID;
+  inserted_rows  BIGINT;
+  total_rows     BIGINT := 0;
+BEGIN
+  FOR target_company IN
+    SELECT DISTINCT company_id FROM loans
+  LOOP
+    INSERT INTO loan_reclass_postings (company_id, loan_id, yyyymm, st_liability, journal_entry_id)
+    SELECT company_id, loan_id, yyyymm, running_balance, journal_entry_id
+    FROM (
+      SELECT je.company_id,
+             l.id AS loan_id,
+             RIGHT(je.description, 6) AS yyyymm,
+             je.id AS journal_entry_id,
+             SUM(SUM(jl.credit - jl.debit)) OVER (
+               PARTITION BY je.company_id, l.id
+               ORDER BY RIGHT(je.description, 6)
+               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+             ) AS running_balance
+        FROM gl_journal_entries je
+        JOIN gl_journal_lines jl
+          ON jl.journal_entry_id = je.id
+         AND jl.company_id = je.company_id
+         AND jl.company_id = target_company
+        JOIN loans l
+          ON l.company_id = je.company_id
+         AND l.company_id = target_company
+         AND l.current_portion_account_id = jl.gl_account_id
+         AND je.description = 'Reclassification – loan '
+                           || COALESCE(l.reference, l.id::text)
+                           || ' for ' || RIGHT(je.description, 6)
+       WHERE je.company_id = target_company
+         AND je.status = 'posted'
+         AND je.description LIKE 'Reclassification – loan % for %'
+         AND RIGHT(je.description, 6) ~ '^[0-9]{6}$'
+       GROUP BY je.company_id, l.id, RIGHT(je.description, 6), je.id
+    ) reclass_history
+    ON CONFLICT (company_id, loan_id, yyyymm) DO NOTHING;
+
+    GET DIAGNOSTICS inserted_rows = ROW_COUNT;
+    total_rows := total_rows + inserted_rows;
+  END LOOP;
+
+  RAISE NOTICE 'loan_reclass_postings backfill: % row(s) reconstructed from posted reclass journals', total_rows;
+END $$;
