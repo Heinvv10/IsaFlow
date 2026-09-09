@@ -860,23 +860,27 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "dd112c24",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "PR #370 checks green after migrations 621/622 were applied to the dev runner DB; merge pending"
+    "Merged to master; production deployment pending (batch 2); migrations 621, 622"
    ],
    "testNames": [
     "tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts"
    ],
    "evidencePaths": [
+    "K-022/ci.log",
+    "K-022/fix.md",
+    "K-022/green.log",
     "K-022/red.log",
     "K-022/validation.md"
    ],
-   "fixCommit": "dd112c24",
+   "fixCommit": "b77557ce;11101207;8c1f7fd2;36ccdf06;dd112c24",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/370",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "critical"
+   "reportedSeverity": "critical",
+   "mergeCommit": "47d5861b"
   },
   {
    "id": "K-023",
