@@ -1,4 +1,5 @@
 import {materializeBankAllocationOperation} from '../bank/bankAllocationMaterial';
+import {materializeInvoiceMatchOverride} from '../ap/invoiceMatchOverrideMaterial';
 import {materializeBankTransferOperation} from './bankTransferOperationMaterializer';
 import {materializeAssetDepreciationOperation} from './assetDepreciationOperationMaterializer';
 import {materializeArOperation} from './arOperationMaterializer';
@@ -24,7 +25,7 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
     : ref.entityType==='vat_period' ? dates.length===2 && dates.every(isRealCalendarDate) && dates[0]!<=dates[1]!
       : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.entityId);
   if(!validId)throw new Error('Invalid operation reference');
-  const operations = ref.entityType === 'supplier_invoice'
+  const operations = ref.entityType==='invoice_match_override_intent'?['invoice_match.override']:ref.entityType === 'supplier_invoice'
     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_invoice.cancel']
     : ref.entityType === 'bank_allocation_reversal_intent' ? ['bank_allocation.reverse']
     : ref.entityType === 'bank_allocation_intent' ? ['bank_allocation.post']
@@ -94,6 +95,7 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
 /** Authoritative source material is shared by approval, execution and after-effect evidence. */
 export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
   if(['bank_allocation_intent','bank_allocation_reversal_intent'].includes(ref.entityType))return materializeBankAllocationOperation(ctx,ref);
+  if(ref.entityType==='invoice_match_override_intent')return materializeInvoiceMatchOverride(ctx,ref);
   if(ref.entityType==='bank_transfer_intent')return materializeBankTransferOperation(ctx,ref);
   if(ref.entityType==='asset_depreciation_intent')return materializeAssetDepreciationOperation(ctx,ref);
   if(['customer_invoice','customer_payment','credit_note','credit_note_application','recurring_invoice_run'].includes(ref.entityType))return materializeArOperation(ctx,ref);
