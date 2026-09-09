@@ -4,31 +4,44 @@ RED (baseline, before the fix) — docs/audits/remediation/K-048/red-fixer.log
   Test Files  2 failed (2)
        Tests  3 failed (3)
 
-GREEN (after the fix), real Postgres fixture:
-  bun run test:integration -- k048-...int.test.ts k049-...int.test.ts k048-k049-...adjacent.int.test.ts
-  Test Files  3 passed (3)
-       Tests  10 passed (10)
+GREEN (after the fix + the blind-review follow-ups), real Postgres fixture:
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts \
+    tests/integration/k048-k049-recurring-journal-adjacent.int.test.ts \
+    tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts \
+    tests/integration/k049-recurring-journal-post-write-failure.int.test.ts
+  Test Files  4 passed (4)
+       Tests  16 passed (16)
 
-MUTATION CHECKS (production change reverted one guard at a time, then restored):
-  M1  due-date guard disabled                    -> k048: 2 failed        RED
-  M2  claim predicate dropped from the UPDATE     -> k048+adjacent: 1 failed  RED
-  M3  fiscal-period pre-check disabled            -> adjacent: 1 failed    RED
-  M4  route maps every throw to 400 again         -> adjacent: 1 failed    RED
-  M5  FOR UPDATE removed from the template SELECT -> adjacent: 7 passed    STILL GREEN
-      M5 is expected and is stated in the code and in fix.md: the claim UPDATE,
-      not the lock, is what makes generation idempotent. The lock only turns a
-      lost claim into a block inside a request transaction, which no test pins.
+MUTATION CHECKS (production change reverted one at a time, then restored and re-run green):
+  M1  request-only guard removed                 -> 1 failed   RED
+  M2  assertTemplateLinesPostable call removed   -> 3 failed   RED
+  M3  savepoint removed from the FOR UPDATE read -> 1 failed   RED (25P02 after the lock timeout)
+  M4  businessToday() -> CURRENT_DATE (UTC)      -> 1 failed   RED
+  M5  409 mapping removed from the route         -> 1 failed   RED
+  M6  due-date guard disabled                    -> 3 failed   RED
+  M7  claim predicate dropped from the UPDATE    -> 16 passed  STILL GREEN
+  M8  fiscal-period pre-check disabled           -> 1 failed   RED
+  M9  route maps every throw to 400 again        -> 1 failed   RED
+  M10 FOR UPDATE removed from the template SELECT-> 4 failed   RED
 
-FULL UNIT SUITE (no fixture env; DATABASE_URL unset):
-  with the fix     Test Files  4 failed | 788 passed | 36 skipped (828)
-                        Tests  9 failed | 9425 passed | 234 skipped (9668)
-  baseline (same  Test Files  7 failed | 785 passed | 36 skipped (828)
-  files reverted)       Tests 13 failed | 9421 passed | 234 skipped (9668)
-  The failures are pre-existing and unrelated (bankAllocation*, cashFlowReport,
-  trackerExclusion, withAuth-commit-order) — 10s timeout flakes under parallel
-  load on this box. All four files pass in isolation both with and without the
-  fix: Test Files 4 passed (4), Tests 24 passed (24), each way.
+  M7 is honest and stated in fix.md. The tests now run the service inside real
+  request transactions, as the route does, so the row lock serialises the second
+  caller and the due-date guard refuses it before the claim predicate is
+  consulted. The claim stays as the second line of defence; nothing reaches it
+  first on any path that exists today. (Before the request-only guard, the tests
+  called the service with no ALS context, the lock released immediately, and M7
+  went RED — that path is now refused outright.)
+
+FULL UNIT SUITE (no fixture env; DATABASE_URL / ISAFLOW_DISPOSABLE_AUTH_TEST unset):
+  Test Files  792 passed | 36 skipped (828)
+       Tests  9434 passed | 234 skipped (9668)
+  Zero failures. (The earlier run on this branch recorded 4 failing files under
+  parallel load on this box; they pass here and are unrelated to this change.)
   No recurring-journal unit test exists to regress.
 
 bunx tsc --noEmit   exit 0
-bunx eslint src/modules/accounting/services/gl/recurringJournalService.ts pages/api/accounting/recurring-journals-action.ts   exit 0
+bunx eslint src/modules/accounting/services/gl/recurringJournalService.ts \
+            src/modules/accounting/services/gl/recurringJournalGuards.ts \
+            pages/api/accounting/recurring-journals-action.ts   exit 0
+bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.
