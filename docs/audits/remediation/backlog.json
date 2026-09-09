@@ -900,7 +900,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "abc3ae3c",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -918,7 +918,8 @@
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k023-sdl-leviable-basis",
-      "reviewRounds": 4
+      "reviewRounds": 4,
+      "mergeCommit": "46da1253"
     },
     {
       "id": "K-024",
@@ -1519,7 +1520,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "ef9989f7",
-      "status": "in-progress",
+      "status": "code-verified",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1537,7 +1538,8 @@
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k040-wip-run-lock",
-      "reviewRounds": 2
+      "reviewRounds": 2,
+      "mergeCommit": "7749f3fa"
     },
     {
       "id": "K-041",
