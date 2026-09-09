@@ -1,3 +1,5 @@
+import {lockEmployeeBank,activateEmployeeBank} from './employeeBeneficiaryBank';
+import {validateEmployeeBeneficiaryEvidence} from './employeeBeneficiaryEvidence';
 import { createHash, randomUUID } from 'node:crypto';
 import { UUID_RE } from '@/lib/validation';
 import { isActiveUserAccount, type UserAccountRow } from '@/lib/auth/userAccountStatus';
@@ -25,15 +27,7 @@ export async function lockBank(ctx: ControlTx, ref: BeneficiaryRef): Promise<unk
     if (rows.length !== 1) throw new BeneficiaryError('NOT_FOUND');
     return rows[0];
   }
-  const parents = await ctx.sql`SELECT id FROM payroll_employees WHERE company_id=${ctx.principal.companyId}::uuid
-    AND id=${ref.entityId}::uuid AND status='active' FOR UPDATE`;
-  if (parents.length !== 1) throw new BeneficiaryError('NOT_FOUND');
-  const rows = await ctx.sql`SELECT b.bank_name AS "bankName",b.account_number AS "accountNumber",
-    b.branch_code AS "branchCode",b.account_type AS "accountType" FROM payroll_bank_details b
-    JOIN payroll_employees e ON e.id=b.employee_id WHERE e.company_id=${ctx.principal.companyId}::uuid
-    AND e.id=${ref.entityId}::uuid AND b.is_active=true ORDER BY b.id FOR UPDATE OF b`;
-  if (rows.length > 1) throw new BeneficiaryError('AMBIGUOUS_BANKING');
-  return rows[0] ?? null;
+  return lockEmployeeBank(ctx,ref.entityId);
 }
 export async function pendingProposal(ctx: ControlTx, ref: BeneficiaryRef): Promise<string | null> {
   const rows = await ctx.sql`SELECT id FROM control_beneficiary_proposals WHERE company_id=${ctx.principal.companyId}::uuid
@@ -55,7 +49,7 @@ export async function loadProposal(ctx: ControlTx, id: string, lock = false): Pr
 }
 export async function validateEvidence(ctx: ControlTx, ref: BeneficiaryRef, evidence: readonly EvidenceRef[]): Promise<EvidenceRef[]> {
   if (!Array.isArray(evidence) || evidence.length < 1 || evidence.length > 10) throw new BeneficiaryError('EVIDENCE_REQUIRED');
-  if (ref.entityType !== 'supplier') throw new BeneficiaryError('EMPLOYEE_EVIDENCE_PARENT_UNSUPPORTED');
+  if (ref.entityType === 'employee') return validateEmployeeBeneficiaryEvidence(ctx,ref,evidence);
   const result: EvidenceRef[] = [];
   for (const e of [...evidence].sort((a, b) => a.evidenceId < b.evidenceId ? -1 : 1)) {
     if (e.store !== 'captured') throw new BeneficiaryError('EVIDENCE_STORE_UNSUPPORTED');
@@ -96,7 +90,8 @@ export async function lockAuthorities(ctx: ControlTx, proposalId: string, requir
     accountRangeTo: p.account_range_to == null ? null : String(p.account_range_to), restrictions: p.restrictions as Record<string, unknown> }));
   const scopes = proposal.requester_auth_method === 'cookie' ? null
     : (proposal.requester_granted_scopes ?? []).filter(s => requester.current_scopes?.includes(s));
-  if (permissionReason(requester.role, 'write:beneficiaries', scopes, overrides)) throw new BeneficiaryError('REQUESTER_REVOKED');
+  if (permissionReason(requester.role, 'write:beneficiaries', scopes, overrides)
+    || (proposal.entity_type==='employee' && permissionReason(requester.role,'write:payroll',scopes,overrides))) throw new BeneficiaryError('REQUESTER_REVOKED');
 }
 /** Configured beneficiary policy evaluation is supplied by the approval facade; never silently skip one. */
 export async function assertPoliciesSupported(ctx: ControlTx): Promise<void> {
@@ -120,11 +115,7 @@ export async function activateBank(ctx: ControlTx, ref: BeneficiaryRef, d: Benef
       WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid RETURNING id`;
     if (rows.length !== 1) throw new BeneficiaryError('NOT_FOUND');
   } else {
-    await ctx.sql`UPDATE payroll_bank_details b SET is_active=false FROM payroll_employees e
-      WHERE e.company_id=${ctx.principal.companyId}::uuid AND e.id=${ref.entityId}::uuid AND b.employee_id=e.id AND b.is_active=true`;
-    await ctx.sql`INSERT INTO payroll_bank_details(employee_id,bank_name,account_number,account_type,branch_code)
-      SELECT id,${d.bankName},${d.accountNumber},${d.accountType},${d.branchCode} FROM payroll_employees
-      WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
+    await activateEmployeeBank(ctx,ref.entityId,d);
   }
 }
 export async function insertVersion(ctx: ControlTx, p: Proposal, version: number): Promise<void> {

@@ -3,9 +3,12 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollEmployee } from './payrollTypes';
+import {employeeWrite,prepareEmployeeBankChange,finishEmployeeWrite,type EmployeeBankInput,type EmployeeBeneficiaryReview} from './payrollEmployeeWriteBoundary';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
 
 type Row = DbRow;
+export type PayrollEmployeeWriteInput=Omit<PayrollEmployee,'id'|'companyId'> & EmployeeBankInput;
+export type PayrollEmployeeWriteResult=PayrollEmployee & {beneficiaryReview:EmployeeBeneficiaryReview|null};
 
 function mapRow(r: Row): PayrollEmployee {
   return {
@@ -51,8 +54,10 @@ export async function getPayrollEmployee(
 
 export async function createPayrollEmployee(
   companyId: string,
-  data: Omit<PayrollEmployee, 'id' | 'companyId'>,
-): Promise<PayrollEmployee> {
+  data: PayrollEmployeeWriteInput,
+): Promise<PayrollEmployeeWriteResult> {
+ return employeeWrite(companyId,async ctx=>{
+  const bank=await prepareEmployeeBankChange(ctx,data);
   log.info('Creating payroll employee', { companyId, employeeNumber: data.employeeNumber }, 'payrollEmployeeService');
   const rows = (await sql`
     INSERT INTO payroll_employees (
@@ -70,23 +75,28 @@ export async function createPayrollEmployee(
     RETURNING *
   `) as Row[];
   if (!rows[0]) throw new Error('INSERT returned no row');
-  return mapRow(rows[0]);
+  const beneficiaryReview=await finishEmployeeWrite(ctx,null,rows[0],bank,data.beneficiaryEvidenceRefs);
+  return {...mapRow(rows[0]),beneficiaryReview};
+ });
 }
 
 export async function updatePayrollEmployee(
   id: string,
   companyId: string,
-  data: Partial<Omit<PayrollEmployee, 'id' | 'companyId'>>,
-  userId?: string,
-): Promise<PayrollEmployee | null> {
+  data: Partial<PayrollEmployeeWriteInput>,
+  _userId?: string,
+): Promise<PayrollEmployeeWriteResult | null> {
+ return employeeWrite(companyId,async ctx=>{
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
 
   const beforeRows = (await sql`
-    SELECT employment_type FROM payroll_employees
+    SELECT * FROM payroll_employees
      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-     LIMIT 1
+     LIMIT 1 FOR UPDATE
   `) as Row[];
   const before = beforeRows[0];
+  if(!before)return null;
+  const bank=await prepareEmployeeBankChange(ctx,data,id);
 
   const toIso = (v: unknown): string | null => (v ? fmtDate(v) : null);
   const dobIso = toIso(data.dateOfBirth);
@@ -116,18 +126,21 @@ export async function updatePayrollEmployee(
 
   const updated = rows.length > 0 && rows[0] ? mapRow(rows[0]) : null;
 
-  if (userId && before && updated && data.employmentType !== undefined) {
+  if (before && updated && data.employmentType !== undefined) {
     await recordEmployeeChange({
       companyId,
       employeeId: id,
       fieldName: 'employment_type',
       oldValue: before.employment_type == null ? null : String(before.employment_type),
       newValue: updated.employmentType,
-      userId,
+      userId:ctx.principal.personId,
     });
   }
 
-  return updated;
+  if(!updated||!rows[0])return null;
+  const beneficiaryReview=await finishEmployeeWrite(ctx,before,rows[0],bank,data.beneficiaryEvidenceRefs);
+  return{...updated,beneficiaryReview};
+ });
 }
 
 export async function listTaxNumbersForCompany(

@@ -37,6 +37,7 @@ export async function proposeBeneficiaryChange(ctx: ControlTx, input: Beneficiar
   return mutation(ctx, async () => {
     const ref = validateBeneficiaryRef(input), details = normalizeBeneficiaryDetails(bank);
     await assertEffectivePermission(ctx, 'write:beneficiaries', ref);
+    if(ref.entityType==='employee')await assertEffectivePermission(ctx,'write:payroll',ref);
     const currentBank = snapshot(await q.lockBank(ctx, ref));
     if (await q.pendingProposal(ctx, ref)) throw new BeneficiaryError('PENDING_HOLD');
     const previous = await q.latestVersion(ctx, ref);
@@ -71,6 +72,7 @@ export async function verifyBeneficiaryChange(ctx: ControlTx, proposalId: string
     if (initial.requester_person_id === ctx.principal.personId) throw new BeneficiaryError('INDEPENDENT_PERSON_REQUIRED');
     const ref = validateBeneficiaryRef({ entityType: initial.entity_type, entityId: initial.entity_id });
     await assertEffectivePermission(ctx, 'write:beneficiaries', ref);
+    if(ref.entityType==='employee')await assertEffectivePermission(ctx,'write:payroll',ref);
     await assertEffectivePermission(ctx, 'write:approvals', ref);
     await q.assertPoliciesSupported(ctx);
     const currentBank = snapshot(await q.lockBank(ctx, ref));
@@ -126,6 +128,7 @@ async function terminateProposal(ctx: ControlTx, proposalId: string, reason: str
     if (status === 'rejected' && isRequester) throw new BeneficiaryError('INDEPENDENT_PERSON_REQUIRED');
     const ref = validateBeneficiaryRef({ entityType: initial.entity_type, entityId: initial.entity_id });
     await assertEffectivePermission(ctx, 'write:beneficiaries', ref);
+    if(ref.entityType==='employee')await assertEffectivePermission(ctx,'write:payroll',ref);
     if (status === 'rejected') await assertEffectivePermission(ctx, 'write:approvals', ref);
     await q.lockBank(ctx, ref);
     const proposal = await q.loadProposal(ctx, proposalId, true);

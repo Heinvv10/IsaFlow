@@ -26,11 +26,11 @@ it('rejects mismatched bytes even when claimed and stored hashes agree', async (
   query.mockResolvedValue({ rows: [{ raw_bytes: Buffer.from('changed'), raw_bytes_sha256: hash }] });
   await expect(check([evidence])).rejects.toThrow('EVIDENCE_UNAVAILABLE_OR_CHANGED');
 });
-it('refuses absent, duplicate, unsupported-store and employee-parent evidence explicitly', async () => {
+it('refuses absent, duplicate, unsupported-store and mismatched employee-parent evidence explicitly', async () => {
   await expect(check([])).rejects.toThrow('EVIDENCE_REQUIRED');
   await expect(check([evidence,evidence])).rejects.toThrow('INVALID_EVIDENCE');
   await expect(check([{ ...evidence,store:'procurement' }])).rejects.toThrow('EVIDENCE_STORE_UNSUPPORTED');
-  await expect(check([evidence],'employee')).rejects.toThrow('EMPLOYEE_EVIDENCE_PARENT_UNSUPPORTED');
+  await expect(check([evidence],'employee')).rejects.toThrow('INVALID_EVIDENCE');
 });
 
 it('locks the policy namespace before reading even an empty configured population', async () => {

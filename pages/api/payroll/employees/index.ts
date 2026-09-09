@@ -17,8 +17,11 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import {
   listPayrollEmployees,
   createPayrollEmployee,
+  type PayrollEmployeeWriteInput,
 } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import type { PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
+import {normalizeBeneficiaryDetails} from '@/modules/accounting/services/controls/beneficiaryValidation';
+import type {EvidenceRef} from '@/modules/accounting/services/controls/contracts';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -45,7 +48,7 @@ async function handler(
       );
     }
 
-    const data: Omit<PayrollEmployee, 'id' | 'companyId'> = {
+    const data: PayrollEmployeeWriteInput = {
       firstName: String(firstName),
       lastName: String(lastName),
       employeeNumber: String(employeeNumber),
@@ -60,6 +63,11 @@ async function handler(
       medicalAidDependantsCount: Number(medicalAidDependantsCount) || 0,
     };
 
+    if(req.body.bankDetails!==undefined)data.bankDetails=normalizeBeneficiaryDetails(req.body.bankDetails);
+    if(req.body.beneficiaryEvidenceRefs!==undefined){
+      if(!Array.isArray(req.body.beneficiaryEvidenceRefs))return apiResponse.badRequest(res,'Invalid beneficiary evidence references');
+      data.beneficiaryEvidenceRefs=req.body.beneficiaryEvidenceRefs as EvidenceRef[];
+    }
     const employee = await createPayrollEmployee(companyId, data);
     return apiResponse.created(res, employee);
   }
