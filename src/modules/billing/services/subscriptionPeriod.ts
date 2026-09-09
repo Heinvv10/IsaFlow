@@ -3,9 +3,9 @@
  * the Paystack webhook can settle a charge without importing the cron.
  *
  * Every statement here is keyed on the charge's own subscription_id (migration
- * 619), not on company_id: a company may hold several subscription rows and one
+ * 624), not on company_id: a company may hold several subscription rows and one
  * charge must only ever move the subscription it was raised for. Charges
- * predating 619 have a NULL subscription_id and are deliberately inert.
+ * predating 624 have a NULL subscription_id and are deliberately inert.
  *
  * DATE columns are cast through `AT TIME ZONE 'UTC'` so a period boundary does
  * not shift with the database session's TimeZone.

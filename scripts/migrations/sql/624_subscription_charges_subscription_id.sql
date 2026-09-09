@@ -1,4 +1,4 @@
--- 619: tie a subscription charge to the subscription it bills.
+-- 624: tie a subscription charge to the subscription it bills.
 --
 -- subscription_charges only ever carried company_id, so any settlement or
 -- failure keyed off a charge acted on every subscription the company owns.

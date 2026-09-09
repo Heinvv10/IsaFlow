@@ -45,3 +45,13 @@ Note: two earlier full-suite runs each showed one or two 10s test timeouts, in
 different files each time (cashFlowReport, bankAllocationUnwind, none related to
 billing). Both files pass in isolation and the suite is green at the 30s timeout;
 the timeouts are machine load from concurrent sessions, not this change.
+
+=== MIGRATION RENAMED 619 -> 624 (prefix 619 taken by the K-010 branch) ===
+Fixture DB: index and column dropped, 624_subscription_charges_subscription_id.sql
+re-applied, schema_migrations row inserted as the runner would
+(version 624, name 624_subscription_charges_subscription_id.sql, sha256 checksum).
+ SELECT version, name FROM schema_migrations WHERE version IN ('619','624');
+ -> 624 | 624_subscription_charges_subscription_id.sql   (no 619 row)
+bun scripts/audit-migration-naming.ts        -> exit 0, no new duplicate prefixes
+bun scripts/ci/check-migration-rls.ts        -> OK
+Integration after the rename                 -> 2 files / 22 tests passed
