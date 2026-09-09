@@ -18,15 +18,30 @@
  * why its allocations never affected anything downstream.
  */
 
-import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { BALANCE_DERIVED, recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
 export const EPS = 0.01;
 
-/** Statuses whose bill is void or not yet a payable and cannot take a payment. */
-const UNALLOCATABLE_STATUSES = new Set(['cancelled', 'draft']);
+/**
+ * Statuses a bill may be in to take a payment — an ALLOW-list, deliberately.
+ *
+ * The deny-list this replaces named 'cancelled' and 'draft' only, so the other
+ * two statuses `supplier_invoices_status_check` permits — 'pending_approval'
+ * and 'disputed' — passed the gate. AP is credited only by
+ * `approveSupplierInvoice`, so such a bill has no journal at all: the payment's
+ * DR Accounts Payable had no matching credit, and `recomputeInvoiceStatus`
+ * left the status alone (it too restricts itself to BALANCE_DERIVED), so the
+ * bill read unapproved and fully paid at the same time.
+ *
+ * It is the SAME set `recomputeInvoiceStatus` will act on afterwards, which is
+ * the point: a status that recompute refuses to move must not be allowed to
+ * take money either. A status added to the CHECK constraint later fails closed
+ * here rather than silently joining the allowed set.
+ */
+const ALLOCATABLE_STATUSES = new Set(BALANCE_DERIVED);
 
 export interface SupplierAllocationInput {
   invoiceId: string;
@@ -139,29 +154,45 @@ async function fetchBillCandidates(
   return new Map(rows.map((r) => [String(r.id), r]));
 }
 
+/**
+ * The two facts about a bill that decide whether ANY payment may touch it: its
+ * status, and whose bill it is. Exported because `createSupplierPayment` runs
+ * its own bill query (it additionally counts unprocessed payments' pending
+ * allocations, which this file does not) and must refuse on the same terms.
+ */
+export function assertBillAllocatable(
+  bill: { invoiceNumber: string; status: string; supplierId: string },
+  expectedSupplierId: string,
+): void {
+  if (!ALLOCATABLE_STATUSES.has(bill.status)) {
+    throw new Error(
+      `Invoice ${bill.invoiceNumber} is ${bill.status} and cannot receive a payment.`,
+    );
+  }
+  if (bill.supplierId !== expectedSupplierId) {
+    throw new Error(
+      `Invoice ${bill.invoiceNumber} belongs to a different supplier than this payment.`,
+    );
+  }
+}
+
 function buildLine(
   alloc: SupplierAllocationInput,
   bill: BillCandidate,
   supplierId: string,
 ): SupplierApplicationLine {
   const statusBefore = String(bill.status);
-  if (UNALLOCATABLE_STATUSES.has(statusBefore)) {
-    throw new Error(
-      `Invoice ${String(bill.invoice_number)} is ${statusBefore} and cannot receive a payment.`,
-    );
-  }
+  assertBillAllocatable({
+    invoiceNumber: String(bill.invoice_number),
+    status: statusBefore,
+    supplierId: String(bill.supplier_id),
+  }, supplierId);
   if (Number(bill.already_allocated ?? 0) > 0) {
     throw new Error(
       `This payment is already allocated against invoice ${String(bill.invoice_number)}. `
       + 'A payment applies to a bill once; use a second payment to apply more.',
     );
   }
-  if (String(bill.supplier_id) !== supplierId) {
-    throw new Error(
-      `Invoice ${String(bill.invoice_number)} belongs to a different supplier than this payment.`,
-    );
-  }
-
   const total = Number(bill.total_amount);
   const outstandingBefore = round2(total - Number(bill.amount_paid ?? 0));
   if (alloc.amount > outstandingBefore + EPS) {

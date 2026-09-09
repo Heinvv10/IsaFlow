@@ -1,0 +1,240 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts" "tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts" "tests/integration/k066-supplier-payment-foreign-bill.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-063
+
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-09-09T09:26:35.090Z","component":"accounting","data":{"paymentId":"fbb6076e-2216-4e6b-9366-038b4c55b83f","lines":1,"applied":1000,"unappliedAfter":0,"userId":"d7641d19-6439-4326-a8a7-afa49fa2d225"}}
+ ❯ tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts (1 test | 1 failed) 168ms
+   × refuses to apply a payment to a bill that has not been approved 47ms
+{"level":"info","message":"Created supplier payment","timestamp":"2026-09-09T09:26:35.219Z","component":"accounting","data":{"paymentId":"87b09e47-df82-4803-ac5f-0d512e98ef7c","paymentNumber":"SP-2026-00001","totalAmount":115}}
+{"level":"info","message":"Created batch payment","timestamp":"2026-09-09T09:26:35.229Z","component":"accounting","data":{"batchId":"30512e86-0052-437c-b3f5-f5cef520d09e","paymentCount":1}}
+{"level":"info","message":"Created batch payment","timestamp":"2026-09-09T09:26:35.252Z","component":"accounting","data":{"batchId":"9e6d91e2-f65b-480b-ac7f-251c57952a94","paymentCount":1}}
+{"level":"info","message":"Created supplier payment","timestamp":"2026-09-09T09:26:35.259Z","component":"accounting","data":{"paymentId":"c381b801-acf0-42ce-a46c-0e8b2dcbbec4","paymentNumber":"SP-2026-00002","totalAmount":115}}
+{"level":"info","message":"Created supplier payment","timestamp":"2026-09-09T09:26:35.287Z","component":"accounting","data":{"paymentId":"309b8808-d583-4ad7-bfdd-2d2079dedca8","paymentNumber":"SP-2026-00003","totalAmount":115}}
+ ❯ tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts (2 tests | 2 failed) 271ms
+   × refuses a batch line against another tenant's bill 65ms
+   × refuses a batch line for more than the bill has outstanding 18ms
+ ❯ tests/integration/k066-supplier-payment-foreign-bill.int.test.ts (3 tests | 3 failed) 275ms
+     × refuses a payment to supplier A that allocates supplier B's bill 73ms
+     × refuses a payment that allocates a DRAFT bill 30ms
+     × refuses a payment that allocates a CANCELLED bill 22ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts > refuses to apply a payment to a bill that has not been approved
+AssertionError: expected 1000 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1000
+
+ ❯ tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts:78:39
+     76|   const { rows } = await pool.query('SELECT amount_paid, status, gl_jo…
+     77|   expect(rows[0].gl_journal_entry_id).toBeNull();
+     78|   expect(Number(rows[0].amount_paid)).toBe(0);
+       |                                       ^
+     79|   expect(rows[0].status).toBe('pending_approval');
+     80|   expect(String(error)).toMatch(/pending_approval/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts > refuses a batch line against another tenant's bill
+AssertionError: promise resolved "{ …(15) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "bankAccountId": undefined,
++   "batchDate": "2026-09-09",
++   "batchNumber": "BAT-2026-00001",
++   "createdAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
++   "createdBy": "6497b13c-01d6-4798-a7e1-49172988d43f",
++   "glJournalEntryId": undefined,
++   "id": "30512e86-0052-437c-b3f5-f5cef520d09e",
++   "notes": undefined,
++   "paymentCount": 1,
++   "paymentMethod": "eft",
++   "processedAt": undefined,
++   "processedBy": undefined,
++   "status": "draft",
++   "totalAmount": 100,
++   "updatedAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
+  }
+
+ ❯ tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts:63:21
+     61|     paymentMethod: 'eft',
+     62|     payments: [{ supplierId: supplierA, invoiceAllocations: [{ invoice…
+     63|   } as never, user)).rejects.toThrow();
+       |                     ^
+     64|
+     65|   const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM pa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts > refuses a batch line for more than the bill has outstanding
+AssertionError: promise resolved "{ …(15) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "bankAccountId": undefined,
++   "batchDate": "2026-09-09",
++   "batchNumber": "BAT-2026-00002",
++   "createdAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
++   "createdBy": "6497b13c-01d6-4798-a7e1-49172988d43f",
++   "glJournalEntryId": undefined,
++   "id": "9e6d91e2-f65b-480b-ac7f-251c57952a94",
++   "notes": undefined,
++   "paymentCount": 1,
++   "paymentMethod": "eft",
++   "processedAt": undefined,
++   "processedBy": undefined,
++   "status": "draft",
++   "totalAmount": 500,
++   "updatedAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
+  }
+
+ ❯ tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts:73:21
+     71|     paymentMethod: 'eft',
+     72|     payments: [{ supplierId: supplierA, invoiceAllocations: [{ invoice…
+     73|   } as never, user)).rejects.toThrow();
+       |                     ^
+     74|
+     75|   const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM pa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  tests/integration/k066-supplier-payment-foreign-bill.int.test.ts > K-066 supplier payment allocation checks neither the supplier nor the bill status > refuses a payment to supplier A that allocates supplier B's bill
+AssertionError: promise resolved "{ …(19) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "approvedAt": undefined,
++   "approvedBy": undefined,
++   "bankAccountId": "0eea0971-0669-46a6-a6db-a2bd8276a719",
++   "batchId": undefined,
++   "createdAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
++   "createdBy": "2fcb084a-386c-4ae1-9317-4c4fe7b7b23a",
++   "description": undefined,
++   "glJournalEntryId": undefined,
++   "id": "87b09e47-df82-4803-ac5f-0d512e98ef7c",
++   "paymentDate": "2026-06-30",
++   "paymentMethod": "eft",
++   "paymentNumber": "SP-2026-00001",
++   "processedAt": undefined,
++   "reference": undefined,
++   "status": "draft",
++   "supplierId": "19fae9cd-f126-4a91-a6bf-d572a6567894",
++   "supplierName": undefined,
++   "totalAmount": 115,
++   "updatedAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
+  }
+
+ ❯ tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:110:15
+    108|       bankAccountId: bankAccount,
+    109|       allocations: [{ invoiceId: billOfB, amount: 115 }],
+    110|     }, USER))).rejects.toThrow();
+       |               ^
+    111|
+    112|     const alloc = (await sql`
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  tests/integration/k066-supplier-payment-foreign-bill.int.test.ts > K-066 supplier payment allocation checks neither the supplier nor the bill status > refuses a payment that allocates a DRAFT bill
+AssertionError: promise resolved "{ …(19) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "approvedAt": undefined,
++   "approvedBy": undefined,
++   "bankAccountId": "0eea0971-0669-46a6-a6db-a2bd8276a719",
++   "batchId": undefined,
++   "createdAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
++   "createdBy": "2fcb084a-386c-4ae1-9317-4c4fe7b7b23a",
++   "description": undefined,
++   "glJournalEntryId": undefined,
++   "id": "c381b801-acf0-42ce-a46c-0e8b2dcbbec4",
++   "paymentDate": "2026-06-30",
++   "paymentMethod": "eft",
++   "paymentNumber": "SP-2026-00002",
++   "processedAt": undefined,
++   "reference": undefined,
++   "status": "draft",
++   "supplierId": "19fae9cd-f126-4a91-a6bf-d572a6567894",
++   "supplierName": undefined,
++   "totalAmount": 115,
++   "updatedAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
+  }
+
+ ❯ tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:125:15
+    123|       bankAccountId: bankAccount,
+    124|       allocations: [{ invoiceId: draft, amount: 115 }],
+    125|     }, USER))).rejects.toThrow();
+       |               ^
+    126|   }, 60000);
+    127|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  tests/integration/k066-supplier-payment-foreign-bill.int.test.ts > K-066 supplier payment allocation checks neither the supplier nor the bill status > refuses a payment that allocates a CANCELLED bill
+AssertionError: promise resolved "{ …(19) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "approvedAt": undefined,
++   "approvedBy": undefined,
++   "bankAccountId": "0eea0971-0669-46a6-a6db-a2bd8276a719",
++   "batchId": undefined,
++   "createdAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
++   "createdBy": "2fcb084a-386c-4ae1-9317-4c4fe7b7b23a",
++   "description": undefined,
++   "glJournalEntryId": undefined,
++   "id": "309b8808-d583-4ad7-bfdd-2d2079dedca8",
++   "paymentDate": "2026-06-30",
++   "paymentMethod": "eft",
++   "paymentNumber": "SP-2026-00003",
++   "processedAt": undefined,
++   "reference": undefined,
++   "status": "draft",
++   "supplierId": "19fae9cd-f126-4a91-a6bf-d572a6567894",
++   "supplierName": undefined,
++   "totalAmount": 115,
++   "updatedAt": "Wed Sep 09 2026 11:26:35 GMT+0200 (South Africa Standard Time)",
+  }
+
+ ❯ tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:136:15
+    134|       bankAccountId: bankAccount,
+    135|       allocations: [{ invoiceId: cancelled, amount: 115 }],
+    136|     }, USER))).rejects.toThrow();
+       |               ^
+    137|   }, 60000);
+    138| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  6 failed (6)
+   Start at  11:26:34
+   Duration  996ms (transform 738ms, setup 0ms, import 1.16s, tests 715ms, environment 2ms)
+
+error: script "test:integration" exited with code 1
