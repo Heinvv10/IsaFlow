@@ -35,6 +35,11 @@ const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
 const COMPANY = randomUUID();
 const OTHER_COMPANY = randomUUID();
+// A third book, used only by the un-nameable-debtor cases. They stay out of
+// COMPANY so the debtors-vs-aging total agreement above is asserted on a book
+// that has no orphan id — see the ORPHAN test for why that distinction matters.
+const NAMELESS_COMPANY = randomUUID();
+const ORPHAN_ID = randomUUID();
 const USER = randomUUID();
 const TAG = `K058-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
@@ -44,6 +49,8 @@ const SPLIT = 400;
 const LEGACY_ONLY = 250;
 const OTHER = 9999;
 const FOREIGN = 600;
+const ORPHAN = 400;
+const FOREIGN_C = 800;
 
 let customer: string;
 let otherCustomer: string;
@@ -54,7 +61,8 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
   beforeAll(async () => {
     await sql`INSERT INTO companies (id, name, registration_number, created_at)
               VALUES (${COMPANY}::UUID, ${'K058 ' + TAG}, ${TAG}, NOW()),
-                     (${OTHER_COMPANY}::UUID, ${'K058 other ' + TAG}, ${TAG + '-O'}, NOW())`;
+                     (${OTHER_COMPANY}::UUID, ${'K058 other ' + TAG}, ${TAG + '-O'}, NOW()),
+                     (${NAMELESS_COMPANY}::UUID, ${'K058 nameless ' + TAG}, ${TAG + '-N'}, NOW())`;
     customer = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'K058 ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
     billTo = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'K058 billto ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
     legacyOnly = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'K058 legacyonly ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
@@ -82,12 +90,22 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
          status, total_amount, amount_paid, created_by)
       VALUES
         (${COMPANY}::UUID, NULL, ${otherCustomer}::UUID, ${TAG + '-FOREIGN'}, '2026-01-15', '2026-02-15', 'approved', ${FOREIGN}, 0, ${USER}::UUID)`;
+    // Two debtors of the third company that cannot be named, for different
+    // reasons: ORPHAN's client_id matches no customers row anywhere (client_id
+    // carries no FK), FOREIGNC's customer_id names company B's customer.
+    await sql`
+      INSERT INTO customer_invoices
+        (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
+         status, total_amount, amount_paid, created_by)
+      VALUES
+        (${NAMELESS_COMPANY}::UUID, ${ORPHAN_ID}::UUID, ${otherCustomer}::UUID, ${TAG + '-ORPHAN'}, '2026-01-15', '2026-02-15', 'approved', ${ORPHAN}, 0, ${USER}::UUID),
+        (${NAMELESS_COMPANY}::UUID, NULL, ${otherCustomer}::UUID, ${TAG + '-FOREIGNC'}, '2026-01-15', '2026-02-15', 'approved', ${FOREIGN_C}, 0, ${USER}::UUID)`;
   }, 60000);
 
   afterAll(async () => {
-    await sql`DELETE FROM customer_invoices WHERE company_id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID)`;
-    await sql`DELETE FROM customers WHERE company_id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID)`;
-    await sql`DELETE FROM companies WHERE id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID)`;
+    await sql`DELETE FROM customer_invoices WHERE company_id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NAMELESS_COMPANY}::UUID)`;
+    await sql`DELETE FROM customers WHERE company_id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NAMELESS_COMPANY}::UUID)`;
+    await sql`DELETE FROM companies WHERE id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NAMELESS_COMPANY}::UUID)`;
   }, 60000);
 
   it('AR aging already counts the NULL client_id invoice', async () => {
@@ -100,6 +118,12 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
   it('the debtors summary agrees with AR aging', async () => {
     const summary = await getDebtorsSummary(COMPANY);
     const total = summary.reduce((s, d) => s + d.totalOutstanding, 0);
+    // Compare against what the aging report actually returns, not against a
+    // constant: the property fix.md leads with is that the two SURFACES agree,
+    // and only a call to getARAging can fail when one of them drifts.
+    const aging = await getARAging(COMPANY);
+    const agingTotal = aging.reduce((s, b) => s + b.total, 0);
+    expect(total).toBeCloseTo(agingTotal, 2);
     expect(total).toBeCloseTo(LINKED + LEGACY + SPLIT + LEGACY_ONLY + FOREIGN, 2);
   });
 
@@ -151,13 +175,13 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
     // The join is tenant-scoped AND outer: the name is withheld, the debt is not.
     const foreignRow = summary.find((d) => d.clientId === otherCustomer);
     expect(foreignRow).toBeDefined();
-    expect(foreignRow!.clientName).toBe('Unknown customer');
+    expect(foreignRow!.clientName).toBe('Unknown customer ' + otherCustomer.slice(0, 8));
     expect(foreignRow!.totalOutstanding).toBeCloseTo(FOREIGN, 2);
     expect(summary.map((d) => d.clientName)).not.toContain('K058 other ' + TAG);
 
     const foreignInvoice = overdue.find((i) => i.invoiceNumber === TAG + '-FOREIGN');
     expect(foreignInvoice).toBeDefined();
-    expect(foreignInvoice!.clientName).toBe('Unknown customer');
+    expect(foreignInvoice!.clientName).toBe('Unknown customer ' + otherCustomer.slice(0, 8));
     expect(foreignInvoice!.outstanding).toBeCloseTo(FOREIGN, 2);
     expect(overdue.map((i) => i.clientName)).not.toContain('K058 other ' + TAG);
   });
@@ -185,5 +209,44 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
     expect(overdue.some((i) => i.invoiceNumber === TAG + '-OTHER')).toBe(false);
     const other = await getDebtorsSummary(OTHER_COMPANY);
     expect(other.reduce((s, d) => s + d.totalOutstanding, 0)).toBeCloseTo(OTHER, 2);
+  });
+
+  it('tells two un-nameable debtors apart', async () => {
+    const summary = await getDebtorsSummary(NAMELESS_COMPANY);
+    const orphanRow = summary.find((d) => d.clientId === ORPHAN_ID);
+    const foreignRow = summary.find((d) => d.clientId === otherCustomer);
+    expect(orphanRow).toBeDefined();
+    expect(foreignRow).toBeDefined();
+    // Neither can be named, but a constant placeholder would render them as the
+    // same debtor in the table and make them inseparable in the name search.
+    expect(orphanRow!.clientName).toBe('Unknown customer ' + ORPHAN_ID.slice(0, 8));
+    expect(foreignRow!.clientName).toBe('Unknown customer ' + otherCustomer.slice(0, 8));
+    expect(orphanRow!.clientName).not.toBe(foreignRow!.clientName);
+    expect(orphanRow!.totalOutstanding).toBeCloseTo(ORPHAN, 2);
+    expect(foreignRow!.totalOutstanding).toBeCloseTo(FOREIGN_C, 2);
+    // Still no company B name on company C's dashboard.
+    expect(summary.map((d) => d.clientName)).not.toContain('K058 other ' + TAG);
+    const overdue = await getOverdueInvoices(NAMELESS_COMPANY);
+    expect(new Set(overdue.map((i) => i.clientName)).size).toBe(2);
+    expect(overdue.map((i) => i.clientName)).not.toContain('K058 other ' + TAG);
+  });
+
+  it('records the one case where debtors and AR aging still disagree', async () => {
+    // KNOWN LIMIT, asserted rather than only written down (fix.md Limits).
+    // getARAging joins customers with an UNSCOPED INNER JOIN, so an id matching
+    // no customers row at all is dropped there while the outer join here keeps
+    // it. The foreign id is not affected: aging's unscoped join finds company
+    // B's customer and keeps that money (and renders that name, which is the
+    // other half of the same limit). Scoping arAgingService belongs to K-053,
+    // which owns that file.
+    const summary = await getDebtorsSummary(NAMELESS_COMPANY);
+    const aging = await getARAging(NAMELESS_COMPANY);
+    const summaryTotal = summary.reduce((s, d) => s + d.totalOutstanding, 0);
+    const agingTotal = aging.reduce((s, b) => s + b.total, 0);
+    expect(summaryTotal).toBeCloseTo(ORPHAN + FOREIGN_C, 2);
+    expect(agingTotal).toBeCloseTo(FOREIGN_C, 2);
+    // The gap is exactly the orphan row, and nothing else.
+    expect(summaryTotal - agingTotal).toBeCloseTo(ORPHAN, 2);
+    expect(aging.some((b) => b.entityId === ORPHAN_ID)).toBe(false);
   });
 });

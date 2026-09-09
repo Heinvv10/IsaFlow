@@ -86,7 +86,9 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
         -- LEFT JOIN + placeholder: an id naming another company's customer, or no
         -- customer at all (client_id carries no FK), must not surface that name —
         -- but the debt is this company's, so the row and its amount stay visible.
-        COALESCE(c.name, 'Unknown customer') AS client_name,
+        -- The id fragment keeps two un-nameable debtors apart, in the table and in
+        -- the client-side name search, without disclosing anything about either.
+        COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id, ci.customer_id)::text, 8)) AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         SUM(
           CASE WHEN ci.due_date IS NULL OR ci.due_date >= CURRENT_DATE
@@ -205,7 +207,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
         ci.id,
         ci.invoice_number,
         COALESCE(ci.client_id, ci.customer_id) AS client_id,
-        COALESCE(c.name, 'Unknown customer') AS client_name,
+        COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id, ci.customer_id)::text, 8)) AS client_name,
         ci.invoice_date,
         ci.due_date,
         ci.total_amount,
