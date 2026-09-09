@@ -1,3 +1,4 @@
+import {assertGeneratedJournalMoney} from '../controls/generatedJournalMoney';
 import { als } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';
 import { requireControlTx } from '../controls/context';
@@ -30,6 +31,7 @@ export async function runJournalControl<T>(companyId: string, userId: string, re
     const effectiveRef = ref.operation === 'journal.reverse' ? { ...ref, reversalDate: parent.permit.accountingDate } : ref;
     return await withSavepoint('controlled_generated_journal', async () => {
       const material = await materializeGlOperation(ctx, effectiveRef);
+      assertGeneratedJournalMoney(parent.permit,material.binding);
       await initializeOperationObservations(ctx, material);
       const result = await effect(ctx, material, parent);
       const after = await materializeGlOperation(ctx, { ...ref,

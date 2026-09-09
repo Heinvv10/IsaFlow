@@ -9,7 +9,7 @@ import { canonicalOperationRef, loadOperationMaterial, materializeOperation, res
 
 import { initializeOperationObservations } from './approvalRequestService';
 
-export interface ControlledEffectPermit { readonly operationId: string; readonly accountingDate: string; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }
+export interface ControlledEffectPermit { readonly operationId: string; readonly accountingDate: string; readonly amount: string | null; readonly currency: string | null; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }
 const permits = new WeakMap<ControlledEffectPermit, ControlTx>();
 const executing = new WeakSet<ControlTx['principal']>();
 export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledEffectPermit, parent: OperationRef): void {
@@ -65,7 +65,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     const accountingDate=material.binding.accountingDate;
     if (!accountingDate) throw new Error('Financial operation accounting date is required');
     await initializeOperationObservations(ctx, material);
-    const permit = Object.freeze({ operationId, accountingDate, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId });
+    const permit = Object.freeze({ operationId, accountingDate, amount:material.binding.amount, currency:material.binding.currency, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId });
     permits.set(permit, ctx); executing.add(ctx.principal);
     let result: T;
     try { result = await effect(permit); } finally { permits.delete(permit); executing.delete(ctx.principal); }
