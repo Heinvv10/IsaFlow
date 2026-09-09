@@ -7,7 +7,7 @@ export type ReleaseChannel='netcash'|'eft';
 export type ReleaseBankFormat=typeof EFT_FORMATS[number];
 export interface PaymentReleasePayload {
  version:1;companyId:string;intentId:string;channel:ReleaseChannel;bankFormat:ReleaseBankFormat|null;
- providerConfigurationFingerprint:string|null;header:EFTBatchHeader;payments:EFTPayment[];
+ providerConfigurationFingerprint:string|null;sourceFingerprint:string;header:EFTBatchHeader;payments:EFTPayment[];
 }
 export function sealReleasePayload(payload:PaymentReleasePayload){
  const json=canonicalJson(payload),hash=createHash('sha256').update(json).digest('hex');
@@ -18,6 +18,7 @@ export function openReleasePayload(companyId:string,intentId:string,envelope:Pro
  try{
   const payload=openProtectedChange(envelope).after;
   if(!payload||payload.companyId!==companyId||payload.intentId!==intentId||payload.version!==1
+   ||typeof payload.sourceFingerprint!=='string'||!/^([a-f0-9]{64})$/.test(payload.sourceFingerprint)
    ||createHash('sha256').update(canonicalJson(payload)).digest('hex')!==hash)throw new Error('binding');
   return payload as unknown as PaymentReleasePayload;
  }catch{throw new Error('Payment release payload unavailable or changed');}

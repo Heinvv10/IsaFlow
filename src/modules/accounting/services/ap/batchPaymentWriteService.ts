@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import {fmtDate} from '@/lib/fmtDate';
 import {als} from '@/lib/als';
 import {withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -17,10 +18,10 @@ export async function batchWrite<T>(companyId:string,userId:string|undefined,act
   return await withSavepoint('controlled_batch_write',()=>action(ctx));
  }catch(error){const store=als.getStore();if(store)store.controlWriteFailed=true;throw error;}
 }
-export async function recordBatchEntity(ctx:ControlTx,entityType:string,before:Record<string,unknown>|null,after:Record<string,unknown>,action:string){
+export async function recordBatchEntity(ctx:ControlTx,entityType:string,before:Record<string,unknown>|null,after:Record<string,unknown>,action:string,accountingDate?:string|null){
  const entityId=String(after.id),version=await readControlEntityVersion(ctx,{entityType,entityId});
  await recordCommittedChange(ctx,{entityType,entityId,previousVersion:version?.version??null,newVersion:(version?.version??0)+1,
-  action,accountingDate:null,before,after,bindingHash:null,protectedEvidenceRef:null});
+  action,accountingDate:accountingDate??(after.payment_date||after.batch_date||after.invoice_date?fmtDate((after.payment_date??after.batch_date??after.invoice_date) as string|Date):null),before,after,bindingHash:null,protectedEvidenceRef:null});
 }
 export async function createControlledBatch(companyId:string,input:BatchPaymentCreateInput,userId:string):Promise<string>{
  const normalized=validateBatchInput(input);
