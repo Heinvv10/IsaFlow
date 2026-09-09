@@ -76,7 +76,7 @@ it('keeps owned population totals complete beyond a page and refuses foreign ten
  const full=await actor(()=>getUnappliedReceipts(fixture.companyA,{asAt:'2026-09-09',limit:500}));
  expect(small.rows).toHaveLength(1);expect(small.rowsTotal).toBe(full.rowsTotal);expect(small.totalUnapplied).toBe(full.totalUnapplied);
  const foreign=await actor(()=>getUnappliedReceipts(fixture.companyA,{asAt:'2026-09-09',limit:500}),'u3');
- expect(foreign.rows.some(row=>row.paymentId===posted.paymentId)).toBe(false);expect(foreign.universeTotal).toBe(0);
+ expect(foreign.rows.some(row=>row.paymentId===posted.paymentId)).toBe(false);expect(foreign.universeTotal).toBeUndefined();expect(foreign.historyCoverage.population.sourceCount).toBe(0);
 });
 
 it('independent same-snapshot census detects deliberately omitted history details',async()=>{

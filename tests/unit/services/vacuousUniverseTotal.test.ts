@@ -62,7 +62,14 @@ describe('no report may synthesize its own universe', () => {
   it('leaves genuinely independent universe counts in place', () => {
     expect(src('src/modules/accounting/services/core/documentQueryService.ts'))
       .toMatch(/universeTotal:\s*Number\(universe\?\.cnt/);
-    expect(src('src/modules/accounting/services/ar/unappliedReceiptService.ts'))
-      .toMatch(/universeTotal:\s*Number\(totals\.universe_total/);
+    // Historical readers now reconcile the complete base-payment census and
+    // expose unresolved dispositions instead of inventing an eligible universe.
+    const query = src('src/modules/accounting/services/shared/unappliedCashHistoryQuery.ts');
+    expect(query).toMatch(/SELECT COUNT\(\*\) FROM customer_payments WHERE company_id=/);
+    expect(query).toMatch(/SELECT COUNT\(\*\) FROM supplier_payments WHERE company_id=/);
+    expect(src('src/modules/accounting/services/shared/unappliedCashHistory.ts'))
+      .not.toMatch(/universeTotal:\s*rows\.length/);
+    expect(src('src/modules/accounting/services/shared/unappliedCashCensus.ts'))
+      .toMatch(/source\.length!==sourceCount/);
   });
 });
