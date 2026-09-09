@@ -75,15 +75,19 @@ function acct(over: Partial<ParsedAccount>): ParsedAccount {
 
 /**
  * Resolve gl_accounts lookups by account_code. Codes listed in `missing` come
- * back empty, standing in for an account whose import failed in step 1.
+ * back empty, standing in for an account whose import failed in step 1. Codes
+ * listed in `notOwned` come back with a NULL `imported_from`: the account
+ * exists but this source does not own it — the company's own account, or one a
+ * partial rollback released back to it.
  */
-function withResolvableAccounts(missing: string[] = []) {
+function withResolvableAccounts(missing: string[] = [], notOwned: string[] = []) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray, ...vals: unknown[]) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
     if (text.includes('FROM gl_accounts')) {
       const code = vals.find(v => typeof v === 'string' && /^\d+$/.test(v)) as string | undefined;
       if (code && missing.includes(code)) return Promise.resolve([]);
-      return Promise.resolve([{ id: `gl-${code ?? 'x'}` }]);
+      const owner = code && notOwned.includes(code) ? null : 'xero';
+      return Promise.resolve([{ id: `gl-${code ?? 'x'}`, imported_from: owner }]);
     }
     return Promise.resolve([]);
   }) as never);
@@ -131,6 +135,33 @@ describe('executeMigration — opening balances', () => {
     expect(postMock).not.toHaveBeenCalled();
     expect(result.openingBalancesSet).toBe(0);
     expect(result.errors.join(' ')).toMatch(/3000/);
+  });
+
+  it('does NOT post onto an account this source does not own, and says which', async () => {
+    withResolvableAccounts([], ['3000']); // released by a partial rollback
+
+    const result = await executeMigration(COMPANY, USER, 'xero', BALANCED, [], []);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
+    expect(result.openingBalancesSet).toBe(0);
+    // Naming the real cause matters: "no GL account was created" sent the
+    // operator looking for an import failure that never happened.
+    expect(result.errors.join(' ')).toContain('3000 Share capital already exists as an account the xero import does not own');
+  });
+
+  it('reports a missing account and a not-owned one in the SAME refusal', async () => {
+    withResolvableAccounts(['1000'], ['3000']);
+
+    const result = await executeMigration(COMPANY, USER, 'xero', BALANCED, [], []);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(result.openingBalancesSet).toBe(0);
+    // One message, both causes. Naming only the first sends the operator round
+    // the loop again to meet the second for the first time.
+    const message = result.errors.join(' ');
+    expect(message).toContain('no GL account was created for 1000 Bank');
+    expect(message).toContain('3000 Share capital already exists as an account the xero import does not own');
   });
 
   it('does NOT post when the source trial balance does not sum to zero', async () => {
