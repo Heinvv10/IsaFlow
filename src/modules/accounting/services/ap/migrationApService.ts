@@ -3,7 +3,7 @@
  * PRD: Customer Migration Wizard — Phase 1
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
@@ -67,57 +67,63 @@ export async function importAPInvoices(
         inv.totalAmount,
       );
 
-      const invRows = (await sql`
-        INSERT INTO supplier_invoices (
-          company_id, supplier_id, invoice_number, invoice_date, due_date,
-          subtotal, tax_amount, total_amount, amount_paid, balance_due,
-          status, reference, created_by,
-          duplicate_fingerprint
-        ) VALUES (
-          ${companyId}::UUID, ${supplierId}::UUID, ${inv.invoiceNumber},
-          ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE,
-          ${inv.subtotal}, ${inv.taxAmount}, ${inv.totalAmount},
-          ${inv.amountPaid ?? 0}, ${balance}, ${status},
-          ${inv.reference ?? null}, ${userId}::UUID,
-          ${migFingerprint}
-        )
-        ON CONFLICT DO NOTHING
-        RETURNING id
-      `) as Row[];
+      // Every statement for this row runs inside its own savepoint: a caught
+      // per-row failure must not leave the request transaction aborted, or the
+      // updateSession below dies with 25P02 and the whole route 500s.
+      const rowImported = await withSavepoint('mig_ap_invoice_row', async () => {
+        const invRows = (await sql`
+          INSERT INTO supplier_invoices (
+            company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, amount_paid,
+            status, reference, created_by,
+            duplicate_fingerprint
+          ) VALUES (
+            ${companyId}::UUID, ${supplierId}::UUID, ${inv.invoiceNumber},
+            ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE,
+            ${inv.subtotal}, ${inv.taxAmount}, ${inv.totalAmount},
+            ${inv.amountPaid ?? 0}, ${status},
+            ${inv.reference ?? null}, ${userId}::UUID,
+            ${migFingerprint}
+          )
+          ON CONFLICT DO NOTHING
+          RETURNING id
+        `) as Row[];
 
-      if (invRows.length === 0) { skipped++; continue; }
-      const invoiceId = String(invRows[0]!.id);
+        if (invRows.length === 0) return false;
+        const invoiceId = String(invRows[0]!.id);
 
-      // Post GL: DR Expense + VAT Input, CR Payable
-      const journalLines = [
-        { glAccountId: expenseAccountId, debit: inv.subtotal,   credit: 0,              description: `Expense — ${inv.invoiceNumber}` },
-        { glAccountId: apAccountId,      debit: 0,              credit: inv.totalAmount, description: `AP — ${inv.invoiceNumber}` },
-      ];
-      if (inv.taxAmount > 0) {
-        // DR VAT Input (claimable input tax), AP credit already equals totalAmount
-        journalLines.push({ glAccountId: vatInputId, debit: inv.taxAmount, credit: 0, description: `VAT Input — ${inv.invoiceNumber}` });
-      }
+        // Post GL: DR Expense + VAT Input, CR Payable
+        const journalLines = [
+          { glAccountId: expenseAccountId, debit: inv.subtotal,   credit: 0,              description: `Expense — ${inv.invoiceNumber}` },
+          { glAccountId: apAccountId,      debit: 0,              credit: inv.totalAmount, description: `AP — ${inv.invoiceNumber}` },
+        ];
+        if (inv.taxAmount > 0) {
+          // DR VAT Input (claimable input tax), AP credit already equals totalAmount
+          journalLines.push({ glAccountId: vatInputId, debit: inv.taxAmount, credit: 0, description: `VAT Input — ${inv.invoiceNumber}` });
+        }
 
-      // No sourceDocumentId: gl_journal_entries.source_document_id has an FK
-      // to captured_documents(id) only (migration 409); the invoice's own id
-      // would violate it. The invoice <-> journal entry link is instead
-      // persisted below via supplier_invoices.gl_journal_entry_id — same
-      // column supplierInvoiceWorkflowService/sageMigrationCommitService use
-      // for a supplier invoice's own posting entry; safe here because a
-      // migrated invoice is inserted pre-approved and never goes through
-      // that flow afterward.
-      const entry = await createJournalEntry(companyId, {
-        entryDate: inv.invoiceDate,
-        description: `Migrated AP invoice ${inv.invoiceNumber}`,
-        source: 'auto_migration',
-        lines: journalLines,
-      }, userId);
-      await postJournalEntry(companyId, entry.id, userId);
-      await sql`
-        UPDATE supplier_invoices SET gl_journal_entry_id = ${entry.id}::UUID
-        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-      `;
-      imported++;
+        // No sourceDocumentId: gl_journal_entries.source_document_id has an FK
+        // to captured_documents(id) only (migration 409); the invoice's own id
+        // would violate it. The invoice <-> journal entry link is instead
+        // persisted below via supplier_invoices.gl_journal_entry_id — same
+        // column supplierInvoiceWorkflowService/sageMigrationCommitService use
+        // for a supplier invoice's own posting entry; safe here because a
+        // migrated invoice is inserted pre-approved and never goes through
+        // that flow afterward.
+        const entry = await createJournalEntry(companyId, {
+          entryDate: inv.invoiceDate,
+          description: `Migrated AP invoice ${inv.invoiceNumber}`,
+          source: 'auto_migration',
+          lines: journalLines,
+        }, userId);
+        await postJournalEntry(companyId, entry.id, userId);
+        await sql`
+          UPDATE supplier_invoices SET gl_journal_entry_id = ${entry.id}::UUID
+          WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+        `;
+        return true;
+      });
+      if (rowImported) imported++; else skipped++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push({ step: 'ap_invoices', row: i, message: msg });

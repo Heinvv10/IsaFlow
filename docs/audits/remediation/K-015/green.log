@@ -1,0 +1,45 @@
+# GREEN — K-015 + K-089, fixture PostgreSQL (isaflow_schema_fixture)
+
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts" "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-015
+
+
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+   Start at  05:53:38
+   Duration  1.11s (transform 500ms, setup 0ms, import 766ms, tests 861ms, environment 0ms)
+
+
+## Mutation checks (production code temporarily reverted, then restored)
+
+1. re-add `balance_due` to the AP INSERT      -> k015: 3 failed | 1 passed (4)
+2. re-add `balance_due` to the AR INSERT      -> k089: 3 failed | 1 passed (4)
+3. `external_ref` -> `reference` in AR INSERT -> k089: 3 failed | 1 passed (4)
+4. AP per-row savepoint removed (IIFE)        -> k015: 1 failed | 3 passed (4)
+                                                 ("a failing row is skipped without poisoning the rest of the run")
+5. AR per-row savepoint removed (IIFE)        -> k089: 1 failed | 3 passed (4)
+                                                 (same test)
+
+All five restored; final run above is 8/8 green.
+
+## Related unit tests (unchanged, still green)
+
+tests/unit/migration/migrationValidation.test.ts
+tests/unit/services/core/migrationImportService.test.ts
+tests/unit/services/ap/migrationApService.test.ts   -> 3 files, 48 passed
+
+## Full unit suite (clean shell, DATABASE_URL and the fixture env unset)
+
+`bunx vitest run`
+  Test Files  784 passed | 36 skipped (820)
+       Tests  9320 passed | 234 skipped (9554)
+
+No mocked fixture elsewhere in the suite depends on the columns this change
+renamed or dropped (`balance_due`, and `reference` -> `external_ref` on
+customer_invoices).
+
+## Gates
+
+bunx tsc --noEmit                     -> exit 0
+bunx eslint <the two changed services> -> exit 0
