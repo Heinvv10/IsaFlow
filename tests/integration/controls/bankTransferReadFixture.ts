@@ -17,10 +17,11 @@ export async function transferReadFixture(){
   {previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,'/api/accounting/bank-control-state')
   .catch(()=>{res.statusCode=500;res.end('Synthetic reader failure');});});
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error('Synthetic reader server unavailable');
+ const origin=`http://127.0.0.1:${address.port}`;
  async function read(bankTransactionId:string,person:'u1'|'u2'|'u3'='u1',approvalId?:string){
   const user=f.f[person],token=await new SignJWT({role:'authenticated',aal:'aal2'}).setProtectedHeader({alg:'HS256'}).setSubject(user.id).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   const query=new URLSearchParams({bankTransactionId,...(approvalId?{approvalId}:{})});
-  const response=await fetch(`http://127.0.0.1:${address.port}/api/accounting/bank-control-state?${query}`,{headers:{cookie:`sb-access-token=${token}; active_company_id=${user.companyId}`},redirect:'error',signal:AbortSignal.timeout(10000)});
+  const response=await fetch(`${origin}/api/accounting/bank-control-state?${query}`,{headers:{cookie:`sb-access-token=${token}; active_company_id=${user.companyId}`},redirect:'error',signal:AbortSignal.timeout(10000)});
   return{status:response.status,body:await response.json()};
  }
  async function posted(withOpposite=true){
