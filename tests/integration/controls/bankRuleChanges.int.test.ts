@@ -41,9 +41,9 @@ it('refuses foreign/missing references, changed user assertions and revoked auth
  await expect(f.actor(()=>deleteRules(f.f.companyA,[rule.id,randomUUID()]))).rejects.toThrow();
  await expect(f.actor(()=>toggleRule(f.f.companyB,rule.id,false))).rejects.toThrow();
  await expect(f.actor(()=>createRule(f.f.companyA,input(),f.f.u2.id))).rejects.toThrow();
- await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,'bank',false)",[f.f.companyA,f.f.u1.id]);
+ await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,'banking',false)",[f.f.companyA,f.f.u1.id]);
  try{await expect(f.actor(()=>updateRule(f.f.companyA,rule.id,{ruleName:'Denied'}))).rejects.toThrow();}
- finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='bank'",[f.f.companyA,f.f.u1.id]);}
+ finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='banking'",[f.f.companyA,f.f.u1.id]);}
  expect(await row(rule.id)).toEqual(before);expect(await history(rule.id)).toEqual(events);
 });
 it('evidence insertion failure rolls back every bulk deletion and prior event/version in the savepoint',async()=>{
