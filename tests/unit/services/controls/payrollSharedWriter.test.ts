@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const mock=vi.hoisted(()=>({require:vi.fn(),sql:vi.fn(async()=>[]),execute:vi.fn()}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:mock.require}));
 vi.mock('@/modules/accounting/services/controls/approvalExecutionService',()=>({executeControlledOperation:mock.execute}));
+vi.mock('@/modules/accounting/services/payroll/payrollPostingReceipt',()=>({readPayrollPostingReceipt:vi.fn(async()=>null)}));
 vi.mock('@/lib/neon',()=>({sql:mock.sql}));
 import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { postPayrollRunJournal, reversePayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
