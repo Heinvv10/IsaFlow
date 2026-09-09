@@ -1,6 +1,6 @@
 import {lockEmployeeBank,activateEmployeeBank} from './employeeBeneficiaryBank';
 import {validateEmployeeBeneficiaryEvidence} from './employeeBeneficiaryEvidence';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { UUID_RE } from '@/lib/validation';
 import { isActiveUserAccount, type UserAccountRow } from '@/lib/auth/userAccountStatus';
 import { permissionReason } from '@/lib/auth/effectivePermissionPolicy';
@@ -8,6 +8,9 @@ import type { ModulePermission } from '@/lib/auth/permissionService';
 import type { ControlTx, EvidenceRef } from './contracts';
 import type { ProtectedChange } from './changeProtection';
 import { BeneficiaryError, type BeneficiaryDetails, type BeneficiaryRef } from './beneficiaryValidation';
+import {loadOwnedCapturedEvidence} from './capturedEvidenceSource';
+import {isCapturedEvidenceUnavailable} from './capturedEvidenceScan';
+import {canonicalJson} from './canonical';
 
 export interface Proposal {
   id: string; company_id: string; entity_type: BeneficiaryRef['entityType']; entity_id: string;
@@ -48,24 +51,30 @@ export async function loadProposal(ctx: ControlTx, id: string, lock = false): Pr
   return rows[0] as Proposal;
 }
 export async function validateEvidence(ctx: ControlTx, ref: BeneficiaryRef, evidence: readonly EvidenceRef[]): Promise<EvidenceRef[]> {
+  const saved=JSON.parse(canonicalJson({ref,evidence})) as {ref:BeneficiaryRef;evidence:EvidenceRef[]};ref=saved.ref;evidence=saved.evidence;
   if (!Array.isArray(evidence) || evidence.length < 1 || evidence.length > 10) throw new BeneficiaryError('EVIDENCE_REQUIRED');
   if (ref.entityType === 'employee') return validateEmployeeBeneficiaryEvidence(ctx,ref,evidence);
   const result: EvidenceRef[] = [];
+  const deadline=AbortSignal.timeout(20000);
   for (const e of [...evidence].sort((a, b) => a.evidenceId < b.evidenceId ? -1 : 1)) {
     if (e.store !== 'captured') throw new BeneficiaryError('EVIDENCE_STORE_UNSUPPORTED');
     if (e.entityType !== 'supplier_invoice' || !UUID_RE.test(e.entityId) || !UUID_RE.test(e.evidenceId)
       || e.version !== null || !e.hash || !/^[a-f0-9]{64}$/.test(e.hash)
       || result.some(r => r.evidenceId === e.evidenceId)) throw new BeneficiaryError('INVALID_EVIDENCE');
-    const rows = await ctx.sql`SELECT d.raw_bytes,d.raw_bytes_sha256 FROM captured_documents d
+    const rows = await ctx.sql`SELECT d.id,d.raw_bytes_sha256 FROM captured_documents d
       JOIN supplier_invoices i ON i.id=d.matched_invoice_id AND i.company_id=d.company_id
       WHERE d.company_id=${ctx.principal.companyId}::uuid AND d.id=${e.evidenceId}::uuid
         AND i.id=${e.entityId}::uuid AND i.supplier_id=${ref.entityId}::uuid
-        AND d.status NOT IN ('rejected','deleted') FOR SHARE OF d,i` as { raw_bytes: Buffer | null; raw_bytes_sha256: string | null }[];
+        AND d.status NOT IN ('rejected','deleted') FOR SHARE OF d,i` as {id:string;raw_bytes_sha256:string|null}[];
     const row = rows[0];
-    if (rows.length !== 1 || !Buffer.isBuffer(row?.raw_bytes) || !row.raw_bytes.length || row.raw_bytes.length > 10 * 1024 * 1024
-      || createHash('sha256').update(row.raw_bytes).digest('hex') !== e.hash || row.raw_bytes_sha256 !== e.hash) {
+    if (rows.length !== 1 || !row || row.raw_bytes_sha256 !== e.hash) {
       throw new BeneficiaryError('EVIDENCE_UNAVAILABLE_OR_CHANGED');
     }
+    const stored=await loadOwnedCapturedEvidence(ctx,row.id,'read:invoices',deadline).catch(error=>{
+      if(isCapturedEvidenceUnavailable(error)||deadline.aborted)throw new BeneficiaryError('EVIDENCE_UNAVAILABLE_OR_CHANGED');
+      throw error;
+    });
+    if(!stored?.recordedHashVerified||stored.sha256!==e.hash)throw new BeneficiaryError('EVIDENCE_UNAVAILABLE_OR_CHANGED');
     result.push({ store: 'captured', evidenceId: e.evidenceId, entityType: 'supplier_invoice', entityId: e.entityId, version: null, hash: e.hash });
   }
   return result;

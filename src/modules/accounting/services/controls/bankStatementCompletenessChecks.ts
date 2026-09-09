@@ -3,7 +3,7 @@ import {loadBankStatementCompleteness} from './bankStatementCompletenessQueries'
 import {analyseBankStatementCompleteness} from './bankStatementCompletenessAnalysis';
 import {riskHash,riskOptions,riskResult,type RiskCheckOptions,type RiskFinding} from './invoiceRiskQueriesResult';
 export async function checkBankStatementCompleteness(ctx:ControlTx,options:RiskCheckOptions={}):Promise<ControlCheckResult>{
- const parsed=riskOptions(options),source=await loadBankStatementCompleteness(ctx,parsed.cutoff),missing:string[]=[],findings:RiskFinding[]=[];
+ const parsed=riskOptions(options),source=await loadBankStatementCompleteness(ctx,parsed.cutoff),missing:string[]=[...source.evidenceMissing],findings:RiskFinding[]=[];
  if(source.over)missing.push('async_scan_required:statement_population_exceeds_10000');
  if(source.uncoveredCount)missing.push('imported_transactions_outside_source_statement_periods');
  if(source.uncoveredCount>10000)missing.push('async_scan_required:uncovered_imported_population_exceeds_10000');

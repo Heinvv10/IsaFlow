@@ -3,7 +3,8 @@ import type {ControlTx} from './contracts';
 import {assertControlTx} from './context';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import type {StatementObservation} from './bankStatementCompletenessAnalysis';
-export interface BankStatementSource extends StatementObservation {population:string;currency:string;documentId:string|null;documentHash:string|null;version:number|null;sourceStatus:string|null;importedFingerprint:string;entityType:string;reviewState:'active'|'stale'|null}
+import {scanCapturedEvidence} from './capturedEvidenceScan';
+export interface BankStatementSource extends StatementObservation {population:string;currency:string;documentId:string|null;documentHash:string|null;version:number|null;sourceStatus:string|null;importedFingerprint:string;entityType:string;reviewState:'active'|'stale'|'deferred'|null}
 /** Source import roots stay visible even when their account/document relationship is corrupt. */
 export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|null){
  assertControlTx(ctx);await assertEffectivePermission(ctx,'read:reports');await assertEffectivePermission(ctx,'read:bank-tx');
@@ -59,8 +60,7 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
   FROM(SELECT b.id,b.amount,b.transaction_date FROM bank_transactions b WHERE b.company_id=${ctx.principal.companyId}::uuid
    AND b.bank_account_id=a.id AND b.transaction_date>=r.period_start AND b.transaction_date<=r.period_end ORDER BY b.id LIMIT 10001) f) AS "importedFingerprint",
  d.id AS "documentId",d.raw_bytes_sha256 AS "documentHash",d.status AS document_status,
- COALESCE(d.raw_bytes IS NOT NULL AND octet_length(d.raw_bytes) BETWEEN 1 AND 10485760 AND d.status NOT IN ('deleted','rejected')
-  AND encode(digest(d.raw_bytes,'sha256'),'hex')=d.raw_bytes_sha256,false) AS "sourceBytesVerified"
+ false AS "sourceBytesVerified"
  FROM roots r JOIN companies c ON c.id=${ctx.principal.companyId}::uuid
  LEFT JOIN gl_accounts a ON a.company_id=c.id AND a.id=r.bank_account_id AND a.account_subtype='bank'
  LEFT JOIN captured_documents d ON d.company_id=c.id AND d.id=r.source_document_id
@@ -68,10 +68,13 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
  ORDER BY r.id LIMIT 10001` as (BankStatementSource&{bank_account_id:string;source_document_id:string;source_fingerprint:string;expected_source_hash:string;
   review_currency:string;review_result:StatementReviewProof['result'];review_valid:boolean;account_type:string|null;account_subtype:string|null;
   is_active:boolean|null;document_status:string|null;uncoveredCount:string;uncoveredFingerprint:string})[];
- return{rows:rows.slice(0,10000).map(row=>{
+ const evidence=await scanCapturedEvidence(ctx,rows.length>10000?[]:rows.map(row=>row.documentId),'read:bank-tx');
+ const deferred=evidence.evidenceMissing.some(reason=>reason.startsWith('async_scan_required:'));
+ return{evidenceMissing:evidence.evidenceMissing,rows:rows.slice(0,10000).map(row=>{
+  row.sourceBytesVerified=row.documentId!==null&&row.documentHash!==null&&evidence.verified.get(row.documentId)===row.documentHash;
   const reviewed=row.entityType==='bank_statement_attestation_intent';
   const independentlyReviewed=reviewed&&currentStatementReview({...row,currency:row.review_currency,current_currency:row.currency,
    document_id:row.documentId,document_hash:row.documentHash,bytes_verified:row.sourceBytesVerified,result:row.review_result},row.review_valid&&row.version!==null);
-  return{...row,independentlyReviewed,reviewState:reviewed?(independentlyReviewed?'active' as const:'stale' as const):null};
+  return{...row,independentlyReviewed,reviewState:reviewed?(independentlyReviewed?'active' as const:deferred?'deferred' as const:'stale' as const):null};
  }),populationCount:Number(rows[0]?.population??0),over:rows.length>10000,uncoveredCount:Number(rows[0]?.uncoveredCount??0)};
 }

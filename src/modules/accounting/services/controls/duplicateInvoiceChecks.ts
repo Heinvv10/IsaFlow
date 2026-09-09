@@ -30,7 +30,7 @@ export function detectInvoiceDuplicates(rows:readonly InvoiceRiskRow[]):RiskFind
 }
 export async function checkDuplicateInvoices(ctx:ControlTx,options:RiskCheckOptions={}):Promise<ControlCheckResult>{
  assertControlTx(ctx);await assertEffectivePermission(ctx,'read:invoices');await assertEffectivePermission(ctx,'read:reports');
- const parsed=riskOptions(options),population=await loadInvoiceRiskPopulation(ctx,parsed.cutoff),missing:string[]=[];
+ const parsed=riskOptions(options),population=await loadInvoiceRiskPopulation(ctx,parsed.cutoff),missing:string[]=[...population.evidenceMissing];
  const imports=await loadInvoiceRiskImports(ctx,parsed.cutoff),populationCount=population.populationCount+imports.populationCount;
  const over=populationCount>RISK_SOURCE_LIMIT,rows=over?[]:population.rows;
  if(imports.populationCount>imports.mappedCount)missing.push('unmapped_import_invoice_financial_material_unavailable');
