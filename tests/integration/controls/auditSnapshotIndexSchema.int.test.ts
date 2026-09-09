@@ -40,7 +40,8 @@ beforeAll(async()=>{
 it('permits owned append-only index rows but rejects foreign and different-maker creation',async()=>{
  // Storage-policy fixtures intentionally use opaque dummy envelopes; material authentication has separate tests.
  await actor('u1',async({client})=>{
-  await client.query("INSERT INTO control_audit_snapshot_indexes(company_id,snapshot_id,protected_header) VALUES($1,$2,'{}')",[fixture.companyA,ownSnapshot]);
+  // The real worker now inserts the header under the same maker's RLS authority.
+  expect((await client.query('SELECT snapshot_id FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=$2',[fixture.companyA,ownSnapshot])).rows).toHaveLength(1);
   await client.query("INSERT INTO control_audit_snapshot_index_items(company_id,snapshot_id,section,ordinal,protected_item) VALUES($1,$2,'records',0,'{}')",[fixture.companyA,ownSnapshot]);
   await client.query("INSERT INTO control_audit_snapshot_index_chunks(company_id,snapshot_id,section,ordinal,chunk_ordinal,protected_chunk) VALUES($1,$2,'records',0,0,'{}')",[fixture.companyA,ownSnapshot]);
  });
