@@ -76,3 +76,30 @@ CREATE POLICY tenant_create ON control_exception_decisions FOR INSERT
  WITH CHECK(company_id=app.current_company_id() AND company_id IN(SELECT auth.user_companies()) AND person_id=auth.uid()::text);
 REVOKE ALL ON control_exception_decisions FROM PUBLIC,app_user;
 GRANT SELECT,INSERT ON control_exception_decisions TO app_user;
+
+-- Self-row user policies cannot validate another assignee. Return identity only, never profile fields.
+CREATE OR REPLACE FUNCTION public.control_exception_owner(p_company uuid,p_owner text)
+RETURNS TABLE(user_id text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,app,auth AS $$
+BEGIN
+ IF p_company IS DISTINCT FROM app.current_company_id() OR auth.uid() IS NULL THEN
+  RAISE EXCEPTION 'Exception owner unavailable' USING ERRCODE='42501';
+ END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended('control-authority:' || p_company::text,0));
+ IF NOT EXISTS(
+  SELECT 1 FROM public.company_users member JOIN public.users caller ON caller.id=member.user_id
+  JOIN public.companies company ON company.id=member.company_id
+  WHERE member.company_id=p_company AND member.user_id=auth.uid()::text
+   AND caller.is_active=true AND caller.suspended_at IS NULL AND (caller.status IS NULL OR lower(caller.status)='active')
+   AND company.suspended_at IS NULL AND (company.status IS NULL OR company.status NOT IN('suspended','deleted'))
+ ) THEN RETURN; END IF;
+ RETURN QUERY SELECT member.user_id::text FROM public.company_users member
+  JOIN public.users owner_user ON owner_user.id=member.user_id
+  WHERE member.company_id=p_company AND member.user_id=p_owner AND owner_user.is_active=true
+   AND owner_user.suspended_at IS NULL AND (owner_user.status IS NULL OR lower(owner_user.status)='active')
+  FOR SHARE OF member,owner_user;
+END;
+$$;
+ALTER FUNCTION public.control_exception_owner(uuid,text) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.control_exception_owner(uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.control_exception_owner(uuid,text) TO app_user;
