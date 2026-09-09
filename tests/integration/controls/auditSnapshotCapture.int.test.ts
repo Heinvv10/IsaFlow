@@ -214,3 +214,46 @@ it('normalizes actual PostgreSQL detector observation timestamps for retained se
  const result=await actor(ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),request:{...request,sources:['ap'],checks:['duplicate_invoice_checks']}}));
  expect(result.checks[0]?.populationCount).toBe(1);expect(()=>sealAuditSnapshot(result)).not.toThrow();
 });
+it('detects changed owned account classifications with unchanged journal and invoice line account IDs',async()=>{
+ await journal();const customer=randomUUID(),supplier=randomUUID(),ar=randomUUID(),ap=randomUUID();
+ await pool.query("INSERT INTO customers(id,company_id,name) VALUES($1,$2,'Private classification customer')",[customer,fixture.companyA]);
+ await pool.query("INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,'Private classification supplier')",[supplier,fixture.companyA]);
+ await pool.query("INSERT INTO customer_invoices(id,company_id,customer_id,invoice_number,invoice_date,total_amount,created_by) VALUES($1,$2,$3,$1::uuid::text,'2026-09-09',100,$4)",[ar,fixture.companyA,customer,fixture.u1.id]);
+ await pool.query("INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,total_amount,created_by) VALUES($1,$2,$3,$1::uuid::text,'2026-09-09',100,$4)",[ap,fixture.companyA,supplier,fixture.u1.id]);
+ await pool.query("INSERT INTO customer_invoice_items(invoice_id,description,quantity,unit_price,amount,gl_account_id) VALUES($1,'Private line',1,100,100,$2)",[ar,debit]);
+ await pool.query("INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,gl_account_id) VALUES($1,'Private line',1,100,100,$2)",[ap,debit]);
+ const get=()=>actor(ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),request:{...request,sources:['journals','ar','ap']}}));
+ const before=await get(),sealed=sealAuditSnapshot(before);
+ await pool.query("UPDATE gl_accounts SET account_code='CLASSIFIED-100',account_type='expense',account_subtype='operating',default_vat_code='STANDARD' WHERE company_id=$1 AND id=$2",[fixture.companyA,debit]);
+ const after=await get(),diff=compareSealedAuditSnapshots(fixture.companyA,{id:before.snapshotId,sealed},{id:after.snapshotId,sealed:sealAuditSnapshot(after)});
+ expect(diff.records.changed.map(r=>r.source).sort()).toEqual(['customer_invoice_line','journal_line','supplier_invoice_line']);
+ expect(after.records.find(r=>r.source==='customer_invoice_line')?.data).toMatchObject({gl_account_id:debit,gl_account_code:'CLASSIFIED-100',gl_account_type:'expense',gl_account_subtype:'operating',gl_account_default_vat_code:'STANDARD'});
+ expect(sealAuditSnapshot(before)).toEqual(sealed);expect(JSON.stringify(after)).not.toMatch(/Private line|Private classification/);
+});
+for(const kind of ['customer','supplier'] as const)it(`retains ${kind} application and reversal accounting dates independently of actual event time`,async()=>{
+ const party=randomUUID(),payment=randomUUID(),invoice=randomUUID(),application=randomUUID(),reversal=randomUUID(),allocation=randomUUID();
+ if(kind==='customer'){
+  await pool.query("INSERT INTO customers(id,company_id,name) VALUES($1,$2,'Synthetic history')",[party,fixture.companyA]);
+  await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_date,total_amount,created_by) VALUES($1,$2,$3,'2026-08-31',20,$4)",[payment,fixture.companyA,party,fixture.u1.id]);
+  await pool.query("INSERT INTO customer_invoices(id,company_id,customer_id,invoice_number,invoice_date,total_amount,created_by) VALUES($1,$2,$3,$1::uuid::text,'2026-08-31',20,$4)",[invoice,fixture.companyA,party,fixture.u1.id]);
+ }else{
+  await pool.query("INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,'Synthetic history')",[party,fixture.companyA]);
+  await pool.query("INSERT INTO supplier_payments(id,company_id,supplier_id,payment_date,total_amount,created_by) VALUES($1,$2,$3,'2026-08-31',20,$4)",[payment,fixture.companyA,party,fixture.u1.id]);
+  await pool.query("INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,total_amount,created_by) VALUES($1,$2,$3,$1::uuid::text,'2026-08-31',20,$4)",[invoice,fixture.companyA,party,fixture.u1.id]);
+ }
+ const payload=JSON.stringify({version:1,kind,applications:[{invoiceId:invoice,amount:'20.00'}]});
+ await pool.query("INSERT INTO control_cash_application_intents(company_id,id,requester_person_id,payment_id,kind,accounting_date,amount,currency,payload,source_fingerprint) VALUES($1,$2,$3,$4,$5,'2026-09-01',20,'ZAR',$6,repeat('a',64))",[fixture.companyA,application,fixture.u1.id,payment,kind,payload]);
+ await pool.query("INSERT INTO control_cash_application_reversal_intents(company_id,id,requester_person_id,original_intent_id,reversal_date,reason) VALUES($1,$2,$3,$4,'2026-09-15','Synthetic reversal')",[fixture.companyA,reversal,fixture.u1.id,application]);
+ if(kind==='customer'){
+  await pool.query('INSERT INTO customer_payment_allocations(id,payment_id,invoice_id,amount_allocated,application_intent_id) VALUES($1,$2,$3,20,$4)',[allocation,payment,invoice,application]);
+  await pool.query("UPDATE customer_payment_allocations SET reversed_at='2026-09-09T10:00:00Z',reversal_intent_id=$2 WHERE id=$1",[allocation,reversal]);
+ }else{
+  await pool.query('INSERT INTO payment_allocations(id,payment_id,invoice_id,amount_allocated,application_intent_id) VALUES($1,$2,$3,20,$4)',[allocation,payment,invoice,application]);
+  await pool.query("UPDATE payment_allocations SET reversed_at='2026-09-09T10:00:00Z',reversal_intent_id=$2 WHERE id=$1",[allocation,reversal]);
+ }
+ const result=await actor(ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),request:{...request,sources:[kind==='customer'?'ar':'ap']}}));
+ const data=result.records.find(r=>r.id===allocation)!.data;
+ expect(data).toMatchObject({application_intent_id:application,reversal_intent_id:reversal,application_accounting_date:'2026-09-01',reversal_accounting_date:'2026-09-15'});
+ expect(String(data.application_accounting_date)<=result.cutoff&&String(data.reversal_accounting_date)>result.cutoff).toBe(true);
+ expect(()=>sealAuditSnapshot(result)).not.toThrow();
+});

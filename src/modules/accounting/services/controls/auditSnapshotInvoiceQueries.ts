@@ -22,8 +22,8 @@ export const invoiceSnapshotSources:SnapshotSource[]=[
   return row!;
  },
  async page(ctx,cutoff,after){
-  return await ctx.sql`SELECT r.id::text,NULL::int AS version,jsonb_build_object('currency',p.currency_code,'invoice_id',p.id,'quantity',r.quantity::text,'unit_price',r.unit_price::text,'amount',r.amount::text,'tax_rate',r.tax_rate::text,'gl_account_id',a.id,'account_parent_unavailable',r.gl_account_id IS NOT NULL AND a.id IS NULL,'updated_at',r.updated_at::text) AS data
-   FROM customer_invoice_items r JOIN customer_invoices p ON p.id=r.invoice_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN gl_accounts a ON a.company_id=p.company_id AND a.id=r.gl_account_id 
+  return await ctx.sql`SELECT r.id::text,NULL::int AS version,jsonb_build_object('currency',p.currency_code,'invoice_id',p.id,'quantity',r.quantity::text,'unit_price',r.unit_price::text,'amount',r.amount::text,'tax_rate',r.tax_rate::text,'gl_account_id',a.id,'gl_account_code',a.account_code,'gl_account_type',a.account_type,'gl_account_subtype',a.account_subtype,'gl_account_normal_balance',a.normal_balance,'gl_account_active',a.is_active,'gl_account_default_vat_code',a.default_vat_code,'account_parent_unavailable',r.gl_account_id IS NOT NULL AND a.id IS NULL,'updated_at',r.updated_at::text) AS data
+   FROM customer_invoice_items r JOIN customer_invoices p ON p.id=r.invoice_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN gl_accounts a ON a.company_id=p.company_id AND a.id=r.gl_account_id
    WHERE p.company_id=${ctx.principal.companyId}::uuid AND (p.invoice_date IS NULL OR p.invoice_date<=${cutoff}::date) AND (${after}::uuid IS NULL OR r.id>${after}::uuid)
    ORDER BY r.id LIMIT 1000` as SnapshotRow[];
  }
@@ -36,7 +36,7 @@ export const invoiceSnapshotSources:SnapshotSource[]=[
   return row!;
  },
  async page(ctx,cutoff,after){
-  return await ctx.sql`SELECT r.id::text,v.version,jsonb_build_object('currency',r.currency_code,'payment_date',r.payment_date::text,'party_id',s.id,'party_parent_unavailable',s.id IS NULL,'total_amount',r.total_amount::text,'bank_account_id',a.id,'account_parent_unavailable',r.bank_account_id IS NOT NULL AND a.id IS NULL,'status',r.status,'created_at',r.created_at::text,'updated_at',r.updated_at::text) AS data
+  return await ctx.sql`SELECT r.id::text,v.version,jsonb_build_object('currency',r.currency_code,'payment_date',r.payment_date::text,'party_id',s.id,'party_parent_unavailable',s.id IS NULL,'total_amount',r.total_amount::text,'bank_account_id',a.id,'gl_account_code',a.account_code,'gl_account_type',a.account_type,'gl_account_subtype',a.account_subtype,'gl_account_normal_balance',a.normal_balance,'gl_account_active',a.is_active,'gl_account_default_vat_code',a.default_vat_code,'account_parent_unavailable',r.bank_account_id IS NOT NULL AND a.id IS NULL,'status',r.status,'created_at',r.created_at::text,'updated_at',r.updated_at::text) AS data
    FROM customer_payments r LEFT JOIN customers s ON s.company_id=r.company_id AND s.id=r.client_id LEFT JOIN gl_accounts a ON a.company_id=r.company_id AND a.id=r.bank_account_id LEFT JOIN control_entity_versions v ON v.company_id=${ctx.principal.companyId}::uuid AND v.entity_type='customer_payment' AND v.entity_id=r.id::text
    WHERE r.company_id=${ctx.principal.companyId}::uuid AND (r.payment_date IS NULL OR r.payment_date<=${cutoff}::date) AND (${after}::uuid IS NULL OR r.id>${after}::uuid)
    ORDER BY r.id LIMIT 1000` as SnapshotRow[];
@@ -46,12 +46,12 @@ export const invoiceSnapshotSources:SnapshotSource[]=[
  async counts(ctx,cutoff){
   const [row]=await ctx.sql`SELECT COUNT(*) FILTER(WHERE (p.payment_date IS NULL OR p.payment_date<=${cutoff}::date))::int AS count,
    COUNT(*) FILTER(WHERE NOT (p.payment_date IS NULL OR p.payment_date<=${cutoff}::date))::int AS "excludedCount"
-   FROM customer_payment_allocations r JOIN customer_payments p ON p.id=r.payment_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN customer_invoices i ON i.company_id=p.company_id AND i.id=r.invoice_id WHERE p.company_id=${ctx.principal.companyId}::uuid` as Array<{count:number;excludedCount:number}>;
+   FROM customer_payment_allocations r JOIN customer_payments p ON p.id=r.payment_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN customer_invoices i ON i.company_id=p.company_id AND i.id=r.invoice_id LEFT JOIN control_cash_application_intents application ON application.company_id=p.company_id AND application.id=r.application_intent_id AND application.payment_id=p.id AND application.kind='customer' LEFT JOIN control_cash_application_reversal_intents reversal ON reversal.company_id=p.company_id AND reversal.id=r.reversal_intent_id AND reversal.original_intent_id=application.id WHERE p.company_id=${ctx.principal.companyId}::uuid` as Array<{count:number;excludedCount:number}>;
   return row!;
  },
  async page(ctx,cutoff,after){
-  return await ctx.sql`SELECT r.id::text,NULL::int AS version,jsonb_build_object('currency',i.currency_code,'payment_id',p.id,'invoice_id',i.id,'invoice_parent_unavailable',i.id IS NULL,'amount_allocated',r.amount_allocated::text,'application_intent_id',r.application_intent_id,'reversed_at',r.reversed_at::text,'reversal_intent_id',r.reversal_intent_id,'created_at',r.created_at::text) AS data
-   FROM customer_payment_allocations r JOIN customer_payments p ON p.id=r.payment_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN customer_invoices i ON i.company_id=p.company_id AND i.id=r.invoice_id 
+  return await ctx.sql`SELECT r.id::text,NULL::int AS version,jsonb_build_object('currency',i.currency_code,'payment_id',p.id,'invoice_id',i.id,'invoice_parent_unavailable',i.id IS NULL,'amount_allocated',r.amount_allocated::text,'application_intent_id',application.id,'application_accounting_date',application.accounting_date::text,'application_accounting_date_unavailable',application.id IS NULL,'reversed_at',r.reversed_at::text,'reversal_intent_id',reversal.id,'reversal_accounting_date',reversal.reversal_date::text,'reversal_accounting_date_unavailable',r.reversed_at IS NOT NULL AND reversal.id IS NULL,'created_at',r.created_at::text) AS data
+   FROM customer_payment_allocations r JOIN customer_payments p ON p.id=r.payment_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN customer_invoices i ON i.company_id=p.company_id AND i.id=r.invoice_id LEFT JOIN control_cash_application_intents application ON application.company_id=p.company_id AND application.id=r.application_intent_id AND application.payment_id=p.id AND application.kind='customer' LEFT JOIN control_cash_application_reversal_intents reversal ON reversal.company_id=p.company_id AND reversal.id=r.reversal_intent_id AND reversal.original_intent_id=application.id
    WHERE p.company_id=${ctx.principal.companyId}::uuid AND (p.payment_date IS NULL OR p.payment_date<=${cutoff}::date) AND (${after}::uuid IS NULL OR r.id>${after}::uuid)
    ORDER BY r.id LIMIT 1000` as SnapshotRow[];
  }
@@ -78,8 +78,8 @@ export const invoiceSnapshotSources:SnapshotSource[]=[
   return row!;
  },
  async page(ctx,cutoff,after){
-  return await ctx.sql`SELECT r.id::text,NULL::int AS version,jsonb_build_object('currency',p.currency,'invoice_id',p.id,'quantity',r.quantity::text,'unit_price',r.unit_price::text,'amount',r.line_total::text,'tax_rate',r.tax_rate::text,'gl_account_id',a.id,'account_parent_unavailable',r.gl_account_id IS NOT NULL AND a.id IS NULL,'updated_at',r.updated_at::text) AS data
-   FROM supplier_invoice_items r JOIN supplier_invoices p ON p.id=r.supplier_invoice_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN gl_accounts a ON a.company_id=p.company_id AND a.id=r.gl_account_id 
+  return await ctx.sql`SELECT r.id::text,NULL::int AS version,jsonb_build_object('currency',p.currency,'invoice_id',p.id,'quantity',r.quantity::text,'unit_price',r.unit_price::text,'amount',r.line_total::text,'tax_rate',r.tax_rate::text,'gl_account_id',a.id,'gl_account_code',a.account_code,'gl_account_type',a.account_type,'gl_account_subtype',a.account_subtype,'gl_account_normal_balance',a.normal_balance,'gl_account_active',a.is_active,'gl_account_default_vat_code',a.default_vat_code,'account_parent_unavailable',r.gl_account_id IS NOT NULL AND a.id IS NULL,'updated_at',r.updated_at::text) AS data
+   FROM supplier_invoice_items r JOIN supplier_invoices p ON p.id=r.supplier_invoice_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN gl_accounts a ON a.company_id=p.company_id AND a.id=r.gl_account_id
    WHERE p.company_id=${ctx.principal.companyId}::uuid AND (p.invoice_date IS NULL OR p.invoice_date<=${cutoff}::date) AND (${after}::uuid IS NULL OR r.id>${after}::uuid)
    ORDER BY r.id LIMIT 1000` as SnapshotRow[];
  }
@@ -92,7 +92,7 @@ export const invoiceSnapshotSources:SnapshotSource[]=[
   return row!;
  },
  async page(ctx,cutoff,after){
-  return await ctx.sql`SELECT r.id::text,v.version,jsonb_build_object('currency',NULL::text,'payment_date',r.payment_date::text,'party_id',s.id,'party_parent_unavailable',s.id IS NULL,'total_amount',r.total_amount::text,'bank_account_id',a.id,'account_parent_unavailable',r.bank_account_id IS NOT NULL AND a.id IS NULL,'status',r.status,'created_at',r.created_at::text,'updated_at',r.updated_at::text) AS data
+  return await ctx.sql`SELECT r.id::text,v.version,jsonb_build_object('currency',NULL::text,'payment_date',r.payment_date::text,'party_id',s.id,'party_parent_unavailable',s.id IS NULL,'total_amount',r.total_amount::text,'bank_account_id',a.id,'gl_account_code',a.account_code,'gl_account_type',a.account_type,'gl_account_subtype',a.account_subtype,'gl_account_normal_balance',a.normal_balance,'gl_account_active',a.is_active,'gl_account_default_vat_code',a.default_vat_code,'account_parent_unavailable',r.bank_account_id IS NOT NULL AND a.id IS NULL,'status',r.status,'created_at',r.created_at::text,'updated_at',r.updated_at::text) AS data
    FROM supplier_payments r LEFT JOIN suppliers s ON s.company_id=r.company_id AND s.id=r.supplier_id LEFT JOIN gl_accounts a ON a.company_id=r.company_id AND a.id=r.bank_account_id LEFT JOIN control_entity_versions v ON v.company_id=${ctx.principal.companyId}::uuid AND v.entity_type='supplier_payment' AND v.entity_id=r.id::text
    WHERE r.company_id=${ctx.principal.companyId}::uuid AND (r.payment_date IS NULL OR r.payment_date<=${cutoff}::date) AND (${after}::uuid IS NULL OR r.id>${after}::uuid)
    ORDER BY r.id LIMIT 1000` as SnapshotRow[];
@@ -102,12 +102,12 @@ export const invoiceSnapshotSources:SnapshotSource[]=[
  async counts(ctx,cutoff){
   const [row]=await ctx.sql`SELECT COUNT(*) FILTER(WHERE (p.payment_date IS NULL OR p.payment_date<=${cutoff}::date))::int AS count,
    COUNT(*) FILTER(WHERE NOT (p.payment_date IS NULL OR p.payment_date<=${cutoff}::date))::int AS "excludedCount"
-   FROM payment_allocations r JOIN supplier_payments p ON p.id=r.payment_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN supplier_invoices i ON i.company_id=p.company_id AND i.id=r.invoice_id WHERE p.company_id=${ctx.principal.companyId}::uuid` as Array<{count:number;excludedCount:number}>;
+   FROM payment_allocations r JOIN supplier_payments p ON p.id=r.payment_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN supplier_invoices i ON i.company_id=p.company_id AND i.id=r.invoice_id LEFT JOIN control_cash_application_intents application ON application.company_id=p.company_id AND application.id=r.application_intent_id AND application.payment_id=p.id AND application.kind='supplier' LEFT JOIN control_cash_application_reversal_intents reversal ON reversal.company_id=p.company_id AND reversal.id=r.reversal_intent_id AND reversal.original_intent_id=application.id WHERE p.company_id=${ctx.principal.companyId}::uuid` as Array<{count:number;excludedCount:number}>;
   return row!;
  },
  async page(ctx,cutoff,after){
-  return await ctx.sql`SELECT r.id::text,NULL::int AS version,jsonb_build_object('currency',i.currency,'payment_id',p.id,'invoice_id',i.id,'invoice_parent_unavailable',i.id IS NULL,'amount_allocated',r.amount_allocated::text,'application_intent_id',r.application_intent_id,'reversed_at',r.reversed_at::text,'reversal_intent_id',r.reversal_intent_id,'created_at',r.created_at::text) AS data
-   FROM payment_allocations r JOIN supplier_payments p ON p.id=r.payment_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN supplier_invoices i ON i.company_id=p.company_id AND i.id=r.invoice_id 
+  return await ctx.sql`SELECT r.id::text,NULL::int AS version,jsonb_build_object('currency',i.currency,'payment_id',p.id,'invoice_id',i.id,'invoice_parent_unavailable',i.id IS NULL,'amount_allocated',r.amount_allocated::text,'application_intent_id',application.id,'application_accounting_date',application.accounting_date::text,'application_accounting_date_unavailable',application.id IS NULL,'reversed_at',r.reversed_at::text,'reversal_intent_id',reversal.id,'reversal_accounting_date',reversal.reversal_date::text,'reversal_accounting_date_unavailable',r.reversed_at IS NOT NULL AND reversal.id IS NULL,'created_at',r.created_at::text) AS data
+   FROM payment_allocations r JOIN supplier_payments p ON p.id=r.payment_id AND p.company_id=${ctx.principal.companyId}::uuid LEFT JOIN supplier_invoices i ON i.company_id=p.company_id AND i.id=r.invoice_id LEFT JOIN control_cash_application_intents application ON application.company_id=p.company_id AND application.id=r.application_intent_id AND application.payment_id=p.id AND application.kind='supplier' LEFT JOIN control_cash_application_reversal_intents reversal ON reversal.company_id=p.company_id AND reversal.id=r.reversal_intent_id AND reversal.original_intent_id=application.id
    WHERE p.company_id=${ctx.principal.companyId}::uuid AND (p.payment_date IS NULL OR p.payment_date<=${cutoff}::date) AND (${after}::uuid IS NULL OR r.id>${after}::uuid)
    ORDER BY r.id LIMIT 1000` as SnapshotRow[];
  }

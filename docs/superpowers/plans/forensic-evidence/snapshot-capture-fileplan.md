@@ -50,3 +50,18 @@ Final boundary tests both failed for the intended reasons in snapshot-capture-bo
 - git diff --check GREEN; no migration, registry, root context/lease or seal edits.
 
 This is actual bounded source/check capture ready for independent named review. Full asynchronous detector expansion beyond existing10000-source limits, retained evidence attachment across both stores, root job execution/publication, transport acceptance and final integrated CI remain required programme work; these checks do not claim those capabilities or production verification.
+
+## Independent review corrections to25936b479
+
+Root review confirmed two retention gaps. First, changing an owned gl_accounts classification/code under the same account ID left journal/invoice source records identical when no checks were requested. Second, allocation records retained immutable intent IDs and actual reversed_at time but omitted application and reversal accounting dates, preventing reconstruction of the application state at a reporting cutoff.
+
+Three real PostgreSQL regressions failed as intended in snapshot-capture-review-red.log (68359 terminal1): sealed before/after comparison had no changes for a real account reclassification; each of AR and AP omitted the required accounting dates. The corrections retain owned account code/type/subtype/normal-balance/active/VAT classification fields wherever an account is projected, and obtain application_accounting_date/reversal_accounting_date through tenant/payment/kind/original-intent-bound joins. No account names, freeform descriptions or bank credentials are added. Legacy missing application accounting dates remain explicit unknown; actual event time is not substituted for an accounting date. Existing640 triggers already enforce controlled intent ownership; no foreign-intent disclosure claim is made.
+
+The source-family contract remains15 populations and the root capture/retention interfaces are unchanged. Tests use a payment date2026-08-31, application accounting date2026-09-01, actual reversal timestamp2026-09-09 and reversal accounting date2026-09-15, proving the dates remain distinct at the9September cutoff. The classification comparison retains the original seal unchanged and identifies journal, customer invoice and supplier invoice lines despite identical account IDs.
+
+- snapshot-capture-review-green.log:full21 real PostgreSQL tests GREEN,29106 terminal0,3.12s,poolsclosed.
+- snapshot-capture-review-units.log:18 focused units GREEN.
+- Final correction source type-check and lint recorded below before commit; root must independently review the named correction before integration.
+- snapshot-capture-review-ts.log:source type-check94492 terminal0.
+- snapshot-capture-review-lint.log:both changed source files scoped lint77832 terminal0.
+- git diff --check GREEN. All worker DB/TS processes terminal; no production changes.
