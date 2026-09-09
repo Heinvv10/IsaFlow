@@ -70,3 +70,55 @@ rates to contradict, and its label reads the header `tax_rate` correctly.
 so the column was always 1. Replaced with fix.md's correct form.
 
 **Not a finding, confirmed.** The reviewer accepted the disclosed `?? 15` gap. Unchanged.
+
+---
+
+## Round-2 review of 3d8ad9ba — MEDIUM-3, LOW-6, LOW-7 (all fixed)
+
+**MEDIUM-3 (fixed, both builders).** `mixedRates` fired only when the lines disagreed with EACH
+OTHER. When every line carried the same rate and that rate differed from the header's, the label
+fell back to the header and stated a rate every line on the page contradicts — a fully zero-rated
+export invoice whose header still holds the 15.00 column default is the ordinary shape of it, and
+it printed `VAT (15%)`. The invoice half was inherited from ade12166; the quote half was introduced
+in 3d8ad9ba. Both now compute `distinctRates` from the lines and label with the single line rate
+when there is one, falling back to the header only when there are no lines at all. Mutations M16
+and M17 restore the old expression and the new uniform-zero test goes red in each suite.
+
+**LOW-6 (fixed).** The quote line cell moved from `Number(line.tax_rate || 15)` to
+`lineRate(line)`, which was neither disclosed nor mutation-covered: pg returns `numeric(5,2)` as a
+truthy string, so the two agree on every rate EXCEPT a NULL one, where the old code printed the
+literal 15 and the new one prints the quote's own header rate. A fourth quote with a NULL line rate
+under a header rate of 20 now pins it; mutation M18 restores the old expression and it goes red.
+
+**LOW-7 (fixed).** `credit_note_items` does not exist, so `SELECT * FROM credit_note_items` raised
+42P01 on every call and a bare `catch {}` swallowed it. The builder runs under `withAuth`, which
+holds one transaction per request, so the transaction was aborted from that point: any query added
+to the route afterwards would fail with 25P02 naming nothing, and the COMMIT would find a dead
+transaction. The query is now gated on `to_regclass('public.credit_note_items') IS NOT NULL`, which
+answers the same question without raising. Mutation M19 restores the try/catch and the transaction
+test goes red.
+
+**Discovered while proving LOW-7: the credit-note PDF endpoint was returning 500 for every credit
+note.** Two columns named in the builder's main query do not exist. `credit_notes` has no
+`customer_id` — the repo's `COALESCE(client_id, customer_id)` rule is about `customer_invoices` and
+was applied here by pattern — and `users` has no `full_name`, only `first_name`/`last_name`. Both
+raise 42703 before any of the above is reached, so the whole endpoint threw. Fixed to `cn.client_id`
+and to `NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), '')`. This is outside the five
+findings and was not asked for, but LOW-7 could not be proven without it and the file was already
+being changed. Mutation M20 restores the COALESCE and all three tests go red.
+
+**Tests.** New `tests/integration/k126c-credit-note-pdf-transaction-safety.int.test.ts`, 3 tests:
+the builder runs inside a real BEGIN on an AsyncLocalStorage client, a following query succeeds and
+the COMMIT holds; the PDF renders its totals block without a line-items table; another tenant's
+credit note is refused. `k126` grows to 6 tests and `k126b` to 5.
+
+**Historical-data impact.** No stored row changes. Any credit-note PDF that previously 500'd now
+renders. Invoice and quote PDFs whose lines uniformly disagree with the header stop claiming the
+header's rate; the impact query already in this file finds the mixed-rate invoices, and this
+variant finds the uniform ones:
+```sql
+SELECT ci.company_id, ci.id, MIN(it.tax_rate) AS line_rate, ci.tax_rate AS header_rate
+FROM customer_invoices ci JOIN customer_invoice_items it ON it.invoice_id = ci.id
+GROUP BY ci.company_id, ci.id, ci.tax_rate
+HAVING count(DISTINCT it.tax_rate) = 1 AND MIN(it.tax_rate) <> ci.tax_rate;
+```
