@@ -95,3 +95,16 @@ it('serializes approved different-reference versions of the same source rows and
  await expect(actor('u1',ctx=>executeHistoricalImport(ctx,approvalA.ref,approvalA.approvalId))).rejects.toThrow('already');
  expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=ANY($2::uuid[])',[fixture.companyA,[a.importId,b.importId]])).rows).toHaveLength(1);
 });
+it.each(['source','mapping'] as const)('blocks an existing owned %s row moving into a locked source group',async kind=>{
+ const selected=await group(),outside=await group(),extraMapping=randomUUID();
+ if(kind==='mapping')await pool.query("INSERT INTO sage_accounts(id,company_id,account_code,account_name,gl_account_id) VALUES($1,$2,$3,'Outside mapping',$4)",[extraMapping,fixture.companyA,`OUT-${extraMapping}`,debit]);
+ await actor('u1',async ctx=>{
+  await stageSageHistoricalLedgerGroup(ctx,{accountingDate:'2023-02-28',reference:selected.reference});
+  const other=await pool.connect();try{
+   await other.query('BEGIN');await other.query("SET LOCAL lock_timeout='250ms'");
+   const mutation=kind==='source'?other.query('UPDATE sage_ledger_transactions SET reference=$3 WHERE company_id=$1 AND id=ANY($2::uuid[])',[fixture.companyA,outside.ids,selected.reference])
+    :other.query("UPDATE sage_accounts SET account_code='S-D' WHERE company_id=$1 AND id=$2",[fixture.companyA,extraMapping]);
+   await expect(mutation).rejects.toMatchObject({code:'55P03'});
+  }finally{await other.query('ROLLBACK');other.release();}
+ });
+});

@@ -3,13 +3,16 @@ import {assertControlTx} from './context';
 import {canonicalJson} from './canonical';
 import {readHistoricalSageSnapshot,type HistoricalSageSnapshot,type HistoricalSageMapping,type HistoricalSageRow} from './historicalImportSageAdapter';
 import type {ControlTx} from './contracts';
-/** Company FK locks protect new population; row locks protect existing source/mapping updates. */
+/** Company FK locks fence inserts; every owned row is locked to prevent UPDATE predicate phantoms. */
 export async function loadSageHistoricalSnapshot(ctx:ControlTx,accountingDate:string,reference:string|null):Promise<HistoricalSageSnapshot>{
  assertControlTx(ctx);const company=ctx.principal.companyId;
  if(!isRealCalendarDate(accountingDate)||(reference!==null&&(typeof reference!=='string'||reference.length>255)))throw new Error('Invalid Sage source group identity');
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${company}`},0))`;
  const companies=await ctx.sql`SELECT id FROM companies WHERE id=${company}::uuid FOR UPDATE`;
  if(companies.length!==1)throw new Error('Sage source tenant unavailable');
+ const allRows=await ctx.sql`SELECT id FROM sage_ledger_transactions WHERE company_id=${company}::uuid ORDER BY id LIMIT 100001 FOR SHARE`;
+ const allMappings=await ctx.sql`SELECT id FROM sage_accounts WHERE company_id=${company}::uuid ORDER BY id LIMIT 100001 FOR SHARE`;
+ if(allRows.length>100000||allMappings.length>100000)throw new Error('Sage source population exceeds synchronous 100000-row lock bound');
  const rows=await ctx.sql`SELECT id,sage_id AS "sageId",account_code AS "accountCode",transaction_date::text AS "accountingDate",
   description,debit::text,credit::text,reference,migration_status AS "migrationStatus",gl_journal_entry_id AS "journalEntryId",
   (to_jsonb(s)->'raw_data')::text AS "rawDataText"
