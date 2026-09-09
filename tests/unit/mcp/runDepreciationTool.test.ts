@@ -115,12 +115,8 @@ describe('registration', () => {
     expect(runDepreciationTool.requiresPost).toBe(true);
   });
 
-  it('carries the JOURNALS scope, not the invoices one', () => {
-    // requiresPost ADDS write:post; it does not substitute for the domain
-    // scope. Under write:invoices an ordinary AR grant — invoices plus post,
-    // which finalize_invoice already needs — could depreciate the whole fixed
-    // asset register on a consent screen that said "invoices".
-    expect(runDepreciationTool.scope).toBe('write:journals');
+  it('requires the fixed asset permission used by the shared writer', () => {
+    expect(runDepreciationTool.scope).toBe('write:assets');
   });
 
   it('is FREE, matching its unmetered app route', () => {
