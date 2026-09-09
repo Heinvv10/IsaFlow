@@ -6,12 +6,12 @@ Review: `scratchpad/review-k033.md` against `8183457f` + `5ed01de1` (3 HIGH, 4 M
 
 **H1 — one settled charge advanced every subscription in the company.** `subscription_charges` had
 no `subscription_id`, so the helper joined on `company_id` alone. Migration
-`619_subscription_charges_subscription_id.sql` adds the column (FK to `subscriptions`, indexed) and
+`624_subscription_charges_subscription_id.sql` adds the column (FK to `subscriptions`, indexed) and
 backfills only where the company has exactly one subscription, which is unambiguous.
 `generateDueCharges` populates it on every new charge, and both period helpers now join
 `s.id = c.subscription_id`. The duplicate-charge guard was keyed on company + period too, which
 would have suppressed a legitimate charge for a company's second subscription; it is now
-subscription-scoped as well. Charges predating 619 have a NULL `subscription_id` and move nothing —
+subscription-scoped as well. Charges predating 624 have a NULL `subscription_id` and move nothing —
 deliberately inert rather than wrongly attributed.
 
 **H2 — `markPastDueIfExhausted` flagged every active subscription in the company.** Same key, same
