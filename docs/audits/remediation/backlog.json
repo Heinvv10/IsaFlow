@@ -589,10 +589,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5672a828",
+   "currentSha": "14759e85",
    "status": "in-progress",
    "dependencies": [
-    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue",
+    "Take-on posting implemented at 14759e85 (wizard path); design-compliance review pending; PR #373 draft until then"
    ],
    "testNames": [
     "tests/integration/k015-ap-migration-balance-due-column.int.test.ts"
@@ -601,7 +602,7 @@
     "K-015/red.log",
     "K-015/validation.md"
    ],
-   "fixCommit": "5672a828",
+   "fixCommit": "5672a828;209f9761;14759e85",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/373 (draft until the take-on posting rework lands)",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -1543,8 +1544,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "18937b56",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts"
@@ -1553,12 +1554,13 @@
     "K-041/red.log",
     "K-041/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "18937b56",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k041-k042-invitations"
   },
   {
    "id": "K-042",
@@ -1574,8 +1576,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "18937b56",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k-042-reinvite-unique-violation.int.test.ts"
@@ -1584,12 +1586,13 @@
     "K-042/red.log",
     "K-042/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "18937b56",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k041-k042-invitations"
   },
   {
    "id": "K-043",
@@ -1966,8 +1969,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "c3188c8b",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k054-confirm-payment-double-allocate.int.test.ts"
@@ -1976,12 +1979,13 @@
     "K-054/red.log",
     "K-054/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "c3188c8b",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k054-k055-ar-payment-writeoff-locks"
   },
   {
    "id": "K-055",
@@ -1997,8 +2001,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "ddccf068",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k055-writeoff-approval-not-revalidated.int.test.ts"
@@ -2007,12 +2011,13 @@
     "K-055/red.log",
     "K-055/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "ddccf068",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k054-k055-ar-payment-writeoff-locks"
   },
   {
    "id": "K-056",
@@ -2028,8 +2033,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "467bb5d5",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k056-dispute-credit-vat-split.int.test.ts"
@@ -2038,12 +2043,13 @@
     "K-056/red.log",
     "K-056/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "467bb5d5",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k056-k057-credit-note-vat-pdf"
   },
   {
    "id": "K-057",
@@ -2059,8 +2065,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "e3fa3254",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k057-credit-note-pdf-missing-column.int.test.ts"
@@ -2069,12 +2075,13 @@
     "K-057/red.log",
     "K-057/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "e3fa3254",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k056-k057-credit-note-vat-pdf"
   },
   {
    "id": "K-058",
@@ -2090,7 +2097,7 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "7352734c",
+   "currentSha": "6b887576",
    "status": "in-progress",
    "dependencies": [],
    "testNames": [
@@ -2100,7 +2107,7 @@
     "K-058/red.log",
     "K-058/validation.md"
    ],
-   "fixCommit": "7352734c",
+   "fixCommit": "6b887576",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -2309,8 +2316,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "e94b0634",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k065-supplier-payment-double-process.int.test.ts"
@@ -2319,12 +2326,13 @@
     "K-065/red.log",
     "K-065/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "e94b0634",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k065-k069-payment-process-transfer-reversal"
   },
   {
    "id": "K-066",
@@ -2371,8 +2379,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "0df3769f",
+   "status": "in-progress",
    "dependencies": [
     "Latent: the only EFT caller reads sp.amount and four header columns that do not exist, so every export 400s (R-028); fix truncation first, then the column mismatch"
    ],
@@ -2383,12 +2391,13 @@
     "K-067/red.log",
     "K-067/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "0df3769f",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k067-r028-eft-export"
   },
   {
    "id": "K-068",
@@ -2438,8 +2447,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "163c26fc",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k069-transfer-reversal-leaves-counterparty.int.test.ts"
@@ -2448,12 +2457,13 @@
     "K-069/red.log",
     "K-069/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "163c26fc",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k065-k069-payment-process-transfer-reversal"
   },
   {
    "id": "K-070",
@@ -3062,11 +3072,12 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5672a828",
+   "currentSha": "14759e85",
    "status": "in-progress",
    "dependencies": [
     "Fixed on the K-015 branch (sibling root cause), review round 4 in progress",
-    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue",
+    "Take-on posting implemented at 14759e85 (wizard path); design-compliance review pending; PR #373 draft until then"
    ],
    "testNames": [
     "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
@@ -3075,7 +3086,7 @@
     "K-089/red.log",
     "K-089/validation.md"
    ],
-   "fixCommit": "5672a828",
+   "fixCommit": "5672a828;209f9761;14759e85",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/373 (draft until the take-on posting rework lands)",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -8436,20 +8447,21 @@
    "correctedTrigger": null,
    "severityRationale": "Reproduced on the fixed K-015 path and confirmed on the Sage path: subledger and control account disagree by the already-paid amount for every migrated paid document.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "14759e85",
    "status": "in-progress",
    "dependencies": [
     "K-015",
     "K-015 fixed (branch 5672a828): R-001 still reproduces on the fixed path \u2014 a fully paid bill imports with amount_paid 115 and balance 0 while the only journal leaves the payable control at a net credit of 115 with no settlement entry (K-015/fix.md)",
     "K-038 fixer confirms the Sage path has no opening-balance step; paid cash arrives only as unallocated imported bank rows with no GL leg, so after K-038 the subledger is right and the control account is not (K-038/fix.md)",
     "K-038 reviewer: once amount_paid is carried, both AR and AP sub-ledger close-readiness checks flip to fail for migrated companies because the control account still carries the full invoice; fixing R-001 is therefore a prerequisite for month-end close on migrated books",
-    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001"
+    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001",
+    "Take-on posting implemented at 14759e85 (wizard path); design-compliance review pending; PR #373 draft until then"
    ],
    "testNames": [],
    "evidencePaths": [
     "R-001/design.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "5672a828;209f9761;14759e85",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Production read-only probe 2026-09-09: 0 customer_invoices and 0 supplier_invoices with amount_paid > 0 carrying an auto_migration journal; exactly 1 auto_migration journal exists (one company); no Sage-sourced journals. Historical exposure is nil; the fix is forward-only.",
@@ -8460,7 +8472,8 @@
      "lines": "651-658"
     }
    ],
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k015-k089-migration-balance-due"
   },
   {
    "id": "R-002",
@@ -8474,18 +8487,19 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "14759e85",
    "status": "in-progress",
    "dependencies": [
     "K-015",
     "K-015 fixed: still reproduces \u2014 subtotal 33.33 + tax 5.00 vs total 38.34 gives DR 38.33 / CR 38.34, rejected as unbalanced and the document dropped with an error entry (K-015/fix.md)",
-    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001"
+    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001",
+    "Take-on posting implemented at 14759e85 (wizard path); design-compliance review pending; PR #373 draft until then"
    ],
    "testNames": [],
    "evidencePaths": [
     "R-001/design.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "5672a828;209f9761;14759e85",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -8495,7 +8509,8 @@
      "path": "inputs/ar-ap-loans-items.md",
      "lines": "651-658"
     }
-   ]
+   ],
+   "branch": "fix/audit-k015-k089-migration-balance-due"
   },
   {
    "id": "R-003",
@@ -9014,22 +9029,24 @@
    "correctedTrigger": null,
    "severityRationale": "Named by an independent reviewer or fixer; not yet reproduced as its own test.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "faa2ef39",
+   "currentSha": "14759e85",
    "status": "in-progress",
    "dependencies": [
     "Design decision: import either the opening balance or the open documents, not both",
-    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001"
+    "Design memo R-001/design.md (2026-09-09): post the OUTSTANDING amount only per take-on document (DR receivable / CR opening_balance_equity, mirror for AP), no revenue/expense/VAT lines; wizard path to be corrected on the K-015 branch before merge; Sage path (K-038) keeps its pre-existing full posting and is the remaining half of R-001",
+    "Take-on posting implemented at 14759e85 (wizard path); design-compliance review pending; PR #373 draft until then"
    ],
    "testNames": [],
    "evidencePaths": [
     "R-001/design.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "5672a828;209f9761;14759e85",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k015-k089-migration-balance-due"
   },
   {
    "id": "R-021",
@@ -9186,21 +9203,23 @@
    "correctedTrigger": null,
    "severityRationale": "Latent until K-015 makes the wizard import work; then every imported document would inflate the next VAT201.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "faa2ef39",
-   "status": "confirmed",
+   "currentSha": "14759e85",
+   "status": "in-progress",
    "dependencies": [
-    "Closed by the same K-015 take-on posting change (no VAT line on take-on entries); Sage path separately"
+    "Closed by the same K-015 take-on posting change (no VAT line on take-on entries); Sage path separately",
+    "Take-on posting implemented at 14759e85 (wizard path); design-compliance review pending; PR #373 draft until then"
    ],
    "testNames": [],
    "evidencePaths": [
     "R-001/design.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "5672a828;209f9761;14759e85",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Nil on production (same probe): no migrated documents with VAT lines exist beyond one auto_migration journal.",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k015-k089-migration-balance-due"
   },
   {
    "id": "R-027",
@@ -9249,8 +9268,8 @@
    "correctedTrigger": null,
    "severityRationale": "EFT export has never worked; masks K-067 until fixed.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "0baea276",
+   "status": "in-progress",
    "dependencies": [
     "Fix after K-067 truncation so the column fix does not activate the truncation defect"
    ],
@@ -9258,12 +9277,13 @@
    "evidencePaths": [
     "K-067/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "0baea276",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "None; no export ever succeeded.",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k067-r028-eft-export"
   },
   {
    "id": "R-029",
