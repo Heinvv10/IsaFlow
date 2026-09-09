@@ -1,3 +1,4 @@
+import {executeBankTransferEffect} from './bankAllocationTransferEffect';
 import {randomUUID} from 'node:crypto';
 import {bankAllocationRowDimensions} from './bankAllocationDimensions';
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
@@ -13,6 +14,7 @@ export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,
  const parent={entityType:'bank_allocation_intent',entityId:intentId,operation:'bank_allocation.post' as const};
  assertControlledEffectPermit(ctx,permit,parent);
  const {intent,plan,sources,effect}=await loadBankAllocationIntent(ctx,intentId);
+ if(plan.kind==='transfer')return executeBankTransferEffect(ctx,intentId,permit,options);
  if(effect||sources.bank.status!=='imported')throw new Error('Bank allocation already executed');
  if(sources.periods[0]!.status!=='open')throw new Error('Open bank accounting period required');
  const company=ctx.principal.companyId,id=randomUUID();

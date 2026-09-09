@@ -1,3 +1,4 @@
+import {loadBankTransferState} from './bankAllocationTransferState';
 import {assertBankVatAccount} from './bankAllocationVatPreparation';
 import {loadBankAllocationDimensions} from './bankAllocationDimensions';
 import {getVerifiedBeneficiary} from '../controls/beneficiaryService';
@@ -10,8 +11,9 @@ import {materializeGlOperation} from '../controls/glOperationMaterializer';
 import Decimal from 'decimal.js';
 const D=Decimal.clone({precision:80});
 type Row=Record<string,unknown>;
-export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocationPlan){
+export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocationPlan,options:{postExecution?:boolean}={}){
  assertControlTx(ctx);const company=ctx.principal.companyId;
+ const transfer=plan.kind==='transfer'?await loadBankTransferState(ctx,plan,options.postExecution===true):null;
  const [bank]=await ctx.sql`SELECT * FROM bank_transactions WHERE company_id=${company}::uuid AND id=${plan.bankTransactionId}::uuid FOR UPDATE` as Row[];
  if(!bank)throw new Error('Owned bank transaction not found');
  const refund=isBankAllocationRefund(plan.kind,String(bank.amount));
@@ -20,7 +22,7 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  const [ledger]=await ctx.sql`SELECT id,default_currency,lockdown_enabled,lockdown_date::text FROM companies WHERE id=${company}::uuid FOR SHARE` as Row[];
  if(metadata.length!==1||metadata[0]!.currency!=='ZAR'||ledger?.default_currency!=='ZAR')throw new Error('Bank allocation requires unambiguous owned ZAR denomination');
  const accounts=await ctx.sql`SELECT id,account_code,account_name,account_type,account_subtype,is_active,is_system_account FROM gl_accounts WHERE company_id=${company}::uuid
-  AND (id=${bank.bank_account_id}::uuid OR id=ANY(${('lines' in plan?[...plan.lines.map(l=>l.accountId),...(plan.vatAccountId?[plan.vatAccountId]:[])]:[])}::uuid[]) OR (is_system_account=true AND account_subtype IN('receivable','payable','vat_input','vat_output')))
+  AND (id=${bank.bank_account_id}::uuid OR id=ANY(${('lines' in plan?[...plan.lines.map(l=>l.accountId),...(plan.vatAccountId?[plan.vatAccountId]:[])]:plan.kind==='transfer'?[plan.counterpartyAccountId]:[])}::uuid[]) OR (is_system_account=true AND account_subtype IN('receivable','payable','vat_input','vat_output')))
   ORDER BY id FOR SHARE` as Row[];
  const bankAccount=accounts.find(a=>a.id===bank.bank_account_id);
  if(!bankAccount||bankAccount.is_active!==true||bankAccount.account_type!=='asset'||bankAccount.account_subtype!=='bank')throw new Error('Owned active bank GL account required');
@@ -64,7 +66,7 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  const generated=await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${company}::uuid AND source_record_id=${plan.bankTransactionId}::uuid AND status='posted' ORDER BY id LIMIT 101 FOR SHARE` as {id:string}[];
  if(generated.length>100)throw new Error('Bank allocation journal population exceeds limit');
  const generatedJournals=[];for(const journal of generated)generatedJournals.push((await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:journal.id,operation:'journal.post'})).observedSources);
- const facts={bank,metadata,ledger,accounts,party,invoices,lines,periods,vatLocks,beneficiary,receipts,disbursements,receiptAllocations,paymentAllocations,generatedJournals,...(dimensions?{dimensions}:{})};
+ const facts={bank,metadata,ledger,accounts,party,invoices,lines,periods,vatLocks,beneficiary,receipts,disbursements,receiptAllocations,paymentAllocations,generatedJournals,...(dimensions?{dimensions}:{}),...(transfer?{transfer}:{})};
  return{...facts,fingerprint:createHash('sha256').update(canonicalJson(facts)).digest('hex')};
 }
 export type BankAllocationSources=Awaited<ReturnType<typeof loadBankAllocationSources>>;

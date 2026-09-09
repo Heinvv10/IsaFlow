@@ -3,7 +3,7 @@ import type {BankAllocationPlan} from './bankAllocationPlan';
 type Row={id:string;cc_type?:string;is_active:boolean;[key:string]:unknown};
 /** Only selected owned classification facts join the immutable source fingerprint. */
 export async function loadBankAllocationDimensions(ctx:ControlTx,plan:BankAllocationPlan){
- const selections='lines' in plan?plan.lines:[plan],company=ctx.principal.companyId;
+ const selections='lines' in plan?plan.lines:'applications' in plan?[plan]:[],company=ctx.principal.companyId;
  const ccIds=[...new Set(selections.flatMap(line=>[line.cc1Id,line.cc2Id]).filter((id):id is string=>Boolean(id)))].sort();
  const buIds=[...new Set(selections.flatMap(line=>line.buId?[line.buId]:[]))].sort();
  if(!ccIds.length&&!buIds.length)return null;
@@ -19,7 +19,7 @@ export async function loadBankAllocationDimensions(ctx:ControlTx,plan:BankAlloca
  return{costCentres,businessUnits};
 }
 export function bankAllocationRowDimensions(plan:BankAllocationPlan){
- const selections='lines' in plan?plan.lines:[plan];
+ const selections='lines' in plan?plan.lines:'applications' in plan?[plan]:[];
  const common=(key:'cc1Id'|'cc2Id'|'buId')=>{const values=[...new Set(selections.map(line=>line[key]??null))];return values.length===1?values[0]!:null;};
  return{cc1Id:common('cc1Id'),cc2Id:common('cc2Id'),buId:common('buId')};
 }
