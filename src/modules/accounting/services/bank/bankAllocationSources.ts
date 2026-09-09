@@ -1,3 +1,4 @@
+import {assertBankVatAccount} from './bankAllocationVatPreparation';
 import {getVerifiedBeneficiary} from '../controls/beneficiaryService';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
@@ -18,13 +19,14 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  const [ledger]=await ctx.sql`SELECT id,default_currency,lockdown_enabled,lockdown_date::text FROM companies WHERE id=${company}::uuid FOR SHARE` as Row[];
  if(metadata.length!==1||metadata[0]!.currency!=='ZAR'||ledger?.default_currency!=='ZAR')throw new Error('Bank allocation requires unambiguous owned ZAR denomination');
  const accounts=await ctx.sql`SELECT id,account_code,account_name,account_type,account_subtype,is_active,is_system_account FROM gl_accounts WHERE company_id=${company}::uuid
-  AND (id=${bank.bank_account_id}::uuid OR id=ANY(${('lines' in plan?plan.lines.map(l=>l.accountId):[])}::uuid[]) OR (is_system_account=true AND account_subtype IN('receivable','payable','vat_input','vat_output')))
+  AND (id=${bank.bank_account_id}::uuid OR id=ANY(${('lines' in plan?[...plan.lines.map(l=>l.accountId),...(plan.vatAccountId?[plan.vatAccountId]:[])]:[])}::uuid[]) OR (is_system_account=true AND account_subtype IN('receivable','payable','vat_input','vat_output')))
   ORDER BY id FOR SHARE` as Row[];
  const bankAccount=accounts.find(a=>a.id===bank.bank_account_id);
  if(!bankAccount||bankAccount.is_active!==true||bankAccount.account_type!=='asset'||bankAccount.account_subtype!=='bank')throw new Error('Owned active bank GL account required');
  const system=(role:string,type:string)=>{const found=accounts.filter(a=>a.is_system_account===true&&a.account_subtype===role&&a.account_type===type&&a.is_active===true);if(found.length!==1)throw new Error('Allocation system account missing or ambiguous');return String(found[0]!.id);};
  const controlAccountId=plan.kind==='customer'?system('receivable','asset'):plan.kind==='supplier'?system('payable','liability'):null;
- const vatAccountId='lines' in plan&&plan.lines.some(l=>l.vatCode==='standard')?system(new D(String(bank.amount)).lt(0)?'vat_input':'vat_output',new D(String(bank.amount)).lt(0)?'asset':'liability'):null;
+ const vatAccountId='lines' in plan&&plan.lines.some(l=>l.vatCode==='standard')?(plan.vatAccountId?assertBankVatAccount(accounts.find(account=>account.id===plan.vatAccountId),String(bank.amount))
+  :system(new D(String(bank.amount)).lt(0)?'vat_input':'vat_output',new D(String(bank.amount)).lt(0)?'asset':'liability')):null;
  if('lines' in plan)for(const line of plan.lines){
   const account=accounts.find(a=>a.id===line.accountId);if(!account||account.is_active!==true||line.accountId===bank.bank_account_id)throw new Error('Owned active contra account required');
   if(line.cc1Id||line.cc2Id||line.buId)throw new Error('Dimension allocation requires verified dimension material');
