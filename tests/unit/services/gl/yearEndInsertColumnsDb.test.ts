@@ -33,7 +33,7 @@ import { getPoolForTests } from '@/lib/neon';
 
 const SERVICE = join(
   process.cwd(),
-  'src/modules/accounting/services/gl/yearEndCloseService.ts',
+  'src/modules/accounting/services/gl/controlledYearEnd.ts',
 );
 
 /**
