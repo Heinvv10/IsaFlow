@@ -2539,7 +2539,7 @@
         "K-071/red.log",
         "K-071/validation.md"
       ],
-      "fixCommit": "d0765c74",
+      "fixCommit": "4c857048",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2636,7 +2636,7 @@
         "K-074/red.log",
         "K-074/validation.md"
       ],
-      "fixCommit": "d0765c74",
+      "fixCommit": "4c857048",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
