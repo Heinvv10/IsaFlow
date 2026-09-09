@@ -1627,7 +1627,7 @@
         "K-043/red.log",
         "K-043/validation.md"
       ],
-      "fixCommit": "7650d0f4",
+      "fixCommit": "a6e59683",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -1791,7 +1791,7 @@
         "K-048/red.log",
         "K-048/validation.md"
       ],
-      "fixCommit": "873daa11",
+      "fixCommit": "52335d08",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -1824,7 +1824,7 @@
         "K-049/red.log",
         "K-049/validation.md"
       ],
-      "fixCommit": "873daa11",
+      "fixCommit": "52335d08",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3721,7 +3721,7 @@
         "K-108/red.log",
         "K-108/validation.md"
       ],
-      "fixCommit": "7650d0f4",
+      "fixCommit": "a6e59683",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -3754,7 +3754,7 @@
         "K-109/red.log",
         "K-109/validation.md"
       ],
-      "fixCommit": "7650d0f4",
+      "fixCommit": "a6e59683",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
