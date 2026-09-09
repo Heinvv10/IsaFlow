@@ -16,7 +16,9 @@ import {
   type Provider, type BankAccount,
 } from './bankFeedTypes';
 
-const PROVIDERS: Provider[] = ['extension', 'manual_csv', 'basiq', 'tink', 'plaid'];
+// basiq | tink | plaid have no integration behind them and the API refuses
+// them — only the two implemented providers are offered.
+const PROVIDERS: Provider[] = ['extension', 'manual_csv'];
 const EXTENSION_BANKS: Array<{ id: string; label: string }> = [
   { id: 'absa', label: 'ABSA Business Banking' },
 ];

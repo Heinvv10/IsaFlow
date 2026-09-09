@@ -5,7 +5,7 @@
 
 ## Modules
 - **Statement import**: `bankImportService.ts` (persist parsed rows, bulk upload w/ per-file account validation), `bankStatementParseService.ts` (pure format parser), `bankStatementOcrService.ts`, `bankStatementDedupHelpers.ts`.
-- **Bank feeds / open banking**: `bankFeedService.ts`, `bankFeedConnectionService.ts`, `bankFeedOAuthService.ts`, `bankFeedSyncService.ts`; `openBankingService.ts` (facade — manual_csv | basiq | tink | plaid), `openBankingConnectionService.ts`, `openBankingSyncService.ts`, `openBankingTypes.ts`.
+- **Bank feeds / open banking**: `bankFeedService.ts`, `bankFeedConnectionService.ts`, `bankFeedOAuthService.ts`, `bankFeedSyncService.ts`; `openBankingService.ts` (facade — extension | manual_csv), `openBankingConnectionService.ts`, `openBankingSyncService.ts`, `openBankingTypes.ts`.
 - **Reconciliation + allocation**: `bankReconciliationService.ts` (start/complete/autoMatch), `bankAllocationService.ts` (allocate/split/reverse, posts JE), `bankTransactionQueryService.ts`, `bankTransactionLookupService.ts` (resolve a tx by the statement reference, either column), `bankMatchCandidatesService.ts`, `bankMatchDbQueries.ts`, `bankTxLock.ts` (`SELECT … FOR UPDATE` for every write path), `bankTxStatusMutations.ts` (match/unmatch/exclude), `bankTransferAutoLink.ts` (counterparty leg), `bankRuleAutoPostLine.ts` (one auto-post candidate).
 - **Categorisation rules**: `bankRulesService.ts` (CRUD), `bankRulesMatchingService.ts` (`applyRules`, auto-create JE when `auto_create_entry=true`).
 - **Multi-doc / 3-way match**: `multiDocMatchService.ts`, `multiDocMatchHelpers.ts` (pure).
@@ -40,7 +40,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/bank/*`. Ev
 - **Known limitation — the 2026-08-27 `parseAmount` comma fix moves the dedup content hash.** A CSV row written SA-style ("1 234,56") used to parse as 123456 and hashes on the amount, so the same file re-imported after the fix hashes differently: the corrected row lands as a NEW transaction beside the wrong one rather than replacing it. Re-importing such a file is therefore a two-step job — delete the mis-parsed rows (or undo the batch) first, then re-import. Production carried no exposure as of 2026-08-27: there were zero CSV-sourced `bank_transactions`, and all 38 ABSA batches were PDFs, which go through `bankPdfParserUtils.parseAmount` and are untouched by this change.
 - `autoMatch` is NOT atomic — each tx updated individually; mid-run crash leaves partial matches, next run picks up the rest.
 - PRD-06 Phase 4: receipt → invoice auto-match links unallocated receipts to open AR invoices.
-- Open-banking providers (Basiq/Tink/Plaid) stubbed when API keys absent — responses do NOT flag `mock: true` (can't distinguish in calling code).
+- Open-banking providers Basiq/Tink/Plaid are NOT implemented. They used to fall through to a random sample-transaction generator that INSERTed invented rows as `imported` and reported success (K-018). `createBankFeedConnection` now refuses them and `syncBankFeed` throws the exported `BankFeedProviderNotImplementedError` for a legacy connection rather than importing anything. Route callers must map that error to a 4xx — `withAuth` ROLLBACKs on >= 500 and would discard the `markSyncFailed` audit trail.
 - VLM: `VLLM_BASE_URL`, `VLM_MODEL`, `VLLM_API_KEY`, `VLLM_TIMEOUT` env vars; `isVlmAvailable()` for health.
 
 ## Related files
