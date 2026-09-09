@@ -1,3 +1,4 @@
+import { finalizeRequestTransaction } from './transactionFinalization';
 import { settleControlTransaction } from '@/modules/accounting/services/controls/transactionObservers';
 import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
 /**
@@ -252,8 +253,7 @@ export async function runBearerRequest(
     // caught+responded 500) — never COMMIT its partial writes.
     const handlerFailed = res.statusCode >= 500;
     try {
-      await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
-        await settleControlTransaction(client, handlerFailed ? 'rolled_back' : 'committed');
+      await finalizeRequestTransaction(client, handlerFailed);
     } catch (finalizeErr) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       log.error('bearerPipeline: transaction finalize failed after handler responded', {

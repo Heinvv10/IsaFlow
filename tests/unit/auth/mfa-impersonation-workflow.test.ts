@@ -85,7 +85,7 @@ beforeEach(async () => {
   fixture.sql.mockImplementation(async (parts: TemplateStringsArray) =>
     parts.join('').includes('SELECT company_id') ? [{ company_id: companyId }]
       : parts.join('').includes('FROM users') ? [{ is_active: true, status: 'active', suspended_at: null }] : []);
-  fixture.query.mockImplementation(async (sql: string) => ({ rows: sql.includes('FROM company_users')
+  fixture.query.mockImplementation(async (sql: string) => ({ command: sql.trim().split(/\s+/)[0]!.toUpperCase(), rows: sql.includes('FROM company_users')
     ? [{ role: 'admin', account_user_id: targetId, is_active: true, status: 'active', suspended_at: null }] : [] }));
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: targetId,
     factors: [{ status: 'verified', factor_type: 'totp' }] })));

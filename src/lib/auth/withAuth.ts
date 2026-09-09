@@ -1,3 +1,4 @@
+import { finalizeRequestTransaction } from './transactionFinalization';
 import { settleControlTransaction } from '@/modules/accounting/services/controls/transactionObservers';
 import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
 import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
@@ -236,8 +237,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // validate-then-4xx almost always return before any write).
       const handlerFailed = res.statusCode >= 500;
       try {
-        await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
-        await settleControlTransaction(client, handlerFailed ? 'rolled_back' : 'committed');
+        await finalizeRequestTransaction(client, handlerFailed);
       } catch (finalizeErr) {
         // The transaction could not be finalised after the handler "responded".
         // Best-effort rollback, then (for the common deferred-flush case where

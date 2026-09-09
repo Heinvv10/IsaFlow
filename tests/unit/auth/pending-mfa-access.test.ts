@@ -54,7 +54,7 @@ beforeEach(() => {
   vi.stubEnv('SENTRY_ENABLED', 'false');
   fixtures.sql.mockResolvedValue([{ is_active: true, status: 'active', suspended_at: null,
     company_id: fixtures.companyId, is_default: true }]);
-  fixtures.query.mockImplementation(async (query: string) => ({ rows: query.includes('FROM company_users')
+  fixtures.query.mockImplementation(async (query: string) => ({ command: query.trim().split(/\s+/)[0]!.toUpperCase(), rows: query.includes('FROM company_users')
     ? [{ role: 'admin', account_user_id: fixtures.userId, is_active: true, status: 'active', suspended_at: null }]
     : [] }));
 });

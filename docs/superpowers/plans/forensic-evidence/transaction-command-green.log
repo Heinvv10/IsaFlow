@@ -1,0 +1,12 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+{"level":"error","message":"Control transaction observer failed; durable attempt requires reconciliation","timestamp":"2026-09-09T08:01:49.320Z","component":"controls","data":{"outcome":"committed"}}
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-09T08:01:49.852Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"commit failed: serialization"}}
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-09T08:01:49.917Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"Database transaction did not finish with the expected outcome"}}
+
+ Test Files  5 passed (5)
+      Tests  36 passed (36)
+   Start at  10:01:48
+   Duration  1.42s (transform 1.79s, setup 0ms, import 2.21s, tests 800ms, environment 0ms)
+

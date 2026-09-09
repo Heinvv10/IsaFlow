@@ -1,0 +1,33 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts (10 tests | 1 failed | 9 skipped) 547ms
+     × reports an aborted COMMIT as rollback and replaces the buffered success 545ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/auth/withAuth-commit-order.test.ts > withAuth — commit-before-respond ordering > reports an aborted COMMIT as rollback and replaces the buffered success
+AssertionError: expected 200 to be 500 // Object.is equality
+
+- Expected
++ Received
+
+- 500
++ 200
+
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:266:28
+    264|       observeControlTransaction(outcome=>{events.push(`OBSERVED_${outc…
+    265|     })(mkReq(await makeToken('user-1'),COMPANY_ID),res);
+    266|     expect(res.statusCode).toBe(500);expect(events).toContain('OBSERVE…
+       |                            ^
+    267|     expect(events).not.toContain('OBSERVED_committed');
+    268|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 skipped (10)
+   Start at  10:01:17
+   Duration  904ms (transform 258ms, setup 0ms, import 139ms, tests 547ms, environment 0ms)
+

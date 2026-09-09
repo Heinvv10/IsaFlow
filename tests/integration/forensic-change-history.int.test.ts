@@ -1,3 +1,5 @@
+import { finalizeRequestTransaction } from '../../src/lib/auth/transactionFinalization';
+import { observeControlTransaction } from '../../src/modules/accounting/services/controls/transactionObservers';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
@@ -29,7 +31,7 @@ async function transact<T>(company: string, user: string, fn: (ctx: ControlTx) =
     await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)", [JSON.stringify(claims), company]);
     const result = await withControlRequest({ client, userId: user, companyId: company, claims },
       { personId: user, companyId: company, authMethod: 'cookie' }, () => fn(requireControlTx()));
-    await client.query('COMMIT'); return result;
+    await finalizeRequestTransaction(client, false); return result;
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
 }
@@ -121,4 +123,15 @@ it('caught invalid evidence context cannot commit an earlier domain mutation', a
     await recordCommittedChange({ ...ctx }, change(id)).catch(() => 'caught invalid context');
   })).rejects.toThrow('evidence');
   expect((await pool.query('SELECT id FROM suppliers WHERE company_id=$1 AND id=$2', [fixture.companyA,id])).rows).toHaveLength(0);
+});
+
+it('does not report commit when PostgreSQL rolls back an aborted transaction',async()=>{
+  const id=randomUUID(),outcomes:string[]=[];
+  await expect(transact(fixture.companyA,fixture.u1.id,async ctx=>{
+    observeControlTransaction(outcome=>{outcomes.push(outcome);});
+    await ctx.sql`INSERT INTO suppliers(id,company_id,name) VALUES(${id}::uuid,${fixture.companyA}::uuid,'Aborted transaction')`;
+    await ctx.sql`SELECT 1/0`.catch(()=> 'caught ordinary SQL failure');
+  })).rejects.toThrow('expected outcome');
+  expect(outcomes).toEqual(['rolled_back']);
+  expect((await pool.query('SELECT id FROM suppliers WHERE company_id=$1 AND id=$2',[fixture.companyA,id])).rows).toHaveLength(0);
 });
