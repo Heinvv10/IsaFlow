@@ -190,3 +190,23 @@ it('never exposes a foreign employee through an owned legacy batch to a dual-com
  const result=await actor(()=>getBatch(fixture.companyA,legacyBatch));
  expect(result.lines.some(line=>line.employeeName?.includes('FOREIGN-EMPLOYEE')||line.employeeNumber==='FOREIGN-NUMBER')).toBe(false);
 });
+it('records each approved mixed-date compensation child at its own affected accounting date',async()=>{
+ const ending=randomUUID();
+ await pool.query("INSERT INTO payroll_employee_components(id,employee_id,component_id,amount,effective_from,is_recurring) VALUES($1,$2,$3,10,'2029-11-01',true)",[ending,employee,component]);
+ await pool.query("UPDATE company_user_permissions SET can_write=true WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);
+ try{
+  const {preparePayrollCompensation,executePayrollCompensation}=await import('@/modules/accounting/services/controls/payrollCompensationControl');
+  const {requestOperationApproval,decideOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+  const prepared=await actor(()=>preparePayrollCompensation(requireControlTx(),{version:1,source:{kind:'manual'},actions:[
+   {kind:'assign',employeeId:employee,componentId:component,amount:'20.00',effectiveFrom:'2030-01-01'},
+   {kind:'assign',employeeId:employee,componentId:component,amount:'30.00',effectiveFrom:'2030-03-01'},
+   {kind:'end',assignmentId:ending,effectiveTo:'2030-02-28'}]}));
+  const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));
+  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+  const result=await actor(()=>executePayrollCompensation(requireControlTx(),prepared.intentId,{approvalId:approval.id}));
+  const events=await pool.query("SELECT entity_id,action,accounting_date::text FROM control_change_events WHERE company_id=$1 AND entity_type='payroll_employee_component' AND entity_id=ANY($2::text[]) ORDER BY accounting_date,entity_id",[fixture.companyA,result.assignmentIds]);
+  expect(events.rows.map(row=>row.accounting_date).sort()).toEqual(['2030-01-01','2030-03-01','2030-03-01']);
+  expect(events.rows.find(row=>row.entity_id===ending).accounting_date).toBe('2030-03-01');
+  expect((await pool.query('SELECT effective_date::text FROM control_payroll_compensation_intents WHERE company_id=$1 AND id=$2',[fixture.companyA,prepared.intentId])).rows[0].effective_date).toBe('2030-01-01');
+ }finally{await pool.query("UPDATE company_user_permissions SET can_write=false WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);}
+});

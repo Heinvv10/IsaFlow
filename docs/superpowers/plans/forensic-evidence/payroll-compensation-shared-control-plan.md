@@ -71,3 +71,9 @@ Final source tsc --noEmit, scoped source ESLint and14 focused unit suites/58 tes
 ## Independent batch-reader finding against1d7f48e3b
 
 Root identified getBatch's missing employee company predicate. Actual foreign-batch-employee-red.log confirms schema allowed owned legacy batch line referencing foreign employee; dual-company actor then received foreign employee name/number. Added e.company_id to getBatch's employee join. Full13 compensation PG47737 terminal0 GREEN1.58s, pools closed/DB lease returned. Six batch reader units and scoped lint78335 terminal0; sourceTS92532 terminal0. Exact correction remains subject to root named re-review. Separate preexisting validateBatch employee-status join is not certified by this getBatch name-disclosure regression; shared financial preparation independently requires an owned employee population. No root controls/contracts or other worktrees edited.
+
+## Independent mixed-date child event finding against1d7/ddb
+
+Snapshot reviewer confirmed aggregate earliest permit date was incorrectly stamped on every child event. Actual approved mixed-date PG RED (mixed-child-date-red.log) committed January1 for January assignment, March assignment and February28 closure. Effect now derives each child accounting date through existing assertCompensationWindow(action,before,company,runs), so closure uses its next affected day. Parent intent/approval keeps earliest aggregate date. Full14PG54203 terminal0 GREEN1.51s proves Jan1/Mar1/Mar1 child dates and Jan1 parent, preserving earlier13 workflows. Pools closed/DB lease returned. Scoped lint and five effect/window units60683 terminal0; final sourceTS39980 pending before named correction. Cash-history work paused around this priority correction, with no cash DB activity.
+
+Mixed-date final sourceTS39980 terminal0 clean; TS lease returned. Exact three-file correction ready for independent named re-review. No outstanding owned process.
