@@ -128,3 +128,22 @@ it('an approval source binding blocks merge even before any payment exists',asyn
  await expect(actor(()=>mergeEntities(fixture.companyA,'supplier',dest,source,fixture.u1.id))).rejects.toThrow('SUPPLIER_MERGE_REQUIRES_REVIEW');
  expect((await stored(source)).deleted_at).toBeNull();
 });
+it.each(['purchase_order','supplier_credit_note'])('preserves a supplier with only a standalone %s dependency',async kind=>{
+ const source=await legacy(),dest=await legacy(),document=randomUUID();
+ if(kind==='purchase_order'){
+  await pool.query(`INSERT INTO purchase_orders(id,company_id,po_number,supplier_id,status,created_by)
+   VALUES($1,$2,$3,$4,'approved',$5)`,[document,fixture.companyA,`SYN-${document}`,source,fixture.u1.id]);
+  await pool.query(`INSERT INTO goods_received_notes(company_id,grn_number,purchase_order_id,received_by)
+   VALUES($1,$2,$3,$4)`,[fixture.companyA,`SYN-GRN-${document}`,document,fixture.u1.id]);
+ }else{
+  await pool.query(`INSERT INTO credit_notes(id,company_id,type,supplier_id,supplier_invoice_id,credit_date,status,created_by)
+   VALUES($1,$2,'supplier',$3,NULL,CURRENT_DATE,'approved',$4)`,[document,fixture.companyA,source,fixture.u1.id]);
+ }
+ await expect(actor(()=>mergeEntities(fixture.companyA,'supplier',dest,source,fixture.u1.id))).rejects.toThrow('SUPPLIER_MERGE_REQUIRES_REVIEW');
+ expect((await stored(source)).deleted_at).toBeNull();expect((await stored(dest)).deleted_at).toBeNull();
+ const row=kind==='purchase_order'
+  ?await pool.query('SELECT supplier_id FROM purchase_orders WHERE company_id=$1 AND id=$2',[fixture.companyA,document])
+  :await pool.query('SELECT supplier_id,supplier_invoice_id FROM credit_notes WHERE company_id=$1 AND id=$2',[fixture.companyA,document]);
+ expect(row.rows[0].supplier_id).toBe(source);
+ if(kind==='supplier_credit_note')expect(row.rows[0].supplier_invoice_id).toBeNull();
+});

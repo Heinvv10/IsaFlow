@@ -41,3 +41,9 @@ ISAFLOW_FORENSIC_FIXTURE_OPT_IN=1 ISAFLOW_FORENSIC_FIXTURE_URL=postgresql://post
 - Employee evidence association, other evidence stores and configured beneficiary policy evaluation remain pending from the kernel report. Empty proposal evidence does not relax verification requirements.
 - Direct historical import/Sage paths outside migrationContactService and generic bank-data read/reveal adapters still require the programme inventory review. This scoped change does not claim all supplier writes or sensitive reads are globally closed.
 - Existing financial writers outside this scope must share the parent-lock/active-state contract. The guard serializes current shared proposals and merges; unrelated legacy direct SQL writers are not made safe merely by this merge guard.
+
+## Independent-review follow-up: standalone purchasing and supplier credits
+
+Review of named030955f9+f6ed2be2 found that the merge dependency query covered supplier_purchase_orders but omitted the separate active purchase_orders table, and omitted supplier credit_notes with no supplier_invoice_id. Named schema246b and202 confirm those independent relationships. Two unit regressions first returned successful merges (RED); tenant-scoped checks for both tables now make all3 merge unit cases pass. The credit-note predicate explicitly requires type='supplier'. An existing GRN always has a required purchase_orders parent, so the parent dependency guard covers its history too.
+
+Two PostgreSQL cases are authored for an approved PO with GRN and an approved standalone supplier credit note. They assert the merge refuses, both suppliers remain undeleted and the document supplier_id remains unchanged. These two new cases have not yet run; awaiting the coordinated synthetic DB lease. Prior9 PostgreSQL proof remains as recorded above, and is not presented as proof of this follow-up.
