@@ -58,34 +58,53 @@ function scheduleRows(): Record<string, unknown>[] {
 
 let inserted: Record<string, unknown> | null = null;
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  inserted = null;
+/**
+ * Route every query assessLoan issues.
+ *
+ * `paidPeriods` seeds loan_payments — the receipt subledger and the only
+ * evidence of settlement. loan_gl_postings is deliberately NOT a payment
+ * source: postPeriodJournals writes the contractual instalment journal whether
+ * or not cash arrived, so reading arrears from it makes a company that posts on
+ * time look current while the borrower pays nothing.
+ */
+function primeSql(
+  paidPeriods: number[],
+  lastPaymentDate: string | null,
+  rows: Record<string, unknown>[] = scheduleRows(),
+): void {
   sqlMock.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
     const q = strings.join('?');
     if (q.includes('FROM loans')) return Promise.resolve([{ id: LOAN, company_id: COMPANY }]);
     if (q.includes('FROM loan_schedule_runs')) return Promise.resolve([{ id: 'run-1' }]);
-    if (q.includes('FROM loan_schedule_rows')) return Promise.resolve(scheduleRows());
-    if (q.includes('MAX(posting_date)')) {
-      return Promise.resolve([{ last_payment_date: '2025-01-31' }]);
+    if (q.includes('FROM loan_schedule_rows')) return Promise.resolve(rows);
+    if (q.includes('FROM loan_payments')) {
+      return Promise.resolve(
+        paidPeriods.map((period_number) => ({ period_number, payment_date: lastPaymentDate })),
+      );
     }
     if (q.includes('INSERT INTO loan_compliance_assessments')) {
       // Values land positionally; days_past_due and ifrs9_stage are what matter.
-      inserted = { ifrs9_stage: values[5], days_past_due: values[6] };
+      inserted = { ifrs9_stage: values[5], days_past_due: values[6], notes: values[11] };
       return Promise.resolve([{
         loan_id: LOAN, assessment_date: AS_OF, nca_flagged: false, nca_period: null,
         ifrs9_stage: values[5], days_past_due: values[6], ecl_amount: values[7],
-        ecl_method: values[8], outstanding: values[9], notes: null,
+        ecl_method: values[8], outstanding: values[9], notes: values[11],
         assessed_by: USER, assessed_at: AS_OF,
       }]);
     }
     return Promise.resolve([]);
   });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  inserted = null;
+  // Instalments 1 and 2 were paid; the last cash arrived on 31 January 2025.
+  primeSql([1, 2], '2025-01-31');
 });
 
 describe('computeDaysPastDue — the reference date it is given', () => {
   it('counts the days since the oldest unsettled instalment fell due', () => {
-    // 28 February to 30 June 2025 is 122 days.
     expect(computeDaysPastDue(null, AS_OF, '2025-02-28')).toBe(122);
   });
 
@@ -97,7 +116,7 @@ describe('computeDaysPastDue — the reference date it is given', () => {
 describe('assessLoan — a borrower four instalments in arrears', () => {
   it('records days past due, not zero', async () => {
     const assessment = await assessLoan(COMPANY, LOAN, USER, AS_OF);
-    expect(assessment.daysPastDue).toBeGreaterThan(90);
+    expect(assessment.daysPastDue).toBe(122);
   });
 
   it('moves the exposure to stage 3', async () => {
@@ -111,76 +130,52 @@ describe('assessLoan — a borrower four instalments in arrears', () => {
   });
 
   it('leaves a loan paid up to date at stage 1', async () => {
-    sqlMock.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
-      const q = strings.join('?');
-      if (q.includes('FROM loans')) return Promise.resolve([{ id: LOAN, company_id: COMPANY }]);
-      if (q.includes('FROM loan_schedule_runs')) return Promise.resolve([{ id: 'run-1' }]);
-      if (q.includes('FROM loan_schedule_rows')) return Promise.resolve(scheduleRows());
-      if (q.includes('MAX(posting_date)')) return Promise.resolve([{ last_payment_date: AS_OF }]);
-      if (q.includes('INSERT INTO loan_compliance_assessments')) {
-        return Promise.resolve([{
-          loan_id: LOAN, assessment_date: AS_OF, nca_flagged: false, nca_period: null,
-          ifrs9_stage: values[5], days_past_due: values[6], ecl_amount: values[7],
-          ecl_method: values[8], outstanding: values[9], notes: null,
-          assessed_by: USER, assessed_at: AS_OF,
-        }]);
-      }
-      return Promise.resolve([]);
-    });
-
+    // Every instalment due on or before the assessment date has a receipt.
+    primeSql([1, 2, 3, 4, 5, 6], AS_OF);
     const assessment = await assessLoan(COMPANY, LOAN, USER, AS_OF);
     expect(assessment.stage).toBe(1);
+    expect(assessment.daysPastDue).toBe(0);
   });
 
   it('ignores skipped instalments when picking the oldest arrear', async () => {
     // February is a contractual payment holiday; March is the oldest real arrear.
-    sqlMock.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
-      const q = strings.join('?');
-      if (q.includes('FROM loans')) return Promise.resolve([{ id: LOAN, company_id: COMPANY }]);
-      if (q.includes('FROM loan_schedule_runs')) return Promise.resolve([{ id: 'run-1' }]);
-      if (q.includes('FROM loan_schedule_rows')) {
-        return Promise.resolve(
-          scheduleRows().map((r) => (r.date === '2025-02-28' ? { ...r, skip_flag: true } : r)),
-        );
-      }
-      if (q.includes('MAX(posting_date)')) return Promise.resolve([{ last_payment_date: '2025-01-31' }]);
-      if (q.includes('INSERT INTO loan_compliance_assessments')) {
-        return Promise.resolve([{
-          loan_id: LOAN, assessment_date: AS_OF, nca_flagged: false, nca_period: null,
-          ifrs9_stage: values[5], days_past_due: values[6], ecl_amount: values[7],
-          ecl_method: values[8], outstanding: values[9], notes: null,
-          assessed_by: USER, assessed_at: AS_OF,
-        }]);
-      }
-      return Promise.resolve([]);
-    });
-
+    primeSql(
+      [1, 2], '2025-01-31',
+      scheduleRows().map((r) => (r.date === '2025-02-28' ? { ...r, skip_flag: true } : r)),
+    );
     const assessment = await assessLoan(COMPANY, LOAN, USER, AS_OF);
     // 31 March to 30 June 2025 is 91 days, not February's 122.
     expect(assessment.daysPastDue).toBe(91);
   });
 
-  it('counts from the oldest instalment when no payment has ever posted', async () => {
-    sqlMock.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
-      const q = strings.join('?');
-      if (q.includes('FROM loans')) return Promise.resolve([{ id: LOAN, company_id: COMPANY }]);
-      if (q.includes('FROM loan_schedule_runs')) return Promise.resolve([{ id: 'run-1' }]);
-      if (q.includes('FROM loan_schedule_rows')) return Promise.resolve(scheduleRows());
-      if (q.includes('MAX(posting_date)')) return Promise.resolve([{ last_payment_date: null }]);
-      if (q.includes('INSERT INTO loan_compliance_assessments')) {
-        return Promise.resolve([{
-          loan_id: LOAN, assessment_date: AS_OF, nca_flagged: false, nca_period: null,
-          ifrs9_stage: values[5], days_past_due: values[6], ecl_amount: values[7],
-          ecl_method: values[8], outstanding: values[9], notes: null,
-          assessed_by: USER, assessed_at: AS_OF,
-        }]);
-      }
-      return Promise.resolve([]);
-    });
-
+  it('counts from the oldest instalment when no receipt was ever recorded', async () => {
+    primeSql([], null);
     const assessment = await assessLoan(COMPANY, LOAN, USER, AS_OF);
     // 31 December 2024 to 30 June 2025 is 181 days.
     expect(assessment.daysPastDue).toBe(181);
     expect(assessment.stage).toBe(3);
+  });
+
+  it('says so when it measured arrears with no receipts recorded at all', async () => {
+    primeSql([], null);
+    await assessLoan(COMPANY, LOAN, USER, AS_OF);
+    expect(String(inserted!.notes)).toMatch(/No loan_payments receipts recorded/);
+  });
+
+  it('records no such note once receipts exist', async () => {
+    await assessLoan(COMPANY, LOAN, USER, AS_OF);
+    expect(inserted!.notes).toBeNull();
+  });
+
+  it('does not treat a posted period journal as a payment', async () => {
+    // Review H1: the company posts its period journals on time and the
+    // borrower pays nothing. Reading loan_gl_postings would call this current.
+    primeSql([], null);
+    await assessLoan(COMPANY, LOAN, USER, AS_OF);
+
+    const queries = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(queries.some((q) => q.includes('FROM loan_payments'))).toBe(true);
+    expect(queries.some((q) => q.includes('MAX(posting_date)'))).toBe(false);
+    expect(Number(inserted!.days_past_due)).toBe(181);
   });
 });

@@ -81,7 +81,9 @@ beforeAll(async () => {
        lump,skip_flag,payment,closing,st_liability,extrapolated,nca_flagged)
      VALUES($1,1,'2026-02-28',100000,12,8884.88,1000,7884.88,0,false,8884.88,92115.12,92115.12,false,false),
            ($1,2,'2026-03-31',92115.12,12,8884.88,921.15,7963.73,0,false,8884.88,84151.39,84151.39,false,false),
-           ($1,3,'2026-04-30',84151.39,12,8884.88,841.51,8043.37,0,false,8884.88,76108.02,76108.02,false,false)`,
+           ($1,3,'2026-04-30',84151.39,12,8884.88,841.51,8043.37,0,false,8884.88,76108.02,76108.02,false,false),
+           ($1,4,'2026-05-31',76108.02,12,8884.88,761.08,8123.80,0,false,8884.88,67984.22,67984.22,false,false),
+           ($1,5,'2026-06-30',67984.22,12,8884.88,679.84,8205.04,0,false,8884.88,59779.18,59779.18,false,false)`,
     [runId]);
 
   await pool.query("INSERT INTO companies(id,name) VALUES($1,'K083 loan fixture B')", [companyB]);
@@ -197,8 +199,11 @@ it('leaves a second tenant free to post the same period on its own loan', async 
   expect(a.rows[0].interest_debited).toBe(1000);
 });
 
-it('does not treat a reversal row as an existing post', async () => {
-  // A reversal set carries reversal_of; it must not block period 2.
+it('a reversal row is not itself a posting and does not block its own period', async () => {
+  // Review M1. The earlier version of this test inserted a reversal row for a
+  // period that never had an original, so it could not tell the two behaviours
+  // apart. Period 2 has no original here either — what it proves is only that a
+  // row carrying reversal_of is not mistaken for a posting.
   const seed = await pool.query(
     `SELECT id FROM loan_gl_postings WHERE company_id=$1 AND loan_id=$2 AND period=1 LIMIT 1`,
     [company, loan]);
@@ -217,7 +222,77 @@ it('does not treat a reversal row as an existing post', async () => {
   expect(rows[0].n).toBe(1);
 });
 
+it('reversing the GL journal does NOT let the period be re-posted', async () => {
+  // Review M1. Reversing a journal writes to gl_journal_entries only; the
+  // original loan_gl_postings rows keep reversal_of IS NULL and keep blocking.
+  // The code comment, fix.md, the migration header and the module docs used to
+  // claim the opposite. This pins the behaviour that actually exists.
+  const first = await postPeriod(4);
+  expect(first.ok).toBe(true);
+
+  const original = await pool.query(
+    `SELECT id, journal_entry_id FROM loan_gl_postings
+      WHERE company_id=$1 AND loan_id=$2 AND period=4 AND reversal_of IS NULL`, [company, loan]);
+  expect(original.rowCount).toBeGreaterThan(0);
+
+  // Mark every original row as reversed, the way a GL reversal would if it
+  // touched this table at all.
+  await pool.query(
+    `INSERT INTO loan_gl_postings(company_id,loan_id,period,posting_date,account_id,debit,credit,
+       narrative,posted_period,journal_entry_id,reversal_of)
+     SELECT company_id,loan_id,period,posting_date,account_id,credit,debit,
+            'reversal',posted_period,NULL,id
+       FROM loan_gl_postings
+      WHERE company_id=$1 AND loan_id=$2 AND period=4 AND reversal_of IS NULL`,
+    [company, loan]);
+
+  const retry = await postPeriod(4);
+  expect(retry.ok).toBe(false);
+  expect(String((retry as { err: unknown }).err)).toMatch(/has already been posted/);
+
+  // The documented remediation: delete the superseded rows, then it posts.
+  await pool.query(
+    `DELETE FROM loan_gl_postings
+      WHERE company_id=$1 AND loan_id=$2 AND period=4`, [company, loan]);
+
+  const afterCleanup = await postPeriod(4);
+  expect(afterCleanup.ok).toBe(true);
+  const { rows } = await pool.query(
+    `SELECT COUNT(DISTINCT journal_entry_id)::int AS n FROM loan_gl_postings
+      WHERE company_id=$1 AND loan_id=$2 AND period=4 AND reversal_of IS NULL`, [company, loan]);
+  expect(rows[0].n).toBe(1);
+});
+
+it('treats a row with no journal id the same way the constraint does', async () => {
+  // Review L4. The exclusion constraint's predicate carries
+  // `journal_entry_id IS NOT NULL`, so a row without one is unconstrained. The
+  // service guard used to omit that test and treat such a row as an existing
+  // post, leaving the two layers disagreeing about the same table.
+  await pool.query(
+    `INSERT INTO loan_gl_postings(company_id,loan_id,period,posting_date,account_id,debit,credit,
+       narrative,posted_period,journal_entry_id,reversal_of)
+     VALUES($1,$2,5,'2026-06-30',$3,761.08,0,'orphan line','202606',NULL,NULL)`,
+    [company, loan, accounts['8100']]);
+
+  const posted = await postPeriod(5);
+  expect(posted.ok).toBe(true);
+
+  const { rows } = await pool.query(
+    `SELECT COUNT(DISTINCT journal_entry_id)::int AS n FROM loan_gl_postings
+      WHERE company_id=$1 AND loan_id=$2 AND period=5
+        AND reversal_of IS NULL AND journal_entry_id IS NOT NULL`, [company, loan]);
+  expect(rows[0].n).toBe(1);
+});
+
 it('lets only one of two concurrent posts through', async () => {
+  // Measure the delta rather than a running total: earlier tests in this file
+  // post other periods, and an absolute figure here would be asserting their
+  // behaviour as much as this one's.
+  const before = await pool.query(
+    `SELECT COALESCE(SUM(l.debit),0)::float8 AS interest_debited
+       FROM gl_journal_lines l JOIN gl_accounts a ON a.id=l.gl_account_id
+      WHERE l.company_id=$1 AND a.account_code='8100'`, [company]);
+
   const [first, second] = await Promise.all([postPeriod(3), postPeriod(3)]);
   const outcomes = [first.ok, second.ok].sort();
   expect(outcomes).toEqual([false, true]);
@@ -227,10 +302,10 @@ it('lets only one of two concurrent posts through', async () => {
       WHERE company_id=$1 AND loan_id=$2 AND period=3 AND reversal_of IS NULL`, [company, loan]);
   expect(rows[0].n).toBe(1);
 
-  // Interest expense carries period 1 + period 2 + period 3 exactly once each.
+  // Period 3's interest was debited exactly once despite two parallel posts.
   const gl = await pool.query(
     `SELECT COALESCE(SUM(l.debit),0)::float8 AS interest_debited
        FROM gl_journal_lines l JOIN gl_accounts a ON a.id=l.gl_account_id
       WHERE l.company_id=$1 AND a.account_code='8100'`, [company]);
-  expect(gl.rows[0].interest_debited).toBeCloseTo(1000 + 921.15 + 841.51, 2);
+  expect(gl.rows[0].interest_debited - before.rows[0].interest_debited).toBeCloseTo(841.51, 2);
 });

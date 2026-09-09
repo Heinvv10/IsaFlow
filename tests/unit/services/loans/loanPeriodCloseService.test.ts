@@ -198,15 +198,27 @@ describe('closeLoanPeriod', () => {
         snapshot_closing: '100000', snapshot_stliability: '20000', snapshot_date: '2026-04-30',
       },
     ];
-    sqlMock
-      .mockResolvedValueOnce([])                               // isPeriodLocked
-      .mockResolvedValueOnce(loansPlusRows)                    // JOINed loans + period rows
-      .mockResolvedValueOnce([{ yyyymm: '202604', locked_at: 't' }]);
+    sqlMock.mockImplementation((strings: TemplateStringsArray) => {
+      const q = strings.join('?');
+      if (q.includes('FROM loans l')) return Promise.resolve(loansPlusRows);
+      if (q.includes('INSERT INTO loan_period_locks')) {
+        return Promise.resolve([{ yyyymm: '202604', locked_at: 't' }]);
+      }
+      return Promise.resolve([]);
+    });
 
     await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
-    // Previously this was 1 loans query + N period-row queries. Now must be 1 JOINed query.
-    // So total sql calls = isLocked(1) + JOINed fetch(1) + lock(1) = 3 (not 1 + 1 + N*1 + 1).
-    expect(sqlMock).toHaveBeenCalledTimes(3);
+
+    // Previously this was 1 loans query + N period-row queries. The loans and
+    // their period rows must still come back in ONE query, and nothing may
+    // re-read loan_schedule_rows per loan. Counting total calls instead would
+    // break every time a bounded per-posting write is added, which is why this
+    // asserts the shape rather than a magic number.
+    const queries = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(queries.filter((q) => q.includes('FROM loans l'))).toHaveLength(1);
+    expect(
+      queries.filter((q) => q.includes('loan_schedule_rows') && !q.includes('FROM loans l')),
+    ).toHaveLength(0);
   });
 
   it('posts reclass journal with correct Dr/Cr amounts', async () => {
