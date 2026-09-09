@@ -5,6 +5,7 @@
  */
 
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { applyVatDenial, VAT_CODE_STANDARD } from '@/modules/accounting/services/gl/inputVatDenial';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,13 +133,37 @@ export function buildExpenseJournalFromReceipt(
 
   const merchantDesc = extracted.vendorName || 'Unknown merchant';
 
+  // s17(2)(a) denies input tax on entertainment, and nothing downstream knew:
+  // the VAT-input leg was emitted unconditionally, so every restaurant receipt
+  // this service routed to 5600 also claimed its 15% back. Key the denial off
+  // the RECEIPT TYPE, not the account code — `travel` and telecoms map to 5600
+  // too and their input tax is claimable. Unattended: both callers auto-post
+  // under a confidence gate with nobody watching, which is the one shape
+  // `applyVatDenial` is allowed to coerce rather than warn about.
+  const { denied } = applyVatDenial(
+    parseReceiptType(extracted) === 'meals',
+    VAT_CODE_STANDARD,
+    { vendorName: extracted.vendorName, source: 'receipt_to_journal' },
+  );
+  // The gross stays on the expense leg as subtotal + vatAmount, never `total`:
+  // the three figures are extracted independently and the callers' pre-check
+  // rejects an entry where they disagree. Collapsing to `total` would hide it.
+  const expenseDebit = denied ? Math.round((subtotal + vatAmount) * 100) / 100 : subtotal;
+
   return {
     entryDate: extracted.date || new Date().toISOString().split('T')[0]!,
     description: `Receipt: ${merchantDesc}${extracted.referenceNumber ? ` (${extracted.referenceNumber})` : ''}`,
     source: 'auto_invoice',
     lines: [
-      { accountId: accountIds.expenseAccountId, debit: subtotal, credit: 0, description: merchantDesc },
-      { accountId: accountIds.vatInputAccountId, debit: vatAmount, credit: 0, description: 'VAT Input' },
+      {
+        accountId: accountIds.expenseAccountId,
+        debit: expenseDebit,
+        credit: 0,
+        description: denied ? `${merchantDesc} (input VAT denied — s17(2)(a))` : merchantDesc,
+      },
+      // Zero on a denial. Both callers drop zero-value legs before posting, so
+      // the entry reaches the ledger with no VAT-input line at all.
+      { accountId: accountIds.vatInputAccountId, debit: denied ? 0 : vatAmount, credit: 0, description: 'VAT Input' },
       { accountId: accountIds.bankAccountId, debit: 0, credit: total, description: `Payment: ${merchantDesc}` },
     ],
   };

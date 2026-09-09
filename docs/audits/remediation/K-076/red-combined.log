@@ -1,0 +1,128 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-072
+
+ ❯ tests/unit/services/k076-ocr-label-boundaries.test.ts (2 tests | 2 failed) 45ms
+     × does not read the Subtotal line as the invoice total 43ms
+     × does not read a bare VAT registration line as a VAT amount 1ms
+ ❯ tests/unit/services/k075-ocr-comma-decimal.test.ts (3 tests | 2 failed) 47ms
+     × parses a comma-decimal total at its real magnitude 40ms
+     × parses a comma-decimal VAT amount at its real magnitude 5ms
+ ❯ tests/unit/services/k072-receipt-entertainment-vat.test.ts (4 tests | 2 failed) 9ms
+     × does not debit VAT Input on an entertainment receipt 5ms
+     × charges the full VAT-inclusive amount to the expense account 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/k072-receipt-entertainment-vat.test.ts > K-072 entertainment input VAT > does not debit VAT Input on an entertainment receipt
+AssertionError: expected 150 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 150
+
+ ❯ tests/unit/services/k072-receipt-entertainment-vat.test.ts:67:32
+     65|     const journal = buildExpenseJournalFromReceipt(receipt(), accountI…
+     66|     const vatLeg = journal.lines.find(l => l.accountId === accountIds.…
+     67|     expect(vatLeg?.debit ?? 0).toBe(0);
+       |                                ^
+     68|   });
+     69|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  tests/unit/services/k072-receipt-entertainment-vat.test.ts > K-072 entertainment input VAT > charges the full VAT-inclusive amount to the expense account
+AssertionError: expected 1000 to be 1150 // Object.is equality
+
+- Expected
++ Received
+
+- 1150
++ 1000
+
+ ❯ tests/unit/services/k072-receipt-entertainment-vat.test.ts:73:31
+     71|     const journal = buildExpenseJournalFromReceipt(receipt(), accountI…
+     72|     const expenseLeg = journal.lines.find(l => l.accountId === account…
+     73|     expect(expenseLeg?.debit).toBe(1150);
+       |                               ^
+     74|   });
+     75|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  tests/unit/services/k075-ocr-comma-decimal.test.ts > K-075 SA decimal comma > parses a comma-decimal total at its real magnitude
+AssertionError: expected 115000 to be 1150 // Object.is equality
+
+- Expected
++ Received
+
+- 1150
++ 115000
+
+ ❯ tests/unit/services/k075-ocr-comma-decimal.test.ts:19:46
+     17|   it('parses a comma-decimal total at its real magnitude', () => {
+     18|     const text = 'VAT @ 15% R150,00\nTotal Due R1 150,00';
+     19|     expect(extractAmounts(text).totalAmount).toBe(1150);
+       |                                              ^
+     20|   });
+     21|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  tests/unit/services/k075-ocr-comma-decimal.test.ts > K-075 SA decimal comma > parses a comma-decimal VAT amount at its real magnitude
+AssertionError: expected 15000 to be 150 // Object.is equality
+
+- Expected
++ Received
+
+- 150
++ 15000
+
+ ❯ tests/unit/services/k075-ocr-comma-decimal.test.ts:24:44
+     22|   it('parses a comma-decimal VAT amount at its real magnitude', () => {
+     23|     const text = 'VAT @ 15% R150,00\nTotal Due R1 150,00';
+     24|     expect(extractAmounts(text).vatAmount).toBe(150);
+       |                                            ^
+     25|   });
+     26|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  tests/unit/services/k076-ocr-label-boundaries.test.ts > K-076 OCR label boundaries > does not read the Subtotal line as the invoice total
+AssertionError: expected 1000 to be 1150 // Object.is equality
+
+- Expected
++ Received
+
+- 1150
++ 1000
+
+ ❯ tests/unit/services/k076-ocr-label-boundaries.test.ts:23:46
+     21|   it('does not read the Subtotal line as the invoice total', () => {
+     22|     const text = 'Subtotal: 1000.00\nVAT @ 15%: 150.00\nTotal Due: 115…
+     23|     expect(extractAmounts(text).totalAmount).toBe(1150);
+       |                                              ^
+     24|   });
+     25|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  tests/unit/services/k076-ocr-label-boundaries.test.ts > K-076 OCR label boundaries > does not read a bare VAT registration line as a VAT amount
+AssertionError: expected 4123456789 not to be 4123456789 // Object.is equality
+ ❯ tests/unit/services/k076-ocr-label-boundaries.test.ts:28:48
+     26|   it('does not read a bare VAT registration line as a VAT amount', () …
+     27|     const text = 'ACME Trading (Pty) Ltd\nVAT: 4123456789\nTotal 1150.…
+     28|     expect(extractAmounts(text).vatAmount).not.toBe(4123456789);
+       |                                                ^
+     29|   });
+     30| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  6 failed | 3 passed (9)
+   Start at  11:42:48
+   Duration  1.28s (transform 442ms, setup 0ms, import 728ms, tests 102ms, environment 0ms)
+
