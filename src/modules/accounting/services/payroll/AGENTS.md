@@ -11,7 +11,7 @@ South African payroll: PAYE, UIF, SDL, ETI + run lifecycle, leave, termination/I
 - **Employees + history**: `payrollEmployeeService.ts`, `payrollEmployeeComponentService.ts`, `payrollEmployeeHistoryService.ts`, `payrollComponentService.ts`, `payPackageService.ts`, `payScaleService.ts`, `sarsCodesService.ts`.
 - **Leave**: `payrollLeaveService.ts`, `leaveAccrualService.ts` (pure BCEA accrual), `payrollTerminationService.ts`.
 - **Statutory**: `uifDeclarationService.ts` (UI-19 + `markUifDeclarationPaid`: DR 2150 / CR 1110), `taxDirectiveService.ts`, `taxDirectivePaymentService.ts` (`applyTaxDirective`: DR 5200 / CR 2140 / CR 1110), `easyFileExportService.ts` (e@syFile EMP501 CSV).
-- **Loans / costing**: `payrollLoanService.ts`, `payrollCostAllocationService.ts`, `costCentreGlMappingService.ts`, `costCentreService.ts`, `cashPayRegisterService.ts`.
+- **Loans / costing**: `payrollLoanService.ts`, `payrollLoanReversal.ts` (`reverseLoanApplicationsForRun(companyId, runId)` — undoes the run's own loan payments so recalculation is idempotent), `payrollCostAllocationService.ts`, `costCentreGlMappingService.ts`, `costCentreService.ts`, `cashPayRegisterService.ts`.
 - **Variance / duplicates / training / equity**: `payrollVarianceService.ts`, `payrollDuplicateDetectionService.ts`, `trainingEventService.ts`, `equityReportService.ts`.
 - **Parallel-run comparison (Dotbiz Workstream C)**: `payrollParallelRunTypes.ts`, `payrollExternalCsvParser.ts` (pure; SA number formats → integer cents), `payrollParallelRunComparator.ts` (pure; IsaFlow run vs imported external payslips, per-employee per-component cent diffs), `payrollParallelRunCsv.ts` (pure CSV render), `payrollExternalImportService.ts` (DB; mig 495), `payrollParallelRunReportService.ts` (DB; assembles report).
 
@@ -44,6 +44,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - `scripts/migrations/sql/*payroll*`, `*uif*`, `*tax_directive*`, `*leave_accrual*`.
 
 ## Recent changes
+- 2026-09-09: `calculatePayrollRun` reverses the loan payments it previously applied before re-applying them (K-022). Without it a second calculation found every schedule row `paid_flag = true`, injected no LOAN deduction, and left `outstanding_balance` reduced for a repayment the payslip no longer took.
 - 2026-06-11: parallel-run comparison (Workstream C) — external payslip import (mig 495, amounts in integer CENTS) + pure cent-level comparator + CSV export; routes `pages/api/payroll/parallel-run/*`, page `/payroll/parallel-run`.
 - 2026-04-24: leave balance INSERTs supply `company_id` for RLS.
 - 2026-04-24: leave accrual — EXCLUDED out of scope in RETURNING.
