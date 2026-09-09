@@ -36,6 +36,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
 import { getFiscalYearStartMonth } from './fiscalYearBasis';
 import { buildPreview, resolveRetainedEarnings } from './yearEndJournalBuilder';
+import { validateJournalEntry } from '../../utils/doubleEntry';
 import { fiscalYearRange } from './fiscalYearCalendar';
 
 export interface YearEndJournalLine {
@@ -214,6 +215,26 @@ async function postClosingJournal(
   preview: YearEndJournalPreview,
   fiscalPeriodId: string | null,
 ): Promise<Record<string, unknown>> {
+  // Balance and per-line validity are checked HERE, before the transaction
+  // opens, because this path INSERTs straight at status='posted' and therefore
+  // never meets the two guards every other poster does: `createJournalEntry`
+  // runs `validateJournalEntry`, and `trg_gl_je_balanced` fires BEFORE UPDATE
+  // only, so a row born posted never trips it.
+  //
+  // Until migration 627 the `source` CHECK was standing in for that guard by
+  // rejecting 'year_end' outright, which is why the close could not run at all
+  // (see tests/unit/services/glEntrySourceConstraint.test.ts). Admitting the
+  // source without this check would un-gate an unvalidated posting path.
+  // Converting to createJournalEntry/postJournalEntry is not available: the
+  // close requires every period CLOSED, and postJournalEntry refuses any
+  // period that is not OPEN.
+  const validation = validateJournalEntry(preview.lines.map((l) => ({
+    glAccountId: l.accountId, debit: l.debit, credit: l.credit,
+  })));
+  if (!validation.valid) {
+    throw new Error(`Year-end closing journal is invalid: ${validation.errors.join('; ')}`);
+  }
+
   // Atomic: a partial year-end close is unrecoverable — half the P&L zeroed and
   // the periods left open.
   return withTransaction(async (tx) => {
