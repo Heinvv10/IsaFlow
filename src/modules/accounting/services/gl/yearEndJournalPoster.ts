@@ -8,8 +8,9 @@
 
 import { sql, withTransaction, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateJournalEntry } from '../../utils/doubleEntry';
-import type { YearEndJournalPreview } from './yearEndCloseService';
+import { roundToCents, validateJournalEntry } from '../../utils/doubleEntry';
+import { reloadNetIncome } from './yearEndJournalBuilder';
+import type { CloseYearResult, YearEndJournalPreview } from './yearEndCloseService';
 
 export interface ClosingJournalResult {
   /** NULL only for a dormant year: nothing to transfer, so nothing to write. */
@@ -19,22 +20,28 @@ export interface ClosingJournalResult {
 }
 
 /**
- * The year's closing journal, in WHATEVER status it carries.
+ * WHATEVER row holds the year's closing entry number — any status, any source.
  *
- * The status is returned rather than filtered on, because the two answers it
- * separates are different states and neither may be silently treated as the
- * other.
+ * Neither column is filtered on, because this lookup exists to stand in for
+ * `uq_gl_je_company_entry_number`, and that index is unique on
+ * (company_id, entry_number) with NO predicate on status and none on source
+ * (confirmed against the schema). Anything narrower is blind to a row the
+ * index will still reject, and blindness here is not a missing warning — it is
+ * the raw 23505 → HTTP 500 this refusal was written to remove.
  *
- * A POSTED header means the year is closed: report it and write nothing.
+ * The three states the caller has to tell apart:
  *
- * A REVERSED or DRAFT header does NOT mean the year is closed — the lines have
- * been undone, the P&L is back where it was — but it does mean the year cannot
- * be closed again as things stand, because `uq_gl_je_company_entry_number` is
- * unique on (company_id, entry_number) with no status predicate, and the
- * closing entry number is the fixed `YE-<year>`. Reporting that as
- * `alreadyClosed` would be a lie AND would leave the year locked out for good,
- * since that path writes nothing; letting it fall through to the INSERT raises
- * a raw 23505 the caller cannot read. It is a typed refusal instead.
+ * A POSTED `year_end` header means the year is closed: report it, write nothing.
+ *
+ * A REVERSED or DRAFT `year_end` header does NOT mean the year is closed — the
+ * lines have been undone, the P&L is back where it was — but it does mean the
+ * year cannot be closed again as things stand, because that row holds the fixed
+ * `YE-<year>` number. Reporting it as `alreadyClosed` would be a lie AND would
+ * leave the year locked out for good, since that path writes nothing.
+ *
+ * A header of ANY OTHER source carrying `YE-<year>` — a manual journal a user
+ * numbered that way, an import — is a squatter. It says nothing about whether
+ * the year is closed, and it blocks the INSERT just as hard.
  *
  * Read by the close BEFORE the dry-run return, so the preview a person reads
  * says the year is closed rather than showing the empty journal a dormant year
@@ -46,8 +53,7 @@ export async function findClosingJournal(
 ): Promise<Record<string, unknown> | null> {
   const rows = (await sql`
     SELECT * FROM gl_journal_entries
-    WHERE company_id = ${companyId} AND source = 'year_end'
-      AND entry_number = ${entryNumber}
+    WHERE company_id = ${companyId} AND entry_number = ${entryNumber}
     LIMIT 1
   `) as Record<string, unknown>[];
   return rows[0] ?? null;
@@ -162,4 +168,59 @@ async function lockYear(tx: TxSql, companyId: string, yearLabel: string): Promis
     RETURNING id
   `;
   return locked.length;
+}
+
+/** True for a duplicate-key violation on the closing entry number, and nothing else. */
+export function isClosingNumberConflict(err: unknown): boolean {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  return e?.code === '23505' && e?.constraint === 'uq_gl_je_company_entry_number';
+}
+
+/**
+ * The answer for a year that already carries its posted closing journal.
+ *
+ * The residual is the point. A closed year's aggregates read flat because its
+ * own closing journal flattened them, so a NON-zero `netIncome` here is P&L
+ * that landed in the year AFTER the close — outside the closing journal and
+ * outside retained earnings, and unreachable by this service for good, because
+ * the entry number is taken. Saying only "already closed" is how that stays
+ * invisible.
+ *
+ * The residual is RE-READ here rather than taken from the `netIncome` the close
+ * computed on the way in, because that read may predate the closing journal —
+ * a caller that lost the race, or a re-run that raced one, read the P&L before
+ * the winner wrote, and its non-zero netIncome is the very movement the winner
+ * has just swept into equity. `netIncome` still reports what THIS call read.
+ */
+export async function alreadyClosedResult(
+  companyId: string,
+  yearLabel: string,
+  existingEntry: Record<string, unknown>,
+  netIncome: number,
+  yearRange: Record<string, unknown>,
+): Promise<CloseYearResult> {
+  const lockedRows = (await sql`
+    SELECT count(*)::int AS n FROM fiscal_periods
+    WHERE company_id = ${companyId} AND fiscal_year = ${yearLabel} AND status = 'locked'
+  `) as Array<{ n: number }>;
+  const unclosedNetIncome = roundToCents(
+    await reloadNetIncome(companyId, yearRange.start_date, yearRange.end_date));
+  log.info('Year-end close re-run: the year already has its closing journal',
+    { companyId, year: yearLabel, entryId: existingEntry.id, unclosedNetIncome, module: 'accounting' });
+  const entryNumber = String(existingEntry.entry_number ?? '');
+  return {
+    closingEntry: existingEntry,
+    periodsLocked: lockedRows[0]?.n ?? 0,
+    alreadyClosed: true,
+    netIncome,
+    unclosedNetIncome,
+    message: `Year ${yearLabel} was already closed. Its closing journal ${entryNumber} is `
+      + 'unchanged and nothing was posted.'
+      + (unclosedNetIncome !== 0
+        ? ` WARNING: R${unclosedNetIncome.toFixed(2)} of profit or loss has been posted into `
+          + `this year SINCE it was closed, and it is NOT in ${entryNumber} and NOT in retained `
+          + 'earnings. This close cannot sweep it up — the entry number is taken. Reverse those '
+          + 'journals into an open year, or post the residual to equity by hand.'
+        : ''),
+  };
 }

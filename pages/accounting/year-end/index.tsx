@@ -66,7 +66,11 @@ export default function YearEndPage() {
         // tells the operator this run posted something it did not.
         const data = json.data || json;
         setMessage({
-          type: 'success',
+          // A residual is P&L sitting in a closed year that no closing journal
+          // and no equity account contains, and that no re-run can sweep up.
+          // The service says so in the sentence; a green tick beside it would
+          // read as "nothing to do here", which is the opposite.
+          type: Number(data.unclosedNetIncome ?? 0) !== 0 ? 'error' : 'success',
           text: data.message || `Year ${yearLabel} closed.`,
         });
         void loadYears();

@@ -7,6 +7,7 @@
  * close is orchestration.
  */
 
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { roundToCents } from '../../utils/doubleEntry';
 import { getSystemAccountCandidates } from './systemAccountResolver';
@@ -21,6 +22,75 @@ export interface AccountBalanceRow {
   account_code: string;
   account_name: string;
   balance: string;
+}
+
+/**
+ * The year's P&L movement, per account, that the closing journal transfers.
+ *
+ * Both sides are the SAME aggregate the trial balance uses — `je.status =
+ * 'posted'` and `entry_date` inside the year — so the journal built from them
+ * agrees with the trial balance it closes. Every clause is company_id-scoped,
+ * on the account, on the line and on the header, because a LEFT JOIN unscoped
+ * on one of the three would let another tenant's movement into this tenant's
+ * equity.
+ */
+export async function loadPLBalances(
+  companyId: string,
+  startDate: unknown,
+  endDate: unknown,
+): Promise<{ revenueAccounts: AccountBalanceRow[]; expenseAccounts: AccountBalanceRow[] }> {
+  const revenueAccounts = (await sql`
+    SELECT ga.id, ga.account_code, ga.account_name,
+      COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit - jl.debit END), 0)::numeric AS balance
+    FROM gl_accounts ga
+    LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
+    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}
+      AND je.status = 'posted'
+      AND je.entry_date >= ${startDate}
+      AND je.entry_date <= ${endDate}
+    WHERE ga.account_type = 'revenue' AND ga.company_id = ${companyId}
+    GROUP BY ga.id, ga.account_code, ga.account_name
+    HAVING COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit - jl.debit END), 0) != 0
+    ORDER BY ga.account_code
+  `) as unknown as AccountBalanceRow[];
+
+  const expenseAccounts = (await sql`
+    SELECT ga.id, ga.account_code, ga.account_name,
+      COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit - jl.credit END), 0)::numeric AS balance
+    FROM gl_accounts ga
+    LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
+    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}
+      AND je.status = 'posted'
+      AND je.entry_date >= ${startDate}
+      AND je.entry_date <= ${endDate}
+    WHERE ga.account_type = 'expense' AND ga.company_id = ${companyId}
+    GROUP BY ga.id, ga.account_code, ga.account_name
+    HAVING COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit - jl.credit END), 0) != 0
+    ORDER BY ga.account_code
+  `) as unknown as AccountBalanceRow[];
+
+  return { revenueAccounts, expenseAccounts };
+}
+
+/**
+ * The year's net P&L movement, re-read.
+ *
+ * For the residual on an already-closed year, which cannot be inferred from the
+ * netIncome the close computed on the way in: that read may predate the closing
+ * journal (a concurrent close, or a re-run that raced one), and reporting it as
+ * money left outside equity would raise the alarm on a year that is correctly
+ * closed. Re-reading after the journal is known to exist answers the question
+ * actually being asked — what is in this year that its closing journal is not?
+ * The closing journal is itself inside the year and posted, so it nets out.
+ */
+export async function reloadNetIncome(
+  companyId: string,
+  startDate: unknown,
+  endDate: unknown,
+): Promise<number> {
+  const { revenueAccounts, expenseAccounts } = await loadPLBalances(companyId, startDate, endDate);
+  return revenueAccounts.reduce((s, a) => s + Number(a.balance), 0)
+    - expenseAccounts.reduce((s, a) => s + Number(a.balance), 0);
 }
 
 export interface RetainedEarningsAccount { id: string; accountCode: string; accountName: string }

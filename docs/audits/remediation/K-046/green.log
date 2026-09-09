@@ -139,3 +139,64 @@ GATES
   bun run agent-docs:check                 -> OK, 74 mirrors match
   six CI security guards                   -> all exit 0
   migration prefix 627 absent from origin/master (a9c3cc32) -> still free
+
+═══════════════════════════════════════════════════════════════════════════════
+ROUND 3 — the 7 findings of review-k046-r3.md (2 MEDIUM, 5 LOW). 2026-09-09.
+═══════════════════════════════════════════════════════════════════════════════
+
+GREEN
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/{k-046-year-end-entry-number-taken,k113-year-end-close-rerun,\
+k-046-year-end-close-adjacent,k-046-year-end-contra-balance-negative-debit}.int.test.ts
+    → 4 files, 18 tests passed (disposable fixture, real Postgres)
+  bunx vitest run tests/unit/services/yearEndClosePostingGuard.test.ts   → 8 passed
+  bunx vitest run tests/unit/mcp/fiscalPeriodTools.test.ts               → 33 passed
+  bunx vitest run tests/unit/lib/billing/withFlowMeter.test.ts           → 10 passed
+  bunx vitest run --config vitest.components.config.ts \
+    tests/unit/components/yearEndCloseMessage.test.tsx                   → 5 passed
+
+FULL SUITES, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL)
+  bunx vitest run                             → 800 files, 9560 passed | 243 skipped
+  bunx vitest run -c vitest.components.config → 68 files, 446 passed
+
+MUTATION PROOF — one mutation per finding, each restored afterwards
+  M-2  restore `AND source = 'year_end'` in findClosingJournal
+       → k-046-year-end-entry-number-taken: 2 failed (squatter refusal + dry run)
+  M-1  `const unclosedNetIncome = 0` in alreadyClosedResult
+       → k113-year-end-close-rerun: 1 failed (residual assertion)
+  L-1a drop `if (!isClosingNumberConflict(err)) throw err` → always rethrow
+       → yearEndClosePostingGuard: 1 failed (loser reports the winner)
+  L-1b use the netIncome read on the way in instead of re-reading it after the
+       closing journal is known to exist
+       → k-046-year-end-entry-number-taken: 1 failed on 8 of 8 runs
+       (the loser reports the R700 the winner has just moved into equity)
+  L-4  resolve getFiscalPeriodIdForDate unconditionally
+       → yearEndClosePostingGuard: 1 failed (dormant year must not resolve a period)
+  L-2  `periods_locked: result.periodsLocked` (no already-closed branch)
+       → fiscalPeriodTools: 1 failed (re-run must report 0 locked by this call)
+  L-5  drop `|| req.flowNoOp` from the refund condition
+       → withFlowMeter: 1 failed (no-op 2xx must refund)
+  UI   force `type: 'success'` on the close banner
+       → yearEndCloseMessage: 1 failed (residual must render red, not a green tick)
+
+GATES
+  bunx tsc --noEmit                          → clean
+  bun run lint                               → 0 errors, 11 pre-existing warnings
+                                               (none in any file this branch touches)
+  bun run agent-docs:check                   → OK: 74 mirror(s) match
+  bun scripts/audit-migration-naming.ts      → no new duplicate prefixes
+  scripts/ci/check-migration-rls.ts          → OK
+  scripts/ci/check-gl-journal-lines-scope.ts → OK
+  scripts/ci/check-raw-transaction-control.ts→ OK
+
+FLAKINESS
+  The concurrency test was run 8x consecutively against the fixture and passed 8/8.
+  Its `netIncome` is deliberately NOT pinned to a literal: depending on where the
+  loser's balance read falls relative to the winner's COMMIT it is legitimately
+  either 700 or 0, and pinning either would be asserting a race. The RESIDUAL is
+  pinned, because it is re-read after the journal exists and is 0 under both
+  interleavings. An earlier draft that pinned netIncome failed ~40% of runs; the
+  first draft of the fix itself (residual from the stale read) failed 3 of 6.
+
+NOT DONE
+  Migration 627 deliberately NOT renumbered — see fix.md, it is a merge-time action.

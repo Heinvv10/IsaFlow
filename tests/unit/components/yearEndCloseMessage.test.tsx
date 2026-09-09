@@ -72,6 +72,24 @@ describe('year-end page success message', () => {
     expect(await screen.findByText(/Net income R1300\.00 transferred to Retained Earnings/)).toBeTruthy();
   });
 
+  it('flags an already-closed year that gained P&L as a WARNING, not a green tick', async () => {
+    // The residual is P&L posted into the year after its close: in no closing
+    // journal, in no equity account, and unreachable by any re-run because the
+    // entry number is taken. A green tick beside that sentence reads as
+    // "nothing to do here", which is the opposite of what it says.
+    mockApi({
+      closingEntry: { id: 'je-1', entry_number: 'YE-2025' }, periodsLocked: 12,
+      alreadyClosed: true, netIncome: 150, unclosedNetIncome: 150,
+      message: 'Year 2025 was already closed. Its closing journal YE-2025 is unchanged and '
+        + 'nothing was posted. WARNING: R150.00 of profit or loss has been posted into this '
+        + 'year SINCE it was closed, and it is NOT in YE-2025 and NOT in retained earnings.',
+    });
+    await clickClose();
+    const banner = (await screen.findByText(/NOT in retained earnings/)).closest('div')!;
+    expect(banner.className).toMatch(/text-red-400/);
+    expect(banner.className).not.toMatch(/text-teal-400/);
+  });
+
   it('still shows the API message on a refusal', async () => {
     vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
       (init?.method === 'POST'

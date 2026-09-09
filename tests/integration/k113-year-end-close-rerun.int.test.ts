@@ -158,9 +158,38 @@ describe('K-113: the dry run of an already-closed year says so', () => {
       [je, traded.bank, traded.revenue, traded.company]);
 
     const again = await closeFiscalYear(traded.company, '2026', user) as
-      { alreadyClosed: boolean; netIncome: number };
+      { alreadyClosed: boolean; netIncome: number; unclosedNetIncome: number; message: string };
     expect(again.alreadyClosed).toBe(true);
     expect(again.netIncome).toBe(150);
+
+    // And it SAYS so. That R150 is in no closing journal and in no equity
+    // account, and no re-run can ever sweep it up, because YE-2026 is taken.
+    // "Already closed. Nothing was posted." on its own is a true sentence that
+    // leaves an operator believing the year is complete when it is not — the
+    // 23505 this replaced was at least loud.
+    expect(again.unclosedNetIncome).toBe(150);
+    expect(again.message).toMatch(/R150\.00 of profit or loss has been posted into this year SINCE it was closed/);
+    expect(again.message).toMatch(/NOT in retained earnings/);
+
+    // The residual is exactly the gap between the year's posted P&L and what
+    // the closing journal moved into equity — asserted against the ledger, not
+    // against the number the service just reported.
+    const moved = await pool.query(
+      `SELECT COALESCE(SUM(jl.credit - jl.debit),0)::numeric AS n
+       FROM gl_journal_lines jl
+       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
+       WHERE jl.company_id=$1 AND je.source='year_end' AND jl.gl_account_id=$2`,
+      [traded.company, traded.retained]);
+    const posted = await pool.query(
+      `SELECT COALESCE(SUM(jl.credit - jl.debit),0)::numeric AS n
+       FROM gl_journal_lines jl
+       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
+       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
+       WHERE jl.company_id=$1 AND je.status='posted' AND je.source <> 'year_end'
+         AND ga.account_type IN ('revenue','expense')
+         AND je.entry_date BETWEEN '2026-01-01' AND '2026-12-31'`,
+      [traded.company]);
+    expect(Number(posted.rows[0].n) - Number(moved.rows[0].n)).toBe(again.unclosedNetIncome);
 
     const count = await pool.query(
       "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'",
