@@ -1,0 +1,29 @@
+=== GREEN (fix in place) ===
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-032
+
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  05:43:22
+   Duration  974ms (transform 143ms, setup 0ms, import 240ms, tests 1.28s, environment 0ms)
+
+
+=== MUTATION: production change reverted ===
+   × nets a cancelled credit note and its reversal to nothing in the VAT201 boxes 25ms
+   × nets a cancelled invoice and its same-period reversal to nothing 23ms
+   × leaves the next period at nothing when the reversal is dated into it 4ms
+   × does not suppress lines belonging to another tenant 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 150 to be close to +0, received difference is 150, but expected 0.005
+AssertionError: expected -150 to be close to +0, received difference is 150, but expected 0.005
+AssertionError: expected -150 to be close to +0, received difference is 150, but expected 0.005
+AssertionError: expected -150 to be close to +0, received difference is 150, but expected 0.005
+ Test Files  2 failed (2)
+      Tests  4 failed (4)
+
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  05:43:26
+   Duration  1.40s (transform 361ms, setup 0ms, import 554ms, tests 1.52s, environment 2ms)
+
