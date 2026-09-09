@@ -28,7 +28,8 @@ vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [] }),
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransferLinkService', () => ({
-  relinkTransferCounterparts: vi.fn().mockResolvedValue(0),
+  relinkTransferCounterparts: vi.fn().mockResolvedValue({ linked: 0, failed: false }),
+  autoLinkImportedBatchTransfers: vi.fn().mockResolvedValue({ linked: 0, failed: false }),
 }));
 
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
@@ -194,7 +195,7 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
     // The two transfer auto-link passes are not batch-scoped — the relink
     // matches on bank_account_id + status='imported' alone — so leaving them
     // running would flip PRE-EXISTING rows to 'allocated'.
-    const { relinkTransferCounterparts } =
+    const { relinkTransferCounterparts, autoLinkImportedBatchTransfers } =
       await import('@/modules/accounting/services/bank/bankTransferLinkService');
 
     await importParsedTransactions(
@@ -203,6 +204,7 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
     );
 
     expect(relinkTransferCounterparts).not.toHaveBeenCalled();
+    expect(autoLinkImportedBatchTransfers).not.toHaveBeenCalled();
     // No UPDATE ... SET status='allocated' may be issued either.
     const updates = sqlMock.mock.calls
       .map((c) => (Array.isArray(c[0]) ? (c[0] as string[]).join('?') : ''))
@@ -211,11 +213,13 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
   });
 
   it('still runs the transfer relink on the normal UI path', async () => {
-    const { relinkTransferCounterparts } =
+    const { relinkTransferCounterparts, autoLinkImportedBatchTransfers } =
       await import('@/modules/accounting/services/bank/bankTransferLinkService');
 
     await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
 
     expect(relinkTransferCounterparts).toHaveBeenCalled();
+    // Both transfer passes run on the UI path; the batch pass runs first.
+    expect(autoLinkImportedBatchTransfers).toHaveBeenCalled();
   });
 });

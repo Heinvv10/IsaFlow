@@ -1,156 +1,186 @@
 // K-019: relinkTransferCounterparts bound one journal line to two bank
-// transactions. `best_matches` de-duplicated with DISTINCT ON (bt_new.id),
-// which stops one new transaction matching twice, but nothing stopped two
-// different imported transactions on the same bank account matching the same
-// source allocation and receiving the same target_je_line_id, and nothing
-// excluded a journal line a bank transaction had already claimed.
+// transactions. `best_matches` de-duplicated with DISTINCT ON (bt_new.id) —
+// per new transaction only — nothing excluded a line a bank transaction had
+// already claimed, and the swallowing catch had no savepoint.
 // Source: src/modules/accounting/services/bank/bankTransferLinkService.ts
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { getPoolForTests } from '@/lib/neon';
 import { relinkTransferCounterparts } from '@/modules/accounting/services/bank/bankTransferLinkService';
-
-type Ctx = Parameters<typeof als.run>[0];
-
-function ctxFor(client: PoolClient, companyId: string): Ctx {
-  return { client, userId: user, companyId, claims: {} } as unknown as Ctx;
-}
+import {
+  AMOUNT, DAY, addSecondLegToJournal, cleanup, rowsOn, seedScenario,
+} from './helpers/k019TransferFixture';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID();
 const other = crypto.randomUUID();
 const user = crypto.randomUUID();
-const bankA = crypto.randomUUID();
-const bankB = crypto.randomUUID();
-const je = crypto.randomUUID();
-const lineA = crypto.randomUUID();
-const lineB = crypto.randomUUID();
-const srcTx = crypto.randomUUID();
-const newTx1 = crypto.randomUUID();
-const newTx2 = crypto.randomUUID();
 
-// Second tenant: identical amounts and dates on its own books.
-const oBankA = crypto.randomUUID();
-const oBankB = crypto.randomUUID();
-const oJe = crypto.randomUUID();
-const oLineA = crypto.randomUUID();
-const oLineB = crypto.randomUUID();
-const oSrcTx = crypto.randomUUID();
+type Ctx = Parameters<typeof als.run>[0];
+const ctxFor = (client: PoolClient, companyId: string): Ctx =>
+  ({ client, userId: user, companyId, claims: {} }) as unknown as Ctx;
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)', [
-    company, 'K019 transfer fixture', other, 'K019 other tenant',
+    company, 'K019 relink fixture', other, 'K019 other tenant',
   ]);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
-  await pool.query(
-    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance)
-     VALUES($1,$3,'K019A','K019 Bank A','asset','debit'),($2,$3,'K019B','K019 Bank B','asset','debit')`,
-    [bankA, bankB, company],
-  );
-  await pool.query(
-    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance)
-     VALUES($1,$3,'K019A','K019 Bank A','asset','debit'),($2,$3,'K019B','K019 Bank B','asset','debit')`,
-    [oBankA, oBankB, other],
-  );
-  await pool.query(
-    `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,status,created_by)
-     VALUES($1,$3,DATE '2026-03-10','K019 transfer A->B','posted',$5),
-           ($2,$4,DATE '2026-03-10','K019 other tenant transfer','posted',$5)`,
-    [je, oJe, company, other, user],
-  );
-  await pool.query(
-    `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
-     VALUES($1,$5,$7,$3,0,5000),($2,$5,$7,$4,5000,0),
-           ($8,$6,$9,$10,0,5000),($11,$6,$9,$12,5000,0)`,
-    [lineA, lineB, bankA, bankB, company, other, je, oLineA, oJe, oBankA, oLineB, oBankB],
-  );
-  await pool.query(
-    `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,matched_journal_line_id,allocation_type,allocated_entity_name)
-     VALUES($1,$3,$5,DATE '2026-03-10',-5000,'K019 transfer out','allocated',$7,'transfer','K019 Bank B'),
-           ($2,$4,$6,DATE '2026-03-10',-5000,'K019 other transfer out','allocated',$8,'transfer','K019 Bank B')`,
-    [srcTx, oSrcTx, company, other, bankA, oBankA, lineA, oLineA],
-  );
-  // Two same-day, same-amount incoming rows; only ONE genuine counterpart exists.
-  await pool.query(
-    `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
-     VALUES($1,$3,$4,DATE '2026-03-10',5000,'K019 incoming one','imported'),
-           ($2,$3,$4,DATE '2026-03-10',5000,'K019 incoming two','imported')`,
-    [newTx1, newTx2, company, bankB],
-  );
 });
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM bank_transactions WHERE company_id=ANY($1::uuid[])', [[company, other]]);
-    await pool.query('DELETE FROM gl_journal_lines WHERE company_id=ANY($1::uuid[])', [[company, other]]);
-    await pool.query('DELETE FROM gl_journal_entries WHERE company_id=ANY($1::uuid[])', [[company, other]]);
-    await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])', [[bankA, bankB, oBankA, oBankB]]);
-    await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1::uuid[])', [[company, other]]);
-    await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [[company, other]]);
-    await pool.query('DELETE FROM users WHERE id=$1', [user]);
+    await cleanup(pool, [company, other], user);
   } finally {
     await pool.end();
   }
 });
 
-async function targetRows() {
-  const { rows } = await pool.query(
-    `SELECT id, status, matched_journal_line_id, counterparty_account_id
-       FROM bank_transactions
-      WHERE company_id=$1 AND bank_account_id=$2 ORDER BY description`,
-    [company, bankB],
-  );
-  return rows as Array<{ id: string; status: string; matched_journal_line_id: string | null; counterparty_account_id: string | null }>;
-}
+describe('K-019 relinkTransferCounterparts', () => {
+  it('binds one bank line per GL movement and leaves the runner-up imported', async () => {
+    const s = await seedScenario(pool, company, user, 1, 2);
 
-describe('K-019 transfer relink double-bind', () => {
-  it('never binds the same journal line to two bank transactions', async () => {
-    const count = await relinkTransferCounterparts(company, bankB);
+    const { linked, failed } = await relinkTransferCounterparts(company, s.targetBank);
+    expect(failed).toBe(false);
+    expect(linked).toBe(1);
 
-    const rows = await targetRows();
+    const rows = await rowsOn(pool, company, s.targetBank);
     const claimed = rows.filter((r) => r.matched_journal_line_id !== null);
-    const distinct = new Set(claimed.map((r) => r.matched_journal_line_id));
-
-    expect(count).toBe(1);
     expect(claimed).toHaveLength(1);
-    expect(distinct.size).toBe(claimed.length);
-    // The one bound row points at THIS bank's leg of the transfer journal.
-    expect(claimed[0].matched_journal_line_id).toBe(lineB);
+    expect(new Set(claimed.map((r) => r.matched_journal_line_id)).size).toBe(1);
+    expect(claimed[0].matched_journal_line_id).toBe(s.freeLines[0]);
     expect(claimed[0].status).toBe('allocated');
-    expect(claimed[0].counterparty_account_id).toBe(bankA);
-    // The runner-up is left untouched and still visible as unallocated.
+    expect(claimed[0].counterparty_account_id).toBe(s.sourceBanks[0]);
+    // LOW-2: the duplicate-transfer guard selects on this column, so a relinked
+    // row without it lets a second transfer journal be posted for the movement.
+    expect(claimed[0].transfer_journal_entry_id).toBe(s.journals[0]);
+
     const untouched = rows.filter((r) => r.matched_journal_line_id === null);
     expect(untouched).toHaveLength(1);
     expect(untouched[0].status).toBe('imported');
   });
 
-  it('never claims a journal line belonging to another company', async () => {
-    const { rows } = await pool.query(
-      `SELECT id, matched_journal_line_id FROM bank_transactions
-        WHERE company_id=$1 AND matched_journal_line_id = ANY($2::uuid[])`,
-      [company, [oLineA, oLineB]],
-    );
-    expect(rows).toHaveLength(0);
-    // And the other tenant's own rows were not written by this company's pass.
-    const { rows: theirs } = await pool.query(
-      `SELECT status, matched_journal_line_id FROM bank_transactions
-        WHERE company_id=$1 AND bank_account_id=$2`,
-      [other, oBankB],
-    );
-    expect(theirs).toHaveLength(0);
+  it('links BOTH legs in one call when two free lines exist', async () => {
+    const s = await seedScenario(pool, company, user, 2, 2);
+
+    const { linked } = await relinkTransferCounterparts(company, s.targetBank);
+    expect(linked).toBe(2);
+
+    const rows = await rowsOn(pool, company, s.targetBank);
+    const claimed = rows.filter((r) => r.matched_journal_line_id !== null);
+    expect(claimed).toHaveLength(2);
+    expect(new Set(claimed.map((r) => r.matched_journal_line_id)).size).toBe(2);
+    expect([...claimed.map((r) => r.matched_journal_line_id)].sort())
+      .toEqual([...s.freeLines].sort());
+  });
+
+  it('offers both legs of a journal that moves this bank twice', async () => {
+    const s = await seedScenario(pool, company, user, 1, 2);
+    const secondLeg = await addSecondLegToJournal(pool, company, s.journals[0], s.targetBank);
+
+    const { linked } = await relinkTransferCounterparts(company, s.targetBank);
+    expect(linked).toBe(2);
+
+    const rows = await rowsOn(pool, company, s.targetBank);
+    const claimed = rows.filter((r) => r.matched_journal_line_id !== null);
+    expect(new Set(claimed.map((r) => r.matched_journal_line_id)))
+      .toEqual(new Set([s.freeLines[0], secondLeg]));
+  });
+
+  it('picks the lowest free leg first when a journal moves this bank twice', async () => {
+    // source_allocs is a DISTINCT ON. Without its ORDER BY, PostgreSQL takes an
+    // arbitrary row — heap order, which is insertion order here. The higher id
+    // is inserted FIRST, so heap order and id order disagree and the assertion
+    // below distinguishes them.
+    const s = await seedScenario(pool, company, user, 1, 1);
+    const [low, high] = [crypto.randomUUID(), crypto.randomUUID()].sort();
+    await pool.query('DELETE FROM gl_journal_lines WHERE id=$1', [s.freeLines[0]]);
+    for (const id of [high, low]) {
+      await pool.query(
+        `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
+         VALUES($1,$2,$3,$4,${AMOUNT},0)`,
+        [id, company, s.journals[0], s.targetBank],
+      );
+    }
+
+    const { linked } = await relinkTransferCounterparts(company, s.targetBank);
+    expect(linked).toBe(1);
+
+    const claimed = (await rowsOn(pool, company, s.targetBank))
+      .filter((r) => r.matched_journal_line_id !== null);
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0].matched_journal_line_id).toBe(low);
   });
 
   it('is idempotent: a second pass claims nothing already claimed', async () => {
-    const before = await targetRows();
-    const count = await relinkTransferCounterparts(company, bankB);
-    const after = await targetRows();
+    const s = await seedScenario(pool, company, user, 1, 2);
+    expect((await relinkTransferCounterparts(company, s.targetBank)).linked).toBe(1);
 
-    expect(count).toBe(0);
-    expect(after.map((r) => r.matched_journal_line_id)).toEqual(
-      before.map((r) => r.matched_journal_line_id),
+    const before = await rowsOn(pool, company, s.targetBank);
+    const { linked } = await relinkTransferCounterparts(company, s.targetBank);
+    const after = await rowsOn(pool, company, s.targetBank);
+
+    expect(linked).toBe(0);
+    expect(after.map((r) => r.matched_journal_line_id)).toEqual(before.map((r) => r.matched_journal_line_id));
+  });
+
+  it('never sources a counterpart from another company, even on this bank account', async () => {
+    // Our own bank account, but the only candidate journal and its allocated
+    // outgoing leg belong to the OTHER tenant. Dropping either company_id
+    // predicate in source_allocs makes this link.
+    const s = await seedScenario(pool, company, user, 0, 1);
+    const theirBank = crypto.randomUUID();
+    const theirJe = crypto.randomUUID();
+    const theirSrcLine = crypto.randomUUID();
+    const theirTargetLine = crypto.randomUUID();
+    const theirTx = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance)
+       VALUES($1,$2,'K19OTH','K019 their bank','asset','debit')`,
+      [theirBank, other],
     );
-    expect(after.filter((r) => r.matched_journal_line_id !== null)).toHaveLength(1);
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,status,created_by)
+       VALUES($1,$2,DATE '${DAY}','K019 their transfer','posted',$3)`,
+      [theirJe, other, user],
+    );
+    // Their journal carries a leg on OUR target bank account.
+    await pool.query(
+      `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
+       VALUES($1,$3,$4,$5,0,${AMOUNT}),($2,$3,$4,$6,${AMOUNT},0)`,
+      [theirSrcLine, theirTargetLine, other, theirJe, theirBank, s.targetBank],
+    );
+    await pool.query(
+      `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,matched_journal_line_id,transfer_journal_entry_id,allocation_type)
+       VALUES($1,$2,$3,DATE '${DAY}',${-AMOUNT},'K019 their out','allocated',$4,$5,'transfer')`,
+      [theirTx, other, theirBank, theirSrcLine, theirJe],
+    );
+
+    const { linked } = await relinkTransferCounterparts(company, s.targetBank);
+    expect(linked).toBe(0);
+
+    const rows = await rowsOn(pool, company, s.targetBank);
+    expect(rows.every((r) => r.matched_journal_line_id === null)).toBe(true);
+    expect(rows.every((r) => r.status === 'imported')).toBe(true);
+  });
+
+  it('does not treat another company claim on our line as consuming it', async () => {
+    // The anti-join must be company-scoped: a foreign row referencing our line
+    // is not a claim we may honour, or one tenant can freeze another's relink.
+    const s = await seedScenario(pool, company, user, 1, 1);
+    await pool.query(
+      `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,matched_journal_line_id,allocation_type)
+       VALUES($1,$2,$3,DATE '${DAY}',${AMOUNT},'K019 foreign claim','allocated',$4,'transfer')`,
+      [crypto.randomUUID(), other, s.targetBank, s.freeLines[0]],
+    );
+
+    const { linked } = await relinkTransferCounterparts(company, s.targetBank);
+    expect(linked).toBe(1);
+
+    const claimed = (await rowsOn(pool, company, s.targetBank))
+      .filter((r) => r.matched_journal_line_id !== null);
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0].matched_journal_line_id).toBe(s.freeLines[0]);
   });
 
   it('a failure inside the relink does not poison the request transaction', async () => {
@@ -159,14 +189,14 @@ describe('K-019 transfer relink double-bind', () => {
       await client.query('BEGIN');
       // A non-UUID bank account makes the ::UUID cast fail (22P02) inside the
       // service. Without its own savepoint the whole request tx aborts.
-      const count = await als.run(ctxFor(client, company), () =>
+      const result = await als.run(ctxFor(client, company), () =>
         relinkTransferCounterparts(company, 'not-a-uuid'),
       );
-      expect(count).toBe(0);
+      expect(result).toEqual({ linked: 0, failed: true });
 
       // The transaction is still usable: this would raise 25P02 otherwise.
-      const res = await client.query('SELECT COUNT(*)::int AS n FROM bank_transactions WHERE company_id=$1', [company]);
-      expect(res.rows[0].n).toBe(3);
+      const res = await client.query('SELECT 1 AS ok');
+      expect(res.rows[0].ok).toBe(1);
       await client.query('COMMIT');
     } finally {
       client.release();

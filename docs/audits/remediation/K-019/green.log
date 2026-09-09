@@ -1,28 +1,48 @@
-=== M1: drive UPDATE from best_matches (drop winners CTE) ===
-     × never binds the same journal line to two bank transactions 41ms
-     × is idempotent: a second pass claims nothing already claimed 7ms
-      Tests  2 failed | 2 passed (4)
-=== M2: drop the NOT EXISTS anti-join ===
-     × is idempotent: a second pass claims nothing already claimed 14ms
-      Tests  1 failed | 3 passed (4)
-=== M3: drop the savepoint ===
-     × a failure inside the relink does not poison the request transaction 8ms
-      Tests  1 failed | 3 passed (4)
-=== RESTORED: full run ===
- Test Files  1 passed (1)
-      Tests  4 passed (4)
+K-019 — evidence after the blind review of c4fe0f70 (7 findings: 1 HIGH, 3 MEDIUM, 3 LOW)
+
+=== INTEGRATION (real fixture DB) ===
+tests/integration/k019-transfer-relink-double-bind.int.test.ts   8 passed
+tests/integration/k019-import-autolink-double-bind.int.test.ts   5 passed
+Test Files 2 passed | Tests 13 passed
+
+=== MUTATION CHECK — every production change, reverted one at a time ===
+Each row: the change removed, then the tests that went RED. All restored after.
+
+M1  relink: UPDATE driven from best_matches (no winners CTE)      -> 4 failed
+M2  relink: drop the NOT EXISTS anti-join                         -> 4 failed
+M3  relink: drop bt_used.company_id from the anti-join            -> 1 failed
+M4  relink: drop je.company_id / bt_src.company_id in source_allocs -> 1 failed
+M5  runLinkPasses: single pass, no repeat loop                    -> 3 failed
+M6  relink: drop ORDER BY bt_src.id, jl_mine.id in source_allocs  -> 1 failed
+M7  relink: stop writing transfer_journal_entry_id                -> 1 failed
+M8  runLinkPasses: drop the savepoint                             -> 2 failed
+M9  import pass: LEFT JOIN gl_journal_lines instead of JOIN       -> 2 failed
+M10 import pass: UPDATE driven from matching (no winners CTE)     -> 2 failed
+M11 import pass: drop the NOT EXISTS anti-join                    -> 3 failed
+RESTORED                                                          -> 13 passed
+
+M6 is deterministic only because the fixture inserts the higher-id journal leg
+FIRST, so heap order (what DISTINCT ON takes without an ORDER BY) and id order
+disagree on a two-row table.
 
 === FULL UNIT SUITE (bunx vitest run, DATABASE_URL and fixture env UNSET) ===
-Test Files  2 failed | 782 passed | 36 skipped (820)
-     Tests  2 failed | 9318 passed | 234 skipped (9554)
-Duration 85.08s
+Two consecutive runs with this branch's changes applied:
+  Test Files  784 passed | 36 skipped (820)
+       Tests  9320 passed | 234 skipped (9554)
+Baseline (the three changed src files and the bulk unit test checked out from
+origin/master), two consecutive runs: 784 passed / 0 failed, and 783 passed /
+1 failed (cashFlowReport, a 10s timeout).
 
-The 2 failures are 10s test timeouts under full-suite load, both pre-existing:
-  tests/unit/services/cashFlowReport.test.ts > ... (collapsed 1-query path)
-  tests/unit/services/bank/bankAllocationUnwind.test.ts > unwinds the application before posting the contra
-Neither imports bankTransferLinkService. Both pass in isolation (2 files, 17 tests
-passed). Proof they are not mine: the same full suite run with
-src/modules/accounting/services/bank/bankTransferLinkService.ts checked out from
-origin/master fails identically — 2 failed | 9318 passed | 234 skipped, same two
-test names. The renamed/added SQL aliases (date_distance, the winners CTE) break no
-mocked fixture elsewhere.
+Earlier runs of BOTH the branch and the baseline showed 1-10 failures whose
+membership changed between runs of the same tree. They are 10s test timeouts
+under machine load (load average was above 100 — parallel agent worktrees
+running their own suites), plus assertion errors cascading inside a file after
+one of its tests timed out. Every one of those files passes in isolation, and
+none of them imports bankTransferLinkService, bankImportService or
+pages/api/accounting/bank-relink-transfers.ts, so there is no module path from
+this diff to them.
+
+=== GATES ===
+bunx tsc --noEmit                                                clean
+bunx eslint (3 changed src/pages files)                          clean
+File sizes: bankTransferLinkService.ts 281, bankImportService.ts 255 (limit 300)
