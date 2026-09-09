@@ -90,3 +90,35 @@ it('caught mandatory evidence failure still rolls back the earlier domain mutati
   } finally { process.env.ENCRYPTION_KEY = previousKey; }
   expect((await pool.query('SELECT id FROM suppliers WHERE company_id=$1 AND id=$2', [fixture.companyA,id])).rows).toHaveLength(0);
 });
+it('denies own-tenant evidence rewrites and deletion despite inherited default privileges', async () => {
+  const id = randomUUID();
+  await transact(fixture.companyA, fixture.u1.id, ctx => recordCommittedChange(ctx, change(id)));
+  const statements = [
+    "UPDATE control_change_events SET action='altered' WHERE company_id=$1 AND entity_id=$2",
+    'DELETE FROM control_change_events WHERE company_id=$1 AND entity_id=$2',
+    "UPDATE control_protected_evidence SET ciphertext='altered' WHERE company_id=$1 AND entity_id=$2",
+    'DELETE FROM control_protected_evidence WHERE company_id=$1 AND entity_id=$2',
+    'DELETE FROM control_entity_versions WHERE company_id=$1 AND entity_id=$2',
+  ];
+  for (const statement of statements) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN'); await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",
+        [JSON.stringify({ sub: fixture.u1.id, company_id: fixture.companyA, role: 'authenticated' }), fixture.companyA]);
+      // Roll back even if a buggy ACL permits this deliberately adversarial write.
+      await expect(client.query(statement, [fixture.companyA,id])).rejects.toMatchObject({ code: '42501' });
+    } finally { await client.query('ROLLBACK'); client.release(); }
+  }
+  const privileges = await pool.query(`SELECT has_table_privilege('app_user',name,'TRUNCATE') AS allowed
+    FROM unnest(ARRAY['control_change_events','control_protected_evidence','control_entity_versions']) AS name`);
+  expect(privileges.rows.every(row => row.allowed === false)).toBe(true);
+});
+it('caught invalid evidence context cannot commit an earlier domain mutation', async () => {
+  const id = randomUUID();
+  await expect(transact(fixture.companyA, fixture.u1.id, async ctx => {
+    await ctx.sql`INSERT INTO suppliers(id,company_id,name) VALUES(${id}::uuid,${fixture.companyA}::uuid,'Invalid evidence context')`;
+    await recordCommittedChange({ ...ctx }, change(id)).catch(() => 'caught invalid context');
+  })).rejects.toThrow('evidence');
+  expect((await pool.query('SELECT id FROM suppliers WHERE company_id=$1 AND id=$2', [fixture.companyA,id])).rows).toHaveLength(0);
+});

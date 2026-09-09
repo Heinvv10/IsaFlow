@@ -1,6 +1,11 @@
 CREATE FUNCTION
 ALTER FUNCTION
 REVOKE
+NOTICE:  relation "control_entity_versions" already exists, skipping
+NOTICE:  relation "control_protected_evidence" already exists, skipping
+NOTICE:  relation "control_change_events" already exists, skipping
+NOTICE:  relation "control_change_events_entity_idx" already exists, skipping
+NOTICE:  relation "control_change_events_operation_idx" already exists, skipping
 GRANT
 CREATE TABLE
 CREATE TABLE
@@ -14,15 +19,13 @@ ALTER TABLE
 ALTER TABLE
 ALTER TABLE
 DROP POLICY
-NOTICE:  policy "tenant_isolation" for relation "control_entity_versions" does not exist, skipping
 CREATE POLICY
-NOTICE:  policy "tenant_isolation" for relation "control_protected_evidence" does not exist, skipping
 DROP POLICY
 CREATE POLICY
-NOTICE:  policy "tenant_isolation" for relation "control_change_events" does not exist, skipping
 DROP POLICY
 CREATE POLICY
+REVOKE
 GRANT
 GRANT
 GRANT
-INSERT 0 6
+INSERT 0 0
