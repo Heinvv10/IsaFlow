@@ -1,3 +1,5 @@
+import {parseBankTransferRequest} from './bankAllocationTransferPlan';
+import {bindBankTransferSelection} from './bankAllocationTransferPreparation';
 import {bindBankAllocationVatAccount} from './bankAllocationVatPreparation';
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
 import {randomUUID} from 'node:crypto';
@@ -13,10 +15,11 @@ import {allocationMoney,parseBankAllocationPlan,assertAllocationOutstanding} fro
 import {loadBankAllocationSources} from './bankAllocationSources';
 export async function prepareBankAllocation(ctx:ControlTx,input:unknown){
  assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
- const parsed=parseBankAllocationPlan(input);
+ const transfer=typeof input==='object'&&input!==null&&'kind' in input&&input.kind==='transfer'?parseBankTransferRequest(input):null;
+ const parsed=transfer?null:parseBankAllocationPlan(input);
  return withSavepoint('bank_allocation_prepare',async()=>{
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
-  const plan=await bindBankAllocationVatAccount(ctx,parsed);
+  const plan=transfer?await bindBankTransferSelection(ctx,transfer):await bindBankAllocationVatAccount(ctx,parsed!);
   const sources=await loadBankAllocationSources(ctx,plan);
   if(sources.bank.status!=='imported')throw new Error('Imported bank transaction required');
   for(const item of sources.invoices){const invoice=item.invoice as Record<string,unknown>,allocation=item.allocation as {amount:string};

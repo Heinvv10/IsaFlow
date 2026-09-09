@@ -12,14 +12,15 @@ export async function loadBankAllocationIntent(ctx:ControlTx,id:string){
  if(!intent)throw new Error('Bank allocation intent not found');
  const plan=parseBankAllocationPlan(intent.payload);
  if(plan.bankTransactionId!==intent.bank_transaction_id)throw new Error('Allocation intent association changed');
- const sources=await loadBankAllocationSources(ctx,plan);
  const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
   AND operation='bank_allocation.post' AND entity_type='bank_allocation_intent' AND entity_id=${id} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{intentId:string;journalEntryId:string;afterFingerprint:string}}[];
+ const sources=await loadBankAllocationSources(ctx,plan,{postExecution:Boolean(effect)});
  if(effect){
+  const journalSource=plan.kind==='transfer'&&plan.transfer.mode==='link'?sources.transfer?.original?.originalBank.id:intent.bank_transaction_id;
   if(effect.result.intentId!==id||effect.result.afterFingerprint!==sources.fingerprint||sources.bank.status!=='allocated')throw new Error('Allocation receipt source changed');
   const [journal]=await ctx.sql`SELECT je.id FROM gl_journal_entries je JOIN gl_journal_lines jl ON jl.company_id=je.company_id AND jl.journal_entry_id=je.id
    WHERE je.company_id=${ctx.principal.companyId}::uuid AND je.id=${effect.result.journalEntryId}::uuid AND je.status='posted' AND je.reversed_at IS NULL
-    AND je.source_record_id=${intent.bank_transaction_id}::uuid AND jl.id=${sources.bank.matched_journal_line_id}::uuid`;
+    AND je.source_record_id=${journalSource}::uuid AND jl.id=${sources.bank.matched_journal_line_id}::uuid`;
   if(!journal)throw new Error('Allocation receipt journal changed');
  }else if(sources.bank.status!=='imported'||sources.fingerprint!==intent.source_fingerprint)throw new Error('Allocation source changed; prepare a fresh intent');
  return{intent,plan,sources,effect};
