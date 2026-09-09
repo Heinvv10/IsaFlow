@@ -105,20 +105,35 @@ export interface SupplierInvoiceCreateInput {
   exchangeRate?: number;
 }
 
+/**
+ * Importer-only. `taxAmount` is an unbounded VAT figure, so it is deliberately
+ * NOT part of `SupplierInvoiceItemInput`: `pages/api/accounting/supplier-invoices.ts`
+ * forwards request-body line objects, and a client-settable tax amount there
+ * would be an input-VAT overstatement vector. It is honoured only when the
+ * input also carries `trustSourceTax: true`, which no route can set from a body.
+ */
+export interface SupplierInvoiceImportItemInput extends SupplierInvoiceItemInput {
+  /** Exact tax for this line, used INSTEAD of deriving it from `taxRate`. Finite, >= 0. */
+  taxAmount?: number;
+}
+
+/**
+ * The shape a migration passes: it carries the source system's authoritative
+ * tax per line, because re-deriving it from a 2 dp rate moves the stored total
+ * off the source's by cents and the row then disagrees with its own journal.
+ */
+export interface SupplierInvoiceImportInput extends Omit<SupplierInvoiceCreateInput, 'items'> {
+  /** Opt-in that makes per-line `taxAmount` authoritative. Importers only. */
+  trustSourceTax: true;
+  items: SupplierInvoiceImportItemInput[];
+}
+
 export interface SupplierInvoiceItemInput {
   poItemId?: string;
   description: string;
   quantity: number;
   unitPrice: number;
   taxRate?: number;
-  /**
-   * Exact tax for this line, used INSTEAD of deriving it from `taxRate`.
-   * Only for importers that carry an authoritative tax figure from the source
-   * system: re-deriving it from a 2 dp rate moves the total by cents, and the
-   * migrated row then disagrees with the journal posted for the same document.
-   * Must be finite and >= 0. Everything else leaves it unset.
-   */
-  taxAmount?: number;
   vatClassification?: VatType;
   glAccountId?: string;
   projectId?: string;

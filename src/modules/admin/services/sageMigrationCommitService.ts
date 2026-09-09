@@ -205,6 +205,7 @@ export async function commitAPInvoice(
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
 
   const created = await createSupplierInvoice(companyId, {
+    trustSourceTax: true,
     supplierId, invoiceNumber: inv.invoiceNumber, invoiceDate: inv.invoiceDate,
     dueDate: inv.dueDate ?? undefined, taxRate, reference: inv.reference,
     // taxAmount, not just taxRate: `taxRate` is rounded to 2 dp above, and
