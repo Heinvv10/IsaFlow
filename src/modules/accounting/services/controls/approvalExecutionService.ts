@@ -77,7 +77,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     `;
     await reserveOperationExposure(ctx, material, row?.id ?? null, 'committed');
     const { recordCommittedChange } = await import('./changeEventService');
-    const after = await materializeOperation(ctx, ['journal.reverse','supplier_payment.void','supplier_invoice.cancel','payroll_run.reopen'].includes(ref.operation) ? {...ref,reversalDate:accountingDate} : ref);
+    const after = await materializeOperation(ctx, ['journal.reverse','supplier_payment.void','supplier_invoice.cancel','payroll_run.reopen','customer_invoice.cancel','customer_payment.cancel','credit_note.cancel'].includes(ref.operation) ? {...ref,reversalDate:accountingDate} : ref);
     const parent = (sources: typeof after.observedSources) => sources.find(source => source.entityType === ref.entityType && source.entityId === ref.entityId)!.facts;
     await recordCommittedChange(ctx, { entityType: ref.entityType, entityId: ref.entityId,
       previousVersion: material.binding.entityVersion, newVersion: material.binding.entityVersion + 1,
