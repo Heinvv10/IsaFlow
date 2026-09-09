@@ -65,6 +65,11 @@ afterAll(async () => {
     await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM recurring_journals WHERE company_id=$1', [company]);
+    // On the poll's failure path the route is not blocked and posts, which
+    // populates gl_account_balances; without this the cleanup dies on its FK
+    // and buries the assertion that actually failed.
+    await pool.query(
+      'DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id=$1)', [company]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
@@ -87,6 +92,7 @@ it('a journal numbered at the same moment answers 409 and posts nothing', async 
 
   const blocker = await pool.connect();
   let routeResult: ReturnType<typeof response>;
+  let inFlight: Promise<unknown> | undefined;
   try {
     await blocker.query('BEGIN');
     const { rows: [{ pid }] } = await blocker.query('SELECT pg_backend_pid() AS pid');
@@ -103,7 +109,7 @@ it('a journal numbered at the same moment answers 409 and posts nothing', async 
     req.query = {};
     req.body = { action: 'generate', id: template };
     routeResult = response();
-    const inFlight = action(req as never, routeResult.res);
+    inFlight = action(req as never, routeResult.res);
 
     // Commit only once the route's INSERT is demonstrably waiting on THIS
     // backend. Polling the lock graph is what makes the collision a fact
@@ -119,7 +125,13 @@ it('a journal numbered at the same moment answers 409 and posts nothing', async 
     await blocker.query('COMMIT');
     await inFlight;
   } finally {
+    // The poll's deadline throws with the blocker still inside BEGIN holding an
+    // uncommitted entry_number. node-postgres does not ROLLBACK on release(), so
+    // without this the client goes back to the pool `idle in transaction` and
+    // afterAll's DELETE blocks on it — a clear failure would become a hang.
+    await blocker.query('ROLLBACK').catch(() => undefined);
     blocker.release();
+    await inFlight?.catch(() => undefined);
   }
 
   expect(routeResult!.state.statusCode).toBe(409);

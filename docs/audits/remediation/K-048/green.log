@@ -157,3 +157,15 @@ FULL COMPONENT SUITE:  62 files / 421 tests passed
 bunx tsc --noEmit   exit 0
 bunx eslint <the five changed src/pages files>   exit 0
 bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.
+
+=== Round 6 (round-5 LOW findings) ===
+tests/integration/k048-recurring-journal-entry-number-conflict.int.test.ts: 1 passed (677ms)
+vitest --config vitest.integration.config.ts tests/integration/k048 tests/integration/k049: 6 files, 23 passed
+vitest --config vitest.components.config.ts .../recurringJournalsRefusalSurfaced.test.tsx: 5 passed
+FULL unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run): 793 files passed | 36 skipped, 9457 tests passed | 234 skipped
+bunx tsc --noEmit: exit 0
+eslint on the 5 changed source files: exit 0
+bun run agent-docs:check: OK: 74 agent document mirror(s) match canonical sources.
+LOW-1 mutation proof (deadline forced to expire):
+  with the fix   -> 1 failed test, message 'the route never blocked on the contended entry number', 1.07s, no suite error
+  ROLLBACK removed -> same failure PLUS suite error 'deadlock detected' from afterAll
