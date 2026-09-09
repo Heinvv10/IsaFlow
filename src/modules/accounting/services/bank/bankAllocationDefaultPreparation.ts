@@ -9,7 +9,7 @@ import {prepareBankAllocation} from './bankAllocationControl';
 const D=Decimal.clone({precision:80});
 const id=z.string().uuid().transform(value=>value.toLowerCase());
 const request=z.object({kind:z.enum(['customer','supplier']),bankTransactionId:id,partyId:id,
- description:z.string().max(1000).optional(),autoApply:z.boolean().optional(),
+ description:z.string().max(1000).optional(),autoApply:z.boolean().optional(),cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional(),
  applications:z.array(z.object({invoiceId:id,amount:z.string().transform(allocationMoney)}).strict()).max(100).optional()}).strict();
 type Candidate={id:string;outstanding:string};
 /** Contact defaults select exact instructions once, before immutable approval material is made. */
@@ -59,6 +59,6 @@ export async function preparePartyBankAllocation(ctx:ControlTx,input:unknown){
    }
   }
   return prepareBankAllocation(ctx,{version:1,kind:parsed.kind,bankTransactionId:parsed.bankTransactionId,
-   partyId:parsed.partyId,description:parsed.description,applications});
+   partyId:parsed.partyId,description:parsed.description,applications,cc1Id:parsed.cc1Id,cc2Id:parsed.cc2Id,buId:parsed.buId});
  });
 }

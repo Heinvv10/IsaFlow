@@ -81,8 +81,8 @@ export async function reverseJournalEntry(companyId: string, id: string, userId:
         ${`Reversal of ${id}`},${header.source},${sourceRecord}::uuid,${id}::uuid,${ctx.principal.personId}::uuid,
         ${meta.postingAgent},${meta.sourceDocumentHash ?? null},${meta.extractionConfidence ?? null},${meta.actorType ?? null},${meta.actorTokenJti ?? null}) RETURNING *` as Row[];
     if (rows.length !== 1) throw new Error('Reversal journal could not be created');
-    await ctx.sql`INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit,description,project_id,cost_center_id,bu_id,vat_type)
-      SELECT ${contraId}::uuid,company_id,gl_account_id,credit,debit,'Reversal: ' || COALESCE(description,''),project_id,cost_center_id,bu_id,vat_type
+    await ctx.sql`INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit,description,project_id,cost_center_id,cc1_id,cc2_id,bu_id,vat_type)
+      SELECT ${contraId}::uuid,company_id,gl_account_id,credit,debit,'Reversal: ' || COALESCE(description,''),project_id,cost_center_id,cc1_id,cc2_id,bu_id,vat_type
       FROM gl_journal_lines WHERE company_id=${companyId}::uuid AND journal_entry_id=${id}::uuid`;
     await registerGeneratedJournal(ctx, parentControl, contraId, 'journal.post');
     const reversal = await postJournalEntry(companyId, contraId, userId, { parentControl });

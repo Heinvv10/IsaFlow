@@ -42,9 +42,11 @@ export async function materializeGlOperation(ctx: ControlTx, ref: OperationRef):
     FROM gl_journal_entries WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid FOR UPDATE` as Row[];
   if (!header || !isRealCalendarDate(String(header.entry_date))) throw new Error('Journal not found or dated incorrectly');
   // Parent lock prevents inserted line phantoms through the journal FK; account locks prevent concurrent deactivation.
-  const lines = await ctx.sql`SELECT id,gl_account_id,debit::text,credit::text,description,project_id,cost_center_id,bu_id,vat_type
+  const storedLines = await ctx.sql`SELECT id,gl_account_id,debit::text,credit::text,description,project_id,cost_center_id,cc1_id,cc2_id,bu_id,vat_type
     FROM gl_journal_lines WHERE company_id=${companyId}::uuid AND journal_entry_id=${ref.entityId}::uuid
     ORDER BY id LIMIT 10001 FOR SHARE` as Array<Row & { debit: string; credit: string }>;
+  // Previously absent null keys preserve legacy material; actual dimensions must now participate.
+  const lines:Array<Row & {debit:string;credit:string}>=storedLines.map(({cc1_id,cc2_id,...line})=>({...line,...(cc1_id==null?{}:{cc1_id}),...(cc2_id==null?{}:{cc2_id})}));
   const amount = deriveJournalAmount(lines);
   const accountIds = [...new Set(lines.map(line => String(line.gl_account_id)))].sort();
   const accounts = await ctx.sql`SELECT id,account_code,account_name,account_type,account_subtype,is_active

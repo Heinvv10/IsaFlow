@@ -48,9 +48,9 @@ export async function allocateTransaction(companyId:string,bankTxId:string,contr
   if(!entityId)throw new Error('Owned allocation party required');
   const refund=isBankAllocationRefund(allocType,bank.amount);
   if(refund&&(invoiceId||opts?.applications?.length))throw new Error('Refund applications must be empty');
-  input={...common,partyId:entityId,applications:opts?.applications??(invoiceId?[{invoiceId,amount}]:[])};
+  input={...common,partyId:entityId,cc1Id,cc2Id,buId,applications:opts?.applications??(invoiceId?[{invoiceId,amount}]:[])};
   if(!opts?.intentId)return withSavepoint('bank_default_adapter',async()=>{
-   const prepared=await preparePartyBankAllocation(ctx,{kind:allocType,bankTransactionId:bankTxId,partyId:entityId,description,
+   const prepared=await preparePartyBankAllocation(ctx,{kind:allocType,bankTransactionId:bankTxId,partyId:entityId,description,cc1Id,cc2Id,buId,
     autoApply:opts?.autoApply,applications:opts?.applications??(invoiceId?[{invoiceId,amount}]:undefined)});
    return runPlan(companyId,bankTxId,userId,input,{...opts,intentId:prepared.intentId});
   });
