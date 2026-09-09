@@ -3,7 +3,7 @@
  * AP equivalent of Customer Statements — shows balances by supplier
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -37,25 +37,30 @@ export default function SupplierStatementsPage() {
     if (typeof selectedDate === 'string') setAsAtDate(selectedDate);
   }, [selectedDate]);
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams();
-      if (asAtDate) params.set('as_at_date', asAtDate);
-      const res = await apiFetch(`/api/accounting/supplier-statement-balances?${params}`);
-      await assertOk(res, 'Failed to load supplier balances');
-      const json = await res.json();
-      const data = json.data || json;
-      setSuppliers(Array.isArray(data) ? data : []);
-    } catch {
-      setError('Failed to load supplier balances');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [asAtDate]);
-
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!router.isReady) return;
+    let active = true;
+    const load = async () => {
+      setIsLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams();
+        if (asAtDate) params.set('as_at_date', asAtDate);
+        const res = await apiFetch(`/api/accounting/supplier-statement-balances?${params}`);
+        await assertOk(res, 'Failed to load supplier balances');
+        const json = await res.json();
+        const data = json.data || json;
+        if (!active) return;
+        setSuppliers(Array.isArray(data) ? data : []);
+      } catch {
+        if (active) setError('Failed to load supplier balances');
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [asAtDate, router.isReady]);
 
   function handleExportAll() {
     if (suppliers.length === 0) return;
