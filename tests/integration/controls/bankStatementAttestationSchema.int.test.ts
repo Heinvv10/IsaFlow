@@ -24,8 +24,9 @@ it('stores zero-count local evidence with owned parents and authenticated maker 
  const db=await pool.connect(),account=randomUUID(),document=randomUUID(),foreignDocument=randomUUID(),intent=randomUUID();
  try{
   await db.query('BEGIN');
+  await db.query('ALTER TABLE captured_documents DROP COLUMN IF EXISTS raw_bytes');
   await db.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,level) VALUES($1,$2,'SYN-ATTEST','Synthetic statement bank','asset','bank','debit',true,1)",[account,fixture.companyA]);
-  for(const [id,company] of [[document,fixture.companyA],[foreignDocument,fixture.companyB]])await db.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256) VALUES($1,$2,'synthetic-statement.pdf','pdf','matched',$3,$4)",[id,company,Buffer.from('Synthetic statement'),'a'.repeat(64)]);
+  for(const [id,company] of [[document,fixture.companyA],[foreignDocument,fixture.companyB]])await db.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes_sha256) VALUES($1,$2,'synthetic-statement.pdf','pdf','matched',$3)",[id,company,'a'.repeat(64)]);
   await db.query('SET LOCAL ROLE app_user');
   await db.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify({sub:fixture.u1.id,role:'authenticated',company_id:fixture.companyA}),fixture.companyA]);
   const insert="INSERT INTO control_bank_statement_attestation_intents(company_id,id,requester_person_id,bank_account_id,source_document_id,expected_source_hash,source_fingerprint,period_start,period_end,source_count,opening_balance,closing_balance,currency) VALUES($1,$2,$3,$4,$5,$6,$6,'2026-09-01','2026-09-30',0,-10,-10,'ZAR')";

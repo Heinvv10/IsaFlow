@@ -1,3 +1,4 @@
+import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeEach,expect,it} from 'vitest';
 import {randomUUID,createHash} from 'node:crypto';
 import {Pool,type PoolClient} from 'pg';
@@ -125,8 +126,9 @@ it('materializes actual AR/AP children and bank source amounts with owned eviden
  await pool.query('INSERT INTO customer_payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,100)',[arPayment,arInvoice]);
  await pool.query('INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,100)',[apPayment,apInvoice]);
  await pool.query("INSERT INTO bank_transactions(company_id,bank_account_id,transaction_date,amount,status) VALUES($1,$2,'2026-09-09',100,'imported')",[fixture.companyA,debit]);
- const document=randomUUID(),bytes=Buffer.from('Synthetic retained statement'),hash=createHash('sha256').update(bytes).digest('hex');
- await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256) VALUES($1,$2,'statement.pdf','pdf','matched',$3,$4)",[document,fixture.companyA,bytes,hash]);
+ const document=randomUUID(),bytes=Buffer.from('Synthetic retained statement');
+ await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,status) VALUES($1,$2,'statement.pdf','pdf','matched')",[document,fixture.companyA]);
+ await capturedStorage().seed(pool,fixture.companyA,document,bytes);
  await pool.query("INSERT INTO bank_statement_imports(company_id,bank_account_id,source_document_id,period_start,period_end,opening_balance,closing_balance,row_count,status,created_by) VALUES($1,$2,$3,'2026-09-01','2026-09-09',0,100,1,'committed',$4)",[fixture.companyA,debit,document,fixture.u1.id]);
  const result=await actor(ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),request:{...request,sources:['ar','ap','bank']}}));
  expect(result.populations.filter(p=>p.source!=='bank_statement_attestation_intent').every(p=>p.count===1)).toBe(true);expect(result.records).toHaveLength(10);
@@ -160,7 +162,8 @@ it('keeps source monetary totals separate by currency',async()=>{
 it('retains the owned statement attestation source separately from its execution status',async()=>{
  const document=randomUUID(),bytes=Buffer.from('Synthetic source statement'),hash=createHash('sha256').update(bytes).digest('hex');
  await pool.query("UPDATE gl_accounts SET account_subtype='bank' WHERE company_id=$1 AND id=$2",[fixture.companyA,debit]);
- await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,status,raw_bytes,raw_bytes_sha256) VALUES($1,$2,'statement.pdf','pdf','matched',$3,$4)",[document,fixture.companyA,bytes,hash]);
+ await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,status) VALUES($1,$2,'statement.pdf','pdf','matched')",[document,fixture.companyA]);
+ await capturedStorage().seed(pool,fixture.companyA,document,bytes);
  const intent=await actor(ctx=>prepareBankStatementAttestation(ctx,{bankAccountId:debit,sourceDocumentId:document,expectedSourceHash:hash,
   periodStart:'2026-09-01',periodEnd:'2026-09-09',sourceCount:1,openingBalance:'0',closingBalance:'100',currency:'ZAR'}));
  const result=await actor(ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),request:{...request,sources:['bank']}}));
