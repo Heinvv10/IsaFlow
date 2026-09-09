@@ -11,7 +11,9 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { listRules, createRule, updateRule, deleteRule } from '@/modules/accounting/services/gl/approvalService';
+import { listRules, createRule, updateRule, deleteRule, isConditionOperator, CONDITION_OPERATORS, ApprovalRoleInvalidError } from '@/modules/accounting/services/gl/approvalService';
+
+const OPERATOR_ERROR = `conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')}`;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -26,15 +28,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!name || !documentType) {
       return apiResponse.badRequest(res, 'name and documentType are required');
     }
-    const rule = await createRule(companyId, { name, documentType, conditionField, conditionOperator, conditionValue, approverRole });
-    return apiResponse.success(res, rule);
+    // Anything checkApproval cannot evaluate must not reach the column.
+    if (conditionOperator !== undefined && !isConditionOperator(conditionOperator)) {
+      return apiResponse.badRequest(res, OPERATOR_ERROR);
+    }
+    try {
+      const rule = await createRule(companyId, { name, documentType, conditionField, conditionOperator, conditionValue, approverRole });
+      return apiResponse.success(res, rule);
+    } catch (error) {
+      if (error instanceof ApprovalRoleInvalidError) return apiResponse.badRequest(res, error.message);
+      throw error;
+    }
   }
 
   if (req.method === 'PUT') {
     const { id, ...updates } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
-    const rule = await updateRule(companyId, id, updates);
-    return apiResponse.success(res, rule);
+    if (updates.conditionOperator !== undefined && !isConditionOperator(updates.conditionOperator)) {
+      return apiResponse.badRequest(res, OPERATOR_ERROR);
+    }
+    try {
+      const rule = await updateRule(companyId, id, updates);
+      return apiResponse.success(res, rule);
+    } catch (error) {
+      if (error instanceof ApprovalRoleInvalidError) return apiResponse.badRequest(res, error.message);
+      throw error;
+    }
   }
 
   if (req.method === 'DELETE') {
