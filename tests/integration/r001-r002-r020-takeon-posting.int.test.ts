@@ -501,6 +501,115 @@ describeIfDb('take-on posting for imported documents', () => {
     }
   }, 60000);
 
+  it('a document step that imported nothing does not bar the summary-only route', async () => {
+    // The step flag is written even by a run where every row was skipped. Gating
+    // the trial-balance control total on that flag permanently barred an
+    // operator whose first AP file matched no supplier: nothing was taken on,
+    // so there is nothing to double count, and the flag can never be cleared.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const session = await newSession(c);
+      const failed = await run(c, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-nothing`, supplierName: 'Nobody Ltd Unmatched 5514872' }),
+      ], USER));
+      expect(failed.imported).toBe(0);
+      expect(failed.skipped).toBe(1);
+
+      // The step ran, and is marked as such.
+      const flags = (await c.query(
+        `SELECT steps_completed, ap_invoices_imported FROM migration_sessions
+          WHERE id = $1 AND company_id = $2`,
+        [session, COMPANY],
+      )).rows[0];
+      expect(flags.steps_completed).toMatchObject({ ap_invoices: true });
+      expect(Number(flags.ap_invoices_imported)).toBe(0);
+
+      // And the control total is still allowed in, because no document is.
+      const { journalEntryId } = await run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '2100', debit: 0, credit: 2000 },
+        { accountCode: '3100', debit: 2000, credit: 0 },
+      ], USER));
+      expect(journalEntryId).toBeTruthy();
+      expect(await net(c, 'payable', 'cr')).toBe(2000);
+
+      // Having taken it, the AP document step now refuses, as it must.
+      await expect(run(c, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-nothing-2` }),
+      ], USER))).rejects.toThrow(/accounts payable control total/);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('serialises opening balances against a document step running at the same instant', async () => {
+    // The R-020 interlock is a read-then-write on the session that BOTH sides
+    // perform. importOpeningBalances took no lock, so an overlapping pair — the
+    // trial balance carrying an AP control total, and the AP document step —
+    // each read a session without the other's mark, both passed their own
+    // assertion, and both posted: the double count R-020 exists to prevent.
+    const a = await pool.connect();
+    const b = await pool.connect();
+    let session = '';
+    try {
+      await a.query('BEGIN');
+      session = await newSession(a);
+      await a.query('COMMIT');
+
+      await a.query('BEGIN');
+      await b.query('BEGIN');
+
+      const ap = await run(a, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-interlock`, amountPaid: 0 }),
+      ], USER));
+      expect(ap.imported).toBe(1);
+
+      // B opens while A is still uncommitted. It must block on the same lock
+      // rather than read a session that does not yet know about A's documents.
+      let bSettled = false;
+      const openingB = run(b, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '2100', debit: 0, credit: 2000 },
+        { accountCode: '3100', debit: 2000, credit: 0 },
+      ], USER)).then(
+        r => { bSettled = true; return { ok: true as const, r }; },
+        e => { bSettled = true; return { ok: false as const, e: e as Error }; },
+      );
+
+      await new Promise(r => setTimeout(r, 250));
+      expect(bSettled).toBe(false);
+
+      await a.query('COMMIT');
+      const outcome = await openingB;
+
+      // B now sees A's documents and refuses its control total.
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.e.message).toMatch(/payable control account/);
+      await b.query('ROLLBACK');
+
+      // Exactly one posting against the AP control account: the document's.
+      const payable = (await sql`
+        SELECT COALESCE(SUM(l.credit - l.debit), 0) AS net
+          FROM gl_journal_lines l
+          JOIN gl_accounts a ON a.id = l.gl_account_id
+         WHERE l.company_id = ${COMPANY}::UUID AND a.account_subtype = 'payable'
+      `) as { net: string }[];
+      expect(Number(payable[0]!.net)).toBe(1150);
+    } finally {
+      await a.query('ROLLBACK').catch(() => {});
+      await b.query('ROLLBACK').catch(() => {});
+      a.release();
+      b.release();
+      // This test commits, so it cleans up after itself.
+      await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL
+                 WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM gl_journal_lines WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM gl_journal_entries WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
+      if (session) await sql`DELETE FROM migration_sessions WHERE id = ${session}::UUID AND company_id = ${COMPANY}::UUID`;
+    }
+  }, 60000);
+
   it('blocks only the side the trial balance carried', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');
@@ -548,6 +657,61 @@ describeIfDb('take-on posting for imported documents', () => {
       expect(residual.message).toContain('1150.00');
       expect(residual.message).toContain('Opening Balance Equity holds');
       expect(residual.severity).toBe('warning');
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('ignores a second, non-system opening-balance-equity account in the residual', async () => {
+    // The residual summed every account with subtype opening_balance_equity,
+    // while getSystemAccountId resolves the clearing account by subtype AND
+    // is_system_account AND is_active. A chart carrying a second, manually
+    // created OBE account therefore had lines the take-on never posted to
+    // counted into its residual.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const other = (await c.query(
+        `INSERT INTO gl_accounts
+           (company_id, account_code, account_name, account_type, account_subtype,
+            normal_balance, is_active, is_system_account)
+         VALUES ($1, '3199', 'Legacy OBE', 'equity', 'opening_balance_equity', 'credit', true, false)
+         RETURNING id`,
+        [COMPANY],
+      )).rows[0].id;
+
+      // AR and AP take-on of the same amount: their contras cancel on the
+      // SYSTEM clearing account, so the residual is zero. The legacy account
+      // then gets an unrelated posting of its own.
+      await run(c, () => importARInvoices(COMPANY, sessionId, [
+        arRow({ invoiceNumber: `${TAG}-legacy-obe-ar`, amountPaid: 0 }),
+      ], USER));
+      await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        apRow({ invoiceNumber: `${TAG}-legacy-obe-ap`, amountPaid: 0 }),
+      ], USER));
+
+      const je = (await c.query(
+        `INSERT INTO gl_journal_entries
+           (company_id, entry_number, entry_date, description, source, status, created_by)
+         VALUES ($1, 'JE-LEGACY-OBE', '2026-06-30', 'Legacy equity move', 'auto_migration', 'posted', $2)
+         RETURNING id`,
+        [COMPANY, USER],
+      )).rows[0].id;
+      await c.query(
+        `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+         VALUES ($1, $2, $3, 900, 0, 'legacy')`,
+        [COMPANY, je, other],
+      );
+
+      await run(c, () => completeSession(sessionId, COMPANY));
+
+      const sess = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      // The 900 on the non-system account is none of the wizard's business.
+      expect(sess.errors.some((e: { step: string }) => e.step === 'complete')).toBe(false);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();

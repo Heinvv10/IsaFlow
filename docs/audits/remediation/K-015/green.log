@@ -141,3 +141,85 @@ Full unit suite, DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL / ISAFLOW_DISPOSABLE
 Full component suite: 61 files / 416 tests passed.
 File sizes against the 300-line ceiling: migrationImportService 284, migrationService 246,
 migrationApService 198, migrationPostingSupport 171, InvoiceImportResult 43.
+
+================================================================================
+Round 4 — review-k015b-r2.md (2 HIGH, 3 MEDIUM, 4 LOW)
+================================================================================
+
+GREEN
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k015-ap-migration-balance-due-column.int.test.ts \
+    tests/integration/k089-ar-migration-balance-due-column.int.test.ts \
+    tests/integration/r001-r002-r020-takeon-posting.int.test.ts \
+    tests/integration/k015-sage-import-duplicate-savepoint.int.test.ts
+    -> Test Files 4 passed (4) | Tests 48 passed (48)      [was 42]
+
+  bunx vitest run --config vitest.components.config.ts
+    -> Test Files 63 passed (63) | Tests 419 passed (419)
+
+  env -u DATABASE_URL bunx vitest run
+    -> Test Files 792 passed | 36 skipped (828)
+       Tests 9426 passed | 234 skipped (9660)              [unchanged]
+
+  bunx tsc --noEmit                                        -> clean
+  bunx eslint <changed src/ + pages/ files>                -> clean
+    (tests/**.tsx report "not found by the project service" — tsconfig excludes
+     tests/**; the pre-existing invoiceImportResult.test.tsx reports identically)
+  bun run agent-docs:check                                 -> OK: 74 mirrors match
+
+NEW TESTS
+  tests/unit/components/apInvoicesWizardPage.test.tsx            (1)  H1
+  tests/unit/components/migrationHubSessionIssues.test.tsx       (2)  M3
+  k015-ap-...int.test.ts  "a re-run with a corrected total does not post the
+    same bill twice"                                                  H2
+  k015-ap-...int.test.ts  "without the borrowed index, a blank-numbered bill
+    still de-duplicates on its fingerprint"                           H2 adjacent
+  k015-ap-...int.test.ts  "the same invoice number for a DIFFERENT supplier is
+    still imported"                                                   H2 adjacent
+  r001-...int.test.ts  "a document step that imported nothing does not bar the
+    summary-only route"                                               M2
+  r001-...int.test.ts  "serialises opening balances against a document step
+    running at the same instant"                                      M1
+  r001-...int.test.ts  "ignores a second, non-system opening-balance-equity
+    account in the residual"                                          L1
+
+FIXTURE CONTAMINATION (R-036) — how the H2 test avoids it
+  The fixture DB carries uq_supplier_invoices_supplier_number, K-107's migration
+  646, which is on no origin ref and NOT in production. It raises 23505 on the
+  corrected re-run and would mask the defect completely. The three new AP tests
+  run `DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number` INSIDE their
+  own transaction and assert it is gone from pg_indexes before importing; DDL is
+  transactional in Postgres, so the ROLLBACK in `finally` restores it and no
+  other worktree's run is affected. Verified: with the index present and the
+  production change reverted the corrected re-run raises "duplicate key value
+  violates unique constraint"; with it dropped it silently imports a SECOND row.
+
+MUTATIONS (production change reverted, test must go RED, then restored)
+  M4-A  ap-invoices.tsx: apiJson({session}) -> apiFetch + json.data?.id
+        -> apInvoicesWizardPage.test.tsx  1 failed
+           "No active migration session" rendered; the POST never fired.
+  M4-B  migrationApService.ts: hasNumber -> false (fingerprint-only key, the
+        pre-fix behaviour), index dropped by the test
+        -> k015-ap  2 failed:
+           "a re-run with a corrected total does not post the same bill twice"
+             AssertionError: expected 1 to be +0   (a SECOND bill was written)
+           "re-running the same file does not import the bill a second time"
+  M4-C  migrationImportService.ts: remove lockMigrationImport from
+        importOpeningBalances
+        -> r001  1 failed: "serialises opening balances against a document step
+           running at the same instant"
+  M4-D  migrationImportService.ts: documentsTakenOn -> {ar: true, ap: true}
+        (gate on the step flag again)
+        -> r001  3 failed: "a document step that imported nothing does not bar
+           the summary-only route", "lets a summary-only migration bring AR and
+           AP in ...", "blocks only the side the trial balance carried"
+  M4-E  index.tsx: remove <SessionIssues />
+        -> migrationHubSessionIssues.test.tsx  1 failed
+  M4-F  migrationService.ts: drop is_system_account/is_active from the residual
+        -> r001  1 failed: "ignores a second, non-system opening-balance-equity
+           account in the residual"
+
+NOT DONE
+  L4 — origin/fix/audit-k015-k089-migration-balance-due is behind this branch and
+  still carries 625_supplier_invoice_duplicate_fingerprint_unique.sql. This
+  session may not push. The branch MUST be pushed before PR #373 is read.

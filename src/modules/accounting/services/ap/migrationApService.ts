@@ -102,29 +102,44 @@ export async function importAPInvoices(
       // per-row failure must not leave the request transaction aborted, or the
       // updateSession below dies with 25P02 and the whole route 500s.
       const rowImported = await withSavepoint('mig_ap_invoice_row', async () => {
-        // Idempotency by lookup, not by constraint. duplicate_fingerprint cannot
-        // carry a unique index: it is lower(vat|invoice_number|total) with
-        // 'no-vat'/'no-inv'/'0' substituted for missing parts, so every row
-        // missing the same parts collapses onto one string — production holds
-        // groups of 55-79 live invoices sharing a fingerprint, which is why
-        // migration 625 was withdrawn. This is a read-then-write and is
-        // therefore not safe against two imports of the same file running at
-        // the same instant; lockMigrationImport above is what serialises them.
-        // uq_supplier_invoices_supplier_number would also block the second
-        // inserter — but with a 23505 this savepoint turns into a raw Postgres
-        // message, and it is not in production yet (K-107, migration 646).
-        const already = (await sql`
-          SELECT id FROM supplier_invoices
-          WHERE company_id = ${companyId}::UUID
-            AND supplier_id = ${supplierId}::UUID
-            AND duplicate_fingerprint = ${migFingerprint}
-            AND deleted_at IS NULL
-          LIMIT 1
-        `) as Row[];
+        // Idempotency by lookup, not by constraint, and keyed on the bill's
+        // IDENTITY — supplier plus invoice number — rather than on its amount.
+        // The fingerprint carries the total (lower(vat|invoice_number|total)),
+        // so the ordinary operator loop — import, notice a wrong total, correct
+        // the CSV, re-run — produced a different key, missed, and posted the
+        // same bill a second time against the AP control account. AR is spared
+        // only because uq_customer_invoices_company_number (migration 220)
+        // refuses it; production has no equivalent index on supplier_invoices,
+        // and cannot get one: rows with no invoice number are legitimate and
+        // repeat. So the number is the key only when there IS one, and a
+        // blank-numbered row falls back to the fingerprint, which is the most
+        // identity it has. This is a read-then-write and is therefore not safe
+        // against two imports of the same file running at the same instant;
+        // lockMigrationImport above is what serialises them.
+        const hasNumber = inv.invoiceNumber.trim() !== '';
+        const already = hasNumber
+          ? (await sql`
+              SELECT id FROM supplier_invoices
+              WHERE company_id = ${companyId}::UUID
+                AND supplier_id = ${supplierId}::UUID
+                AND invoice_number = ${inv.invoiceNumber}
+                AND deleted_at IS NULL
+              LIMIT 1
+            `) as Row[]
+          : (await sql`
+              SELECT id FROM supplier_invoices
+              WHERE company_id = ${companyId}::UUID
+                AND supplier_id = ${supplierId}::UUID
+                AND duplicate_fingerprint = ${migFingerprint}
+                AND deleted_at IS NULL
+              LIMIT 1
+            `) as Row[];
         if (already.length > 0) {
           errors.push({
             step: 'ap_invoices', row: i, field: 'invoiceNumber',
-            message: `Already imported: ${inv.invoiceNumber} for this supplier and amount`,
+            message: hasNumber
+              ? `Already imported: ${inv.invoiceNumber} for this supplier. Correcting an imported bill is an edit, not a re-import.`
+              : `Already imported: a bill with no number and the same amount for this supplier`,
           });
           return false;
         }

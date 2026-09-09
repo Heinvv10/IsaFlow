@@ -211,6 +211,11 @@ async function recordClearingResidual(sessionId: string, companyId: string): Pro
     JOIN migration_sessions s ON s.id = ${sessionId}::UUID AND s.company_id = ${companyId}::UUID
     WHERE l.company_id = ${companyId}::UUID
       AND a.account_subtype = 'opening_balance_equity'
+      -- The same three predicates getSystemAccountId resolves the clearing
+      -- account by. A chart with a second, non-system OBE account otherwise
+      -- pulls lines the take-on never posted to into the residual.
+      AND a.is_system_account = true
+      AND a.is_active = true
       AND e.status = 'posted'
       AND e.source = 'auto_migration'
       AND e.created_at >= s.started_at
