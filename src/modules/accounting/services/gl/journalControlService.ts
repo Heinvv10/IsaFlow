@@ -16,12 +16,15 @@ export async function runJournalControl<T>(companyId: string, userId: string, re
     const ctx = requireControlTx();
     if (ctx.principal.companyId !== companyId || ctx.principal.personId !== userId) throw new Error('Journal context does not match authenticated person and tenant');
     const parent = opts?.parentControl;
+    if (!parent) await assertDirectJournalOperation(ctx, ref);
     if (!parent) return await executeControlledOperation(ctx, ref, opts?.approvalId ?? null, async permit => {
       // The control kernel freezes the target date before its callback, including midnight boundaries.
       const effectiveRef = ref.operation === 'journal.reverse'
         ? { ...ref, reversalDate: permit.accountingDate }
         : ref;
       const material = await materializeGlOperation(ctx, effectiveRef);
+      const header = material.observedSources.find(s => s.entityType === ref.entityType && s.entityId === ref.entityId)!.facts as {header:{source:string}};
+      assertDirectSource(header.header.source);
       return effect(ctx, material, { permit, parent: effectiveRef });
     });
     assertGeneratedJournal(ctx, parent, ref.entityId, ref.operation as 'journal.post' | 'journal.reverse');
@@ -47,5 +50,18 @@ export async function runJournalControl<T>(companyId: string, userId: string, re
     const store = als.getStore();
     if (store) store.controlWriteFailed = true;
     throw error;
+  }
+}
+
+/** Generated financial families must use their own approval and subledger lifecycle. */
+async function assertDirectJournalOperation(ctx:ControlTx,ref:OperationRef):Promise<void> {
+  const [header]=await ctx.sql`SELECT source FROM gl_journal_entries
+    WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid` as {source:string}[];
+  if(header) assertDirectSource(header.source);
+}
+function assertDirectSource(source:string):void {
+  if(new Set(['auto_invoice','auto_payment','auto_credit_note','auto_supplier_invoice','auto_supplier_payment',
+    'auto_batch_payment','auto_depreciation','auto_payroll','auto_bank_transfer','auto_bank_recon','year_end']).has(source)) {
+    throw new Error('Generated journal must be changed through its authorized domain operation');
   }
 }
