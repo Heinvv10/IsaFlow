@@ -11,7 +11,7 @@ interface Contract {name:string;scope:string|null;write:boolean;requires_post:bo
 interface Schema {type?:string|string[];properties?:Record<string,Schema>;items?:Schema;enum?:unknown[];minimum?:number;exclusiveMinimum?:number;minItems?:number;format?:string}
 export interface ToolEvidence {name:string;scope:string|null;inputValidation:'verified';scopeRefusal:'verified'|'not_applicable';committedRefusals:number}
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
-function sample(schema:Schema):unknown{
+export function sample(schema:Schema):unknown{
  if(schema.enum)return schema.enum[0];
  const type=Array.isArray(schema.type)?schema.type[0]:schema.type;
  if(type==='object')return Object.fromEntries(Object.entries(schema.properties??{}).map(([key,value])=>[key,sample(value)]));
