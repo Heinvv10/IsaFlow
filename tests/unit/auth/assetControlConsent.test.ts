@@ -3,6 +3,7 @@ import {permissionReason} from '@/lib/auth/effectivePermissionPolicy';
 import {PAT_SCOPES} from '@/lib/auth/patScopes';
 import {OAUTH_SCOPES} from '@/lib/auth/oauthScopes';
 import {partitionRequestedScopes} from '@/lib/auth/consentScopes';
+import {SCOPE_LABELS} from '@/lib/auth/consentScopeLabels';
 it('makes fixed asset scopes usable by the actual permission resolver',()=>{
  for(const scope of ['read:assets','write:assets']){
   expect(permissionReason('owner',scope,[scope],[])).toBeNull();
@@ -13,4 +14,6 @@ it('makes fixed asset scopes usable by the actual permission resolver',()=>{
 });
 it('requires explicit consent for changing fixed assets',()=>{
  expect(partitionRequestedScopes(['read:assets','write:assets'])).toEqual({autoGranted:['read:assets'],optIn:['write:assets']});
+ expect(SCOPE_LABELS['write:assets']).toContain('write:post');
+ expect(SCOPE_LABELS['read:assets']).toContain('fixed asset');
 });
