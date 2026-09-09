@@ -75,7 +75,13 @@ export async function estimateAnnualRemuneration(
   const priorPeriods = Number(rows[0]?.window_periods ?? 0);
   const firstIndex = rows[0]?.first_index == null ? index : Number(rows[0].first_index);
   // Elapsed months of payroll history, this period included, capped at a year.
-  const elapsedPeriods = Math.min(TRAILING_PERIODS, Math.max(1, index - firstIndex + 1));
+  // An empty window means there is no history to spread this month over, however
+  // old the company is: a dormant shell resuming payroll, or migrated data
+  // carrying one ancient run, would otherwise divide a R60,000 month by twelve
+  // and read as exempt while paying R720,000 a year.
+  const elapsedPeriods = priorPeriods === 0
+    ? 1
+    : Math.min(TRAILING_PERIODS, Math.max(1, index - firstIndex + 1));
   const annual = Math.round(
     ((priorGross + currentPeriodGross) / elapsedPeriods) * TRAILING_PERIODS * 100,
   ) / 100;
