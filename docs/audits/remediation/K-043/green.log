@@ -152,3 +152,70 @@ migration. It now reads `pg_get_constraintdef` back out of the catalogue; R2 is 
 Test Files 5 failed | 791 passed | 36 skipped (832)   Tests 10 failed | 9451 passed (9695)
 (+15 tests over the previous round, which is exactly the new unit cases.) All five failures are
 10s timeouts at load average 143; re-run in isolation → 5 files / 27 tests passed.
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 3 — 2026-09-09 (2 HIGH / 2 MEDIUM / 4 LOW from scratchpad/review-k043-r3.md)
+Fixture: postgres://…@127.0.0.1:33140/isaflow_schema_fixture (disposable)
+════════════════════════════════════════════════════════════════════════════
+
+GREEN — integration, all four K-043 files together (they share the fixture):
+  bun run test:integration -- k-043-r3-rule-authority k-043-approval-authority \
+      k-043-self-approval-and-approver-role k108-k109-approval-rules
+  Test Files  4 passed (4)      Tests  38 passed (38)
+  Run three consecutive times, 38/38 each time. The first attempt was 2 failed:
+  k108-k109 drops and re-adds approval_rules_condition_operator_check at
+  AUTO-COMMIT on the shared fixture, so the r3 migration cases were racing it.
+  Fixed in the test, not by serialising the suite: every starting state is now
+  CONSTRUCTED inside the transaction (DROP CONSTRAINT IF EXISTS + explicit ADD)
+  behind LOCK TABLE approval_rules IN ACCESS EXCLUSIVE MODE, and nothing is read
+  off the ambient fixture.
+
+GREEN — unit:
+  approvalRuleAuthority.test.ts + approverRankLadder.test.ts   19 passed
+  approvalRuleOperatorGuard.test.ts + approvalRulesSavepoint.test.ts  12 passed
+
+MIGRATION 658 applied OUT of transaction to the fixture (scratch schema
+k043_658_proof holding a LIKE-copy of approval_rules, dropped afterwards):
+  CASE A — database that ran the PRE-EDIT 647:
+    before      CHECK ((condition_operator = ANY (ARRAY['any','greater_than','greater_equal'])))  NOT VALID
+    after 658   CHECK (((condition_operator = ANY (...)) OR (is_active IS NOT TRUE))) NOT VALID
+    after twice identical — idempotent
+  CASE B — database that ran the CURRENT 647 (already scoped):
+    pg_constraint.oid before=26765 after=26765 — not dropped and re-added
+  Both directions converge. 647 itself was NOT edited.
+
+MUTATION PROOF — one mutant per finding, production code only, each restored:
+  1 H2  guard disabled (`if (false && actorRank(...) < requiredRank(...))`)
+        approvalRuleAuthority  5 failed / 6 passed
+        k-043-r3 integration   3 failed / 12 passed
+  2 H1  658's definition test removed, leaving the name-only guard (the 647 defect)
+        k-043-r3 integration   2 failed / 13 passed
+  3 M1  isUuidParam removed from the PUT and DELETE id
+        k-043-r3 integration   2 failed / 13 passed
+  4 L4  deleteRule returns true for a row it never touched
+        k-043-r3 integration   1 failed / 14 passed
+  5 L2  assertConditionOperator made a no-op
+        approvalRuleOperatorGuard  3 failed / 3 passed
+  6 L3  updateRule called outside withSavepoint
+        approvalRulesSavepoint     3 failed / 3 passed
+  7 L1  'auditor' added to userAccessService VALID_ROLES (assignable, not on the ladder)
+        approverRankLadder         1 failed / 7 passed
+  All seven restored; `grep -rn MUTANT pages/ src/ scripts/` returns nothing and the
+  suites above are green again (38/38 integration).
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u JWT_SECRET bunx vitest run):
+  Test Files  799 passed | 36 skipped (835)
+  Tests       9485 passed | 234 skipped (9719)
+
+GATES:
+  bunx tsc --noEmit                         clean
+  bunx eslint <7 changed src/pages files>   clean
+  bun run agent-docs:check                  OK: 74 mirrors match
+  bun scripts/audit-migration-naming.ts     No new duplicate prefixes found
+  bun scripts/ci/check-migration-rls.ts     OK
+  (eslint on tests/** reports "not found by the project service" — tsconfig
+   excludes tests/**; that is the repo's standing condition, not a new error.)
+
+MIGRATION PREFIX: renamed 655 → 658. 655 was taken by K-041's committed
+655_invite_company_name_definer_hardening.sql on another branch; 656 (K-095) and
+657 (K-140/K-144) are reserved. Every prose reference renumbered with it.

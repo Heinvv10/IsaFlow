@@ -36,6 +36,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!isDocumentType(documentType)) {
         return apiResponse.badRequest(res, 'Invalid documentType');
       }
+      // checkApproval casts it `::UUID`; unchecked that is a 22P02 and a 500.
+      if (!isUuidParam(documentId)) {
+        return apiResponse.badRequest(res, 'documentId must be a UUID');
+      }
       const result = await checkApproval(
         companyId,
         documentType,

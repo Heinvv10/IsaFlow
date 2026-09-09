@@ -10,7 +10,7 @@ import type { PendingInvitation, InvitationWithToken, InvitationResult } from '.
 import type { DbRow } from '@/types/db';
 
 
-const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+export const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
 type CompanyRole = (typeof VALID_ROLES)[number];
 
 function isValidRole(role: string): role is CompanyRole {

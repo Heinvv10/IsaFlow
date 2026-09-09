@@ -13,6 +13,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ROLE_HIERARCHY } from '@/lib/auth/types';
 import { ALLOWED_COMPANY_ROLES } from '@/modules/admin/services/adminUserActionsService';
+import { VALID_ROLES as ACCESS_SERVICE_ROLES } from '@/modules/accounting/services/core/userAccessService';
+import { VALID_ROLES as INVITATION_SERVICE_ROLES } from '@/modules/accounting/services/core/userInvitationService';
 import { APPROVER_RANK, APPROVER_ROLES, isApproverRole } from '@/modules/accounting/services/gl/approvalAuthority';
 
 const sharedRoles = Object.keys(ROLE_HIERARCHY);
@@ -54,6 +56,20 @@ describe('APPROVER_RANK vs ROLE_HIERARCHY', () => {
     const roles = invitableRoles();
     expect(roles.length).toBeGreaterThan(0);
     for (const role of roles) expect(APPROVER_RANK).toHaveProperty(role);
+  });
+
+  /**
+   * Four allowlists write company_users.role, not two. updateCompanyUserRole in
+   * userAccessService is the route that actually changes a member's role in the
+   * product, and adding a role to its list would not have failed this test.
+   *
+   * tenantProvisioningService.ts and the two invite-accept routes write the
+   * column with no allowlist at all; they are enumerated in the K-043 fix
+   * document rather than here, because there is no list to read.
+   */
+  it('covers every role the in-product access and invitation services can assign', () => {
+    for (const role of ACCESS_SERVICE_ROLES) expect(APPROVER_RANK).toHaveProperty(role);
+    for (const role of INVITATION_SERVICE_ROLES) expect(APPROVER_RANK).toHaveProperty(role);
   });
 
   it('orders every shared pair of roles the same way in both maps', () => {

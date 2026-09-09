@@ -69,12 +69,16 @@ export const isApproverRole = (value: unknown): value is string =>
 // function, not undefined, and neither fallback would fire — the comparison
 // would then be NaN < NaN, which is false, and the decision would be allowed.
 
-/** An unrecognised rule role falls back to 'admin', the column default in 234. */
-const requiredRank = (role: string): number =>
+/**
+ * An unrecognised rule role falls back to 'admin', the column default in 234.
+ * Exported because approvalRuleGuards ranks the same two things when deciding
+ * who may EDIT a rule — one ladder, not a second copy that can drift.
+ */
+export const requiredRank = (role: string): number =>
   isApproverRole(role) ? APPROVER_RANK[role]! : APPROVER_RANK.admin!;
 
-/** An unrecognised decider role carries no authority. */
-const deciderRank = (role: string): number =>
+/** An unrecognised actor role carries no authority. */
+export const actorRank = (role: string): number =>
   isApproverRole(role) ? APPROVER_RANK[role]! : 0;
 
 /**
@@ -131,7 +135,7 @@ export async function assertMayDecide(
 
   const ruleRole = row.approver_role != null ? String(row.approver_role) : 'admin';
   const userRole = String(row.decider_role);
-  if (deciderRank(userRole) < requiredRank(ruleRole)) {
+  if (actorRank(userRole) < requiredRank(ruleRole)) {
     throw new ApprovalDecisionError(
       'APPROVER_ROLE_REQUIRED',
       `This approval requires the ${ruleRole} role`
