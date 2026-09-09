@@ -1,5 +1,6 @@
 /**
- * Single-reversal claim for `gl_journal_entries`.
+ * Single-reversal claim for `gl_journal_entries`, and the transaction that
+ * makes it safe.
  *
  * `reverseJournalEntry` used to read the original, check `reversed_at`, build
  * and post the contra, and only THEN write `reversed_at`. Two overlapping
@@ -8,24 +9,40 @@
  *
  * The fix is to claim the reversal atomically BEFORE anything is written: a
  * status-predicated `UPDATE ... WHERE reversed_at IS NULL` either wins the row
- * or returns zero rows. That works inside a request transaction (the loser
- * blocks on the row lock, then re-evaluates the predicate against the winner's
- * committed value) and outside one (the statement is its own transaction), so
- * cron jobs and scripts are covered too — unlike a bare `FOR UPDATE`, which
- * releases at statement end when no transaction is open.
+ * or returns zero rows, and the loser never creates a contra at all.
  *
- * The loser therefore never creates a contra at all; there is nothing to clean
- * up on its side.
+ * That claim is only safe if it cannot outlive the contra it stands for.
+ * `reversed_at IS NOT NULL` is read as "this entry is reversed" by the audit
+ * trail (`auditTrailLedgerService`, `auditTrailAttribution`), by
+ * `bank/agentActivityService`, by `items/depreciationRunPlan` (which EXCLUDES
+ * such an entry from a run) and by `ap/supplierPaymentWorkflowService` (which
+ * SKIPS the reversal it owes). A claim left behind by a crashed batch would
+ * make all of them describe an un-reversed journal as reversed. So the claim
+ * and the contra must commit together or not at all — which is what
+ * `withReversalTransaction` guarantees for the callers that have no
+ * transaction of their own (`scripts/fixes/reverse-cancelled-invoice-journals.ts`
+ * runs `reverseJournalEntry` in a bare loop; cron paths do the same).
+ *
+ * Widening the claim predicate to "reclaimable when no contra exists" was
+ * considered and REJECTED: outside a transaction the winner's claim commits and
+ * releases the row lock before its contra exists, so the second caller would
+ * re-evaluate that predicate as true and claim as well — reopening the exact
+ * race for the exact callers the design targets.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, getPool } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
+import { log } from '@/lib/logger';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
 
-/** Raised when another request holds the original longer than the 5s `lock_timeout`. */
+/**
+ * Raised when another request holds the original longer than the 5s
+ * `lock_timeout`. The reverse route and the MCP tool return a caught service
+ * error's message to the caller, so this wording is what they read.
+ */
 export class JournalReversalLockTimeoutError extends Error {
   readonly code = 'JOURNAL_REVERSAL_LOCK_TIMEOUT';
   constructor(entryId: string) {
@@ -40,14 +57,55 @@ function isLockTimeout(err: unknown): boolean {
 }
 
 /**
+ * Run the whole reversal in one transaction.
+ *
+ * Inside a request (`withAuth`, the MCP bearer pipeline) one is already open on
+ * the ALS-bound client and `fn` simply runs on it — opening a second would take
+ * a separate pool client and deadlock against the rows this request already
+ * holds. Outside one, this opens a client, binds it into ALS so every nested
+ * `sql` call routes to it, and commits or rolls back as a unit. That is what
+ * makes the claim crash-safe: a death anywhere between the claim and the posted
+ * contra rolls both back, and a rerun repairs the entry instead of finding it
+ * permanently marked.
+ */
+export async function withReversalTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  if (als.getStore()?.client) {
+    assertTxUsable();
+    return fn();
+  }
+
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const result = await als.run(
+      { client, userId: 'service:reverseJournalEntry', claims: {} },
+      fn,
+    );
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      log.error('Reversal transaction rollback failed', { error: rollbackErr }, 'accounting');
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Mark the original as reversed, but only if it is not already. Returns false
  * when another caller got there first — the caller must refuse instead of
  * posting a second contra.
  *
- * The 5s `lock_timeout` is issued per call rather than memoised: `SET LOCAL` is
- * subtransaction-aware and `ROLLBACK TO SAVEPOINT` restores it to `0`, which is
- * no timeout at all. It is only meaningful inside a request transaction, so it
- * is skipped when there is none.
+ * The 5s `lock_timeout` is issued per call rather than memoised, because
+ * `SET LOCAL` is subtransaction-aware and `ROLLBACK TO SAVEPOINT` restores it
+ * to `0` — no timeout at all — on precisely the paths where contention is
+ * likeliest. It is also RESTORED afterwards: `SET LOCAL` is scoped to the
+ * transaction, not the statement, so leaving it set would make every later
+ * statement of the surrounding request abort after 5s with an unmapped `55P03`.
  */
 export async function claimJournalReversal(
   companyId: string,
@@ -55,10 +113,19 @@ export async function claimJournalReversal(
   userId: string,
 ): Promise<boolean> {
   const client = als.getStore()?.client;
-  if (client) {
-    assertTxUsable();
-    await client.query("SET LOCAL lock_timeout = '5s'");
+  if (!client) {
+    throw new Error(
+      'claimJournalReversal requires an open transaction — call it through withReversalTransaction. '
+      + 'Outside one the claim autocommits and can outlive the contra it stands for.',
+    );
   }
+  assertTxUsable();
+  // set_config(..., is_local => true) rather than SET LOCAL: identical scope,
+  // but it takes a parameter, which SET cannot, so the restore below can pass
+  // back whatever value was in force.
+  const previous = (await client.query("SELECT current_setting('lock_timeout') AS v"))
+    .rows[0]?.v as string | undefined;
+  await client.query("SELECT set_config('lock_timeout', '5s', true)");
   try {
     const rows = (await sql`
       UPDATE gl_journal_entries
@@ -72,26 +139,49 @@ export async function claimJournalReversal(
   } catch (err) {
     if (isLockTimeout(err)) throw new JournalReversalLockTimeoutError(entryId);
     throw err;
+  } finally {
+    // Restore rather than reset: inside a request the previous value is whatever
+    // an outer statement chose, and a transaction-scoped setting does not lapse
+    // when this function returns. Guarded, because on a failed claim the
+    // connection may already be aborted and a bare await would replace the real
+    // error with 25P02.
+    try {
+      await client.query("SELECT set_config('lock_timeout', $1, true)", [previous ?? '0']);
+    } catch (restoreErr) {
+      log.error('Failed to restore lock_timeout after reversal claim', { entryId, error: restoreErr }, 'accounting');
+    }
   }
 }
 
 /**
- * Give the claim back when the contra could not be created or posted.
+ * Give the claim back when the contra could not be created.
  *
- * Inside a request transaction the whole attempt rolls back and this is
- * redundant; outside one it is what stops a failed reversal from leaving the
- * entry permanently un-reversible. Same shape as the draft-contra DELETE in
- * `reverseJournalEntry`, and predicated on `reversal_of_id IS NULL` on the
- * contra side being unreachable here — this only ever runs before any link-back.
+ * Almost always redundant — `withReversalTransaction` rolls the claim back with
+ * everything else — but not when the CALLER is inside a request transaction,
+ * catches the failure and goes on to commit. Without this, that request would
+ * leave the entry marked reversed with no contra.
+ *
+ * Best-effort, and deliberately incapable of replacing the error that brought
+ * us here: on an already-aborted connection this raises `25P02`, and a bare
+ * `await` would hand the caller "current transaction is aborted" instead of the
+ * real cause.
  */
 export async function releaseJournalReversalClaim(
   companyId: string,
   entryId: string,
 ): Promise<void> {
-  await sql`
-    UPDATE gl_journal_entries
-    SET reversed_by = NULL, reversed_at = NULL
-    WHERE id         = ${entryId}::UUID
-      AND company_id = ${companyId}::UUID
-  `;
+  try {
+    await sql`
+      UPDATE gl_journal_entries
+      SET reversed_by = NULL, reversed_at = NULL
+      WHERE id         = ${entryId}::UUID
+        AND company_id = ${companyId}::UUID
+    `;
+  } catch (err) {
+    log.error(
+      'Failed to release journal reversal claim — the surrounding transaction must roll back',
+      { entryId, error: err },
+      'accounting',
+    );
+  }
 }

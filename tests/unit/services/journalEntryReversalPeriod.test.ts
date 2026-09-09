@@ -27,6 +27,16 @@ vi.mock('@/lib/neon', () => {
   });
   return {
     sql: sqlMock,
+    // reverseJournalEntry wraps itself in a transaction (withReversalTransaction)
+    // so the reversal claim cannot outlive the contra. Outside a request it
+    // opens one on a pool client and binds it into ALS, so this suite hands it
+    // a client whose BEGIN/COMMIT and lock_timeout statements are no-ops.
+    getPool: () => ({
+      connect: async () => ({
+        query: async () => ({ rows: [{ v: '0' }] }),
+        release: () => undefined,
+      }),
+    }),
     withTransaction: vi.fn(),
     fmtDate: (d: unknown) => String(d),
   };
