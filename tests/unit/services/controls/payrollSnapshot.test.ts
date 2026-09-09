@@ -1,12 +1,18 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('@/modules/accounting/services/controls/context',()=>({assertControlTx:vi.fn()}));
 vi.mock('@/modules/accounting/services/controls/operationVersions',()=>({readControlEntityVersion:vi.fn(async()=>null)}));
+vi.mock('@/modules/accounting/services/controls/payrollCalculationReceipt',async original=>({
+  ...await original<typeof import('@/modules/accounting/services/controls/payrollCalculationReceipt')>(),
+  readPayrollCalculationReceipt:async()=>receipt,
+}));
+import { payrollCalculationHashes, type PayrollCalculationHashes } from '@/modules/accounting/services/controls/payrollCalculationReceipt';
 import { materializePayrollOperation } from '@/modules/accounting/services/controls/payrollOperationMaterializer';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
 const id='11111111-1111-4111-8111-111111111111';
 const ref={entityType:'payroll_run',entityId:id,operation:'payroll_run.post' as const};
 let state:Record<string,unknown[]>;
 let queries:string[];
+let receipt:PayrollCalculationHashes|null;
 beforeEach(()=>{
   queries=[];
   state={companies:[{id,default_currency:'ZAR',lockdown_enabled:false,lockdown_date:null}],
@@ -16,6 +22,8 @@ beforeEach(()=>{
     payroll_employee_components:[{id:'assignment',employee_id:'employee',component_id:'component',amount:'100'}],
     gl_accounts:['5200','2140','2150','2160','1110'].map(account_code=>({id:account_code,account_code,is_active:true})),
     fiscal_periods:[{id:'period',status:'open',start_date:'2026-09-01',end_date:'2026-09-30'}]};
+  receipt=payrollCalculationHashes({header:state.payroll_run_headers![0] as Record<string,unknown>,lines:state.payroll_run_lines as Record<string,unknown>[],
+    employees:state.payroll_employees,components:state.payroll_components,assignments:state.payroll_employee_components});
 });
 const ctx={principal:{companyId:id},sql:async(strings:TemplateStringsArray)=>{
   const query=strings.join('?');queries.push(query);
@@ -26,7 +34,8 @@ it('binds current employees, component assignments, ledger settings and fiscal p
   for (const [table,key,value] of [['payroll_employees','tax_number','changed'],['payroll_employee_components','amount','101'],
     ['companies','default_currency','USD'],['fiscal_periods','status','closed']] as const) {
     const row=state[table]![0] as Record<string,unknown>, prior=row[key];row[key]=value;
-    expect((await materializePayrollOperation(ctx,ref)).binding.sourceVersions).not.toEqual(before.binding.sourceVersions);
+    if(table==='payroll_employees' || table==='payroll_employee_components') await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('recalculate');
+    else expect((await materializePayrollOperation(ctx,ref)).binding.sourceVersions).not.toEqual(before.binding.sourceVersions);
     row[key]=prior;
   }
   expect(before.binding).toMatchObject({amount:'102',currency:'ZAR',accountingDate:'2026-09-30'});
@@ -46,4 +55,12 @@ it('refuses missing ledger currency and ambiguous fiscal coverage',async()=>{
   await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('currency');
   company.default_currency='ZAR';state.fiscal_periods!.push(state.fiscal_periods![0]);
   await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('ambiguous');
+});
+it('refuses oversized source populations instead of hashing a truncated subset',async()=>{
+  state.payroll_employees=Array.from({length:10001},(_,i)=>({id:i===0?'employee':`employee-${i}`}));
+  await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('population');
+});
+
+it('refuses an unverified legacy calculation before requesting approval',async()=>{
+  receipt=null;await expect(materializePayrollOperation(ctx,ref)).rejects.toThrow('recalculate');
 });
