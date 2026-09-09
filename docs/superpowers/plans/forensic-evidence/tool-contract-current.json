@@ -3,10 +3,10 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 141,
-    "reads": 77,
-    "writes": 64,
-    "requires_post": 30
+    "total": 148,
+    "reads": 80,
+    "writes": 68,
+    "requires_post": 32
   },
   "tools": [
     {
@@ -264,6 +264,83 @@
           "idempotency_key"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "approval_requirements",
+      "scope": null,
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "asset_depreciation.post",
+              "bank_allocation.post",
+              "bank_allocation.reverse",
+              "bank_statement.attest",
+              "bank_transfer.post",
+              "cash_application.apply",
+              "cash_application.reverse",
+              "company_lockdown.change",
+              "credit_note.approve",
+              "credit_note.cancel",
+              "credit_note_application.apply",
+              "customer_invoice.cancel",
+              "customer_invoice.post",
+              "customer_payment.cancel",
+              "customer_payment.confirm",
+              "fiscal_period.close",
+              "fiscal_period.lock",
+              "fiscal_period.reopen",
+              "historical_import.post",
+              "invoice_match.override",
+              "journal.post",
+              "journal.reverse",
+              "payment_release.dispatch",
+              "payroll_compensation.change",
+              "payroll_run.post",
+              "payroll_run.reopen",
+              "recurring_invoice.generate",
+              "supplier_invoice.approve",
+              "supplier_invoice.cancel",
+              "supplier_invoice.post",
+              "supplier_payment.process",
+              "supplier_payment.void",
+              "supplier_payment_batch.process",
+              "vat_period.lock",
+              "year.close",
+              "year.periods_close"
+            ]
+          },
+          "entity_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "entity_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reversal_date": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "operation",
+          "entity_type",
+          "entity_id"
+        ]
       }
     },
     {
@@ -2491,6 +2568,70 @@
       }
     },
     {
+      "name": "execute_bank_operation",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instruction",
+          "idempotency_key"
+        ],
+        "properties": {
+          "instruction": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "bankTransactionId",
+              "intent_id",
+              "approval_id"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "allocate",
+                  "split_allocate",
+                  "reverse"
+                ]
+              },
+              "bankTransactionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "intent_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "approval_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reversalDate": {
+                "type": "string",
+                "format": "date"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            }
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          }
+        }
+      }
+    },
+    {
       "name": "export_audit_evidence",
       "scope": "read:reports",
       "write": true,
@@ -3604,6 +3745,30 @@
       }
     },
     {
+      "name": "list_pending_approvals",
+      "scope": "read:approvals",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "required": []
+      }
+    },
+    {
       "name": "list_practice_clients",
       "scope": "read:practice",
       "write": false,
@@ -4241,6 +4406,185 @@
       }
     },
     {
+      "name": "prepare_bank_operation",
+      "scope": "write:bank-tx",
+      "write": true,
+      "requires_post": true,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instruction",
+          "idempotency_key"
+        ],
+        "properties": {
+          "instruction": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "bankTransactionId"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "prepare_allocate",
+                  "prepare_split_allocate",
+                  "prepare_reverse"
+                ]
+              },
+              "bankTransactionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "allocationType": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "supplier",
+                  "customer",
+                  "transfer"
+                ]
+              },
+              "contraAccountId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "entityId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "vatCode": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "standard",
+                  "zero_rated",
+                  "exempt"
+                ]
+              },
+              "vatAccountId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "cc1Id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "cc2Id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "buId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "autoApply": {
+                "type": "boolean"
+              },
+              "applications": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "invoiceId",
+                    "amount"
+                  ],
+                  "properties": {
+                    "invoiceId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "maxLength": 23,
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d{1,2})?$"
+                    }
+                  }
+                }
+              },
+              "lines": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "contraAccountId",
+                    "amount"
+                  ],
+                  "properties": {
+                    "contraAccountId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "maxLength": 23,
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d{1,2})?$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "vatCode": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "zero_rated",
+                        "exempt"
+                      ]
+                    },
+                    "cc1Id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "cc2Id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "buId": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              },
+              "originalIntentId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reversalDate": {
+                "type": "string",
+                "format": "date"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            }
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          }
+        }
+      }
+    },
+    {
       "name": "profit_and_loss",
       "scope": "read:reports",
       "write": false,
@@ -4382,6 +4726,113 @@
       }
     },
     {
+      "name": "propose_supplier_bank_change",
+      "scope": "write:beneficiaries",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "supplier_id",
+          "bank",
+          "evidence_refs",
+          "idempotency_key"
+        ],
+        "properties": {
+          "supplier_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "bank": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "bankName",
+              "accountNumber",
+              "branchCode",
+              "accountType"
+            ],
+            "properties": {
+              "bankName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "accountNumber": {
+                "type": "string",
+                "pattern": "^\\d{5,30}$"
+              },
+              "branchCode": {
+                "type": "string",
+                "pattern": "^\\d{6}$"
+              },
+              "accountType": {
+                "type": "string",
+                "enum": [
+                  "cheque",
+                  "current",
+                  "savings",
+                  "transmission"
+                ]
+              }
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "store",
+                "entityType",
+                "entityId",
+                "evidenceId",
+                "version",
+                "hash"
+              ],
+              "properties": {
+                "store": {
+                  "type": "string",
+                  "enum": [
+                    "captured"
+                  ]
+                },
+                "entityType": {
+                  "type": "string",
+                  "enum": [
+                    "supplier_invoice"
+                  ]
+                },
+                "entityId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "evidenceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "version": {
+                  "type": "null"
+                },
+                "hash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "reconcile_fixed_assets",
       "scope": "read:reports",
       "write": false,
@@ -4497,6 +4948,89 @@
           "idempotency_key"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "request_operation_approval",
+      "scope": "write:approvals",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "asset_depreciation.post",
+              "bank_allocation.post",
+              "bank_allocation.reverse",
+              "bank_statement.attest",
+              "bank_transfer.post",
+              "cash_application.apply",
+              "cash_application.reverse",
+              "company_lockdown.change",
+              "credit_note.approve",
+              "credit_note.cancel",
+              "credit_note_application.apply",
+              "customer_invoice.cancel",
+              "customer_invoice.post",
+              "customer_payment.cancel",
+              "customer_payment.confirm",
+              "fiscal_period.close",
+              "fiscal_period.lock",
+              "fiscal_period.reopen",
+              "historical_import.post",
+              "invoice_match.override",
+              "journal.post",
+              "journal.reverse",
+              "payment_release.dispatch",
+              "payroll_compensation.change",
+              "payroll_run.post",
+              "payroll_run.reopen",
+              "recurring_invoice.generate",
+              "supplier_invoice.approve",
+              "supplier_invoice.cancel",
+              "supplier_invoice.post",
+              "supplier_payment.process",
+              "supplier_payment.void",
+              "supplier_payment_batch.process",
+              "vat_period.lock",
+              "year.close",
+              "year.periods_close"
+            ]
+          },
+          "entity_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "entity_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reversal_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "operation",
+          "entity_type",
+          "entity_id",
+          "idempotency_key"
+        ]
       }
     },
     {
@@ -4909,6 +5443,30 @@
           "bank_transaction_id"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "supplier_bank_change_status",
+      "scope": "read:contacts",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "supplier_id"
+        ],
+        "properties": {
+          "supplier_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       }
     },
     {

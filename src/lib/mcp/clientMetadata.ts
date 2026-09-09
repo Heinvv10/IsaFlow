@@ -20,6 +20,14 @@ export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protecte
  * is derived by counting `MCP_TOOLS.filter(t => !t.write)` and not by hand.
  */
 export const CLIENT_MCP_TOOL_NAMES = [
+  'approval_requirements',
+  'request_operation_approval',
+  'list_pending_approvals',
+  'propose_supplier_bank_change',
+  'supplier_bank_change_status',
+  'prepare_bank_operation',
+  'execute_bank_operation',
+
   'audit_snapshot',
   'export_audit_evidence',
   'audit_job_status',

@@ -58,6 +58,11 @@ export type DebitOutcome =
 const TOOL_FLOW_OPERATIONS:Record<string,FlowOperationCode|null>={
  ...FLOW_READ_OPERATIONS,...FLOW_WRITE_OPERATIONS,
  // Forensic controls are free; retries and evidence access must not incur a charge.
+  approval_requirements:null,
+  request_operation_approval:null,
+  list_pending_approvals:null,
+  propose_supplier_bank_change:null,
+  supplier_bank_change_status:null,
   prepare_bank_operation:null,
   execute_bank_operation:null,
   audit_snapshot:null,
