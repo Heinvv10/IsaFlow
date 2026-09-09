@@ -17,6 +17,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { BALANCE_SHEET_LEAF_LEVEL } from './isReportVisibleLeaf';
 
 /**
  * Mirrors `MAX_TREE_DEPTH` in accountReclassifyService, which caps the two
@@ -26,13 +27,6 @@ import { sql } from '@/lib/neon';
  * 3 levels, so this refuses nothing real.
  */
 const MAX_TREE_DEPTH = 32;
-
-/**
- * The level at and below which `balanceSheetService` includes an account
- * regardless of whether it has children (`ga.level >= 3 OR NOT EXISTS(child)`).
- * Above it, gaining a child removes the account from the statements.
- */
-const BALANCE_SHEET_LEAF_LEVEL = 3;
 
 export interface ParentCheckResult {
   /** `parent.level + 1` — the level the child must take. */

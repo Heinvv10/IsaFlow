@@ -61,7 +61,12 @@ async function loadAccount(
     type: account.accountType as AccountType,
     subtype: account.accountSubtype ?? null,
     isActive: account.isActive,
-    level: account.level,
+    // `gl_accounts.level` is nullable with a default of 1, and
+    // `chartOfAccountsService.mapRow` maps it with a bare `Number()` — so a NULL
+    // row arrives here as 0, not as null, and `?? 1` never fires. `|| 1` is what
+    // actually restores the column default, and it keeps the refusal below
+    // reading "level 1" instead of a level the chart does not use.
+    level: Number(account.level) || 1,
   };
 }
 
@@ -121,13 +126,15 @@ export async function admitReclassification(
     };
   }
 
-  // A level 1 or 2 account that has children is a HEADER: the balance sheet and
-  // the trend report select an account only when `level >= 3 OR it has no
-  // children`, so every rand moved onto one leaves both reports while the trial
-  // balance still foots. Refused rather than warned about, for the same reason
-  // as the VAT control accounts below — the caller supplies the target id and
-  // has no other signal that the account is unreachable.
-  if (!(await isReportVisibleLeaf(companyId, target.id, target.level))) {
+  // A level 1 or 2 asset, liability or equity account that has children is a
+  // HEADER: the balance sheet and the trend report select an account only when
+  // `level >= 3 OR it has no children`, so every rand moved onto one leaves
+  // both reports while the trial balance still foots. Refused rather than
+  // warned about, for the same reason as the VAT control accounts below — the
+  // caller supplies the target id and has no other signal that the account is
+  // unreachable. Revenue and expense targets are exempt: the income statement
+  // has no level filter, so nothing disappears there (`isReportVisibleLeaf`).
+  if (!(await isReportVisibleLeaf(companyId, target.id, target.level, target.type))) {
     return {
       refused:
         `${target.code} ${target.name} is a header account (level ${target.level} with ` +

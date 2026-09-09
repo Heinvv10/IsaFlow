@@ -91,6 +91,18 @@ export async function mergeAccounts(
   // order under a 5s lock_timeout, which is what makes two opposite merges a
   // clean wait rather than a deadlock or an unbounded stall inside the
   // registry's savepoint.
+  //
+  // It also holds `assertMergeable`'s header verdict on the target for the rest
+  // of the transaction, which is not obvious from "it locks two rows":
+  // `gl_accounts_parent_account_id_fkey` points at `gl_accounts(id)`, so any
+  // concurrent statement setting `parent_account_id = targetId` — a
+  // `createAccount` INSERT or a `reclassifyAccount` UPDATE — must take FOR KEY
+  // SHARE on the target row, and FOR UPDATE conflicts with it. Such a session
+  // waits for this transaction and lands AFTER the merge, where
+  // `assertParentUsable` refuses it because the target now carries posted lines.
+  // Proved by the two-connection case in
+  // `k051-account-merge-into-header-hides-balance.int.test.ts`; a post-write
+  // re-read of the guard would be unreachable code.
   await lockGlAccountsForUpdate(companyId, [sourceId, targetId]);
 
   const source = await loadMergeAccount(companyId, sourceId);

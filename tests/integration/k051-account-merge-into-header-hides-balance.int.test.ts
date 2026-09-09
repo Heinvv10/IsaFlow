@@ -30,6 +30,15 @@ const headerTarget = crypto.randomUUID(), headerChild = crypto.randomUUID();
 const flatSource = crypto.randomUUID();
 const crossTarget = crypto.randomUUID(), crossSource = crypto.randomUUID();
 const foreignChild = crypto.randomUUID();
+const deepTarget = crypto.randomUUID(), deepChild = crypto.randomUUID();
+const deepSource = crypto.randomUUID(), deepSourceChild = crypto.randomUUID();
+const expenseTarget = crypto.randomUUID(), expenseChild = crypto.randomUUID();
+const expenseSource = crypto.randomUUID();
+const ancSource = crypto.randomUUID(), ancTarget = crypto.randomUUID();
+const ancGrand = crypto.randomUUID();
+const linedSource = crypto.randomUUID();
+const raceTarget = crypto.randomUUID(), raceSource = crypto.randomUUID();
+const raceIntruder = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 
 async function postJournal(entryNumber: string, legs: [string, number, number][]) {
@@ -47,6 +56,12 @@ async function postJournal(entryNumber: string, legs: [string, number, number][]
 async function assetsOnBalanceSheet(): Promise<number> {
   const bs = await getBalanceSheet(company, AS_AT);
   return bs.totalAssets;
+}
+
+/** The account's OWN line on the balance sheet, 0 when the report omits it. */
+async function assetLine(accountCode: string): Promise<number> {
+  const bs = await getBalanceSheet(company, AS_AT);
+  return bs.assets.find((a) => a.accountCode === accountCode)?.balance ?? 0;
 }
 
 /** withAuth supplies the request transaction the merge's row lock requires. */
@@ -82,9 +97,36 @@ beforeAll(async () => {
             ($9,$2,'K051-1310','K051 Inventory detail','asset','debit',3,true,$8),
             ($10,$2,'K051-1350','K051 Consumables','asset','debit',3,true,NULL),
             ($11,$2,'K051-1400','K051 Loans (level 1 leaf)','asset','debit',1,true,NULL),
-            ($12,$2,'K051-1450','K051 Staff loans','asset','debit',3,true,NULL)`,
+            ($12,$2,'K051-1450','K051 Staff loans','asset','debit',3,true,NULL),
+            ($13,$2,'K051-1600','K051 Motor vehicles','asset','debit',3,true,NULL),
+            ($14,$2,'K051-1610','K051 Motor vehicles - bakkies','asset','debit',4,true,$13),
+            ($15,$2,'K051-1650','K051 Delivery vehicles','asset','debit',3,true,NULL),
+            ($16,$2,'K051-1660','K051 Delivery vehicles - vans','asset','debit',4,true,$15),
+            ($17,$2,'K051-6000','K051 Motor expenses (header)','expense','debit',2,true,NULL),
+            ($18,$2,'K051-6010','K051 Fuel','expense','debit',3,true,$17),
+            ($19,$2,'K051-6500','K051 Vehicle repairs','expense','debit',3,true,NULL),
+            ($20,$2,'K051-1700','K051 Investments (level 1)','asset','debit',1,true,NULL),
+            ($21,$2,'K051-1710','K051 Investments - listed','asset','debit',2,true,$20),
+            ($22,$2,'K051-1720','K051 Investments - JSE','asset','debit',3,true,$21),
+            ($23,$2,'K051-1800','K051 Petty cash','asset','debit',3,true,NULL)`,
     [target, company, source, child, equity, leafTarget, leafSource,
-      headerTarget, headerChild, flatSource, crossTarget, crossSource]);
+      headerTarget, headerChild, flatSource, crossTarget, crossSource,
+      deepTarget, deepChild, deepSource, deepSourceChild,
+      expenseTarget, expenseChild, expenseSource, ancSource, ancTarget, ancGrand,
+      linedSource]);
+  // The concurrency pair: a level-2 CHILDLESS target the guard admits today,
+  // and a childless source carrying one line, so the merge has a journal-line
+  // UPDATE that a second connection can hold up mid-merge.
+  await pool.query(
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
+     VALUES($1,$2,'K051-1900','K051 Bonds (level 2 leaf)','asset','debit',2,true,NULL),
+            ($3,$2,'K051-1950','K051 Bond deposits','asset','debit',3,true,NULL)`,
+    [raceTarget, company, raceSource]);
+  // The expense journal below gives the company a non-zero current-year result,
+  // and `balanceSheetService` then resolves the retained-earnings role.
+  await pool.query(
+    "UPDATE gl_accounts SET account_subtype='retained_earnings', is_system_account=true WHERE id=$1 AND company_id=$2",
+    [equity, company]);
   // Another tenant's account parented under this company's level-1 leaf. It must
   // not make that account a header for THIS company.
   await pool.query(
@@ -97,6 +139,13 @@ beforeAll(async () => {
 
   await postJournal('K051-JE-TARGET', [[target, 500, 0], [equity, 0, 500]]);
   await postJournal('K051-JE-SOURCE', [[source, 1000, 0], [equity, 0, 1000]]);
+  // Money on the sources whose merges are ADMITTED, so the positive path proves
+  // where a real balance lands rather than repointing an empty account.
+  await postJournal('K051-JE-LEAF', [[leafSource, 300, 0], [equity, 0, 300]]);
+  await postJournal('K051-JE-DEEP', [[deepSource, 250, 0], [equity, 0, 250]]);
+  await postJournal('K051-JE-PETTY', [[linedSource, 75, 0], [equity, 0, 75]]);
+  await postJournal('K051-JE-EXPENSE', [[expenseSource, 90, 0], [equity, 0, 90]]);
+  await postJournal('K051-JE-RACE', [[raceSource, 60, 0], [equity, 0, 60]]);
 });
 
 afterAll(async () => {
@@ -113,30 +162,80 @@ afterAll(async () => {
   } finally { await pool.end(); }
 });
 
+/** 500 + 1000 source + 300 leafSource + 250 deepSource + 75 linedSource + 60 raceSource. */
+const OPENING_ASSETS = 2185;
+
 it('refuses a merge that would turn the target into a header account', async () => {
-  expect(await assetsOnBalanceSheet()).toBeCloseTo(1500, 2);
+  expect(await assetsOnBalanceSheet()).toBeCloseTo(OPENING_ASSETS, 2);
 
   await expect(runMerge(source, target)).rejects.toMatchObject({ code: 'target_becomes_header' });
 
   // Nothing moved: both accounts still carry their own balance on the report.
-  expect(await assetsOnBalanceSheet()).toBeCloseTo(1500, 2);
+  expect(await assetsOnBalanceSheet()).toBeCloseTo(OPENING_ASSETS, 2);
   const { rows } = await pool.query(
     'SELECT parent_account_id, is_active FROM gl_accounts WHERE id=$1 AND company_id=$2',
     [child, company]);
   expect(rows[0].parent_account_id).toBe(source);
 });
 
-it('refuses a level-2 target that is ALREADY a header, even from a childless source', async () => {
-  await expect(runMerge(flatSource, headerTarget))
+it('refuses an ALREADY-header level-2 target when the source carries lines to move', async () => {
+  const before = await assetsOnBalanceSheet();
+  await expect(runMerge(linedSource, headerTarget))
     .rejects.toMatchObject({ code: 'target_becomes_header' });
+  // The R75 is still on the report, on the account it was posted to.
+  expect(await assetLine('K051-1800')).toBeCloseTo(75, 2);
+  expect(await assetsOnBalanceSheet()).toBeCloseTo(before, 2);
 });
 
-it('still merges into a leaf target, and the balance sheet is unchanged', async () => {
+it('admits an ALREADY-header target from a source with neither children nor lines', async () => {
+  // Nothing that was visible becomes invisible: the target was already off both
+  // reports and the source brings no balance and no child to reparent onto it.
   const before = await assetsOnBalanceSheet();
+  const result = await runMerge(flatSource, headerTarget);
+  expect(result.sourceDeactivated).toBe(true);
+  expect(await assetsOnBalanceSheet()).toBeCloseTo(before, 2);
+});
+
+it('merges a real balance into a leaf target, and it lands on the target line', async () => {
+  const before = await assetsOnBalanceSheet();
+  expect(await assetLine('K051-1250')).toBeCloseTo(300, 2);
+  expect(await assetLine('K051-1200')).toBeCloseTo(0, 2);
+
   const result = await runMerge(leafSource, leafTarget);
   expect(result.sourceDeactivated).toBe(true);
-  // A repoint moves no debit and no credit — total assets must be unchanged.
+
+  // The R300 moved rather than vanished: off the source, onto the target, and
+  // total assets identical because a repoint posts no debit and no credit.
+  expect(await assetLine('K051-1250')).toBeCloseTo(0, 2);
+  expect(await assetLine('K051-1200')).toBeCloseTo(300, 2);
   expect(await assetsOnBalanceSheet()).toBeCloseTo(before, 2);
+});
+
+it('admits a level-3 target that HAS children, from a source that has children too', async () => {
+  // The one shape that separates this guard from a blanket "no target with
+  // children": at level 3 both reports select the account regardless, so the
+  // reparent costs nothing and ordinary chart maintenance must still run.
+  const before = await assetsOnBalanceSheet();
+  const result = await runMerge(deepSource, deepTarget);
+  expect(result.targetAccountCode).toBe('K051-1600');
+  expect(await assetLine('K051-1600')).toBeCloseTo(250, 2);
+  expect(await assetsOnBalanceSheet()).toBeCloseTo(before, 2);
+  const { rows } = await pool.query(
+    'SELECT parent_account_id FROM gl_accounts WHERE id=$1 AND company_id=$2',
+    [deepSourceChild, company]);
+  expect(rows[0].parent_account_id).toBe(deepTarget);
+});
+
+it('admits a level-2 EXPENSE header target — the income statement has no level filter', async () => {
+  const result = await runMerge(expenseSource, expenseTarget);
+  expect(result.targetAccountCode).toBe('K051-6000');
+  // The balance sheet never carried an expense account, so nothing left it.
+  expect(await assetsOnBalanceSheet()).toBeCloseTo(OPENING_ASSETS, 2);
+});
+
+it('reports the CYCLE, not the header rule, when the target descends from the source', async () => {
+  await expect(runMerge(ancSource, ancTarget))
+    .rejects.toMatchObject({ code: 'target_is_descendant_of_source' });
 });
 
 it("ignores another tenant's child when judging a level-1 leaf target", async () => {
@@ -146,4 +245,56 @@ it("ignores another tenant's child when judging a level-1 leaf target", async ()
     'SELECT parent_account_id FROM gl_accounts WHERE id=$1 AND company_id=$2',
     [foreignChild, otherCompany]);
   expect(rows[0].parent_account_id).toBe(crossTarget);
+});
+
+/** Runs `stmt` on its own connection with a 1s lock_timeout; resolves the SQLSTATE. */
+async function withOneSecondLockTimeout(stmt: string, values: unknown[]): Promise<string> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SET LOCAL lock_timeout = '1s'");
+    await client.query(stmt, values);
+    await client.query('ROLLBACK');
+    return 'committed';
+  } catch (err) {
+    await client.query('ROLLBACK');
+    return String((err as { code?: string }).code);
+  } finally { client.release(); }
+}
+
+it("the merge's row lock blocks a concurrent chart edit onto the target", async () => {
+  // `lockGlAccountsForUpdate` is described as locking two ROWS, which reads as
+  // if a concurrent `createAccount` or `reclassifyAccount` could still parent a
+  // third account onto the target between the guard read and the merge's write.
+  // It cannot: `gl_accounts_parent_account_id_fkey` references gl_accounts(id),
+  // so both statements take FOR KEY SHARE on the target row and FOR UPDATE
+  // conflicts with it. That is why the guard needs no post-write re-read.
+  const holder = await pool.connect();
+  try {
+    await holder.query('BEGIN');
+    await holder.query('SELECT id FROM gl_accounts WHERE id=$1 AND company_id=$2 FOR UPDATE',
+      [raceTarget, company]);
+
+    // createAccount's INSERT.
+    expect(await withOneSecondLockTimeout(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
+       VALUES($1,$2,'K051-1910','K051 Bonds - detail','asset','debit',3,true,$3)`,
+      [raceIntruder, company, raceTarget],
+    )).toBe('55P03');
+
+    // reclassifyAccount's reparent of an EXISTING account.
+    expect(await withOneSecondLockTimeout(
+      'UPDATE gl_accounts SET parent_account_id=$1 WHERE id=$2 AND company_id=$3',
+      [raceTarget, raceSource, company],
+    )).toBe('55P03');
+  } finally {
+    await holder.query('ROLLBACK');
+    holder.release();
+  }
+
+  // Nothing was written by either attempt.
+  const { rows } = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM gl_accounts WHERE parent_account_id=$1 AND company_id=$2',
+    [raceTarget, company]);
+  expect(rows[0].n).toBe(0);
 });

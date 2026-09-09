@@ -23,6 +23,9 @@ const header = crypto.randomUUID(), headerChild = crypto.randomUUID();
 const source = crypto.randomUUID(), equity = crypto.randomUUID();
 const otherCompany = crypto.randomUUID();
 const flatLeaf = crypto.randomUUID(), foreignChild = crypto.randomUUID();
+const deepParent = crypto.randomUUID(), deepParentChild = crypto.randomUUID();
+const expenseHeader = crypto.randomUUID(), expenseHeaderChild = crypto.randomUUID();
+const nullLevel = crypto.randomUUID(), nullLevelChild = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 
 beforeAll(async () => {
@@ -34,8 +37,20 @@ beforeAll(async () => {
             ($3,$2,'K052-1110','K052 Receivables detail','asset','debit',3,true,$1),
             ($4,$2,'K052-1200','K052 Prepayments','asset','debit',3,true,NULL),
             ($5,$2,'K052-3000','K052 Retained earnings','equity','credit',3,true,NULL),
-            ($6,$2,'K052-1300','K052 Loans (level 1 leaf)','asset','debit',1,true,NULL)`,
-    [header, company, headerChild, source, equity, flatLeaf]);
+            ($6,$2,'K052-1300','K052 Loans (level 1 leaf)','asset','debit',1,true,NULL),
+            ($7,$2,'K052-1400','K052 Motor vehicles','asset','debit',3,true,NULL),
+            ($8,$2,'K052-1410','K052 Motor vehicles - bakkies','asset','debit',4,true,$7),
+            ($9,$2,'K052-6000','K052 Motor expenses (header)','expense','debit',2,true,NULL),
+            ($10,$2,'K052-6010','K052 Fuel','expense','debit',3,true,$9)`,
+    [header, company, headerChild, source, equity, flatLeaf,
+      deepParent, deepParentChild, expenseHeader, expenseHeaderChild]);
+  // `gl_accounts.level` is nullable with a default, so a row can carry NULL.
+  // The refusal must read "level 1", not "level NaN".
+  await pool.query(
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
+     VALUES($1,$2,'K052-1500','K052 Suspense (no level)','asset','debit',NULL,true,NULL),
+            ($3,$2,'K052-1510','K052 Suspense detail','asset','debit',3,true,$1)`,
+    [nullLevel, company, nullLevelChild]);
   await pool.query("INSERT INTO companies(id,name) VALUES($1,'K052 other tenant')", [otherCompany]);
   // Another tenant's child under this company's level-1 leaf must not make it a header.
   await pool.query(
@@ -113,4 +128,40 @@ it('refuses the header target for the other tenant too, and never leaks its exis
     from: null, to: null, postingDate: '2026-03-31',
   });
   expect(admitted).toEqual({ refused: 'NOT_FOUND' });
+});
+
+it('admits a level-3 target that HAS children', async () => {
+  // The shape that separates this guard from a blanket "no target with
+  // children": both reports select an account at level 3 regardless of its
+  // children, so converting one into a header is ordinary chart maintenance.
+  const admitted = await admitReclassification({
+    companyId: company,
+    sourceAccountId: source,
+    targetAccountId: deepParent,
+    from: null, to: null, postingDate: '2026-03-31',
+  });
+  expect(isRefusal(admitted)).toBe(false);
+});
+
+it('admits a level-2 EXPENSE header — the income statement has no level filter', async () => {
+  const admitted = await admitReclassification({
+    companyId: company,
+    sourceAccountId: source,
+    targetAccountId: expenseHeader,
+    from: null, to: null, postingDate: '2026-03-31',
+  });
+  expect(isRefusal(admitted)).toBe(false);
+});
+
+it('reads a NULL level as 1 in the refusal, not NaN', async () => {
+  const admitted = await admitReclassification({
+    companyId: company,
+    sourceAccountId: source,
+    targetAccountId: nullLevel,
+    from: null, to: null, postingDate: '2026-03-31',
+  });
+  expect(isRefusal(admitted)).toBe(true);
+  const { refused } = admitted as { refused: string };
+  expect(refused).toContain('level 1 with children');
+  expect(refused).not.toContain('NaN');
 });
