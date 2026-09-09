@@ -51,11 +51,24 @@ function row(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** The three mutations, each with the call that performs it. */
-const MUTATIONS: Array<{ name: string; run: () => Promise<unknown> }> = [
-  { name: 'matchTransaction', run: () => matchTransaction(COMPANY_ID, TX_ID, JL_ID) },
-  { name: 'unmatchTransaction', run: () => unmatchTransaction(COMPANY_ID, TX_ID) },
-  { name: 'excludeTransaction', run: () => excludeTransaction(COMPANY_ID, TX_ID, 'dup') },
+/**
+ * The three mutations, each with the call that performs it and the reads it
+ * makes between the locked read and its own UPDATE.
+ *
+ * `matchTransaction` checks that the journal line belongs to the caller's
+ * company and is not already claimed by another bank transaction, so it has two
+ * of those; the other two write straight after the lock. Queueing them here
+ * keeps every shared assertion below counting statements rather than hard-coding
+ * one mutation's shape.
+ */
+const MUTATIONS: Array<{ name: string; run: () => Promise<unknown>; preWrite: unknown[][] }> = [
+  {
+    name: 'matchTransaction',
+    run: () => matchTransaction(COMPANY_ID, TX_ID, JL_ID),
+    preWrite: [[{ id: JL_ID }], []],
+  },
+  { name: 'unmatchTransaction', run: () => unmatchTransaction(COMPANY_ID, TX_ID), preWrite: [] },
+  { name: 'excludeTransaction', run: () => excludeTransaction(COMPANY_ID, TX_ID, 'dup'), preWrite: [] },
 ];
 
 describe('bank transaction status mutations — locked and guarded', () => {
@@ -64,11 +77,18 @@ describe('bank transaction status mutations — locked and guarded', () => {
     enterFakeRequestCtx();
   });
 
-  for (const { name, run } of MUTATIONS) {
+  for (const { name, run, preWrite } of MUTATIONS) {
+    /** Queue the locked read, this mutation's ownership reads, then its UPDATE. */
+    function queue(lockRow: unknown[], update: unknown[]) {
+      const m = vi.mocked(sql).mockResolvedValueOnce(lockRow as never);
+      for (const r of preWrite) m.mockResolvedValueOnce(r as never);
+      m.mockResolvedValueOnce(update as never);
+    }
+    /** Statements a successful run issues: the lock, the ownership reads, the UPDATE. */
+    const totalCalls = 2 + preWrite.length;
+
     it(`${name} takes the row lock before it writes`, async () => {
-      vi.mocked(sql)
-        .mockResolvedValueOnce([row()] as never)   // locked read
-        .mockResolvedValueOnce([row()] as never);  // the UPDATE
+      queue([row()], [row()]);
 
       await run();
 
@@ -77,7 +97,7 @@ describe('bank transaction status mutations — locked and guarded', () => {
       expect(lockText).toMatch(/FOR UPDATE/);
       expect(lockText).toContain(COMPANY_ID);
       expect(lockText).toContain(TX_ID);
-      expect(sqlTextOf(1)).toMatch(/UPDATE bank_transactions/);
+      expect(sqlTextOf(1 + preWrite.length)).toMatch(/UPDATE bank_transactions/);
     });
 
     it(`${name} refuses a row that already carries a posted journal`, async () => {
@@ -96,12 +116,10 @@ describe('bank transaction status mutations — locked and guarded', () => {
       // already `matched`), so its journal was written by something else and
       // pre-dates the link — unmatching it orphans nothing. The bank table also
       // still shows Undo on these, so refusing would be a 400 on a live button.
-      vi.mocked(sql)
-        .mockResolvedValueOnce([row({ status: 'reconciled', matched_journal_line_id: JL_ID })] as never)
-        .mockResolvedValueOnce([row()] as never);
+      queue([row({ status: 'reconciled', matched_journal_line_id: JL_ID })], [row()]);
 
       await expect(run()).resolves.toBeDefined();
-      expect(vi.mocked(sql)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(sql)).toHaveBeenCalledTimes(totalCalls);
     });
 
     it(`${name} reports NOT_FOUND from the locked read`, async () => {
@@ -115,24 +133,44 @@ describe('bank transaction status mutations — locked and guarded', () => {
       // The row was deleted between the locked read and the write. Distinct
       // from the read-side miss above: this is the UPDATE's own empty RETURNING,
       // which is the branch that would otherwise map an empty row array.
-      vi.mocked(sql)
-        .mockResolvedValueOnce([row()] as never)  // locked read finds it
-        .mockResolvedValueOnce([] as never);      // UPDATE returns nothing
+      queue([row()], []);  // locked read finds it, UPDATE returns nothing
 
       await expect(run()).rejects.toThrow(`Bank transaction ${TX_ID} not found`);
-      expect(vi.mocked(sql)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(sql)).toHaveBeenCalledTimes(totalCalls);
     });
 
     it(`${name} still proceeds on an allocated row with no journal linked`, async () => {
       // `allocated` with a NULL matched_journal_line_id is a half-finished
       // state, not a posted one — there is no journal to orphan, so refusing
       // would strand the row with no way back.
-      vi.mocked(sql)
-        .mockResolvedValueOnce([row({ status: 'allocated', matched_journal_line_id: null })] as never)
-        .mockResolvedValueOnce([row()] as never);
+      queue([row({ status: 'allocated', matched_journal_line_id: null })], [row()]);
 
       await expect(run()).resolves.toBeDefined();
-      expect(vi.mocked(sql)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(sql)).toHaveBeenCalledTimes(totalCalls);
     });
   }
+
+  // K-144: the ownership reads matchTransaction adds are the guard itself, so
+  // they get their own assertions rather than only being counted above.
+  it('matchTransaction refuses a journal line the company does not own', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([row()] as never)  // locked read
+      .mockResolvedValueOnce([] as never);      // the line is not in this company
+
+    await expect(matchTransaction(COMPANY_ID, TX_ID, JL_ID))
+      .rejects.toThrow(`Journal line ${JL_ID} not found`);
+    expect(sqlTextOf(1)).toMatch(/FROM gl_journal_lines/);
+    expect(sqlTextOf(1)).toContain(COMPANY_ID);
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(2);
+  });
+
+  it('matchTransaction refuses a journal line another transaction already holds', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([row()] as never)
+      .mockResolvedValueOnce([{ id: JL_ID }] as never)
+      .mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never);
+
+    await expect(matchTransaction(COMPANY_ID, TX_ID, JL_ID)).rejects.toThrow(/already matched/i);
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
+  });
 });

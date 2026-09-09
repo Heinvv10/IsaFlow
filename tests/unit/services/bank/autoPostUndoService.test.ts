@@ -54,7 +54,7 @@ describe('undoRun', () => {
 
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
-    expect(r).toEqual({ reversed: 2, skipped: 1 });
+    expect(r).toEqual({ reversed: 2, skipped: 1, alreadyUndone: 0 });
     expect(reverseReconciledTransaction).toHaveBeenCalledWith('co-1', 't2', 'u-1');
     expect(reverseJournalEntry).toHaveBeenCalledWith('co-1', 'je-3', 'u-1');
     expect(reverseReconciledTransaction).not.toHaveBeenCalledWith('co-1', 't1', 'u-1');

@@ -55,9 +55,13 @@ export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvP
     throw new Error('csvContent is required for CSV / OFX / QIF / MT940 imports');
   }
 
-  if (fileType === 'ofx') return parseOfxStatement(csvContent);
-  if (fileType === 'qif') return parseQifStatement(csvContent);
-  if (fileType === 'mt940') return parseMt940Statement(csvContent);
+  // Through the same guard as the CSV arms below. All three of these parsers
+  // return `{transactions: [], errors: []}` rather than throwing when the body
+  // is not the shape they expect, so a user who picked the wrong file type got
+  // the clean "imported 0 transactions" requireTransactions exists to stop.
+  if (fileType === 'ofx') return requireTransactions(parseOfxStatement(csvContent), 'ofx', csvContent);
+  if (fileType === 'qif') return requireTransactions(parseQifStatement(csvContent), 'qif', csvContent);
+  if (fileType === 'mt940') return requireTransactions(parseMt940Statement(csvContent), 'mt940', csvContent);
 
   // CSV path with bank-format dispatch.
   const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);
@@ -77,9 +81,10 @@ export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvP
  * A file with rows in it that yielded no transactions is a failed import, not
  * an empty one.
  *
- * Every CSV parser here returns `{transactions: [], errors: []}` rather than
- * throwing when the file's columns are not the ones it expects — correct for a
- * parser, wrong for an import: naming the wrong bank produced a clean
+ * Every parser here — CSV, OFX, QIF and MT940 alike — returns
+ * `{transactions: [], errors: []}` rather than throwing when the file is not
+ * the shape it expects — correct for a parser, wrong for an import: naming the
+ * wrong bank, or picking the wrong file type, produced a clean
  * "imported 0 transactions", so a user who guessed wrong believed the statement
  * was in.
  *
@@ -108,8 +113,8 @@ function requireTransactions(
   const detail = result.errors.length > 0
     ? ` Row errors: ${result.errors.slice(0, 3).map(e => `row ${e.row}: ${e.error}`).join('; ')}`
       + (result.errors.length > 3 ? ` (and ${result.errors.length - 3} more)` : '')
-    : ` No row matched the columns a ${format} statement is expected to have.`
-      + ' Check that the file is really from this bank, or re-export it.';
+    : ` Nothing in it was readable as a ${format} statement.`
+      + ' Check that the file is really in that format and from this bank, or re-export it.';
   throw new StatementNotImportableError(
     `Parsed no transactions from this statement.${detail}`,
   );
