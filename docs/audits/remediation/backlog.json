@@ -862,7 +862,7 @@
    "currentSha": "dd112c24",
    "status": "in-progress",
    "dependencies": [
-    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+    "PR #370 checks green after migrations 621/622 were applied to the dev runner DB; merge pending"
    ],
    "testNames": [
     "tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts"
@@ -1461,14 +1461,17 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "6789f9d7",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+    "Merged to master; production deployment pending (batch 2); migration 626"
    ],
    "testNames": [
     "tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts"
    ],
    "evidencePaths": [
+    "K-039/ci.log",
+    "K-039/fix.md",
+    "K-039/green.log",
     "K-039/red.log",
     "K-039/validation.md"
    ],
@@ -1479,7 +1482,8 @@
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k039-practice-rate-columns",
-   "reviewRounds": 3
+   "reviewRounds": 3,
+   "mergeCommit": "ecc9227a"
   },
   {
    "id": "K-040",
