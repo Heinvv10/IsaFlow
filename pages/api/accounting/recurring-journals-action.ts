@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import {
   updateRecurringJournalStatus,
   generateJournalFromRecurring,
+  RecurringJournalRequestError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -44,8 +45,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    // Only a caller fault becomes a 400. withAuth ROLLBACKs on >= 500 and
+    // COMMITs everything else, so mapping every throw to 400 committed whatever
+    // the action had already written before it failed — the caller was told the
+    // action failed while its half-finished journal stayed in the books.
+    // Anything not of this class is rethrown to withErrorHandler as a 500.
+    if (err instanceof RecurringJournalRequestError) {
+      log.warn('Recurring journal action refused', { message: err.message }, 'accounting-api');
+      return apiResponse.badRequest(res, err.message);
+    }
     log.error('Recurring journal action failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequestFromError(res, err, 'Action failed');
+    throw err;
   }
 }
 
