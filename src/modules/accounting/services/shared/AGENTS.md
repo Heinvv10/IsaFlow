@@ -13,9 +13,13 @@ Cash application preparation requires an issued ControlTx and current bank trans
 - parseCashApplicationPlan(input): validates exact amounts, date, target population and rejects caller identity/source claims.
 - loadCashApplicationSources(ctx,plan): locks owned posted cash, live source journal, owned target invoices/journals and observes current allocation/period/evidence state.
 - prepareCashApplication(ctx,input): validates current sources and persists the immutable preparation with protected history.
+- executeCashApplication(ctx,intentId,options): executes the exact approved plan through the shared kernel and rechecks original authority on receipt retries.
+- prepareCashApplicationReversal/executeCashApplicationReversal: retain positive allocation rows and bind an independently approved inverse.
+- applyLegacyCashPlan: rejects preview-only mutation and binds legacy adapters to exact immutable intent.
+- assertCashApplicationsUnapplied: prevents payment cancellation from bypassing controlled application reversal.
 
 ## Business rules
 Every query must preserve tenant ownership. Use Decimal precision80 and exact numeric SQL; never turn money into Number for allocation decisions. Retain original positive allocation evidence and bind inverse markers to immutable reversal intent. Active sums exclude reversed rows; historical totals use application/reversal accounting dates. A later bank-origin application needs exact effect lineage and controlled unapplication before original bank reversal; never fabricate an old source fingerprint.
 
 ## Recent changes
-- 2026-09-09: Cash plan/source/preparation foundation follows a real legacy application approval-bypass RED. Migration640 and central dispatch remain centrally owned. This documentation describes contracts; it is not a claim that unimplemented execution, reader migration or PG acceptance is complete.
+- 2026-09-09: Cash plan/source/preparation foundation follows a real legacy application approval-bypass RED. Migration640 and central dispatch remain centrally owned. Actual customer and supplier application/inverse workflows are locally tested. Full reader migration, adversarial and transport acceptance remain tracked in the durable programme ledger.

@@ -119,8 +119,9 @@ export async function getSupplierPaymentById(companyId: string,
     const allocRows = (await sql`
       SELECT pa.*, si.invoice_number
       FROM payment_allocations pa
-      LEFT JOIN supplier_invoices si ON si.id = pa.invoice_id
-      WHERE pa.payment_id = ${id}
+      JOIN supplier_payments sp ON sp.id = pa.payment_id
+      LEFT JOIN supplier_invoices si ON si.id = pa.invoice_id AND si.company_id = sp.company_id
+      WHERE pa.payment_id = ${id} AND sp.company_id = ${companyId}::UUID AND pa.reversed_at IS NULL
     `) as Row[];
 
     return { ...mapPaymentRow(rows[0]!), allocations: allocRows.map(mapAllocationRow) };
