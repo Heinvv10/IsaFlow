@@ -19,8 +19,10 @@
  *   npx tsx scripts/simulate-fy2026-workflows.ts
  */
 
+import pg from 'pg';
 import { createSql, closeSql } from './_pg';
 import { randomUUID } from 'crypto';
+import { als } from '../src/lib/als';
 
 // Real services — via relative paths. tsx resolves the @/ aliases
 // inside these files via the root tsconfig paths.
@@ -42,6 +44,34 @@ import { submitVATReturn } from '../src/modules/accounting/services/reports/vatS
 const DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL;
 if (!DATABASE_URL) { console.error('ERROR: MIGRATION_ADMIN_DATABASE_URL or DATABASE_URL not set'); process.exit(1); }
 const sql = createSql(DATABASE_URL);
+
+/**
+ * generateWipInvoice locks the entries it is about to bill with FOR UPDATE, so
+ * it refuses to run outside a request transaction — the API route gets one from
+ * withAuth and this script has to supply its own. The services read through
+ * `sql` from src/lib/neon, which routes onto the ALS-bound client, so the whole
+ * call runs on this connection and commits or rolls back as one.
+ */
+let requestPool: pg.Pool | null = null;
+async function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
+  requestPool ??= new pg.Pool({
+    connectionString: DATABASE_URL,
+    max: 2,
+    ssl: DATABASE_URL!.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
+  });
+  const client = await requestPool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await als.run({ client, userId: ADMIN_ID, claims: {} }, fn);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 const ADMIN_ID   = 'a0000000-0000-0000-0000-000000000001';
@@ -156,11 +186,11 @@ async function runPracticeWip(month: number, year: number, errors: Err[]): Promi
       );
       if (!entries.length) continue;
       try {
-        const result = await generateWipInvoice(COMPANY_ID, ADMIN_ID, {
+        const result = await inRequestTx(() => generateWipInvoice(COMPANY_ID, ADMIN_ID, {
           practiceClientId: c.id,
           timeEntryIds: entries.map(e => e.id),
           taxRate: 15,
-        });
+        }));
         console.log(`  [wip] ${c.legal_name}: ${entries.length} entries → invoice ${result.invoiceNumber} subtotal R${result.subtotal.toFixed(2)} VAT R${result.taxAmount.toFixed(2)} total R${result.totalAmount.toFixed(2)}`);
         created++;
       } catch (err) {
@@ -323,6 +353,7 @@ async function main(): Promise<void> {
   console.log('='.repeat(60));
 
   await closeSql();
+  await requestPool?.end();
   process.exit(errors.length === 0 ? 0 : 1);
 }
 

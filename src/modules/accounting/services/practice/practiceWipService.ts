@@ -43,6 +43,9 @@ export interface WipFilters {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+/** Postgres `unique_violation` — another run took this invoice number first. */
+const UNIQUE_VIOLATION = '23505';
+
 type GroupedLine = { name: string; hours: number; value: number };
 
 function buildGroupedLines(entries: DbRow[], groupBy: 'by_work_item' | 'by_category'): Map<string, GroupedLine> {
@@ -182,24 +185,32 @@ export async function generateWipInvoice(
       const base = Number(maxRows[0]?.['max_num'] ?? 0) + 1 + attempt;
       invoiceNumber = `INV-${String(base).padStart(5, '0')}`;
       try {
-        const invRows = (await sql`
-          INSERT INTO customer_invoices (
-            company_id, invoice_number, customer_id, client_id,
-            subtotal, tax_rate, tax_amount, total_amount,
-            invoice_date, status, created_by,
-            currency_code, exchange_rate, functional_total
-          ) VALUES (
-            ${companyId}::UUID, ${invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
-            ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
-            ${invDate}, 'draft', ${userId},
-            'ZAR', 1.0, ${totalAmount}
-          ) RETURNING id
-        `) as DbRow[];
-        invoiceId = String(invRows[0]!.id);
+        // Own savepoint per attempt: a peer's concurrent number is a 23505, and
+        // a caught error aborts the whole transaction unless something rolls it
+        // back. Without this the `continue` below cannot execute a single
+        // further statement and the retry never happens.
+        invoiceId = await withSavepoint(`wip_inv_try_${attempt}`, async () => {
+          const invRows = (await sql`
+            INSERT INTO customer_invoices (
+              company_id, invoice_number, customer_id, client_id,
+              subtotal, tax_rate, tax_amount, total_amount,
+              invoice_date, status, created_by,
+              currency_code, exchange_rate, functional_total
+            ) VALUES (
+              ${companyId}::UUID, ${invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
+              ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
+              ${invDate}, 'draft', ${userId},
+              'ZAR', 1.0, ${totalAmount}
+            ) RETURNING id
+          `) as DbRow[];
+          return String(invRows[0]!.id);
+        });
         break;
       } catch (err) {
+        const code = typeof err === 'object' && err !== null
+          ? (err as { code?: unknown }).code : undefined;
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('unique') && attempt < 4) {
+        if ((code === UNIQUE_VIOLATION || msg.includes('unique')) && attempt < 4) {
           log.warn('Invoice number collision, retrying', { attempt, invoiceNumber, companyId }, 'practice');
           continue;
         }

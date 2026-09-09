@@ -252,4 +252,11 @@ describe('generateWipInvoice', () => {
     await expect(inTx(() => generateWipInvoice(COMPANY, USER, baseInput)))
       .rejects.toThrow(/billed concurrently/);
   });
+
+  it('maps a deadlock on the eligibility read to the retryable lock error', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    await expect(inTx(() => generateWipInvoice(COMPANY, USER, baseInput)))
+      .rejects.toThrow(/being invoiced by another request/);
+  });
 });

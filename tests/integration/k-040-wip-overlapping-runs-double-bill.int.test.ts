@@ -36,6 +36,9 @@ const customerId = crypto.randomUUID();
 const otherCustomerId = crypto.randomUUID();
 const userId = crypto.randomUUID();
 const entryId = crypto.randomUUID();
+const entry2Id = crypto.randomUUID();
+const secondClientId = crypto.randomUUID();
+const secondClientEntryId = crypto.randomUUID();
 const otherEntryId = crypto.randomUUID();
 
 const ctx = (client: unknown) => ({ client, userId, claims: {} } as never);
@@ -65,9 +68,25 @@ async function purge(cid: string): Promise<void> {
   await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [cid]);
 }
 
+async function seedEntry(cid: string, pcl: string, entry: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO time_entries(id,company_id,user_id,task_description,entry_date,hours,
+       billable,status,practice_client_id,applied_rate,line_total,approved_at)
+     VALUES($1,$2,$3,'K-040 billable work','2026-06-01',10,TRUE,'approved',$4,1000,10000,now())`,
+    [entry, cid, userId, pcl]);
+}
+
 beforeAll(async () => {
   await seedCompany(companyId, customerId, clientId, entryId, 'K-040');
   await seedCompany(otherCompanyId, otherCustomerId, otherClientId, otherEntryId, 'K-040 Other');
+  // A second entry on the same client, and a second client sharing the company's
+  // invoice-number sequence.
+  await seedEntry(companyId, clientId, entry2Id);
+  await pool.query(
+    `INSERT INTO practice_clients(id,company_id,legal_name,billing_model,status,link_customer_id)
+     VALUES($1,$2,'K-040 Client Two','hourly','active',$3)`,
+    [secondClientId, companyId, customerId]);
+  await seedEntry(companyId, secondClientId, secondClientEntryId);
 });
 
 afterEach(async () => {
@@ -222,4 +241,85 @@ describe('K-040 overlapping WIP invoice runs', () => {
       for (const c of [holder, b]) { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
     }
   }, 20000);
+
+  it('bills only the entries a peer did not take when the selections overlap partly', async () => {
+    const a = await pool.connect();
+    const b = await pool.connect();
+    let runB: Promise<{ invoiceId: string; invoiceNumber: string; lineCount: number; subtotal: number }> | undefined;
+    try {
+      // A takes one of the two entries and holds its transaction open.
+      await a.query('BEGIN');
+      const invoiceA = await runInvoice(a, companyId, clientId, [entryId]);
+
+      // B wants both. It parks on A's row lock, not on an invoice number.
+      await b.query('BEGIN');
+      const bPid = Number((await b.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+      runB = runInvoice(b, companyId, clientId, [entryId, entry2Id]);
+      await waitUntilBlocked(bPid);
+
+      await a.query('COMMIT');
+      const invoiceB = await runB;
+      await b.query('COMMIT');
+
+      // B billed the entry it won, on an invoice number of its own.
+      expect(invoiceB.lineCount).toBe(1);
+      expect(invoiceB.subtotal).toBe(10000);
+      expect(invoiceB.invoiceNumber).not.toBe(invoiceA.invoiceNumber);
+
+      const { rows } = await pool.query(
+        `SELECT te.id, te.status, te.invoice_id,
+                (SELECT count(*)::int FROM customer_invoice_items WHERE time_entry_id=te.id) AS lines
+           FROM time_entries te WHERE te.id = ANY($1::uuid[]) ORDER BY te.id`,
+        [[entryId, entry2Id].sort()]);
+      expect(rows).toHaveLength(2);
+      for (const r of rows) {
+        expect(r.status).toBe('billed');
+        expect(r.lines).toBe(1);
+      }
+      const byId = Object.fromEntries(rows.map((r) => [r.id, r.invoice_id]));
+      expect(byId[entryId]).toBe(invoiceA.invoiceId);
+      expect(byId[entry2Id]).toBe(invoiceB.invoiceId);
+    } finally {
+      if (runB) await runB.catch(() => undefined);
+      for (const c of [a, b]) { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
+    }
+  });
+
+  it('retries the invoice number when a peer in the same company took it first', async () => {
+    const a = await pool.connect();
+    const b = await pool.connect();
+    let runB: Promise<{ invoiceNumber: string; invoiceId: string }> | undefined;
+    try {
+      // Two runs, different practice clients, one company: no row-lock contention,
+      // but they compete for INV-00001.
+      await a.query('BEGIN');
+      const invoiceA = await runInvoice(a, companyId, clientId, [entryId]);
+
+      await b.query('BEGIN');
+      const bPid = Number((await b.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+      runB = runInvoice(b, companyId, secondClientId, [secondClientEntryId]);
+      await waitUntilBlocked(bPid); // parked inside its own customer_invoices INSERT
+
+      await a.query('COMMIT');
+
+      // The 23505 rolls back to this attempt's savepoint, so the loop can retry.
+      const invoiceB = await runB;
+      await b.query('COMMIT');
+
+      expect(invoiceA.invoiceNumber).toBe('INV-00001');
+      expect(invoiceB.invoiceNumber).not.toBe(invoiceA.invoiceNumber);
+      expect(invoiceB.invoiceNumber).toMatch(/^INV-\d{5}$/);
+
+      const { rows } = await pool.query(
+        `SELECT te.id, te.status, te.invoice_id FROM time_entries te
+          WHERE te.id = ANY($1::uuid[])`, [[entryId, secondClientEntryId]]);
+      expect(rows).toHaveLength(2);
+      for (const r of rows) expect(r.status).toBe('billed');
+      expect(rows.find((r) => r.id === entryId)!.invoice_id).toBe(invoiceA.invoiceId);
+      expect(rows.find((r) => r.id === secondClientEntryId)!.invoice_id).toBe(invoiceB.invoiceId);
+    } finally {
+      if (runB) await runB.catch(() => undefined);
+      for (const c of [a, b]) { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
+    }
+  });
 });

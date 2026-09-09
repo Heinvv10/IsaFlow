@@ -20,13 +20,20 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { als, assertTxUsable } from '@/lib/als';
 
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the rows. */
-const LOCK_NOT_AVAILABLE = '55P03';
+/**
+ * Postgres `lock_not_available` (the 5s `lock_timeout` elapsed) and
+ * `deadlock_detected`. Two runs whose selections overlap only partly can take
+ * the same rows in different orders, which Postgres breaks as a deadlock rather
+ * than a timeout — `lock_timeout` does not bound that. Both mean the same thing
+ * to the caller: someone else has these entries, try again.
+ */
+const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
 
 /**
  * Raised when another run holds the selected entries longer than the 5s
- * `lock_timeout`. The WIP route answers a caught service error's message as a
- * 400, so this wording is what the caller reads — it has to say "retry".
+ * `lock_timeout`, or when Postgres breaks a lock cycle between two overlapping
+ * runs. The WIP route answers a caught service error's message as a 400, so
+ * this wording is what the caller reads — it has to say "retry".
  */
 export class WipEntriesLockedError extends Error {
   readonly code = 'WIP_ENTRIES_LOCKED';
@@ -36,9 +43,10 @@ export class WipEntriesLockedError extends Error {
   }
 }
 
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
+function isRetryableLockError(err: unknown): boolean {
+  const code = typeof err === 'object' && err !== null
+    ? (err as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && RETRYABLE_LOCK_ERRORS.has(code);
 }
 
 /**
@@ -53,6 +61,12 @@ function isLockTimeout(err: unknown): boolean {
  * request — `SET LOCAL` is subtransaction-aware, so a `ROLLBACK TO SAVEPOINT`
  * would restore `0` (wait forever) exactly on the contended paths. Same
  * reasoning as `bank/bankTxLock.ts`.
+ *
+ * The timeout is transaction-scoped, so it also bounds the waits later in the
+ * same request (the invoice INSERT, `markEntriesBilled`): a peer sitting on a
+ * duplicate invoice number for more than 5s fails this run rather than parking
+ * it behind an operator who has gone home. Deliberate, and the same trade
+ * `bankTxLock.ts` makes.
  */
 export async function lockEligibleWipEntries(
   companyId: string,
@@ -76,8 +90,10 @@ export async function lockEligibleWipEntries(
         pwi.name AS work_item_name,
         pjc.name AS job_category_name
       FROM time_entries te
-      LEFT JOIN practice_work_items pwi ON pwi.id = te.work_item_id
-      LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id
+      LEFT JOIN practice_work_items pwi
+        ON pwi.id = te.work_item_id AND pwi.company_id = te.company_id
+      LEFT JOIN practice_job_categories pjc
+        ON pjc.id = te.job_category_id AND pjc.company_id = te.company_id
       WHERE te.id = ANY(${timeEntryIds}::UUID[])
         AND te.company_id = ${companyId}::UUID
         AND te.practice_client_id = ${practiceClientId}::UUID
@@ -88,7 +104,7 @@ export async function lockEligibleWipEntries(
       FOR UPDATE OF te
     `) as DbRow[];
   } catch (err) {
-    if (isLockTimeout(err)) throw new WipEntriesLockedError();
+    if (isRetryableLockError(err)) throw new WipEntriesLockedError();
     throw err;
   }
 }
