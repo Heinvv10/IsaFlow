@@ -8717,6 +8717,36 @@
    "historicalDataImpact": "Not assessed; existing auto_asset_expense journals credit bank",
    "canonicalItem": null,
    "reportedSeverity": "high"
+  },
+  {
+   "id": "R-025",
+   "claim": "supplier_invoices.duplicate_fingerprint degenerates to a supplier-level value ('no-vat' or the supplier VAT number) rather than a per-document key, so duplicate detection cannot distinguish distinct bills from the same supplier; production holds groups of 55-79 approved/paid bills sharing one fingerprint.",
+   "area": "ap",
+   "affectedPaths": [
+    "src/modules/accounting/services/ap/supplierInvoiceDuplicateService.ts",
+    "src/modules/accounting/services/ap"
+   ],
+   "sourceLabel": "Deploy preflight probe (K-015 migration 625)",
+   "sourceIds": [],
+   "correctedTrigger": "Read-only production probe on 2026-09-09: 5+ (company, supplier, fingerprint) groups with >1 non-deleted bill, up to 79 per group.",
+   "severityRationale": "Duplicate-bill detection is ineffective for the affected suppliers; the K-015 unique index could not be created on production.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "confirmed",
+   "dependencies": [
+    "Establish how the fingerprint is computed and why it collapses; K-015 ships without the unique index"
+   ],
+   "testNames": [],
+   "evidencePaths": [
+    "releases/2026-09-09-batch2/preflight.md",
+    "releases/2026-09-09-batch2/preflight-probes.sql"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Existing bills are not wrong by themselves; any true duplicates among the groups are undetected.",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
   }
  ],
  "sourceInventory": [
