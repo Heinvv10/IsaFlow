@@ -1,3 +1,4 @@
+import {applyLegacyCashPlan,type CashApplicationApprovalOptions} from '../shared/cashApplicationLegacyAdapter';
 /**
  * Applying a supplier payment that is ALREADY in the ledger to the bills it
  * settles.
@@ -36,12 +37,9 @@
  *      posted backwards through its own state machine.
  */
 
-import { sql } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import {
   EPS,
-  applyLineToBill,
   planSupplierAllocationLines,
   round2,
   type SupplierAllocationInput,
@@ -134,37 +132,13 @@ export async function planSupplierPaymentApplication(
   };
 }
 
-/**
- * Perform a plan. Guards NOTHING — `planSupplierPaymentApplication` has run
- * them all under a lock this request still holds. Every statement is
- * company-scoped.
- */
+/** Execute only the exact stored plan through the shared application control. */
 export async function applySupplierPaymentPlan(
   companyId: string,
   plan: SupplierPaymentApplicationPlan,
   userId: string,
+  options?: CashApplicationApprovalOptions,
 ): Promise<SupplierPaymentApplicationPlan> {
-  for (const line of plan.lines) {
-    await sql`
-      INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
-      VALUES (${plan.paymentId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
-    `;
-    await applyLineToBill(companyId, line);
-  }
-
-  await sql`
-    UPDATE supplier_payments
-    SET status = ${plan.paymentStatusAfter}, updated_at = NOW()
-    WHERE id = ${plan.paymentId}::UUID AND company_id = ${companyId}::UUID
-  `;
-
-  log.info('Applied supplier payment to bills', {
-    paymentId: plan.paymentId,
-    lines: plan.lines.length,
-    applied: round2(plan.allocatedAfter - plan.allocatedBefore),
-    unappliedAfter: plan.unappliedAfter,
-    userId,
-  }, 'accounting');
-
+  await applyLegacyCashPlan(companyId,userId,'supplier',plan,options);
   return plan;
 }

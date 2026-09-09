@@ -1,3 +1,4 @@
+import {applyLegacyCashPlan,type CashApplicationApprovalOptions} from '../shared/cashApplicationLegacyAdapter';
 /**
  * Applying a customer receipt that is ALREADY in the ledger to the invoices it
  * settles.
@@ -35,12 +36,9 @@
  *      remainder check.
  */
 
-import { sql } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import {
   EPS,
-  applyLineToInvoice,
   planAllocationLines,
   round2,
   type ReceiptAllocationInput,
@@ -138,36 +136,13 @@ export async function planReceiptApplication(
   };
 }
 
-/**
- * Perform a plan. Guards NOTHING — `planReceiptApplication` has run them all
- * under a lock this request still holds. Every statement is company-scoped.
- */
+/** Execute only the exact stored plan through the shared application control. */
 export async function applyReceiptPlan(
   companyId: string,
   plan: ReceiptApplicationPlan,
   userId: string,
+  options?: CashApplicationApprovalOptions,
 ): Promise<ReceiptApplicationPlan> {
-  for (const line of plan.lines) {
-    await sql`
-      INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
-      VALUES (${plan.paymentId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
-    `;
-    await applyLineToInvoice(companyId, line);
-  }
-
-  await sql`
-    UPDATE customer_payments
-    SET status = ${plan.paymentStatusAfter}, updated_at = NOW()
-    WHERE id = ${plan.paymentId}::UUID AND company_id = ${companyId}::UUID
-  `;
-
-  log.info('Applied customer receipt to invoices', {
-    paymentId: plan.paymentId,
-    lines: plan.lines.length,
-    applied: round2(plan.allocatedAfter - plan.allocatedBefore),
-    unappliedAfter: plan.unappliedAfter,
-    userId,
-  }, 'accounting');
-
+  await applyLegacyCashPlan(companyId,userId,'customer',plan,options);
   return plan;
 }

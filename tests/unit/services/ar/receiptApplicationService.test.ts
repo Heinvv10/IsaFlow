@@ -261,61 +261,11 @@ describe('planReceiptApplication', () => {
 });
 
 describe('applyReceiptPlan', () => {
-  it('moves amount_paid by a RELATIVE update, never an absolute one', async () => {
+  it('does not turn a legacy preview into financial authority', async () => {
     lockMock.mockResolvedValue(paymentRow());
     invoiceRows([invoiceRow(INV_A)]);
-    const plan = await planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 600 }]);
-
-    sqlMock.mockResolvedValue([]);
-    await applyReceiptPlan(COMPANY, plan, USER);
-
-    const updates = sqlMock.mock.calls
-      .map((c) => (c[0] as string[]).join('?'))
-      .filter((t) => t.includes('UPDATE customer_invoices'));
-    // TWO now, not one: `applyLineToInvoice` writes the money and delegates
-    // status/paid_at to `recomputeInvoiceStatus`, so one owner holds each rule.
-    // Asserted as exactly two rather than relaxed to "at least one" — a third
-    // would mean a writer crept back in.
-    expect(updates).toHaveLength(2);
-
-    const moneyWrites = updates.filter((t) => /amount_paid\s*=/.test(t));
-    expect(moneyWrites).toHaveLength(1);
-    // The relative form is what survives a concurrent allocation.
-    expect(moneyWrites[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
-    // NO statement may write it absolutely, not merely the one we picked.
-    for (const t of updates) expect(t).not.toMatch(/SET\s+amount_paid\s*=\s*\?/);
-    // And the money write no longer carries the status/paid_at rule with it.
-    expect(moneyWrites[0]).not.toMatch(/paid_at\s*=/);
-    expect(moneyWrites[0]).not.toMatch(/status\s*=/);
-  });
-
-  it('inserts one allocation row per line and scopes every write to the company', async () => {
-    lockMock.mockResolvedValue(paymentRow());
-    invoiceRows([invoiceRow(INV_A), invoiceRow(INV_B)]);
-    const plan = await planReceiptApplication(COMPANY, PAYMENT, [
-      { invoiceId: INV_A, amount: 300 },
-      { invoiceId: INV_B, amount: 200 },
-    ]);
-
-    sqlMock.mockResolvedValue([]);
-    await applyReceiptPlan(COMPANY, plan, USER);
-
-    const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    const inserts = texts.filter((t) => t.includes('INSERT INTO customer_payment_allocations'));
-    expect(inserts).toHaveLength(2);
-    for (const call of sqlMock.mock.calls) {
-      const text = (call[0] as string[]).join('?');
-      if (text.includes('UPDATE customer_invoices') || text.includes('UPDATE customer_payments')) {
-        expect(call.slice(1)).toContain(COMPANY);
-      }
-    }
-  });
-
-  it('writes nothing when only the plan is built — a dry run cannot touch the ledger', async () => {
-    lockMock.mockResolvedValue(paymentRow());
-    invoiceRows([invoiceRow(INV_A)]);
-    await planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]);
-
+    const plan = await planReceiptApplication(COMPANY, PAYMENT, [{invoiceId:INV_A,amount:100}]);
+    await expect(applyReceiptPlan(COMPANY,plan,USER)).rejects.toThrow(/context|transaction|principal/i);
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
     expect(texts.some((t) => /INSERT|UPDATE|DELETE/.test(t))).toBe(false);
   });
