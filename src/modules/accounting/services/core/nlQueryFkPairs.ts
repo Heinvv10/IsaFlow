@@ -110,3 +110,18 @@ for (const pair of FK_PAIRS) {
     throw new Error(`nlQueryScopeGuard: FK_PAIRS must not contain a company_id edge: ${pair}`);
   }
 }
+
+/**
+ * Allowlisted tables that carry no company_id column (verified against the
+ * live schema). Rows in these tables are either global reference data
+ * (asset_categories, leave_types) or children bound to a tenant only through
+ * their parent. Scope may flow INTO such a table from a tenant-scoped parent,
+ * but never OUT of it: a global row is shared by every tenant, so a join back
+ * through it (assets -> asset_categories -> assets) would reach other tenants.
+ */
+export const NO_COMPANY_TABLES = new Set<string>([
+  'asset_categories', 'asset_depreciation_schedule', 'asset_disposals',
+  'customer_invoice_items', 'customer_payment_allocations', 'customer_quote_lines',
+  'customer_sales_order_items', 'gl_account_balances', 'leave_balances', 'leave_types',
+  'supplier_invoice_items', 'supplier_payment_allocations', 'supplier_purchase_order_items',
+]);

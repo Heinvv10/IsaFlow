@@ -108,6 +108,7 @@ export async function postSupplierInvoiceToGL(companyId: string, id: string, use
   const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
   await assertEffectivePermission(ctx, 'write:invoices');
   await assertEffectivePermission(ctx, 'write:post');
+  if (!(await lockSupplierInvoiceForUpdate(companyId, id))) throw new Error('Supplier invoice not found');
   const prior = await getSupplierInvoiceById(companyId, id);
   if (!prior) throw new Error('Supplier invoice not found');
   if (prior.status === 'cancelled') throw new Error('Cannot post a cancelled supplier invoice to GL');
