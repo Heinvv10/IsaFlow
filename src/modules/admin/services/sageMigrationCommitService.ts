@@ -9,10 +9,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
-import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
-import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { assertNoInactiveAccountLines } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { createSupplierInvoice, approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import type {
   Row,
@@ -154,30 +151,8 @@ export async function commitAPInvoice(
     items: [{ description: inv.reference ?? `Invoice ${inv.invoiceNumber}`, quantity: 1, unitPrice: inv.subtotal, taxRate }],
   }, userId);
 
-  // Post JE directly — bypasses workflow helper that blocks backdated periods.
-  // postJournalEntry is the canonical posting path; this diverges from it for
-  // that ONE reason. A migrated supplier invoice belongs in its original
-  // period, which is usually closed, so the period guard cannot apply. Every
-  // other guard still does — see assertNoInactiveAccountLines below, called
-  // before the status UPDATE so a refusal writes nothing.
-  const [apAccount, vatAccount, expenseAccount] = await Promise.all([
-    getSystemAccount('payable', companyId),
-    getSystemAccount('vat_input', companyId),
-    getSystemAccount('default_expense', companyId),
-  ]);
-
-  const lines = [{ glAccountId: expenseAccount.id, debit: inv.subtotal, credit: 0, description: inv.reference ?? `Invoice ${inv.invoiceNumber}` }];
-  if ((inv.taxAmount || 0) > 0) lines.push({ glAccountId: vatAccount.id, debit: inv.taxAmount, credit: 0, description: `VAT on ${inv.invoiceNumber}` });
-  lines.push({ glAccountId: apAccount.id, debit: 0, credit: inv.totalAmount, description: `AP: ${inv.invoiceNumber}` });
-
-  const je = await createJournalEntry(companyId, {
-    entryDate: inv.invoiceDate, description: `Supplier invoice ${inv.invoiceNumber}`,
-    source: 'auto_supplier_invoice', lines,
-  }, userId);
-
-  await assertNoInactiveAccountLines(companyId, je.id);
-  await sql`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW() WHERE id = ${je.id}::UUID AND company_id = ${companyId}::UUID`;
-  await sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`;
+  // Imports use the same current authority, approval and date controls as ordinary invoices.
+  await approveSupplierInvoice(companyId, created.id, userId);
   return { invoiceId: created.id, created: true };
 }
 

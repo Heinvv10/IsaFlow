@@ -14,6 +14,7 @@ interface BankAccount {
   account_code: string;
   account_name: string;
 }
+interface PreparedTransfer { intentId: string; requiresApproval: boolean; amount: string; currency: string; accountingDate: string }
 
 export default function BankTransfersPage() {
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
@@ -21,7 +22,9 @@ export default function BankTransfersPage() {
   const [toAccount, setToAccount] = useState('');
   const [amount, setAmount] = useState('');
   const [reference, setReference] = useState('');
-  const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transferDate, setTransferDate] = useState(new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date()));
+  const [prepared, setPrepared] = useState<PreparedTransfer | null>(null);
+  const [approvalId, setApprovalId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -41,6 +44,7 @@ export default function BankTransfersPage() {
   }, []);
 
   useEffect(() => { void loadBankAccounts(); }, [loadBankAccounts]);
+  useEffect(() => { setPrepared(null); setApprovalId(''); }, [fromAccount, toAccount, amount, reference, transferDate]);
 
   const handleTransfer = async () => {
     if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {
@@ -56,16 +60,17 @@ export default function BankTransfersPage() {
         body: JSON.stringify({
           fromAccountId: fromAccount,
           toAccountId: toAccount,
-          amount: parseFloat(amount),
+          amount,
           reference,
           transferDate,
         }),
       });
       const json = await res.json();
       if (res.ok) {
-        setMessage({ type: 'success', text: 'Transfer completed — journal entry created' });
-        setAmount('');
-        setReference('');
+        const data = json.data;
+        if (!data?.intentId || !['prepared', 'approval_required'].includes(data.status)) throw new Error('Unexpected preparation response');
+        setPrepared(data);
+        setMessage({ type: 'success', text: data.requiresApproval ? 'Transfer prepared; independent approval required.' : 'Transfer prepared. Review the details before posting.' });
       } else {
         setMessage({ type: 'error', text: json.message || 'Transfer failed' });
       }
@@ -74,6 +79,23 @@ export default function BankTransfersPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handlePost = async () => {
+    if (!prepared || (prepared.requiresApproval && !approvalId.trim())) return;
+    setIsSubmitting(true);
+    try {
+      const res = await apiFetch('/api/accounting/bank-transfers', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'execute', intentId: prepared.intentId, ...(approvalId.trim() ? { approvalId: approvalId.trim() } : {}) }) });
+      const json = await res.json();
+      if (!res.ok) { setMessage({ type: 'error', text: json.message || 'Transfer could not be posted' }); return; }
+      if (json.data?.status !== 'posted' || !json.data.journalEntryId) throw new Error('Posting outcome unavailable');
+      setMessage({ type: 'success', text: `Transfer completed. Journal ${json.data.journalEntryId} posted.` });
+      setPrepared(null); setAmount(''); setReference('');
+      await loadBankAccounts();
+    } catch {
+      setMessage({ type: 'error', text: 'Posting outcome unavailable. Keep this prepared intent and check its status before retrying.' });
+    } finally { setIsSubmitting(false); }
   };
 
   return (
@@ -137,7 +159,7 @@ export default function BankTransfersPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Amount (ZAR)</label>
+                    <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Amount (account currency)</label>
                     <input
                       type="number"
                       step="0.01"
@@ -185,8 +207,18 @@ export default function BankTransfersPage() {
                   className="w-full px-4 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center justify-center gap-2 text-sm font-medium"
                 >
                   {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4" />}
-                  Process Transfer
+                  Prepare Transfer
                 </button>
+                {prepared && <div className="space-y-3 text-sm text-[var(--ff-text-primary)]">
+                  <p>Prepared: {prepared.currency} {prepared.amount} on {prepared.accountingDate}</p>
+                  <p>Intent: {prepared.intentId}</p>
+                  <label className="block">Approval reference{prepared.requiresApproval ? ' (required)' : ' (optional)'}
+                    <input value={approvalId} onChange={event => setApprovalId(event.target.value)}
+                      className="mt-1 w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)]" />
+                  </label>
+                  <button onClick={handlePost} disabled={isSubmitting || (prepared.requiresApproval && !approvalId.trim())}
+                    className="w-full px-4 py-2.5 bg-teal-600 disabled:opacity-50 text-white rounded-lg">Post Prepared Transfer</button>
+                </div>}
               </div>
             </div>
           )}

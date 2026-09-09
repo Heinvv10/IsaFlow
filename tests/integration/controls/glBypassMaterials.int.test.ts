@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
+import { prepareAssetDepreciation, executeAssetDepreciation } from '@/modules/accounting/services/gl/controlledAssetDepreciation';
+import { prepareBankTransfer, executeBankTransfer } from '@/modules/accounting/services/bank/bankTransferPostingService';
+process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
+process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
 import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstrap';
 import { provisionForensicFixture, validateFixtureTarget, type ForensicFixture } from '../forensic-fixture';
 import { withControlRequest, requireControlTx } from '@/modules/accounting/services/controls/context';
@@ -11,7 +15,7 @@ import type { ControlTx } from '@/modules/accounting/services/controls/contracts
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:2,statement_timeout:5000});
 let fixture:ForensicFixture;
-const bankIntent=randomUUID(),assetIntent=randomUUID(),asset=randomUUID(),period=randomUUID();
+const bankIntent=randomUUID(),assetIntent=randomUUID(),asset=randomUUID(),period=randomUUID(),category=randomUUID();
 const accounts=[['1001','asset','bank'],['1002','asset','bank'],['5001','expense','depreciation_expense'],['1501','asset','accumulated_depreciation']]
  .map(([code,type,subtype])=>({id:randomUUID(),code,type,subtype}));
 const bankRef={entityType:'bank_transfer_intent',entityId:bankIntent,operation:'bank_transfer.post' as const};
@@ -34,8 +38,10 @@ beforeAll(async()=>{
  for(const a of accounts.slice(0,2))await pool.query("INSERT INTO bank_accounts(company_id,account_name,gl_account_id,currency) VALUES($1,'Synthetic bank',$2,'ZAR')",[fixture.companyA,a.id]);
  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
   VALUES($1,$2,'Synthetic GL period',2,2026,'2026-02-01','2026-02-28','open')`,[period,fixture.companyA]);
- await pool.query(`INSERT INTO assets(id,company_id,asset_number,name,purchase_date,purchase_price,useful_life_years,tax_useful_life_years)
-  VALUES($1,$2,'SYNTHETIC','Synthetic asset','2026-01-01',1200,1,1)`,[asset,fixture.companyA]);
+ await pool.query(`INSERT INTO asset_categories(id,name,code,sars_rate,sars_years,useful_life_years,tax_life_years,capitalization_threshold)
+  VALUES($1,$2,$2,100,1,1,1,0)`,[category,`SYNTHETIC-${category}`]);
+ await pool.query(`INSERT INTO assets(id,company_id,category_id,asset_number,name,purchase_date,purchase_price,useful_life_years,tax_useful_life_years)
+  VALUES($1,$2,$3,'SYNTHETIC','Synthetic asset','2026-01-01',1200,1,1)`,[asset,fixture.companyA,category]);
  await actor('u1',async ctx=>{
   await ctx.sql`INSERT INTO control_bank_transfer_intents(company_id,id,requester_person_id,from_gl_account_id,to_gl_account_id,amount,accounting_date)
    VALUES(${fixture.companyA}::uuid,${bankIntent}::uuid,${fixture.u1.id},${accounts[0]!.id}::uuid,${accounts[1]!.id}::uuid,100.01,'2026-02-28')`;
@@ -67,4 +73,44 @@ it('changes fingerprints when source account, fiscal period or asset values chan
  try{await pool.query('UPDATE assets SET purchase_price=2400 WHERE company_id=$1 AND id=$2',[fixture.companyA,asset]);
   expect(hash(await actor('u1',ctx=>materializeAssetDepreciationOperation(ctx,assetRef)))).not.toBe(originalAsset);
  }finally{await pool.query('UPDATE assets SET purchase_price=1200 WHERE company_id=$1 AND id=$2',[fixture.companyA,asset]);}
+});
+
+it('prepares a durable bank intent without posting and executes it exactly once across new requests',async()=>{
+ const prepared=await actor('u1',()=>prepareBankTransfer(fixture.companyA,fixture.u1.id,{fromAccountId:accounts[0]!.id,toAccountId:accounts[1]!.id,amount:'12.34',transferDate:'2026-02-28'}));
+ expect(prepared).toMatchObject({status:'prepared',amount:'12.34',currency:'ZAR'});
+ expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,prepared.intentId])).rows).toHaveLength(0);
+ const posted=await actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId));
+ expect(posted.status).toBe('posted');
+ expect(await actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId))).toEqual(posted);
+ expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,prepared.intentId])).rows).toHaveLength(1);
+ expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_type='bank_transfer_intent' AND entity_id=$2",[fixture.companyA,prepared.intentId])).rows).toHaveLength(1);
+ await expect(actor('u2',()=>executeBankTransfer(fixture.companyA,fixture.u2.id,prepared.intentId))).rejects.toThrow('requester');
+});
+it('refuses inactive bank metadata and closed dates without leaving a financial journal',async()=>{
+ const prepare=()=>actor('u1',()=>prepareBankTransfer(fixture.companyA,fixture.u1.id,{fromAccountId:accounts[0]!.id,toAccountId:accounts[1]!.id,amount:'23.45',transferDate:'2026-02-28'}));
+ const prepared=await prepare();
+ try{
+  await pool.query('UPDATE bank_accounts SET is_active=false WHERE company_id=$1 AND gl_account_id=$2',[fixture.companyA,accounts[0]!.id]);
+  await expect(actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId))).rejects.toThrow('inactive');
+ }finally{await pool.query('UPDATE bank_accounts SET is_active=true WHERE company_id=$1 AND gl_account_id=$2',[fixture.companyA,accounts[0]!.id]);}
+ try{
+  await pool.query("UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND id=$2",[fixture.companyA,period]);
+  await expect(actor('u1',()=>executeBankTransfer(fixture.companyA,fixture.u1.id,prepared.intentId))).rejects.toThrow();
+ }finally{await pool.query("UPDATE fiscal_periods SET status='open' WHERE company_id=$1 AND id=$2",[fixture.companyA,period]);}
+ expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,prepared.intentId])).rows).toHaveLength(0);
+});
+
+it('posts depreciation from persisted asset values and reuses the immutable asset period intent',async()=>{
+ const prepared=await actor('u1',()=>prepareAssetDepreciation(fixture.companyA,fixture.u1.id,asset,'2026-02-28'));
+ expect(prepared.amount).toBe('100');
+ const result=await actor('u1',()=>executeAssetDepreciation(fixture.companyA,fixture.u1.id,prepared.intentId));
+ expect(result).toMatchObject({policyDep:'100',taxDep:'100'});expect(result.journalEntryId).toBeTruthy();
+ expect(await actor('u1',()=>executeAssetDepreciation(fixture.companyA,fixture.u1.id,prepared.intentId))).toEqual(result);
+ const current=(await pool.query('SELECT accumulated_depreciation::text,tax_accumulated_depreciation::text FROM assets WHERE company_id=$1 AND id=$2',[fixture.companyA,asset])).rows[0];
+ expect(current).toEqual({accumulated_depreciation:'100.00',tax_accumulated_depreciation:'100.00'});
+ const another=await actor('u1',()=>prepareAssetDepreciation(fixture.companyA,fixture.u1.id,asset,'2026-02-28'));
+ expect(another.intentId).toBe(prepared.intentId);
+ expect(await actor('u1',()=>executeAssetDepreciation(fixture.companyA,fixture.u1.id,another.intentId))).toEqual(result);
+ await expect(actor('u2',()=>prepareAssetDepreciation(fixture.companyA,fixture.u2.id,asset,'2026-02-28'))).rejects.toThrow('another requester');
+ expect((await pool.query('SELECT id FROM asset_period_ledger WHERE company_id=$1 AND asset_id=$2',[fixture.companyA,asset])).rows).toHaveLength(1);
 });
