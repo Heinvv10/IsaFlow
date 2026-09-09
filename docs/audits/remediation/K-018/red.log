@@ -1,0 +1,162 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k018-open-banking-fabricated-transactions.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k018-open-banking-fabricated-transactions.int.test.ts (3 tests | 3 failed) 282ms
+     × writes no transactions for the unimplemented provider basiq 59ms
+     × writes no transactions for the unimplemented provider tink 25ms
+     × writes no transactions for the unimplemented provider plaid 24ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k018-open-banking-fabricated-transactions.int.test.ts > K-018 unsupported open-banking providers fabricate transactions > writes no transactions for the unimplemented provider basiq
+AssertionError: expected [ { …(2) }, { …(2) }, { …(2) }, …(6) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "amount": 2403.78,
++     "description": "Invoice receipt",
++   },
++   {
++     "amount": -2458.77,
++     "description": "Eskom payment",
++   },
++   {
++     "amount": 1585.21,
++     "description": "Client payment",
++   },
++   {
++     "amount": -4936.63,
++     "description": "Office supplies",
++   },
++   {
++     "amount": -873.76,
++     "description": "Telkom invoice",
++   },
++   {
++     "amount": -3767.24,
++     "description": "Telkom invoice",
++   },
++   {
++     "amount": -2668.05,
++     "description": "Fuel",
++   },
++   {
++     "amount": -2449.48,
++     "description": "Fuel",
++   },
++   {
++     "amount": 1876,
++     "description": "Client payment",
++   },
++ ]
+
+ ❯ tests/integration/k018-open-banking-fabricated-transactions.int.test.ts:104:20
+    102|
+    103|       // THE CLAIM: nothing invented reached the tenant's bank feed.
+    104|       expect(rows).toEqual([]);
+       |                    ^
+    105|       expect(refused || rows.length === 0).toBe(true);
+    106|     },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/k018-open-banking-fabricated-transactions.int.test.ts > K-018 unsupported open-banking providers fabricate transactions > writes no transactions for the unimplemented provider tink
+AssertionError: expected [ { …(2) }, { …(2) }, { …(2) }, …(4) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "amount": -270.47,
++     "description": "Office supplies",
++   },
++   {
++     "amount": -1261.21,
++     "description": "Eskom payment",
++   },
++   {
++     "amount": -1984.63,
++     "description": "Office supplies",
++   },
++   {
++     "amount": -2435.56,
++     "description": "Fuel",
++   },
++   {
++     "amount": -105.07,
++     "description": "Fuel",
++   },
++   {
++     "amount": -5072.59,
++     "description": "Telkom invoice",
++   },
++   {
++     "amount": -4060.81,
++     "description": "Staff salary",
++   },
++ ]
+
+ ❯ tests/integration/k018-open-banking-fabricated-transactions.int.test.ts:104:20
+    102|
+    103|       // THE CLAIM: nothing invented reached the tenant's bank feed.
+    104|       expect(rows).toEqual([]);
+       |                    ^
+    105|       expect(refused || rows.length === 0).toBe(true);
+    106|     },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/k018-open-banking-fabricated-transactions.int.test.ts > K-018 unsupported open-banking providers fabricate transactions > writes no transactions for the unimplemented provider plaid
+AssertionError: expected [ { …(2) }, { …(2) }, { …(2) }, …(2) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "amount": 2721.96,
++     "description": "Invoice receipt",
++   },
++   {
++     "amount": -2459.09,
++     "description": "Telkom invoice",
++   },
++   {
++     "amount": 1916.65,
++     "description": "Interest income",
++   },
++   {
++     "amount": 5020.58,
++     "description": "Client payment",
++   },
++   {
++     "amount": 354.37,
++     "description": "Client payment",
++   },
++ ]
+
+ ❯ tests/integration/k018-open-banking-fabricated-transactions.int.test.ts:104:20
+    102|
+    103|       // THE CLAIM: nothing invented reached the tenant's bank feed.
+    104|       expect(rows).toEqual([]);
+       |                    ^
+    105|       expect(refused || rows.length === 0).toBe(true);
+    106|     },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  05:42:01
+   Duration  684ms (transform 133ms, setup 0ms, import 218ms, tests 282ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
