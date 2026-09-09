@@ -1,5 +1,5 @@
 /**
- * Credit Note PDF Builder — premium Credit Note PDF using jsPDF + jspdf-autotable.
+ * Credit Note PDF Builder — premium Credit Note PDF using jsPDF.
  * Returns a Node.js Buffer suitable for API responses and email attachments.
  */
 
@@ -8,7 +8,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import {
   fmtZAR, fmtDate, COLORS, TEAL,
-  getCompanyDetailsFromCompany, renderPageFooters, getLastAutoTableY,
+  getCompanyDetailsFromCompany, renderPageFooters,
   hexToRgb, renderPremiumHeader, renderPartySection, renderRefStrip,
   renderTotalsBlock,
 } from '../core/pdfShared';
@@ -35,9 +35,15 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
     -- COALESCE(client_id, customer_id) rule is about customer_invoices and was
     -- applied here by pattern. Postgres raised 42703 on every call, so this
     -- endpoint returned 500 for every credit note.
-    LEFT JOIN customers c ON c.id = cn.client_id
-    LEFT JOIN suppliers s ON s.id = cn.supplier_id
+    -- Every join carries company_id. credit_notes.client_id has no FK (the same
+    -- shape as customer_invoices.client_id), so a drifted id would otherwise print
+    -- another tenant's customer name, VAT number and billing address onto a
+    -- customer-facing PDF. The users table is the one exception: it is a platform
+    -- table keyed by the auth id, not scoped to a company.
+    LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
+    LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
+                                  AND ci.company_id = cn.company_id
     LEFT JOIN users u ON u.id = cn.approved_by::TEXT
     WHERE cn.id = ${creditNoteId}::UUID
       AND cn.company_id = ${companyId}::UUID
@@ -46,37 +52,26 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
   if (rows.length === 0) throw new Error(`Credit note not found: ${creditNoteId}`);
   const cn = rows[0]!;
 
-  // credit_note_items does not exist in the current schema. Asking for it and
-  // catching the failure is not free: the 42P01 aborts the request's
-  // transaction (this builder runs under withAuth), and every query added to
-  // this route afterwards would fail with 25P02 for a reason no log names.
-  // to_regclass answers the same question without raising.
-  const [presence] = (await sql`
-    SELECT to_regclass('public.credit_note_items') IS NOT NULL AS has_items_table
-  `) as Array<{ has_items_table: boolean }>;
-
-  const items: DbRow[] = presence?.has_items_table
-    ? (await sql`
-        SELECT * FROM credit_note_items
-        WHERE credit_note_id = ${creditNoteId}::UUID
-        ORDER BY created_at
-      `) as DbRow[]
-    : [];
+  // There is no credit-note line table in this schema — neither
+  // `credit_note_items` nor `credit_note_lines` exists — so the credit note
+  // renders from its header totals alone. The previous code asked for the table
+  // anyway inside a bare try/catch, and the resulting 42P01 aborted the request's
+  // transaction (this builder runs under withAuth): every query added to the
+  // route afterwards failed with 25P02 for a reason no log named. A per-request
+  // to_regclass probe answered the same question without raising, but it is a
+  // round trip for a constant answer. Line detail is a schema change, not a
+  // runtime probe.
 
   log.info('Generating premium credit note PDF', {
     creditNoteId, creditNoteNumber: cn.credit_note_number,
   }, 'creditNotePdfBuilder');
 
-  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
-  ]);
+  const { jsPDF } = await import('jspdf');
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
   const MARGIN = 14;
-  const CONTENT_W = PAGE_W - MARGIN * 2;
 
   // ── Premium Header ────────────────────────────────────────────────────────
   let y = renderPremiumHeader({
@@ -138,33 +133,9 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
     { label: 'Reason', value: cn.reason ? String(cn.reason).substring(0, 30) : '—' },
   ]);
 
-  // ── Line Items (if any) ───────────────────────────────────────────────────
-  if (items.length > 0) {
-    autoTable(doc, {
-      startY: y,
-      head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
-      body: items.map((item: DbRow) => [
-        item.description || '—',
-        Number(item.quantity || 0).toFixed(2),
-        fmtZAR(Number(item.unit_price || 0)),
-        fmtZAR(Number(item.tax_amount || 0)),
-        fmtZAR(Number(item.line_total || item.amount || 0)),
-      ]),
-      styles: { fontSize: 8, cellPadding: { top: 4, bottom: 4, left: 4, right: 4 }, textColor: COLORS.TEXT_PRIMARY },
-      headStyles: { fillColor: COLORS.DARK, textColor: COLORS.WHITE, fontStyle: 'bold', fontSize: 7 },
-      alternateRowStyles: { fillColor: COLORS.SURFACE },
-      columnStyles: {
-        0: { cellWidth: 'auto' },
-        1: { halign: 'right', cellWidth: 18 },
-        2: { halign: 'right', cellWidth: 28 },
-        3: { halign: 'right', cellWidth: 25 },
-        4: { halign: 'right', cellWidth: 30, fontStyle: 'bold' },
-      },
-      tableWidth: CONTENT_W,
-      margin: { left: MARGIN, right: MARGIN },
-    });
-    y = getLastAutoTableY(doc, y + 40) + 8;
-  }
+  // ── Line Items ────────────────────────────────────────────────────────────
+  // No line table exists (see above), so there is nothing to render between the
+  // reference strip and the totals.
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const subtotal = Number(cn.subtotal || 0);

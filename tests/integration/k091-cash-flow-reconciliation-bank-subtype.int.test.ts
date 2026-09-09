@@ -20,6 +20,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
+import { getKpiScorecard } from '@/modules/accounting/services/afs/afsKpiService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -205,6 +206,27 @@ describeIfDb('K-091 cash flow reconciliation must not hardcode the bank subtype'
     expect(recon.directClosing).toBeCloseTo(5850, 2);
     expect(recon.variance).toBeCloseTo(0, 2);
     expect(recon.isReconciled).toBe(true);
+  });
+
+  it('the AFS cash KPI uses the same definition of cash as the statement beside it', async () => {
+    // May: the only movement is R150 of petty cash spent on stationery, and
+    // petty cash is a subtype the KPI block could not see. April funded the
+    // float, so the month's OPENING cash is wrong too under the old predicate —
+    // one assertion, both halves. Reading `account_subtype = 'bank'` alone the
+    // opening read R5,600 and the burn came back 0 (an apparent cash GAIN),
+    // while the cash-flow statement on the same export showed the R150 out.
+    const opening = await getCashBalance(COMPANY, '2026-05-01', { exclusive: true });
+    const closing = await getCashBalance(COMPANY, '2026-05-31');
+    expect(opening.total).toBeCloseTo(OPENING_BANK + SALES_RECEIPT, 2);
+    expect(closing.total).toBeCloseTo(OPENING_BANK + SALES_RECEIPT - PETTY_SPEND, 2);
+
+    const scorecard = await getKpiScorecard(COMPANY, '2026-05');
+    const burn = scorecard.kpis.find((k) => k.key === 'cashBurnRate');
+
+    // The KPI is the monthly rate of the same fall the statement reports.
+    const expected = ((opening.total - closing.total) / 31) * 30;
+    expect(burn?.value).toBeCloseTo(expected, 2);
+    expect(burn?.value).toBeGreaterThan(0);
   });
 
   it('does not read the other tenant\'s cash', async () => {

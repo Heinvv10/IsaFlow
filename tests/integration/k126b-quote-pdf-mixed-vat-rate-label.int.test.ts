@@ -19,6 +19,11 @@ const mixedQuote = crypto.randomUUID();
 const singleQuote = crypto.randomUUID();
 const uniformZeroQuote = crypto.randomUUID();
 const nullLineRateQuote = crypto.randomUUID();
+const disagreeingQuote = crypto.randomUUID();
+const roundingQuote = crypto.randomUUID();
+const driftedQuote = crypto.randomUUID();
+const otherCompany = crypto.randomUUID();
+const otherCustomer = crypto.randomUUID();
 
 /** jsPDF writes uncompressed content streams; literal parens are escaped. */
 function pdfText(buf: Buffer): string[] {
@@ -57,9 +62,11 @@ async function seedQuote(id: string, number: string, headerRate: number,
 }
 
 beforeAll(async () => {
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K126b fixture']);
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)',
+    [company, 'K126b fixture', otherCompany, 'K126b other tenant']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
-  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, company, 'K126b customer']);
+  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3),($4,$5,$6)',
+    [customer, company, 'K126b customer', otherCustomer, otherCompany, 'K126B OTHER TENANT CUSTOMER']);
   await seedQuote(mixedQuote, 'K126B-Q1', 15, 200, 15,
     [['Standard rated item', 100, 15], ['Zero rated export item', 100, 0]]);
   await seedQuote(singleQuote, 'K126B-Q2', 15, 200, 30,
@@ -70,15 +77,29 @@ beforeAll(async () => {
   // A line with no rate of its own, under a non-default header rate.
   await seedQuote(nullLineRateQuote, 'K126B-Q4', 20, 100, 20,
     [['Unrated line', 100, null]]);
+  // Every line zero-rated, but the stored aggregate still holds R15 of VAT. No
+  // amount of rounding explains that; without the check the page reads
+  // 'VAT (0%)  R 15.00'.
+  await seedQuote(disagreeingQuote, 'K126B-Q5', 15, 200, 15,
+    [['Disagreeing A', 100, 0], ['Disagreeing B', 100, 0]]);
+  // Seven lines of R14.29 at 15%: the lines total R15.0045 against a stored
+  // R15.00. That IS rounding, and must not be reported as a disagreement.
+  await seedQuote(roundingQuote, 'K126B-Q6', 15, 100.03, 15.00,
+    Array.from({ length: 7 }, (_, i) => [`Quote rounding ${i + 1}`, 14.29, 15] as [string, number, number]));
+  await pool.query(
+    `INSERT INTO customer_quotes(id,company_id,quote_number,client_id,quote_date,subtotal,tax_rate,tax_amount,total,status,created_by)
+     VALUES($1,$2,'K126B-Q7',$3,'2026-01-01',100,15,15,115,'sent',$4)`,
+    [driftedQuote, company, otherCustomer, user]);
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM customer_quote_lines WHERE quote_id = ANY($1::uuid[])',
-      [[mixedQuote, singleQuote, uniformZeroQuote, nullLineRateQuote]]);
+      [[mixedQuote, singleQuote, uniformZeroQuote, nullLineRateQuote,
+        disagreeingQuote, roundingQuote, driftedQuote]]);
     await pool.query('DELETE FROM customer_quotes WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM customers WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM companies WHERE id=$1', [company]);
+    await pool.query('DELETE FROM customers WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }
 });
@@ -113,6 +134,29 @@ it('falls back to the quote header rate for a line carrying none', async () => {
   // regardless of what the quote's own header said.
   expect.soft(rateCellOf(text, 'Unrated line')).toBe('20%');
   expect(vatLabelOf(text)).toBe('VAT (20%)');
+});
+
+it('states on the page that the VAT total disagrees with the rates the lines carry', async () => {
+  const text = pdfText(await generateQuotePdf(company, disagreeingQuote));
+
+  expect.soft(rateCellOf(text, 'Disagreeing A')).toBe('0%');
+  expect(vatLabelOf(text)).toBe('VAT (0%)');
+  // The label and the figure contradict each other; the page must say so
+  // rather than leaving the customer to notice.
+  expect(text.some((t) => /differs by .* from the rates the lines above carry/.test(t))).toBe(true);
+});
+
+it('does not report per-line rounding as a disagreement', async () => {
+  const text = pdfText(await generateQuotePdf(company, roundingQuote));
+
+  expect(vatLabelOf(text)).toBe('VAT (15%)');
+  expect(text.some((t) => /differs by/.test(t))).toBe(false);
+});
+
+it('will not print another tenant\'s customer on a customer-facing quote', async () => {
+  const text = pdfText(await generateQuotePdf(company, driftedQuote));
+
+  expect(text).not.toContain('K126B OTHER TENANT CUSTOMER');
 });
 
 it('will not render another tenant\'s quote', async () => {

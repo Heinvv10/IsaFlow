@@ -27,7 +27,10 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
            c.billing_address AS client_address,
            c.contact_person AS client_contact
     FROM customer_quotes q
-    LEFT JOIN customers c ON c.id = q.client_id
+    -- The join carries company_id: customer_quotes.client_id has no FK, so a
+    -- drifted id would print another tenant's customer name, VAT number and
+    -- billing address onto a customer-facing quotation.
+    LEFT JOIN customers c ON c.id = q.client_id AND c.company_id = q.company_id
     WHERE q.id = ${quoteId}::UUID
       AND q.company_id = ${companyId}::UUID
   `) as DbRow[];
@@ -135,6 +138,25 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   const totalsVatLabel = distinctRates.length === 1
     ? `VAT (${distinctRates[0]}%)`
     : distinctRates.length === 0 ? `VAT (${headerTaxRate}%)` : 'VAT';
+  // The table prints a RATE per line, not a VAT amount, so there is no column to
+  // foot. What can still disagree is the stored header aggregate: a quote whose
+  // lines are all zero-rated but whose `tax_amount` still holds a 15% figure
+  // prints 'VAT (0%) R150.00'. Per-line rounding can legitimately move the total
+  // by up to a cent a line; anything beyond that is a disagreement, and it is
+  // printed and logged rather than left for the customer to find.
+  const headerVat = Number(q.tax_amount || 0);
+  const linesVat = lines.reduce(
+    (sum, line) => sum + Number(line.amount || 0) * (lineRate(line) / 100),
+    0,
+  );
+  const vatDisagreement = Math.round((headerVat - linesVat) * 100) / 100;
+  const roundingTolerance = lines.length / 100;
+  const vatDisagrees = lines.length > 0 && Math.abs(vatDisagreement) > roundingTolerance;
+  if (vatDisagrees) {
+    log.warn('Quote VAT total disagrees with the rates its lines carry', {
+      quoteId, headerVat, linesVat: Math.round(linesVat * 100) / 100, vatDisagreement,
+    }, 'quotePdfBuilder');
+  }
 
   if (lines.length > 0) {
     autoTable(doc, {
@@ -180,9 +202,21 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
     y += 18;
   }
 
+  if (vatDisagrees) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...COLORS.DANGER);
+    doc.text(
+      `The VAT total differs by ${fmtZAR(vatDisagreement)} from the rates the lines above carry.`,
+      MARGIN, y,
+    );
+    doc.setTextColor(...COLORS.TEXT_PRIMARY);
+    y += 6;
+  }
+
   // ── Totals ────────────────────────────────────────────────────────────────
   const subtotal = Number(q.subtotal || 0);
-  const taxAmount = Number(q.tax_amount || 0);
+  const taxAmount = headerVat;
   const total = Number(q.total || 0);
 
   y = renderTotalsBlock(doc, y, PAGE_W, MARGIN, accent, [

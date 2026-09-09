@@ -36,9 +36,15 @@ const CUSTOMER_LEGACY = randomUUID();
 
 const CUSTOMER_BOUNDARY = randomUUID();
 
-// A second tenant. One drifted invoice in COMPANY points at ITS customer row.
+const CUSTOMER_NULL_STATUS = randomUUID();
+
+// A second tenant. Two drifted invoices in COMPANY point at ITS customer rows.
+// Two, because one placeholder per unresolved id is the whole point of LOW-2:
+// a single 'Unknown customer' label would collapse two unattributable rows into
+// two identical CSV lines that neither aggregate nor can be told apart.
 const OTHER_COMPANY = randomUUID();
 const OTHER_CUSTOMER = randomUUID();
+const OTHER_CUSTOMER_2 = randomUUID();
 
 const MODERN_TOTAL = 1000;
 const LEGACY_TOTAL = 2500;
@@ -46,6 +52,8 @@ const BOUNDARY_TOTAL = 700;   // legacy invoice dated exactly on `to`
 const OUT_OF_RANGE_TOTAL = 9999;
 const CANCELLED_TOTAL = 4444;
 const DRIFTED_TOTAL = 3333;
+const DRIFTED_TOTAL_2 = 1111;
+const NULL_STATUS_TOTAL = 555;   // status explicitly NULL, not 'draft'
 const NULL_PAID_TOTAL = 1200;  // amount_paid NULL, not 0
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -136,8 +144,9 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
       [OTHER_COMPANY],
     );
     await admin.query(
-      `INSERT INTO customers (id, company_id, name, is_active) VALUES ($2, $1, 'Other Tenant Customer', true)`,
-      [OTHER_COMPANY, OTHER_CUSTOMER],
+      `INSERT INTO customers (id, company_id, name, is_active)
+       VALUES ($2, $1, 'Other Tenant Customer', true), ($3, $1, 'Other Tenant Customer 2', true)`,
+      [OTHER_COMPANY, OTHER_CUSTOMER, OTHER_CUSTOMER_2],
     );
     await admin.query(
       `INSERT INTO customer_invoices
@@ -145,6 +154,30 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
           amount_paid, status, invoice_date, created_by)
        VALUES ($1, 'K093-DRIFT', $2, NULL, $3, $3, 0, 'sent', '2026-05-01', 'k093')`,
       [COMPANY, OTHER_CUSTOMER, DRIFTED_TOTAL],
+    );
+
+    // A second drifted invoice, pointing at a DIFFERENT other-tenant customer.
+    await admin.query(
+      `INSERT INTO customer_invoices
+         (company_id, invoice_number, customer_id, client_id, subtotal, total_amount,
+          amount_paid, status, invoice_date, created_by)
+       VALUES ($1, 'K093-DRIFT-2', $2, NULL, $3, $3, 0, 'sent', '2026-05-02', 'k093')`,
+      [COMPANY, OTHER_CUSTOMER_2, DRIFTED_TOTAL_2],
+    );
+
+    // status explicitly NULL. `status != 'cancelled'` evaluates to NULL for this
+    // row, so the bare inequality drops it — the same silent under-reporting
+    // K-093 exists to fix, arriving through a different column.
+    await admin.query(
+      `INSERT INTO customers (id, company_id, name, is_active) VALUES ($2, $1, 'Null Status Customer', true)`,
+      [COMPANY, CUSTOMER_NULL_STATUS],
+    );
+    await admin.query(
+      `INSERT INTO customer_invoices
+         (company_id, invoice_number, customer_id, client_id, subtotal, total_amount,
+          amount_paid, status, invoice_date, created_by)
+       VALUES ($1, 'K093-NULLSTATUS', $2, $2, $3, $3, 0, NULL, '2026-07-01', 'k093')`,
+      [COMPANY, CUSTOMER_NULL_STATUS, NULL_STATUS_TOTAL],
     );
 
     // amount_paid NULL rather than 0. SUM() skips a NULL addend, so
@@ -178,12 +211,15 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
     const { rows } = await admin.query(
       `SELECT COALESCE(SUM(ci.total_amount), 0)::numeric AS total, COUNT(*)::int AS n
          FROM customer_invoices ci
-        WHERE ci.company_id = $1 AND ci.status <> 'cancelled'
+        -- COALESCE, not a bare inequality: an oracle that mirrors the route's
+        -- own predicate can never disagree with it, and the route's bug WAS
+        -- the predicate (NULL <> 'cancelled' is NULL, so the row vanishes).
+        WHERE ci.company_id = $1 AND COALESCE(ci.status, '') <> 'cancelled'
           AND ci.invoice_date BETWEEN '2026-01-01' AND '2026-12-31'`,
       [COMPANY],
     );
-    const ledgerTotal = Number(rows[0].total); // 1000 + 2500 + 700 + 3333 + 1200
-    const ledgerCount = Number(rows[0].n);     // 5
+    const ledgerTotal = Number(rows[0].total); // 1000+2500+700+3333+1111+1200+555
+    const ledgerCount = Number(rows[0].n);     // 7
 
     const res = mockRes();
     await route(
@@ -208,8 +244,10 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
     // absent, and dropping it would under-report sales by its value.
     expect(reportInvoices).toBe(ledgerCount);
     expect(reportTotal).toBeCloseTo(ledgerTotal, 2);
-    expect(data.map((r) => r.clientName).sort())
-      .toEqual(['Boundary Customer', 'Legacy Customer', 'Modern Customer', 'Unknown customer']);
+    expect(data.map((r) => r.clientName).sort()).toEqual([
+      'Boundary Customer', 'Legacy Customer', 'Modern Customer', 'Null Status Customer',
+      `Unknown customer (${OTHER_CUSTOMER})`, `Unknown customer (${OTHER_CUSTOMER_2})`,
+    ].sort());
   });
 
   it('still excludes cancelled and out-of-period legacy invoices', async () => {
@@ -235,7 +273,8 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
 
     const reportTotal = data.reduce((a, r) => a + r.totalSales, 0);
     expect(reportTotal).toBeCloseTo(
-      MODERN_TOTAL + LEGACY_TOTAL + BOUNDARY_TOTAL + DRIFTED_TOTAL + NULL_PAID_TOTAL, 2);
+      MODERN_TOTAL + LEGACY_TOTAL + BOUNDARY_TOTAL + DRIFTED_TOTAL + DRIFTED_TOTAL_2
+      + NULL_PAID_TOTAL + NULL_STATUS_TOTAL, 2);
   });
 
   it('surfaces a drifted invoice as unattributed instead of dropping it', async () => {
@@ -260,9 +299,37 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
     // Scoping the join by tenant without outer-joining would have turned a
     // mislabelled invoice into a silently omitted one — the same defect class
     // K-093 exists to fix.
-    const unknown = data.find((r) => r.clientName === 'Unknown customer');
+    // Each unresolved id gets its OWN named placeholder row. Labelling both
+    // 'Unknown customer' would print two identical rows carrying different
+    // money, with nothing on the page or in the CSV to tell them apart.
+    const unknown = data.find((r) => r.clientName === `Unknown customer (${OTHER_CUSTOMER})`);
+    const unknown2 = data.find((r) => r.clientName === `Unknown customer (${OTHER_CUSTOMER_2})`);
     expect(unknown?.invoiceCount).toBe(1);
     expect(unknown?.totalSales).toBeCloseTo(DRIFTED_TOTAL, 2);
+    expect(unknown2?.totalSales).toBeCloseTo(DRIFTED_TOTAL_2, 2);
+    expect(unknown?.clientName).not.toBe(unknown2?.clientName);
+  });
+
+  it('reports an invoice whose status is NULL', async () => {
+    const res = mockRes();
+    await route(
+      {
+        method: 'GET',
+        query: { from: '2026-01-01', to: '2026-12-31' },
+        headers: {},
+        companyId: COMPANY,
+        user: { id: 'k093' },
+      } as unknown as NextApiRequest,
+      res,
+    );
+
+    const data = (res.body as { data: SalesRow[] }).data;
+    const nullStatus = data.find((r) => r.clientName === 'Null Status Customer');
+
+    // NULL is not 'cancelled'. A bare `status != 'cancelled'` returns NULL for
+    // this row and WHERE drops it, under-reporting sales by its value.
+    expect(nullStatus?.invoiceCount).toBe(1);
+    expect(nullStatus?.totalSales).toBeCloseTo(NULL_STATUS_TOTAL, 2);
   });
 
   it('counts an invoice whose amount_paid is NULL towards outstanding', async () => {
@@ -305,6 +372,10 @@ describeIfDb('K-093 sales by customer must not drop legacy customer_id invoices'
     const csv = String(res.body);
     expect(csv).toContain('"Legacy Customer",1,2500.00');
     expect(csv).toContain('"Boundary Customer",1,700.00');
+    expect(csv).toContain('"Null Status Customer",1,555.00');
+    // Two unattributable rows, each naming the id nobody could resolve.
+    expect(csv).toContain(`"Unknown customer (${OTHER_CUSTOMER})",1,3333.00`);
+    expect(csv).toContain(`"Unknown customer (${OTHER_CUSTOMER_2})",1,1111.00`);
     expect(csv).not.toContain('Other Tenant Customer');
   });
 });

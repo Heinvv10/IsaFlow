@@ -97,8 +97,9 @@ while its GL balance now read 0 through the `?? 0` fallback instead of its real 
 `bank_statement_coverage` then reported the whole statement balance as unexplained, and
 `perform_bank_reconciliation`'s dry run reported `gl_balance: 0`.
 
-Both predicates now carry `account_type = 'asset'`, so a non-asset account is never offered to
-those paths at all and the three agree on one definition. The `?? 0` comment in
+**SUPERSEDED by round-3 HIGH-1 below.** Round 2 added `account_type = 'asset'` to both predicates,
+which closed the leak by opening its mirror: the account vanished from the report instead of
+showing an unexplained difference. Round 4 reverses that half and flags the row instead. The `?? 0` comment in
 `bankStatementCoverageService` claimed something that stopped being true in round 1; it now says
 the fallback is a floor against future drift rather than an honest zero.
 
@@ -120,3 +121,73 @@ and M15 delete one guard each and turn exactly the matching test red.
 subtype `bank` stops being selectable for statement import, disappears from the coverage report,
 and stops contributing to the exported opening balance. The round-1 impact query in this file
 finds every such account; the same rows are the ones affected here.
+
+
+---
+
+## Round-3 blind review of 6feb7687f — 9 findings, all disposed (round 4)
+
+**HIGH-1 (fixed, by reversing round 2's half of MEDIUM-2).** Narrowing `fetchCoverageAccounts` and
+`bankGlAccountBelongsToCompany` to `account_type = 'asset'` made a subtype-`bank` account typed
+`liability` — the shape of the module's 27 mis-classified production paycards — disappear from the
+coverage report with every statement line imported against it, and made statement import refuse an
+id the picker, bulk preview, bulk commit and feed pairing all still accept. Both guards are removed
+again. Two questions share the word "bank" and now have one answer each: which accounts HOLD bank
+transactions is `account_subtype = 'bank'` (coverage, importer, picker, bulk paths, cash-movement),
+and which balances COUNT AS CASH is `CASH_SUBTYPES AND account_type = 'asset'` (`cashBalanceService`
+and every cash-flow reader). A listed non-asset account carries `misclassified: true` through to
+`bank_statement_coverage`, the report's only consumer, and its whole statement balance is stated as
+unexplained. Both directions are pinned: mutations M1/M3/M12 (re-narrow, drop the flag) and M2 (drop
+the cash guard) each turn the matching test red.
+
+**MEDIUM-1 (fixed by the same change).** The nine bare `account_subtype = 'bank'` call sites are now
+correct rather than inconsistent: every one of them asks the "holds transactions" question. No call
+site is rewritten. Known limit: they all match the literal `'bank'`, so an account spelled
+`bank_account` is invisible to all nine equally — a separate defect, not this one.
+
+**MEDIUM-2 (fixed).** `afsKpiService.fetchCash` / `fetchClosingCash` now use
+`CASH_SUBTYPES AND account_type = 'asset'`, so the KPI block and the cash-flow statement in the same
+AFS export agree. New test: the May cash-burn KPI equals the fall `getCashBalance` reports over the
+same month. Mutating either half alone turns it red (M6a, M6b).
+
+**MEDIUM-3 (fixed).** `company_id` added to the customer, supplier and original-invoice joins in
+`creditNotePdfBuilder`, and to the customer and project joins in `invoicePdfBuilder` and
+`quotePdfBuilder`. Tenant-drift tests on all three assert another tenant's name, VAT number, address
+and invoice number are never printed (M8, M10, M11).
+
+**MEDIUM-4 (fixed).** `vatLineAllocation.allocateVatToLines` shares the authoritative header VAT out
+across the lines by largest-remainder, so the printed VAT column sums to the printed VAT total
+exactly; header VAT no line can account for is returned as `unattributed`, printed on the page and
+logged rather than spread onto zero-rated lines. Seven R14.29 lines at 15% now print a column
+summing to R15.00 rather than R14.98 (M7). The quote table prints rates rather than amounts, so it
+gets the disagreement notice only (M9).
+
+**LOW-1 (fixed).** `COALESCE(ci.status, '') <> 'cancelled'` in the route, and the k093 oracle now
+uses the same COALESCE instead of mirroring the route's bug. A NULL-status invoice is seeded and
+asserted present (M4).
+
+**LOW-2 (fixed).** Each unresolvable id gets its own `Unknown customer (<id>)` label, in the JSON and
+the CSV; two drifted invoices from different other-tenant customers are asserted distinguishable (M5).
+
+**LOW-3 (fixed).** The `to_regclass` probe and the dead `credit_note_items` branch are deleted; the
+credit note renders from its header totals. There is no line table in the schema at all — adding one
+is a schema change, raised separately, not a runtime probe.
+
+**LOW-4 (fixed).** Rebased onto `origin/master`; the six integration files were re-run green on the
+new base. The nine intervening master commits are settings/report UI only and touch none of these
+files.
+
+**Tests (round 4).** 39 tests across 6 integration files, all green on the fixture DB; full unit
+suite 9559 passed / 243 skipped with `DATABASE_URL` unset; `tsc --noEmit` and `eslint` clean.
+
+**Historical-data impact (round 4).** No stored row changes. Non-asset `bank` accounts return to the
+coverage report and to statement import — the state before round 2, plus a flag. Find them read-only:
+```sql
+SELECT company_id, account_code, account_name, account_type, account_subtype
+FROM   gl_accounts
+WHERE  account_subtype = 'bank' AND account_type <> 'asset'
+ORDER  BY company_id, account_code;
+```
+Every such account is a chart-of-accounts defect to correct at source; the report now names them
+instead of hiding them. Invoice PDFs re-rendered for an invoice whose stored `tax_amount` disagrees
+with its lines will now print a red note stating the unattributable amount.

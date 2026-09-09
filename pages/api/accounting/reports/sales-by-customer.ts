@@ -24,7 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rows = await sql`
       SELECT
         COALESCE(ci.client_id, ci.customer_id) AS client_id,
-        COALESCE(c.name, 'Unknown customer') AS client_name,
+        c.name AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0)::numeric AS total_sales,
         COALESCE(SUM(COALESCE(ci.amount_paid, 0)), 0)::numeric AS payments_received,
@@ -35,14 +35,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE ci.company_id = ${companyId}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
-        AND ci.status != 'cancelled'
-      GROUP BY COALESCE(ci.client_id, ci.customer_id), COALESCE(c.name, 'Unknown customer')
+        -- COALESCE, because status is nullable and NULL != 'cancelled' is
+        -- NULL: the bare inequality silently dropped every null-status invoice,
+        -- the same under-reporting this report was fixed for.
+        AND COALESCE(ci.status, '') <> 'cancelled'
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY total_sales DESC
     `;
 
+    // An unresolvable id gets its own row (the grouping key is the id), so the
+    // placeholder must name it — otherwise the CSV shows several identical
+    // 'Unknown customer' lines that neither aggregate nor can be attributed.
     const data = rows.map(r => ({
       clientId: r.client_id,
-      clientName: r.client_name,
+      clientName: r.client_name ?? `Unknown customer (${String(r.client_id)})`,
       invoiceCount: Number(r.invoice_count),
       totalSales: Number(r.total_sales),
       paymentsReceived: Number(r.payments_received),

@@ -7,7 +7,14 @@
  * transaction per request on an AsyncLocalStorage client, so from that point
  * the transaction was aborted: any query added to the route afterwards would
  * fail with 25P02 naming nothing useful, and the COMMIT would find a dead
- * transaction. The builder now asks `to_regclass` instead, which never raises.
+ * transaction. There is no credit-note line table in this schema at all —
+ * neither `credit_note_items` nor `credit_note_lines` — so the builder no longer
+ * asks: the round-2 `to_regclass` probe was a round trip for a constant answer.
+ *
+ * Round-3 MEDIUM-3 is pinned here too: the customer, supplier and original
+ * invoice joins carried no `company_id`, so a drifted `client_id` (the column has
+ * no FK) printed another tenant's name, VAT number and billing address onto a
+ * customer-facing PDF.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -20,23 +27,42 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID(), user = crypto.randomUUID(), customer = crypto.randomUUID();
 const creditNote = crypto.randomUUID();
+const driftedCreditNote = crypto.randomUUID();
+const otherCompany = crypto.randomUUID();
+const otherCustomer = crypto.randomUUID();
+const otherInvoice = crypto.randomUUID();
 
 beforeAll(async () => {
-  await pool.query('INSERT INTO companies(id,name,is_active) VALUES($1,$2,true)', [company, 'K126c fixture']);
+  await pool.query('INSERT INTO companies(id,name,is_active) VALUES($1,$2,true),($3,$4,true)',
+    [company, 'K126c fixture', otherCompany, 'K126c other tenant']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
-  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, company, 'K126c customer']);
+  await pool.query('INSERT INTO customers(id,company_id,name,vat_number,billing_address) VALUES($1,$2,$3,NULL,NULL),($4,$5,$6,$7,$8)',
+    [customer, company, 'K126c customer',
+     otherCustomer, otherCompany, 'K126C OTHER TENANT CUSTOMER', '4999999999', '9 Other Tenant Road']);
   await pool.query(
     `INSERT INTO credit_notes(id,company_id,credit_note_number,type,client_id,credit_date,
                               subtotal,tax_rate,tax_amount,total_amount,status,created_by)
      VALUES($1,$2,'K126C-CN-1','customer',$3,'2026-01-01',100,15,15,115,'approved',$4)`,
     [creditNote, company, customer, user]);
+  // The other tenant's invoice, and a credit note in OUR company whose client_id
+  // and customer_invoice_id both point across the tenant boundary.
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,client_id,invoice_date,due_date,subtotal,tax_rate,tax_amount,total_amount,status,created_by)
+     VALUES($1,$2,'K126C-OTHER-INV',$3,$3,'2026-01-01','2026-01-31',100,15,15,115,'approved',$4)`,
+    [otherInvoice, otherCompany, otherCustomer, user]);
+  await pool.query(
+    `INSERT INTO credit_notes(id,company_id,credit_note_number,type,client_id,customer_invoice_id,credit_date,
+                              subtotal,tax_rate,tax_amount,total_amount,status,created_by)
+     VALUES($1,$2,'K126C-CN-2','customer',$3,$4,'2026-01-01',100,15,15,115,'approved',$5)`,
+    [driftedCreditNote, company, otherCustomer, otherInvoice, user]);
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM credit_notes WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM customers WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM companies WHERE id=$1', [company]);
+    await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [otherCompany]);
+    await pool.query('DELETE FROM customers WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }
 });
@@ -75,6 +101,17 @@ it('renders without a line-items table and still prints the totals block', async
 
   expect(text).toContain('Subtotal');
   expect(text).toContain('VAT (15%)');
+});
+
+it('will not print another tenant\'s customer or invoice on the PDF', async () => {
+  const buf = await generateCreditNotePdf(company, driftedCreditNote);
+  const text = [...buf.toString('latin1').matchAll(/\(((?:\\.|[^\\()])*)\)\s*Tj/g)]
+    .map((m) => m[1]!.replace(/\\([()\\])/g, '$1'));
+
+  expect.soft(text).not.toContain('K126C OTHER TENANT CUSTOMER');
+  expect.soft(text).not.toContain('4999999999');
+  expect.soft(text).not.toContain('9 Other Tenant Road');
+  expect(text).not.toContain('K126C-OTHER-INV');
 });
 
 it('will not render another tenant\'s credit note', async () => {
