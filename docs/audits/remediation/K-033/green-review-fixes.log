@@ -1,0 +1,57 @@
+=== GREEN (all review fixes in place) ===
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+
+=== H1: advancePeriodForSettledCharge keyed on company_id only ===
+     × advances only the subscription the settled charge belongs to 67ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+
+=== H2: markPastDueIfExhausted keyed on company_id only ===
+     × past-dues only the subscription whose charge exhausted its attempts 126ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+
+=== H3a: queued charges of a cancelling subscription not voided ===
+     × voids the queued charge instead of debiting a subscription cancelled mid-flight 41ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+
+=== H3b: close-out ignores a charge in flight (drop NOT EXISTS) ===
+     × defers the close-out while a charge is still in flight at Paystack 38ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+
+=== L5: claimChargeAttempt without the compare-and-swap predicate ===
+     × lets only one of two cron runs holding the same snapshot spend the attempt 56ms
+     × never exceeds MAX_ATTEMPTS across overlapping cron runs 94ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 20 passed (22)
+
+=== M3: flag cleared on any status echo (drop the transition guard) ===
+     × does not un-cancel when an edit merely restates the current status 34ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+
+=== FULL UNIT SUITE (bunx vitest run --testTimeout=30000, DATABASE_URL and PG* unset) ===
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9322 passed | 234 skipped (9556)
+
+Note: two earlier full-suite runs each showed one or two 10s test timeouts, in
+different files each time (cashFlowReport, bankAllocationUnwind, none related to
+billing). Both files pass in isolation and the suite is green at the 30s timeout;
+the timeouts are machine load from concurrent sessions, not this change.
+
+=== MIGRATION RENAMED 619 -> 624 (prefix 619 taken by the K-010 branch) ===
+Fixture DB: index and column dropped, 624_subscription_charges_subscription_id.sql
+re-applied, schema_migrations row inserted as the runner would
+(version 624, name 624_subscription_charges_subscription_id.sql, sha256 checksum).
+ SELECT version, name FROM schema_migrations WHERE version IN ('619','624');
+ -> 624 | 624_subscription_charges_subscription_id.sql   (no 619 row)
+bun scripts/audit-migration-naming.ts        -> exit 0, no new duplicate prefixes
+bun scripts/ci/check-migration-rls.ts        -> OK
+Integration after the rename                 -> 2 files / 22 tests passed
