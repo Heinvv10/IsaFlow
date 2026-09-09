@@ -3,7 +3,7 @@
  * Bank Import Service — statement import and persistence
  */
 
-import { transaction, sql, withTransaction, withSavepoint } from '@/lib/neon';
+import { transaction, sql, withTransaction, withSavepoint, assertTxUsable } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sweep } from './autoPostGateService';
 import {
@@ -255,6 +255,13 @@ export async function importParsedTransactions(
         }
       });
     } catch (provErr) {
+      // The savepoint makes the failure survivable only when the ROLLBACK TO
+      // SAVEPOINT itself succeeded. When it did not, withSavepoint marks the
+      // context and the request transaction really is aborted — degrading THAT
+      // to a warning row would hand back the clean-looking import this fix
+      // exists to prevent, because the COMMIT will still be a ROLLBACK.
+      // assertTxUsable rethrows carrying the original cause.
+      assertTxUsable();
       autoPostFailed = true;
       log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
     }

@@ -8,18 +8,27 @@
  *  2. a failing sweep for one company does not take another company's import
  *     down with it — both run in the same request transaction,
  *  3. a sweep that succeeds still reports a clean import (the savepoint is
- *     released, not rolled back).
+ *     released, not rolled back),
+ *  4. a sweep whose savepoint ROLLBACK itself fails is NOT degraded to a
+ *     warning row — that transaction is genuinely aborted, so a clean-looking
+ *     result would be the very lie the savepoint was added to remove.
  */
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
-const sweepBehaviour = { fail: true };
+const sweepBehaviour = { fail: true, destroySavepoint: false };
 
 vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   sweep: async () => {
+    const { sql } = await import('@/lib/neon');
+    if (sweepBehaviour.destroySavepoint) {
+      // Releasing the savepoint the caller is standing in makes its own
+      // ROLLBACK TO SAVEPOINT fail — the one case a savepoint cannot survive.
+      await sql`RELEASE SAVEPOINT bank_import_autopost`;
+      throw new Error('sweep exploded with its savepoint already gone');
+    }
     if (sweepBehaviour.fail) {
-      const { sql } = await import('@/lib/neon');
       await sql`SELECT 1 / 0`;
     }
     return { runId: null, posted: 0, skipped: [] };
@@ -62,7 +71,7 @@ beforeAll(async () => {
   await seedCompany(companyB, bankB, 'K071 adjacent B');
 });
 
-beforeEach(() => { sweepBehaviour.fail = true; });
+beforeEach(() => { sweepBehaviour.fail = true; sweepBehaviour.destroySavepoint = false; });
 
 afterAll(async () => {
   try {
@@ -147,4 +156,25 @@ it('reports a clean import when the sweep succeeds', async () => {
     "SELECT id FROM bank_transactions WHERE company_id=$1 AND reference='K071-ADJ-3'", [companyA],
   );
   expect(rowCount).toBe(1);
+});
+
+it('throws rather than reporting a clean import when the savepoint rollback fails', async () => {
+  sweepBehaviour.destroySavepoint = true;
+  let thrown: unknown = null;
+  const commitError = await inRequest(async (run) => {
+    try { await run(companyA, bankA, 'K071-ADJ-4'); }
+    catch (err) { thrown = err; }
+  });
+
+  // withSavepoint marks the context unusable and rethrows; assertTxUsable in
+  // the sweep's catch refuses to swallow that, naming the original cause.
+  expect(thrown).toBeInstanceOf(Error);
+  expect((thrown as Error).message).toMatch(/unusable/i);
+  // And the caller is not told otherwise: the transaction really is aborted,
+  // so the COMMIT that follows cannot keep the import.
+  expect(commitError).toBeNull();
+  const { rowCount } = await pool.query(
+    "SELECT id FROM bank_transactions WHERE company_id=$1 AND reference='K071-ADJ-4'", [companyA],
+  );
+  expect(rowCount).toBe(0);
 });

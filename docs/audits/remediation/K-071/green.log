@@ -38,3 +38,70 @@ Files restored byte-for-byte after each mutation (git diff --stat unchanged: 3 f
 $ bunx tsc --noEmit                                          -> exit 0, no output
 $ bunx eslint pages/api/accounting/bank-match-confirm.ts \
      src/modules/accounting/services/bank/bankImportService.ts -> exit 0, no output
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 2 — the six blind-review findings on d0765c74 (1 HIGH, 2 MEDIUM, 3 LOW)
+════════════════════════════════════════════════════════════════════════════
+
+$ bun run test:integration -- k071-bank-import-best-effort-savepoint \
+    k071-bank-import-autopost-adjacent k074-bank-match-confirm-supplier-balance \
+    k074-bank-match-confirm-adjacent
+ Test Files  4 passed (4)
+      Tests  15 passed (15)
+(real PostgreSQL fixture, production schema; the K-074 files drive the REAL
+posting path — allocateTransaction, the payment document and the application
+are all live, only the request wrappers are stubbed)
+
+## Mutation proof, one probe per finding — reverted, RED, restored
+
+A. HIGH-1 — supplier branch put back to allocateTransaction + a bare
+   `amount_paid`/`status` UPDATE (no payment document):
+     Tests  5 failed | 5 passed (10)
+   × settles the bill with a payment document, and the journal balances
+   × unallocating the line reverses the subledger, not just the GL
+   × settles a partial payment and leaves the generated balance consistent
+   × holds the remainder of an over-payment on the document instead of losing it
+   × answers 500 — not a committing 400 — when the settlement throws after the GL post
+
+B. MEDIUM-1 + MEDIUM-2 — the pre-write `validateBankSupplierPayment` call removed:
+     Tests  2 failed | 4 passed (6)
+   × refuses a cancelled bill, and writes nothing            (MEDIUM-1)
+   × refuses an already-allocated line with the reason, not a bare 500  (MEDIUM-2)
+
+C. Fully-paid guard removed:
+   × refuses a bill that is already fully paid               (1 failed | 5 passed)
+
+D. LOW-3 — `assertTxUsable()` deleted from the sweep's catch:
+   × throws rather than reporting a clean import when the savepoint rollback fails
+     (1 failed | 3 passed)
+
+E. Catch-all reverted to `apiResponse.badRequest`:
+   × answers 500 — not a committing 400 — when the settlement throws after the GL post
+     (1 failed | 5 passed)
+
+F. `withSavepoint('bank_import_autopost', …)` replaced by a bare async IIFE:
+     Tests  5 failed (5) — every K-071 test, including the LOW-3 one.
+
+All six probes restored; `git diff --stat` unchanged afterwards.
+
+LOW-1 (no module-doc entry) and LOW-2 (evidence ran against a stubbed
+allocator) are not mutation-testable: LOW-1 is a documentation entry in
+src/modules/accounting/services/bank/.claude.md (mirror regenerated,
+`bun run agent-docs:check` → OK: 74 mirrors match), and LOW-2 is discharged by
+the K-074 tests no longer mocking the posting path at all — probe A is what
+proves they now exercise it.
+
+## Full unit suite, fixture env UNSET (env -u DATABASE_URL bunx vitest run)
+ Test Files  792 passed | 36 skipped (828)
+      Tests  9439 passed | 234 skipped (9673)
+(one pre-existing unit test, tests/unit/api/bankMatchConfirmSignGuard.test.ts,
+was updated: the supplier branch's collaborator changed, so its happy-path case
+asserts applyBankLineToSupplierInvoices instead of allocateTransaction, and both
+refusal assertions now cover the new one too.)
+
+## Static gates
+$ bunx tsc --noEmit                                           -> exit 0
+$ bunx eslint pages/api/accounting/bank-match-confirm.ts \
+     src/modules/accounting/services/bank/bankImportService.ts -> exit 0
+$ bun run agent-docs:check                                    -> 74 mirrors OK
+File sizes: bank-match-confirm.ts 297 lines, bankImportService.ts 284 — both <= 300.
