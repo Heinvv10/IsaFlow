@@ -51,8 +51,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     SELECT
       apl.asset_id,
       COALESCE(c.ias16_group, 'OA') AS ias16_group,
-      -- Additions: cost of assets first appearing in the current year
-      CASE WHEN MIN(apl.yyyymm) >= ${currentYearStart} THEN MAX(apl.policy_cost) ELSE 0 END AS additions,
+      -- Additions: cost of assets first appearing in the current year. The first
+      -- appearance is taken over the asset's WHOLE ledger history — MIN over the
+      -- rows this query selects is bounded below by the period filter and would
+      -- be true for every asset, counting an old asset as an addition as well as
+      -- as opening cost.
+      CASE WHEN (SELECT MIN(p.yyyymm) FROM asset_period_ledger p
+                  WHERE p.company_id = ${companyId}::UUID
+                    AND p.asset_id = apl.asset_id) >= ${currentYearStart}
+           THEN MAX(apl.policy_cost) ELSE 0 END AS additions,
       -- Disposals: cost + acc dep if disposed in the year
       COALESCE(SUM(CASE WHEN apl.disposal_proceeds IS NOT NULL THEN apl.policy_cost ELSE 0 END), 0) AS disposal_cost,
       COALESCE(SUM(CASE WHEN apl.disposal_proceeds IS NOT NULL THEN apl.policy_closing_acc_dep ELSE 0 END), 0) AS disposal_acc_dep,
