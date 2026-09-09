@@ -2127,7 +2127,7 @@
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k058-debtors-coalesce-customer",
-      "reviewRounds": 1
+      "reviewRounds": 4
     },
     {
       "id": "K-059",
@@ -3049,7 +3049,8 @@
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k087-opening-balance-sign"
+      "branch": "fix/audit-k087-opening-balance-sign",
+      "reviewRounds": 2
     },
     {
       "id": "K-088",
