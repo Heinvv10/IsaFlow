@@ -51,19 +51,21 @@ interface Props {
   drillDownStart: string;
   drillDownEnd: string;
   costCentreId?: string;
+  returnTo?: string;
   colSpan: number;
 }
 
 export function TrialBalanceRow({
   row: r, isExpanded, onToggle, onEvidence,
-  showComparative, showMovement, drillDownStart, drillDownEnd, colSpan, costCentreId,
+  showComparative, showMovement, drillDownStart, drillDownEnd, colSpan, costCentreId, returnTo,
 }: Props) {
   const { rowClass } = useTableDensity();
 
   const detailHref =
     `/accounting/reports/account-detail/${encodeURIComponent(r.accountCode)}` +
     `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=tb` +
-    (costCentreId ? `&cost_centre_id=${encodeURIComponent(costCentreId)}` : '');
+    (costCentreId ? `&cost_centre_id=${encodeURIComponent(costCentreId)}` : '') +
+    (returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : '');
 
   // A derived row has no journals behind it: expanding it or drilling into it
   // would show an empty ledger and imply the figure was posted. Neither is offered.
