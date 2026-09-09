@@ -4,7 +4,7 @@ import {als} from '@/lib/als';
 import {log} from '@/lib/logger';
 import {sql} from '@/lib/neon';
 import {canonicalJson} from './canonical';
-import {runAuditSnapshotJob,type AuditWorkerResult} from './auditJobRunner';
+import {runAuditJob,type AuditWorkerResult} from './auditJobRunner';
 const schema=z.object({companyIds:z.array(z.string().uuid()).min(1).max(10).refine(ids=>new Set(ids).size===ids.length),
  batchSize:z.number().int().min(1).max(10).default(10)}).strict();
 export interface AuditPollerConfig{companyIds:string[];batchSize?:number}
@@ -55,7 +55,7 @@ export function createAuditJobPoller(input:AuditPollerConfig,options:{pool:Pool}
    for(const row of rows){
     if(signal?.aborted)break;
     let result:AuditWorkerResult;
-    try{result=await runAuditSnapshotJob({companyId,personId:row.personId,jobId:row.jobId},{pool:options.pool,signal});}
+    try{result=await runAuditJob({companyId,personId:row.personId,jobId:row.jobId},{pool:options.pool,signal});}
     catch{
      log.warn('Audit queue candidate refused before claim',{companyId,jobId:row.jobId},'audit-worker');
      result={state:'failed',code:signal?.aborted?'CANCELLED':'WORKER_ERROR',failureRecorded:false};

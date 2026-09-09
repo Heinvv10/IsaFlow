@@ -13,10 +13,13 @@ import {captureAuditSnapshot} from './auditSnapshotCapture';
 import {retainSnapshotEvidence} from './auditSnapshotEvidence';
 import {sealAuditSnapshot} from './auditSnapshotSeal';
 import {publishAuditSnapshot} from './auditSnapshotPublication';
+import {exportAuditEvidence} from './auditEvidenceExportService';
+import {publishAuditExport} from './auditExportPublication';
 import {CapturedEvidenceUnavailableError} from './capturedEvidenceSource';
 import {withAuditWorkerTransaction,type AuditWorkerIdentity} from './auditWorkerTransaction';
 const identitySchema=z.object({companyId:z.string().uuid(),personId:z.string().min(1).max(256),jobId:z.string().uuid()}).strict();
 export type AuditWorkerResult={state:'busy'|'not_claimed'}|{state:'succeeded';snapshotId:string;canonicalHash:string}
+ |{state:'succeeded';exportId:string;canonicalHash:string}
  |{state:'failed';code:AuditJobErrorCode;failureRecorded:boolean};
 let running=false;
 function failureCode(error:unknown,signal:AbortSignal|undefined,timedOut:boolean):AuditJobErrorCode{
@@ -29,6 +32,13 @@ function failureCode(error:unknown,signal:AbortSignal|undefined,timedOut:boolean
 }
 /** Server worker entry, never a tool/status handler. One memory-heavy capture per process. */
 export async function runAuditSnapshotJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal}={}):Promise<AuditWorkerResult>{
+ return executeAuditJob(input,options,true);
+}
+/** Dispatch is derived from authenticated stored intent, never a caller-selected business operation. */
+export async function runAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal}={}):Promise<AuditWorkerResult>{
+ return executeAuditJob(input,options,false);
+}
+async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal},snapshotOnly:boolean):Promise<AuditWorkerResult>{
  if(als.getStore())throw new Error('Audit runner cannot execute inside an HTTP transaction');
  const identity=identitySchema.parse(JSON.parse(canonicalJson(input)));
  if(running)return{state:'busy'};
@@ -44,7 +54,11 @@ export async function runAuditSnapshotJob(input:AuditWorkerIdentity,options:{poo
   const result=await withAuditWorkerTransaction(pool,identity,'repeatable read',deadlineAt,signal,store=>withControlJobRequest(store,currentLease,async()=>{
    const ctx=requireControlTx(),saved=await loadStoredAuditJobDelegation(ctx.sql,identity.companyId,identity.personId,currentLease);
    signal.throwIfAborted();
-   if(saved.kind!=='audit_snapshot')throw new Error('Snapshot runner requires snapshot job kind');
+   if(saved.kind==='audit_export'){
+    if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
+    const bundle=await exportAuditEvidence(ctx,saved.request.snapshotId,{signal,deadlineAt});
+    signal.throwIfAborted();return publishAuditExport(ctx,currentLease,bundle,{signal,deadlineAt});
+   }
    const snapshot=await captureAuditSnapshot(ctx,{snapshotId:identity.jobId,request:saved.request});
    signal.throwIfAborted();const retained=await retainSnapshotEvidence(ctx,snapshot,saved.request,signal);
    signal.throwIfAborted();const sealed=sealAuditSnapshot(retained.snapshot);signal.throwIfAborted();
