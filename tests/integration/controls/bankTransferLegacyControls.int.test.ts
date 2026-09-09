@@ -49,3 +49,28 @@ it('unresolved legacy journal provenance is reported and never turned into a sec
  const before=await f.snapshot(),result=await f.actor(()=>relinkTransferCounterparts(f.f.companyA,f.to));
  expect(result).toMatchObject({linked:0,failed:true,pending:[]});expect(await f.snapshot()).toEqual(before);
 });
+
+it('a failed approval insert leaves imported bank and protected history unchanged',async()=>{
+ await f.posted('-115.23',false);await f.bank(f.to,'115.23');
+ const suffix=randomUUID().replaceAll('-',''),fn=`synthetic_link_approval_${suffix}`,trigger=`synthetic_link_approval_trigger_${suffix}`;
+ await f.pool.query(`CREATE FUNCTION public.${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.f.companyA}'::uuid THEN RAISE EXCEPTION 'Synthetic link approval failure'; END IF; RETURN NEW; END $$`);
+ await f.pool.query(`CREATE TRIGGER ${trigger} BEFORE INSERT ON control_operation_approvals FOR EACH ROW EXECUTE FUNCTION public.${fn}()`);
+ try{
+  const before=await f.snapshot(),result=await f.actor(()=>relinkTransferCounterparts(f.f.companyA,f.to));
+  expect(result).toMatchObject({linked:0,failed:true,pending:[]});expect(await f.snapshot()).toEqual(before);
+  expect((await f.pool.query('SELECT id FROM control_bank_allocation_intents WHERE company_id=$1',[f.f.companyA])).rowCount).toBe(1);
+ }finally{await f.pool.query(`DROP TRIGGER IF EXISTS ${trigger} ON control_operation_approvals`);await f.pool.query(`DROP FUNCTION IF EXISTS public.${fn}()`);}
+ const retry=await f.actor(()=>relinkTransferCounterparts(f.f.companyA,f.to));expect(retry.failed).toBe(false);expect(retry.pending).toHaveLength(1);
+});
+
+it('REST dispatch prepares the shared transfer and executes only its approved saved plan',async()=>{
+ const {dispatchBankControlAction}=await import('@/lib/api/bankControlActions');
+ const bank=await f.bank();
+ const result=await f.actor(ctx=>dispatchBankControlAction(ctx,{action:'prepare_allocate',allocationType:'transfer',bankTransactionId:bank,contraAccountId:f.to}));
+ expect(result).toHaveProperty('intentId');
+ const intent=result as {intentId:string;operation:Parameters<typeof f.approve>[0]};
+ expect(await f.saved(intent.intentId)).toMatchObject({kind:'transfer',counterpartyAccountId:f.to});expect(await f.journals()).toHaveLength(0);
+ const approval=await f.approve(intent.operation);
+ const posted=await f.actor(ctx=>dispatchBankControlAction(ctx,{action:'allocate',bankTransactionId:bank,intent_id:intent.intentId,approval_id:approval}));
+ expect(posted).toHaveProperty('journalEntryId');expect(await f.journals()).toHaveLength(1);
+});
