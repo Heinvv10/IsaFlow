@@ -32,6 +32,8 @@ export interface GLAccountOption {
   defaultVatCode?: string;
   /** VAT Act s17(2)(a): input tax on this account is denied (entertainment). */
   vatInputDenied?: boolean;
+  /** `bank` means a rule pointing here is a transfer between own accounts. */
+  accountSubtype?: string;
 }
 
 interface BankRuleFormProps {
@@ -59,26 +61,32 @@ export function BankRuleForm({
   onSubmit,
   onCancel,
 }: BankRuleFormProps) {
-  // A supplier or customer rule SETTLES a bill or an invoice that already
-  // accounted for the VAT, so the sweep posts it gross and discards the code
-  // (K-016/K-017). This form is the primary authoring surface AND the edit
-  // path, so leaving the select here is what would keep a stale 'standard'
-  // alive on rules created before that change.
+  // Three shapes post no VAT line, and the select must not offer one for any
+  // of them. A supplier or customer rule SETTLES a bill or an invoice that
+  // already accounted for the VAT; a rule whose contra IS a bank account moves
+  // money between the company's own accounts, which is no supply at all. The
+  // sweep drops the code in every case (K-016/K-017 and the transfer guard in
+  // `gl/bankContraVat`). This form is the primary authoring surface AND the
+  // edit path, so leaving the select here is what would keep a stale
+  // 'standard' alive on rules created before those changes.
   const isSettlementRule = Boolean(form.supplierId || form.clientId);
+  const isTransferRule = !isSettlementRule
+    && accounts.find(a => a.id === form.glAccountId)?.accountSubtype === 'bank';
+  const postsNoVat = isSettlementRule || isTransferRule;
   // Clear it, do not merely hide it. This is the EDIT path too, so a rule saved
   // with 'standard' before K-016/K-017 loads here with the code still on it;
   // hiding the select alone would submit it straight back and leave the rules
   // list showing a treatment the sweep discards. An effect rather than the two
   // onChange handlers, because loading a rule for edit goes through neither.
   useEffect(() => {
-    if (isSettlementRule && form.vatCode) setForm(f => ({ ...f, vatCode: '' }));
-  }, [isSettlementRule, form.vatCode, setForm]);
+    if (postsNoVat && form.vatCode) setForm(f => ({ ...f, vatCode: '' }));
+  }, [postsNoVat, form.vatCode, setForm]);
 
-  const vatWarn = !isSettlementRule && form.vatCode === 'standard'
+  const vatWarn = !postsNoVat && form.vatCode === 'standard'
     && accounts.find(a => a.id === form.glAccountId)?.vatInputDenied === true;
   // Second guard, different statute — no supply arises on this account at all.
   // Classified on NAME from the same pure module the sweep and the report use.
-  const nonSupply = vatWarn || isSettlementRule
+  const nonSupply = vatWarn || postsNoVat
     ? null
     : shouldWarnOnNonSupply(accounts.find(a => a.id === form.glAccountId)?.accountName, form.vatCode);
 
@@ -194,10 +202,11 @@ export function BankRuleForm({
           {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <div>
-          {isSettlementRule ? (
+          {postsNoVat ? (
             <p className="text-xs italic leading-tight text-[var(--ff-text-tertiary)]">
-              VAT: N/A — settling a bill or an invoice claims no VAT; the
-              document already carried it.
+              VAT: N/A — {isTransferRule
+                ? 'a transfer between your own bank accounts is not a supply.'
+                : 'settling a bill or an invoice claims no VAT; the document already carried it.'}
             </p>
           ) : (
           <select

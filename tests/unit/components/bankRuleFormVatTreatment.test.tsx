@@ -23,6 +23,9 @@ import {
 const ACCOUNTS: GLAccountOption[] = [
   { id: 'a-welfare', accountCode: '6100', accountName: 'Staff Welfare', vatInputDenied: true },
   { id: 'a-computer', accountCode: '5410', accountName: 'Computer Expenses' },
+  // A second bank account: the contra of a TRANSFER rule. Named like any other
+  // account on purpose — no name classifier can tell, which is the whole point.
+  { id: 'a-fnb', accountCode: '1010', accountName: 'FNB Cheque Account', accountSubtype: 'bank' },
 ];
 const SUPPLIERS = [{ id: 'sup-1', name: 'ACME' }];
 const CLIENTS = [{ id: 'cli-1', name: 'Fibertime' }];
@@ -87,6 +90,40 @@ describe('BankRuleForm — VAT treatment is an account-rule choice only', () => 
     fireEvent.change(screen.getByLabelText('Supplier'), { target: { value: 'sup-1' } });
     expect(seen.current.vatCode).toBe('');
     expect(vatSelect()).toBeNull();
+  });
+
+  // A transfer RULE has nowhere to say it is one: `bank_categorisation_rules`
+  // has no transfer column, so it stores the counterparty BANK in
+  // `gl_account_id`. The sweep now drops its VAT code; this form must stop
+  // offering one, the same way CreateRuleModal already does for its `bank` type.
+  it('replaces it with N/A on a rule whose contra IS a bank account', () => {
+    renderForm(base({ glAccountId: 'a-fnb' }));
+    expect(vatSelect()).toBeNull();
+    expect(screen.getByText(/N\/A — a transfer between your own bank accounts/)).toBeTruthy();
+  });
+
+  it('clears a stale code on an existing transfer rule', () => {
+    const seen = renderForm(base({ glAccountId: 'a-fnb', vatCode: 'standard' }));
+    expect(seen.current.vatCode).toBe('');
+  });
+
+  it('brings the select back when the contra changes to an expense account', () => {
+    const seen = renderForm(base({ glAccountId: 'a-fnb', vatCode: 'standard' }));
+    expect(vatSelect()).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('GL account'), { target: { value: 'a-computer' } });
+
+    expect(vatSelect()).toBeTruthy();
+    // Cleared on the way in and NOT restored: the user re-picks it, rather than
+    // a code they never saw quietly coming back.
+    expect(seen.current.vatCode).toBe('');
+  });
+
+  it('says settlement, not transfer, when a rule is both', () => {
+    // A supplier rule ignores its GL account entirely, so the settlement
+    // wording is the one that describes what will actually happen.
+    renderForm(base({ glAccountId: 'a-fnb', supplierId: 'sup-1' }));
+    expect(screen.getByText(/N\/A — settling a bill or an invoice/)).toBeTruthy();
   });
 
   it('keeps the code on an account rule, and still warns about entertainment', () => {
