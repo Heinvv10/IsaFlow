@@ -78,3 +78,26 @@ it('keeps owned population totals complete beyond a page and refuses foreign ten
  const foreign=await actor(()=>getUnappliedReceipts(fixture.companyA,{asAt:'2026-09-09',limit:500}),'u3');
  expect(foreign.rows.some(row=>row.paymentId===posted.paymentId)).toBe(false);expect(foreign.universeTotal).toBe(0);
 });
+
+it('independent same-snapshot census detects deliberately omitted history details',async()=>{
+ const {queryUnappliedCashHistory}=await import('@/modules/accounting/services/shared/unappliedCashHistoryQuery');
+ const {analyzeUnappliedCashHistory}=await import('@/modules/accounting/services/shared/unappliedCashHistory');
+ await postedCash();
+ const source=await actor(()=>queryUnappliedCashHistory(fixture.companyA,'customer','2026-09-09'));
+ const independentlyCounted=(await pool.query("SELECT count(*)::int AS count FROM customer_payments WHERE company_id=$1 AND payment_date<='2026-09-09'",[fixture.companyA])).rows[0].count;
+ expect(source.populationCount).toBe(independentlyCounted);
+ expect(()=>analyzeUnappliedCashHistory(source.rows.slice(1),'2026-09-09',source.populationCount)).toThrow(/population|census/i);
+ const report=await actor(()=>getUnappliedReceipts(fixture.companyA,{asAt:'2026-09-09',limit:1}));
+ expect(report.historyCoverage.population.sourceCount).toBe(independentlyCounted);
+ expect(report).not.toHaveProperty('universeTotal');
+});
+it('soft-deleted party cash remains in the independent population and orphan money',async()=>{
+ const {posted}=await postedCash();
+ await pool.query('UPDATE customers SET deleted_at=NOW() WHERE company_id=$1 AND id=$2',[fixture.companyA,customer]);
+ try{
+  const report=await actor(()=>getUnappliedReceipts(fixture.companyA,{asAt:'2026-09-09',limit:1}));
+  expect(report.unattributed.find(row=>row.paymentId===posted.paymentId)?.unappliedAmount).toBe(115);
+  const p=report.historyCoverage.population;
+  expect(p.sourceCount).toBe(p.recognizedRemainderCount+p.fullyAppliedCount+p.inactiveCount+p.unresolvedCount);
+ }finally{await pool.query('UPDATE customers SET deleted_at=NULL WHERE company_id=$1 AND id=$2',[fixture.companyA,customer]);}
+});
