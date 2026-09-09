@@ -55,3 +55,15 @@ it('requires verified immutable material when checking retained artifact bytes',
  expect(()=>{verified.evidence[0]!.sha256=sha('replaced bytes');}).toThrow();
  expect(()=>{verified.records[0]!.data.amount='900';}).toThrow();
 });
+it('refuses accessor envelopes before authentication can verify different bytes from parsing',()=>{
+ key();const sealed=sealAuditSnapshot(capture()),changed=JSON.parse(sealed.canonicalData);
+ changed.records[0].data.amount='999.00';const unsigned=JSON.stringify(changed);let reads=0;
+ const envelope={...sealed,get canonicalData(){return ++reads<=3?sealed.canonicalData:unsigned;}};
+ expect(()=>verifyAuditSnapshot(envelope,{companyId,snapshotId})).toThrow();
+ expect(reads).toBe(0);
+});
+it('rejects accessor-bearing expected identities without invoking caller code',()=>{
+ key();const sealed=sealAuditSnapshot(capture());let reads=0;
+ expect(()=>verifyAuditSnapshot(sealed,{get companyId(){reads++;return companyId;},snapshotId})).toThrow();
+ expect(reads).toBe(0);
+});

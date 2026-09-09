@@ -55,3 +55,9 @@ it('reports changed check versions but ignores a fresh observation time alone',(
  expect(invoke().checks.changed).toEqual([]);
  second.checks[0]!.checkVersion=2;expect(invoke().checks.changed).toHaveLength(1);
 });
+it('rejects reference getters before verification or returned hash metadata can reread them',()=>{
+ key();const sealed=sealAuditSnapshot(capture());let reads=0;
+ const first={id:firstId,get sealed(){reads++;return sealed;}};
+ expect(()=>compareSealedAuditSnapshots(companyId,first,{id:firstId,sealed})).toThrow();
+ expect(reads).toBe(0);
+});
