@@ -95,3 +95,23 @@ AssertionError: expected 140000 to be close to 120000, received difference is 20
    A later run under parallel load showed 6 failures in bankAllocationService,
    bankAllocationUnwind and cashFlowReport — all 21 of those pass in isolation,
    and none touches a changed file.
+
+================================================================
+== Round-4 follow-up: two LOWs                                 ==
+================================================================
+
+-- Both k027 suites, real Postgres --
+ Test Files  2 passed (2)
+      Tests  12 passed (12)
+
+-- runDepreciationDb.test.ts against isaflow_dev (BEGIN ... ROLLBACK) --
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+
+-- tsc --noEmit, eslint, agent-docs:check all clean. depreciationRunPlan.ts
+   now 299 lines: dropping the dead tax_acc_dep alias freed one.
+-- full unit suite, no fixture env: 9310 passed / 10 failed under parallel
+   load, in trackerExclusion, bankAllocationService, bankAllocationUnwind and
+   cashFlowReport. All 42 tests in those files, plus both depreciation unit
+   files, pass in isolation. None touches a changed file. An earlier run of
+   this branch on a quiet box was 9320 passed / 0 failed.
