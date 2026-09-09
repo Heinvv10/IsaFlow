@@ -1892,7 +1892,7 @@
         "K-051/red.log",
         "K-051/validation.md"
       ],
-      "fixCommit": "2d880da9",
+      "fixCommit": "2cc28c2f",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -1927,7 +1927,7 @@
         "K-052/red.log",
         "K-052/validation.md"
       ],
-      "fixCommit": "2d880da9",
+      "fixCommit": "2cc28c2f",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
