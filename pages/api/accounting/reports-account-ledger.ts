@@ -31,6 +31,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
+  const costCentreId = req.query.cost_centre_id;
+  if (costCentreId !== undefined && (typeof costCentreId !== 'string' || !UUID_RE.test(costCentreId))) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+
   const { companyId } = req as CompanyAuthedRequest;
 
   const {
@@ -79,6 +84,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     companyId,
     accountId: hasId ? (account_id as string) : undefined,
     accountCode: !hasId && hasCode ? (account_code as string) : undefined,
+    costCentreId,
     fromDate: from,
     toDate: to,
     postedOnly,

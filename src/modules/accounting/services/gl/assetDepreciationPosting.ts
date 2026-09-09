@@ -15,6 +15,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { getSystemAccountId } from './systemAccountResolver';
 import {
   calculatePolicyDepreciation,
+  type DepreciationMethod,
   calculateTaxDepreciation,
   calculateDeferredTax,
 } from '@/modules/accounting/services/items/farDepreciationService';
@@ -159,6 +160,8 @@ interface DualDepInput {
   taxOpeningAccDep: number;
   deferredTaxRate: number;
   disposalDate?: string;
+  /** Policy method for the asset. Omitted = straight line. */
+  method?: DepreciationMethod;
 }
 
 /**
@@ -181,6 +184,7 @@ export async function postDualDepreciationToLedger(
     periodDate: input.periodDate,
     openingAccDep: input.openingAccDep,
     disposalDate: input.disposalDate,
+    method: input.method,
   });
 
   const tax = calculateTaxDepreciation({
@@ -222,6 +226,12 @@ export async function postDualDepreciationToLedger(
           ${tax.closingTaxAccDep}, ${tax.taxCarryingAmount}, ${deferred.deferredTax}
         )
         ON CONFLICT (company_id, asset_id, yyyymm) DO UPDATE SET
+          -- Rate and opening balance are refreshed too: under reducing balance
+          -- and sum-of-years the rate changes every year, so keeping the first
+          -- run's value left a reposted period quoting a rate that never
+          -- produced its own charge.
+          policy_opening_acc_dep  = EXCLUDED.policy_opening_acc_dep,
+          policy_dep_rate         = EXCLUDED.policy_dep_rate,
           policy_current_dep      = EXCLUDED.policy_current_dep,
           policy_closing_acc_dep  = EXCLUDED.policy_closing_acc_dep,
           policy_carrying_amount  = EXCLUDED.policy_carrying_amount,
