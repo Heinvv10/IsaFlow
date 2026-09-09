@@ -1,3 +1,6 @@
+import {requireArControl} from './arControlBoundary';
+import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
+import {resolveArAccounts} from '../controls/arControlAccounts';
 /**
  * PRD-060: FibreFlow Accounting Module — Phase 3
  * Customer Payment Service
@@ -104,6 +107,9 @@ export async function createCustomerPayment(companyId: string,
   userId: string
 ): Promise<CustomerPayment> {
   try {
+  const ctx=requireArControl(companyId,userId);
+  await assertEffectivePermission(ctx,'write:bank-tx');
+  const {ledgerCurrency}=await resolveArAccounts(ctx,[]);
     // Validate allocations against invoice balances. W3 (P2.1): amount_paid
     // only reflects CONFIRMED payments — without counting other DRAFT
     // payments' pending allocations, two drafts could each claim the full
@@ -145,12 +151,12 @@ export async function createCustomerPayment(companyId: string,
       tx`
         INSERT INTO customer_payments (
           id, company_id, client_id, payment_date, total_amount, payment_method,
-          bank_reference, bank_account_id, description, project_id, created_by
+          bank_reference, bank_account_id, description, project_id, created_by, currency_code
         ) VALUES (
           ${paymentId}::UUID, ${companyId}::UUID, ${input.clientId}::UUID, ${input.paymentDate}, ${input.totalAmount},
           ${input.paymentMethod || 'eft'}, ${input.bankReference || null},
           ${input.bankAccountId || null}, ${input.description || null},
-          ${input.projectId || null}, ${userId}::UUID
+          ${input.projectId || null}, ${userId}::UUID, ${ledgerCurrency}
         )
       `,
       ...input.allocations.map(alloc =>

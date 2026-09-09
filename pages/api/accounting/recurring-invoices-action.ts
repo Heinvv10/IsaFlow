@@ -1,3 +1,5 @@
+import {prepareRecurringInvoiceRun} from '@/modules/accounting/services/ar/recurringInvoiceControl';
+import {parseArActionOptions} from '@/modules/accounting/services/ar/arActionOptions';
 /**
  * Recurring Invoice Actions API
  * POST — pause, resume, cancel, generate
@@ -37,8 +39,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'cancel':
         await updateRecurringStatus(companyId, id, 'cancelled');
         return apiResponse.success(res, { status: 'cancelled' });
+      case 'prepare': {
+        const operation=await prepareRecurringInvoiceRun(companyId,id,userId);
+        return apiResponse.success(res,{operation});
+      }
       case 'generate': {
-        const invoiceId = await generateInvoiceFromRecurring(companyId, id, userId);
+        const invoiceId = await generateInvoiceFromRecurring(companyId, id, userId, parseArActionOptions(req.body));
         return apiResponse.success(res, { invoiceId });
       }
       default:

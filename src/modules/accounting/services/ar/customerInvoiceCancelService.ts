@@ -28,11 +28,14 @@
  * original and the contra, netting them to zero — no explicit cache work here.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 
+import {runArControlled,requireArControl,type ArApprovalOptions} from './arControlBoundary';
+import type {ArParentControl} from './customerInvoiceFinancialEffect';
+import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
 type Row = DbRow;
 
 /** Amounts below this (in currency units) are treated as zero to absorb rounding. */
@@ -70,16 +73,17 @@ export async function cancelCustomerInvoice(
   companyId: string,
   invoiceId: string,
   userId: string,
+  opts?:ArApprovalOptions&{reversalDate?:string},
 ): Promise<CancelCustomerInvoiceResult> {
-  return withSavepoint('cancel_customer_invoice', () =>
-    cancelCustomerInvoiceInner(companyId, invoiceId, userId),
-  );
+  const parent={entityType:'customer_invoice',entityId:invoiceId,operation:'customer_invoice.cancel',...(opts?.reversalDate===undefined?{}:{reversalDate:opts.reversalDate})} as const;
+  return runArControlled(companyId,userId,parent,opts,permit=>cancelCustomerInvoiceInner(companyId,invoiceId,userId,{permit,parent}));
 }
 
 async function cancelCustomerInvoiceInner(
   companyId: string,
   invoiceId: string,
   userId: string,
+  parentControl:ArParentControl,
 ): Promise<CancelCustomerInvoiceResult> {
   try {
     // FOR UPDATE locks the invoice row for this request tx so two concurrent
@@ -132,7 +136,8 @@ async function cancelCustomerInvoiceInner(
         FOR UPDATE
       `) as Row[];
       if (jeRows.length > 0 && String(jeRows[0]!.status) === 'posted' && jeRows[0]!.reversed_at == null) {
-        const reversal = await reverseJournalEntry(companyId, journalEntryId, userId);
+        await registerGeneratedJournal(requireArControl(companyId,userId),parentControl,journalEntryId,'journal.reverse');
+        const reversal = await reverseJournalEntry(companyId, journalEntryId, userId,{parentControl,reversalDate:parentControl.permit.accountingDate});
         reversedJournalEntryId = reversal.id;
       }
     }
@@ -143,13 +148,10 @@ async function cancelCustomerInvoiceInner(
     // total_amount / subtotal / tax_amount / amount_paid are historical facts
     // and are deliberately left untouched.
     //
-    // Null the journal link: after reversal it points at the now-reversed
-    // original (a net-zero pair). Clearing it means a future legitimate re-post
-    // (postCustomerInvoiceToGL, which early-returns when the link is set) would
-    // create a FRESH journal rather than silently re-using the reversed one.
+    // Preserve the original journal link for frozen reversal material and provenance.
     await sql`
       UPDATE customer_invoices
-      SET status = 'cancelled', gl_journal_entry_id = NULL, updated_at = NOW()
+      SET status = 'cancelled', updated_at = NOW()
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
     `;
 

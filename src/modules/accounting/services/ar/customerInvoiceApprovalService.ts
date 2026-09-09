@@ -11,16 +11,16 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
+import {postCustomerInvoiceFinancialEffect,type ArParentControl} from './customerInvoiceFinancialEffect';
+import {runArControlled,type ArApprovalOptions} from './arControlBoundary';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
 type Row = DbRow;
 
-// Only pre-approval invoices may be approved. Re-approving a later-state invoice
-// (e.g. one already cancelled) would put it back in AR while its journal is the
-// reversed net-zero pair (AR != GL) — see the approve guard below.
-const APPROVABLE_STATUSES = ['draft', 'pending_approval'];
+// The direct-post alias may adopt an already-approved invoice under the same
+// current operation approval. Cancelled and later settlement states stay closed.
+const APPROVABLE_STATUSES = ['draft', 'pending_approval', 'approved'];
 
 /**
  * Thrown when the invoice cannot be approved: either it does not belong to
@@ -77,11 +77,12 @@ export interface ApproveCustomerInvoiceResult {
  *   and keeps `human:<userId>`; the MCP finalize_invoice tool passes its own
  *   stamp so agent-approved invoices show up in list_agent_postings.
  */
-export async function approveCustomerInvoice(
+async function approveCustomerInvoiceEffect(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: PostingActorOpts,
+  opts: PostingActorOpts | undefined,
+  parentControl: ArParentControl,
 ): Promise<ApproveCustomerInvoiceResult> {
   // A COMPARE-AND-SWAP IS STRONGER THAN A LOCK AGAINST DOUBLE-POSTING, AND
   // WEAKER AGAINST HANGING. The guarded UPDATE below means two callers cannot
@@ -138,7 +139,7 @@ export async function approveCustomerInvoice(
   // nothing surfacing the divergence. Letting it propagate matches the AP side
   // (supplierInvoiceWorkflowService.approveSupplierInvoice) and lets withAuth
   // roll the request transaction back, taking the status UPDATE above with it.
-  const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId, opts);
+  const glJournalEntryId = await postCustomerInvoiceFinancialEffect(companyId, invoiceId, userId, parentControl, opts);
   log.info('Customer invoice GL posted on approve', { id: invoiceId, glJournalEntryId });
 
   // PRD-06 Phase 1: seal the rendered PDF as evidence on approve.
@@ -168,4 +169,9 @@ export async function approveCustomerInvoice(
   }
 
   return { id: invoiceId, status: 'approved', glJournalEntryId, evidenceDocumentId };
+}
+
+export async function approveCustomerInvoice(companyId:string,invoiceId:string,userId:string,opts?:PostingActorOpts&ArApprovalOptions):Promise<ApproveCustomerInvoiceResult>{
+ const parent={entityType:'customer_invoice',entityId:invoiceId,operation:'customer_invoice.post'} as const;
+ return runArControlled(companyId,userId,parent,opts,permit=>approveCustomerInvoiceEffect(companyId,invoiceId,userId,opts,{permit,parent}));
 }

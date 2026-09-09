@@ -1,3 +1,6 @@
+import {requireArControl} from './arControlBoundary';
+import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
+import {resolveArAccounts} from '../controls/arControlAccounts';
 /**
  * PRD-060: FibreFlow Accounting Module — Phase 3
  * Credit Note Service (Customer & Supplier) — reads and draft creation.
@@ -98,6 +101,9 @@ export async function createCreditNote(companyId: string,
   actor?: PostingActorOpts,
 ): Promise<CreditNote> {
   try {
+  const ctx=requireArControl(companyId,userId);
+  await assertEffectivePermission(ctx,'write:invoices');
+  const {ledgerCurrency}=await resolveArAccounts(ctx,[]);
     // The tenant + counterparty fence lives HERE, not in a caller. None of
     // client_id / supplier_id / customer_invoice_id / supplier_invoice_id
     // carries an (id, company_id) constraint and nothing below re-reads them,
@@ -125,7 +131,7 @@ export async function createCreditNote(companyId: string,
         company_id,
         type, client_id, customer_invoice_id, supplier_id, supplier_invoice_id,
         credit_date, reason, subtotal, tax_rate, tax_amount, total_amount,
-        project_id, created_by, actor_type, actor_token_jti
+        project_id, created_by, actor_type, actor_token_jti, currency_code
       ) VALUES (
         ${companyId}::UUID,
         ${input.type}, ${input.clientId || null}, ${input.customerInvoiceId || null},
@@ -134,7 +140,7 @@ export async function createCreditNote(companyId: string,
         ${input.creditDate}, ${input.reason || null},
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
         ${input.projectId || null}, ${userId}::UUID,
-        ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
+        ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}, ${ledgerCurrency}
       ) RETURNING *
     `) as Record<string, unknown>[];
 
