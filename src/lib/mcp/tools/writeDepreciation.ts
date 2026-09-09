@@ -132,6 +132,8 @@ export const runDepreciationTool: McpTool = {
         policy_depreciation: r.policyDep,
         tax_depreciation: r.taxDep,
         journal_entry_id: r.entryId,
+        gl_failed: r.glFailed,
+        ...(r.lifeExpiredNote === undefined ? {} : { life_expired: r.lifeExpiredNote }),
       })),
       skipped_assets: skipped,
     });

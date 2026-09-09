@@ -50,6 +50,7 @@ import {
   confirmReceiptMatch,
   validateBankReceiptApplication,
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
+import { isCallerSafeError } from '@/lib/lockTimeout';
 
 const Amount = z.union([z.number(), z.string()])
   .transform(v => Number(v))
@@ -69,10 +70,14 @@ const BodySchema = z.object({
  * True for an application-level refusal — a hand-thrown Error with no SQLSTATE
  * `code`. Driver errors always carry one and could leak schema names, so they
  * propagate to the 500 path instead of being handed to the caller.
+ *
+ * A typed row-lock timeout counts as a refusal too, even though it carries a
+ * `code`: it is hand-thrown, it says "retry in a moment", and it is raised in
+ * the PRE-write block where nothing has been written. Without this it was a
+ * 500, so routine 5s contention on an invoice row was logged as a server fault
+ * and the caller was never told to retry.
  */
-function isRefusal(err: unknown): err is Error {
-  return err instanceof Error && (err as { code?: unknown }).code === undefined;
-}
+const isRefusal = isCallerSafeError;
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {

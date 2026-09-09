@@ -35,10 +35,21 @@ describe('Reducing Balance Depreciation', () => {
     const result = calculateReducingBalance({ cost: 100000, salvageValue: 10000, usefulLifeYears: 5, monthsElapsed: 0 });
     expect(result.monthlyAmount).toBeCloseTo(3333.33, 0);
   });
-  it('reduces as book value decreases', () => {
-    const m1 = calculateReducingBalance({ cost: 100000, salvageValue: 10000, usefulLifeYears: 5, monthsElapsed: 0 });
-    const m2 = calculateReducingBalance({ cost: 100000, salvageValue: 10000, usefulLifeYears: 5, monthsElapsed: 1, accumulatedDepreciation: m1.monthlyAmount });
-    expect(m2.monthlyAmount).toBeLessThan(m1.monthlyAmount);
+  it('holds the rate for a whole year, then reduces as book value decreases', () => {
+    // K-029: the charge used to be recomputed off the running accumulated
+    // balance every month, which compounded 2/5 monthly and charged 33.4% of
+    // cost in year one rather than the 40% the rate states. The year's charge
+    // is now fixed by the year-opening carrying amount.
+    const args = { cost: 100000, salvageValue: 10000, usefulLifeYears: 5 };
+    const m1 = calculateReducingBalance({ ...args, monthsElapsed: 0 });
+    const m2 = calculateReducingBalance({ ...args, monthsElapsed: 1, accumulatedDepreciation: m1.monthlyAmount });
+    expect(m2.monthlyAmount).toBe(m1.monthlyAmount);
+    // Year one: 100 000 × 2/5 = 40 000 → 3 333.33 per month.
+    expect(m1.annualAmount).toBeCloseTo(40000, 2);
+    // Year two opens at 60 000: 60 000 × 2/5 = 24 000 → 2 000 per month.
+    const y2 = calculateReducingBalance({ ...args, monthsElapsed: 12 });
+    expect(y2.annualAmount).toBeCloseTo(24000, 2);
+    expect(y2.monthlyAmount).toBeLessThan(m1.monthlyAmount);
   });
   it('does not depreciate below salvage value', () => {
     const result = calculateReducingBalance({ cost: 100000, salvageValue: 10000, usefulLifeYears: 5, monthsElapsed: 120, accumulatedDepreciation: 89500 });
