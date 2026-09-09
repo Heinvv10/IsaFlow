@@ -43,8 +43,12 @@ export interface GuardableLine {
   vatCode?: string;
 }
 
-/** Why a claim was dropped. Distinct, because they are different statutes. */
-export type VatCoercionReason = 'input_tax_denied' | 'no_supply';
+/**
+ * Why a claim was dropped. Distinct, because they are different reasons: the
+ * first two are different statutes, and `settlement` is not a statute at all —
+ * the document this cash settles accounted for the VAT when it was raised.
+ */
+export type VatCoercionReason = 'input_tax_denied' | 'no_supply' | 'settlement';
 
 /** Present on a result only when a guard actually changed the code. */
 export interface VatCoercion {
@@ -116,8 +120,13 @@ export async function resolveLineVatCode(
     guardContext: { bankTxId: txId, ruleName: toolName },
   });
 
-  if (!guarded.denied && !guarded.nonSupplyCoerced) {
+  if (!guarded.denied && !guarded.nonSupplyCoerced && !guarded.settlementDropped) {
     // Byte-identical to before this guard existed, `undefined` included.
+    return { effectiveVatCode: line.vatCode };
+  }
+  // A settlement whose caller asked for nothing changed nothing — reporting a
+  // coercion from 'none' to 'none' would be noise on every supplier line.
+  if (guarded.settlementDropped && (line.vatCode ?? VAT_CODE_NONE) === VAT_CODE_NONE) {
     return { effectiveVatCode: line.vatCode };
   }
   return {
@@ -125,7 +134,8 @@ export async function resolveLineVatCode(
     vatCoerced: {
       from: line.vatCode ?? VAT_CODE_NONE,
       to: guarded.vatCode,
-      reason: guarded.denied ? 'input_tax_denied' : 'no_supply',
+      reason: guarded.denied ? 'input_tax_denied'
+        : guarded.nonSupplyCoerced ? 'no_supply' : 'settlement',
     },
   };
 }

@@ -22,6 +22,7 @@
  * line", never "skip the check".
  */
 
+import { log } from '@/lib/logger';
 import { applyVatDenial, resolveVatCodeForAccount } from './inputVatDenial';
 import { isControlAccountSettlement } from './settlementVat';
 import { applyNonSupplyGuard, resolveNonSupplyForAccount } from './nonSupplyVatGuard';
@@ -47,6 +48,12 @@ export interface RuleVatDecision {
   denied: boolean;
   /** No supply can arise on this account, so the claim was dropped. */
   nonSupplyCoerced: boolean;
+  /**
+   * The line settles a control account, so the claim was dropped (K-017).
+   * A THIRD outcome rather than a reuse of the two above: neither statute
+   * fired, and a caller counting denials must not count these among them.
+   */
+  settlementDropped: boolean;
 }
 
 export async function resolveRuleVatCode(input: RuleVatInput): Promise<RuleVatDecision> {
@@ -61,11 +68,22 @@ export async function resolveRuleVatCode(input: RuleVatInput): Promise<RuleVatDe
   // `allocateTransaction` applies the same predicate on the attended path.
   // Neither guard below applies: there is no contra account to judge.
   if (isControlAccountSettlement(allocType)) {
-    return { vatCode: 'none', denied: false, nonSupplyCoerced: false };
+    // Reported, not silent. The two statutory guards each log and each raise a
+    // counter; a third way for a requested code to vanish on an UNATTENDED path
+    // has to say so too, or the only evidence a rule is misconfigured is a
+    // journal nobody reads.
+    if (requestedVatCode !== 'none') {
+      log.info(
+        'VAT code dropped: allocation settles a control account, not a supply',
+        { companyId, allocType, requestedVatCode, ...guardContext },
+        'accounting',
+      );
+    }
+    return { vatCode: 'none', denied: false, nonSupplyCoerced: false, settlementDropped: true };
   }
 
   if (allocType !== 'account') {
-    return { vatCode: requestedVatCode, denied: false, nonSupplyCoerced: false };
+    return { vatCode: requestedVatCode, denied: false, nonSupplyCoerced: false, settlementDropped: false };
   }
 
   const canBatch = ruleGlAccountVatDenied !== undefined && ruleGlAccountName !== undefined;
@@ -73,22 +91,22 @@ export async function resolveRuleVatCode(input: RuleVatInput): Promise<RuleVatDe
   if (canBatch) {
     const denial = applyVatDenial(ruleGlAccountVatDenied, requestedVatCode, denialContext);
     if (denial.denied) {
-      return { vatCode: denial.vatCode, denied: true, nonSupplyCoerced: false };
+      return { vatCode: denial.vatCode, denied: true, nonSupplyCoerced: false, settlementDropped: false };
     }
     const guard = applyNonSupplyGuard(ruleGlAccountName ?? null, requestedVatCode, {
       companyId, ...guardContext,
     });
-    return { vatCode: guard.vatCode, denied: false, nonSupplyCoerced: guard.coerced };
+    return { vatCode: guard.vatCode, denied: false, nonSupplyCoerced: guard.coerced, settlementDropped: false };
   }
 
   const denial = await resolveVatCodeForAccount(
     companyId, glAccountId, requestedVatCode, denialContext,
   );
   if (denial.denied) {
-    return { vatCode: denial.vatCode, denied: true, nonSupplyCoerced: false };
+    return { vatCode: denial.vatCode, denied: true, nonSupplyCoerced: false, settlementDropped: false };
   }
   const guard = await resolveNonSupplyForAccount(
     companyId, glAccountId, requestedVatCode, guardContext,
   );
-  return { vatCode: guard.vatCode, denied: false, nonSupplyCoerced: guard.coerced };
+  return { vatCode: guard.vatCode, denied: false, nonSupplyCoerced: guard.coerced, settlementDropped: false };
 }
