@@ -160,3 +160,52 @@ re-declaration remain open there.
 on 2026-09-09: 0 customer invoices and 0 supplier invoices with `amount_paid > 0` carrying an
 `auto_migration` journal. Nothing was posted under the old shape, so there is no repair migration,
 no reversing journals and no VAT201 restatement. Detail and the query in `takeon-posting.md`.
+
+---
+
+# Follow-up 5: third blind review (`review-k015b.md`) — all 8 findings
+
+No finding disputed. Files: the four migration services, the two wizard pages, a new
+`src/components/accounting/migration/InvoiceImportResult.tsx`, both module `.claude.md` +
+mirrors, `takeon-posting.md`, plus tests. Evidence and per-mutation output in `green.log`
+("Round 3"). Integration 42 passed (was 38); components 4 passed; full unit suite 9426 passed
+with the fixture env unset; `tsc`, `eslint`, `agent-docs:check` clean. No migration.
+
+- **M1 — the concurrency claim was wrong. FIXED.** `uq_supplier_invoices_supplier_number` is in
+  the shared fixture DB only: it is K-107's migration 646, on an unmerged local branch and on no
+  origin ref (checked over `refs/remotes/origin` and every local branch). It is not in production,
+  so "AP has no unique constraint" was true of production and false of the fixture — the doc and
+  the code comment now say exactly that. The test asserts what only the lock produces: one
+  document, one entry, and a skip reported as `Already imported` with no `duplicate key` text.
+  Mutation M-A takes it red in both worlds.
+- **M2 — the residual accused a correct conversion. FIXED.** `recordClearingResidual` is now
+  `severity: 'warning'` and its message says a residual is *expected* when the whole trial balance
+  was balanced on Opening Balance Equity, before offering the double-count reading. The
+  assumption is stated in the function's own doc comment. Not made enforceable: which convention
+  the operator used is not knowable from the ledger.
+- **M3 — R-020 blocked summary-only migrations. FIXED.** A trial balance may carry an AR or AP
+  control total *instead of* the documents. `importOpeningBalances` accepts the control line when
+  the matching document step has not run and records it in `steps_completed`
+  (`opening_balances_ar_control` / `_ap_control`); `assertNoOpeningControlTotal` then refuses that
+  document step. Either order is blocked, one side at a time. Mutations M-B and M-C.
+- **M4 — the warning reached nobody. FIXED.** Warnings are persisted on the session alongside the
+  errors, marked `severity: 'warning'`, so they survive a reload. Both wizard pages render the new
+  `InvoiceImportResult`, which shows `imported` / `skipped` (the fields the service actually
+  returns — both pages printed `undefined` for `succeeded`/`failed`, a pre-existing defect fixed
+  here) plus every warning and error. Mutations M-E and M-F.
+- **L1 — every take-on file now needs `opening_balance_equity`. ACCEPTED, not changed.** The
+  reviewer recorded it as an accepted operational regression; it follows from the design memo, the
+  refusal is up front with the role named, and no partial writes occur. Tenants missing the role
+  must add it before the wizard's document steps — an onboarding step, not a code defect.
+- **L2 — module docs silent on the new rule. FIXED.** `core/.claude.md` and `ap/.claude.md` (and
+  their AGENTS.md mirrors) now carry a 2026-09-09 entry stating the take-on shape, the 5c
+  tolerance, the control-total interlock and the residual's assumption.
+- **L3 — the residual was company-wide. FIXED.** The query joins `migration_sessions` and counts
+  only entries posted at or after that session's `started_at`. Mutation M-D.
+- **L4 — a test title contradicted its assertion. FIXED.** The consistent-conversion test now
+  removes the control lines from the trial balance, as the procedure prescribes, and asserts the
+  clearing account nets to **zero** (the memo's test 6). The balanced-on-equity convention gets
+  its own test asserting the warning's wording.
+
+**Historical data.** Unchanged from follow-up 4: forward-only, nothing to repair. The R-020
+change only widens what the wizard accepts, and the residual is recorded, never enforced.

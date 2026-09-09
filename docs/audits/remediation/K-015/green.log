@@ -28,11 +28,10 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
        -> r001: 1 failed | 8 passed  ["records the clearing residual on the session ..."]
 
  T6. lockMigrationImport reduced to a no-op
-       -> r001: 1 failed | 9 passed  ["serialises two simultaneous imports of the same file
-          into one set of documents" — two rows instead of one]
-          NOTE: the first version of this test drove AR and passed WITHOUT the lock, because
-          the AR insert's ON CONFLICT already blocks on uq_customer_invoices_company_number.
-          Retargeted at AP, which has no unique constraint and is the only racy path.
+       -> WITHDRAWN as recorded. See round 3 below: the AP test kept passing without the lock
+          because the FIXTURE (not production, not master) carries
+          uq_supplier_invoices_supplier_number, which is K-107's unmerged migration 646
+          applied ad-hoc to the shared fixture DB. Corrected and re-proved in round 3.
 
 Earlier rounds' checks are in previous revisions of this file. All mutations restored;
 the run above is 38/38 green across four files.
@@ -75,3 +74,70 @@ bunx tsc --noEmit                      -> exit 0
 bunx eslint <the changed src/ files>   -> exit 0
 File sizes against the 300-line ceiling: migrationImportService 261, migrationService 227,
 migrationApService 187, migrationPostingSupport 114.
+
+
+# ============================================================================
+# Round 3 — blind review review-k015b.md (8 findings: 4 MEDIUM, 4 LOW), 2026-09-09
+# ============================================================================
+
+$ vitest run --config vitest.integration.config.ts \
+    tests/integration/r001-r002-r020-takeon-posting.int.test.ts \
+    tests/integration/k015-ap-migration-balance-due-column.int.test.ts \
+    tests/integration/k089-ar-migration-balance-due-column.int.test.ts \
+    tests/integration/k015-sage-import-duplicate-savepoint.int.test.ts
+  Test Files  4 passed (4)
+       Tests  42 passed (42)          [was 38 — four new take-on tests]
+
+$ vitest run --config vitest.components.config.ts tests/unit/components/invoiceImportResult.test.tsx
+  Test Files  1 passed (1)   Tests  4 passed (4)
+
+## The index the round-2 mutation was actually blocking on (MEDIUM 1)
+
+  git grep uq_supplier_invoices_supplier_number origin/master -- scripts/migrations/sql/  -> nothing
+  ... over every refs/remotes/origin ref                                                  -> nothing
+  ... over every local branch  -> fix/audit-k107-k120-k121-document-numbering ONLY (migration 646)
+
+So the index is in the shared fixture DB and in NO branch that has been pushed. It is not in
+production. `lockMigrationImport` is load-bearing there, and the test now asserts the outcome
+only the lock produces — "Already imported" from the fingerprint lookup, not a raw 23505.
+
+## Mutation checks — round 3 (each applied alone, then restored; files diffed back to identical)
+
+ M-A. lockMigrationImport -> no-op
+        -> 1 failed | 13 passed
+           "serialises two simultaneous imports..." :
+           AssertionError: expected 'duplicate key value violates unique c…' to contain
+           'Already imported'                       [MEDIUM 1 — now caught, was not before]
+ M-B. assertNoOpeningControlTotal -> early return
+        -> 2 failed | 12 passed
+           "lets a summary-only migration bring AR and AP in on the trial balance, then blocks
+            the documents" and "blocks only the side the trial balance carried":
+           promise resolved instead of rejecting     [MEDIUM 3]
+ M-C. importOpeningBalances: `if (steps[documentStep])` -> `if (false && ...)`
+        -> 1 failed | 13 passed
+           "refuses a control account in the trial balance once the documents are in"
+                                                     [MEDIUM 3, the other direction]
+ M-D. recordClearingResidual: `AND e.created_at >= s.started_at` removed
+        -> 1 failed | 13 passed
+           "does not count an earlier session's take-on into a later session's residual"
+                                                     [LOW 3]
+ M-E. InvoiceImportResult: warnings list rendered from `[]`
+        -> 1 failed | 3 passed (components config)
+           "shows an R-002 rounding warning next to the count"   [MEDIUM 4, browser side]
+ M-F. importARInvoices: warnings no longer merged into the session's errors bucket
+        -> 1 failed | 13 passed
+           "imports a cent of rounding with a warning and refuses half a rand":
+           expected [] to have a length of 1         [MEDIUM 4, persistence side]
+
+## Gates — round 3
+
+bunx tsc --noEmit                                          -> exit 0
+bunx eslint <4 changed services + 3 changed pages/component> -> exit 0
+bun run agent-docs:check                                   -> OK: 74 mirrors match
+Full unit suite, DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL / ISAFLOW_DISPOSABLE_AUTH_TEST unset:
+  `bunx vitest run --testTimeout=60000`
+  Test Files  792 passed | 36 skipped (828)
+       Tests  9426 passed | 234 skipped (9660)
+Full component suite: 61 files / 416 tests passed.
+File sizes against the 300-line ceiling: migrationImportService 284, migrationService 246,
+migrationApService 198, migrationPostingSupport 171, InvoiceImportResult 43.

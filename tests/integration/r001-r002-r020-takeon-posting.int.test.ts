@@ -76,6 +76,19 @@ const apRow = (over: Record<string, unknown> = {}) => ({
   ...over,
 }) as Parameters<typeof importAPInvoices>[2][number];
 
+/**
+ * A migration session of this test's own, inside the caller's transaction. The
+ * shared `sessionId` accumulates committed steps_completed flags from the one
+ * test that commits, and the control-total rules read that map.
+ */
+async function newSession(c: PoolClient): Promise<string> {
+  return (await c.query(
+    `INSERT INTO migration_sessions (company_id, source_system, started_by)
+     VALUES ($1, 'sage', $2) RETURNING id`,
+    [COMPANY, USER],
+  )).rows[0].id;
+}
+
 /** Net movement on a subtype across every posted line in the company. */
 async function net(c: PoolClient, subtype: string, dir: 'dr' | 'cr'): Promise<number> {
   const expr = dir === 'dr' ? 'l.debit - l.credit' : 'l.credit - l.debit';
@@ -113,6 +126,7 @@ describeIfDb('take-on posting for imported documents', () => {
     await acct('2200', 'VAT Input', 'asset', 'vat_input', 'debit');
     await acct('3100', 'Opening Balance Equity', 'equity', 'opening_balance_equity', 'credit');
     await acct('1000', 'Bank', 'asset', 'bank', 'debit');
+    await acct('3200', 'Retained Earnings', 'equity', 'retained_earnings', 'credit');
     clearSystemAccountCache();
 
     sessionId = ((await sql`
@@ -302,6 +316,17 @@ describeIfDb('take-on posting for imported documents', () => {
       expect(ok.warnings).toHaveLength(1);
       expect(ok.warnings![0]!.message).toContain('rounding difference');
 
+      // The warning survives the request: it is on the session, marked, next to
+      // the errors, or the operator never sees it after a reload. (A later run
+      // of the same step replaces the whole bucket, as it does for errors.)
+      const sessErrors = async () => (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0].errors as { message: string; severity?: string }[];
+      const persisted = (await sessErrors()).filter(e => e.severity === 'warning');
+      expect(persisted).toHaveLength(1);
+      expect(persisted[0]!.message).toContain('rounding difference');
+
       const bad = await run(c, () => importARInvoices(COMPANY, sessionId, [
         arRow({ invoiceNumber: `${TAG}-round-bad`, subtotal: 1000, taxAmount: 150, totalAmount: 1150.5 }),
       ], USER));
@@ -317,6 +342,7 @@ describeIfDb('take-on posting for imported documents', () => {
         [COMPANY, `${TAG}-round-%`],
       )).rows;
       expect(rows.map(r => r.invoice_number)).toEqual([`${TAG}-round-ok`]);
+
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
@@ -326,11 +352,18 @@ describeIfDb('take-on posting for imported documents', () => {
   it('serialises two simultaneous imports of the same file into one set of documents', async () => {
     // AP, deliberately. The AR insert names ON CONFLICT (company_id,
     // invoice_number) against uq_customer_invoices_company_number, so a second
-    // inserter already blocks on that index — AR was never the race. AP has no
-    // unique constraint at all (duplicate_fingerprint cannot carry one, see
-    // migration 625), so its idempotency is a bare read-then-write and two
-    // concurrent runs would each find nothing and both insert. These two
+    // inserter already blocks on that index — AR was never the race. AP's
+    // idempotency is a bare read-then-write on duplicate_fingerprint, which
+    // cannot carry a unique index (migration 625, withdrawn). These two
     // transactions overlap deliberately: B starts while A is still open.
+    //
+    // The fixture also carries uq_supplier_invoices_supplier_number, which is
+    // K-107's migration 646 and NOT in production. Where it is present it
+    // blocks B's INSERT too — with a 23505 that this row's savepoint reports as
+    // a raw Postgres message. So the assertions below are on the OUTCOME the
+    // lock alone produces: one document, and a skip explained in the wizard's
+    // own words. Without the lock the test goes red either way — two rows
+    // where the index is absent, a duplicate-key message where it is present.
     const a = await pool.connect();
     const b = await pool.connect();
     const number = `${TAG}-race`;
@@ -356,9 +389,13 @@ describeIfDb('take-on posting for imported documents', () => {
       await a.query('COMMIT');
       const resultB = await rowB;
 
-      // B now sees A's row and skips it.
+      // B now sees A's row and skips it — reported by the fingerprint lookup,
+      // not by a constraint violation leaking out of the savepoint.
       expect(resultB.imported).toBe(0);
       expect(resultB.skipped).toBe(1);
+      expect(resultB.errors).toHaveLength(1);
+      expect(resultB.errors[0]!.message).toContain('Already imported');
+      expect(resultB.errors[0]!.message).not.toContain('duplicate key');
       await b.query('COMMIT');
 
       const rows = (await sql`
@@ -387,25 +424,102 @@ describeIfDb('take-on posting for imported documents', () => {
     }
   }, 60000);
 
-  it('refuses an opening trial balance that carries a control account', async () => {
+  it('refuses a control account in the trial balance once the documents are in', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      await expect(run(c, () => importOpeningBalances(COMPANY, sessionId, '2026-06-30', [
+      const session = await newSession(c);
+      // The AR and AP document steps have run: the control totals are already
+      // in the ledger one line per document, so the trial balance may not carry
+      // them as well.
+      await run(c, () => importARInvoices(COMPANY, session, [
+        arRow({ invoiceNumber: `${TAG}-r020-ar`, amountPaid: 0 }),
+      ], USER));
+      await run(c, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-r020-ap`, amountPaid: 0 }),
+      ], USER));
+
+      await expect(run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
         { accountCode: '1100', debit: 5000, credit: 0 },
         { accountCode: '3100', debit: 0, credit: 5000 },
       ], USER))).rejects.toThrow(/receivable control account/);
 
-      await expect(run(c, () => importOpeningBalances(COMPANY, sessionId, '2026-06-30', [
+      await expect(run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
         { accountCode: '2100', debit: 0, credit: 5000 },
         { accountCode: '3100', debit: 5000, credit: 0 },
       ], USER))).rejects.toThrow(/payable control account/);
 
+      // Neither refusal wrote an opening-balance line.
       const lines = (await c.query(
-        `SELECT COUNT(*)::INT AS n FROM gl_journal_lines WHERE company_id = $1`,
+        `SELECT COUNT(*)::INT AS n FROM gl_journal_lines l
+           JOIN gl_journal_entries e ON e.id = l.journal_entry_id
+          WHERE l.company_id = $1 AND e.description LIKE 'Opening balances%'`,
         [COMPANY],
       )).rows[0];
       expect(lines.n).toBe(0);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('lets a summary-only migration bring AR and AP in on the trial balance, then blocks the documents', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const session = await newSession(c);
+      // No document steps yet. A tenant with no invoice-level detail brings the
+      // control totals in on the trial balance — the only route it has.
+      const { journalEntryId } = await run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '1100', debit: 5000, credit: 0 },
+        { accountCode: '2100', debit: 0, credit: 2000 },
+        { accountCode: '3100', debit: 0, credit: 3000 },
+      ], USER));
+      expect(journalEntryId).toBeTruthy();
+      expect(await net(c, 'receivable', 'dr')).toBe(5000);
+      expect(await net(c, 'payable', 'cr')).toBe(2000);
+
+      // Having taken the control totals, the document steps must refuse: they
+      // would post the same money a second time.
+      await expect(run(c, () => importARInvoices(COMPANY, session, [
+        arRow({ invoiceNumber: `${TAG}-summary-ar` }),
+      ], USER))).rejects.toThrow(/already carries an accounts receivable control total/);
+      await expect(run(c, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-summary-ap` }),
+      ], USER))).rejects.toThrow(/already carries an accounts payable control total/);
+
+      const docs = (await c.query(
+        `SELECT (SELECT COUNT(*)::INT FROM customer_invoices WHERE company_id = $1) AS ar,
+                (SELECT COUNT(*)::INT FROM supplier_invoices WHERE company_id = $1) AS ap`,
+        [COMPANY],
+      )).rows[0];
+      expect(docs.ar).toBe(0);
+      expect(docs.ap).toBe(0);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('blocks only the side the trial balance carried', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const session = await newSession(c);
+      await run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '2100', debit: 0, credit: 2000 },
+        { accountCode: '3100', debit: 2000, credit: 0 },
+      ], USER));
+
+      await expect(run(c, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-oneside-ap` }),
+      ], USER))).rejects.toThrow(/accounts payable control total/);
+
+      // AR was never in the trial balance, so its documents still import.
+      const ar = await run(c, () => importARInvoices(COMPANY, session, [
+        arRow({ invoiceNumber: `${TAG}-oneside-ar`, amountPaid: 0 }),
+      ], USER));
+      expect(ar.imported).toBe(1);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
@@ -432,7 +546,8 @@ describeIfDb('take-on posting for imported documents', () => {
       const residual = sess.errors.find((e: { step: string }) => e.step === 'complete');
       expect(residual).toBeTruthy();
       expect(residual.message).toContain('1150.00');
-      expect(residual.message).toContain('does not net to zero');
+      expect(residual.message).toContain('Opening Balance Equity holds');
+      expect(residual.severity).toBe('warning');
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
@@ -468,34 +583,111 @@ describeIfDb('take-on posting for imported documents', () => {
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      // A trial balance with no control lines: bank, against the clearing
-      // account. Then the documents bring in their own outstanding balances.
+      // The prescribed procedure: take the source trial balance, REMOVE its AR
+      // and AP control lines, and let opening balance equity absorb what that
+      // removal leaves — here AR 1150 out, AP 575 in, so 575 debit.
       await run(c, () => importOpeningBalances(COMPANY, sessionId, '2026-06-30', [
         { accountCode: '1000', debit: 2500, credit: 0 },
-        { accountCode: '3100', debit: 0, credit: 2500 },
+        { accountCode: '3100', debit: 575, credit: 0 },
+        { accountCode: '3200', debit: 0, credit: 3075 },
       ], USER));
       await run(c, () => importARInvoices(COMPANY, sessionId, [
         arRow({ invoiceNumber: `${TAG}-bal-ar`, amountPaid: 0, subtotal: 1000, taxAmount: 150, totalAmount: 1150 }),
       ], USER));
       await run(c, () => importAPInvoices(COMPANY, sessionId, [
-        apRow({ invoiceNumber: `${TAG}-bal-ap`, amountPaid: 0, subtotal: 1000, taxAmount: 150, totalAmount: 1150 }),
+        apRow({ invoiceNumber: `${TAG}-bal-ap`, amountPaid: 0, subtotal: 500, taxAmount: 75, totalAmount: 575 }),
       ], USER));
 
-      // Bank 2500 DR against equity; AR 1150 DR against equity; AP 1150 CR
-      // against equity. The equity residual is what the trial balance did not
-      // account for — here, the bank.
       expect(await net(c, 'receivable', 'dr')).toBe(1150);
-      expect(await net(c, 'payable', 'cr')).toBe(1150);
-      expect(await net(c, 'opening_balance_equity', 'cr')).toBe(2500);
+      expect(await net(c, 'payable', 'cr')).toBe(575);
+      // The memo's test 6: the clearing account nets to zero.
+      expect(await net(c, 'opening_balance_equity', 'dr')).toBe(0);
 
-      // With the documents' contras cancelling each other, the residual is the
-      // trial balance's own, exactly as posted — nothing double-counted.
       const totals = (await c.query(
         `SELECT COALESCE(SUM(debit), 0) AS dr, COALESCE(SUM(credit), 0) AS cr
            FROM gl_journal_lines WHERE company_id = $1`,
         [COMPANY],
       )).rows[0];
       expect(Number(totals.dr)).toBe(Number(totals.cr));
+
+      // And nothing is recorded on the session.
+      await run(c, () => completeSession(sessionId, COMPANY));
+      const sess = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      expect(sess.errors.some((e: { step: string }) => e.step === 'complete')).toBe(false);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('says the residual is the trial balance plug rather than accusing the operator', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      // The other common convention: the whole trial balance balanced ON opening
+      // balance equity. The documents' contras cancel, so the residual is the
+      // rest of the trial balance and nothing is double-counted.
+      await run(c, () => importOpeningBalances(COMPANY, sessionId, '2026-06-30', [
+        { accountCode: '1000', debit: 2500, credit: 0 },
+        { accountCode: '3100', debit: 0, credit: 2500 },
+      ], USER));
+      await run(c, () => importARInvoices(COMPANY, sessionId, [
+        arRow({ invoiceNumber: `${TAG}-plug-ar`, amountPaid: 0 }),
+      ], USER));
+      await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        apRow({ invoiceNumber: `${TAG}-plug-ap`, amountPaid: 0 }),
+      ], USER));
+
+      await run(c, () => completeSession(sessionId, COMPANY));
+      const sess = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      const residual = sess.errors.find((e: { step: string }) => e.step === 'complete');
+      expect(residual).toBeTruthy();
+      expect(residual.severity).toBe('warning');
+      expect(residual.message).toContain('-2500.00');
+      expect(residual.message).toContain('expected if you balanced the opening trial balance');
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('does not count an earlier session\'s take-on into a later session\'s residual', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await run(c, () => importARInvoices(COMPANY, sessionId, [
+        arRow({ invoiceNumber: `${TAG}-scope`, amountPaid: 0 }),
+      ], USER));
+
+      // Two more sessions over the SAME contras: one that began before they
+      // were posted, one that began after.
+      const mkSession = async (offset: string): Promise<string> => (await c.query(
+        `INSERT INTO migration_sessions (company_id, source_system, started_by, started_at)
+         VALUES ($1, 'sage', $2, clock_timestamp() + $3::INTERVAL) RETURNING id`,
+        [COMPANY, USER, offset],
+      )).rows[0].id;
+
+      const earlier = await mkSession('-1 hour');
+      const later = await mkSession('1 second');
+
+      await run(c, () => completeSession(earlier, COMPANY));
+      await run(c, () => completeSession(later, COMPANY));
+
+      const errorsFor = async (id: string) => (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [id, COMPANY],
+      )).rows[0].errors as { step: string }[];
+
+      // The session that was running when they were posted owns them.
+      expect((await errorsFor(earlier)).some(e => e.step === 'complete')).toBe(true);
+      // The one that started afterwards does not.
+      expect((await errorsFor(later)).some(e => e.step === 'complete')).toBe(false);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();

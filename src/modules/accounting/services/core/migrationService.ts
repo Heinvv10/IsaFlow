@@ -41,6 +41,12 @@ export interface MigrationError {
   row?: number;
   field?: string;
   message: string;
+  /**
+   * `warning` is a row that DID import, with something the operator should look
+   * at. Absent means an error, so every entry written before this field existed
+   * reads as one.
+   */
+  severity?: 'error' | 'warning';
 }
 
 export interface ImportResult {
@@ -175,16 +181,26 @@ export async function updateSession(
 }
 
 /**
- * R-020. Opening balance equity is a clearing account: the trial balance puts
- * the opening figures in, the take-on documents put their contras in, and once
- * the wizard is complete the two sides cancel. A residual means the trial
- * balance and the documents disagree — most often a control total left in the
- * trial balance, or a document list that does not match it.
+ * R-020. Opening balance equity is the wizard's clearing account. The procedure
+ * the wizard prescribes is: take the source system's trial balance, REMOVE its
+ * AR and AP control lines, and let opening balance equity absorb the difference
+ * that removal leaves. The document steps then post the other side of exactly
+ * that difference, one line per outstanding document, and the account nets to
+ * zero.
+ *
+ * ASSUMPTION, and it is not enforceable from here: opening balance equity
+ * carries nothing but that difference. An operator who instead balances the
+ * WHOLE trial balance on opening balance equity — the other common convention —
+ * ends with a residual equal to the rest of the trial balance, and that is not
+ * an error. The message says so rather than accusing them of a double count.
+ *
+ * Scoped to this session: the query counts only entries posted since the session
+ * started, so a company that runs the wizard a second time is not handed the
+ * first run's contras.
  *
  * Recorded, not enforced. The wizard is finished at this point and refusing to
  * mark it complete would strand the operator with imported data and no way
- * forward. The residual is written to the session's errors so it is visible
- * where every other migration problem is.
+ * forward.
  */
 async function recordClearingResidual(sessionId: string, companyId: string): Promise<void> {
   const rows = (await sql`
@@ -192,10 +208,12 @@ async function recordClearingResidual(sessionId: string, companyId: string): Pro
     FROM gl_journal_lines l
     JOIN gl_accounts a ON a.id = l.gl_account_id AND a.company_id = ${companyId}::UUID
     JOIN gl_journal_entries e ON e.id = l.journal_entry_id AND e.company_id = ${companyId}::UUID
+    JOIN migration_sessions s ON s.id = ${sessionId}::UUID AND s.company_id = ${companyId}::UUID
     WHERE l.company_id = ${companyId}::UUID
       AND a.account_subtype = 'opening_balance_equity'
       AND e.status = 'posted'
       AND e.source = 'auto_migration'
+      AND e.created_at >= s.started_at
   `) as DbRow[];
   const residual = Number(rows[0]?.residual ?? 0);
   if (Math.abs(residual) <= 0.005) return;
@@ -206,7 +224,8 @@ async function recordClearingResidual(sessionId: string, companyId: string): Pro
   await updateSession(sessionId, companyId, {
     errors: [{
       step: 'complete',
-      message: `Opening Balance Equity does not net to zero after take-on: ${residual.toFixed(2)} remains. The opening trial balance and the imported documents disagree — usually a receivable or payable control total left in the trial balance, or an invoice list that does not match it.`,
+      severity: 'warning',
+      message: `Opening Balance Equity holds ${residual.toFixed(2)} after take-on. That is expected if you balanced the opening trial balance on Opening Balance Equity, and the amount should then equal the rest of that trial balance. If you did not, the trial balance and the imported documents disagree — usually a receivable or payable control total left in the trial balance, or an invoice list that does not match it.`,
     }],
   });
 }
