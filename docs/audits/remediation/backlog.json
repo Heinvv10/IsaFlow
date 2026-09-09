@@ -2120,9 +2120,10 @@
       ],
       "evidencePaths": [
         "K-058/red.log",
-        "K-058/validation.md"
+        "K-058/validation.md",
+        "docs/audits/remediation/K-058/ci.log"
       ],
-      "fixCommit": "0c1e5723",
+      "fixCommit": "18b1b738",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
