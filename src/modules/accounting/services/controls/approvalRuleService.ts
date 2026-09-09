@@ -37,7 +37,7 @@ export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: st
 }
 
 /** Lock active policy population; unsupported conditions always fail closed. */
-export async function loadApprovalRules(ctx: ControlTx, documentType: 'payment' | 'supplier_invoice'): Promise<ApprovalRuleRow[]> {
+export async function loadApprovalRules(ctx: ControlTx, documentType: 'payment' | 'supplier_invoice' | 'journal_entry'): Promise<ApprovalRuleRow[]> {
   assertControlTx(ctx);
   const rows = await ctx.sql`
     SELECT id,document_type,condition_field,condition_operator,condition_value::text,

@@ -62,8 +62,10 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
         AND binding_hash=${material.bindingHash}
     `;
     if (prior.length) throw new Error('Operation effect already committed');
+    const accountingDate=material.binding.accountingDate;
+    if (!accountingDate) throw new Error('Financial operation accounting date is required');
     await initializeOperationObservations(ctx, material);
-    const permit = Object.freeze({ operationId, accountingDate: material.binding.accountingDate, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId });
+    const permit = Object.freeze({ operationId, accountingDate, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId });
     permits.set(permit, ctx); executing.add(ctx.principal);
     let result: T;
     try { result = await effect(permit); } finally { permits.delete(permit); executing.delete(ctx.principal); }
@@ -75,7 +77,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     `;
     await reserveOperationExposure(ctx, material, row?.id ?? null, 'committed');
     const { recordCommittedChange } = await import('./changeEventService');
-    const after = await materializeOperation(ctx, ref.operation === 'journal.reverse' ? {...ref,reversalDate:material.binding.accountingDate} : ref);
+    const after = await materializeOperation(ctx, ref.operation === 'journal.reverse' ? {...ref,reversalDate:accountingDate} : ref);
     const parent = (sources: typeof after.observedSources) => sources.find(source => source.entityType === ref.entityType && source.entityId === ref.entityId)!.facts;
     await recordCommittedChange(ctx, { entityType: ref.entityType, entityId: ref.entityId,
       previousVersion: material.binding.entityVersion, newVersion: material.binding.entityVersion + 1,
