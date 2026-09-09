@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { fetchVatDenialFlags } from '../gl/inputVatDenial';
 import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
+import { fetchBankContraFlags } from '../gl/bankContraVat';
 import type { RuleApplyResult } from '../../types/bank.types';
 import {
   toSqlPattern, findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
@@ -171,12 +172,17 @@ export async function applyRules(
     const ruleAccountIds = autoCreateRules
       .map((r) => (r.gl_account_id ? String(r.gl_account_id) : ''))
       .filter(Boolean);
-    const [ruleAccountVatDenied, ruleAccountNames] = await Promise.all([
+    const [ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank] = await Promise.all([
       fetchVatDenialFlags(companyId, ruleAccountIds),
       // The non-supply guard classifies on account NAME, so the batched branch
       // needs these for the same reason and on the same one-query-per-sweep
       // budget as the denial flags beside them.
       fetchAccountNames(companyId, ruleAccountIds),
+      // A transfer rule stores its counterparty BANK in gl_account_id and so
+      // arrives as an ordinary `account` line. The name guard cannot see that
+      // — "FNB Cheque Account" reads like any other — so the subtype comes
+      // along on the same budget.
+      fetchBankContraFlags(companyId, ruleAccountIds),
     ]);
 
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
@@ -250,6 +256,13 @@ export async function applyRules(
             // want when the sweep DID resolve it and the account has no name.
             ruleGlAccountName: ruleGlAccountId
               ? ruleAccountNames.get(ruleGlAccountId) ?? null : null,
+            // No `?? false`. `bankContraVat` states that absent from the map
+            // means "not asked about", never "not a bank", and coalescing here
+            // would skip the guard instead of falling back to the per-line
+            // lookup — the same reason `ruleGlAccountName` above uses `?? null`
+            // for its OWN meaning of absent rather than borrowing this one.
+            ruleGlAccountIsBank: ruleGlAccountId
+              ? ruleAccountIsBank.get(ruleGlAccountId) : false,
             bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
             supplierName, supplierId: ruleSupplierId ?? null, customerName,
           }));
