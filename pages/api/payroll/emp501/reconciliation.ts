@@ -12,6 +12,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest }
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 
 type Row = DbRow;
 
@@ -49,6 +50,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
   const { companyId } = req as CompanyAuthedRequest;
   const taxYear = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
+  // Same status set as the EMP201 report and the IRP5/EMP501 exports this
+  // reconciles — 'posted' is not an admissible status and 'calculated' has no
+  // journal in the general ledger.
+  const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
   // EMP201 declared PAYE per period from run headers
   const headerRows = (await sql`
@@ -58,7 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       COALESCE(total_paye, 0) AS emp201_paye
     FROM payroll_run_headers
     WHERE company_id = ${companyId}::uuid
-      AND status IN ('approved', 'posted', 'calculated')
+      AND status = ANY(${declarableStatuses}::text[])
       AND (
         (period_year = ${taxYear - 1} AND period_month >= 3)
         OR
@@ -76,7 +81,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     WHERE prh.company_id = ${companyId}::uuid
-      AND prh.status IN ('approved', 'posted', 'calculated')
+      AND prh.status = ANY(${declarableStatuses}::text[])
       AND (
         (prh.period_year = ${taxYear - 1} AND prh.period_month >= 3)
         OR
