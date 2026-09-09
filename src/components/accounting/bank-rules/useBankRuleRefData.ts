@@ -15,6 +15,12 @@ export interface RefAccount {
   defaultVatCode?: string;
   /** VAT Act s17(2)(a): input tax on this account is denied (entertainment). */
   vatInputDenied?: boolean;
+  /**
+   * `bank` means a rule pointing here moves money between the company's own
+   * accounts. The form needs it because no NAME classifier can tell: "FNB
+   * Cheque Account" reads like any other account.
+   */
+  accountSubtype?: string;
 }
 
 export interface RefBankAccount {
@@ -83,6 +89,7 @@ export function useBankRuleRefData(): BankRuleRefData {
         accountName: String(a.accountName || a.account_name || ''),
         defaultVatCode: String(a.defaultVatCode || a.default_vat_code || 'none'),
         vatInputDenied: Boolean(a.vatInputDenied ?? a.vat_input_denied),
+        accountSubtype: String(a.accountSubtype || a.account_subtype || ''),
       })));
     }, pushErr);
 
