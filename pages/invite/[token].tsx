@@ -31,6 +31,11 @@ const ROLE_LABELS: Record<string, string> = {
 export default function InvitePage() {
   const router = useRouter();
   const { token } = router.query as { token?: string };
+  // Set only by /accept-invite's WRONG_INVITE_FLOW forward, which is the one
+  // place that knows this token cannot be accepted there. Propagated so the
+  // signup CTA below opts out of /register's bounce back to /accept-invite;
+  // an invitation reached from an email directly keeps the old routing.
+  const wrongFlow = router.query.signup === '1' ? '&signup=1' : '';
 
   const [pageState, setPageState] = useState<PageState>('loading');
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
@@ -216,14 +221,14 @@ export default function InvitePage() {
                 /* Not logged in — two CTAs */
                 <>
                   <Link
-                    href={`/login?invite=${token}`}
+                    href={`/login?invite=${token}${wrongFlow}`}
                     className="w-full flex items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-3 text-sm font-medium text-white hover:bg-teal-500 transition-colors"
                   >
                     <LogIn className="h-4 w-4" />
                     Sign In to Accept
                   </Link>
                   <Link
-                    href={`/register?invite=${token}`}
+                    href={`/register?invite=${token}${wrongFlow}`}
                     className="w-full flex items-center justify-center gap-2 rounded-lg border border-slate-300 dark:border-gray-600 px-4 py-3 text-sm font-medium text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-gray-800 hover:text-slate-900 dark:hover:text-white transition-colors"
                   >
                     <UserPlus className="h-4 w-4" />

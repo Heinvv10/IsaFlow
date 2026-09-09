@@ -112,11 +112,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.forbidden(res, 'This invitation was sent to a different email address');
   }
 
-  // Insert into company_users
+  // Insert into company_users.
+  // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
+  // invitation row when the same address is re-invited, so an existing member
+  // kept their old role while the invitation claimed the new one. Same fix as
+  // pages/api/invitations/[token]/accept.ts — both routes accept the same rows.
   await sql`
     INSERT INTO company_users (company_id, user_id, role)
     VALUES (${inv.company_id}::UUID, ${userId}::UUID, ${inv.role})
-    ON CONFLICT (company_id, user_id) DO NOTHING
+    ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role
   `;
 
   // Mark invitation accepted

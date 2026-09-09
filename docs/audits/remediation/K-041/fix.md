@@ -49,6 +49,18 @@ the GoTrue calls run before `BEGIN` (L2); and the membership insert uses
 `ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role`, so re-inviting an
 existing member at a new role actually changes it (L6).
 
+**Round-2 follow-ups.** The ten-character floor now applies only to a brand-new invitee: for an
+established account the typed password is proof of ownership, and applying a rule about SETTING a
+password locked out anyone provisioned before the floor existed (r2 L5). The attempt counter runs
+via `als.exit` on the module pool, so a GoTrue outage no longer un-counts the attempt with the
+invite-token ROLLBACK (r2 L3), and it is charged after the 410 so an invented token cannot mint a
+`rate_limit_counters` row (r2 L4). `pages/api/invite/[token].ts` got the same `DO UPDATE` as this
+route (r2 M2).
+
 **Limits.** A legitimate invitee who genuinely forgets their password gets ten tries an hour
-against this endpoint and must then use password reset. Full per-finding dispositions are in
-`docs/audits/remediation/R-030/fix.md`.
+against this endpoint and must then use password reset. A brand-new invitee on the
+`userInvitationService` flow can now reach the signup form (r2 M1), but `SignupForm` has no
+invitation handling of its own: registering creates that person's own tenant, and they join the
+inviting company by reopening the emailed `/invite/<token>` link once signed in. That is the
+pre-existing shape of that flow, not something this branch changed. Full per-finding dispositions,
+both rounds, are in `docs/audits/remediation/R-030/fix.md`.

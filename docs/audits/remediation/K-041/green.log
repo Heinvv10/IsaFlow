@@ -38,3 +38,50 @@ $ env -u DATABASE_URL bunx vitest run tests/unit/services/bank/bankAllocationUnw
 $ bunx tsc --noEmit                                              -> exit 0
 $ bunx eslint pages/api/invitations/index.ts \
     'pages/api/invitations/[token]/accept.ts'                    -> exit 0
+
+================================================================================
+ROUND 3 — fixing the eight open findings of review-k041-r2.md (74a1e7c4)
+================================================================================
+
+Fixture: disposable PostgreSQL, production schema. Migrations 643, 648 already
+applied; 655 applied on top (and re-applied once — idempotent, "IDEMPOTENT OK").
+
+  postgres=# select proname, rolname, prosecdef, proconfig, proacl ...
+  invite_token_company_name | migration_admin | t | {"search_path=pg_catalog, public"}
+                            | {migration_admin=X/migration_admin,app_user=X/migration_admin}
+
+GREEN (bun run test:integration):
+  k-041-invite-accept-overwrites-existing-password.int.test.ts   10 passed
+  k-041-invite-page-reinvite-role.int.test.ts                     2 passed  (new)
+  k-042-reinvite-unique-violation.int.test.ts                     — (in the 5-file run)
+  k104-k105-invitation-token-encoding.int.test.ts                 7 passed
+  k106-invitation-502-rollback.int.test.ts                        — (in the 5-file run)
+  five files together                                            23 passed / 23
+
+GREEN (bunx vitest run --config vitest.components.config.ts):
+  tests/unit/components/inviteSignupLoop.test.tsx                 5 passed  (new)
+
+MUTATION PROOF (production change reverted, suite re-run, then restored):
+  | mutation                                                    | result           |
+  |-------------------------------------------------------------|------------------|
+  | L5: ten-char floor back at the top of accept.ts              | 1 failed — killed|
+  | L5: !isEstablished floor removed entirely                    | 1 failed — killed|
+  | L4: checkRateLimit moved back above the step-1 lookup        | 1 failed — killed|
+  | L3: als.exit dropped (counter rejoins the invite tx)         | 1 failed — killed|
+  | M2: DO UPDATE -> DO NOTHING in pages/api/invite/[token].ts   | 2 failed — killed|
+  | M1: register.tsx ignores signup=1                            | 1 failed — killed|
+  | M1: accept-invite drops ?signup=1 from the 409 forward       | 1 failed — killed|
+  | M1: /invite/[token].tsx stops propagating the flag           | 1 failed — killed|
+  | DB: re-apply 648 over 655 (search_path back to public first) | 1 failed — killed|
+  | L1: `if (opened)` -> unconditional ROLLBACK                  | still green — NOT covered, disclosed in R-030/fix.md |
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u MIGRATION_ADMIN_DATABASE_URL bunx vitest run):
+  Test Files  792 passed | 36 skipped (828)
+  Tests       9438 passed | 234 skipped (9672)
+COMPONENTS CONFIG, full: 62 files / 421 passed.
+
+GATES: bunx tsc --noEmit exit 0. bunx eslint on the six changed pages/ files exit 0.
+  check-migration-rls OK. check-raw-transaction-control OK (2679 files).
+  audit-migration-naming: 341 files, no new duplicate prefixes.
+  mirror-agent-docs --check: 74 mirrors match.

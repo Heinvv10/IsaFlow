@@ -215,3 +215,31 @@ it('H1: a userInvitationService invitation is sent to its own flow, not this one
     code: (result.state.body as { error?: { code?: string } }).error?.code,
   }).toEqual({ status: 410, code: 'INVALID_OR_EXPIRED' });
 });
+
+it('round-2 L2: the SECURITY DEFINER function pins pg_catalog first and is not owned by a superuser', async () => {
+  const meta = await pool.query<{ owner: string; superuser: boolean; config: string[] | null }>(
+    `SELECT r.rolname AS owner, r.rolsuper AS superuser, p.proconfig AS config
+     FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+     WHERE p.proname = 'invite_token_company_name'`);
+
+  // The body qualifies its tables but not now(), current_setting() or its
+  // operators. With `public` ahead of the catalog, any role holding CREATE on
+  // public could shadow one of those and have it executed with the definer's
+  // rights — and 648 created the function as `postgres`, so those rights were
+  // a superuser's. Migration 655 pins the catalog and hands ownership to
+  // migration_admin, whose rolbypassrls is the only privilege the body needs.
+  expect(meta.rows).toEqual([
+    { owner: 'migration_admin', superuser: false, config: ['search_path=pg_catalog, public'] },
+  ]);
+});
+
+it('round-2 L2 adjacent: hardening the function did not break what it answers', async () => {
+  const answered = await inviteSession(freshToken, async (c) =>
+    (await c.query<{ name: string | null }>('SELECT invite_token_company_name() AS name')).rows[0]!.name);
+  const expired = await inviteSession(expiredToken, async (c) =>
+    (await c.query<{ name: string | null }>('SELECT invite_token_company_name() AS name')).rows[0]!.name);
+
+  // Still reads through FORCE RLS on `companies` for the session's own digest,
+  // and still says nothing about an invitation that is no longer live.
+  expect({ answered, expired }).toEqual({ answered: 'K104 fixture', expired: null });
+});

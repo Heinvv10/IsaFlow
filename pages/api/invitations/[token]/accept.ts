@@ -6,6 +6,7 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
+import { als } from '@/lib/als';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -33,27 +34,13 @@ const handler: NextApiHandler = async (req, res) => {
   }
   const tokenHash = (req as InviteTokenRequest).inviteTokenHash;
   const { password, firstName, lastName } = req.body ?? {};
-  if (typeof password !== 'string' || password.length < 10) {
-    return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
-  }
-
-  // For an address that already has a login, step 3 below turns this endpoint
-  // into a password oracle: 401 and 200 tell a guess apart. The token is only
-  // ever mailed to the address it authenticates, so the prober is the mailbox
-  // owner — but the invitation is a single acceptance, and nothing legitimate
-  // needs more than a handful of tries. Keyed on the digest, never the raw
-  // token, so the rate-limit table holds no usable invitation secret.
-  // Charged above 1 deliberately: checkRateLimit short-circuits on its
-  // in-process LRU while a key sits below half its limit, which under-counts
-  // precisely the burst a guesser produces, and a cost above 1 is documented to
-  // always fall through to the authoritative shared counter. Ten attempts an
-  // hour, counted exactly and across pods.
-  const ATTEMPT_COST = 2;
-  const ATTEMPTS_PER_HOUR = 10;
-  if (!(await checkRateLimit(`invite-accept:${tokenHash}`, {
-    max: ATTEMPTS_PER_HOUR * ATTEMPT_COST, windowSecs: 3600, cost: ATTEMPT_COST,
-  }))) {
-    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
+  // Presence only here. The 10-character floor is a rule about a password being
+  // SET, and step 2 below may find that this address already HAS a login, in
+  // which case the typed password is proof of ownership of whatever that
+  // account was provisioned with. Enforcing the floor up front locked such a
+  // person out of the invitation behind a message about a new password.
+  if (typeof password !== 'string' || password.length === 0) {
+    return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password is required' } });
   }
 
   // 1. Look up invitation (RLS policy invites_by_token permits this)
@@ -77,6 +64,39 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(410).json({ success: false, error: { code: 'INVALID_OR_EXPIRED', message: 'Invitation not found, expired, or already accepted' } });
   }
   const inv = rows[0]!;
+
+  // For an address that already has a login, step 3 below turns this endpoint
+  // into a password oracle: 401 and 200 tell a guess apart. The token is only
+  // ever mailed to the address it authenticates, so the prober is the mailbox
+  // owner — but the invitation is a single acceptance, and nothing legitimate
+  // needs more than a handful of tries. Keyed on the digest, never the raw
+  // token, so the rate-limit table holds no usable invitation secret.
+  // Charged above 1 deliberately: checkRateLimit short-circuits on its
+  // in-process LRU while a key sits below half its limit, which under-counts
+  // precisely the burst a guesser produces, and a cost above 1 is documented to
+  // always fall through to the authoritative shared counter. Ten attempts an
+  // hour, counted exactly and across pods.
+  //
+  // Placed AFTER the 410, not before it: the key is derived from a caller-chosen
+  // URL segment, so charging it ahead of the lookup let an unauthenticated
+  // caller insert a rate_limit_counters row per invented token. The lookup is
+  // what proves the key names a real invitation, and this still precedes every
+  // GoTrue call, which is what the cap exists to bound.
+  //
+  // als.exit: checkRateLimit goes through `sql`, which routes onto the
+  // invite-token transaction whenever one is in flight. Any thrown path below
+  // (a GoTrue outage) ROLLBACKs that transaction and would discard the attempt
+  // with it, and the counter would also hold this key's row lock across two
+  // GoTrue round-trips. Run it on the module pool so the count survives.
+  const ATTEMPT_COST = 2;
+  const ATTEMPTS_PER_HOUR = 10;
+  const admitted = await als.exit(() => checkRateLimit(`invite-accept:${tokenHash}`, {
+    max: ATTEMPTS_PER_HOUR * ATTEMPT_COST, windowSecs: 3600, cost: ATTEMPT_COST,
+  }));
+  if (!admitted) {
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
+  }
+
 
   // 2-4 run on the BYPASSRLS admin role: RLS would refuse the company_users
   //    INSERT (no pre-existing membership to satisfy USING) and `users` is
@@ -102,7 +122,11 @@ const handler: NextApiHandler = async (req, res) => {
 
     if (!isEstablished) {
       // Brand-new invitee: this invitation is what establishes the login, so
-      // the password they type becomes their password.
+      // the password they type becomes their password — and only here does the
+      // strength floor apply, matching register.ts / do-reset-password.ts.
+      if (password.length < 10) {
+        return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
+      }
       await adminUpdateUser(inv.gotrue_user_id, {
         password,
         user_metadata: { first_name: firstName, last_name: lastName },

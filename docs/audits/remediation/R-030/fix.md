@@ -69,3 +69,23 @@ returns NULL whenever `app.invite_token` is unset, which is every non-invite ses
 
 Mutation proof for each is in `green.log`: dropping the H1 guard, neutering the 409, restoring 643's row
 policy, dropping the 648 function, removing the attempt cap and restoring `DO NOTHING` each turn a test red.
+
+---
+
+## Blind re-review round 2 on 74a1e7c4 — eight findings, seven fixed, one disclosed
+
+| # | Finding | Disposition |
+|---|---|---|
+| M1 | The 409 forward closed a click-loop: `/invite/<t>` → `/register?invite=<t>` → `/accept-invite` → 409 → `/invite/<t>`, so a brand-new invitee on the `userInvitationService` flow could never reach a signup form | Fixed. `/accept-invite` now forwards to `/invite/<token>?signup=1`; that page (and `/login?invite=`) propagates `&signup=1` onto its "Create an Account" CTA; `/register` skips its `/accept-invite` bounce when the flag is set. The flag is written only by the 409 branch, so an invitation the accept-invite flow *can* complete keeps its old routing. Tests: `tests/unit/components/inviteSignupLoop.test.tsx` (5). |
+| M2 | `L6`'s `DO UPDATE` covered one of the two acceptance routes | Fixed. `pages/api/invite/[token].ts` now does `ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role` too — it accepts the same rows. Test: `tests/integration/k-041-invite-page-reinvite-role.int.test.ts` (2). |
+| L1 | The `opened` guard (round-1 L2) is carried by no test | **Disclosed, not fixed.** The logic is right and the consequence of getting it wrong is a PostgreSQL `WARNING`, not a defect; the client is created inside `accept.ts` from a private pool, so no test at this seam can observe a notice on it. Recorded here so the claim is not read as mutation-proof: replacing `if (opened) await client.query('ROLLBACK')` with the unconditional call leaves every test green. |
+| L2 | The SECURITY DEFINER function ran as a superuser with `public` ahead of `pg_catalog` | Fixed by **migration 655**. `SET search_path = pg_catalog, public` and `OWNER TO migration_admin` (whose `rolbypassrls` is the only privilege the body needs). New migration rather than an edit to 648: `apply-migrations.ts` refuses on a checksum mismatch. Test asserts `proowner`/`rolsuper`/`proconfig` and that the function still answers correctly. |
+| L3 | The attempt counter joined the invite-token transaction, so a thrown path un-counted it | Fixed. `als.exit(() => checkRateLimit(...))` runs the counter on the module pool, so it survives `withInviteToken`'s ROLLBACK and no longer holds that key's row lock across two GoTrue round-trips. Test: a GoTrue outage mid-accept, asserting the counter row persists at 2. |
+| L4 | The rate-limit key was unauthenticated and caller-chosen | Fixed. The `checkRateLimit` call moved below the 410, so only a token that resolves to a real invitation mints a `rate_limit_counters` row. Still ahead of every GoTrue call. Test asserts no row for an unknown token. |
+| L5 | `minLength={10}` and the server floor survived the existing-password relabel | Fixed. `accept.ts` checks presence up front and applies the ten-character floor only on the `!isEstablished` branch; `/accept-invite` drops `minLength` once `needsExistingPassword`. Tests: an established account with a six-character password accepts; a brand-new invitee is still refused at `short`. |
+| L6 | Migration 643 was edited after it had been applied | **Disclosed.** Any database that ran 643 at `effc7d4d` — the review fixture and the shared dev databases — will fail `db:migrate` on a checksum mismatch rather than skipping. Expected. 643 is on no other branch and not in production; the fix for a dev database is to delete its `schema_migrations` row for 643 and re-apply. Migration 655 deliberately does not repeat the mistake. |
+
+Round-2 mutation proof (green.log): the L5 floor moved back to the top, the `!isEstablished` floor
+removed, the limiter charged before the lookup, `als.exit` dropped, `DO NOTHING` restored on
+`/api/invite/[token]`, `signup=1` dropped from each of the three pages that carry it, and re-applying
+648 over 655 each turn a test red. L1 is the one change no mutation kills, and says so above.
