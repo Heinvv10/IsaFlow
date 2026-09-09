@@ -56,3 +56,16 @@ bun run agent-docs:check                 OK: 74 mirrors match
 ### Databases touched
 Fixture DB only (disposable, from scratchpad fixture.env). No query of any kind was
 run against production; both probes in fix.md are unexecuted.
+
+### Follow-up review (5 LOW) — verification
+tests/unit/lib/alsTransaction.test.ts                                   4 passed
+reversal unit suites (4 files)                                         32 passed
+k010 integration (2 files)                                              7 passed
+full unit suite, DATABASE_URL unset, --testTimeout=30000     786 files / 9329 passed
+bunx tsc --noEmit                                                       clean
+bunx eslint <4 changed src files>                                       clean
+migration 619 re-applied to the fixture DB after DROP INDEX              DO / CREATE INDEX / DROP INDEX
+bun scripts/audit-migration-naming.ts                                   OK
+bun run agent-docs:check                                                OK: 74 mirrors match
+619 still unused on origin/master                                       re-checked
+No production query was run.

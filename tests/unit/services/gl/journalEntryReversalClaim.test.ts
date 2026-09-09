@@ -12,8 +12,8 @@ import type { PoolClient } from 'pg';
 
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
-  getPool: vi.fn(),
 }));
+vi.mock('@/lib/alsTransaction', () => ({ withAlsTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 import { sql } from '@/lib/neon';

@@ -6,16 +6,18 @@
 
 **Why the claim needs its own transaction.** `reversed_at IS NOT NULL` is read as "this entry is reversed" by `gl/auditTrailLedgerService`, `gl/auditTrailAttribution`, `bank/agentActivityService`, `gl/reclassification/batchService`, `items/depreciationRunPlan` (which EXCLUDES such an entry from a run) and `ap/supplierPaymentWorkflowService` (which SKIPS the reversal it owes). A claim stranded by a crash would make all of them describe an un-reversed journal as reversed. `withReversalTransaction` runs on the request transaction when there is one and opens its own otherwise (`scripts/fixes/reverse-cancelled-invoice-journals.ts` and cron paths have none), so claim and contra commit together or not at all. Widening the predicate to "reclaimable when no contra exists" was rejected: outside a transaction the winner's claim commits before its contra exists, so the second caller would re-evaluate it as true and reopen the race.
 
-**Files.** `journalEntryReversalClaim.ts` (new) — `withReversalTransaction`, `claimJournalReversal` (predicated UPDATE, 5s `lock_timeout` set and restored), `releaseJournalReversalClaim` (best-effort, cannot displace the error that reached it). `journalEntryReversalDate.ts` (new) — `resolveReversalDate` moved out unchanged, which brings the posting service to 298 lines, inside the 300 cap. `journalEntryPostingService.ts` — claim before `createJournalEntry`; release only when the failed contra was actually deleted; `ux_gl_je_reversal_of` violations mapped to the same wording. `src/lib/neon.ts` — `getPool` exported for the transaction above. Plus migration 619 and the gl `.claude.md`/`AGENTS.md`.
+**Files.** `journalEntryReversalClaim.ts` (new) — `withReversalTransaction`, `claimJournalReversal` (predicated UPDATE, 5s `lock_timeout` set and restored), `releaseJournalReversalClaim` (best-effort, cannot displace the error that reached it). `journalEntryReversalDate.ts` (new) — `resolveReversalDate` moved out unchanged, which brings the posting service to 298 lines, inside the 300 cap. `journalEntryPostingService.ts` — claim before `createJournalEntry`; release only when the failed contra was actually deleted; `ux_gl_je_reversal_of` violations mapped to the same wording. `src/lib/alsTransaction.ts` (new) — `withAlsTransaction`, the transaction every nested `sql` call joins, kept out of `neon.ts` because that file is already well over the 300-line cap. `src/lib/neon.ts` — `getPool` exported for it. Plus migration 619 and the gl `.claude.md`/`AGENTS.md`.
 
-**Tests.** `k010-concurrent-journal-reversal.int.test.ts` (3) — the race, a sequential retry, a cross-tenant reversal. `k010-reversal-claim-atomicity.int.test.ts` (4) — the claim is invisible to another connection while the reversal is in flight, a failed post leaves no claim/draft/contra and the entry still reversible, the in-request path restores the `lock_timeout` it borrowed, and a second request-scoped reversal is refused. `tests/unit/services/gl/journalEntryReversalClaim.test.ts` (4) — no-transaction refusal, `55P03` mapped to a retryable error, timeout restored on failure, winner/loser from the returned rows. Three existing reversal suites moved with the new write order; the dangling-draft case is now two tests, one per branch of the release. `red.log` / `green.log` hold both directions.
+**Tests.** `k010-concurrent-journal-reversal.int.test.ts` (3) — the race, a sequential retry, a cross-tenant reversal. `k010-reversal-claim-atomicity.int.test.ts` (4) — the claim is invisible to another connection while the reversal is in flight, a failed post leaves no claim/draft/contra and the entry still reversible, the in-request path restores the `lock_timeout` it borrowed, and a second request-scoped reversal is refused. `tests/unit/lib/alsTransaction.test.ts` (4) — real tenant/user in the bound context, request-transaction reuse, rollback on throw, and a connection whose ROLLBACK failed destroyed rather than pooled. `tests/unit/services/gl/journalEntryReversalClaim.test.ts` (4) — no-transaction refusal, `55P03` mapped to a retryable error, timeout restored on failure, winner/loser from the returned rows. Three existing reversal suites moved with the new write order; the dangling-draft case is now two tests, one per branch of the release. `red.log` / `green.log` hold both directions.
 
 **Migration / rollback.** 619 creates `ux_gl_je_reversal_of` on `(company_id, reversal_of_id) WHERE reversal_of_id IS NOT NULL` and drops the now-redundant `idx_gl_je_reversal_of`. It opens with a `DO` block that RAISES a named exception listing the duplicate count, so a book already carrying duplicates fails with something an operator can act on instead of a bare index error. Proven both ways on the fixture DB: seeded duplicates → `K-010: 1 journal entr(ies) already carry more than one contra (2 contra rows)`; clean table → `DO / CREATE INDEX / DROP INDEX`. Rollback: `DROP INDEX ux_gl_je_reversal_of` and recreate `idx_gl_je_reversal_of`.
 
 **Required deploy steps, in order.**
 1. Run the duplicate probe below against production. If it returns rows, repair them before deploying; the migration will refuse otherwise.
 2. `CREATE UNIQUE INDEX` here is NOT concurrent and holds a SHARE lock on `gl_journal_entries` for the build, blocking writes. `scripts/apply-migrations.ts` wraps each file in `BEGIN`/`COMMIT`, so `CONCURRENTLY` cannot run through the runner. Either apply after hours, or build the index out of band with `CONCURRENTLY` first and let `IF NOT EXISTS` make the migration a no-op. The migration header carries both paths.
-3. Run the stuck-claim probe after deploying, as an ongoing check.
+3. Take a baseline with the stuck-claim probe below BEFORE deploying, then run
+   it again afterwards as an ongoing check. It can return rows that predate this
+   change, so without the baseline an old crash reads as a new regression.
 
 **Historical impact (read-only, not run against production from here).**
 ```sql
@@ -27,8 +29,12 @@ WHERE e.reversal_of_id IS NOT NULL AND e.status = 'posted'
 GROUP BY 1, 2 HAVING count(*) > 1;
 
 -- 2. Claims with no contra behind them: entries the ledger reports as reversed
---    that were never reversed. None can predate this change, but run it after
---    deploying — it is the detector for the failure mode the claim introduces.
+--    that were never reversed. This CAN return pre-existing rows. The old code
+--    wrote reversed_at and reversal_of_id as two separate statements, each
+--    autocommitting for an out-of-transaction caller, so a crash between them
+--    left exactly this state — a narrower window, not an absent one. Take a
+--    BASELINE with this query before deploying, and treat only rows that appear
+--    afterwards as new.
 SELECT e.company_id, e.id, e.entry_number, e.reversed_at, e.reversed_by
 FROM gl_journal_entries e
 WHERE e.reversed_at IS NOT NULL
