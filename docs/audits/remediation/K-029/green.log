@@ -1,0 +1,33 @@
+=== GREEN ===
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+⎯⎯⎯⎯⎯⎯ Failed Tests 15 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 4 passed (5)
+      Tests  15 failed | 71 passed (86)
+=== MUTATION 1: drop depreciation_method from the loader SELECT ===
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { …(15) } to have property "depreciation_method" with value 'reducing_balance'
+AssertionError: expected 1666.67 to be close to 2666.67, received difference is 1000, but expected 0.005
+      Tests  2 failed | 1 passed (3)
+=== MUTATION 2: disable the reducing-balance branch ===
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 1666.67 to be close to 2666.67, received difference is 1000, but expected 0.005
+AssertionError: expected 1666.67 to be close to 2666.67, received difference is 1000, but expected 0.005
+      Tests  2 failed | 1 passed (3)
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 34 passed (37)
+=== MUTATION 3: disable the sum-of-years branch ===
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 1666.67 to be close to 833.33, received difference is 833.34, but expected 0.005
+      Tests  1 failed | 2 passed (3)
+=== RESTORED ===
+      Tests  3 passed (3)
+      Tests  37 passed (37)
+tsc: clean
+
+=== regression: existing depreciation-run DB suite, against isaflow_dev ===
+tests/unit/mcp/runDepreciationDb.test.ts — Test Files 1 passed, Tests 15 passed
+(it refuses the schema fixture DB by its own guard; that guard predates this fix)
+
+=== lint ===
+eslint on all six changed src files — clean

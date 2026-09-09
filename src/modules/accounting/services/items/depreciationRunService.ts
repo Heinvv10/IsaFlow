@@ -35,6 +35,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { postDualDepreciationToLedger } from '@/modules/accounting/services/gl/glCrossModuleHooks';
+import { toDepreciationMethod } from './farDepreciationService';
 import {
   loadDepreciationAssets,
   planDepreciationRun,
@@ -158,6 +159,7 @@ export async function executeDepreciationRun(
           openingAccDep: Number(a.policy_acc_dep),
           taxOpeningAccDep: Number(a.tax_acc_dep),
           deferredTaxRate: Number(a.deferred_tax_rate),
+          method: toDepreciationMethod(a.depreciation_method),
           ...(a.disposal_date ? { disposalDate: fmtDate(a.disposal_date) } : {}),
         },
         plan.yyyymm,

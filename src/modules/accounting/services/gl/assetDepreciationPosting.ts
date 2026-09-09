@@ -15,6 +15,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { getSystemAccountId } from './systemAccountResolver';
 import {
   calculatePolicyDepreciation,
+  type DepreciationMethod,
   calculateTaxDepreciation,
   calculateDeferredTax,
 } from '@/modules/accounting/services/items/farDepreciationService';
@@ -159,6 +160,8 @@ interface DualDepInput {
   taxOpeningAccDep: number;
   deferredTaxRate: number;
   disposalDate?: string;
+  /** Policy method for the asset. Omitted = straight line. */
+  method?: DepreciationMethod;
 }
 
 /**
@@ -181,6 +184,7 @@ export async function postDualDepreciationToLedger(
     periodDate: input.periodDate,
     openingAccDep: input.openingAccDep,
     disposalDate: input.disposalDate,
+    method: input.method,
   });
 
   const tax = calculateTaxDepreciation({

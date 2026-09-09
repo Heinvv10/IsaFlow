@@ -4,6 +4,7 @@ import {
   calculateTaxDepreciation,
   calculateDeferredTax,
   checkCapitalizationThreshold,
+  toDepreciationMethod,
   type PolicyDepreciationInput,
   type TaxDepreciationInput,
   type DeferredTaxInput,
@@ -274,5 +275,115 @@ describe('checkCapitalizationThreshold', () => {
     };
     const result = checkCapitalizationThreshold(input);
     expect(result.suggestedTreatment).toBe('capitalise');
+  });
+});
+
+// ─── K-029: the configured method drives the charge ──────────────────────────
+
+describe('calculatePolicyDepreciation — depreciation method (K-029)', () => {
+  const base: PolicyDepreciationInput = {
+    cost: 100_000,
+    residualPct: 0,
+    usefulLifeYears: 5,
+    purchaseDate: '2024-01-15',
+    periodDate: '2026-09-30',
+    openingAccDep: 20_000,
+  };
+
+  it('defaults to straight line when no method is given', () => {
+    // 100 000 / 5 / 12 = 1 666.67
+    expect(calculatePolicyDepreciation(base).monthlyDep).toBeCloseTo(1_666.67, 2);
+    expect(calculatePolicyDepreciation({ ...base, method: 'straight_line' }).monthlyDep)
+      .toBeCloseTo(1_666.67, 2);
+  });
+
+  it('charges reducing balance off the carrying amount', () => {
+    // (100 000 − 20 000) × 2/5 / 12 = 2 666.67
+    expect(calculatePolicyDepreciation({ ...base, method: 'reducing_balance' }).monthlyDep)
+      .toBeCloseTo(2_666.67, 2);
+  });
+
+  it('reduces the reducing-balance charge as accumulated depreciation grows', () => {
+    // (100 000 − 60 000) × 2/5 / 12 = 1 333.33 — lower than the year-one charge.
+    expect(
+      calculatePolicyDepreciation({ ...base, openingAccDep: 60_000, method: 'reducing_balance' })
+        .monthlyDep,
+    ).toBeCloseTo(1_333.33, 2);
+  });
+
+  it('caps reducing balance at the residual, never below it', () => {
+    // Depreciable = 100 000 × 0.8 = 80 000; already 79 900 taken, so 100 left.
+    // Reducing balance would charge (100 000 − 79 900) × 2/5 / 12 = 670.
+    const result = calculatePolicyDepreciation({
+      ...base, residualPct: 0.2, openingAccDep: 79_900, method: 'reducing_balance',
+    });
+    expect(result.monthlyDep).toBeCloseTo(100, 2);
+    expect(result.closingAccDep).toBeCloseTo(80_000, 2);
+    expect(result.policyCarryingAmount).toBeCloseTo(20_000, 2);
+  });
+
+  it('charges sum-of-years on the remaining years of the life', () => {
+    // 3-year life, purchased 2024-01, period 2026-09 → 2 whole years elapsed,
+    // 1 remaining: 60 000 × 1 / 6 / 12 = 833.33
+    expect(
+      calculatePolicyDepreciation({
+        ...base, cost: 60_000, usefulLifeYears: 3, openingAccDep: 0, method: 'sum_of_years',
+      }).monthlyDep,
+    ).toBeCloseTo(833.33, 2);
+  });
+
+  it('charges sum-of-years its highest amount in the first year', () => {
+    // Period inside year one: 60 000 × 3 / 6 / 12 = 2 500
+    expect(
+      calculatePolicyDepreciation({
+        ...base, cost: 60_000, usefulLifeYears: 3, openingAccDep: 0,
+        periodDate: '2024-06-30', method: 'sum_of_years',
+      }).monthlyDep,
+    ).toBeCloseTo(2_500, 2);
+  });
+
+  it('charges nothing under sum-of-years once the life has run out', () => {
+    expect(
+      calculatePolicyDepreciation({
+        ...base, cost: 60_000, usefulLifeYears: 3, openingAccDep: 0,
+        periodDate: '2028-09-30', method: 'sum_of_years',
+      }).monthlyDep,
+    ).toBe(0);
+  });
+
+  it('pro-rates the first month under every method', () => {
+    // Purchased 2024-01-15 → 17 of 31 days. Reducing balance full month is
+    // 100 000 × 2/5 / 12 = 3 333.33; pro-rated = 1 827.96.
+    expect(
+      calculatePolicyDepreciation({
+        ...base, openingAccDep: 0, periodDate: '2024-01-31', method: 'reducing_balance',
+      }).monthlyDep,
+    ).toBeCloseTo(1_827.96, 2);
+  });
+
+  it('charges nothing after disposal regardless of method', () => {
+    expect(
+      calculatePolicyDepreciation({ ...base, method: 'reducing_balance', disposalDate: '2026-05-31' })
+        .monthlyDep,
+    ).toBe(0);
+  });
+});
+
+describe('toDepreciationMethod', () => {
+  it('accepts the three asset methods', () => {
+    expect(toDepreciationMethod('straight_line')).toBe('straight_line');
+    expect(toDepreciationMethod('reducing_balance')).toBe('reducing_balance');
+    expect(toDepreciationMethod('sum_of_years')).toBe('sum_of_years');
+  });
+
+  it('folds the asset_categories vocabulary onto the asset one', () => {
+    // Migration 360 calls reducing balance `diminishing_balance`.
+    expect(toDepreciationMethod('diminishing_balance')).toBe('reducing_balance');
+  });
+
+  it('falls back to straight line for null and unknown values', () => {
+    expect(toDepreciationMethod(null)).toBe('straight_line');
+    expect(toDepreciationMethod(undefined)).toBe('straight_line');
+    expect(toDepreciationMethod('annuity')).toBe('straight_line');
   });
 });
