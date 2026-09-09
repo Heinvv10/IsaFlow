@@ -1,0 +1,59 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/capture/captureRouter-k077-mime-vs-extension.test.ts (4 tests | 3 failed) 27ms
+     × extracts a PDF stored as the MIME type "application/pdf" 13ms
+     × extracts a JPEG stored as the MIME type "image/jpeg" 1ms
+     × writes the extraction back to captured_documents for a mirrored PDF 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/capture/captureRouter-k077-mime-vs-extension.test.ts > routeEvent — the value the IMAP mirror stores in file_type > extracts a PDF stored as the MIME type "application/pdf"
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ tests/unit/services/capture/captureRouter-k077-mime-vs-extension.test.ts:78:32
+     76|     // The whole finding: today the router never reaches the extractor…
+     77|     // mirrored document, so this call count is 0.
+     78|     expect(extractFromPdfMock).toHaveBeenCalledTimes(1);
+       |                                ^
+     79|   });
+     80|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/services/capture/captureRouter-k077-mime-vs-extension.test.ts > routeEvent — the value the IMAP mirror stores in file_type > extracts a JPEG stored as the MIME type "image/jpeg"
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ tests/unit/services/capture/captureRouter-k077-mime-vs-extension.test.ts:86:34
+     84|     await routeEvent(EVENT, COMPANY);
+     85|
+     86|     expect(extractFromImageMock).toHaveBeenCalledTimes(1);
+       |                                  ^
+     87|   });
+     88|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/services/capture/captureRouter-k077-mime-vs-extension.test.ts > routeEvent — the value the IMAP mirror stores in file_type > writes the extraction back to captured_documents for a mirrored PDF
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/unit/services/capture/captureRouter-k077-mime-vs-extension.test.ts:105:29
+    103|       (c) => String((c[0] as TemplateStringsArray).join('?')).includes…
+    104|     );
+    105|     expect(wroteExtraction).toBe(true);
+       |                             ^
+    106|   });
+    107| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+   Start at  11:27:49
+   Duration  587ms (transform 128ms, setup 0ms, import 178ms, tests 27ms, environment 0ms)
+

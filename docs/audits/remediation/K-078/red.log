@@ -1,0 +1,73 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/capture/supplierRules-k078-self-promotion.test.ts (4 tests | 3 failed) 11ms
+     × does not promote when the coding is the rule's own default played back 8ms
+     × does not advance the counter on a rule-sourced coding 1ms
+     × never writes auto_publish = true off a rule-sourced coding 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/capture/supplierRules-k078-self-promotion.test.ts > recordCoding — a rule may not promote itself > does not promote when the coding is the rule's own default played back
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/services/capture/supplierRules-k078-self-promotion.test.ts:88:29
+     86|     const result = await recordCoding(COMPANY_ID, echoOfTheRule(`rule:…
+     87|
+     88|     expect(result.promoted).toBe(false);
+       |                             ^
+     89|   });
+     90|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/services/capture/supplierRules-k078-self-promotion.test.ts > recordCoding — a rule may not promote itself > does not advance the counter on a rule-sourced coding
+AssertionError: expected 3 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 3
+
+ ❯ tests/unit/services/capture/supplierRules-k078-self-promotion.test.ts:96:32
+     94|     const result = await recordCoding(COMPANY_ID, echoOfTheRule(`rule:…
+     95|
+     96|     expect(result.sampleCount).toBe(2);
+       |                                ^
+     97|   });
+     98|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/services/capture/supplierRules-k078-self-promotion.test.ts > recordCoding — a rule may not promote itself > never writes auto_publish = true off a rule-sourced coding
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/services/capture/supplierRules-k078-self-promotion.test.ts:108:27
+    106|       return q.includes('auto_publish') && q.includes('UPDATE supplier…
+    107|     }) && vi.mocked(sqlMock).mock.calls.some((c) => (c as unknown[]).i…
+    108|     expect(promotedInSql).toBe(false);
+       |                           ^
+    109|   });
+    110|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+   Start at  11:28:35
+   Duration  405ms (transform 77ms, setup 0ms, import 99ms, tests 11ms, environment 0ms)
+
