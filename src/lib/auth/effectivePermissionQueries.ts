@@ -1,0 +1,68 @@
+import { assertControlTx } from '@/modules/accounting/services/controls/context';
+import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
+import type { ModulePermission } from './permissionService';
+import { isActiveUserAccount, type UserAccountRow } from './userAccountStatus';
+
+export class EffectivePermissionError extends Error {
+  readonly code = 'CONTROL_FORBIDDEN';
+  constructor() { super('Current permissions do not allow this operation.'); this.name = 'EffectivePermissionError'; }
+}
+interface Membership extends UserAccountRow {
+  role: string; company_status: string | null; company_suspended_at: Date | string | null;
+}
+/**
+ * Root migration 626 owns the narrow, authenticated principal-lock helper.
+ * Direct FOR UPDATE would apply admin-write RLS and hide viewer/manager memberships.
+ * Helper locks parent users too: permission INSERT FK cannot overtake absent override.
+ */
+export async function loadPermissionState(ctx: ControlTx) {
+  assertControlTx(ctx);
+  const { companyId, personId, authMethod, grantedScopes, connectionId, grantId } = ctx.principal;
+  if (!companyId || !personId || authMethod === 'job'
+    || !['cookie', 'pat', 'oauth'].includes(authMethod)) throw new EffectivePermissionError();
+  const rows = await ctx.sql`
+    SELECT * FROM public.control_lock_permission_principal(${companyId}::uuid, ${personId}::text)
+  ` as Membership[];
+  const member = rows[0];
+  if (rows.length !== 1 || !isActiveUserAccount(member)
+    || member!.company_suspended_at != null
+    || ['suspended', 'deleted'].includes(member!.company_status ?? '')) throw new EffectivePermissionError();
+  let scopes: readonly string[] | null = null;
+  if (authMethod !== 'cookie') {
+    if (!Array.isArray(grantedScopes)) throw new EffectivePermissionError();
+    const id = authMethod === 'pat' ? connectionId : grantId;
+    if (!id) throw new EffectivePermissionError();
+    const grants = authMethod === 'pat' ? await ctx.sql`
+      WITH locked_grant AS MATERIALIZED (
+        SELECT scopes, revoked_at, expires_at FROM personal_access_tokens
+        WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND user_id = ${personId}::text
+        FOR SHARE
+      ) SELECT scopes, (revoked_at IS NULL AND expires_at > clock_timestamp()) AS valid FROM locked_grant
+    ` : await ctx.sql`
+      WITH locked_grant AS MATERIALIZED (
+        SELECT scopes, revoked_at, access_token_expires_at FROM oauth_authorisations
+        WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND user_id = ${personId}::text
+        FOR SHARE
+      ) SELECT scopes, (revoked_at IS NULL AND access_token_expires_at > clock_timestamp()) AS valid FROM locked_grant
+    `;
+    const grant = grants[0] as { scopes: unknown; valid: boolean } | undefined;
+    if (grants.length !== 1 || grant?.valid !== true || !Array.isArray(grant.scopes)
+      || grant.scopes.some(s => typeof s !== 'string')) throw new EffectivePermissionError();
+    scopes = grantedScopes.filter(s => (grant.scopes as string[]).includes(s));
+  }
+  const overrides = await ctx.sql`
+    SELECT module_key, can_read, can_write, can_delete, can_export, can_approve,
+      account_range_from, account_range_to, restrictions
+    FROM company_user_permissions
+    WHERE company_id = ${companyId}::uuid AND user_id = ${personId}::text
+    ORDER BY module_key FOR SHARE
+  ` as Array<Record<string, unknown>>;
+  return { role: member!.role, scopes, overrides: overrides.map((p): ModulePermission => ({
+    moduleKey: String(p.module_key), moduleName: String(p.module_key),
+    canRead: p.can_read === true, canWrite: p.can_write === true, canDelete: p.can_delete === true,
+    canExport: p.can_export === true, canApprove: p.can_approve === true,
+    accountRangeFrom: p.account_range_from == null ? null : String(p.account_range_from),
+    accountRangeTo: p.account_range_to == null ? null : String(p.account_range_to),
+    restrictions: p.restrictions as Record<string, unknown>,
+  })) };
+}
