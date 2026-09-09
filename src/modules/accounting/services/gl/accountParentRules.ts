@@ -17,7 +17,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { BALANCE_SHEET_LEAF_LEVEL } from './isReportVisibleLeaf';
+import { isSubjectToLeafRule } from './isReportVisibleLeaf';
 
 /**
  * Mirrors `MAX_TREE_DEPTH` in accountReclassifyService, which caps the two
@@ -75,6 +75,14 @@ export async function assertParentUsable(
   // account at level 3 or deeper keeps its balance whether or not it has
   // children.
   //
+  // Type-scoped for the same reason the merge and reclassification guards are:
+  // only the balance sheet and the trend report carry the leaf rule, and both
+  // select `account_type IN ('asset','liability','equity')`. Refusing a used
+  // level-2 EXPENSE parent told the accountant its balance would leave the
+  // statements, which is false — the income statement has no level filter — and
+  // expense-chart tidying through the Add Account dialog is the commonest edit
+  // of the three.
+  //
   // The first version of this guard refused EVERY posted parent. That is the
   // safer-looking rule and the wrong one: converting a used level-3 account
   // into a header and posting to its children is ordinary chart maintenance
@@ -82,7 +90,7 @@ export async function assertParentUsable(
   // the Add Account dialog for a case that loses nothing. `validateLeafAccount`
   // still stops anyone POSTING to the parent afterwards — that is an explicit
   // refusal at post time, not silent loss, and it is the accountant's call.
-  if (Number(parent.level) < BALANCE_SHEET_LEAF_LEVEL) {
+  if (isSubjectToLeafRule(Number(parent.level), parent.account_type)) {
     const posted = (await sql`
       SELECT 1 FROM gl_journal_lines
        WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID
@@ -90,9 +98,11 @@ export async function assertParentUsable(
     `) as unknown[];
     if (posted.length > 0) {
       throw new ParentAccountError(
-        `Parent ${parent.account_code} is a level-${parent.level} account with journal lines ` +
-          'posted to it. Giving it a child would turn it into a header, and the balance sheet ' +
-          'excludes headers above level 3 — its own balance would disappear from the statements.',
+        `Parent ${parent.account_code} is a level-${parent.level} ${parent.account_type} ` +
+          'account with journal lines posted to it. Giving it a child would turn it into a ' +
+          'header, and the balance sheet and the trend report select an account only when its ' +
+          'level is 3 or higher or it has no children — its own balance would disappear from ' +
+          'both.',
       );
     }
   }

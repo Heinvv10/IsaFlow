@@ -26,12 +26,22 @@ would have named two reports that never showed the account.
 bare `Number()` — a NULL row arrives as `0`, so `?? 1` never fires and the refusal read
 "level 0". `loadAccount` now uses `Number(account.level) || 1`, restoring the column default.
 
-**Tests.** `tests/integration/k052-reclassification-onto-header-account.int.test.ts` — 8 tests,
+**Tests.** `tests/integration/k052-reclassification-onto-header-account.int.test.ts` — 9 tests,
 real disposable Postgres: the header target refused; the report already omits that account; a
 level-3 leaf still admitted; a level-1 leaf admitted with another tenant's child under it ignored;
 the same target from another tenant still reads `NOT_FOUND` rather than the header refusal; a
 level-3 target that HAS children admitted; a level-2 expense header admitted; a NULL-level target
-refused with "level 1", not "level 0" or "NaN".
+refused with "level 1", not "level 0" or "NaN"; and a two-connection proof that a concurrent
+`createAccount` under the target cannot commit inside the guard's window (`55P03`).
+
+**Concurrency.** The guard's verdict has to survive until the lines are written, and this path
+never locks the account: `lockReclassLinesForUpdate` takes the journal LINES, and the write
+(`UPDATE gl_journal_lines SET gl_account_id = target`) takes only FOR KEY SHARE on the target
+through `gl_accounts_parent_account_id_fkey` — which does NOT conflict with the FOR KEY SHARE a
+concurrent `createAccount` needs. `assertParentUsable` cannot close it either: at that moment the
+target carries no posted lines, the case it deliberately admits. So `admitReclassification` takes
+`FOR UPDATE` on the target itself, and only for targets the leaf rule can bite. The merge path's
+argument for needing no lock does not transfer here.
 
 **Migration.** None.
 

@@ -102,7 +102,9 @@ export async function mergeAccounts(
   // `assertParentUsable` refuses it because the target now carries posted lines.
   // Proved by the two-connection case in
   // `k051-account-merge-into-header-hides-balance.int.test.ts`; a post-write
-  // re-read of the guard would be unreachable code.
+  // re-read of the guard would be unreachable code. THIS PATH ONLY — the
+  // reclassification does not lock the account, and takes its own FOR UPDATE in
+  // `admitReclassification` for exactly that reason.
   await lockGlAccountsForUpdate(companyId, [sourceId, targetId]);
 
   const source = await loadMergeAccount(companyId, sourceId);

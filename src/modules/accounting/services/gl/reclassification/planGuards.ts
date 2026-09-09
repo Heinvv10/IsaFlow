@@ -10,7 +10,8 @@
  */
 
 import { getAccountById } from '../chartOfAccountsService';
-import { isReportVisibleLeaf } from '../isReportVisibleLeaf';
+import { isReportVisibleLeaf, isSubjectToLeafRule } from '../isReportVisibleLeaf';
+import { lockGlAccountsForUpdate } from '../glAccountLock';
 import { getPeriodStatusForDate } from '../periodStatusService';
 import { isVatPeriodLocked } from '../../reports/vatPeriodLockService';
 import type { AccountType } from '../accountClassification';
@@ -134,6 +135,19 @@ export async function admitReclassification(
   // caller supplies the target id and has no other signal that the account is
   // unreachable. Revenue and expense targets are exempt: the income statement
   // has no level filter, so nothing disappears there (`isReportVisibleLeaf`).
+  //
+  // Locked before it is asked, and only for the targets the rule can bite, so
+  // the verdict still holds when the lines are written. Unlike `mergeAccounts`,
+  // this path never locks the account: `lockReclassLinesForUpdate` takes the
+  // journal LINES, and the write itself (`UPDATE gl_journal_lines SET
+  // gl_account_id = target`) takes only FOR KEY SHARE on the target through
+  // `gl_accounts_parent_account_id_fkey` — which does not conflict with the FOR
+  // KEY SHARE a concurrent `createAccount` needs. So without this the window is
+  // real, and `assertParentUsable` cannot close it either: at that instant the
+  // target carries no posted lines, the case it deliberately admits.
+  if (isSubjectToLeafRule(target.level, target.type)) {
+    await lockGlAccountsForUpdate(companyId, [target.id]);
+  }
   if (!(await isReportVisibleLeaf(companyId, target.id, target.level, target.type))) {
     return {
       refused:

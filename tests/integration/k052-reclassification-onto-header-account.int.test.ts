@@ -11,6 +11,9 @@
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import type { PoolClient } from 'pg';
+import { als } from '../../src/lib/als';
+import { getPoolForTests } from '../../src/lib/neon';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { admitReclassification } from '../../src/modules/accounting/services/gl/reclassification/planGuards';
 import { isRefusal } from '../../src/modules/accounting/services/gl/reclassification/planGuards';
@@ -26,7 +29,31 @@ const flatLeaf = crypto.randomUUID(), foreignChild = crypto.randomUUID();
 const deepParent = crypto.randomUUID(), deepParentChild = crypto.randomUUID();
 const expenseHeader = crypto.randomUUID(), expenseHeaderChild = crypto.randomUUID();
 const nullLevel = crypto.randomUUID(), nullLevelChild = crypto.randomUUID();
+const raceTarget = crypto.randomUUID(), raceIntruder = crypto.randomUUID();
 const AS_AT = '2026-03-31';
+
+/**
+ * The guard takes `FOR UPDATE` on a leaf-rule target, which needs a request
+ * transaction — `withAuth` supplies one in production, `als.run` here.
+ */
+async function admit(sourceAccountId: string, targetAccountId: string, companyId = company) {
+  const client = await getPoolForTests().connect();
+  try {
+    await client.query('BEGIN');
+    const result = await als.run(
+      { client, userId: user, companyId, claims: {} } as unknown as Parameters<typeof als.run>[0],
+      () => admitReclassification({
+        companyId, sourceAccountId, targetAccountId,
+        from: null, to: null, postingDate: '2026-03-31',
+      }),
+    );
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally { (client as PoolClient).release(); }
+}
 
 beforeAll(async () => {
   await pool.query("INSERT INTO companies(id,name) VALUES($1,'K052 reclass fixture')", [company]);
@@ -51,6 +78,10 @@ beforeAll(async () => {
      VALUES($1,$2,'K052-1500','K052 Suspense (no level)','asset','debit',NULL,true,NULL),
             ($3,$2,'K052-1510','K052 Suspense detail','asset','debit',3,true,$1)`,
     [nullLevel, company, nullLevelChild]);
+  await pool.query(
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
+     VALUES($1,$2,'K052-1900','K052 Bonds (level 2 leaf)','asset','debit',2,true,NULL)`,
+    [raceTarget, company]);
   await pool.query("INSERT INTO companies(id,name) VALUES($1,'K052 other tenant')", [otherCompany]);
   // Another tenant's child under this company's level-1 leaf must not make it a header.
   await pool.query(
@@ -91,42 +122,22 @@ it('the balance sheet already ignores a level-2 account that has children', asyn
 });
 
 it('refuses a reclassification whose target is a parent header account', async () => {
-  const admitted = await admitReclassification({
-    companyId: company,
-    sourceAccountId: source,
-    targetAccountId: header,
-    from: null, to: null, postingDate: '2026-03-31',
-  });
+  const admitted = await admit(source, header);
   expect(isRefusal(admitted)).toBe(true);
 });
 
 it('admits an ordinary level-3 leaf target', async () => {
-  const admitted = await admitReclassification({
-    companyId: company,
-    sourceAccountId: header,
-    targetAccountId: source,
-    from: null, to: null, postingDate: '2026-03-31',
-  });
+  const admitted = await admit(header, source);
   expect(isRefusal(admitted)).toBe(false);
 });
 
 it("admits a level-1 leaf target, ignoring another tenant's child under it", async () => {
-  const admitted = await admitReclassification({
-    companyId: company,
-    sourceAccountId: source,
-    targetAccountId: flatLeaf,
-    from: null, to: null, postingDate: '2026-03-31',
-  });
+  const admitted = await admit(source, flatLeaf);
   expect(isRefusal(admitted)).toBe(false);
 });
 
 it('refuses the header target for the other tenant too, and never leaks its existence', async () => {
-  const admitted = await admitReclassification({
-    companyId: otherCompany,
-    sourceAccountId: source,
-    targetAccountId: header,
-    from: null, to: null, postingDate: '2026-03-31',
-  });
+  const admitted = await admit(source, header, otherCompany);
   expect(admitted).toEqual({ refused: 'NOT_FOUND' });
 });
 
@@ -134,34 +145,63 @@ it('admits a level-3 target that HAS children', async () => {
   // The shape that separates this guard from a blanket "no target with
   // children": both reports select an account at level 3 regardless of its
   // children, so converting one into a header is ordinary chart maintenance.
-  const admitted = await admitReclassification({
-    companyId: company,
-    sourceAccountId: source,
-    targetAccountId: deepParent,
-    from: null, to: null, postingDate: '2026-03-31',
-  });
+  const admitted = await admit(source, deepParent);
   expect(isRefusal(admitted)).toBe(false);
 });
 
 it('admits a level-2 EXPENSE header — the income statement has no level filter', async () => {
-  const admitted = await admitReclassification({
-    companyId: company,
-    sourceAccountId: source,
-    targetAccountId: expenseHeader,
-    from: null, to: null, postingDate: '2026-03-31',
-  });
+  const admitted = await admit(source, expenseHeader);
   expect(isRefusal(admitted)).toBe(false);
 });
 
 it('reads a NULL level as 1 in the refusal, not NaN', async () => {
-  const admitted = await admitReclassification({
-    companyId: company,
-    sourceAccountId: source,
-    targetAccountId: nullLevel,
-    from: null, to: null, postingDate: '2026-03-31',
-  });
+  const admitted = await admit(source, nullLevel);
   expect(isRefusal(admitted)).toBe(true);
   const { refused } = admitted as { refused: string };
   expect(refused).toContain('level 1 with children');
   expect(refused).not.toContain('NaN');
+});
+
+it('holds the header verdict against a concurrent createAccount', async () => {
+  // The reclassification locks the journal LINES, and its own write takes only
+  // FOR KEY SHARE on the target through gl_accounts_parent_account_id_fkey —
+  // which does not conflict with the FOR KEY SHARE a concurrent createAccount
+  // needs. So the guard takes FOR UPDATE on a leaf-rule target itself. Two
+  // connections: the guard's transaction stays open, and the intruder's INSERT
+  // of a child under the target cannot commit inside that window.
+  const client = await getPoolForTests().connect();
+  try {
+    await client.query('BEGIN');
+    const admitted = await als.run(
+      { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0],
+      () => admitReclassification({
+        companyId: company, sourceAccountId: source, targetAccountId: raceTarget,
+        from: null, to: null, postingDate: '2026-03-31',
+      }),
+    );
+    expect(isRefusal(admitted)).toBe(false);
+
+    // Still inside the guard's transaction: createAccount's INSERT blocks.
+    const intruder = await pool.connect();
+    try {
+      await intruder.query('BEGIN');
+      await intruder.query("SET LOCAL lock_timeout = '1s'");
+      await intruder.query(
+        `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
+         VALUES($1,$2,'K052-1910','K052 Bonds - detail','asset','debit',3,true,$3)`,
+        [raceIntruder, company, raceTarget]);
+      throw new Error('the INSERT committed inside the guard window');
+    } catch (err) {
+      expect(String((err as { code?: string }).code)).toBe('55P03');
+    } finally {
+      await intruder.query('ROLLBACK');
+      intruder.release();
+    }
+    await client.query('COMMIT');
+  } finally { (client as PoolClient).release(); }
+
+  const { rows } = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM gl_accounts WHERE parent_account_id=$1 AND company_id=$2',
+    [raceTarget, company]);
+  expect(rows[0].n).toBe(0);
 });

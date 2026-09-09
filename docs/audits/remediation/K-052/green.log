@@ -40,3 +40,40 @@ Second pass, 2026-09-09: blind-review findings in scratchpad/review-k051.md (4 M
    merge's FOR UPDATE conflicts with it. Proved with two pool clients: both statements return
    55P03 under a 1s lock_timeout while the lock is held, and nothing is written. The first attempt
    at an interleaving test deadlocked (40P01) for exactly this reason, which is what surfaced it.
+
+── Round 2 (blind re-review of 2d880da9: 2 MEDIUM / 5 LOW, all seven closed) ─────────────────
+
+7. GREEN: bun run test:integration -- k051... k052...
+   -> Test Files 2 passed (2); Tests 20 passed (20)   [K-051 11, K-052 9].
+
+8. Round-2 mutations, each applied alone and restored (files diffed clean afterwards):
+   N1 drop `!sourceHasChildren && !targetHasChildren` return -> 2 failed (Sage level-1 target,
+      cross-tenant test)  [MEDIUM-2: this branch was unexecuted before]
+   N2 drop company scope in hasChildAccounts               -> 2 failed, now including K-051 [LOW-1]
+   N3 un-scope assertParentUsable to a bare level test     -> 1 failed (posted expense parent) [MED-1]
+   N4 drop the reclassification's FOR UPDATE on the target -> 1 failed (concurrent createAccount) [LOW-2]
+   N5 drop `level: 3` from the reclassificationLockSequence mock -> 7 failed [LOW-3]
+   Round-1 mutations re-run after the isSubjectToLeafRule extraction: M1, M3, M5, M6, M7, M8, M9
+   all still killed.
+
+9. Full unit suite, DATABASE_URL unset, load average 90:
+   -> 792 files passed | 36 skipped; Tests 9434 passed | 234 skipped, ZERO failures.
+   The 10 failures recorded in step 4 were load-related and are gone.
+
+10. bunx tsc --noEmit clean; eslint clean on all five src files; agent-docs:check OK (74 mirrors).
+    File sizes: accountMergeGuards 281, accountMergeService 255, planGuards 206,
+    accountParentRules 118, isReportVisibleLeaf 77.
+
+11. LOW-2 resolution. The merge half of the round-1 dispute stands. The reclassification half did
+    not: that path locks the journal LINES only, and its write takes FOR KEY SHARE on the target,
+    which does not conflict with a concurrent createAccount's FOR KEY SHARE. `admitReclassification`
+    now takes FOR UPDATE on the target when the leaf rule can bite it, proven with two pool
+    clients (intruder INSERT -> 55P03 inside the guard's open transaction, nothing written). Both
+    the accountMergeService comment and K-051's fix.md now say "merge path only" explicitly.
+
+12. LOW-4. `isSubjectToLeafRule(level, accountType)` extracted into isReportVisibleLeaf and called
+    by isReportVisibleLeaf itself, accountMergeGuards and accountParentRules — one statement of
+    the rule in the module. The merge guard cannot call the whole predicate: it needs the target
+    and source arms apart to word the refusal.
+    LOW-5. isReportVisibleLeaf's docstring now records that validateLeafAccount is deliberately
+    stricter, and why the two may disagree about an expense header.

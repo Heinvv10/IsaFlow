@@ -17,6 +17,14 @@
  * the income statement, balance and all. So a guard that refuses a revenue or
  * expense target is refusing something that loses nothing, which is why
  * `LEAF_RULE_ACCOUNT_TYPES` exists rather than a bare level test.
+ *
+ * `validateLeafAccount` is deliberately STRICTER than this file and stays that
+ * way: it refuses posting to any parent account, of any type and any level
+ * (migration 484). The two are not in conflict — a direct post is a choice the
+ * user makes line by line and "pick a leaf account" is cheap advice at that
+ * moment, whereas these three guards decide whether a bulk move of existing
+ * lines may proceed at all, and refusing one costs the accountant a chart tidy
+ * that loses nothing. Where the reports cannot lose the money, these admit it.
  */
 import { sql } from '@/lib/neon';
 
@@ -30,6 +38,16 @@ export const BALANCE_SHEET_LEAF_LEVEL = 3;
 export const LEAF_RULE_ACCOUNT_TYPES: ReadonlySet<string> = new Set([
   'asset', 'liability', 'equity',
 ]);
+
+/**
+ * Whether the leaf rule applies to this account at all — the ONE statement of
+ * it, called by `isReportVisibleLeaf` below, by `accountMergeGuards` (which
+ * needs the source and target arms apart and so cannot use the predicate
+ * whole) and by `planGuards` (which must take a row lock before asking).
+ */
+export function isSubjectToLeafRule(level: number, accountType: string): boolean {
+  return LEAF_RULE_ACCOUNT_TYPES.has(accountType) && level < BALANCE_SHEET_LEAF_LEVEL;
+}
 
 /** True when any account in the company names `accountId` as its parent. */
 export async function hasChildAccounts(companyId: string, accountId: string): Promise<boolean> {
@@ -54,7 +72,6 @@ export async function hasChildAccounts(companyId: string, accountId: string): Pr
 export async function isReportVisibleLeaf(
   companyId: string, accountId: string, level: number, accountType: string,
 ): Promise<boolean> {
-  if (!LEAF_RULE_ACCOUNT_TYPES.has(accountType)) return true;
-  if (level >= BALANCE_SHEET_LEAF_LEVEL) return true;
+  if (!isSubjectToLeafRule(level, accountType)) return true;
   return !(await hasChildAccounts(companyId, accountId));
 }
