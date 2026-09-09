@@ -118,3 +118,15 @@ for(const kind of ['customer','supplier'] as const){
   expect(await metadata(kind,prepared.invoice)).toEqual({status:'partially_paid',amount_paid:'50.00',paid_at:null,...(kind==='supplier'?{payment_matched:false,payment_matched_at:null}:{})});
  });
 }
+
+for(const kind of ['customer','supplier'] as const)for(const legacy of ['posted','partial'] as const){
+ it(`${kind}: committed schema rejects ${legacy} invoice status without changing settlement`,async()=>{
+  const prepared=await seed(kind,legacy==='partial'?'50':'115');
+  if(legacy==='partial')await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:prepared.approvalId}));
+  const before=await metadata(kind,prepared.invoice);
+  const change=kind==='customer'?pool.query('UPDATE customer_invoices SET status=$3 WHERE company_id=$1 AND id=$2',[fixture.companyA,prepared.invoice,legacy])
+   :pool.query('UPDATE supplier_invoices SET status=$3 WHERE company_id=$1 AND id=$2',[fixture.companyA,prepared.invoice,legacy]);
+  await expect(change).rejects.toMatchObject({code:'23514',constraint:`${kind}_invoices_status_check`});
+  expect(await metadata(kind,prepared.invoice)).toEqual(before);
+ });
+}
