@@ -41,3 +41,52 @@ eslint: clean
    Tests 1 failed | 7 passed (8)
    × throws when fewer entries were marked billed than were selected
 Both changes restored; suites re-run green (above).
+
+================================================================
+Review round 2 — 091900c5 findings (2 MEDIUM, 5 LOW) all addressed
+================================================================
+== integration: overlapping runs (6 tests) ==
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+
+== integration: billed-count savepoint rollback ==
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+== unit (practiceWipService) ==
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+
+== full unit suite, DATABASE_URL unset ==
+ Test Files  790 passed | 36 skipped (826)
+      Tests  9394 passed | 234 skipped (9628)
+
+== tsc / eslint / agent-docs ==
+tsc --noEmit: clean
+
+/home/hein/Workspace/IsaFlow/.worktrees/fix-K-040/scripts/simulate-fy2026-workflows.ts
+  0:0  error  Parsing error: /home/hein/Workspace/IsaFlow/.worktrees/fix-K-040/scripts/simulate-fy2026-workflows.ts was not found by the project service. Consider either including it in the tsconfig.json or including it in allowDefaultProject
+
+✖ 1 problem (1 error, 0 warnings)
+
+OK: 74 agent document mirror(s) match canonical sources.
+
+== mutation checks, round 2 ==
+3. per-attempt savepoint removed from the invoice-number retry loop:
+   Tests 1 failed | 5 passed (6)
+   × retries the invoice number when a peer in the same company took it first
+4. withSavepoint('wip_invoice_build') removed from the invoice build:
+   Tests 1 failed (1) — expected 1 to be +0
+   × rolls the invoice back and leaves the transaction usable when a peer took an entry
+Both restored; suites re-run green (above).
+Not mutation-tested, reasoned only: the 40P01 mapping is covered by a unit test that
+rejects the eligibility read with that code, but a real deadlock is plan-dependent and
+is not provoked deterministically here. The company_id predicates added to the two
+LEFT JOINs are guarded by the existing foreign keys, so no test distinguishes them.
+
+Note on the eslint line above: eslint's project service covers `src` and `pages` only, so
+tests/** and scripts/** report a parsing error rather than being linted — pre-existing, and the
+reason `bun run lint` is scoped to `eslint src pages`. Repo-wide gate:
+  bun run lint -> exit 0, 11 problems (0 errors, 11 warnings), none in the files changed here.
+  bunx tsc --noEmit -> clean (it does cover scripts/ and tests/).
+  bun run agent-docs:check -> OK: 74 mirrors match.

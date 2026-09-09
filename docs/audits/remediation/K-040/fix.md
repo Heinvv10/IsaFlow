@@ -16,22 +16,35 @@ The invoice build now also runs in a savepoint and asserts `markEntriesBilled` m
 selected entry; the route answers a caught error with a 400, which `withAuth` COMMITs, so
 without the savepoint that guard would leave the orphan invoice it meant to prevent.
 
+The invoice-number retry loop now takes a savepoint per attempt. A peer's number arrives as
+a 23505 that aborts the transaction, so before this the caught error made `continue` unable to
+run one further statement: the five attempts never happened and the caller got a raw
+"current transaction is aborted" as a 400. It retries for real now.
+
 **Files.**
 - `src/modules/accounting/services/practice/wipEntryLock.ts` (new) — `lockEligibleWipEntries`,
   `WipEntriesLockedError`. Mirrors `bank/bankTxLock.ts`, including the note on why `SET LOCAL`
-  is re-issued per call rather than memoised.
+  is re-issued per call rather than memoised. `40P01` (deadlock, which `lock_timeout` does not
+  bound) maps to the same retryable error as `55P03`; both `LEFT JOIN`s carry `company_id`.
 - `src/modules/accounting/services/practice/practiceWipService.ts` — step 2 delegates to the
-  lock helper; steps 3-5 wrapped in `withSavepoint('wip_invoice_build')`; billed-count guard.
+  lock helper; steps 3-5 wrapped in `withSavepoint('wip_invoice_build')`; a savepoint per
+  invoice-number attempt; billed-count guard.
+- `scripts/simulate-fy2026-workflows.ts` — the one non-route caller. It had no transaction, so
+  every WIP invoice it attempted would now be refused; it supplies its own `als.run` client.
 - `src/modules/accounting/services/practice/.claude.md` (+ AGENTS.md mirror).
 
-**Tests.** `tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts` — 4 passed,
+**Tests.** `tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts` — 6 passed,
 real Postgres, pool clients, deterministic (`pg_stat_activity` polling, no sleeps): overlapping
-runs bill the entry once and the invoice foots to its lines; a second tenant is neither blocked
-nor billed; an empty selection writes no invoice; an unreleasable lock refuses the run.
-`tests/unit/services/practice/practiceWipService.test.ts` — 8 passed, adds the
-outside-a-transaction refusal and the short-count guard. Full unit suite 9393 passed.
-Mutation-proofed both production changes; see `green.log`, including the honest note that
-without the lock the losing run dies on `uq_customer_invoices_company_number` in this ordering.
+runs bill the entry once and the invoice foots to its lines; a partly overlapping selection
+bills only the entries the peer did not take, on its own invoice number; a competing run in the
+same company retries its invoice number instead of dying; a second tenant is neither blocked nor
+billed; an empty selection writes no invoice; an unreleasable lock refuses the run.
+`tests/integration/k-040-wip-billed-count-rollback.int.test.ts` — 1 passed, stubs
+`markEntriesBilled` short and proves the savepoint removes the invoice it had written while the
+transaction stays usable. `tests/unit/services/practice/practiceWipService.test.ts` — 9 passed.
+Full unit suite 9394 passed. Four production changes mutation-proofed; see `green.log`,
+including the honest note that with only the lock removed the losing run dies on
+`uq_customer_invoices_company_number` in that ordering.
 
 **Migration.** None. **Rollback.** Revert the commit; no schema or data change.
 
@@ -48,9 +61,12 @@ GROUP BY 1,2 HAVING count(*) > 1;
 Each hit is a customer over-charged and needs a credit note; practice WIP billing is
 low-volume, so the count is likely small. Not run here — no production query was issued.
 
-**Limits.** The invoice-number retry loop (`practiceWipService.ts`, step 3) is still dead code
-inside a transaction: a caught unique violation has already poisoned it, so `continue` cannot
-succeed. Untouched — it is the validator's separate secondary observation, and it now aborts
-the whole savepoint rather than half a write. A partially overlapping selection still bills the
-entries it did win and silently drops the ones a peer took, which is the pre-existing behaviour
-for any ineligible id in the selection.
+**Limits.** The 5s `lock_timeout` is transaction-scoped, so it also bounds the later waits in
+the same request: a peer holding an uncommitted duplicate invoice number for more than 5s now
+fails this run with a bare "canceling statement due to lock timeout" rather than parking it.
+Deliberate, and the trade `bankTxLock.ts` already makes, but it is a new failure mode the
+helper's error mapping does not reach. A partially overlapping selection bills the entries it
+won and silently drops the ones a peer took — the pre-existing behaviour for any ineligible id
+in the selection, now covered by a test. The `40P01` mapping and the `company_id` join
+predicates are reasoned, not mutation-tested: a real deadlock is plan-dependent, and the
+foreign keys already make the join predicates redundant in practice.

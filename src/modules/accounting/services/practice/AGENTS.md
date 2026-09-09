@@ -28,7 +28,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/practice/*`
 - Time-entry state: `draft → submitted → approved → billed`, with `rejected` branch. Billing requires approved + unbilled.
 - WIP → invoice: idempotent via `entry.invoice_id` — once set, entry is excluded from WIP aggregation.
 - `link_customer_id` on `practice_clients` is OPTIONAL — WIP invoice generation fails early when absent.
-- WIP → invoice takes `FOR UPDATE OF te` on its eligible entries (`lockEligibleWipEntries`, 5s `lock_timeout`) and requires a request transaction; overlapping runs serialise there, and the loser finds nothing eligible. The invoice build runs in a savepoint so the billed-count guard can undo it — the route answers a caught error with a 400, which `withAuth` COMMITs.
+- WIP → invoice takes `FOR UPDATE OF te` on its eligible entries (`lockEligibleWipEntries`, 5s `lock_timeout`) and requires a request transaction; overlapping runs serialise there, and the loser finds nothing eligible. The invoice build runs in a savepoint so the billed-count guard can undo it — the route answers a caught error with a 400, which `withAuth` COMMITs. Each invoice-number attempt takes its own savepoint too: a peer's 23505 aborts the transaction, and without one the retry loop cannot execute a further statement.
 - Rate cascade is deterministic; no DB writes during resolution.
 - Monthly report cron requires `practiceReportRecipientsService` rows; silently no-ops when empty.
 - Phase 5A: bulk CSV import creates+updates by `client_code` key.
@@ -38,7 +38,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/practice/*`
 - `scripts/migrations/sql/395_practice_client_rate_override.sql`, `*practice_*` migrations.
 
 ## Recent changes
-- 2026-09-09: K-040 — row-lock the WIP eligibility read; overlapping runs no longer bill the same time entry twice.
+- 2026-09-09: K-040 — row-lock the WIP eligibility read; overlapping runs no longer bill the same time entry twice, and the invoice-number retry loop can actually retry.
 - 2026-04-22: fix 4 Bugsink-surfaced regressions.
 - 2026-04-20: PRD-01 Phase 5A — bulk CSV import/export for clients.
 - 2026-04-19: rate overrides + leave + IRP5 + EMP501 + period close (PRD-01/02/03).
