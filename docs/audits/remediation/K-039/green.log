@@ -24,3 +24,31 @@ bunx vitest run -> Test Files 790 passed | 36 skipped (826); Tests 9391 passed |
 === Gates ===
 bunx tsc --noEmit -> clean
 bunx eslint <both changed services> -> clean
+
+=== Review round 2 (4 MEDIUM, 6 LOW) ===
+bun run test:integration -- tests/integration/k-039-...int.test.ts -> 11 passed (11)
+Full unit suite (no DATABASE_URL) -> 790 files passed / 36 skipped; 9391 tests passed / 234 skipped
+bunx tsc --noEmit -> clean; bunx eslint <both services> -> clean
+bun run agent-docs:check -> OK, 74 mirrors match
+bunx tsx scripts/ci/check-migration-rls.ts -> OK
+Migration 626 applied to isaflow_schema_fixture: CREATE FUNCTION / CREATE TRIGGER / UPDATE 0
+auth.users stub: created only when absent, dropped in afterAll; verified
+  to_regclass('auth.users') IS NULL = t and practice_client_rate_overrides count = 0 after the run.
+
+Mutation checks (11 tests each):
+A revert read value COALESCE                 -> 2 failed  | 9 passed
+B revert read filter to `user_id = $2`       -> 1 failed  | 10 passed
+C revert mapRow legacy fallback              -> 1 failed  | 10 passed
+D restore `rate = COALESCE($1, rate_per_hour, rate)` -> 1 failed | 10 passed
+E DROP TRIGGER trg_pcro_mirror_columns       -> 6 failed  | 5 passed
+F revert the dual-pair INSERT                -> 11 passed  (NOT detectable: mig 626's
+   trigger already fills the legacy pair, so the service-side dual write is redundant
+   belt-and-braces for a database where 626 has not been applied. E covers that path.)
+All restored -> 11 passed (11).
+
+LOW-3 index usability, EXPLAIN at 20k rows inside BEGIN..ROLLBACK:
+  Bitmap Heap Scan
+    BitmapOr
+      Bitmap Index Scan on idx_pcro_staff       (company_id, staff_user_id)
+      Bitmap Index Scan on idx_pcro_client_user (company_id, client_id, user_id, effective_from)
+  No Seq Scan; both halves of the OR are index-driven.
