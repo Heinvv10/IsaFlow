@@ -1,3 +1,4 @@
+import { readPayrollPostingReceipt } from './payrollPostingReceipt';
 import { randomUUID } from 'node:crypto';
 import { requireControlTx } from '../controls/context';
 import { executeControlledOperation } from '../controls/approvalExecutionService';
@@ -18,6 +19,7 @@ export function requirePayrollActor(companyId: string, userId: string) {
 export async function executePayrollPost(companyId: string, runId: string, userId: string, opts?: PayrollControlOptions): Promise<PayrollPostResult> {
   const ctx = requirePayrollActor(companyId,userId);
   if (opts?.reversalDate !== undefined) throw new Error('Reversal date only applies to payroll reopen');
+  if(!opts?.approvalId){const existing=await readPayrollPostingReceipt(ctx,runId);if(existing)return existing;}
   const ref = {entityType:'payroll_run',entityId:runId,operation:'payroll_run.post' as const};
   return executeControlledOperation(ctx,ref,opts?.approvalId ?? null,async permit=>{
     const material = await materializePayrollOperation(ctx,ref);
@@ -26,7 +28,7 @@ export async function executePayrollPost(companyId: string, runId: string, userI
     if (!['draft','calculated','processed','approved'].includes(String(header.status))) throw new Error('Payroll run is not approvable');
     if (journal && journal.header.reversed_at == null) {
       if (journal.header.status !== 'posted' || header.status !== 'approved') throw new Error('Payroll journal state is inconsistent');
-      return {run:mapRunRow(header),journalEntryId:String(header.journal_entry_id)};
+      throw new Error('Payroll run already posted; use its existing posting receipt');
     }
     const journalEntryId=randomUUID(), meta=defaultHumanMeta(userId);
     await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,description,source,source_record_id,created_by,posting_agent)
@@ -62,7 +64,7 @@ export async function executePayrollReopen(companyId:string,runId:string,userId:
     }
     // Retain the original journal FK for after-material and immutable reversal provenance.
     await ctx.sql`UPDATE payroll_run_headers SET status='calculated',updated_at=clock_timestamp(),
-      notes=CASE WHEN ${reason !== undefined} THEN concat_ws(E'\n',NULLIF(notes,''),${reason ?? null}) ELSE notes END
+      notes=CASE WHEN ${reason !== undefined} THEN concat_ws(E'\n',NULLIF(notes,''),${reason ?? null}::text) ELSE notes END
       WHERE company_id=${companyId}::uuid AND id=${runId}::uuid`;
     return {runId,previousStatus:'approved',newStatus:'calculated',reversalId};
   });

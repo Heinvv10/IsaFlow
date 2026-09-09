@@ -47,6 +47,8 @@ beforeAll(async()=>{
   await pool.query(`INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,paye,uif_employee,uif_employer,sdl,eti,net_pay)
     VALUES($1,$2,100,10,1,1,1,0,89)`,[run,employee]);
   await seedSyntheticReceipt();
+  await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
+    VALUES($1,$2,'Synthetic payroll policy','payroll_run','amount','any',0,'admin')`,[randomUUID(),fixture.companyA]);
 });
 afterAll(async()=>{await pool.end();});
 async function seedSyntheticReceipt(){
@@ -116,8 +118,6 @@ async function approve(ref:Parameters<typeof materializePayrollOperation>[1]){
   await actor('u2',ctx=>decideOperationApproval(ctx,request.id,'approved'));return request.id;
 }
 it('calculates a real receipt, gates approval and direct posting, and replays one exact journal effect',async()=>{
-  await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
-    VALUES($1,$2,'Synthetic payroll policy','payroll_run','amount','any',0,'admin')`,[randomUUID(),fixture.companyA]);
   const current=await calculatedRun();
   const {approvePayrollRun}=await import('@/modules/accounting/services/payroll/payrollApprovalService');
   const {postPayrollRunJournal}=await import('@/modules/accounting/services/payroll/payrollJournalPostingService');
@@ -203,4 +203,17 @@ it('serializes new employee-component inserts behind a locked material snapshot'
     release();await Promise.allSettled([reading,writing]);
     await pool.query('DELETE FROM payroll_employee_components WHERE id=$1 AND employee_id=$2',[insertId,employee]);
   }
+});
+it('returns an existing posting receipt on a fresh request without claiming another financial effect',async()=>{
+  const current=await calculatedRun();
+  const {postPayrollRunJournal}=await import('@/modules/accounting/services/payroll/payrollJournalPostingService');
+  const {approvePayrollRun}=await import('@/modules/accounting/services/payroll/payrollApprovalService');
+  try{
+    await pool.query('UPDATE approval_rules SET is_active=false WHERE company_id=$1',[fixture.companyA]);
+    const first=await actor('u1',()=>postPayrollRunJournal(fixture.companyA,current.id,fixture.u1.id));
+    const second=await actor('u1',()=>approvePayrollRun(fixture.companyA,current.id,fixture.u1.id));
+    expect(second.journalEntryId).toBe(first);
+    expect((await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,current.id])).rows).toHaveLength(1);
+    expect((await pool.query("SELECT id FROM control_change_events WHERE company_id=$1 AND entity_id=$2 AND action='payroll_run.post'",[fixture.companyA,current.id])).rows).toHaveLength(1);
+  }finally{await pool.query('UPDATE approval_rules SET is_active=true WHERE company_id=$1',[fixture.companyA]);}
 });
