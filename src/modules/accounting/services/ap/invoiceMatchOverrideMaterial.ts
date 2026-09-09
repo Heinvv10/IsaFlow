@@ -1,7 +1,9 @@
 import {withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from '../controls/context';
-import {canonicalMoney} from '../controls/canonical';
+import {loadOwnedCapturedEvidence} from '../controls/capturedEvidenceSource';
+import {UUID_RE} from '@/lib/validation';
+import {canonicalJson,canonicalMoney} from '../controls/canonical';
 import type {ControlTx,EvidenceRef} from '../controls/contracts';
 import {queryThreeWayMatch} from './threeWayMatchQueryService';
 /** Legacy source writers lack tenant phantom fences. Brief table locks provide a complete local source freeze. */
@@ -33,18 +35,27 @@ export async function loadInvoiceMatchCurrent(ctx:ControlTx,invoiceId:string){
  return{invoice,amount:canonicalMoney(invoice.total_amount),match};
 }
 export async function verifyInvoiceMatchEvidence(ctx:ControlTx,invoiceId:string,refs:readonly EvidenceRef[]){
- assertControlTx(ctx);await assertEffectivePermission(ctx,'read:invoices');
- const verified:EvidenceRef[]=[];
- if(!Array.isArray(refs)||refs.length<1||refs.length>20)throw new Error('Override evidence required');
- for(const ref of refs){
-  if(ref.store!=='captured'||ref.entityType!=='supplier_invoice'||ref.entityId!==invoiceId||ref.version!==null||!ref.hash
-   ||!/^[a-f0-9]{64}$/.test(ref.hash)||verified.some(r=>r.evidenceId===ref.evidenceId))throw new Error('Same-invoice captured override evidence required');
+ assertControlTx(ctx);
+ const saved=JSON.parse(canonicalJson(refs)) as EvidenceRef[];
+ if(!Array.isArray(saved)||saved.length<1||saved.length>20)throw new Error('Override evidence required');
+ const seen=new Set<string>();
+ for(const ref of saved){
+  if(!ref||ref.store!=='captured'||ref.entityType!=='supplier_invoice'||ref.entityId!==invoiceId||ref.version!==null||!ref.hash
+   ||!UUID_RE.test(ref.evidenceId)||!/^[a-f0-9]{64}$/.test(ref.hash)||seen.has(ref.evidenceId))throw new Error('Same-invoice captured override evidence required');
+  seen.add(ref.evidenceId);
+ }
+ const deadline=AbortSignal.timeout(20000),verified:EvidenceRef[]=[];
+ await assertEffectivePermission(ctx,'read:invoices');
+ for(const ref of saved){
   const [source]=await ctx.sql`SELECT d.id FROM captured_documents d JOIN supplier_invoices i ON i.company_id=d.company_id AND i.id=d.matched_invoice_id
    WHERE d.company_id=${ctx.principal.companyId}::uuid AND d.id=${ref.evidenceId}::uuid AND i.id=${invoiceId}::uuid
-    AND d.status NOT IN ('deleted','rejected') AND d.raw_bytes IS NOT NULL AND octet_length(d.raw_bytes) BETWEEN 1 AND 10485760
-    AND d.raw_bytes_sha256=${ref.hash} AND encode(digest(d.raw_bytes,'sha256'),'hex')=${ref.hash}`;
+    AND d.status NOT IN ('deleted','rejected') AND d.raw_bytes_sha256=${ref.hash} FOR SHARE OF d,i`;
   if(!source)throw new Error('Override evidence bytes unavailable or changed');
-  verified.push({...ref});
+  // The source reader rechecks current authority before storage IO; never relabel authority/SQL failures.
+  const bytes=await loadOwnedCapturedEvidence(ctx,ref.evidenceId,'read:invoices',deadline);
+  deadline.throwIfAborted();
+  if(!bytes?.recordedHashVerified||bytes.sha256!==ref.hash)throw new Error('Override evidence bytes unavailable or changed');
+  verified.push(ref);
  }
  return verified.sort((a,b)=>a.evidenceId<b.evidenceId?-1:1);
 }
