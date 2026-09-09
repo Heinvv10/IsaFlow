@@ -161,10 +161,21 @@ export async function applyBankLineToSupplierInvoices(
      * are untouched; this wins when both are given.
      */
     postingOpts?: PostingActorOpts;
+    /**
+     * The result of `validateBankSupplierPayment` when the CALLER has already
+     * run it — a route that must answer a refusal with a 4xx has to, because
+     * every refusal must be decided before this function's first write. Passing
+     * it through saves re-reading the line, its status, the period and the bill
+     * plan a second time inside the same request transaction, and leaves one
+     * decision rather than two that could differ. Omit it and the validation is
+     * run here, which is what every other caller does.
+     */
+    validation?: BankSupplierPaymentValidation;
   },
 ): Promise<BankSupplierPaymentResult> {
   const { bankTxId, userId, allocations } = params;
-  const validation = await validateBankSupplierPayment(companyId, bankTxId, allocations);
+  const validation = params.validation
+    ?? await validateBankSupplierPayment(companyId, bankTxId, allocations);
 
   const description = validation.lines.length === 1
     ? `Payment allocated to ${validation.lines[0]!.invoiceNumber}`

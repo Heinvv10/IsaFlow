@@ -46,3 +46,11 @@ naming the original cause. Test:
 its own savepoint before throwing, so the rollback really fails; deleting the
 `assertTxUsable()` call turns it red. The other five findings in that review are
 K-074's; their dispositions are in `../K-074/fix.md`.
+
+---
+
+## Round 3
+
+No K-071 findings in the round-3 review. The import-side code is unchanged since
+`4c857048`; the four findings were all K-074's and their dispositions are in
+`../K-074/fix.md`.

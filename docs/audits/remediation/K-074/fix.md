@@ -94,3 +94,64 @@ finding, each turning the matching tests red — see `green.log`.
 
 **Historical-data impact, unchanged.** The supplier branch still never succeeded before
 this work, so there is nothing to repair. What changes is only what it does from now on.
+
+---
+
+## Round 3 — dispositions for the four findings on `4c857048`
+
+**MEDIUM-1 (an over-payment's remainder is invisible to the AP aging).** Correct, and the
+choice made here is to **refuse the over-payment**, not to surface it. The reasoning, since
+the review offered both:
+
+- `allocateTransaction` relieves AP control by the whole line; the bill can only take its
+  outstanding balance; and `apAgingService` builds the aging from `supplier_invoices` alone,
+  with no unapplied-payment credit anywhere in the query. So the excess parts the control
+  account from the aging with nothing on any AP report to explain it.
+- Making it visible instead would mean teaching the aging and the supplier statement to net
+  unapplied supplier payments. That changes every AP report for every path that leaves a
+  remainder — `supplierAutoAllocate`, the purchase-order branch, the MCP apply tool — and is
+  a reporting change, not a fix to this route. It is the better systemic answer and it wants
+  its own piece of work.
+- The module's own rule decides the rest. A caller that HANDS IN its allocations may leave a
+  remainder, because there the split is an instruction the user gave: the MCP apply tool
+  returns `unapplied_remainder` and the payment document holds it. This screen derives the
+  allocation itself from the single bill the user picked, so a remainder is a mis-match. It
+  is refused before the first write, naming the excess and the remedy: "This line is
+  R1,000.00 but only R600.00 is outstanding … the R400.00 excess would sit unapplied where
+  the AP aging cannot see it. Split the line, or capture the payment against every bill it
+  settles."
+- The second half of the finding — the user is told nothing — is fixed for the settling case
+  too: the response now carries `supplierPaymentId`, `paymentNumber` and `allocated`, so the
+  screen can name the document that settled the line.
+
+**LOW-1 (validation ran twice per confirm).** Fixed. `applyBankLineToSupplierInvoices` takes
+an optional pre-computed `validation` and uses it when given, so the eight reads run once.
+Every other caller is untouched. The residual race the review names is unchanged and
+correctly diagnosed: between the route's read-only validation and the `FOR UPDATE` inside
+`allocateTransaction`, a concurrent confirm of the same line still loses at the lock and
+answers 500 rather than the 400 the same refusal earns when it is not a race. That is the
+safe direction to fail, and narrowing it means holding the row lock across the validation,
+which changes the locking shape of every caller — deliberately not done here.
+
+**LOW-2 (`leg()` summed the account across the whole database).** Fixed: it takes the journal
+id and filters on it, matching the balance query beside it. Probe J is the proof — with the
+filter removed and a second journal on the same account, the assertion fails.
+
+**LOW-3 (module doc is 109 lines against the 50-line rule).** Partly fixed, and the rest
+deliberately not. The file is down to **86 lines** by lossless compaction only: the wrapped
+PRD-11 §3 entry unwrapped into one bullet, the blank separators inside Recent-changes
+removed, the five 2026-04 stubs merged into one, and this branch's own entry rewritten
+tighter. Reaching 50 requires deleting facts other sessions wrote in the last fortnight —
+known limitations and locking rules among them — and that is a judgement about their
+documentation, not this branch's to make. The review says the same ("not this branch's
+job"). Flagged, not silently dropped.
+
+**Structure note.** The route reached 315 lines with these changes, over the 300 ceiling, so
+the supplier arm moved to `src/modules/accounting/services/bank/confirmSupplierMatch.ts`
+(113 lines) and the route delegates to it. That is where the accounting reasoning belongs
+anyway; the route now maps its outcome to a status code and nothing else.
+
+**Tests after round 3.** 16 integration tests on the real fixture, plus 6 new unit tests for
+the extracted module. Four mutation probes, one per fixed finding. Full unit suite 9444
+passed with one load-induced timeout in an untouched file — see `green.log`, which reports it
+rather than rounding it to green.

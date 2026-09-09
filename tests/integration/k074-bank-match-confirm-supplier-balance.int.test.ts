@@ -66,11 +66,17 @@ async function paymentFor(bankTxId: string) {
   return rows[0];
 }
 
-/** Debits and credits on one account, from the posted journal lines. */
-async function leg(accountId: string) {
+/**
+ * Debits and credits on one account WITHIN one journal. The journal filter is
+ * not decoration: without it the sums cover every journal the fixture company
+ * has ever posted, so the assertion would hold only while this test happens to
+ * run first.
+ */
+async function leg(accountId: string, journalEntryId: string) {
   const { rows } = await pool.query(
     `SELECT COALESCE(SUM(debit),0)::float8 AS dr, COALESCE(SUM(credit),0)::float8 AS cr
-     FROM gl_journal_lines WHERE gl_account_id = $1`, [accountId],
+     FROM gl_journal_lines WHERE gl_account_id = $1 AND journal_entry_id = $2`,
+    [accountId, journalEntryId],
   );
   return rows[0] as { dr: number; cr: number };
 }
@@ -104,8 +110,9 @@ it('settles the bill with a payment document, and the journal balances', async (
      FROM gl_journal_lines WHERE journal_entry_id = $1`, [payment.gl_journal_entry_id],
   );
   expect(je[0].dr).toBeCloseTo(je[0].cr, 2);
-  expect((await leg(fx.apAccount)).dr).toBeCloseTo(1150, 2);
-  expect((await leg(fx.bankAccount)).cr).toBeCloseTo(1150, 2);
+  const je_id = String(payment.gl_journal_entry_id);
+  expect((await leg(fx.apAccount, je_id)).dr).toBeCloseTo(1150, 2);
+  expect((await leg(fx.bankAccount, je_id)).cr).toBeCloseTo(1150, 2);
 });
 
 it('unallocating the line reverses the subledger, not just the GL', async () => {
@@ -159,21 +166,47 @@ it('settles a partial payment and leaves the generated balance consistent', asyn
   expect(Number((await paymentFor(bankTx)).allocated)).toBe(400);
 });
 
-it('holds the remainder of an over-payment on the document instead of losing it', async () => {
+it('refuses an over-payment rather than leaving a credit the AP aging cannot see', async () => {
   const bill = await seedBill(pool, fx, 600);
   const bankTx = await seedBankLine(pool, fx, -1000);
 
-  const { status } = await confirmMatch(pool, fx, {
+  const { status, body, committed } = await confirmMatch(pool, fx, {
     bankTransactionId: bankTx, candidateType: 'supplier_invoice', candidateId: bill,
   });
-  expect(status).toBe(200);
 
-  // The bill takes what it can; the R400 that is left is CARRIED by the payment
-  // document (total 1000, allocated 600) rather than vanishing between an AP
-  // control moved by the whole line and a subledger capped at the balance.
-  expect(Number((await billRow(bill)).amount_paid)).toBe(600);
-  const payment = await paymentFor(bankTx);
-  expect(Number(payment.total_amount)).toBe(1000);
-  expect(Number(payment.allocated)).toBe(600);
-  expect(Number(payment.total_amount) - Number(payment.allocated)).toBeCloseTo(400, 2);
+  // allocateTransaction would relieve AP control by the whole R1,000 while the
+  // bill can only take R600, and apAgingService reads supplier_invoices alone —
+  // so the R400 would part the control account from the aging with nothing on
+  // any AP report to explain it. Refused BEFORE the first write, naming the
+  // excess and the remedy.
+  expect(status).toBe(400);
+  expect(committed).toBe(true);
+  expect(JSON.stringify(body)).toMatch(/R400\.00 excess/);
+  expect(JSON.stringify(body)).toMatch(/split the line/i);
+
+  const row = await billRow(bill);
+  expect(Number(row.amount_paid)).toBe(0);
+  expect(row.status).toBe('approved');
+  expect(await paymentFor(bankTx)).toBeUndefined();
+  const { rowCount } = await pool.query(
+    'SELECT id FROM gl_journal_entries WHERE company_id=$1 AND description LIKE $2',
+    [fx.company, '%' + bankTx + '%'],
+  );
+  expect(rowCount).toBe(0);
+});
+
+it('names the payment document it created in the response', async () => {
+  const bill = await seedBill(pool, fx, 250);
+  const bankTx = await seedBankLine(pool, fx, -250);
+
+  const { status, body } = await confirmMatch(pool, fx, {
+    bankTransactionId: bankTx, candidateType: 'supplier_invoice', candidateId: bill,
+  });
+
+  // The screen's only channel. A confirm that settles a bill says which
+  // document did it, so the user can find the cash from the bill and back.
+  expect(status).toBe(200);
+  const payload = (body as { data?: Record<string, unknown> }).data ?? body as Record<string, unknown>;
+  expect(payload.supplierPaymentId).toBe(String((await paymentFor(bankTx)).id));
+  expect(payload.allocated).toBe(250);
 });
