@@ -1,11 +1,17 @@
+import {z} from 'zod';
+import {scanCapturedEvidence} from '@/modules/accounting/services/controls/capturedEvidenceScan';
 import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { validateEvidence, assertPoliciesSupported } from '@/modules/accounting/services/controls/beneficiaryQueries';
 import { requireControlTx, withControlRequest } from '@/modules/accounting/services/controls/context';
 import type { EvidenceRef } from '@/modules/accounting/services/controls/contracts';
-import {loadOwnedCapturedEvidence} from '@/modules/accounting/services/controls/capturedEvidenceSource';
-vi.mock('@/modules/accounting/services/controls/capturedEvidenceSource',()=>({loadOwnedCapturedEvidence:vi.fn()}));
+import {CapturedEvidenceUnavailableError,loadOwnedCapturedEvidence} from '@/modules/accounting/services/controls/capturedEvidenceSource';
+vi.mock('@/modules/accounting/services/controls/capturedEvidenceSource',async(importOriginal)=>({
+ ...await importOriginal<typeof import('@/modules/accounting/services/controls/capturedEvidenceSource')>(),loadOwnedCapturedEvidence:vi.fn()
+}));
+vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:vi.fn().mockResolvedValue(undefined)}));
+afterEach(()=>vi.restoreAllMocks());
 const companyId = '11111111-1111-4111-8111-111111111111';
 const id = '22222222-2222-4222-8222-222222222222';
 const bytes = Buffer.from('synthetic documentary evidence');
@@ -30,7 +36,7 @@ it('requires supplier parent ownership before accepting the shared verified sour
 });
 it('preserves the beneficiary refusal code when the actual source reader reports changed bytes', async () => {
   // Actual HTTP hash mismatch is covered by capturedEvidenceConsumers411.int.test.ts.
-  vi.mocked(loadOwnedCapturedEvidence).mockRejectedValue(new Error('Captured evidence bytes changed or empty'));
+  vi.mocked(loadOwnedCapturedEvidence).mockRejectedValue(new CapturedEvidenceUnavailableError(new Error('Captured evidence bytes changed or empty')));
   await expect(check([evidence])).rejects.toThrow('EVIDENCE_UNAVAILABLE_OR_CHANGED');
 });
 it('rejects evidence accessors without invoking them or reading source rows',async()=>{
@@ -51,4 +57,30 @@ it('locks the policy namespace before reading even an empty configured populatio
   expect(query.mock.calls[0]![0]).toContain('pg_advisory_xact_lock');
   expect(query.mock.calls[0]![1]).toContain(`control-policy:${companyId}`);
   expect(query.mock.calls[1]![0]).toContain('FROM approval_rules');
+});
+
+for(const consumer of ['scan','beneficiary'] as const){
+  for(const failure of [new Error('permission revoked'),new Error('SQL connection failed'),z.string().safeParse(42).error!]){
+    it(`${consumer} preserves authority and SQL errors after its deadline: ${failure.name} ${failure.message}`,async()=>{
+      const controller=new AbortController();
+      vi.spyOn(AbortSignal,'timeout').mockReturnValue(controller.signal);
+      vi.mocked(loadOwnedCapturedEvidence).mockImplementation(async()=>{controller.abort();throw failure;});
+      const pending=consumer==='beneficiary'?check([evidence]):withControlRequest(
+        {client,userId:'u1',companyId,claims:{}},{personId:'u1',companyId,authMethod:'cookie'},
+        ()=>scanCapturedEvidence(requireControlTx(),[id],'read:invoices'));
+      await expect(pending).rejects.toBe(failure);
+    });
+  }
+}
+
+it('defers an actual storage timeout without treating it as an authority failure',async()=>{
+ const controller=new AbortController();vi.spyOn(AbortSignal,'timeout').mockReturnValue(controller.signal);
+ vi.mocked(loadOwnedCapturedEvidence).mockImplementation(async()=>{
+  controller.abort();throw new CapturedEvidenceUnavailableError(new Error('storage cancelled'));
+ });
+ const result=await withControlRequest({client,userId:'u1',companyId,claims:{}},
+  {personId:'u1',companyId,authMethod:'cookie'},()=>scanCapturedEvidence(requireControlTx(),[id],'read:invoices'));
+ expect(result.verified.size).toBe(0);
+ expect(result.evidenceMissing).toEqual(['async_scan_required:captured_evidence_deadline']);
+ await expect(check([evidence])).rejects.toThrow('EVIDENCE_UNAVAILABLE_OR_CHANGED');
 });
