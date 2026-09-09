@@ -6,86 +6,6 @@ import { type BankFeedSyncResult, type Provider } from './openBankingTypes';
 import type { DbRow } from '@/types/db';
 
 
-// ── Stub transaction generator ────────────────────────────────────────────────
-
-interface StubTransaction {
-  externalId: string;
-  date: string;
-  amount: number;
-  description: string;
-  reference: string | null;
-}
-
-const DEBIT_DESCRIPTIONS = ['Office supplies', 'Fuel', 'Telkom invoice', 'Eskom payment', 'Staff salary'];
-const CREDIT_DESCRIPTIONS = ['Client payment', 'Interest income', 'Deposit', 'Invoice receipt'];
-
-function buildSampleTransactions(provider: Provider): StubTransaction[] {
-  const today = new Date();
-  const count = 5 + Math.floor(Math.random() * 6); // 5–10
-  return Array.from({ length: count }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0]!;
-    const isDebit = Math.random() > 0.4;
-    const amount = (isDebit ? -1 : 1) * parseFloat((Math.random() * 5000 + 100).toFixed(2));
-    return {
-      externalId: `${provider}-stub-${dateStr}-${i}`,
-      date: dateStr,
-      amount,
-      description: isDebit
-        ? DEBIT_DESCRIPTIONS[i % DEBIT_DESCRIPTIONS.length]!
-        : CREDIT_DESCRIPTIONS[i % CREDIT_DESCRIPTIONS.length]!,
-      reference: `REF-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-    };
-  });
-}
-
-// ── Deduplication + insert ────────────────────────────────────────────────────
-
-// BL-54: companyId is required so bank_transactions.company_id (NOT NULL) is populated
-async function insertTransaction(
-  companyId: string,
-  bankAccountId: string,
-  tx: StubTransaction,
-): Promise<'imported' | 'duplicate'> {
-  // Primary dedup via external ID stored in bank_reference
-  const byRef = (await sql`
-    SELECT id FROM bank_transactions
-    WHERE bank_account_id = ${bankAccountId}::UUID
-      AND bank_reference = ${tx.externalId}
-    LIMIT 1
-  `) as DbRow[];
-  if (byRef.length > 0) return 'duplicate';
-
-  // Fallback dedup: same amount + date + description
-  const byFields = (await sql`
-    SELECT id FROM bank_transactions
-    WHERE bank_account_id = ${bankAccountId}::UUID
-      AND amount = ${tx.amount}
-      AND transaction_date = ${tx.date}::DATE
-      AND description = ${tx.description}
-    LIMIT 1
-  `) as DbRow[];
-  if (byFields.length > 0) return 'duplicate';
-
-  await sql`
-    INSERT INTO bank_transactions (
-      company_id, bank_account_id, transaction_date, amount,
-      description, reference, bank_reference, status
-    ) VALUES (
-      ${companyId}::UUID,
-      ${bankAccountId}::UUID,
-      ${tx.date}::DATE,
-      ${tx.amount},
-      ${tx.description},
-      ${tx.reference},
-      ${tx.externalId},
-      'imported'
-    )
-  `;
-  return 'imported';
-}
-
 // ── Sync orchestration ────────────────────────────────────────────────────────
 
 async function markSyncComplete(
@@ -168,8 +88,6 @@ export async function syncBankFeed(
 
   // extension: must be synced from the browser extension itself; this
   // server-only endpoint cannot reach the user's authenticated bank tab.
-  // Refuse here so the legacy stub generator below never runs for an
-  // extension-provider connection (it produced misleading fake transactions).
   if (provider === 'extension') {
     await markSyncComplete(logId, connectionId, 0, 0, 0);
     return {
@@ -178,32 +96,12 @@ export async function syncBankFeed(
     };
   }
 
-  const bankAccountId = conn.bank_account_id != null ? String(conn.bank_account_id) : null;
-  if (!bankAccountId) {
-    const errMsg = 'Connection has no linked bank account — cannot import transactions';
-    await markSyncFailed(logId, connectionId, errMsg);
-    throw new Error(errMsg);
-  }
-
-  try {
-    const transactions = buildSampleTransactions(provider);
-    let imported = 0;
-    let duplicate = 0;
-
-    for (const tx of transactions) {
-      const result = await insertTransaction(companyId, bankAccountId, tx);
-      if (result === 'imported') imported++;
-      else duplicate++;
-    }
-
-    const found = transactions.length;
-    await markSyncComplete(logId, connectionId, found, imported, duplicate);
-    log.info('Bank feed sync completed', { connectionId, provider, found, imported, duplicate }, 'open-banking');
-    return { connectionId, provider, logId, found, imported, duplicate };
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : 'Sync failed';
-    await markSyncFailed(logId, connectionId, errMsg);
-    log.error('Bank feed sync failed', { connectionId, provider, error: errMsg }, 'open-banking');
-    throw err;
-  }
+  // basiq | tink | plaid have no integration behind them. They used to fall
+  // through to a random sample-transaction generator whose invented rows were
+  // INSERTed into the tenant's bank_transactions as 'imported' and reported as
+  // a successful sync. Refuse instead — an unimplemented feed imports nothing.
+  const errMsg = `Bank feed provider "${provider}" is not implemented — no transactions were imported. Use the browser extension or a manual CSV import instead.`;
+  await markSyncFailed(logId, connectionId, errMsg);
+  log.error('Bank feed sync refused — provider not implemented', { connectionId, provider, companyId }, 'open-banking');
+  throw new Error(errMsg);
 }
