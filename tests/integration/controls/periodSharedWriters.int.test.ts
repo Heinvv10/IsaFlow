@@ -72,7 +72,7 @@ it('closes, reopens and locks via distinct approved operations with immutable ve
 });
 it('binds year population and writes a versioned event for every changed child period', async () => {
   const a = await period(), b = await period('open', a.fiscalYear, 2);
-  const operation: OperationRef = { entityType: 'fiscal_year', entityId: String(a.fiscalYear), operation: 'year.close' };
+  const operation: OperationRef = { entityType: 'fiscal_year', entityId: String(a.fiscalYear), operation: 'year.periods_close' };
   const id = await approval(operation);
   const result = await actor('u1', () => closeYear(fixture.companyA, a.fiscalYear, fixture.u1.id, { approvalId: id }));
   expect(result).toHaveLength(2); expect(await state(a.id)).toBe('closed'); expect(await state(b.id)).toBe('closed');

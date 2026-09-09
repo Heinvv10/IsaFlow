@@ -197,3 +197,15 @@ it('settles a selected actually posted supplier invoice with independently verif
  expect((await pool.query('SELECT status,amount_paid FROM supplier_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,supplier.invoice])).rows[0]).toMatchObject({status:'approved',amount_paid:'0.00'});
  expect((await pool.query('SELECT status,gl_journal_entry_id FROM supplier_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0]).toMatchObject({status:'cancelled',gl_journal_entry_id:posted.journalEntryId});
 });
+
+it('prevents the intent maker approving their own allocation through a proxy approval requester',async()=>{
+ const tx=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',100,'Synthetic proxy requester','imported')",[tx,fixture.companyA,bank]);
+ const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ await expect((async()=>{
+  const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation),'u2');
+  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u1');
+  return actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approval.id}),'u1');
+ })()).rejects.toThrow('Original intent requester');
+ expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('imported');
+});
