@@ -1,3 +1,4 @@
+import {seedBankAllocationSupplier} from './bankAllocationSupplierFixture';
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
@@ -118,4 +119,41 @@ it('requires independent approval and refuses a foreign party before preparing r
  const foreign=randomUUID();
  await pool.query("INSERT INTO customers(id,company_id,name) VALUES($1,$2,'Synthetic foreign refund party')",[foreign,fixture.companyB]);
  await expect(actor(()=>prepareBankAllocation(requireControlTx(),{...plan,partyId:foreign}))).rejects.toThrow(/Owned allocation party/);
+});
+
+for(const kind of ['supplier','customer'] as const)it(`${kind}: refund inverse retains an earlier reversed cash child on the same bank source`,async()=>{
+ const plan=await source(kind);
+ const priorKind=kind==='supplier'?'customer':'supplier';
+ const priorParty=priorKind==='customer'?customer:(await seedBankAllocationSupplier(pool,fixture,(person,fn)=>actor(()=>fn(requireControlTx()),person))).supplier;
+ const prior=await actor(()=>prepareBankAllocation(requireControlTx(),{...plan,kind:priorKind,partyId:priorParty}));
+ const approve=async(operation:Parameters<typeof requestOperationApproval>[1])=>{
+  const a=await actor(()=>requestOperationApproval(requireControlTx(),operation));
+  await actor(()=>decideOperationApproval(requireControlTx(),a.id,'approved'),'u2');return a.id;
+ };
+ const priorApproval=await approve(prior.operation);
+ const old=await actor(()=>executeBankAllocation(requireControlTx(),prior.intentId,{approvalId:priorApproval}));
+ const firstInverse=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:prior.intentId,reversalDate:'2026-09-10',reason:'Synthetic reclassification before refund'}));
+ const firstApproval=await approve(firstInverse.operation);
+ await actor(()=>executeBankAllocationReversal(requireControlTx(),firstInverse.intentId,{approvalId:firstApproval}));
+ const table=priorKind==='customer'?'customer_payments':'supplier_payments';
+ const before=(await pool.query(`SELECT * FROM ${table} WHERE company_id=$1 AND id=$2`,[fixture.companyA,old.paymentId])).rows;
+ expect(before[0].status).toBe('cancelled');
+ const refund=await actor(()=>prepareBankAllocation(requireControlTx(),plan)),refundApproval=await approve(refund.operation);
+ const posted=await actor(()=>executeBankAllocation(requireControlTx(),refund.intentId,{approvalId:refundApproval}));
+ expect(posted.paymentId).toBeNull();
+ const inverse=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:refund.intentId,reversalDate:'2026-09-11',reason:'Synthetic refund correction after reclassification'}));
+ const inverseApproval=await approve(inverse.operation);
+ const result=await actor(()=>executeBankAllocationReversal(requireControlTx(),inverse.intentId,{approvalId:inverseApproval}));
+ expect(result).toMatchObject({paymentsCancelled:0,invoicesReopened:0,amountUnapplied:0});
+ expect(await actor(()=>executeBankAllocationReversal(requireControlTx(),inverse.intentId))).toEqual(result);
+ expect((await pool.query(`SELECT * FROM ${table} WHERE company_id=$1 AND id=$2`,[fixture.companyA,old.paymentId])).rows).toEqual(before);
+ expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,plan.bankTransactionId])).rows[0].status).toBe('imported');
+});
+
+it('refuses unexpected cash children attached to the exact refund journal',async()=>{
+ const p=await prepared('supplier'),posted=await actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId:p.approvalId}));
+ const unexpected=randomUUID();
+ await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,currency_code,status,gl_journal_entry_id,created_by) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115.23,'ZAR','confirmed',$4,$5)",[unexpected,fixture.companyA,customer,posted.journalEntryId,fixture.u1.id]);
+ await expect(actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:p.intentId,reversalDate:'2026-09-10',reason:'Synthetic unexpected child'}))).rejects.toThrow('Refund must not have payment or application children');
+ expect((await pool.query('SELECT reversed_at FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.journalEntryId])).rows[0].reversed_at).toBeNull();
 });
