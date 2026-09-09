@@ -1,49 +1,66 @@
-# K-032 fix — cancelled documents leave their reversal in the VAT201
+# K-032 fix — a cancelled credit note's reversal in the VAT201
 
-**Trigger.** Cancelling a credit note (or an invoice) posts a reversing journal
-and leaves `gl_journal_entry_id` on the ORIGINAL document row.
-`reverseJournalEntry` dates that reversal into the original's period while the
-period is open. The `cancelled_entries` CTE in the ledger-derived VAT201 only
-collects document-linked journals, so the original was suppressed and the
-reversal — linked from no document — survived into the boxes.
+**Scope: credit notes only.** `customerInvoiceCancelService.ts:151` and
+`supplierInvoiceWorkflowService.ts:315` NULL `gl_journal_entry_id` when they
+cancel, so a cancelled invoice never enters `cancelled_entries_base` and this
+pairing cannot reach it. Only `creditNoteCancelService` keeps the link. The
+earlier revision of this document claimed the invoice paths shared the fix; they
+do not, and the fabricated invoice fixtures that implied otherwise are gone.
 
-**Before.** A cancelled R1 000 + R150 customer credit note contributed R150 of
-output VAT and R1 000 of standard-rated base that no supply gave rise to. With
-the reversal dated into the NEXT period, that period instead went R150 negative.
+**Trigger.** Cancelling a credit note posts a reversing journal and leaves
+`gl_journal_entry_id` on the ORIGINAL. `resolveReversalDate` dates the reversal
+into the original's period while that period is open. The `cancelled_entries`
+CTE behind the ledger-derived VAT201 collected only document-linked journals, so
+the original was suppressed and the reversal — linked from no document — stayed
+in the boxes.
 
-**After.** `cancelled_entries` is split into a base CTE of document-linked
-journals plus their `reversal_of_id` children, company-scoped. Both legs are
-flagged `cancelled_source` and land in the `cancelled` role, in every period, so
-a cancelled document nets to nothing wherever its two journals fall.
+**Before.** A cancelled R1 000 + R150 credit note left R150 of output VAT and
+R1 000 of standard-rated base that no supply gave rise to.
 
-**Files.** `src/modules/accounting/services/reports/vatBoxBasisQuery.ts` (+10/-1).
+**After.** The pair is hidden together or not at all.
+- The reversal is suppressed only when the journal it reverses falls inside the
+  queried period.
+- An original whose posted reversal falls OUTSIDE the period is no longer
+  suppressed: when the original's period is closed, the reversal is dated later
+  on purpose, the original was filed in its own period and the credit belongs in
+  the later one. A cancelled document that was never reversed is still
+  suppressed, so the legacy Brightsphere row is unaffected.
+- The walk is `WITH RECURSIVE`, so reversing the reversal by hand no longer
+  re-admits the cancelled document's VAT. `UNION` dedupes, so a cycle terminates.
 
-**Tests.** `tests/integration/k-032-cancelled-credit-note-vat201.int.test.ts`
-(1) — the validator's RED case. `tests/integration/k-032-cancelled-reversal-adjacent.int.test.ts`
-(3) — cancelled INVOICE with same-period reversal, reversal dated into the next
-period, and another tenant's cancelled pair. 4 passed against the disposable
-PostgreSQL fixture; all 4 go RED when the query change is reverted
-(`green.log`). `bunx tsc --noEmit` and `eslint` clean; `vitest run tests/unit`
-9 320 passed.
+**Files.** `src/modules/accounting/services/reports/vatBoxBasisQuery.ts`,
+`scripts/migrations/sql/623_gl_je_reversal_of_index.sql` (partial index on
+`gl_journal_entries(reversal_of_id)`; the CTE probes it on every VAT201 render,
+and no index existed).
 
-**Migration / rollback.** None. Read-path only; revert the commit to roll back.
+**Tests.** `k-032-cancelled-credit-note-vat201.int.test.ts` (1, the validator's
+RED case, tax and base now asserted independently with `expect.soft`) and
+`k-032-cancelled-reversal-adjacent.int.test.ts` (6: original stands in period N,
+credit taken in N+1, reversal-of-reversal, never-reversed note, June totals,
+cross-tenant `reversal_of_id`). 7 passed on the disposable PostgreSQL fixture.
+Five separate mutations recorded in `green.log`; the only predicate no test
+kills is `rev.company_id`, which the company-scoped base CTE and
+`parent.company_id` already make unreachable.
 
-**Historical data.** No rows change. Any period holding a cancelled invoice or
-credit note whose reversal is posted now recomputes lower. Scope query:
+**Migration / rollback.** 623 is a `CREATE INDEX IF NOT EXISTS`, applied to the
+fixture DB; drop the index and revert the commit to roll back. No data changes.
+
+**Historical data.** No rows change; this is a read path. Periods holding a
+cancelled credit note recompute: same-period reversals now net to nothing,
+cross-period ones keep the original in its period and the credit in the
+reversal's. Scope query:
 ```sql
-SELECT d.company_id, d.number, orig.entry_date AS original_date,
-       rev.entry_date AS reversal_date, d.tax_amount, d.subtotal
-FROM (SELECT company_id, credit_note_number AS number, status, tax_amount,
-             subtotal, gl_journal_entry_id FROM credit_notes
-      UNION ALL
-      SELECT company_id, invoice_number, status, tax_amount, subtotal,
-             gl_journal_entry_id FROM customer_invoices) d
-JOIN gl_journal_entries orig ON orig.id = d.gl_journal_entry_id
-JOIN gl_journal_entries rev ON rev.reversal_of_id = orig.id AND rev.status = 'posted'
-WHERE d.status IN ('cancelled','void','voided')
+SELECT cn.company_id, cn.credit_note_number, orig.entry_date AS original_date,
+       rev.entry_date AS reversal_date, cn.tax_amount, cn.subtotal
+FROM credit_notes cn
+JOIN gl_journal_entries orig ON orig.id = cn.gl_journal_entry_id
+LEFT JOIN gl_journal_entries rev
+  ON rev.reversal_of_id = orig.id AND rev.status = 'posted'
+WHERE cn.status IN ('cancelled','void','voided')
 ORDER BY orig.entry_date DESC;
 ```
 Periods already locked by `vatPeriodLockService` will drift from what was filed.
 
-**Limits.** One level of reversal only — a reversal of a reversal is not walked.
-Supplier invoices share the fix but are not separately tested here.
+**Limits.** Cancelled invoices are out of reach entirely, per the scope note
+above — both their original and their reversal survive in the boxes today. That
+is a separate defect this fix does not address.
