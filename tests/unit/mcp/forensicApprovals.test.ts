@@ -24,7 +24,7 @@ it('requires current operation and approval rights before person-scoped replay',
  expect(tool.perUserIdempotency).toBe(true);
  await tool.authorize!({...input,idempotency_key:'retry'},ctx);
  expect(m.permission.mock.calls.map(c=>c[1])).toContain('write:approvals');
- expect(m.permission.mock.calls.map(c=>c[1])).toContain('write:post');
+ expect(m.permission.mock.calls.map(c=>c[1])).toContain('write:journals');
  expect(m.requester).toHaveBeenCalled();
  m.permission.mockRejectedValueOnce(new Error('revoked'));
  await expect(tool.authorize!({...input,idempotency_key:'retry'},ctx)).rejects.toThrow('revoked');
