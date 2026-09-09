@@ -1,0 +1,51 @@
+NOTICE:  relation "control_operation_approvals" already exists, skipping
+NOTICE:  relation "control_operation_decisions" already exists, skipping
+CREATE TABLE
+CREATE TABLE
+NOTICE:  relation "control_policy_exposure" already exists, skipping
+CREATE TABLE
+NOTICE:  relation "control_policy_exposure_window_idx" already exists, skipping
+CREATE INDEX
+NOTICE:  relation "control_operation_effects" already exists, skipping
+CREATE TABLE
+NOTICE:  column "control_version" of relation "approval_rules" already exists, skipping
+ALTER TABLE
+NOTICE:  column "aggregate_window_days" of relation "approval_rules" already exists, skipping
+ALTER TABLE
+NOTICE:  column "aggregate_by" of relation "approval_rules" already exists, skipping
+ALTER TABLE
+CREATE FUNCTION
+DROP TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+ALTER FUNCTION
+REVOKE
+GRANT
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
+GRANT
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
+GRANT
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
+GRANT
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
+GRANT
