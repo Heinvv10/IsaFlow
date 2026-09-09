@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { replayKnownOperationEffect } from '../controls/operationReceiptReplay';
 import Decimal from 'decimal.js';
 import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
 import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
@@ -51,16 +52,16 @@ export async function prepareBankTransfer(companyId: string, userId: string, inp
   });
 }
 async function receipt(ctx: ControlTx, intentId: string): Promise<BankTransferResult | null> {
-  const [effect] = await ctx.sql`SELECT e.result FROM control_operation_effects e
+  const [effect] = await ctx.sql`SELECT e.id,e.result FROM control_operation_effects e
     WHERE e.company_id=${ctx.principal.companyId}::uuid AND e.entity_type='bank_transfer_intent'
-      AND e.entity_id=${intentId} AND e.operation='bank_transfer.post' ORDER BY e.committed_at DESC LIMIT 1` as { result: BankTransferResult }[];
+      AND e.entity_id=${intentId} AND e.operation='bank_transfer.post' ORDER BY e.committed_at DESC LIMIT 1` as { id:string; result: BankTransferResult }[];
   if (!effect) return null;
   if (effect.result.intentId !== intentId || !UUID_RE.test(effect.result.journalEntryId)) throw new Error('Invalid transfer receipt');
   const [journal] = await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${ctx.principal.companyId}::uuid
     AND id=${effect.result.journalEntryId}::uuid AND source_record_id=${intentId}::uuid
     AND source='auto_bank_transfer' AND status='posted' AND reversed_at IS NULL FOR SHARE`;
   if (!journal) throw new Error('Transfer receipt journal has changed; prepare a new intent');
-  return effect.result;
+  return replayKnownOperationEffect<BankTransferResult>(ctx,{entityType:'bank_transfer_intent',entityId:intentId,operation:'bank_transfer.post'},effect.id);
 }
 export async function executeBankTransfer(companyId: string, userId: string, intentId: string, options?: { approvalId?: string }): Promise<BankTransferResult> {
   const ctx = actor(companyId, userId);

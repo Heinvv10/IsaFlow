@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { replayKnownOperationEffect } from '../controls/operationReceiptReplay';
 import { depreciationEntryNumber } from '../items/depreciationRunPlan';
 import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
 import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
@@ -41,9 +42,9 @@ export async function prepareAssetDepreciation(companyId:string,userId:string,as
  });
 }
 async function receipt(ctx:ControlTx,intentId:string):Promise<AssetDepreciationResult|null>{
- const [effect]=await ctx.sql`SELECT result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
+ const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
   AND entity_type='asset_depreciation_intent' AND entity_id=${intentId} AND operation='asset_depreciation.post'
-  ORDER BY committed_at DESC LIMIT 1` as {result:AssetDepreciationResult}[];
+  ORDER BY committed_at DESC LIMIT 1` as {id:string;result:AssetDepreciationResult}[];
  if(!effect)return null;
  if(effect.result.intentId!==intentId)throw new Error('Invalid depreciation receipt');
  if(effect.result.journalEntryId){
@@ -52,7 +53,7 @@ async function receipt(ctx:ControlTx,intentId:string):Promise<AssetDepreciationR
    AND status='posted' AND reversed_at IS NULL FOR SHARE`;
   if(rows.length!==1)throw new Error('Depreciation receipt journal has changed');
  }
- return effect.result;
+ return replayKnownOperationEffect<AssetDepreciationResult>(ctx,{entityType:'asset_depreciation_intent',entityId:intentId,operation:'asset_depreciation.post'},effect.id);
 }
 export async function executeAssetDepreciation(companyId:string,userId:string,intentId:string,options?:{approvalId?:string}):Promise<AssetDepreciationResult>{
  const ctx=actor(companyId,userId);await assertEffectivePermission(ctx,'write:assets');await assertEffectivePermission(ctx,'write:post');
