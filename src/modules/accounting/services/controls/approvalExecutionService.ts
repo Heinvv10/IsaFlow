@@ -10,10 +10,12 @@ import { initializeOperationObservations } from './approvalRequestService';
 
 export interface ControlledEffectPermit { readonly operationId: string; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }
 const permits = new WeakMap<ControlledEffectPermit, ControlTx>();
-const executing = new WeakSet<ControlTx>();
+const executing = new WeakSet<ControlTx['principal']>();
 export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledEffectPermit, parent: OperationRef): void {
   assertControlTx(ctx);
-  if (permits.get(permit) !== ctx || permit.operation !== canonicalOperationRef(parent).operation || permit.entityType !== parent.entityType || permit.entityId !== parent.entityId) {
+  const issued = permits.get(permit);
+  if (issued) assertControlTx(issued);
+  if (!issued || issued.principal !== ctx.principal || permit.operation !== canonicalOperationRef(parent).operation || permit.entityType !== parent.entityType || permit.entityId !== parent.entityId) {
     throw new Error('Controlled effect permission is not valid');
   }
 }
@@ -26,7 +28,7 @@ export function assertApprovalExecutable(row: ApprovalRow, currentHash: string):
 export async function executeControlledOperation<T>(ctx: ControlTx, input: OperationRef, approvalId: string | null,
   effect: (permit: ControlledEffectPermit) => Promise<T>): Promise<T> {
   assertControlTx(ctx);
-  if (executing.has(ctx)) throw new Error('Nested execution requires the parent effect permit');
+  if (executing.has(ctx.principal)) throw new Error('Nested execution requires the parent effect permit');
   const ref = canonicalOperationRef(input);
   const authorities = approvalId ? await approvalAuthorities(ctx, approvalId) : [];
   const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
@@ -61,9 +63,9 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     if (prior.length) throw new Error('Operation effect already committed');
     await initializeOperationObservations(ctx, material);
     const permit = Object.freeze({ operationId, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId });
-    permits.set(permit, ctx); executing.add(ctx);
+    permits.set(permit, ctx); executing.add(ctx.principal);
     let result: T;
-    try { result = await effect(permit); } finally { permits.delete(permit); executing.delete(ctx); }
+    try { result = await effect(permit); } finally { permits.delete(permit); executing.delete(ctx.principal); }
     const effectId = randomUUID();
     await ctx.sql`
       INSERT INTO control_operation_effects(company_id,id,operation_id,operation,entity_type,entity_id,binding_hash,result,committed_at)
