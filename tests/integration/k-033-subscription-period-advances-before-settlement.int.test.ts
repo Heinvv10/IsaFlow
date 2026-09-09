@@ -29,6 +29,9 @@ const { advancePeriodForSettledCharge, claimChargeAttempt } = await import(
 const { resolveStaleSubmittedCharges } = await import(
   '@/modules/billing/services/subscriptionChargeVerify'
 );
+const { settleSubscriptionCharge } = await import(
+  '@/modules/billing/services/subscriptionPeriod'
+);
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companyId = crypto.randomUUID();
@@ -447,5 +450,88 @@ describe('K-033 subscription period advances before Paystack settles', () => {
 
     // A trial that never converts is as unpaid as an active one.
     expect((await readSubscription()).status).toBe('past_due');
+  });
+  it('does not queue a replacement for a charge that predates migration 624', async () => {
+    // A row the migration could not attribute names no subscription. If the
+    // duplicate guard cannot see it, the cron queues a second charge for the
+    // same period and — the buckets being different — both settle silently.
+    const periodStartDay = new Date(originalPeriodEnd).toISOString().slice(0, 10);
+    const nextEnd = new Date(originalPeriodEnd);
+    nextEnd.setMonth(nextEnd.getMonth() + 1);
+    await pool.query(
+      `INSERT INTO subscription_charges
+         (company_id, subscription_id, mandate_id, period_start, period_end,
+          amount_cents, currency, gateway, external_reference, paystack_reference, status)
+       VALUES ($1, NULL, $2, $3, $4, 49900, 'ZAR', 'paystack', $5, $5, 'queued')`,
+      [companyId, mandateId, periodStartDay, nextEnd.toISOString().slice(0, 10), 'legacy_k033'],
+    );
+
+    const generated = await generateDueCharges(cronNow);
+
+    const { rows } = await pool.query(
+      'SELECT external_reference FROM subscription_charges WHERE company_id=$1',
+      [companyId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].external_reference).toBe('legacy_k033');
+    expect(generated.created).toBe(0);
+  });
+
+  it('does not overwrite a settlement that lands while the resolver is verifying', async () => {
+    await generateDueCharges(cronNow);
+    chargeAuthorization.mockResolvedValue({ status: 'pending', reference: 'ref_k033_race' });
+    await runQueuedCharges(new Date());
+    await pool.query(
+      "UPDATE subscription_charges SET last_attempt_at = now() - INTERVAL '30 hours' WHERE company_id=$1",
+      [companyId],
+    );
+
+    // The missing webhook arrives mid-verify, then Paystack answers 'failed'.
+    verifyTransaction.mockImplementation(async () => {
+      const charge = await readCharge();
+      await settleSubscriptionCharge(charge!.id, companyId);
+      return { status: 'failed', reference: 'ref_k033_race' };
+    });
+
+    const resolved = await resolveStaleSubmittedCharges(new Date());
+
+    expect(resolved).toMatchObject({ settled: 0, failed: 0, unresolved: 1 });
+    const charge = await readCharge();
+    expect(charge?.status).toBe('settled');
+    const sub = await readSubscription();
+    expect(new Date(sub.current_period_end).toISOString()).toBe(await expectedPeriodEndIso());
+  });
+
+  it('lets only one of two resolver runs verify the same submitted charge', async () => {
+    await generateDueCharges(cronNow);
+    chargeAuthorization.mockResolvedValue({ status: 'pending', reference: 'ref_k033_two' });
+    await runQueuedCharges(new Date());
+    await pool.query(
+      "UPDATE subscription_charges SET last_attempt_at = now() - INTERVAL '30 hours' WHERE company_id=$1",
+      [companyId],
+    );
+    verifyTransaction.mockResolvedValue({ status: 'success', reference: 'ref_k033_two' });
+
+    const [a, b] = await Promise.all([
+      resolveStaleSubmittedCharges(new Date()),
+      resolveStaleSubmittedCharges(new Date()),
+    ]);
+
+    expect(a.settled + b.settled).toBe(1);
+    expect(verifyTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not resurrect a charge that was voided when the customer cancelled', async () => {
+    await generateDueCharges(cronNow);
+    const charge = await readCharge();
+    await pool.query("UPDATE subscription_charges SET status='cancelled' WHERE id=$1", [charge!.id]);
+
+    // A late webhook for the voided debit.
+    await settleSubscriptionCharge(charge!.id, companyId);
+
+    const after = await readCharge();
+    expect(after?.status).toBe('cancelled');
+    const sub = await readSubscription();
+    expect(new Date(sub.current_period_end).toISOString()).toBe(originalPeriodEnd.toISOString());
   });
 });

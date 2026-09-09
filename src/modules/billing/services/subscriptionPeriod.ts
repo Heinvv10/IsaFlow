@@ -12,6 +12,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 
 export const MAX_ATTEMPTS = 3;
 /** How long a 'submitted' charge may wait for a webhook before it is verified. */
@@ -44,18 +45,34 @@ export async function advancePeriodForSettledCharge(
   `;
 }
 
-/** Settle the charge and grant the period it paid for. Used by the webhook. */
+/**
+ * Settle the charge and grant the period it paid for. Used by the webhook and
+ * by the stale-charge resolver. A charge voided because the customer cancelled
+ * is never resurrected: money that arrives against one is a refund case, not a
+ * period, and silently settling it would collect against nothing.
+ */
 export async function settleSubscriptionCharge(
   chargeId: string,
   companyId: string,
 ): Promise<void> {
-  await sql`
+  const settled = await sql<{ id: string }>`
     UPDATE subscription_charges
     SET status = 'settled',
         settled_at = COALESCE(settled_at, now()),
         updated_at = now()
-    WHERE id = ${chargeId} AND company_id = ${companyId}
+    WHERE id = ${chargeId}
+      AND company_id = ${companyId}
+      AND status <> 'cancelled'
+    RETURNING id
   `;
+  if (!settled[0]) {
+    log.warn(
+      'Settlement arrived for a charge that is no longer settleable',
+      { chargeId, companyId },
+      'BillingCron',
+    );
+    return;
+  }
   await advancePeriodForSettledCharge(chargeId, companyId);
 }
 
@@ -130,7 +147,7 @@ export async function voidChargesForCancellingSubscriptions(): Promise<number> {
       AND COALESCE(s.cancel_at_period_end, false) = true
       AND c.status IN ('queued','failed')
       AND (s.current_period_end IS NULL
-           OR c.period_start >= s.current_period_end::date)
+           OR c.period_start >= (s.current_period_end AT TIME ZONE 'UTC')::date)
     RETURNING c.id
   `;
   return voided.length;

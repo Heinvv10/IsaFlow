@@ -92,7 +92,9 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
     const existing = await sql<{ id: string }>`
       SELECT id FROM subscription_charges
       WHERE company_id = ${sub.company_id}
-        AND subscription_id = ${sub.subscription_id}
+        -- A row predating migration 624 names no subscription. Treating it as
+        -- someone else's would queue a replacement, and both would settle.
+        AND (subscription_id = ${sub.subscription_id} OR subscription_id IS NULL)
         AND period_start = ${nextStart.toISOString().slice(0, 10)}
         AND period_end = ${nextEnd.toISOString().slice(0, 10)}
         AND status <> 'cancelled'
