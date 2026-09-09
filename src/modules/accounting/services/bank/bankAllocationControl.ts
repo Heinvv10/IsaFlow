@@ -26,3 +26,19 @@ export async function prepareBankAllocation(ctx:ControlTx,input:unknown){
   return{intentId:id,operation:{entityType:'bank_allocation_intent',entityId:id,operation:'bank_allocation.post' as const}};
  });
 }
+
+export async function executeBankAllocation(ctx:ControlTx,intentId:string,options?:{approvalId?:string}){
+ assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ const {loadBankAllocationIntent}=await import('./bankAllocationMaterial');
+ const {executeControlledOperation}=await import('../controls/approvalExecutionService');
+ const {replayKnownOperationEffect}=await import('../controls/operationReceiptReplay');
+ const {executeBankAllocationEffect}=await import('./bankAllocationEffect');
+ return withSavepoint('bank_allocation_execute',async()=>{
+  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
+  const material=await loadBankAllocationIntent(ctx,intentId);
+  if(material.intent.requester_person_id!==ctx.principal.personId)throw new Error('Allocation requester required');
+  const ref={entityType:'bank_allocation_intent',entityId:intentId,operation:'bank_allocation.post' as const};
+  if(material.effect)return replayKnownOperationEffect<Awaited<ReturnType<typeof executeBankAllocationEffect>>>(ctx,ref,material.effect.id);
+  return executeControlledOperation(ctx,ref,options?.approvalId??null,permit=>executeBankAllocationEffect(ctx,intentId,permit));
+ });
+}

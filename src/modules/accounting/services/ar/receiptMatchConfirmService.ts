@@ -1,32 +1,7 @@
-/**
- * Confirming a receipt match: allocate an imported bank line to the customer
- * invoices it settles, in one operation.
- *
- * Split out of `receiptMatchService.ts` (which was over the 300-line cap) and
- * WIDENED from one invoice to many at the same time. One receipt routinely pays
- * several invoices, and the single-invoice form left the remainder of the bank
- * line sitting on the AR control account with nothing recording what it was
- * for — the same unapplied-receipt state the whole workstream exists to remove.
- *
- * ONE journal is posted for the WHOLE bank line, by `allocateTransaction`:
- * DR Bank / CR Accounts Receivable at the transaction's own amount. The
- * allocations then move the subledger. Allocating less than the full line is
- * allowed and leaves a genuine unapplied remainder on the receipt, which
- * `list_unapplied_receipts` will report; allocating MORE is refused, because
- * the invoices would be credited with cash the journal never received.
- *
- * Guard order is load-bearing. `validateBankReceiptApplication` reads and
- * refuses everything BEFORE `allocateTransaction` is called, so an MCP handler
- * can answer with `toolError` while nothing has been written. After that first
- * write every failure must propagate: the registry's savepoint rolls back on a
- * throw and not on a returned error, and a refusal frees the idempotency key
- * for a retry that would post the allocation a second time.
- */
-
+/** Customer bank matching executes its immutable application plan inside the bank parent effect. */
 import { sql } from '@/lib/neon';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { DbRow } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import { fetchBankTransaction } from '../bank/bankMatchDbQueries';
 import { getBankTransactionStatus } from '../bank/bankTransactionLookupService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
@@ -38,7 +13,6 @@ import {
   type ReceiptAllocationInput,
   type ReceiptApplicationLine,
 } from './receiptAllocationLines';
-import { applyReceiptPlan, planReceiptApplication } from './receiptApplicationService';
 
 export interface BankReceiptValidation {
   bankTxId: string;
@@ -174,65 +148,11 @@ export async function confirmReceiptMatch(
     postingOpts?: PostingActorOpts;
   },
 ): Promise<ConfirmReceiptMatchResult> {
-  const { bankTxId, userId, allocations } = params;
-  const validation = await validateBankReceiptApplication(companyId, bankTxId, allocations);
-
-  const description = validation.lines.length === 1
-    ? `Receipt allocated to ${validation.lines[0]!.invoiceNumber}`
-    : `Receipt allocated to ${validation.lines.length} invoices`;
-
-  const { journalEntryId } = await allocateTransaction(
-    companyId,
-    bankTxId,
-    null,
-    userId,
-    description,
-    'customer',
-    validation.customerId,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    validation.lines[0]!.invoiceId,
-    params.postingOpts ?? (params.postingAgent ? { postingAgent: params.postingAgent } : undefined),
-  );
-
-  const paymentRows = (await sql`
-    SELECT id FROM customer_payments
-    WHERE company_id = ${companyId}::UUID
-      AND gl_journal_entry_id = ${journalEntryId}::UUID
-    ORDER BY created_at DESC LIMIT 1
-  `) as DbRow[];
-  if (paymentRows.length === 0) {
-    // allocateTransaction skips the customer_payments INSERT when it cannot
-    // resolve a uuid-shaped user. Without that row there is nothing to allocate
-    // against and the receipt would post to the control account and vanish —
-    // exactly the state this workstream exists to remove. Throw so the
-    // savepoint unwinds the journal too.
-    throw new Error(
-      'The bank allocation posted but no customer payment record was created, so the receipt '
-      + 'could not be applied to any invoice. Nothing was kept.',
-    );
-  }
-  const customerPaymentId = String(paymentRows[0]!.id);
-
-  const plan = await planReceiptApplication(companyId, customerPaymentId, allocations);
-  await applyReceiptPlan(companyId, plan, userId);
-
-  log.info('Confirmed receipt match', {
-    bankTxId,
-    journalEntryId,
-    customerPaymentId,
-    lines: plan.lines.length,
-    allocatedTotal: validation.allocatedTotal,
-    unappliedRemainder: validation.unappliedRemainder,
-  }, 'accounting');
-
-  return {
-    ...validation,
-    lines: plan.lines,
-    journalEntryId,
-    customerPaymentId,
-    paymentStatus: plan.paymentStatusAfter,
-  };
+  const {bankTxId,userId,allocations}=params;
+  const validation=await validateBankReceiptApplication(companyId,bankTxId,allocations);
+  const {journalEntryId}=await allocateTransaction(companyId,bankTxId,null,userId,'Matched customer receipt','customer',validation.customerId,
+   undefined,undefined,undefined,undefined,undefined,{...params.postingOpts,autoApply:false,applications:allocations.map(a=>({invoiceId:a.invoiceId,amount:String(a.amount)}))});
+  const rows=await sql`SELECT id,status FROM customer_payments WHERE company_id=${companyId}::uuid AND gl_journal_entry_id=${journalEntryId}::uuid` as DbRow[];
+  if(rows.length!==1)throw new Error('Controlled bank receipt association unavailable');
+  return{...validation,journalEntryId,customerPaymentId:String(rows[0]!.id),paymentStatus:String(rows[0]!.status)};
 }
