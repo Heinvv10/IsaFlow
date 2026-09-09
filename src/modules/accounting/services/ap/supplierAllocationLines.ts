@@ -19,6 +19,7 @@
  */
 
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
@@ -61,17 +62,17 @@ export function round2(n: number): number {
 
 /** Faults in the REQUEST — checked before any query, naming the offending bill. */
 export function assertAllocationShape(allocations: readonly SupplierAllocationInput[]): void {
-  if (allocations.length === 0) throw new Error('Provide at least one allocation.');
+  if (allocations.length === 0) throw new SupplierPaymentRefusal('Provide at least one allocation.');
   const seen = new Set<string>();
   for (const alloc of allocations) {
     if (!Number.isFinite(alloc.amount) || alloc.amount <= 0) {
-      throw new Error(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
+      throw new SupplierPaymentRefusal(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
     }
     if (seen.has(alloc.invoiceId)) {
       // The unique index on (payment_id, invoice_id) would raise 23505 halfway
       // through the write instead — a database error the caller cannot act on,
       // arriving after earlier lines have been written.
-      throw new Error(`Invoice ${alloc.invoiceId} appears more than once in this request.`);
+      throw new SupplierPaymentRefusal(`Invoice ${alloc.invoiceId} appears more than once in this request.`);
     }
     seen.add(alloc.invoiceId);
   }
@@ -105,12 +106,12 @@ export async function planSupplierAllocationLines(
     const bill = byId.get(alloc.invoiceId);
     // Same wording as a genuine miss: a bill in another tenant must not be
     // distinguishable from one that does not exist.
-    if (!bill) throw new Error(`Invoice ${alloc.invoiceId} not found`);
+    if (!bill) throw new SupplierPaymentRefusal(`Invoice ${alloc.invoiceId} not found`);
     supplierId ??= String(bill.supplier_id);
     lines.push(buildLine(alloc, bill, supplierId));
   }
 
-  if (!supplierId) throw new Error('Provide at least one allocation.');
+  if (!supplierId) throw new SupplierPaymentRefusal('Provide at least one allocation.');
   return { supplierId, lines };
 }
 
@@ -146,26 +147,31 @@ function buildLine(
 ): SupplierApplicationLine {
   const statusBefore = String(bill.status);
   if (UNALLOCATABLE_STATUSES.has(statusBefore)) {
-    throw new Error(
+    throw new SupplierPaymentRefusal(
       `Invoice ${String(bill.invoice_number)} is ${statusBefore} and cannot receive a payment.`,
     );
   }
   if (Number(bill.already_allocated ?? 0) > 0) {
-    throw new Error(
+    throw new SupplierPaymentRefusal(
       `This payment is already allocated against invoice ${String(bill.invoice_number)}. `
       + 'A payment applies to a bill once; use a second payment to apply more.',
     );
   }
   if (String(bill.supplier_id) !== supplierId) {
-    throw new Error(
+    throw new SupplierPaymentRefusal(
       `Invoice ${String(bill.invoice_number)} belongs to a different supplier than this payment.`,
     );
   }
 
   const total = Number(bill.total_amount);
   const outstandingBefore = round2(total - Number(bill.amount_paid ?? 0));
+  // The LAST line of defence on this threshold, not the only one. A caller that
+  // must decide the refusal before its first write refuses earlier on the same
+  // arithmetic and the same EPS — `confirmSupplierMatch.ts` does, because a 4xx
+  // raised after a write COMMITs it — so this one is unreachable from that path.
+  // Both must move together if the tolerance ever changes.
   if (alloc.amount > outstandingBefore + EPS) {
-    throw new Error(
+    throw new SupplierPaymentRefusal(
       `R${alloc.amount.toFixed(2)} exceeds the R${outstandingBefore.toFixed(2)} outstanding on `
       + `invoice ${String(bill.invoice_number)}.`,
     );

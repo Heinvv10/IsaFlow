@@ -157,3 +157,59 @@ $ bunx eslint <the four changed source files>                -> exit 0
 $ bun run agent-docs:check                                   -> 74 mirrors OK
 File sizes: bank-match-confirm.ts 265, confirmSupplierMatch.ts 113,
 supplierBankPaymentService.ts 256, bankImportService.ts 284 — all <= 300.
+
+═══════════════════════════════════════════════════════════════════════════════
+ROUND 4 — the six findings of review-k071-r3 (0 HIGH / 3 MEDIUM / 3 LOW)
+═══════════════════════════════════════════════════════════════════════════════
+
+## GREEN
+$ bunx vitest run tests/unit/services/bank/confirmSupplierMatch.test.ts \
+    tests/unit/api/bankMatchConfirmSignGuard.test.ts \
+    tests/unit/api/bankMatchConfirmRefusalStatus.test.ts \
+    tests/unit/services/bank/bankImportService.bulk.test.ts
+  -> 4 files, 29 passed   (23 before this round: +2 refusal-classification, +4 status-code)
+
+$ bun run test:integration -- tests/integration/k071-bank-import-best-effort-savepoint.int.test.ts \
+    tests/integration/k071-bank-import-autopost-adjacent.int.test.ts \
+    tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts \
+    tests/integration/k074-bank-match-confirm-adjacent.int.test.ts
+  -> 4 files, 17 passed   (16 before this round: +1 real two-client lock contention)
+
+## MUTATION PROOFS (production code reverted, test observed RED, then restored)
+
+M1 — route catch answers 500 for the pre-write refusals again
+     (both `if (…)` guards disabled):
+   × bankMatchConfirmRefusalStatus.test.ts                     3 failed | 1 passed
+   × k074-...-adjacent.int.test.ts > answers 409 …             1 failed | 6 passed
+
+M2 — confirmSupplierMatch catches EVERY throw as a refusal again:
+   × confirmSupplierMatch.test.ts > re-throws an infrastructure failure
+                                                               1 failed | 7 passed
+
+M3 — over-payment capped (`min(paymentAmount, outstanding)`) instead of refused,
+     so a journal really is posted:
+   × k074-...-supplier-balance.int.test.ts > refuses an over-payment
+                                                               1 failed | 4 passed
+   Sensitivity of the replacement assertion, proved separately: a throwaway probe
+   asserted `apLineCount()` UNCHANGED across a SUCCESSFUL confirm and went red —
+   the helper does see a posted journal. The `LIKE '%<bankTxId>%'` assertion it
+   replaced could not: the journal's description names the invoice, never the
+   bank line. Probe deleted after the run.
+
+M4 — savepoint name fixed at `bank_import_autopost` again:
+   × k071-...-autopost-adjacent.int.test.ts > does not lose a second company
+                                                               1 failed | 3 passed
+
+## Full unit suite, fixture env UNSET (env -u DATABASE_URL bunx vitest run)
+ Test Files  794 passed | 36 skipped (830)
+      Tests  9451 passed | 234 skipped (9685)
+ No failures this time (the load-induced cashFlowReport timeout of round 3 did
+ not recur; load average was 23, not 145).
+
+## Static gates
+$ bunx tsc --noEmit                                          -> exit 0
+$ bunx eslint <the nine changed/added source files>          -> exit 0
+$ bun run agent-docs:check                                   -> 74 mirrors OK
+File sizes: bank-match-confirm.ts 284, confirmSupplierMatch.ts 118,
+supplierBankPaymentService.ts 265, bankImportService.ts 294,
+supplierPaymentRefusal.ts 35, bankAllocationRefusal.ts 28 — all <= 300.

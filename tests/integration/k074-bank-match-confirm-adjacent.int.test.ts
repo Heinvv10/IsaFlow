@@ -170,3 +170,44 @@ it('refuses a bill that is already fully paid', async () => {
   expect(JSON.stringify(body)).toMatch(/already fully paid/i);
   expect(await counts(bankTx)).toMatchObject({ payments: 0 });
 });
+
+/**
+ * The contended line, with two REAL interleaved clients — not asserted from
+ * reading the code. A holder takes the row's `FOR UPDATE` and keeps it while
+ * the route runs on its own connection: the route's validation is all reads and
+ * sails past, then `allocateTransaction`'s first statement blocks on the same
+ * row and gives up at the 5s `lock_timeout`.
+ *
+ * 409, not 500. Nothing was acquired so nothing was written, and the answer the
+ * user needs is "retry" — which `apiResponse.internalError` would have replaced
+ * with "An internal error occurred" outside development.
+ */
+it('answers 409 with the retry wording when another request holds the line', async () => {
+  const bill = await seedBill(pool, fx, 650);
+  const bankTx = await seedBankLine(pool, fx, -650);
+  const before = await counts(bankTx);
+
+  const holder = await pool.connect();
+  let status: number; let body: unknown; let committed: boolean;
+  try {
+    await holder.query('BEGIN');
+    await holder.query('SELECT id FROM bank_transactions WHERE id=$1 FOR UPDATE', [bankTx]);
+    ({ status, body, committed } = await confirmMatch(pool, fx, {
+      bankTransactionId: bankTx, candidateType: 'supplier_invoice', candidateId: bill,
+    }));
+  } finally {
+    await holder.query('ROLLBACK');
+    holder.release();
+  }
+
+  expect(status).toBe(409);
+  expect(JSON.stringify(body)).toMatch(/retry/i);
+  expect(JSON.stringify(body)).not.toMatch(/An internal error occurred/);
+  // A 4xx COMMITs under withAuth. That is only safe because the lock was never
+  // taken: the transaction it commits is empty.
+  expect(committed).toBe(true);
+  expect(await counts(bankTx)).toEqual({ payments: 0, journals: before.journals });
+  expect(Number((await billRow(bill)).amount_paid)).toBe(0);
+  const { rows } = await pool.query('SELECT status FROM bank_transactions WHERE id=$1', [bankTx]);
+  expect(rows[0].status).toBe('imported');
+}, 30_000);

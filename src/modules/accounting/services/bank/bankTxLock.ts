@@ -25,8 +25,10 @@ const LOCK_NOT_AVAILABLE = '55P03';
 
 /**
  * Raised when another request holds the row longer than the 5s `lock_timeout`.
- * The bank API routes return a caught service error's message as a 400, so this
- * wording is what the caller reads — it has to say "retry".
+ * The bank API routes surface a caught service error's message to the caller —
+ * as a 400, or as the 409 `bank-match-confirm` answers via
+ * `isBankTransactionLockTimeout` — so this wording is what the user reads. It
+ * has to say "retry".
  */
 export class BankTransactionLockTimeoutError extends Error {
   readonly code = 'BANK_TX_LOCK_TIMEOUT';
@@ -34,6 +36,17 @@ export class BankTransactionLockTimeoutError extends Error {
     super(`Bank transaction ${bankTxId} is being allocated by another request — retry in a moment.`);
     this.name = 'BankTransactionLockTimeoutError';
   }
+}
+
+/**
+ * Structural, not `instanceof`: a route deciding a status code on this must not
+ * be defeated by module mocking or by two bundled copies of this file. The
+ * condition is RETRYABLE and nothing has been written — the row was never
+ * acquired — so a caller may answer it with a 409.
+ */
+export function isBankTransactionLockTimeout(err: unknown): err is BankTransactionLockTimeoutError {
+  return err instanceof Error
+    && (err as { code?: unknown }).code === 'BANK_TX_LOCK_TIMEOUT';
 }
 
 function isLockTimeout(err: unknown): boolean {
