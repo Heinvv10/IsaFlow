@@ -239,7 +239,7 @@ export async function calculatePayrollRun(
   // threshold by employee count alone, exempting any single employee however
   // much they earned and levying any two however little.
   const annualRemuneration = await estimateAnnualRemuneration(
-    companyId, period, r(totalGross),
+    companyId, period, r(totalGross), runId,
   );
   const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 

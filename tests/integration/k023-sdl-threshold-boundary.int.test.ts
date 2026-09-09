@@ -32,6 +32,13 @@ const partlyLeviable = newFixture();
 const bonusMonth = newFixture();
 // R45,000 a month for eleven months, then a R10,000 short month.
 const shortMonth = newFixture();
+// R60,000 in six months of the year and nothing in the other six: R360,000 a
+// year, exempt, but only if the missing months count as zero rather than being
+// dropped from the denominator.
+const seasonal = newFixture();
+// Two months old, paying R50,000: too young for a missing month to mean no pay,
+// so its remuneration is still extrapolated and the levy is due.
+const firstYear = newFixture();
 // A second tenant with its own history, calculated after the levied ones.
 const otherTenant = newFixture();
 
@@ -46,6 +53,7 @@ async function seed(
   name: string,
   employees: Earning[][],
   priorMonthlyGross?: number,
+  priorPeriodsBack?: number[],
 ) {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [f.company, name]);
   for (const earnings of employees) {
@@ -70,18 +78,18 @@ async function seed(
       );
     }
   }
-  // The run under test is 3/2026. Eleven approved runs before it make up the
-  // rest of the trailing twelve-month window.
-  if (priorMonthlyGross !== undefined) {
-    for (let back = 1; back <= 11; back += 1) {
-      const index = 2026 * 12 + 3 - back;
-      await pool.query(
-        `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross)
-         VALUES($1,$2,$3,$4,'approved',$5)`,
-        [crypto.randomUUID(), f.company, ((index - 1) % 12) + 1,
-          Math.floor((index - 1) / 12), priorMonthlyGross],
-      );
-    }
+  // The run under test is 3/2026. `priorMonthlyGross` fills every one of the
+  // eleven periods before it; `priorPeriodsBack` instead names the specific
+  // periods that carry a run, so a gap is a month the company did not pay.
+  for (const back of priorPeriodsBack ?? (priorMonthlyGross === undefined
+    ? [] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])) {
+    const index = 2026 * 12 + 3 - back;
+    await pool.query(
+      `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross)
+       VALUES($1,$2,$3,$4,'approved',$5)`,
+      [crypto.randomUUID(), f.company, ((index - 1) % 12) + 1,
+        Math.floor((index - 1) / 12), priorMonthlyGross],
+    );
   }
   await pool.query(
     `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status)
@@ -102,6 +110,13 @@ beforeAll(async () => {
   ]]);
   await seed(bonusMonth, 'K023 bonus month', [[{ amount: 80000, sdlApplicable: true }]], 35000);
   await seed(shortMonth, 'K023 short month', [[{ amount: 10000, sdlApplicable: true }]], 45000);
+  // Paid in 3/2025 (eleven back, so the company is a year old) and in four of
+  // the months since; six paid periods of R60,000 counting this one.
+  await seed(seasonal, 'K023 seasonal', [[{ amount: 60000, sdlApplicable: true }]],
+    60000, [11, 9, 7, 5, 3]);
+  // First run two months back, so only three months of history have elapsed.
+  await seed(firstYear, 'K023 first year', [[{ amount: 50000, sdlApplicable: true }]],
+    50000, [1, 2]);
   await seed(otherTenant, 'K023 other tenant', [
     [{ amount: 5000, sdlApplicable: true }],
     [{ amount: 5000, sdlApplicable: true }],
@@ -157,6 +172,21 @@ describe('K-023 SDL threshold boundary', () => {
     // threshold. Annualising this month alone would have read R120,000.
     const summary = await calculatePayrollRun(shortMonth.run, shortMonth.company);
     expect(summary.totalSdl).toBe(100);
+  });
+
+  it('counts a month with no run as zero once the company has a year of history', async () => {
+    // Six paid months of R60,000 = R360,000 over the year, exempt. Dividing by
+    // the six runs found rather than the twelve months elapsed would read
+    // R720,000 and levy R600.
+    const summary = await calculatePayrollRun(seasonal.run, seasonal.company);
+    expect(summary.totalSdl).toBe(0);
+  });
+
+  it('still extrapolates for a company younger than twelve months', async () => {
+    // Three months old at R50,000 a month: a missing month is absent history,
+    // not a month of no pay, so the estimate is R600,000 and the levy is due.
+    const summary = await calculatePayrollRun(firstYear.run, firstYear.company);
+    expect(summary.totalSdl).toBe(500);
   });
 
   it('reads only its own tenant history and leaves that tenant exempt', async () => {

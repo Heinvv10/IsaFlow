@@ -38,7 +38,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - VIP-parity foundations (2026-04-24): SARS codes table, bureau mode, period lock, variance engine.
 - Cash-pay register, IRP5 certificate validation, e@syFile EMP501 CSV — SARS compliance export paths.
 - `payrollRunLock`: once locked, period rejects new runs and edits.
-- SDL leviability is an EMPLOYER test, not a per-line one: section 4(b) exempts total remuneration <= R500 000 over twelve months. `estimateAnnualRemuneration` bases it on the company's own trailing twelve periods (the eleven `calculated|approved|paid` runs before this one plus this run, mean of the periods that exist x 12) using GROSS pay; the 1% is then charged per line on `sdlLeviable` only. Never gate on the leviable subset — one component flagged `is_sdl_applicable = false` would exempt the whole employer.
+- SDL leviability is an EMPLOYER test, not a per-line one: section 4(b) exempts total remuneration <= R500 000 over twelve months. `estimateAnnualRemuneration` bases it on the company's own trailing twelve periods (the eleven `calculated|approved|paid` runs before this one plus this run) using GROSS pay, divided by ELAPSED CALENDAR MONTHS since the company's first run, capped at 12 — so a seasonal employer's unpaid months count as zero and only a company younger than a year extrapolates; the 1% is then charged per line on `sdlLeviable` only. Never gate on the leviable subset — one component flagged `is_sdl_applicable = false` would exempt the whole employer.
 - `calculatePayrollLine` takes `annualPayrollEstimate: number | 'defer'`; a run passes `'defer'` and sets `sdl` itself in the second pass.
 
 ## Related files
@@ -46,6 +46,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - `scripts/migrations/sql/*payroll*`, `*uif*`, `*tax_directive*`, `*leave_accrual*`.
 
 ## Recent changes
+- 2026-09-09: SDL basis divides by elapsed calendar months, not by runs found, so an intermittent payroll is not extrapolated; the basis is logged (`SDL leviability basis`) since it is not stored on the run.
 - 2026-09-09: SDL threshold no longer `employees.length * 25_000 * 12` (decided the levy by headcount alone); new `sdlLeviabilityService.ts`, `sdlLeviable` on `PayrollLineResult`.
 - 2026-06-11: parallel-run comparison (Workstream C) — external payslip import (mig 495, amounts in integer CENTS) + pure cent-level comparator + CSV export; routes `pages/api/payroll/parallel-run/*`, page `/payroll/parallel-run`.
 - 2026-04-24: leave balance INSERTs supply `company_id` for RLS.
