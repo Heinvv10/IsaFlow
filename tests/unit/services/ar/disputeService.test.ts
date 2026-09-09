@@ -171,7 +171,8 @@ describe('raiseDispute', () => {
 
 describe('listDisputes', () => {
   it('scopes every query by company_id', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([]);       // page
+    mockSql.mockResolvedValueOnce([{ cnt: 0 }]); // total count
 
     await listDisputes(COMPANY_ID, { status: 'open' });
 
@@ -181,7 +182,8 @@ describe('listDisputes', () => {
   });
 
   it('filters by customer_invoice_id when provided', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([]);       // page
+    mockSql.mockResolvedValueOnce([{ cnt: 0 }]); // total count
 
     await listDisputes(COMPANY_ID, { customerInvoiceId: INVOICE_ID });
 

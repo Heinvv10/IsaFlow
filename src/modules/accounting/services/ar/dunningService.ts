@@ -19,6 +19,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '../core/emailService';
+import { getOrMintInvoicePortalToken } from './portalTokenService';
 import { BRAND, emailLayout } from '@/lib/email-templates';
 
 export type DunningTone = 'polite' | 'firm' | 'final' | 'legal';
@@ -205,9 +206,21 @@ export async function renderTemplate(
   if (!tmpl) throw new Error(`Template ${templateId} not found for company`);
   if (!ctx) return null;
 
-  const portalLink = portalBaseUrl
-    ? `${portalBaseUrl}/portal/invoice/${ctx.invoice_id}`
-    : '(portal link unavailable)';
+  // The portal route accepts only the 64-hex portal_token, never the invoice
+  // UUID — mint (idempotently) so the emailed link actually resolves.
+  let portalLink = '(portal link unavailable)';
+  if (portalBaseUrl) {
+    try {
+      const { token } = await getOrMintInvoicePortalToken(ctx.invoice_id, companyId);
+      portalLink = `${portalBaseUrl}/portal/invoice/${token}`;
+    } catch (err) {
+      log.warn('dunning.renderTemplate: portal token unavailable', {
+        companyId,
+        invoiceId: ctx.invoice_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   const tokens: Record<string, string> = {
     customer_name: ctx.customer_name,

@@ -101,12 +101,15 @@ export function parseClientChatResponse(response: string): ChatResponse | null {
 // SANITIZATION
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Match SQL statement shapes, not bare English words: "from", "update" and
+// "query" are ordinary vocabulary in a customer reply, and the old keyword
+// patterns deleted everything from such a word to the next sentence end.
 const INTERNAL_PATTERNS = [
-  /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN)\b[^.!?]*/gi,
+  /\bSELECT\b[^.!?]{0,200}?\bFROM\b[^.!?]*/gi,
+  /\b(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b[^.!?]*/gi,
   /\b(customer_invoices|supplier_invoices|gl_accounts|bank_transactions|payslips|employees)\b/gi,
   /\btable\s+\w+/gi,
   /\bcolumn\s+\w+/gi,
-  /\bquery\b/gi,
 ];
 
 export function sanitizeClientResponse(text: string): string {
