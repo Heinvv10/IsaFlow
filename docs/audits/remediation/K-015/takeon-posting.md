@@ -65,13 +65,25 @@ wait on each other.
 concurrency test against AR, it passed, and then it *kept* passing with the lock removed. The
 reason: the AR insert names `ON CONFLICT (company_id, invoice_number)` against
 `uq_customer_invoices_company_number`, so a second inserter already blocks on that index and then
-does nothing. AR was never racy. AP has no unique constraint at all — `duplicate_fingerprint`
-cannot carry one — so its idempotency is a bare read-then-write, and two concurrent runs each find
+does nothing. AR was never racy. AP's idempotency is a bare read-then-write on
+`duplicate_fingerprint`, which cannot carry a unique index, so two concurrent runs each find
 nothing and both insert.
 
-Retargeted at AP, the test holds two transactions open at once, asserts the second is still blocked
-250ms after the first has finished its work, and asserts one document and one journal entry after
-both commit. Removing the lock now takes it red with two rows.
+**Correction (blind review, 2026-09-09).** The retargeted AP test *also* kept passing with the lock
+removed, and the reason matters. The fixture DB carries
+`uq_supplier_invoices_supplier_number UNIQUE (company_id, supplier_id, invoice_number) WHERE
+deleted_at IS NULL AND invoice_number <> ''`. That index is **not** in production and not on
+master: it is K-107's migration 646, applied ad-hoc to the shared fixture by a sibling remediation
+branch (`for b in refs/remotes/origin; do git grep -l ...; done` finds it on no origin branch;
+`fix/audit-k107-k120-k121-document-numbering` holds it locally). So the earlier sentence "AP has no
+unique constraint at all" is true of production today and false of the fixture, and the lock is
+genuinely load-bearing in production while the fixture hid that from the mutation.
+
+The test now asserts the outcome the lock alone produces, in both worlds: one document, one journal
+entry, and a skip reported as `Already imported` — the wizard's own words from the fingerprint
+lookup — with no `duplicate key` text. Without the lock it goes red either way: two rows where the
+index is absent, a raw 23505 message out of the row's savepoint where it is present. Verified by
+mutation on 2026-09-09.
 
 ## Carried consequences, stated
 

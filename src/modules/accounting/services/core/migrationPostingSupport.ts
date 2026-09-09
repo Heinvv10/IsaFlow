@@ -25,6 +25,7 @@
 
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/types/db';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 
 export interface TakeOnLine {
@@ -72,12 +73,19 @@ export function buildTakeOnLines(
  *
  * The steps are idempotent by lookup, not by constraint: `duplicate_fingerprint`
  * cannot carry a unique index (production holds groups of 55-79 live invoices
- * sharing one value), and `customer_invoices` is unique on the invoice number
- * only. A read-then-write is safe against a re-run and NOT against two runs at
- * the same instant — two imports of one file would each find nothing and both
- * insert.
+ * sharing one value, which is why migration 625 was withdrawn). A read-then-write
+ * is safe against a re-run and NOT against two runs at the same instant — two
+ * imports of one file would each find nothing and both insert.
  *
- * A transaction-scoped advisory lock closes that: the second request blocks
+ * The invoice-number indexes are the backstop, not the guard, and only for the
+ * documents that have one: `uq_customer_invoices_company_number` on AR, and on
+ * AP `uq_supplier_invoices_supplier_number`, which as at 2026-09-09 is NOT in
+ * production — it arrives with K-107's migration 646 and skips rows whose
+ * `invoice_number` is `''`. Where an index does block the second inserter, it
+ * does so with a 23505 the row's savepoint turns into a raw Postgres message;
+ * the lock is what makes the second run report "Already imported" instead.
+ *
+ * A transaction-scoped advisory lock closes the race: the second request blocks
  * here until the first commits, and then its lookup sees the rows the first
  * wrote. `withAuth` gives the request exactly one transaction, so the lock is
  * released on COMMIT or ROLLBACK with no unlock to forget. Re-entrant, so a
@@ -87,6 +95,32 @@ export function buildTakeOnLines(
  */
 export async function lockMigrationImport(companyId: string): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(hashtext(${companyId + ':migration-import'}))`;
+}
+
+/**
+ * R-020, the other half. The opening trial balance may carry an AR or AP control
+ * total INSTEAD of the documents — a summary-only take-on, a normal choice for
+ * an old set of books. What it may not do is carry both: that posts the same
+ * money twice. `importOpeningBalances` records which control totals it accepted
+ * on the session; the document step refuses when its own side is one of them.
+ */
+export async function assertNoOpeningControlTotal(
+  companyId: string,
+  sessionId: string,
+  side: 'receivable' | 'payable',
+): Promise<void> {
+  const key = side === 'receivable' ? 'opening_balances_ar_control' : 'opening_balances_ap_control';
+  const rows = (await sql`
+    SELECT COALESCE(steps_completed, '{}'::JSONB) ->> ${key} AS flag
+    FROM migration_sessions
+    WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  if (rows[0]?.flag !== 'true') return;
+  const noun = side === 'receivable' ? 'accounts receivable' : 'accounts payable';
+  const step = side === 'receivable' ? 'customer' : 'supplier';
+  throw new Error(
+    `The opening trial balance for this migration already carries an ${noun} control total, so those balances are in the ledger already. Importing ${step} invoices now would count them a second time. Remove the control account row from the trial balance and re-run the opening balances step, or skip this step.`,
+  );
 }
 
 /**

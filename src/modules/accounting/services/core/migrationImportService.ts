@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
-import { buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
+import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
 import { matchContact } from './migrationContactMatch';
 import type { DbRow } from '@/types/db';
 
@@ -49,6 +49,19 @@ export async function importOpeningBalances(
 ): Promise<{ journalEntryId: string; errors: MigrationError[] }> {
   const errors: MigrationError[] = [];
 
+  // R-020 is a rule about DOUBLE counting, not about control accounts. A trial
+  // balance may bring the AR or AP control total in INSTEAD of the documents —
+  // a summary-only take-on. It may not do both. So: refuse the control line if
+  // the matching document step has already run, otherwise accept it and record
+  // it on the session, where the document step reads it and refuses in turn.
+  const sessRows = (await sql`
+    SELECT COALESCE(steps_completed, '{}'::JSONB) AS steps
+    FROM migration_sessions
+    WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const steps = (sessRows[0]?.steps ?? {}) as Record<string, boolean>;
+  const controlTotals: Record<string, boolean> = {};
+
   const totalDebit  = balances.reduce((s, b) => s + (b.debit ?? 0), 0);
   const totalCredit = balances.reduce((s, b) => s + (b.credit ?? 0), 0);
 
@@ -73,16 +86,15 @@ export async function importOpeningBalances(
       continue;
     }
 
-    // R-020. The AR and AP control balances come from the documents the invoice
-    // steps take on, one line per document, against opening balance equity. A
-    // trial balance that ALSO carries a control total posts the same money a
-    // second time: both control accounts end at roughly twice the truth, and
-    // nothing says so. Refuse the row and name the step that owns it.
     const subtype = String(acctRows[0]!.account_subtype ?? '');
     if (subtype === 'receivable' || subtype === 'payable') {
-      throw new Error(
-        `Opening trial balance carries ${bal.accountCode}, a ${subtype} control account. Those balances come from the customer and supplier invoice steps, one line per outstanding document. Remove the control account rows from the trial balance and import the open invoices instead.`,
-      );
+      const documentStep = subtype === 'receivable' ? 'ar_invoices' : 'ap_invoices';
+      if (steps[documentStep]) {
+        throw new Error(
+          `Opening trial balance carries ${bal.accountCode}, a ${subtype} control account, and the ${subtype === 'receivable' ? 'customer' : 'supplier'} invoice step has already taken those documents on, one line per outstanding document. Importing the control total as well posts the same money a second time. Remove the control account rows from the trial balance.`,
+        );
+      }
+      controlTotals[documentStep === 'ar_invoices' ? 'opening_balances_ar_control' : 'opening_balances_ap_control'] = true;
     }
 
     lines.push({
@@ -108,7 +120,7 @@ export async function importOpeningBalances(
 
   await updateSession(sessionId, companyId, {
     openingBalancesSet: true,
-    stepsCompleted: { opening_balances: true },
+    stepsCompleted: { opening_balances: true, ...controlTotals },
     errors,
   });
 
@@ -131,6 +143,7 @@ export async function importARInvoices(
 
   // Before any read: the idempotency check below is a read-then-write.
   await lockMigrationImport(companyId);
+  await assertNoOpeningControlTotal(companyId, sessionId, 'receivable');
 
   // No default_revenue and no vat_output: a take-on document posts neither. See
   // migrationPostingSupport for why re-declaring the VAT is the deciding reason.
@@ -258,7 +271,14 @@ export async function importARInvoices(
     }
   }
 
-  await updateSession(sessionId, companyId, { arInvoicesImported: imported, stepsCompleted: { ar_invoices: true }, errors });
+  // Warnings ride in the same column as errors, marked, because they must
+  // survive a page reload exactly as errors do: a row that imported with
+  // rounding drift is the whole point of R-002 and is otherwise invisible.
+  await updateSession(sessionId, companyId, {
+    arInvoicesImported: imported,
+    stepsCompleted: { ar_invoices: true },
+    errors: [...errors, ...warnings.map(w => ({ ...w, severity: 'warning' as const }))],
+  });
   log.info('AR invoices imported', { companyId, imported, skipped }, 'migration');
   return { imported, skipped, errors, warnings };
 }

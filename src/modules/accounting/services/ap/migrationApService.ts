@@ -10,7 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
-import { buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
+import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 type Row = DbRow;
 
@@ -43,6 +43,7 @@ export async function importAPInvoices(
 
   // Before any read: the idempotency check below is a read-then-write.
   await lockMigrationImport(companyId);
+  await assertNoOpeningControlTotal(companyId, sessionId, 'payable');
 
   // No default_expense and no vat_input: a take-on document posts neither. See
   // migrationPostingSupport for why re-declaring the VAT is the deciding reason.
@@ -105,11 +106,13 @@ export async function importAPInvoices(
         // carry a unique index: it is lower(vat|invoice_number|total) with
         // 'no-vat'/'no-inv'/'0' substituted for missing parts, so every row
         // missing the same parts collapses onto one string — production holds
-        // groups of 55-79 live invoices sharing a fingerprint. This is a
-        // read-then-write and is therefore not safe against two imports of the
-        // same file running at the same instant; the wizard is a single
-        // operator-driven step per company, and there is no constraint to lean
-        // on. See migration 625.
+        // groups of 55-79 live invoices sharing a fingerprint, which is why
+        // migration 625 was withdrawn. This is a read-then-write and is
+        // therefore not safe against two imports of the same file running at
+        // the same instant; lockMigrationImport above is what serialises them.
+        // uq_supplier_invoices_supplier_number would also block the second
+        // inserter — but with a 23505 this savepoint turns into a raw Postgres
+        // message, and it is not in production yet (K-107, migration 646).
         const already = (await sql`
           SELECT id FROM supplier_invoices
           WHERE company_id = ${companyId}::UUID
@@ -184,7 +187,12 @@ export async function importAPInvoices(
     }
   }
 
-  await updateSession(sessionId, companyId, { apInvoicesImported: imported, stepsCompleted: { ap_invoices: true }, errors });
+  // Warnings ride in the same column as errors, marked — see the AR step.
+  await updateSession(sessionId, companyId, {
+    apInvoicesImported: imported,
+    stepsCompleted: { ap_invoices: true },
+    errors: [...errors, ...warnings.map(w => ({ ...w, severity: 'warning' as const }))],
+  });
   log.info('AP invoices imported', { companyId, imported, skipped }, 'migration');
   return { imported, skipped, errors, warnings };
 }
