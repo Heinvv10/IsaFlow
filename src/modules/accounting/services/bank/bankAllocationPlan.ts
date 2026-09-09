@@ -7,7 +7,7 @@ export function allocationMoney(value:string):string{
  if(!amount.gt(0)||amount.gte('100000000000000000000')||!amount.mul(100).isInteger())throw new Error('Invalid exact allocation money');
  return amount.toFixed();
 }
-const money=z.string().transform(allocationMoney),id=z.string().uuid();
+const money=z.string().transform(allocationMoney),id=z.string().uuid().transform(value=>value.toLowerCase());
 const accountLine=z.object({accountId:id,amount:money,vatCode:z.enum(['none','standard','zero_rated','exempt']).default('none'),
  description:z.string().max(1000).optional(),cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional()}).strict();
 const common={version:z.literal(1),bankTransactionId:id,description:z.string().max(1000).optional()};
@@ -48,4 +48,8 @@ export function buildBankAllocationLines(plan:BankAllocationPlan,source:{bankAcc
  }
  add(source.bankAccountId,amount,!spent);
  return result;
+}
+/** Shared outstanding comparison; extracted from preparation and child effects. */
+export function assertAllocationOutstanding(total:string,paid:string,allocated:string):void{
+ if(new D(paid).add(allocated).gt(total))throw new Error('Allocation exceeds invoice outstanding');
 }

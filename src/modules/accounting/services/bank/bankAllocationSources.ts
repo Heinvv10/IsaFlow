@@ -6,6 +6,7 @@ import type {ControlTx} from '../controls/contracts';
 import {buildBankAllocationLines,type BankAllocationPlan} from './bankAllocationPlan';
 import {materializeGlOperation} from '../controls/glOperationMaterializer';
 import Decimal from 'decimal.js';
+const D=Decimal.clone({precision:80});
 type Row=Record<string,unknown>;
 export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocationPlan){
  assertControlTx(ctx);const company=ctx.principal.companyId;
@@ -21,7 +22,7 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  if(!bankAccount||bankAccount.is_active!==true||bankAccount.account_type!=='asset'||bankAccount.account_subtype!=='bank')throw new Error('Owned active bank GL account required');
  const system=(role:string,type:string)=>{const found=accounts.filter(a=>a.is_system_account===true&&a.account_subtype===role&&a.account_type===type&&a.is_active===true);if(found.length!==1)throw new Error('Allocation system account missing or ambiguous');return String(found[0]!.id);};
  const controlAccountId=plan.kind==='customer'?system('receivable','asset'):plan.kind==='supplier'?system('payable','liability'):null;
- const vatAccountId='lines' in plan&&plan.lines.some(l=>l.vatCode==='standard')?system(new Decimal(String(bank.amount)).lt(0)?'vat_input':'vat_output',new Decimal(String(bank.amount)).lt(0)?'asset':'liability'):null;
+ const vatAccountId='lines' in plan&&plan.lines.some(l=>l.vatCode==='standard')?system(new D(String(bank.amount)).lt(0)?'vat_input':'vat_output',new D(String(bank.amount)).lt(0)?'asset':'liability'):null;
  if('lines' in plan)for(const line of plan.lines){
   const account=accounts.find(a=>a.id===line.accountId);if(!account||account.is_active!==true||line.accountId===bank.bank_account_id)throw new Error('Owned active contra account required');
   if(line.cc1Id||line.cc2Id||line.buId)throw new Error('Dimension allocation requires verified dimension material');
@@ -38,7 +39,7 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
    if(!invoice||invoice.party_id!==plan.partyId||invoice.currency!=='ZAR'||!['approved','posted','sent','partially_paid','partial','paid','overdue'].includes(String(invoice.status))||!invoice.gl_journal_entry_id)throw new Error('Owned posted allocation invoice required');
    const journal=await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:String(invoice.gl_journal_entry_id),operation:'journal.post'});
    const facts=journal.observedSources[0]!.facts as {header:Row};
-   if(facts.header.status!=='posted'||facts.header.reversed_at||facts.header.source_record_id!==invoice.id||facts.header.source!==(plan.kind==='customer'?'auto_invoice':'auto_supplier_invoice')||!new Decimal(journal.binding.amount!).eq(String(invoice.total_amount)))throw new Error('Allocation invoice journal changed');
+   if(facts.header.status!=='posted'||facts.header.reversed_at||facts.header.source_record_id!==invoice.id||facts.header.source!==(plan.kind==='customer'?'auto_invoice':'auto_supplier_invoice')||!new D(journal.binding.amount!).eq(String(invoice.total_amount)))throw new Error('Allocation invoice journal changed');
    invoices.push({invoice,journal:journal.observedSources,allocation});
   }
  }
