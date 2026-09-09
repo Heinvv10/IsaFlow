@@ -1,6 +1,6 @@
 # Source reconciliation
 
-Numbered inventory: 76 A sources (C1–C21, H1–H55) and 54 B sources (F01–F54), all mapped. 129 distinct K rows carry 140 numbered-source associations; 10 sources span multiple K rows. There are no unmatched numbered IDs. All 281 K candidates retain candidate status. Mapping does not establish a defect, severity, completed reproduction, or fix.
+Numbered inventory: 76 A sources (C1–C21, H1–H55) and 54 B sources (F01–F54), all mapped. 129 distinct K rows carry 140 numbered-source associations; 10 sources span multiple K rows. There are no unmatched numbered IDs. At import, all 281 K rows were candidates; current dispositions live in backlog.json. Mapping does not establish a defect, severity, completed reproduction, or fix.
 
 ## Method and boundaries
 

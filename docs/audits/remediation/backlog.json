@@ -7549,22 +7549,42 @@
       ],
       "sourceLabel": "Remediation discovery during K005",
       "sourceIds": [],
-      "correctedTrigger": null,
-      "severityRationale": "Candidate provisioning-authority gap; validate provider/account model and first-claim impact before fixing.",
+      "correctedTrigger": "Unproven first number registration activates routing; real signed inbound creates an event for that claimant. Reproduced on ff2ab7ba.",
+      "severityRationale": "Confirmed provider-to-company provisioning authority gap; proof establishes signed delivery configuration control, not legal ownership.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "222eb799",
-      "status": "candidate",
+      "currentSha": "f303b9f3afbe0390718753d095db585b16a59fe2",
+      "status": "code-verified",
       "dependencies": [
-        "Validate after K005, before financial candidates"
+        "Provider sandbox acceptance and legacy rollout/reverification require separate authorized environment",
+        "Historical attribution and reserved-number transfers require reviewed evidence"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/whatsapp-inbox-ownership.int.test.ts",
+        "tests/integration/whatsapp-inbox-routing.int.test.ts",
+        "tests/integration/whatsapp-ownership-browser.mjs"
+      ],
       "evidencePaths": [
-        "R-003/discovery.md"
+        "R-003/discovery.md",
+        "R-003/plan.md",
+        "R-003/red.log",
+        "R-003/workflow-final.log",
+        "R-003/routing-regression.log",
+        "R-003/regression.log",
+        "R-003/typecheck.log",
+        "R-003/browser.log",
+        "R-003/historical-impact.sql",
+        "R-003/historical-review.md",
+        "R-003/review.md",
+        "R-003/provider-contract.md",
+        "R-003/logging-red.log",
+        "R-003/provenance-red.log",
+        "R-003/ci.log",
+        "R-003/result.md"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "6ed297f1;66793126",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/351",
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "Scoped inventory tested on disposable rows only; legacy proof not fabricated, target review/reverification and historical attribution remain open.",
       "canonicalItem": null,
       "reportedSeverity": "high"
     }

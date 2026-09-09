@@ -1,9 +1,5 @@
 import { configureWhatsAppInbox } from '@/modules/accounting/services/capture/whatsAppInboxService';
-/**
- * GET  /api/accounting/capture/whatsapp-inbox → { data: { id, address, isActive } | null }
- * POST /api/accounting/capture/whatsapp-inbox body: { address: string }
- *      → { data: { id, address, isActive } }
- */
+/** GET returns active/pending status. POST starts provider verification; it does not activate routing. */
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -20,18 +16,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const userId = req.user?.id;
 
   if (req.method === 'GET') {
-    const rows = (await sql`
-      SELECT id, address, is_active
-      FROM capture_inboxes
-      WHERE company_id = ${companyId} AND channel = 'whatsapp' AND is_active = true
+    const active = (await sql`
+      SELECT id, address, (is_active AND provider_verified_at IS NOT NULL) AS is_active
+      FROM capture_inboxes WHERE company_id = ${companyId} AND channel = 'whatsapp' AND is_active
       LIMIT 1
     `) as Row[];
-
-    const row = rows[0] ?? null;
-    return apiResponse.success(res, row
-      ? { id: row.id as string, address: row.address as string, isActive: row.is_active as boolean }
-      : null,
-    );
+    const pending = (await sql`
+      SELECT address, expires_at FROM capture_whatsapp_claims WHERE company_id = ${companyId}
+    `) as Row[];
+    res.setHeader('Cache-Control', 'no-store');
+    return apiResponse.success(res, { active: active[0] ? {
+      id: active[0].id, address: active[0].address, isActive: active[0].is_active,
+    } : null, pending: pending[0] ? {
+      address: pending[0].address, expiresAt: pending[0].expires_at,
+    } : null });
   }
 
   if (req.method === 'POST') {
@@ -46,14 +44,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
 
     const row = await configureWhatsAppInbox(companyId, address, userId);
-    if (!row) return apiResponse.conflict(res, 'WhatsApp number is already reserved');
-    log.info('Upserted WhatsApp capture inbox', { companyId, address }, 'whatsapp-inbox');
+    log.info('Started WhatsApp provider verification', { companyId, address }, 'whatsapp-inbox');
 
-    return apiResponse.success(res, {
-      id: row.id as string,
-      address: row.address as string,
-      isActive: row.is_active as boolean,
-    });
+    res.setHeader('Cache-Control', 'no-store');
+    return apiResponse.success(res, row);
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET', 'POST']);

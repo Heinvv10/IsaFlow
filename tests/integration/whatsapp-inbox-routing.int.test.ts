@@ -16,6 +16,7 @@ const userA=crypto.randomUUID(),userB=crypto.randomUUID();
 const shared='+27820001001',old='+27820001002';
 const companies=[first,second];
 const tokens=new Map<string,string>();
+const callbacks=new Map<string,string>();
 const authToken='disposable-whatsapp-signature-fixture';
 const origin='http://localhost:3200';
 const url='/api/accounting/capture/inbound/whatsapp';
@@ -23,6 +24,7 @@ const migration=readFileSync('scripts/migrations/sql/617_capture_whatsapp_destin
 beforeAll(async()=>{
   // Run alone on the explicit disposable fixture; restore the index after cleanup.
   await pool.query('DROP INDEX IF EXISTS ux_capture_inboxes_whatsapp_address');
+  await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));
   vi.stubEnv('TWILIO_AUTH_TOKEN',authToken);
   vi.stubEnv('APP_URL',origin);
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)',[first,'WA first fixture',second,'WA second fixture']);
@@ -38,6 +40,7 @@ afterAll(async()=>{
   vi.unstubAllEnvs();
   try{
     await pool.query('DELETE FROM capture_events WHERE company_id=ANY($1::uuid[])',[companies]);
+    await pool.query('DELETE FROM capture_whatsapp_claims WHERE company_id=ANY($1::uuid[])',[companies]);
     await pool.query('DELETE FROM capture_inboxes WHERE company_id=ANY($1::uuid[])',[companies]);
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[]) AND user_id=ANY($2::text[])',[companies,[userA,userB]]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])',[companies]);
@@ -47,19 +50,24 @@ afterAll(async()=>{
 async function configure(company:string,address:string){
   const req=request({'sb-access-token':tokens.get(company)!,active_company_id:company},'POST');
   req.url='/api/accounting/capture/whatsapp-inbox';req.body={address};
-  const result=response();await inboxRoute(req,result.res);return result;
+  const result=response();await inboxRoute(req,result.res);
+  if(result.state.statusCode!==200)return result;
+  const callback=(result.state.body as {data:{verificationUrl:string}}).data.verificationUrl;
+  const verified=await deliver(undefined,address,callback,'verification');
+  if(!(verified.state.body as {data:{rejected?:string}}).data.rejected)callbacks.set(address,callback);
+  return verified;
 }
-async function deliver(signature?:string,toNumber=shared){
-  const body={From:'whatsapp:+27821111111',To:`whatsapp:${toNumber}`,Body:'Paid R100 at Fixture',NumMedia:'0',MessageSid:'SM-disposable-routing'};
-  const req=request({},'POST');req.url=url;req.body=body;
-  req.headers['x-twilio-signature']=signature??twilio.getExpectedTwilioSignature(authToken,origin+url,body);
+async function deliver(signature?:string,toNumber=shared,target=callbacks.get(toNumber)??origin+url,message='Paid R100 at Fixture'){
+  const body={From:'whatsapp:+27821111111',To:`whatsapp:${toNumber}`,Body:message,NumMedia:'0',WaId:'27821111111',MessageSid:'SM-disposable-routing'};
+  const req=request({},'POST');const parsed=new URL(target);req.url=parsed.pathname+parsed.search;req.body=body;
+  req.headers['x-twilio-signature']=signature??twilio.getExpectedTwilioSignature(authToken,target,body);
   const result=response();await webhook(req,result.res);return result;
 }
 it('signed inbound message to an ambiguous number is rejected before tenant event creation',async()=>{
   await pool.query("INSERT INTO capture_inboxes(company_id,channel,address) VALUES($1,'whatsapp',$3),($2,'whatsapp',$3)",[first,second,shared]);
   const result=await deliver();
   expect(result.state.statusCode).toBe(200);
-  expect((result.state.body as {data:unknown}).data).toEqual({rejected:'ambiguous inbox'});
+  expect((result.state.body as {data:unknown}).data).toEqual({rejected:'destination verification required'});
   expect((await pool.query('SELECT company_id FROM capture_events WHERE company_id=ANY($1::uuid[])',[companies])).rows).toEqual([]);
 });
 it('missing credentials and invalid provider signature remain fail-closed',async()=>{
@@ -78,7 +86,7 @@ it('duplicate number claim is refused without disabling the second tenant curren
   expect((await configure(first,shared)).state.statusCode).toBe(200);
   expect((await configure(second,old)).state.statusCode).toBe(200);
   const duplicate=await configure(second,shared);
-  expect(duplicate.state.statusCode).toBe(409);
+  expect(duplicate.state.body).toMatchObject({data:{rejected:'destination verification required'}});
   expect((await pool.query('SELECT address FROM capture_inboxes WHERE company_id=$1 AND is_active',[second])).rows).toEqual([{address:old}]);
 });
 
@@ -87,8 +95,8 @@ it('same-company repeat and rotation preserve reserved numbers and signed routin
   expect((await pool.query('SELECT id FROM capture_inboxes WHERE company_id=$1 AND address=$2',[first,shared])).rows).toHaveLength(1);
   const next='+27820001003';
   expect((await configure(first,next)).state.statusCode).toBe(200);
-  expect((await configure(second,shared)).state.statusCode).toBe(409);
-  expect((await deliver()).state.body).toMatchObject({data:{rejected:'no matching inbox'}});
+  expect((await configure(second,shared)).state.body).toMatchObject({data:{rejected:'destination verification required'}});
+  expect((await deliver()).state.body).toMatchObject({data:{rejected:'destination verification required'}});
   expect((await deliver(undefined,next)).state.body).toMatchObject({data:{companyId:first}});
   expect((await deliver(undefined,old)).state.body).toMatchObject({data:{companyId:second}});
   const rows=(await pool.query('SELECT company_id FROM capture_events WHERE company_id=ANY($1::uuid[])',[companies])).rows;
