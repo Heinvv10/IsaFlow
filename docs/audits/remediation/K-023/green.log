@@ -1,4 +1,4 @@
-# K-023 GREEN (second round — review findings addressed)
+# K-023 GREEN (round 3 — re-review findings N1/N2/N3 addressed)
 
 ## Integration (real Postgres fixture)
 $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k023-sdl-invented-salary.int.test.ts" "tests/integration/k023-sdl-threshold-boundary.int.test.ts"
@@ -7,42 +7,36 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
 
 
  Test Files  2 passed (2)
-      Tests  8 passed (8)
-   Start at  09:29:04
-   Duration  2.57s (transform 781ms, setup 0ms, import 1.33s, tests 1.61s, environment 0ms)
+      Tests  10 passed (10)
+   Start at  09:45:24
+   Duration  1.96s (transform 526ms, setup 0ms, import 772ms, tests 1.99s, environment 0ms)
 
 
-## Payroll unit suite (DATABASE_URL unset)
- Test Files  32 passed | 1 skipped (33)
-      Tests  334 passed | 2 skipped (336)
+## Full unit suite (DATABASE_URL unset) — clean this run
+ Test Files  787 passed | 36 skipped (823)
+      Tests  9335 passed | 234 skipped (9569)
+Round 2 saw 10 failures here, all 10s timeouts in bank-allocation, cash-flow and tracker
+tests, and a control run on the unmodified base commit f57f71a7 failed 2 of the same tests
+the same way. This clean run confirms those were contention from parallel sessions on this
+box, not the change.
 
-## Full unit suite (DATABASE_URL unset) — NOT clean, and not clean on the base either
- Test Files  5 failed | 782 passed | 36 skipped (823)
-      Tests  10 failed | 9325 passed | 234 skipped (9569)
-All 10 are "Test timed out in 10000ms" in tests/unit/services/bankAllocationService.test.ts,
-tests/unit/services/bank/bankAllocationDateShift.test.ts,
-tests/unit/services/bank/bankAllocationUnwind.test.ts,
-tests/unit/services/cashFlowReport.test.ts and
-tests/unit/components/trackerExclusion.test.ts. Reproduced identically twice.
-
-Control: the same command on this branch's unmodified base commit f57f71a7, in a detached
-worktree, gave
- Test Files  2 failed | 785 passed | 36 skipped (823)
-      Tests  2 failed | 9333 passed | 234 skipped (9569)
-— the same timeout signature in two of the same files. Running the five affected files alone
-on this branch: 27 passed / 27. So the failures track machine load from parallel sessions on
-this box, not this change, and none of them is in payroll.
-
-## Mutation checks — three wrong bases, three different sets of tests catch them
-A. `employees.length * 25_000 * 12` (the original defect): 7 failed | 1 passed of 8.
-B. `r(totalGross) * 12` (this run annualised, no trailing window): 2 failed | 6 passed —
-   exactly "does not let a 13th-cheque month create a levy" and "does not let a short month
-   cancel the levy".
-C. gate on the SDL-leviable subset instead of remuneration: 1 failed | 7 passed — exactly
+## Mutation checks — four wrong bases, four different sets of tests catch them
+A. `employees.length * 25_000 * 12` (the original defect): 8 failed | 2 passed of 10.
+B. `r(totalGross) * 12` (this run annualised, no window): 3 failed | 7 passed — the
+   13th-cheque, short-month and seasonal cases.
+C. gate on the SDL-leviable subset instead of remuneration: 1 failed | 9 passed — exactly
    "gates on total remuneration but charges only the SDL-applicable part".
-Production code restored after each; both files back to 8 passed.
+D. `elapsedPeriods = priorPeriods + 1` (divide by runs found, not months elapsed):
+   1 failed | 7 passed of the boundary file — exactly "counts a month with no run as zero
+   once the company has a year of history".
+Production code restored after each; both files back to 10 passed.
+
+## Historical-impact SQL
+Executed against the DISPOSABLE fixture database only, never production, to prove it parses
+and runs: 0 rows, columns company_id, run_id, period_year, period_month, employee_count,
+total_gross, total_sdl, estimate_used, basis_now.
 
 ## Static checks
 bunx tsc --noEmit -> exit 0
-bunx eslint payrollRunService.ts payrollCalculator.ts payrollTypes.ts sdlLeviabilityService.ts -> exit 0
+bunx eslint sdlLeviabilityService.ts payrollRunService.ts -> exit 0
 bun run agent-docs:check -> OK: 74 agent document mirror(s) match canonical sources.
