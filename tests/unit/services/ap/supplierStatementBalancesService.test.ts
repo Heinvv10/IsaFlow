@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-vi.mock('@/lib/neon',()=>({sql:vi.fn()}));
+vi.mock('@/lib/neon',()=>({sql:Object.assign(vi.fn(),{unsafe:(t:string)=>t})}));
 vi.mock('@/modules/accounting/services/ap/apAgingService',()=>({getAPAging:vi.fn()}));
 import {sql} from '@/lib/neon';
 import {getAPAging} from '@/modules/accounting/services/ap/apAgingService';

@@ -12,7 +12,7 @@ whole document amount for every `endDate` between the invoice and the delete. Ne
 `src/modules/accounting/services/shared/softDeleteLedgerPresence.ts` answers the dated question by
 the reversal chain's PARITY as at the date (odd number of posted entries dated `<= as-at` =
 standing), which also keeps documents deleted BEFORE this change — journal still posted — on the
-sub-ledger side with no historical repair. Applied at all six sites: `getARAging`,
+sub-ledger side with no historical repair. Applied at all eight sites: `getARAging`,
 `getARAgingDetail`, `getAPAging`, `getAPAgingDetail`, `getARSubledger`, `getAPSubledger`,
 `arSubLedgerCheck`, `apSubLedgerCheck`. `controlBalance` in `k053-soft-delete-gl-tie` gained the
 `entry_date <= as-at` bound whose absence hid the defect.

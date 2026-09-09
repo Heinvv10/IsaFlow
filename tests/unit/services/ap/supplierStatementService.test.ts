@@ -22,10 +22,17 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
-    sqlCalls.push({ sql: strings.join('?'), values });
-    return mockImpl(strings, ...values);
-  },
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqlCalls.push({ sql: strings.join('?'), values });
+      return mockImpl(strings, ...values);
+    },
+    // Part of the real client. The statement queries splice the as-at
+    // soft-delete predicate through it (shared/softDeleteLedgerPresence), and
+    // building a fragment is NOT a query: recording it here would shift every
+    // queued response after it.
+    { unsafe: (text: string) => text },
+  ),
 }));
 
 import { fetchSupplierStatementData } from '@/modules/accounting/services/ap/supplierStatementService';

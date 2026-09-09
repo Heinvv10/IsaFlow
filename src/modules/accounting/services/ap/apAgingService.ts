@@ -10,7 +10,7 @@ import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
-import { documentInLedgerAsAt } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 type Row = DbRow;
 
 
@@ -92,7 +92,7 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         -- dated TODAY whenever the bill's own period is closed, so an undated
         -- exclusion drops the document from every earlier as-at date while the
         -- control account still carries it. See shared/softDeleteLedgerPresence.
-        AND ${documentInLedgerAsAt('si', asAtStr, companyId)}
+        AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
         AND si.invoice_date <= ${asAtStr}::date
         AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
       -- Same omission as AR, and larger: 357 supplier invoices worth
@@ -162,7 +162,7 @@ export async function getAPAgingDetail(companyId: string,
         -- dated TODAY whenever the bill's own period is closed, so an undated
         -- exclusion drops the document from every earlier as-at date while the
         -- control account still carries it. See shared/softDeleteLedgerPresence.
-        AND ${documentInLedgerAsAt('si', asAtStr, companyId)}
+        AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
         AND si.invoice_date <= ${asAtStr}::date
         AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
       -- Undated invoices belong here for the same reason they belong in the

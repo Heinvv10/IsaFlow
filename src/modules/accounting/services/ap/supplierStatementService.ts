@@ -25,6 +25,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 
 type Row = DbRow;
 
@@ -116,14 +117,18 @@ export async function fetchSupplierStatementData(
 
   const [invoices, payments, creditNotes] = await Promise.all([
     sql`
-      SELECT id, invoice_number, invoice_date, total_amount, status, created_at
-      FROM supplier_invoices
-      WHERE supplier_id = ${supplierId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status != 'cancelled'
-        -- Same population as apAgingService: a deleted bill is not payable.
-        AND deleted_at IS NULL
-        AND invoice_date <= ${asAtDate}::DATE
+      SELECT si.id, si.invoice_number, si.invoice_date, si.total_amount, si.status, si.created_at
+      FROM supplier_invoices si
+      WHERE si.supplier_id = ${supplierId}::UUID
+        AND si.company_id = ${companyId}::UUID
+        AND si.status != 'cancelled'
+        -- Same population as apAgingService, which means the same DATED
+        -- question: the delete's reversal is dated to the delete, so a bill
+        -- deleted after the as-at date is still on the control account and
+        -- still on this statement. An undated deleted_at IS NULL would make
+        -- the comment above a lie for every as-at date before the delete.
+        AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
+        AND si.invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date
     ` as Promise<Row[]>,
 

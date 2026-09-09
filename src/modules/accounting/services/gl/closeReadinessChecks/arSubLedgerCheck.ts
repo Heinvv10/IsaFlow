@@ -14,7 +14,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ChecklistItem } from '../periodCloseReadinessService';
-import { documentInLedgerAsAt } from '../../shared/softDeleteLedgerPresence';
+import { documentInLedgerAsAtFragment } from '../../shared/softDeleteLedgerPresence';
 
 type Row = DbRow;
 
@@ -45,7 +45,7 @@ export async function arSubLedgerCheck(
       -- reversal-chain parity in shared/softDeleteLedgerPresence answers the
       -- dated question, and covers documents deleted BEFORE this change (whose
       -- journal is still standing) with no historical repair.
-      AND ${documentInLedgerAsAt('ci', period.endDate, companyId)}
+      AND ${documentInLedgerAsAtFragment('ci', period.endDate, companyId)}
       AND ci.invoice_date <= ${period.endDate}::date
   `) as Row[];
 
