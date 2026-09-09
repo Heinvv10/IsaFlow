@@ -13,6 +13,15 @@ export interface PatScopeMeta {
 }
 
 export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
+  'read:approvals': { label: 'Read operation approvals', desc: 'Read approval requirements and request status.' },
+  'write:approvals': { label: 'Request operation approvals', desc: 'Request independent approval of a specific operation. Decisions require a signed-in human.' },
+  'write:beneficiaries': { label: 'Propose beneficiary changes', desc: 'Propose banking changes for independent human verification before use.' },
+  'read:access': { label: 'Review access', desc: 'Read current tenant roles and connection grants without credentials.' },
+  'read:audit': { label: 'Read forensic evidence', desc: 'Read protected accounting history and control findings. Sensitive payroll needs separate permission.' },
+  'write:audit': { label: 'Capture forensic evidence', desc: 'Create evidence snapshots and audit export jobs.' },
+  'write:controls': { label: 'Manage control exceptions', desc: 'Assign exceptions and request resolution after a fresh control check.' },
+  'read:payroll-sensitive': { label: 'Read sensitive payroll evidence', desc: 'Reveal restricted payroll identity and banking evidence with current explicit permission and read:payroll.' },
+
   'read:practice': {
     label: 'Read practice management',
     desc: 'Practice clients, the job category / work item taxonomy, and logged time entries.',

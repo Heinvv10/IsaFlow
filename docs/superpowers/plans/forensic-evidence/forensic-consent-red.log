@@ -1,0 +1,143 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts (10 tests | 9 failed) 173ms
+   × publishes consistent PAT and OAuth consent for read:approvals 58ms
+   × publishes consistent PAT and OAuth consent for write:approvals 1ms
+   × publishes consistent PAT and OAuth consent for write:beneficiaries 19ms
+   × publishes consistent PAT and OAuth consent for read:access 18ms
+   × publishes consistent PAT and OAuth consent for read:audit 14ms
+   × publishes consistent PAT and OAuth consent for write:audit 1ms
+   × publishes consistent PAT and OAuth consent for write:controls 0ms
+   × publishes consistent PAT and OAuth consent for read:payroll-sensitive 33ms
+   × requires explicit consent for every new write and sensitive payroll grant 27ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > publishes consistent PAT and OAuth consent for read:approvals
+AssertionError: expected [ 'read:invoices', …(14) ] to include 'read:approvals'
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:11:22
+      9| const explicit = ['write:approvals','write:beneficiaries','write:audit…
+     10| it.each(added)('publishes consistent PAT and OAuth consent for %s', sc…
+     11|   expect(PAT_SCOPES).toContain(scope);
+       |                      ^
+     12|   expect(OAUTH_SCOPES).toContain(scope);
+     13|   expect(PAT_SCOPE_META).toHaveProperty(scope);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > publishes consistent PAT and OAuth consent for write:approvals
+AssertionError: expected [ 'read:invoices', …(14) ] to include 'write:approvals'
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:11:22
+      9| const explicit = ['write:approvals','write:beneficiaries','write:audit…
+     10| it.each(added)('publishes consistent PAT and OAuth consent for %s', sc…
+     11|   expect(PAT_SCOPES).toContain(scope);
+       |                      ^
+     12|   expect(OAUTH_SCOPES).toContain(scope);
+     13|   expect(PAT_SCOPE_META).toHaveProperty(scope);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > publishes consistent PAT and OAuth consent for write:beneficiaries
+AssertionError: expected [ 'read:invoices', …(14) ] to include 'write:beneficiaries'
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:11:22
+      9| const explicit = ['write:approvals','write:beneficiaries','write:audit…
+     10| it.each(added)('publishes consistent PAT and OAuth consent for %s', sc…
+     11|   expect(PAT_SCOPES).toContain(scope);
+       |                      ^
+     12|   expect(OAUTH_SCOPES).toContain(scope);
+     13|   expect(PAT_SCOPE_META).toHaveProperty(scope);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/9]⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > publishes consistent PAT and OAuth consent for read:access
+AssertionError: expected [ 'read:invoices', …(14) ] to include 'read:access'
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:11:22
+      9| const explicit = ['write:approvals','write:beneficiaries','write:audit…
+     10| it.each(added)('publishes consistent PAT and OAuth consent for %s', sc…
+     11|   expect(PAT_SCOPES).toContain(scope);
+       |                      ^
+     12|   expect(OAUTH_SCOPES).toContain(scope);
+     13|   expect(PAT_SCOPE_META).toHaveProperty(scope);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/9]⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > publishes consistent PAT and OAuth consent for read:audit
+AssertionError: expected [ 'read:invoices', …(14) ] to include 'read:audit'
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:11:22
+      9| const explicit = ['write:approvals','write:beneficiaries','write:audit…
+     10| it.each(added)('publishes consistent PAT and OAuth consent for %s', sc…
+     11|   expect(PAT_SCOPES).toContain(scope);
+       |                      ^
+     12|   expect(OAUTH_SCOPES).toContain(scope);
+     13|   expect(PAT_SCOPE_META).toHaveProperty(scope);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/9]⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > publishes consistent PAT and OAuth consent for write:audit
+AssertionError: expected [ 'read:invoices', …(14) ] to include 'write:audit'
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:11:22
+      9| const explicit = ['write:approvals','write:beneficiaries','write:audit…
+     10| it.each(added)('publishes consistent PAT and OAuth consent for %s', sc…
+     11|   expect(PAT_SCOPES).toContain(scope);
+       |                      ^
+     12|   expect(OAUTH_SCOPES).toContain(scope);
+     13|   expect(PAT_SCOPE_META).toHaveProperty(scope);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/9]⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > publishes consistent PAT and OAuth consent for write:controls
+AssertionError: expected [ 'read:invoices', …(14) ] to include 'write:controls'
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:11:22
+      9| const explicit = ['write:approvals','write:beneficiaries','write:audit…
+     10| it.each(added)('publishes consistent PAT and OAuth consent for %s', sc…
+     11|   expect(PAT_SCOPES).toContain(scope);
+       |                      ^
+     12|   expect(OAUTH_SCOPES).toContain(scope);
+     13|   expect(PAT_SCOPE_META).toHaveProperty(scope);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/9]⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > publishes consistent PAT and OAuth consent for read:payroll-sensitive
+AssertionError: expected [ 'read:invoices', …(14) ] to include 'read:payroll-sensitive'
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:11:22
+      9| const explicit = ['write:approvals','write:beneficiaries','write:audit…
+     10| it.each(added)('publishes consistent PAT and OAuth consent for %s', sc…
+     11|   expect(PAT_SCOPES).toContain(scope);
+       |                      ^
+     12|   expect(OAUTH_SCOPES).toContain(scope);
+     13|   expect(PAT_SCOPE_META).toHaveProperty(scope);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/9]⎯
+
+ FAIL  tests/unit/auth/forensicConsentScopes.test.ts > requires explicit consent for every new write and sensitive payroll grant
+AssertionError: expected [] to deeply equal [ 'write:approvals', …(4) ]
+
+- Expected
++ Received
+
+- [
+-   "write:approvals",
+-   "write:beneficiaries",
+-   "write:audit",
+-   "write:controls",
+-   "read:payroll-sensitive",
+- ]
++ []
+
+ ❯ tests/unit/auth/forensicConsentScopes.test.ts:18:23
+     16| it('requires explicit consent for every new write and sensitive payrol…
+     17|   const parts = partitionRequestedScopes(added);
+     18|   expect(parts.optIn).toEqual(explicit);
+       |                       ^
+     19|   expect(buildGrantedScopes(parts.autoGranted, parts.optIn, {})).toEqu…
+     20|   expect(buildGrantedScopes(parts.autoGranted, parts.optIn, {'write:ap…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/9]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  9 failed | 1 passed (10)
+   Start at  09:24:23
+   Duration  3.34s (transform 406ms, setup 0ms, import 590ms, tests 173ms, environment 0ms)
+

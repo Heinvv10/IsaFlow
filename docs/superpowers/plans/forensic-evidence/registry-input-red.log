@@ -1,0 +1,102 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+{"level":"error","message":"MCP tool handler failed","timestamp":"2026-09-09T07:33:47.161Z","component":"mcp","data":{"tool":"read_count","companyId":"company","err":"Cannot read properties of undefined (reading 'isError')"}}
+{"level":"error","message":"MCP tool handler failed","timestamp":"2026-09-09T07:33:47.165Z","component":"mcp","data":{"tool":"read_count","companyId":"company","err":"Cannot read properties of undefined (reading 'isError')"}}
+ ❯ tests/unit/mcp/forensic/registryInputValidation.test.ts (3 tests | 3 failed) 12ms
+   × rejects invalid input before the handler: null 6ms
+   × rejects invalid input before the handler: {"count":"invalid"} 4ms
+   × rejects invalid input before the handler: {"count":1,"dry_run":true} 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/mcp/forensic/registryInputValidation.test.ts > rejects invalid input before the handler: null
+TypeError: Cannot read properties of null (reading 'idempotency_key')
+ ❯ McpRegistry.call src/lib/mcp/registry.ts:121:25
+    119|     }
+    120|
+    121|     const rawKey = args.idempotency_key;
+       |                         ^
+    122|     const suppliedKey =
+    123|       typeof rawKey === 'string' && rawKey.trim() ? rawKey.trim() : nu…
+ ❯ tests/unit/mcp/forensic/registryInputValidation.test.ts:10:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/mcp/forensic/registryInputValidation.test.ts > rejects invalid input before the handler: {"count":"invalid"}
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      Object {
+        "count": "invalid",
+      },
+      Object {
+        "companyId": "company",
+        "oauthAppId": null,
+        "scopes": Array [
+          "read:reports",
+        ],
+        "tokenJti": "grant",
+        "userId": "user",
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ tests/unit/mcp/forensic/registryInputValidation.test.ts:11:57
+      9|     inputSchema:{type:'object',properties:{count:{type:'integer'}},req…
+     10|   const result=await registry.call('read_count',args as unknown as Rec…
+     11|   expect(result.isError).toBe(true);expect(handler).not.toHaveBeenCall…
+       |                                                         ^
+     12| });
+     13|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/mcp/forensic/registryInputValidation.test.ts > rejects invalid input before the handler: {"count":1,"dry_run":true}
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      Object {
+        "count": 1,
+        "dry_run": true,
+      },
+      Object {
+        "companyId": "company",
+        "oauthAppId": null,
+        "scopes": Array [
+          "read:reports",
+        ],
+        "tokenJti": "grant",
+        "userId": "user",
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ tests/unit/mcp/forensic/registryInputValidation.test.ts:11:57
+      9|     inputSchema:{type:'object',properties:{count:{type:'integer'}},req…
+     10|   const result=await registry.call('read_count',args as unknown as Rec…
+     11|   expect(result.isError).toBe(true);expect(handler).not.toHaveBeenCall…
+       |                                                         ^
+     12| });
+     13|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  09:33:46
+   Duration  889ms (transform 468ms, setup 0ms, import 627ms, tests 12ms, environment 0ms)
+

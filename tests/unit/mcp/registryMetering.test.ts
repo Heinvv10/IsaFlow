@@ -1,3 +1,7 @@
+// Tool argument contracts are independently covered for every registered schema.
+vi.mock('@/lib/mcp/inputValidation', () => ({ validateToolArguments: (_tool: unknown, args: unknown) => ({ ok: true, args }) }));
+// Current authority is independently covered by forensic/currentToolAuthority and real PostgreSQL permission tests.
+vi.mock('@/lib/mcp/currentToolAuthority', () => ({ assertCurrentToolAuthority: vi.fn(async () => undefined) }));
 // RED phase — written before the registry wiring was trusted.
 /**
  * Where the money can go wrong in registry.call().

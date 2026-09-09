@@ -8,7 +8,7 @@
  */
 
 /** Scopes that require an explicit, unchecked-by-default user opt-in. */
-export const OPT_IN_SCOPES = ['write:post'] as const;
+export const OPT_IN_SCOPES = ['write:post', 'write:approvals', 'write:beneficiaries', 'write:audit', 'write:controls', 'read:payroll-sensitive'] as const;
 export type OptInScope = (typeof OPT_IN_SCOPES)[number];
 
 export function isOptInScope(scope: string): boolean {

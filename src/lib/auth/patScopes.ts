@@ -20,6 +20,14 @@ export const PAT_SCOPES = [
   'read:payroll',
   'write:payroll',
   'write:post',
+  'read:approvals',
+  'write:approvals',
+  'write:beneficiaries',
+  'read:access',
+  'read:audit',
+  'write:audit',
+  'write:controls',
+  'read:payroll-sensitive',
 ] as const;
 
 export type PatScope = (typeof PAT_SCOPES)[number];

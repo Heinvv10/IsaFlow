@@ -1,0 +1,25 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/mcp/forensic/currentToolAuthority.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/mcp/forensic/currentToolAuthority.test.ts [ tests/unit/mcp/forensic/currentToolAuthority.test.ts ]
+Error: Cannot find package '@/lib/mcp/currentToolAuthority' imported from /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/mcp/forensic/currentToolAuthority.test.ts
+ ❯ tests/unit/mcp/forensic/currentToolAuthority.test.ts:5:1
+      3| vi.mock('@/modules/accounting/services/controls/context', () => ({ req…
+      4| vi.mock('@/lib/auth/effectivePermissions', () => ({ resolveEffectivePe…
+      5| import { assertCurrentToolAuthority } from '@/lib/mcp/currentToolAutho…
+       | ^
+      6| const ctx = { userId:'person',companyId:'company',tokenJti:'grant',oau…
+      7| const tool = { name:'post_invoice',scope:'write:invoices',write:true,r…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  09:28:02
+   Duration  1.03s (transform 209ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+
