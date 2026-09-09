@@ -13,7 +13,7 @@
  *   b180 — BL-80 (purgeExpiredDeletes per-tenant log)
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Shared mock references (hoisted so vi.mock factories can reference them) ──
 
@@ -82,6 +82,11 @@ const B180_COMPANY_B = 'b1800000-0000-0000-0000-bbbbbbbbbbbb';
 
 // ── Helper: collect all sql() call argument values ────────────────────────────
 
+/** The default sqlMock behaviour: a nested tagged template is a spliced fragment. */
+function sqlFragment(): unknown {
+  return { _isSqlFragment: true };
+}
+
 function flatSqlValues(): unknown[] {
   return vi.mocked(sql).mock.calls.flatMap((callArgs: unknown[]) => {
     const [, ...values] = callArgs;
@@ -143,6 +148,9 @@ describe('BL-81: getBankTransactions — reconciliationId must be scoped by comp
 
 describe('BL-82: startReconciliation — bank_transactions UPDATE must include company_id', () => {
   beforeEach(() => vi.clearAllMocks());
+  // mockImplementation outlives clearAllMocks; put the shared fragment stub back
+  // so the BL-83 describe below starts from the same mock every other test sees.
+  afterEach(() => vi.mocked(sql).mockImplementation(sqlFragment as never));
 
   it('passes companyId into the bank_transactions UPDATE inside the transaction', async () => {
     const reconRow = {
@@ -165,12 +173,13 @@ describe('BL-82: startReconciliation — bank_transactions UPDATE must include c
       unmatched_count: 0,
     };
 
-    // startReconciliation composes the shared bankGlBalanceAsAt fragment, so it
-    // calls sql() three times: the account expression, the date expression, then
-    // the balance SELECT that actually returns the row.
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ gl_balance: '10000' }] as never);
+    // Answer the balance query by its TEXT, not by call position: startReconciliation
+    // composes the shared bankGlBalanceAsAt fragment, and how many sql() calls that
+    // takes is an implementation detail this tenant-scoping test should not encode.
+    vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) =>
+      strings.join('').includes('gl_balance')
+        ? Promise.resolve([{ gl_balance: '10000' }])
+        : sqlFragment()) as never);
 
     // withTransaction captures the callback and executes it
     vi.mocked(withTransaction).mockImplementationOnce(async (cb: (tx: typeof sql) => Promise<unknown>) => {
