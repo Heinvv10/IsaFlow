@@ -17,6 +17,16 @@ export interface HistoricalImportEffect {
  importId:string;kind:HistoricalImportKind;mode:HistoricalImportMode;journalEntryId:string;documentId?:string;
  amount:string;currency:'ZAR';accountingDate:string;
 }
+function postingActor(ctx:ControlTx){
+ assertControlTx(ctx);const principal=ctx.principal;
+ if(principal.authMethod==='pat'||principal.authMethod==='oauth'){
+  const token=principal.authMethod==='pat'?principal.connectionId:principal.grantId;
+  if(principal.provenance!=='agent'||!token)throw new Error('Historical import credential provenance is unavailable');
+  return{actorType:'agent',actorTokenJti:token,postingAgent:'mcp:historical_import:v1'};
+ }
+ if(principal.authMethod!=='cookie'||principal.provenance!=='human')throw new Error('Historical import requires authenticated member provenance');
+ return{actorType:'human',actorTokenJti:null,postingAgent:`human:${principal.personId}`};
+}
 async function receipt(ctx:ControlTx,ref:OperationRef):Promise<HistoricalImportEffect|null>{
  const rows=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
   AND entity_type='historical_import' AND entity_id=${ref.entityId} AND operation='historical_import.post' LIMIT 2` as {id:string;result:HistoricalImportEffect}[];
@@ -52,10 +62,10 @@ export async function executeHistoricalImport(ctx:ControlTx,ref:OperationRef,app
   if(permit.accountingDate!==source.accountingDate||permit.amount!==source.amount||permit.currency!==source.currency)throw new Error('Historical permit differs from exact source');
   let journalEntryId=source.existingJournalId;
   if(source.mode==='post_journal'){
-   journalEntryId=randomUUID();
-   await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent,source_document_hash)
+   journalEntryId=randomUUID();const actor=postingActor(ctx);
+   await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent,source_document_hash,actor_type,actor_token_jti)
     VALUES(${journalEntryId}::uuid,${company}::uuid,${`HI-${ref.entityId}`},${source.accountingDate}::date,${facts.period.id}::uuid,
-     ${`Historical import ${source.sourceSystem}: ${source.sourceKey}`},'auto_gl_import',${ref.entityId}::uuid,'draft',${user}::uuid,${`human:${user}`},${facts.source.contentHash})`;
+     ${`Historical import ${source.sourceSystem}: ${source.sourceKey}`},'auto_gl_import',${ref.entityId}::uuid,'draft',${user}::uuid,${actor.postingAgent},${facts.source.contentHash},${actor.actorType},${actor.actorTokenJti})`;
    for(const line of facts.plan)await ctx.sql`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description,vat_type)
     VALUES(${company}::uuid,${journalEntryId}::uuid,${line.glAccountId}::uuid,${line.debit},${line.credit},${line.description},${line.vatType??null})`;
    const parentControl={permit,parent:ref};await registerGeneratedJournal(ctx,parentControl,journalEntryId,'journal.post');
