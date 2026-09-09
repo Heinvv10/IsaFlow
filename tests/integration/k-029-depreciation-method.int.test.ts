@@ -132,6 +132,16 @@ afterAll(async () => {
   }
 });
 
+// The plan and the result of the ONE run this period gets. K-027 keys the
+// plan's `already_in_subledger` skip on the `asset_period_ledger` row, so a
+// second plan for 2026-09 correctly skips every asset the first run wrote —
+// including the life-expired ones, whose policy charge of zero means they take
+// no entry number and were previously re-runnable for ever. The assertions
+// below are about the run that happened, so they read its plan and its result
+// rather than building a second one the guard is designed to refuse.
+let firstPlan: Awaited<ReturnType<typeof planDepreciationRun>>;
+let firstResult: Awaited<ReturnType<typeof executeDepreciationRun>>;
+
 describe('K-029 depreciation method', () => {
   it('carries the configured depreciation method through to the posted charge', async () => {
     const assets = await loadDepreciationAssets(company);
@@ -169,7 +179,9 @@ describe('K-029 depreciation method', () => {
     expect(plan.blocker).toBeNull();
     expect(plan.postable).toHaveLength(5);
 
+    firstPlan = plan;
     const result = await executeDepreciationRun(company, userId, plan, assets);
+    firstResult = result;
     expect(result.glFailed).toBe(0);
     // Four are processed: the three live assets, plus the expired one whose
     // POLICY charge is zero but whose tax track still has life — exactly why it
@@ -221,10 +233,7 @@ describe('K-029 depreciation method', () => {
   it('charges nothing for an asset already past its life, and says why', async () => {
     // Follow-up review HIGH-A: the final-month true-up used >=, so this asset
     // was handed its whole R60 000 remaining book value as one month's charge.
-    const assets = await loadDepreciationAssets(company);
-    const plan = await planDepreciationRun(company, PERIOD, assets);
-
-    const row = plan.rows.find((r) => r.assetNumber === 'K029-0004');
+    const row = firstPlan.rows.find((r) => r.assetNumber === 'K029-0004');
     expect(row).toBeDefined();
     // It still posts — its tax track may have life left — but the note names
     // the stranded amount instead of the run silently moving it.
@@ -252,11 +261,10 @@ describe('K-029 depreciation method', () => {
     // Round-3 review MEDIUM-D: the note was computed, attached, and read by
     // nothing in production. Both consumers must show it.
     const assets = await loadDepreciationAssets(company);
-    const plan = await planDepreciationRun(company, PERIOD, assets);
 
     // 1. The dry run replaces its own generic "no depreciation left" wording,
     //    which reads as the opposite of the truth for this asset.
-    const preview = await previewDepreciationJournals(company, plan, assets);
+    const preview = await previewDepreciationJournals(company, firstPlan, assets);
     const previewRow = preview.writesWithoutJournal.find((w) => w.id === expiredId);
     expect(previewRow).toBeDefined();
     expect(previewRow!.reason).toBe('subledger_row_only_no_journal');
@@ -265,15 +273,14 @@ describe('K-029 depreciation method', () => {
 
     // 2. The live run names it in `results`, which the REST route returns and
     //    the MCP tool maps, instead of an anonymous +1 to `skipped`.
-    const result = await executeDepreciationRun(company, userId, plan, assets);
+    const result = firstResult;
     const resultRow = result.results.find((r) => r.assetNumber === 'K029-0004');
     expect(resultRow).toBeDefined();
     expect(resultRow!.policyDep).toBe(0);
     expect(resultRow!.lifeExpiredNote).toContain('60000.00');
 
-    // The three healthy assets were posted by the previous test and are now
-    // skipped as already_posted, so the two expired ones are the only rows —
-    // and both carry a note.
+    // Only the two expired assets carry a note; the three healthy ones posted a
+    // charge and have none.
     expect(result.results.filter((r) => r.lifeExpiredNote !== undefined)).toHaveLength(2);
 
     // 3. The one that charges nothing on EITHER track is still named. It used
@@ -323,7 +330,7 @@ describe('K-029 depreciation method', () => {
       {
         cost: 100_000, residualPct: 0, usefulLifeYears: 5, taxLifeYears: 5,
         purchaseDate: '2024-01-15', periodDate: '2024-06-30',
-        openingAccDep: 0, taxOpeningAccDep: 0, deferredTaxRate: 0.27,
+        openingAccDep: 0, deferredTaxRate: 0.27,
         method: 'reducing_balance',
       },
       '202609', userId,

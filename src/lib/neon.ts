@@ -50,7 +50,15 @@ let _pool: pg.Pool | null = null;
 /** Per-process sequence for ALS-batch savepoint names (nested batches must not collide). */
 let alsBatchSeq = 0;
 
-function getPool(): pg.Pool {
+/**
+ * The process-wide pool.
+ *
+ * Exported for the one caller that must open its OWN transaction and bind it
+ * into ALS: a service reachable both inside a request (where withAuth already
+ * holds a transaction) and from a script or cron (where every statement would
+ * otherwise autocommit on its own). See `@/lib/alsTransaction`.
+ */
+export function getPool(): pg.Pool {
   if (!_pool) {
     _pool = new pg.Pool({
       connectionString: getDatabaseUrl(),
