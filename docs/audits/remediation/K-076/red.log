@@ -1,0 +1,46 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/k076-ocr-label-boundaries.test.ts (2 tests | 2 failed) 27ms
+     × does not read the Subtotal line as the invoice total 23ms
+     × does not read a bare VAT registration line as a VAT amount 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/k076-ocr-label-boundaries.test.ts > K-076 OCR label boundaries > does not read the Subtotal line as the invoice total
+AssertionError: expected 1000 to be 1150 // Object.is equality
+
+- Expected
++ Received
+
+- 1150
++ 1000
+
+ ❯ tests/unit/services/k076-ocr-label-boundaries.test.ts:23:46
+     21|   it('does not read the Subtotal line as the invoice total', () => {
+     22|     const text = 'Subtotal: 1000.00\nVAT @ 15%: 150.00\nTotal Due: 115…
+     23|     expect(extractAmounts(text).totalAmount).toBe(1150);
+       |                                              ^
+     24|   });
+     25|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/services/k076-ocr-label-boundaries.test.ts > K-076 OCR label boundaries > does not read a bare VAT registration line as a VAT amount
+AssertionError: expected 4123456789 not to be 4123456789 // Object.is equality
+ ❯ tests/unit/services/k076-ocr-label-boundaries.test.ts:28:48
+     26|   it('does not read a bare VAT registration line as a VAT amount', () …
+     27|     const text = 'ACME Trading (Pty) Ltd\nVAT: 4123456789\nTotal 1150.…
+     28|     expect(extractAmounts(text).vatAmount).not.toBe(4123456789);
+       |                                                ^
+     29|   });
+     30| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:30:09
+   Duration  605ms (transform 95ms, setup 0ms, import 123ms, tests 27ms, environment 0ms)
+

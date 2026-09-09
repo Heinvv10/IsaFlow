@@ -2482,11 +2482,18 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
+   "dependencies": [
+    "Transfer-link half fixed by merged K-019; the auto-post sweep block remains"
+   ],
+   "testNames": [
+    "tests/integration/k071-bank-import-best-effort-savepoint.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-071/red.log",
+    "K-071/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2508,11 +2515,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/unit/services/k072-receipt-entertainment-vat.test.ts"
+   ],
+   "evidencePaths": [
+    "K-072/red.log",
+    "K-072/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2534,11 +2546,18 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "31fc2f10",
+   "status": "false-positive",
+   "dependencies": [
+    "Disproved: customer_invoices.customer_id is NOT NULL with an FK, so the inner join drops nothing; residue is a display label only (K-073/validation.md)"
+   ],
+   "testNames": [
+    "tests/integration/k073-customer-invoice-customer-join.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-073/red.log",
+    "K-073/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2560,11 +2579,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-074/red.log",
+    "K-074/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2586,11 +2610,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/unit/services/k075-ocr-comma-decimal.test.ts"
+   ],
+   "evidencePaths": [
+    "K-075/red.log",
+    "K-075/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2612,11 +2641,17 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/unit/services/k076-ocr-label-boundaries.test.ts"
+   ],
+   "evidencePaths": [
+    "K-076/red.log",
+    "K-076/validation.md",
+    "K-076/vat-label-probe.txt"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2817,11 +2852,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k083-loan-period-journal-idempotency.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-083/red.log",
+    "K-083/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2843,11 +2883,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/unit/lib/amortisation/k084-skip-every-month-never-terminates.test.ts"
+   ],
+   "evidencePaths": [
+    "K-084/red.log",
+    "K-084/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2870,11 +2915,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k085-k086-stock-adjustment-movement.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-085/red.log",
+    "K-085/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2896,11 +2946,18 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
+   "dependencies": [
+    "Latent behind K-085; ship together"
+   ],
+   "testNames": [
+    "tests/integration/k085-k086-stock-adjustment-movement.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-086/red.log",
+    "K-086/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2922,11 +2979,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k087-opening-balance-negative-zeroed.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-087/red.log",
+    "K-087/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2948,18 +3010,24 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "false-positive",
    "dependencies": [
-    "R-021: the import raises 42703 before any row is written; reproduce K-088 after R-021"
+    "R-021: the import raises 42703 before any row is written; reproduce K-088 after R-021",
+    "As stated, false: the importer dies on its first SELECT (R-021); the missing unique index is latent and must ship with the schema repair, never after it"
    ],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-088/red.log",
+    "K-088/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
-   "canonicalItem": null,
+   "canonicalItem": "R-021",
    "reportedSeverity": "high"
   },
   {
@@ -3012,11 +3080,18 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
+   "dependencies": [
+    "Trigger moved: the per-row catch is unreachable; failRun in the outer handler dies on the aborted transaction and masks the R-021 error; fix with R-021 as one change"
+   ],
+   "testNames": [
+    "tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-090/red.log",
+    "K-090/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
