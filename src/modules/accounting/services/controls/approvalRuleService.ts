@@ -45,7 +45,7 @@ export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: st
 /** Lock active policy population; unsupported conditions always fail closed. */
 export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType<typeof operationRuleType>): Promise<ApprovalRuleRow[]> {
   assertControlTx(ctx);
-  const configuredType=documentType==='invoice_match_override'?'supplier_invoice':documentType;
+  const configuredType=documentType==='invoice_match_override'?'supplier_invoice':documentType==='payroll_compensation'?'payroll_run':documentType;
   const rows = await ctx.sql`
     SELECT id,document_type,condition_field,condition_operator,condition_value::text,
       approver_role,control_version,is_active,aggregate_window_days,aggregate_by
@@ -67,6 +67,14 @@ export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType
       condition_operator: 'any', condition_value: '0', approver_role: policy.approver_role,
       control_version: Number(policy.control_version), is_active: true, aggregate_window_days: null,
       aggregate_by: null, mandatory: true });
+  }
+  if(documentType==='payroll_compensation'){
+    const policies=await ctx.sql`SELECT id,version AS control_version,approver_role FROM control_mandatory_compensation_policies
+      WHERE company_id=${ctx.principal.companyId}::uuid` as {id:string;control_version:number|string;approver_role:string}[];
+    const policy=policies[0];
+    if(policies.length!==1||!policy||Number(policy.control_version)!==1||policy.approver_role!=='admin')throw new Error('Mandatory compensation policy is unavailable');
+    rules.push({id:policy.id,document_type:documentType,condition_field:'amount',condition_operator:'any',condition_value:'0',
+      approver_role:policy.approver_role,control_version:1,is_active:true,aggregate_window_days:null,aggregate_by:null,mandatory:true});
   }
   if(documentType==='bank_statement_attestation'){
     const policies=await ctx.sql`SELECT id,version AS control_version,approver_role FROM control_mandatory_statement_policies

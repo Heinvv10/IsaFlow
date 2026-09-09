@@ -1,4 +1,5 @@
-const operations: Record<string,{read:string;write:string;rule:'supplier_invoice'|'payment'|'journal_entry'|'payroll_run'|'fiscal_period'|'fiscal_year'|'company_lockdown'|'vat_period'|'asset_depreciation'|'customer_invoice'|'credit_note'|'payment_release'|'invoice_match_override'|'historical_import'|'bank_statement_attestation'}>={
+const operations: Record<string,{read:string;write:string;rule:'supplier_invoice'|'payment'|'journal_entry'|'payroll_run'|'payroll_compensation'|'fiscal_period'|'fiscal_year'|'company_lockdown'|'vat_period'|'asset_depreciation'|'customer_invoice'|'credit_note'|'payment_release'|'invoice_match_override'|'historical_import'|'bank_statement_attestation'}>={
+  'payroll_compensation.change':{read:'read:payroll',write:'write:payroll',rule:'payroll_compensation'},
   'invoice_match.override':{read:'read:invoices',write:'write:invoices',rule:'invoice_match_override'},
   'bank_allocation.post':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
   'bank_allocation.reverse':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
@@ -42,5 +43,5 @@ export function operationRuleType(operation:string){return definition(operation)
 
 export function operationRequiresPosting(operation:string):boolean{
   const write=definition(operation).write;
-  return operation==='year.close'||(write!=='write:locks'&&operation!=='payment_release.dispatch'&&operation!=='invoice_match.override'&&operation!=='bank_statement.attest');
+  return operation==='year.close'||(write!=='write:locks'&&operation!=='payment_release.dispatch'&&operation!=='invoice_match.override'&&operation!=='bank_statement.attest'&&operation!=='payroll_compensation.change');
 }
