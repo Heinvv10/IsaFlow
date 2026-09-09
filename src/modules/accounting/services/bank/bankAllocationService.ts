@@ -1,4 +1,5 @@
 /** Shared immutable bank allocation adapters. All financial effects use the approved parent service. */
+import {preparePartyBankAllocation} from './bankAllocationDefaultPreparation';
 import {isBankAllocationRefund} from './bankAllocationPlan';
 import Decimal from 'decimal.js';
 const D=Decimal.clone({precision:80});
@@ -47,13 +48,12 @@ export async function allocateTransaction(companyId:string,bankTxId:string,contr
   if(!entityId)throw new Error('Owned allocation party required');
   const refund=isBankAllocationRefund(allocType,bank.amount);
   if(refund&&(invoiceId||opts?.applications?.length))throw new Error('Refund applications must be empty');
-  if(!refund&&!opts?.applications&&!invoiceId&&opts?.autoApply!==false){
-   const rows=allocType==='customer'?await ctx.sql`SELECT auto_allocate_strategy FROM customers WHERE company_id=${companyId}::uuid AND id=${entityId}::uuid`
-    :await ctx.sql`SELECT auto_allocate_strategy FROM suppliers WHERE company_id=${companyId}::uuid AND id=${entityId}::uuid`;
-   const strategy=(rows as {auto_allocate_strategy:string|null}[])[0]?.auto_allocate_strategy;
-   if(strategy&&strategy!=='off')throw new Error('Prepare explicit immutable auto-allocation applications before posting');
-  }
   input={...common,partyId:entityId,applications:opts?.applications??(invoiceId?[{invoiceId,amount}]:[])};
+  if(!opts?.intentId)return withSavepoint('bank_default_adapter',async()=>{
+   const prepared=await preparePartyBankAllocation(ctx,{kind:allocType,bankTransactionId:bankTxId,partyId:entityId,description,
+    autoApply:opts?.autoApply,applications:opts?.applications??(invoiceId?[{invoiceId,amount}]:undefined)});
+   return runPlan(companyId,bankTxId,userId,input,{...opts,intentId:prepared.intentId});
+  });
  }else input={...common,lines:[{accountId:contraAccountId,amount,vatCode:vatCode??'none',cc1Id,cc2Id,buId}]};
  return runPlan(companyId,bankTxId,userId,input,opts);
 }

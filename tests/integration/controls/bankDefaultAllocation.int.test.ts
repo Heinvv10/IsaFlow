@@ -1,4 +1,4 @@
-const preparePartyBankAllocation:typeof import('@/modules/accounting/services/bank/bankAllocationDefaultPreparation').preparePartyBankAllocation=async(...args)=>(await import('@/modules/accounting/services/bank/bankAllocationDefaultPreparation')).preparePartyBankAllocation(...args);
+import {preparePartyBankAllocation} from '@/modules/accounting/services/bank/bankAllocationDefaultPreparation';
 import {approveCustomerInvoice} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import {approveSupplierInvoice} from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import {seedBankAllocationSupplier} from './bankAllocationSupplierFixture';
@@ -7,7 +7,6 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
-import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
 import {prepareBankAllocation,executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
 import {allocateTransaction} from '@/modules/accounting/services/bank/bankAllocationService';
 import {requireControlTx,withControlRequest} from '@/modules/accounting/services/controls/context';
