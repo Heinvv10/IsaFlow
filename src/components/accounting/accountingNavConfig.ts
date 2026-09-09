@@ -31,7 +31,7 @@ export const TABS: Tab[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/accounting' },
   { id: 'portfolio', label: 'Portfolio', href: '/accounting/portfolio-workbench' },
   { id: 'workbench', label: 'Month-End', href: '/accounting/month-end-workbench' },
-  bankingTab,
+  {...bankingTab,items:[...(bankingTab.items??[]),{section:'Controls',items:[{label:'Bank approvals',href:'/accounting/bank-control-approvals'}]}]},
   libraryTab,
 ];
 

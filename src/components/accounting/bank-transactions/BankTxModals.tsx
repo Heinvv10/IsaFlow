@@ -4,6 +4,7 @@
  */
 
 import dynamic from 'next/dynamic';
+import type {BankPreparation} from './bankControlClient';
 import { type AllocType, type SelectOption, type BankTx, type RowSelection } from '@/components/accounting/BankTxTable';
 
 // Lazy-load modals — only loaded when opened
@@ -53,7 +54,7 @@ interface Props {
   createEntityType: AllocType | null;
   queryTx: BankTx | null;
   onSplitClose: () => void;
-  onSplitDone: () => void;
+  onPrepareSplit: (payload:BankPreparation) => void;
   onExcludeClose: () => void;
   onExcludeConfirm: (reason: string) => void;
   onFindMatchClose: () => void;
@@ -71,7 +72,7 @@ export function BankTxModals({
   transactions, glAccounts, suppliers, customers, bankAccounts, selectedBank, rowSelections,
   splitTxId, excludingTxId, findMatchTxId, attachmentsTxId, createRuleTx,
   createEntityTxId, createEntityType, queryTx,
-  onSplitClose, onSplitDone,
+  onSplitClose, onPrepareSplit,
   onExcludeClose, onExcludeConfirm,
   onFindMatchClose, onFindMatchDone,
   onAttachmentsClose,
@@ -92,7 +93,7 @@ export function BankTxModals({
           transaction={splitTx}
           glAccounts={glAccounts}
           onClose={onSplitClose}
-          onSplit={onSplitDone}
+          onPrepare={onPrepareSplit}
         />
       )}
 

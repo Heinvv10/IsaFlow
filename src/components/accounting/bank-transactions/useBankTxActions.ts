@@ -10,6 +10,8 @@ import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
 import type { AllocType, VatCode, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 import type { RulePrompt } from './BankTxBatchPanel';
+import {buildBankAllocationPreparation} from './bankControlClient';
+import type {BankWorkflowInput,BankWorkflowOutcome} from './useBankControlWorkflow';
 
 interface ActionDeps {
   transactions: BankTx[];
@@ -29,6 +31,7 @@ interface ActionDeps {
   setExcludingTxId: (v: string | null) => void;
   loadTransactions: () => void;
   refreshBankAccounts: () => void;
+  openBankControl: (input:BankWorkflowInput) => Promise<BankWorkflowOutcome>;
   onLlmResidual?: (n: number) => void;
 }
 
@@ -37,7 +40,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     transactions, glAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
-    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, onLlmResidual,
+    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, openBankControl, onLlmResidual,
   } = deps;
 
   const callAction = async (body: Record<string, string>) => {
@@ -71,14 +74,9 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!sel?.entityId) { notify.error('Select an account/supplier/customer first'); return; }
     const tx = transactions.find(t => t.id === txId);
     try {
-      const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none' };
-      if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
-      else body.entityId = sel.entityId;
-      if (sel.cc1Id) body.cc1Id = sel.cc1Id;
-      if (sel.cc2Id) body.cc2Id = sel.cc2Id;
-      if (sel.buId) body.buId = sel.buId;
-      await callAction(body);
-      notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
+      const outcome=await openBankControl({bankTransactionId:txId,mode:'allocate',preparation:buildBankAllocationPreparation(txId,sel)});
+      if(outcome!=='posted')return;
+      notify.success('Transaction allocated');
       loadTransactions(); refreshBankAccounts();
       if (sel.type === 'account' && sel.entityId) {
         apiFetch('/api/accounting/smart-categorize', {
@@ -129,21 +127,18 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleBatchAccept = async () => {
     const toAccept = Array.from(selectedIds).filter(id => rowSelections[id]?.entityId);
     if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
-    let ok = 0, fail = 0;
+    const posted=new Set<string>();let fail=0;
     for (const txId of toAccept) {
       try {
         const sel = rowSelections[txId];
         if (!sel) continue;
-        const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none' };
-        if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
-        else body.entityId = sel.entityId;
-        if (sel.cc1Id) body.cc1Id = sel.cc1Id;
-        if (sel.cc2Id) body.cc2Id = sel.cc2Id;
-        if (sel.buId) body.buId = sel.buId;
-        await callAction(body); ok++;
+        const outcome=await openBankControl({bankTransactionId:txId,mode:'allocate',preparation:buildBankAllocationPreparation(txId,sel)});
+        if(outcome==='posted')posted.add(txId);
+        if(outcome==='cancelled')break;
       } catch { fail++; }
     }
-    notify.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`); setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
+    if(posted.size){notify.success(`${posted.size} allocated`);setSelectedIds(previous=>new Set([...previous].filter(id=>!posted.has(id))));loadTransactions();refreshBankAccounts();}
+    if(fail)notify.error(`${fail} allocation review(s) failed`);
   };
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
@@ -203,14 +198,9 @@ export function buildBankTxActions(deps: ActionDeps) {
     finally { setSmartRunning(false); }
   };
   const handleReverse = async (txId: string) => {
-    const tx = transactions.find(t => t.id === txId);
-    const msg = tx?.status === 'allocated'
-      ? 'Undo this allocation? The journal entry will be reversed.'
-      : 'Reverse this transaction? The associated journal entry will also be reversed.';
-    if (!window.confirm(msg)) return;
     try {
-      await callAction({ action: 'reverse', bankTransactionId: txId });
-      notify.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
+      if(await openBankControl({bankTransactionId:txId,mode:'reverse'})!=='posted')return;
+      notify.success('Transaction reversed');
       loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Reverse failed'); }
   };
