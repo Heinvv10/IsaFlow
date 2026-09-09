@@ -30,3 +30,55 @@ Production change restored; suite green again above.
 origin/master baseline (both changed files reverted): 204 failed | 9312 passed | 38 skipped (9554)
 with the fix:                                       204 failed | 9313 passed | 38 skipped (9555)
 Same 204 pre-existing failures; +1 new passing test.
+
+=== FOLLOW-UP COMMIT (review remediation) ===
+
+--- Integration: lock file (real PostgreSQL) ---
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k014-supplier-bill-double-gl-post.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-014
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  06:07:05
+   Duration  2.38s (transform 1.06s, setup 0ms, import 1.30s, tests 430ms, environment 0ms)
+
+
+--- Integration: bulk route + savepoint (real PostgreSQL, real route via withAuth) ---
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k014-bulk-post-gl-savepoint.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-014
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  06:07:09
+   Duration  13.37s (transform 1.02s, setup 0ms, import 1.82s, tests 10.69s, environment 0ms)
+
+
+--- Unit: bulk route + cancel/reversal ---
+
+ Test Files  2 passed (2)
+      Tests  19 passed (19)
+   Start at  06:07:23
+   Duration  2.23s (transform 1.47s, setup 0ms, import 2.34s, tests 108ms, environment 0ms)
+
+
+=== MUTATION CHECK (savepoint) ===
+Reverted pages/api/accounting/supplier-invoices-bulk-action.ts to HEAD and re-ran the bulk file:
+  x posts the uncontended bill when an earlier one in the batch times out   AssertionError: expected 2 to be 1
+  x keeps a bill posted earlier in the batch when a later one times out      AssertionError: expected +0 to be 1
+  Test Files 1 failed (1) / Tests 2 failed (2). Change restored; green above.
+
+=== FULL UNIT SUITE, no fixture env (DATABASE_URL unset) ===
+  Test Files  2 failed | 782 passed | 36 skipped (820)
+  Tests       2 failed | 9319 passed | 234 skipped (9555)
+  Both failures are 10s timeouts under full-suite load, unrelated to this change:
+    tests/unit/components/trackerExclusion.test.ts
+    tests/unit/services/bankAllocationService.test.ts
+  Re-run alone: 7 passed (7).
+
+=== tsc / eslint ===
+  bunx tsc --noEmit: clean
+  bunx eslint pages/api/accounting/supplier-invoices-bulk-action.ts src/.../supplierInvoiceWorkflowService.ts: clean
