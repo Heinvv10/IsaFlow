@@ -76,13 +76,15 @@ it('recovers an expired claim on retry and preserves one successful snapshot',as
  expect((await pool.query('SELECT id FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[fixture.companyA,job.id])).rows).toHaveLength(1);
 });
 it('cancels promptly with a single-connection work pool',async()=>{
- const single=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:1,connectionTimeoutMillis:250});
+ const target=new URL(validateFixtureTarget(config).connectionString);
+ const single=new Pool({host:target.hostname,port:Number(target.port),database:target.pathname.slice(1),
+  user:decodeURIComponent(target.username),password:decodeURIComponent(target.password),ssl:false,max:1,connectionTimeoutMillis:250});
  const controller=new AbortController(),started=Date.now();let timer:ReturnType<typeof setTimeout>|undefined;
  try{
   await expect(withAuditWorkerTransaction(single,identity(randomUUID()),'repeatable read',Date.now()+10000,controller.signal,async store=>{
    timer=setTimeout(()=>controller.abort(new Error('Single pool cancellation')),100);
    await store.client.query('SELECT pg_sleep(4)');
-  })).rejects.toThrow();
+  })).rejects.toMatchObject({code:'57014'});
   expect(Date.now()-started).toBeLessThan(1500);
  }finally{if(timer)clearTimeout(timer);await single.end();}
 },10000);

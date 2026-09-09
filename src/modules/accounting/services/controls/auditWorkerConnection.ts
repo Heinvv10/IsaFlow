@@ -21,7 +21,7 @@ export function acquireAuditWorkerConnection(pool:Pool,deadlineAt:number,signal?
 }
 /** Cancellation must not compete for the work pool's last connection. */
 export async function cancelAuditWorkerBackend(pool:Pool,pid:number):Promise<void>{
- const connection=new Client({...pool.options,connectionTimeoutMillis:1000,query_timeout:1000});
+ const connection=new Client({...pool.options,password:pool.options.password,connectionTimeoutMillis:1000,query_timeout:1000});
  try{await connection.connect();await connection.query('SELECT pg_cancel_backend($1)',[pid]);}
  finally{await connection.end();}
 }
