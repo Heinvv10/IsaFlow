@@ -75,6 +75,10 @@ export async function fetchStatementData(
     SELECT id, name, email
     FROM customers
     WHERE id = ${customerId}::UUID AND company_id = ${companyId}::UUID
+    -- A soft-deleted CUSTOMER has no statement: the record is hidden
+    -- everywhere else (customerLedgerService does the same), and drawing one
+    -- here would email a balance for a contact the user has removed.
+      AND deleted_at IS NULL
   ` as Row[];
 
   if (customerRows.length === 0) return null;

@@ -3,8 +3,15 @@
  *
  * POST /api/accounting/soft-delete
  *   Body: { entityType: string, entityId: string }
- *   Soft-deletes a non-posted entity — starts the 5-minute undo clock.
- *   Response: { undoToken: string, expiresIn: 30 }
+ *   Soft-deletes a non-posted entity.
+ *   Response: { undoToken: string, expiresIn: null }
+ *
+ *   expiresIn is null because the undo window does NOT expire. The header said
+ *   5 minutes, this response said 30 (of neither minutes nor seconds), and the
+ *   UI confirm said 5 minutes — three different answers, none of them true:
+ *   purgeExpiredDeletes has no caller (see softDeleteService, which explains
+ *   why K-053 makes a short purge window unsafe to wire up), so a soft-deleted
+ *   row is never hard-deleted and PUT restores it at any later time.
  *
  * PUT /api/accounting/soft-delete
  *   Body: { entityType: string, entityId: string }
@@ -82,7 +89,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       log.info('Soft delete via API', { entityType, entityId, companyId }, 'accounting');
       return apiResponse.success(res, {
         undoToken: result.undoToken,
-        expiresIn: 30,
+        // Nothing purges soft-deleted rows, so the undo never expires. See the
+        // module header; do not restate a window that is not enforced.
+        expiresIn: null,
       });
     } catch (err) {
       if (isUserFixable(err)) {
