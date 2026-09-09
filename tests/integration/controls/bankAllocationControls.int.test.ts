@@ -1,4 +1,4 @@
-import {afterAll,beforeAll,expect,it} from 'vitest';
+import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
@@ -7,20 +7,28 @@ import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/mod
 import {prepareBankAllocation,executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
 import {requireControlTx,withControlRequest} from '@/modules/accounting/services/controls/context';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
+import {cancelCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
+import {approveCustomerInvoice} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
+import {seedApAccounts} from './apSyntheticAccounts';
+import {seedBankAllocationSupplier} from './bankAllocationSupplierFixture';
+import {voidSupplierPayment} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {approveSupplierInvoice} from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import {allocateTransaction} from '@/modules/accounting/services/bank/bankAllocationService';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
 process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
+vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService',()=>({snapshotInvoicePdf:async()=>({documentId:null,wasExisting:false})}));
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:2});
-let fixture:ForensicFixture;
+let fixture:ForensicFixture;let apAccounts:Awaited<ReturnType<typeof seedApAccounts>>;
 const customer=randomUUID(),bank=randomUUID(),rule=randomUUID();
 beforeAll(async()=>{
- fixture=await provisionForensicFixture(config);
+ fixture=await provisionForensicFixture(config);apAccounts=await seedApAccounts(pool,fixture.companyA);
  await pool.query("INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role) VALUES($1,$2,'Synthetic receipt approval','payment','amount','any',0,'admin')",[rule,fixture.companyA]);
 
  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)',[customer,fixture.companyA,'Synthetic allocation customer']);
  await pool.query("INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,'Synthetic allocation September',9,2026,'2026-09-01','2026-09-30','open')",[randomUUID(),fixture.companyA]);
  for(const [id,role] of [[bank,'bank'],[randomUUID(),'receivable']])await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level) VALUES($1,$2,$3,$4,'asset',$4,'debit',true,true,3)",[id,fixture.companyA,id!.slice(0,12),role]);
+ for(const [role,type] of [['default_revenue','revenue'],['vat_output','liability']]){const id=randomUUID();await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level) VALUES($1,$2,$3,$4,$5,$4,'credit',true,true,3)",[id,fixture.companyA,id.slice(0,12),role,type]);}
  await pool.query("INSERT INTO bank_accounts(company_id,account_name,gl_account_id,currency) VALUES($1,'Synthetic allocation bank',$2,'ZAR')",[fixture.companyA,bank]);
 });
 afterAll(async()=>{await pool.end();});
@@ -134,4 +142,48 @@ it('records actual PAT actor and token provenance on the financial journal',asyn
  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
  const posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approval.id,postingAgent:'mcp:allocate_bank_transaction:v1',actorType:'human',actorTokenJti:'forged'}),'u1',true);
  expect((await pool.query('SELECT actor_type,actor_token_jti,posting_agent FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.journalEntryId])).rows[0]).toEqual({actor_type:'agent',actor_token_jti:fixture.u1.tokens[0]!.id,posting_agent:'mcp:allocate_bank_transaction:v1'});
+});
+
+it('settles a selected actually posted customer invoice and refuses standalone child cancellation',async()=>{
+ const invoice=randomUUID(),tx=randomUUID();
+ await pool.query(`INSERT INTO customer_invoices(id,company_id,customer_id,client_id,invoice_number,invoice_date,subtotal,tax_amount,total_amount,currency_code,exchange_rate,functional_total,created_by)
+ VALUES($1,$2,$3,$3,$4,'2026-09-09',100,15,115,'ZAR',1,115,$5)`,[invoice,fixture.companyA,customer,invoice,fixture.u1.id]);
+ await pool.query("INSERT INTO customer_invoice_items(invoice_id,description,quantity,unit_price,amount,tax_rate) VALUES($1,'Synthetic selected service',1,100,100,15)",[invoice]);
+ await actor(()=>approveCustomerInvoice(fixture.companyA,invoice,fixture.u1.id));
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',115,'Selected invoice receipt','imported')",[tx,fixture.companyA,bank]);
+ const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[{invoiceId:invoice,amount:'115'}]}));
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ const posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approval.id}));
+ expect((await pool.query('SELECT status,amount_paid FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0]).toMatchObject({status:'paid',amount_paid:'115.00'});
+ expect((await pool.query('SELECT gl_journal_entry_id FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].gl_journal_entry_id).toBe(posted.journalEntryId);
+ await expect((async()=>{
+  const ref={entityType:'customer_payment',entityId:posted.paymentId!,operation:'customer_payment.cancel' as const,reversalDate:'2026-09-10'};
+  const cancellation=await actor(()=>requestOperationApproval(requireControlTx(),ref));
+  await actor(()=>decideOperationApproval(requireControlTx(),cancellation.id,'approved'),'u2');
+  return actor(()=>cancelCustomerPayment(fixture.companyA,posted.paymentId!,fixture.u1.id,'Standalone bank child',{approvalId:cancellation.id,reversalDate:'2026-09-10'}));
+ })()).rejects.toThrow();
+ expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('allocated');
+ expect((await pool.query('SELECT status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].status).toBe('confirmed');
+});
+
+it('settles a selected actually posted supplier invoice with independently verified beneficiary',async()=>{
+ const supplier=await seedBankAllocationSupplier(pool,fixture,(person,fn)=>actor(()=>fn(requireControlTx()),person)),tx=randomUUID();
+ await pool.query("UPDATE supplier_invoices SET subtotal=100,tax_rate=15,tax_amount=15,total_amount=115,currency='ZAR' WHERE company_id=$1 AND id=$2",[fixture.companyA,supplier.invoice]);
+ await pool.query("INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,tax_rate,tax_amount,gl_account_id) VALUES($1,'Selected expense',1,100,100,15,15,$2)",[supplier.invoice,apAccounts.default_expense]);
+ await actor(()=>approveSupplierInvoice(fixture.companyA,supplier.invoice,fixture.u1.id));
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',-115,'Selected supplier settlement','imported')",[tx,fixture.companyA,bank]);
+ const prepared=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'supplier',bankTransactionId:tx,partyId:supplier.supplier,applications:[{invoiceId:supplier.invoice,amount:'115'}]}));
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ const posted=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId,{approvalId:approval.id}));
+ expect((await pool.query('SELECT status,amount_paid FROM supplier_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,supplier.invoice])).rows[0]).toMatchObject({status:'paid',amount_paid:'115.00'});
+ expect((await pool.query('SELECT status,gl_journal_entry_id FROM supplier_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0]).toMatchObject({status:'processed',gl_journal_entry_id:posted.journalEntryId});
+ const repeated=await actor(()=>executeBankAllocation(requireControlTx(),prepared.intentId));expect(repeated).toEqual(posted);
+ await expect((async()=>{
+  const ref={entityType:'supplier_payment',entityId:posted.paymentId!,operation:'supplier_payment.void' as const};
+  const cancellation=await actor(()=>requestOperationApproval(requireControlTx(),ref));
+  await actor(()=>decideOperationApproval(requireControlTx(),cancellation.id,'approved'),'u2');
+  return actor(()=>voidSupplierPayment(fixture.companyA,posted.paymentId!,fixture.u1.id,{approvalId:cancellation.id}));
+ })()).rejects.toThrow();
+ expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[fixture.companyA,tx])).rows[0].status).toBe('allocated');
+ expect((await pool.query('SELECT status FROM supplier_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0].status).toBe('processed');
 });
