@@ -12,7 +12,7 @@ export async function readPostingIntentJournalRelationship(ctx: ControlTx, contr
     return ctx.sql`SELECT je.id,je.entry_date::text AS entry_date FROM gl_journal_entries je
       JOIN control_bank_transfer_intents p ON p.company_id=je.company_id AND p.id=je.source_record_id
       WHERE je.company_id=${company}::uuid AND je.id=${journalId}::uuid AND p.id=${parent.entityId}::uuid
-        AND je.source='bank_transfer' AND je.status='draft' AND je.entry_date=p.accounting_date
+        AND je.source='auto_bank_transfer' AND je.status='draft' AND je.entry_date=p.accounting_date
         AND je.entry_date=${permit.accountingDate}::date
         AND (SELECT count(*) FROM gl_journal_lines l WHERE l.company_id=je.company_id AND l.journal_entry_id=je.id)=2
         AND EXISTS(SELECT 1 FROM gl_journal_lines l WHERE l.company_id=je.company_id AND l.journal_entry_id=je.id
