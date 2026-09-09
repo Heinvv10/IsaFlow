@@ -12,3 +12,7 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
 --- Mutation check ---
 Reverted pages/api/webhooks/paystack.ts to `git show origin/master:pages/api/webhooks/paystack.ts`,
 re-ran the same file: Tests 3 failed | 3 passed (6). Production file then restored.
+
+--- Full unit suite (DATABASE_URL unset: `env -u DATABASE_URL bunx vitest run`) ---
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)

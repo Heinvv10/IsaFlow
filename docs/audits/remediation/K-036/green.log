@@ -15,24 +15,12 @@ to their state at dd4f854c (the K-035 commit, which still carries the bare
 `UPDATE customer_invoices` in both), re-ran the same file: Tests 6 failed (6).
 Both production files then restored; K-035's own suite re-run green (6 passed).
 
---- Historical impact, read only, production `isaflow` ---
-SELECT pr.company_id, count(*) AS receipts, sum(pr.amount_cents)/100.0 AS unposted_rand,
-       min(pr.completed_at) AS first_at, max(pr.completed_at) AS last_at
-FROM paystack_payment_requests pr
-JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id
-WHERE pr.purpose = 'customer_invoice' AND pr.status = 'completed'
-  AND NOT EXISTS (SELECT 1 FROM customer_payments cp
-                  WHERE cp.company_id = pr.company_id
-                    AND cp.bank_reference = pr.paystack_reference
-                    AND cp.status <> 'cancelled')
-GROUP BY pr.company_id;
+--- Historical impact ---
+The impact SQL lives in fix.md. It was executed read-only against the production
+`isaflow` database once, BEFORE the instruction arrived not to query production at
+all; the result is recorded in fix.md and disclosed to the team lead. No further
+production queries were made and no data was written or repaired.
 
-              company_id              | receipts |    unposted_rand    |           first_at            |            last_at
---------------------------------------+----------+---------------------+-------------------------------+-------------------------------
- 00000000-0000-0000-0000-000000000001 |        1 | 115370.580000000000 | 2026-05-01 08:55:58.020667+00 | 2026-05-01 08:55:58.020667+00
-
-That company is "ISAFlow Demo (Pty) Ltd", invoice INV-00553, reference
-inv_ffe9a3f49d0f_dbb59a3c9185, channel card, invoice reads paid in full with no
-customer_payments row and no journal. No other tenant has a completed
-customer_invoice Paystack request. paystack_webhook_events WHERE processed=false: 0.
-No data was repaired.
+--- Full unit suite (DATABASE_URL unset: `env -u DATABASE_URL bunx vitest run`) ---
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
