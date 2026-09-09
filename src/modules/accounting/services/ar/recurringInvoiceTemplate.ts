@@ -91,11 +91,14 @@ export function deriveTotals(lines: TemplateLine[], taxRate: number): {
 /**
  * Refuse when the stored aggregate and the lines disagree.
  *
- * Tolerance is one cent per line: createRecurringInvoice sums unrounded line
- * values and rounds once, while each invoice line is rounded to cents on its
- * own, so a long template can legitimately differ by accumulated half-cents.
- * Anything wider means the template's totals were edited without its lines (or
- * the reverse) and the operator has to say which is right.
+ * Subtotal, tax and total are compared SEPARATELY: a template whose subtotal is
+ * wrong and whose tax compensates has the same total and is still broken.
+ *
+ * Tolerance is one cent per line, because createRecurringInvoice sums unrounded
+ * line values and rounds once while each invoice line is rounded to cents on
+ * its own — but capped at R1.00, so a 500-line template does not quietly
+ * tolerate five rand of drift. Anything wider means the totals were edited
+ * without the lines (or the reverse) and the operator has to say which is right.
  */
 export function assertAggregateAgrees(
   recurringId: string,
@@ -103,14 +106,22 @@ export function assertAggregateAgrees(
   ri: DbRow,
   lineCount: number,
 ): void {
-  const tolerance = 0.01 * lineCount;
-  const stored = Number(ri.total_amount);
-  if (Number.isFinite(stored) && Math.abs(stored - totals.totalAmount) > tolerance) {
+  const tolerance = Math.min(0.01 * lineCount, 1);
+  const checks: [string, unknown, number][] = [
+    ['subtotal', ri.subtotal, totals.subtotal],
+    ['tax', ri.tax_amount, totals.taxAmount],
+    ['total', ri.total_amount, totals.totalAmount],
+  ];
+  for (const [label, rawStored, derived] of checks) {
+    // Nullish is skipped, not compared: Number(null) is 0, which would read as
+    // "the template says zero" and refuse every template with an unset column.
+    if (rawStored == null) continue;
+    const stored = Number(rawStored);
+    if (!Number.isFinite(stored) || Math.abs(stored - derived) <= tolerance) continue;
     throw new RecurringInvoiceTemplateError(
       `Recurring invoice ${recurringId} totals disagree with its lines: `
-      + `template says ${stored.toFixed(2)}, its ${lineCount} line(s) come to `
-      + `${totals.totalAmount.toFixed(2)}. Re-save the template before running it.`,
+      + `template ${label} is ${stored.toFixed(2)}, its ${lineCount} line(s) come to `
+      + `${derived.toFixed(2)}. Re-save the template before running it.`,
     );
   }
 }
-

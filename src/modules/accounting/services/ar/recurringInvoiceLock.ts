@@ -56,6 +56,12 @@ export async function lockRecurringTemplate(companyId: string, id: string): Prom
       WHERE id = ${id} AND company_id = ${companyId}
       FOR UPDATE
     `) as DbRow[];
+    // Restored on the SUCCESS path only. After a timeout the transaction is
+    // aborted and this statement would itself raise 25P02, replacing the typed
+    // error with an opaque one. Left set, the 5s ceiling would leak onto every
+    // later statement in the request and fail an unrelated write for reasons
+    // that have nothing to do with it.
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
     if (typeof err === 'object' && err !== null

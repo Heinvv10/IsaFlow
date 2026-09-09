@@ -142,6 +142,21 @@ export async function generateInvoiceFromRecurring(companyId: string,
   id: string,
   userId: string
 ): Promise<string> {
+  // THE SAVEPOINT OPENS BEFORE THE LOCK, not after it. The whole request — every
+  // template in a "Run All" — is one transaction on the ALS client, and the 5s
+  // `lock_timeout` on the read below raises 55P03, which ABORTS that transaction.
+  // Taken outside a savepoint there is nothing to unwind to: every later template
+  // fails 25P02, the runner's per-item catch reports them as skips, and withAuth
+  // COMMITs on the resulting 200 — a COMMIT that Postgres executes as ROLLBACK
+  // without raising, so the caller is handed ids for invoices that no longer
+  // exist. `assertTxUsable` cannot see this: `txUnusable` is set only when a
+  // savepoint's own rollback fails. Covering the lock and the invoice-number
+  // read makes the typed "retry in a moment" error mean what it says.
+  const savepoint = `recurring_invoice_gen_${++genSeq}`;
+  return withSavepoint(savepoint, () => runOneTemplate(companyId, id, userId));
+}
+
+async function runOneTemplate(companyId: string, id: string, userId: string): Promise<string> {
   // FOR UPDATE, because "is it active and due" is a check-then-act. Two
   // concurrent runs of one template used to collide only by luck, on the
   // invoice-number unique index.
@@ -187,58 +202,49 @@ export async function generateInvoiceFromRecurring(companyId: string,
   const totals = deriveTotals(lineItems, taxRate);
   assertAggregateAgrees(id, totals, ri, lineItems.length);
 
-  // ONE SAVEPOINT AROUND HEADER + LINES + APPROVE + THE SCHEDULE ADVANCE. The
-  // batch runner (recurring-invoices-run.ts) catches per template and carries
-  // on, so anything left outside this block would be COMMITted by the route's
-  // 200 while its error was swallowed, and a Postgres-level failure would
-  // poison every later item with 25P02. Rolled back here, the catch means what
-  // it says.
-  const savepoint = `recurring_invoice_gen_${++genSeq}`;
-  return withSavepoint(savepoint, async () => {
-    const inv = (await sql`
-      INSERT INTO customer_invoices (
-        company_id, invoice_number, client_id, customer_id, project_id,
-        invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
-        status, notes, created_by
-      ) VALUES (
-        ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
-        ${ri.project_id || null},
-        CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
-        ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
-        'draft', ${ri.description || ri.template_name}, ${userId}::UUID
-      ) RETURNING id
-    `) as Row[];
+  const inv = (await sql`
+    INSERT INTO customer_invoices (
+      company_id, invoice_number, client_id, customer_id, project_id,
+      invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
+      status, notes, created_by
+    ) VALUES (
+      ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
+      ${ri.project_id || null},
+      CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
+      ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
+      'draft', ${ri.description || ri.template_name}, ${userId}::UUID
+    ) RETURNING id
+  `) as Row[];
 
-    const invoiceId = String(inv[0]!.id);
+  const invoiceId = String(inv[0]!.id);
 
-    for (const li of lineItems) {
-      await sql`
-        INSERT INTO customer_invoice_items (
-          invoice_id, description, unit_price, quantity, amount, tax_rate
-        ) VALUES (
-          ${invoiceId}::UUID, ${li.description}, ${li.unitPrice},
-          ${li.quantity}, ${li.amount}, ${taxRate}
-        )
-      `;
-    }
-
-    // Approve through the canonical path so the GL journal (DR AR / CR Revenue /
-    // CR VAT Output) is posted. Inserting 'approved' directly left the invoice in
-    // AR with gl_journal_entry_id NULL — AR and the GL out of agreement by the
-    // invoice total. A failure here propagates and rolls the header back with it,
-    // and the schedule below is advanced only once the invoice really exists.
-    await approveCustomerInvoice(companyId, invoiceId, userId);
-
+  for (const li of lineItems) {
     await sql`
-      UPDATE recurring_invoices
-      SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
-          run_count = run_count + 1, status = ${newStatus}
-      WHERE id = ${id} AND company_id = ${companyId}
+      INSERT INTO customer_invoice_items (
+        invoice_id, description, unit_price, quantity, amount, tax_rate
+      ) VALUES (
+        ${invoiceId}::UUID, ${li.description}, ${li.unitPrice},
+        ${li.quantity}, ${li.amount}, ${taxRate}
+      )
     `;
+  }
 
-    log.info('Generated invoice from recurring', { recurringId: id, invoiceId }, 'accounting');
-    return invoiceId;
-  });
+  // Approve through the canonical path so the GL journal (DR AR / CR Revenue /
+  // CR VAT Output) is posted. Inserting 'approved' directly left the invoice in
+  // AR with gl_journal_entry_id NULL — AR and the GL out of agreement by the
+  // invoice total. A failure here propagates and rolls the header back with it,
+  // and the schedule below is advanced only once the invoice really exists.
+  await approveCustomerInvoice(companyId, invoiceId, userId);
+
+  await sql`
+    UPDATE recurring_invoices
+    SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
+        run_count = run_count + 1, status = ${newStatus}
+    WHERE id = ${id} AND company_id = ${companyId}
+  `;
+
+  log.info('Generated invoice from recurring', { recurringId: id, invoiceId }, 'accounting');
+  return invoiceId;
 }
 
 function advanceDate(dateStr: string, frequency: string): string {

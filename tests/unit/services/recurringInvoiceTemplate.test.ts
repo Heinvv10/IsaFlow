@@ -77,24 +77,48 @@ describe('deriveTotals', () => {
 
 describe('assertAggregateAgrees', () => {
   const totals = { subtotal: 1000, taxAmount: 150, totalAmount: 1150 };
+  const agg = (over: Record<string, number>) =>
+    ({ subtotal: 1000, tax_amount: 150, total_amount: 1150, ...over });
 
   it('accepts a stored aggregate that matches', () => {
-    expect(() => assertAggregateAgrees(ID, totals, { total_amount: 1150 }, 1)).not.toThrow();
+    expect(() => assertAggregateAgrees(ID, totals, agg({}), 1)).not.toThrow();
   });
 
   it('accepts accumulated per-line cent rounding within one cent per line', () => {
-    expect(() => assertAggregateAgrees(ID, totals, { total_amount: 1150.02 }, 3)).not.toThrow();
+    expect(() => assertAggregateAgrees(ID, totals, agg({ total_amount: 1150.02, subtotal: 1000.02 }), 3))
+      .not.toThrow();
   });
 
   it('refuses a stored total that disagrees with the lines', () => {
-    expect(() => assertAggregateAgrees(ID, totals, { total_amount: 9999 }, 1))
+    expect(() => assertAggregateAgrees(ID, totals, agg({ total_amount: 9999 }), 1))
       .toThrow(RecurringInvoiceTemplateError);
-    expect(() => assertAggregateAgrees(ID, totals, { total_amount: 9999 }, 1))
-      .toThrow(/template says 9999.00, its 1 line\(s\) come to 1150.00/);
+    expect(() => assertAggregateAgrees(ID, totals, agg({ total_amount: 9999 }), 1))
+      .toThrow(/template total is 9999.00, its 1 line\(s\) come to 1150.00/);
   });
 
   it('refuses a drift of more than the tolerance, not merely a different number', () => {
-    expect(() => assertAggregateAgrees(ID, totals, { total_amount: 1150.03 }, 1)).toThrow();
-    expect(() => assertAggregateAgrees(ID, totals, { total_amount: 1150.01 }, 1)).not.toThrow();
+    expect(() => assertAggregateAgrees(ID, totals, agg({ total_amount: 1150.03 }), 1)).toThrow();
+    expect(() => assertAggregateAgrees(ID, totals, agg({ total_amount: 1150.01 }), 1)).not.toThrow();
+  });
+
+  it('checks subtotal and tax separately, so a compensating pair cannot pass', () => {
+    // Review L5: subtotal understated by 100 and tax overstated by 100 leaves
+    // the total correct while the invoice's VAT is wrong.
+    expect(() => assertAggregateAgrees(ID, totals, agg({ subtotal: 900, tax_amount: 250 }), 1))
+      .toThrow(/template subtotal is 900.00/);
+    expect(() => assertAggregateAgrees(ID, totals, agg({ tax_amount: 250, total_amount: 1250 }), 1))
+      .toThrow(/template tax is 250.00/);
+  });
+
+  it('caps the tolerance at one rand however many lines the template has', () => {
+    // Review L5: 0.01 * 500 would have tolerated five rand of drift.
+    expect(() => assertAggregateAgrees(ID, totals, agg({ total_amount: 1152 }), 500)).toThrow();
+    expect(() => assertAggregateAgrees(ID, totals, agg({ total_amount: 1150.90, subtotal: 1000.90 }), 500))
+      .not.toThrow();
+  });
+
+  it('ignores a non-numeric stored aggregate rather than throwing on it', () => {
+    expect(() => assertAggregateAgrees(ID, totals, { subtotal: null, tax_amount: null, total_amount: null }, 1))
+      .not.toThrow();
   });
 });
