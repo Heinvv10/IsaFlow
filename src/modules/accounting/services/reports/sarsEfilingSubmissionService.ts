@@ -13,7 +13,7 @@ import { log } from '@/lib/logger';
 import { getEfilingConfig } from './sarsEfilingConfig';
 import { getVatExceptions } from './vatExceptionsService';
 import type { VatExceptionsReport } from './vatExceptionsTypes';
-import { generateVAT201 } from './vat201Service';
+import { getLedgerVAT201 } from './vat201LedgerFields';
 import { authenticate, submitVAT201, pollStatus } from './sarsEfilingClient';
 import {
   getEfilingSubmission,
@@ -123,9 +123,11 @@ export async function submitVAT201ToSars(
     throw new EfilingBlockedError(reason);
   }
 
-  // Regenerate the authoritative box totals for the period (same source the
-  // reviewed exceptions report reconciled against).
-  const vat201 = await generateVAT201(companyId, submission.periodStart, submission.periodEnd);
+  // Regenerate the authoritative box totals for the period FROM THE LEDGER.
+  // The invoice-derived `generateVAT201` — which the exceptions report still
+  // reconciles against — cannot see credit notes or manual VAT journals, so
+  // filing its figures would file a return higher than the books (K-031).
+  const vat201 = await getLedgerVAT201(companyId, submission.periodStart, submission.periodEnd);
   const taxPeriod = submission.periodStart.replace(/-/g, '').slice(0, 6); // CCYYMM
   const { degradedSources: _drop, outputInvoices: _o, inputInvoices: _i, periodStart: _ps, periodEnd: _pe, ...fields } = vat201;
 
