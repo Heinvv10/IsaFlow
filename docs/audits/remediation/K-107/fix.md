@@ -26,20 +26,33 @@ Mutation proof in `green.log` (M4, M5).
 **Migration.** 646 adds `uq_supplier_invoices_supplier_number` on
 `(company_id, supplier_id, invoice_number) WHERE deleted_at IS NULL AND invoice_number <> ''`.
 The domain is per supplier, not per company: `invoice_number` is the supplier's own document
-number and two suppliers issuing `INV-001` is ordinary. FAIL-CLOSED — it will not build over
-existing duplicates. Rollback: `DROP INDEX uq_supplier_invoices_supplier_number;`.
+number and two suppliers issuing `INV-001` is ordinary. The migration runs the pre-flight ITSELF
+and aborts naming the offending groups, rather than leaving the operator to decode a
+`CREATE INDEX` "Key ... is duplicated" detail that shows only the first collision. Rollback:
+`DROP INDEX uq_supplier_invoices_supplier_number;`.
 
-**Historical impact.** Daily/weekly AP templates already duplicated bills. Read-only probe
-(NOT run against production):
+**Historical impact.** Daily/weekly AP templates already duplicated bills, and duplicates from any
+other origin — manual capture, Sage sync, PO conversion, import — block the index just as hard.
+The probe must therefore be EXACTLY the index predicate and grouping, with no `RSINV-` filter
+(an earlier draft had one and reported all-clear on a database the index then refused).
+Read-only, NOT run against production:
 ```sql
 SELECT company_id, supplier_id, invoice_number, count(*), sum(total_amount)
 FROM supplier_invoices
-WHERE deleted_at IS NULL AND invoice_number LIKE 'RSINV-%'
+WHERE deleted_at IS NULL AND invoice_number <> ''
 GROUP BY 1,2,3 HAVING count(*) > 1;
 ```
 Clean these before applying 646. Monthly/quarterly templates are unaffected.
 
+**Both branches retry.** The AP INSERT is savepointed with the same bounded 23505 retry as the AR
+one, through `insertWithReservedNumber`. It first had none, on the reasoning that a clash means the
+bill is already captured — true of `RSINV-<slug>-<YYYYMM>`, false of a number this system mints.
+One pre-existing `SIV0000001` would have disabled that company's AP templates permanently: the
+route answered 4xx, `withAuth` committed an aborted transaction, the reservation rolled back, and
+the next run reserved the same number again. The route now answers 4xx only for the pre-write
+"no such active template" case and lets everything else become a 500, so the transaction rolls back.
+
 **Limits.** Existing `RINV-<slug>-<YYYYMM>` and `RSINV-…` rows are left alone; only new runs use
-the sequence. The company `recurring_invoice` counter starts at its seed, so it may sit below
-legacy numbers — the AR retry loop absorbs that, the AP path will refuse and needs a manual
-counter bump.
+the sequence. The AR branch mints from `customer_invoice`, the same sequence every other writer of
+that table uses, so the seeded `recurring_invoice` document type (prefix `RINV`) is now unused by
+this runner — left in place, not deleted.

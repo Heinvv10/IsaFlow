@@ -30,3 +30,42 @@ AFTER the caller-message change in pages/api/accounting/customer-quotes-action.t
 (K-121: 404 label 'Unconverted quote'):
   bunx tsc --noEmit -> clean; bunx eslint <5 changed src/pages files> -> clean
   bunx vitest run tests/unit -> 799 passed | 40 skipped (839) / 9545 passed | 243 skipped (9788)
+
+================================================================================
+ROUND 2 — the 8 blind-review findings (2 HIGH, 3 MEDIUM, 3 LOW), all fixed.
+================================================================================
+
+GREEN (fixture DB): 9 integration files / 26 tests passed. New in this round:
+  k107-ap-recurring-number-clash.int.test.ts        (3)  MEDIUM-3
+  k120-invoice-number-concurrency.int.test.ts       (1)  the race the reviewer proved
+  k121-quote-convert-status-allowlist.int.test.ts   (9)  HIGH-2
+Plus tests/unit/api/recurringExecuteNo4xxAfterWrite.test.ts (3) for the route mapping.
+
+HIGH-1, proven on the fixture inside a rolled-back transaction
+(docs/audits/remediation/K-107/migration-646-refusal-probe.sql — re-runnable):
+  Two ORDINARY duplicate bills (INV-9001, MANUAL-77 — no RSINV- prefix) now make
+  the migration abort with both groups named:
+    ERROR: Migration 646 refused: 2 duplicate (company_id, supplier_id,
+    invoice_number) group(s) covering 4 bills. First 2 shown:
+      company=1111... supplier=2222... invoice_number='INV-9001' (2 bills)
+      company=1111... supplier=2222... invoice_number='MANUAL-77' (2 bills)
+    HINT: ... See docs/audits/remediation/K-107/fix.md for the probe query.
+  Re-run with the index present: NOTICE "already present — nothing to do" (idempotent).
+  Dropped and re-run on the clean fixture: index rebuilt.
+
+MUTATION PROOF, round 2 (change reverted, test re-run, then restored):
+  M6 K-121 allow-list reverted to `status <> 'converted_to_order'` -> 6 failed | 3 passed
+  M7 documentNumberRetry rethrows every 23505 (no retry)           -> 4 failed | 2 passed
+  M8 recurring AR branch back to its own 'recurring_invoice' seq   -> 1 failed | 2 passed
+  M9 execute route back to a blanket badRequestFromError           -> 2 failed | 1 passed
+  All restored; the 9-file green above is the restored state.
+
+FULL UNIT SUITE (DATABASE_URL unset, bunx vitest run):
+  Test Files 800 passed | 40 skipped (840)
+  Tests      9548 passed | 243 skipped (9791)
+
+bunx tsc --noEmit -> clean. bunx eslint <9 changed src/pages files> -> clean.
+audit-migration-naming -> OK. check-migration-rls -> OK.
+File sizes after MEDIUM-5: recurringTransactionService 296, recurringInvoiceService 288,
+quoteConvertService 184, salesOrderWorkflowService 88, documentNumberRetry 44,
+recurringTransactionErrors 15 — all under 300.

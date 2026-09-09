@@ -3,11 +3,12 @@
  * CRUD + execute for recurring journal/invoice templates.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
-import { reserveNextDocumentNumber } from './companySettingsService';
+import { insertWithReservedNumber } from './documentNumberRetry';
+import { RecurringTemplateNotFoundError } from './recurringTransactionErrors';
 
 
 export interface RecurringTemplate {
@@ -138,7 +139,7 @@ export async function executeRecurring(
     SELECT * FROM recurring_transaction_templates
     WHERE id = ${templateId}::UUID AND company_id = ${companyId} AND is_active = true
   `) as DbRow[];
-  if (!rows[0]) throw new Error('Template not found or inactive');
+  if (!rows[0]) throw new RecurringTemplateNotFoundError(templateId);
   const template = mapRow(rows[0]!);
 
   let entityId: string;
@@ -166,47 +167,34 @@ export async function executeRecurring(
     // THE NUMBER COMES FROM THE COMPANY SEQUENCE. It used to be
     // `RINV-<slug>-<YYYYMM>` — the period token is the calendar month, so a
     // daily or weekly template minted the SAME number on every run after the
-    // first and died on uq_customer_invoices_company_number (23505). The
-    // sequence is reserved under UPDATE...RETURNING, so concurrent runs cannot
-    // collide; the savepointed retry is for a clash with a legacy number, the
-    // same shape quoteConvertService.convertToInvoice uses.
+    // first and died on uq_customer_invoices_company_number (23505). The type
+    // is 'customer_invoice', the SAME sequence every other writer of this
+    // table uses: a second type would leave the counter in company settings
+    // failing to account for invoices this runner created.
     const clientIdCI = data.clientId ? String(data.clientId) : null;
-    let invoiceNumberCI = await reserveNextDocumentNumber(companyId, 'recurring_invoice');
-    entityId = '';
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        entityId = await withSavepoint(`rec_txn_inv_${attempt}`, async () => {
-          const ciRows = (await sql`
-            INSERT INTO customer_invoices (
-              company_id, invoice_number, client_id, customer_id, invoice_date, due_date,
-              notes, subtotal, tax_amount, total_amount, status, created_by
-            ) VALUES (
-              ${companyId}::UUID,
-              ${invoiceNumberCI},
-              ${clientIdCI},
-              ${clientIdCI},
-              CURRENT_DATE,
-              CURRENT_DATE::DATE + INTERVAL '30 days',
-              ${String(data.notes || template.name)},
-              ${Number(data.subtotal || 0)},
-              ${Number(data.vatAmount || 0)},
-              ${Number(data.totalAmount || 0)},
-              'draft',
-              ${userId}::UUID
-            ) RETURNING id
-          `) as DbRow[];
-          return String(ciRows[0]?.id);
-        });
-        break;
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === '23505' && attempt < 4) {
-          invoiceNumberCI = await reserveNextDocumentNumber(companyId, 'recurring_invoice');
-          continue;
-        }
-        throw err;
-      }
-    }
+    entityId = await insertWithReservedNumber(
+      companyId, 'customer_invoice', 'rec_txn_inv_', async (invoiceNumberCI) => {
+        const ciRows = (await sql`
+          INSERT INTO customer_invoices (
+            company_id, invoice_number, client_id, customer_id, invoice_date, due_date,
+            notes, subtotal, tax_amount, total_amount, status, created_by
+          ) VALUES (
+            ${companyId}::UUID,
+            ${invoiceNumberCI},
+            ${clientIdCI},
+            ${clientIdCI},
+            CURRENT_DATE,
+            CURRENT_DATE::DATE + INTERVAL '30 days',
+            ${String(data.notes || template.name)},
+            ${Number(data.subtotal || 0)},
+            ${Number(data.vatAmount || 0)},
+            ${Number(data.totalAmount || 0)},
+            'draft',
+            ${userId}::UUID
+          ) RETURNING id
+        `) as DbRow[];
+        return String(ciRows[0]?.id);
+      });
     if (template.autoPost) {
       const postResult = (await sql`UPDATE customer_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID RETURNING id`) as DbRow[];
       if (postResult.length === 0) throw new Error(`Customer invoice not found for auto-post: ${entityId}`);
@@ -219,10 +207,13 @@ export async function executeRecurring(
     // invoices had NO unique index, so instead of failing the AP template
     // minted an identical bill — same number, same duplicate_fingerprint —
     // on every run, inflating payables and input VAT. Migration 646 adds
-    // uq_supplier_invoices_supplier_number; there is deliberately no 23505
-    // retry here, because on the AP side a clash means "this bill is already
-    // captured for this supplier" and must be refused, not renumbered.
-    const invoiceNumberSI = await reserveNextDocumentNumber(companyId, 'supplier_invoice');
+    // uq_supplier_invoices_supplier_number, and the number now comes from the
+    // company sequence. It therefore RETRIES like the customer side: the
+    // number is one this system chose, so a clash means only that some bill
+    // already holds SIV0000042, not that this bill is already captured. Without
+    // the retry one such bill wedged that company's AP templates permanently,
+    // because the failed reservation rolls back with the request and the next
+    // run reserves the very same number again.
     const recSupplierId = String(data.supplierId || '');
     const recTotal = Number(data.totalAmount || 0);
 
@@ -235,30 +226,34 @@ export async function executeRecurring(
       `) as DbRow[];
       recVatNumber = recSupRow?.vat_number ?? null;
     }
-    const recFingerprint = computeFingerprint(recVatNumber, invoiceNumberSI, recTotal);
 
-    const siRows = (await sql`
-      INSERT INTO supplier_invoices (
-        company_id, invoice_number, supplier_id, invoice_date, due_date,
-        reference, notes, subtotal, tax_amount, total_amount, status, created_by,
-        duplicate_fingerprint
-      ) VALUES (
-        ${companyId}::UUID,
-        ${invoiceNumberSI},
-        ${recSupplierId},
-        CURRENT_DATE,
-        CURRENT_DATE::DATE + INTERVAL '30 days',
-        ${String(data.reference || 'AUTO-REC')},
-        ${String(data.notes || data.description || template.name)},
-        ${Number(data.subtotal || 0)},
-        ${Number(data.vatAmount || 0)},
-        ${recTotal},
-        'draft',
-        ${userId}::UUID,
-        ${recFingerprint}
-      ) RETURNING id
-    `) as DbRow[];
-    entityId = String(siRows[0]?.id);
+    entityId = await insertWithReservedNumber(
+      companyId, 'supplier_invoice', 'rec_txn_bill_', async (invoiceNumberSI) => {
+        // The fingerprint carries the number, so it is rebuilt per attempt.
+        const recFingerprint = computeFingerprint(recVatNumber, invoiceNumberSI, recTotal);
+        const siRows = (await sql`
+          INSERT INTO supplier_invoices (
+            company_id, invoice_number, supplier_id, invoice_date, due_date,
+            reference, notes, subtotal, tax_amount, total_amount, status, created_by,
+            duplicate_fingerprint
+          ) VALUES (
+            ${companyId}::UUID,
+            ${invoiceNumberSI},
+            ${recSupplierId},
+            CURRENT_DATE,
+            CURRENT_DATE::DATE + INTERVAL '30 days',
+            ${String(data.reference || 'AUTO-REC')},
+            ${String(data.notes || data.description || template.name)},
+            ${Number(data.subtotal || 0)},
+            ${Number(data.vatAmount || 0)},
+            ${recTotal},
+            'draft',
+            ${userId}::UUID,
+            ${recFingerprint}
+          ) RETURNING id
+        `) as DbRow[];
+        return String(siRows[0]?.id);
+      });
     if (template.autoPost) {
       const postResult = (await sql`UPDATE supplier_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID RETURNING id`) as DbRow[];
       if (postResult.length === 0) throw new Error(`Supplier invoice not found for auto-post: ${entityId}`);

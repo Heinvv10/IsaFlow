@@ -4,7 +4,7 @@
  *
  * 1. Both entity types mint from the company sequence, and a second tenant
  *    running its own template neither sees nor moves the first tenant's counter.
- * 2. uq_supplier_invoices_supplier_number (migration 633) refuses a second bill
+ * 2. uq_supplier_invoices_supplier_number (migration 646) refuses a second bill
  *    with the same document number from the SAME supplier, and still allows two
  *    suppliers to issue the same number — invoice_number is the supplier's own
  *    number, not ours.
@@ -78,9 +78,12 @@ afterAll(async () => {
 });
 
 it('mints both entity types from the company sequence and leaves the other tenant alone', async () => {
-  const arBefore = await nextNumber(company, 'recurring_invoice');
+  // 'customer_invoice' — the SAME sequence every other writer of that table
+  // uses. A dedicated 'recurring_invoice' type would leave the counter the
+  // company settings screen shows failing to account for these invoices.
+  const arBefore = await nextNumber(company, 'customer_invoice');
   const apBefore = await nextNumber(company, 'supplier_invoice');
-  const otherBefore = await nextNumber(other, 'recurring_invoice');
+  const otherBefore = await nextNumber(other, 'customer_invoice');
 
   await executeRecurring(company, arTemplate, user);
   await executeRecurring(company, arTemplate, user);
@@ -93,13 +96,13 @@ it('mints both entity types from the company sequence and leaves the other tenan
     'SELECT invoice_number FROM supplier_invoices WHERE company_id=$1', [company]);
 
   expect.soft(ar.rows.map((r) => r.invoice_number)).toEqual([
-    `RINV${String(arBefore).padStart(7, '0')}`,
-    `RINV${String(arBefore + 1).padStart(7, '0')}`,
+    `INV${String(arBefore).padStart(7, '0')}`,
+    `INV${String(arBefore + 1).padStart(7, '0')}`,
   ]);
   expect.soft(ap.rows.map((r) => r.invoice_number)).toEqual([`SIV${String(apBefore).padStart(7, '0')}`]);
   // The other tenant advanced only its own counter, by its own single run.
-  expect.soft(await nextNumber(other, 'recurring_invoice')).toBe(otherBefore + 1);
-  expect(await nextNumber(company, 'recurring_invoice')).toBe(arBefore + 2);
+  expect.soft(await nextNumber(other, 'customer_invoice')).toBe(otherBefore + 1);
+  expect(await nextNumber(company, 'customer_invoice')).toBe(arBefore + 2);
 });
 
 it('refuses a second bill with one supplier document number, and allows two suppliers to share one', async () => {

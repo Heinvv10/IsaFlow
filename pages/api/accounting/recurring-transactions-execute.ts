@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
+import { RecurringTemplateNotFoundError } from '@/modules/accounting/services/core/recurringTransactionErrors';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -25,7 +26,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     log.error('Recurring execute failed', { templateId, error: err }, 'recurring-execute-api');
-    return apiResponse.badRequestFromError(res, err, 'Execute failed');
+    // ONLY the pre-write failure may be answered with a 4xx. `withAuth` COMMITs
+    // the request transaction on a 4xx and ROLLBACKs only on a 5xx, so the old
+    // blanket `badRequestFromError` committed whatever a half-finished run had
+    // already written — and, on a numbering clash, silently threw away the
+    // reservation so the next run failed identically forever.
+    if (err instanceof RecurringTemplateNotFoundError) {
+      return apiResponse.notFound(res, 'Active recurring template', templateId);
+    }
+    throw err;
   }
 }
 
