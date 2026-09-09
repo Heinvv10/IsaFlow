@@ -16,10 +16,15 @@
  * discipline, same reasons, including why the DEFAULT is restored on the
  * success path only.
  *
- * The invoice is the LAST lock every path takes — note-then-invoice,
- * payment-then-invoice, bank-line-then-invoice — so it is a leaf and no
- * ordering cycle exists. Keep it that way: never take a note or payment lock
- * while holding one of these.
+ * ORDER: every path that takes a credit-note, payment or bank-line lock takes
+ * it BEFORE the invoice — note-then-invoice, payment-then-invoice,
+ * bank-line-then-invoice — which is what keeps those three off a cycle. The
+ * invoice is not literally the last lock in the process:
+ * `customerInvoiceCancelService` holds an invoice and then locks
+ * `gl_journal_entries`. That is still acyclic, because the only path holding a
+ * journal row when it reaches an invoice is `cancelCreditNote`, and the journal
+ * it holds is the NOTE's, never the invoice's. The rule to keep is the narrow
+ * one: never take a note or payment lock while holding an invoice lock.
  */
 
 import { als, assertTxUsable } from '@/lib/als';
@@ -42,7 +47,8 @@ function isLockTimeout(err: unknown): boolean {
 }
 
 /**
- * Run a `SELECT ... FOR UPDATE` over `customer_invoices` under a 5s
+ * Run a statement that takes a `customer_invoices` row lock — a
+ * `SELECT ... FOR UPDATE`, or an `UPDATE` of the money columns — under a 5s
  * `lock_timeout`, mapping the timeout to a retryable typed error.
  *
  * @param fnName Caller name, for the "no request transaction" message.
@@ -51,7 +57,7 @@ function isLockTimeout(err: unknown): boolean {
 export async function withCustomerInvoiceLock<T>(
   fnName: string,
   subject: string,
-  select: () => Promise<T>,
+  run: () => Promise<T>,
 ): Promise<T> {
   const client = als.getStore()?.client;
   if (!client) {
@@ -64,7 +70,7 @@ export async function withCustomerInvoiceLock<T>(
   assertTxUsable();
   await client.query("SET LOCAL lock_timeout = '5s'");
   try {
-    const result = await select();
+    const result = await run();
     // Success path ONLY. `SET LOCAL` lasts to the end of the TRANSACTION, so
     // leaving it set would put every later lock in the request on a 5s budget
     // and surface a bare 55P03 nothing maps. Not in a `finally`: after a lock

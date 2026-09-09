@@ -18,6 +18,7 @@ import type { CreditNote } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
+import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
@@ -70,13 +71,20 @@ export async function cancelCreditNote(companyId: string,
     if (unapply > 0) {
       const invoiceTable = String(cn.type) === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
       if (String(cn.type) === 'customer' && invoiceTable) {
-        const done = (await sql`
-          UPDATE customer_invoices
-          SET amount_paid = amount_paid - ${unapply}
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${unapply}
-          RETURNING id
-        `) as Record<string, unknown>[];
+        // Bounded like every other invoice row lock in this file: a bare
+        // UPDATE waits on the row for as long as the holder lives, while this
+        // request is itself holding the credit note.
+        const done = await withCustomerInvoiceLock(
+          'cancelCreditNote',
+          `Invoice ${String(invoiceTable)}`,
+          async () => (await sql`
+            UPDATE customer_invoices
+            SET amount_paid = amount_paid - ${unapply}
+            WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+              AND amount_paid >= ${unapply}
+            RETURNING id
+          `) as Record<string, unknown>[],
+        );
         if (done.length === 0) {
           throw new Error(
             `Cannot cancel credit note ${id}: invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
@@ -84,13 +92,17 @@ export async function cancelCreditNote(companyId: string,
         }
         await recomputeInvoiceStatus(companyId, 'customer', String(invoiceTable));
       } else if (String(cn.type) === 'supplier' && invoiceTable) {
-        const done = (await sql`
-          UPDATE supplier_invoices
-          SET amount_paid = amount_paid - ${unapply}
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${unapply}
-          RETURNING id
-        `) as Record<string, unknown>[];
+        const done = await withSupplierInvoiceLock(
+          'cancelCreditNote',
+          String(invoiceTable),
+          async () => (await sql`
+            UPDATE supplier_invoices
+            SET amount_paid = amount_paid - ${unapply}
+            WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+              AND amount_paid >= ${unapply}
+            RETURNING id
+          `) as Record<string, unknown>[],
+        );
         if (done.length === 0) {
           throw new Error(
             `Cannot cancel credit note ${id}: supplier invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,

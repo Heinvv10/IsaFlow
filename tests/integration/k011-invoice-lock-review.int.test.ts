@@ -15,7 +15,10 @@ import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { als } from '../../src/lib/als';
-import { applyCreditNoteToInvoice } from '../../src/modules/accounting/services/ar/creditNoteCancelService';
+import {
+  applyCreditNoteToInvoice,
+  cancelCreditNote,
+} from '../../src/modules/accounting/services/ar/creditNoteCancelService';
 import {
   applyReceiptPlan,
   planReceiptApplication,
@@ -146,3 +149,44 @@ it('leaves no lock budget behind for the rest of the request after a successful 
   } finally { req.client.release(); }
   expect(after).toBe('0');
 });
+
+it('bounds the cancel path\'s un-apply on the same budget and says to retry', async () => {
+  // The cancel path moves `amount_paid` with a guarded UPDATE and never reads
+  // the row first, so it takes the invoice lock through the statement itself.
+  // Unbounded, it waited on the row for as long as the holder lived while this
+  // request was already holding the credit note — one stuck request became two.
+  const applyTx = await beginRequest();
+  try {
+    await asRequest(applyTx.client, () => applyCreditNoteToInvoice(company, note, invoice, user));
+    await applyTx.client.query('COMMIT');
+  } finally { applyTx.client.release(); }
+
+  const holder = await beginRequest();
+  const canceller = await beginRequest();
+  let caught: { name?: string; code?: string; message?: string } = {};
+  try {
+    await holder.client.query('SELECT id FROM customer_invoices WHERE id=$1 FOR UPDATE', [invoice]);
+    const started = Date.now();
+    try {
+      await asRequest(canceller.client, () => cancelCreditNote(company, note, user, 'test'));
+      throw new Error('the cancel should not have acquired the invoice row');
+    } catch (err) {
+      caught = err as { name?: string; code?: string; message?: string };
+    }
+    expect(Date.now() - started).toBeLessThan(15_000);
+    await canceller.client.query('ROLLBACK');
+    await holder.client.query('ROLLBACK');
+  } finally { holder.client.release(); canceller.client.release(); }
+
+  expect(caught.name).toBe('CustomerInvoiceLockTimeoutError');
+  expect(caught.code).toBe('CUSTOMER_INVOICE_LOCK_TIMEOUT');
+  expect(caught.message).toMatch(/retry in a moment/);
+
+  // The note is still applied and the invoice still carries its credit: the
+  // refusal rolled back, it did not half-cancel.
+  const inv = await pool.query('SELECT amount_paid::text AS paid FROM customer_invoices WHERE id=$1', [invoice]);
+  const cn = await pool.query('SELECT status, applied_amount::text AS applied FROM credit_notes WHERE id=$1', [note]);
+  expect(inv.rows[0].paid).toBe('100.00');
+  expect(cn.rows[0].status).toBe('applied');
+  expect(cn.rows[0].applied).toBe('100.00');
+}, 30_000);
