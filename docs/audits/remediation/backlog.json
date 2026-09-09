@@ -365,11 +365,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-009/red.log",
+    "K-009/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -391,11 +396,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-010/red.log",
+    "K-010/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -418,11 +428,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k011-credit-note-apply-lost-update.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-011/red.log",
+    "K-011/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -444,11 +459,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k012-statement-partial-receipt-credit.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-012/red.log",
+    "K-012/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -471,11 +491,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k013-recurring-invoice-no-lines-no-gl.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-013/red.log",
+    "K-013/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -497,11 +522,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k014-supplier-bill-double-gl-post.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-014/red.log",
+    "K-014/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -523,11 +553,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k015-ap-migration-balance-due-column.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-015/red.log",
+    "K-015/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -549,11 +584,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-016/red.log",
+    "K-016/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -575,11 +615,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k017-bank-rule-vat-net-control-account.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-017/red.log",
+    "K-017/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -602,11 +647,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k018-open-banking-fabricated-transactions.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-018/red.log",
+    "K-018/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -628,11 +678,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k019-transfer-relink-double-bind.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-019/red.log",
+    "K-019/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -658,11 +713,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k020-reconciled-balance-double-count.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-020/red.log",
+    "K-020/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -684,11 +744,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k021-failed-reversal-commits-unwind.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-021/red.log",
+    "K-021/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -711,11 +776,16 @@
    "correctedTrigger": "Sequential recalculation removes the repayment deduction while retaining the reduced loan balance. Do not restate the original double-decrement claim.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-022/red.log",
+    "K-022/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -737,11 +807,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k023-sdl-invented-salary.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-023/red.log",
+    "K-023/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -763,11 +838,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k024-annual-export-declarable-status.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-024/red.log",
+    "K-024/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -789,11 +869,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k025-once-off-batch-recurs.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-025/red.log",
+    "K-025/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -815,11 +900,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k026-below-threshold-expense-repeat.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-026/red.log",
+    "K-026/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -841,11 +931,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k027-tax-depreciation-carry-forward.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-027/red.log",
+    "K-027/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -867,11 +962,17 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/afs-pre-export-checks.int.test.ts",
+    "tests/integration/k028-ppe-additions-include-prior-year.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-028/red.log",
+    "K-028/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -893,11 +994,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-029-depreciation-method.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-029/red.log",
+    "K-029/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -919,11 +1025,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-030-loan-schedule-cache-hash.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-030/red.log",
+    "K-030/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -945,11 +1056,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-031-efiling-vat201-source.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-031/red.log",
+    "K-031/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -971,11 +1087,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-032-cancelled-credit-note-vat201.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-032/red.log",
+    "K-032/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -997,11 +1118,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-033/red.log",
+    "K-033/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1023,11 +1149,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-034/red.log",
+    "K-034/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1049,11 +1180,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-035/red.log",
+    "K-035/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1075,11 +1211,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-036/red.log",
+    "K-036/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1101,11 +1242,16 @@
    "correctedTrigger": "Environment/schema-dependent and unverified. Establish audit target_id schema and actual transaction behavior before confirming.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
+   "currentSha": "ebeac9ca",
+   "status": "false-positive",
+   "dependencies": [
+    "Disposed false-positive on the fixture (current production) schema: see K-037/validation.md and red.log; the audit target column accepts the written value and the transaction is not aborted"
+   ],
    "testNames": [],
-   "evidencePaths": [],
+   "evidencePaths": [
+    "K-037/red.log",
+    "K-037/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1127,11 +1273,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-038-sage-migration-discards-amount-paid.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-038/red.log",
+    "K-038/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1154,11 +1305,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-039/red.log",
+    "K-039/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1181,11 +1337,16 @@
    "correctedTrigger": "withAuth supplies an outer transaction. Validate WIP locking and markEntriesBilled count races; do not claim no transaction.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-040/red.log",
+    "K-040/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -2457,11 +2618,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "ebeac9ca",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-089/red.log",
+    "K-089/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -7827,6 +7993,111 @@
    "historicalDataImpact": "No production data queried or changed. Disposable temporary fixture transaction rolled back.",
    "canonicalItem": null,
    "reportedSeverity": "high"
+  },
+  {
+   "id": "R-005",
+   "claim": "EMP501 reconciliation filters runs IN ('approved','posted','calculated'): 'posted' is not an admissible status and 'calculated' is non-declarable.",
+   "area": "payroll",
+   "affectedPaths": [
+    "pages/api/payroll/emp501/reconciliation.ts:61",
+    "pages/api/payroll/emp501/reconciliation.ts:79"
+   ],
+   "sourceLabel": "Remediation discovery during K-024",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during validation of the named K item; reachability described in that item's validation.md, not yet independently reproduced.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "ebeac9ca",
+   "status": "candidate",
+   "dependencies": [],
+   "testNames": [],
+   "evidencePaths": [
+    "K-024/validation.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-006",
+   "claim": "Payroll batch UI defaults effectiveFrom to month-end while the run evaluates components at day 28, so a once-off bonus is skipped in its own month.",
+   "area": "payroll",
+   "affectedPaths": [
+    "pages/payroll/batches"
+   ],
+   "sourceLabel": "Remediation discovery during K-025",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during validation of the named K item; reachability described in that item's validation.md, not yet independently reproduced.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "ebeac9ca",
+   "status": "candidate",
+   "dependencies": [],
+   "testNames": [],
+   "evidencePaths": [
+    "K-025/validation.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-007",
+   "claim": "AFS PPE summary derives the prior year end as the same month a year earlier, correct only for a December year-end.",
+   "area": "assets",
+   "affectedPaths": [
+    "pages/api/accounting/assets/afs-summary.ts:29"
+   ],
+   "sourceLabel": "Remediation discovery during K-028",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during validation of the named K item; reachability described in that item's validation.md, not yet independently reproduced.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "ebeac9ca",
+   "status": "candidate",
+   "dependencies": [],
+   "testNames": [],
+   "evidencePaths": [
+    "K-028/validation.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "medium"
+  },
+  {
+   "id": "R-008",
+   "claim": "Loan schedule cache lookup filters on loan_id and inputs_hash without company_id; loan row is tenant-scoped upstream so not exploitable, but the query breaks the multi-tenant rule.",
+   "area": "loans",
+   "affectedPaths": [
+    "src/modules/accounting/services/loans/loanScheduleService.ts"
+   ],
+   "sourceLabel": "Remediation discovery during K-030",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Discovered during validation of the named K item; reachability described in that item's validation.md, not yet independently reproduced.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "ebeac9ca",
+   "status": "candidate",
+   "dependencies": [],
+   "testNames": [],
+   "evidencePaths": [
+    "K-030/validation.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "low"
   }
  ],
  "sourceInventory": [
