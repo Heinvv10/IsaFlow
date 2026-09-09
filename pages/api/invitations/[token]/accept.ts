@@ -6,7 +6,7 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
-import { adminUpdateUser, signIn } from '@/lib/auth/gotrue';
+import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
@@ -50,21 +50,57 @@ const handler: NextApiHandler = async (req, res) => {
   }
   const inv = rows[0]!;
 
-  // 2. Set the user's password in GoTrue
-  await adminUpdateUser(inv.gotrue_user_id, {
-    password,
-    user_metadata: { first_name: firstName, last_name: lastName },
-  });
-
-  // 3. Sign them in to get tokens
-  const tok = await signIn(inv.email, password);
-
-  // 4. Insert company_users + users-profile rows using BYPASSRLS admin role
-  //    (RLS policy would refuse company_users INSERT because the user has no
-  //    pre-existing membership to satisfy USING.)
+  // 2-4 run on the BYPASSRLS admin role: RLS would refuse the company_users
+  //    INSERT (no pre-existing membership to satisfy USING) and `users` is
+  //    readable only by auth.uid(), which is empty inside the invite-token
+  //    transaction — so the step-2 lookup below would silently see no rows.
   const admin = adminPool();
   const client = await admin.connect();
+  let tok: GoTrueTokenResponse;
   try {
+    // 2. Does this address already hold an established IsaFlow login? A `users`
+    //    row is written only by tenant provisioning (after email verification)
+    //    and by step 4 below, so its presence means a password already exists.
+    //    Invites resolve an EXISTING GoTrue user when adminCreateUser 422s
+    //    (src/lib/auth/gotrue.ts), so setting a password here would let whoever
+    //    holds the invite link replace the credentials of that person's login
+    //    for a company they were never invited to.
+    const established = await client.query<{ id: string }>(
+      `SELECT id FROM users WHERE id = $1 LIMIT 1`,
+      [inv.gotrue_user_id]
+    );
+    const isEstablished = (established.rowCount ?? 0) > 0;
+
+    if (!isEstablished) {
+      // Brand-new invitee: this invitation is what establishes the login, so
+      // the password they type becomes their password.
+      await adminUpdateUser(inv.gotrue_user_id, {
+        password,
+        user_metadata: { first_name: firstName, last_name: lastName },
+      });
+    }
+
+    // 3. Sign in. For an established account this is the ownership proof — the
+    //    acceptor must already know that account's current password.
+    try {
+      tok = await signIn(inv.email, password);
+    } catch (err) {
+      if (!isEstablished) throw err;
+      log.warn('invite accept rejected: wrong password for existing account', {
+        inviteId: inv.id,
+        companyId: inv.company_id,
+      }, 'auth');
+      return res.status(401).json({ success: false, error: { code: 'SIGN_IN_REQUIRED', message: 'This email already has an IsaFlow account. Enter that account\'s password to accept the invitation.' } });
+    }
+    if (tok.user.id !== inv.gotrue_user_id) {
+      log.error('invite accept identity mismatch', {
+        inviteId: inv.id,
+        companyId: inv.company_id,
+      }, 'auth');
+      return res.status(409).json({ success: false, error: { code: 'IDENTITY_MISMATCH', message: 'Invitation does not match this account' } });
+    }
+
+    // 4. Attach the membership + profile row.
     await client.query('BEGIN');
     await client.query(
       `INSERT INTO company_users (company_id, user_id, role)

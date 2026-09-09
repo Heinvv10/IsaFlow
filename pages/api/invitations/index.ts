@@ -3,6 +3,7 @@ import type { NextApiHandler } from 'next';
 import crypto from 'node:crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withErrorHandler } from '@/lib/api-error-handler';
 import { adminCreateUser } from '@/lib/auth/gotrue';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -43,10 +44,25 @@ const createInvitation: NextApiHandler = async (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  // 1. Insert invitation row
+  // 1. Insert invitation row. UNIQUE(company_id, email) means a resend — or a
+  //    re-invite of someone who accepted and was later removed — collides with
+  //    the row already there, which used to escape as a 500. Refresh it in
+  //    place instead: a new token, a new expiry, the role just chosen, and the
+  //    accepted/error state cleared. That is the resend the 502 branch below
+  //    already promises. The old link stops working, which is what a resend
+  //    means. Tenant-scoped by the conflict target, so this can never touch
+  //    another company's invitation for the same address.
   const inv = await sql<{ id: string }>`
     INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
     VALUES (${companyId}::uuid, ${cleanEmail}, ${role}, ${user.id}, ${token}, ${expiresAt})
+    ON CONFLICT (company_id, email) DO UPDATE SET
+      role = EXCLUDED.role,
+      invited_by = EXCLUDED.invited_by,
+      token = EXCLUDED.token,
+      expires_at = EXCLUDED.expires_at,
+      accepted_at = NULL,
+      email_sent_at = NULL,
+      email_error = NULL
     RETURNING id
   `;
 
@@ -96,4 +112,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'GET or POST' } });
 };
 
-export default withAuth(withCsrf(handler));
+export default withAuth(withErrorHandler(withCsrf(handler)));
