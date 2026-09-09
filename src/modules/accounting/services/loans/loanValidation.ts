@@ -24,6 +24,13 @@ export function validateCreate(input: LoanCreateInput): void {
  * Rejecting more here than the engine refuses would block loans that compute
  * perfectly well; rejecting less would let a create succeed and every later
  * schedule recompute 500.
+ *
+ * Scope (review L2): this is the RECURRING skip bound only. `amortise` also
+ * skips a period for a `SKIP` row in `loan_events`, which is per-loan data
+ * this function never sees, so a loan at k = 11 plus enough SKIP events can
+ * still reach the engine's 12x cap. That cap throws a named error rather than
+ * looping, so the outcome is a refused recompute, not a hang — but the two
+ * bounds do NOT accept exactly the same loans once events are involved.
  */
 export function assertSkipScheduleRepayable(
   skipMode: string | null | undefined,

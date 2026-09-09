@@ -216,7 +216,7 @@ describe('postPeriodJournals', () => {
       .mockResolvedValueOnce([])                            // already-posted check (none)
       .mockResolvedValueOnce([{ id: 'posting-1' }]);       // insert loan_gl_posting
 
-    createEntryMock.mockResolvedValueOnce({ id: ENTRY_ID, entryNumber: 'JE-2026-001' });
+    createEntryMock.mockResolvedValueOnce({ id: ENTRY_ID, entryNumber: 'JE-2026-001', fiscalPeriodId: 'fp-2026-04' });
     postEntryMock.mockResolvedValueOnce({ id: ENTRY_ID, status: 'posted' });
 
     const result = await postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID);

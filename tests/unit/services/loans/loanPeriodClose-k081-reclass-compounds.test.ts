@@ -107,7 +107,7 @@ function currentPortionBalance(): number {
 beforeEach(() => {
   vi.clearAllMocks();
   let seq = 0;
-  createJournalEntryMock.mockImplementation(() => Promise.resolve({ id: `je-${++seq}` }));
+  createJournalEntryMock.mockImplementation(() => Promise.resolve({ id: `je-${++seq}`, fiscalPeriodId: 'fp-1' }));
   postJournalEntryMock.mockResolvedValue(undefined);
 });
 

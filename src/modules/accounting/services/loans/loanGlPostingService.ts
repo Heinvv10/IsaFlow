@@ -6,6 +6,7 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import type { ScheduleRow } from '@/lib/amortisation/types';
+import { assertFiscalPeriodResolved, lockLoanForUpdate } from './loanPostingGuards';
 
 type Row = DbRow;
 
@@ -152,18 +153,19 @@ export async function postPeriodJournals(
   userId: string,
 ): Promise<PostPeriodResult> {
   // FOR UPDATE serialises two concurrent posts of the same loan; the
-  // already-posted check below then sees the winner's committed rows.
-  const loans = (await sql`
-    SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId} FOR UPDATE
-  `) as Row[];
-  if (loans.length === 0) throw new Error(`Loan ${loanId} not found`);
+  // already-posted check below then sees the winner's committed rows. Bounded
+  // by a 5s lock_timeout (review M5) so a wedged peer surfaces as a retryable
+  // error instead of pinning the connection — see loanPostingGuards.ts.
+  const loanRow = await lockLoanForUpdate(companyId, loanId);
+  if (!loanRow) throw new Error(`Loan ${loanId} not found`);
 
-  const loanRow = loans[0]!;
   const accounts = extractAccounts(loanRow);
 
   // Find the latest schedule run for this loan
   const runs = (await sql`
-    SELECT id FROM loan_schedule_runs WHERE loan_id = ${loanId} ORDER BY computed_at DESC LIMIT 1
+    SELECT id FROM loan_schedule_runs
+    WHERE loan_id = ${loanId} AND company_id = ${companyId}
+    ORDER BY computed_at DESC LIMIT 1
   `) as Row[];
   if (runs.length === 0) throw new Error('No schedule run exists — compute schedule first');
 
@@ -214,6 +216,7 @@ export async function postPeriodJournals(
   const entryInput = buildPeriodJournalInput(row, accounts, narrative);
 
   const entry = await createJournalEntry(companyId, entryInput, userId);
+  assertFiscalPeriodResolved(entry.fiscalPeriodId, fmtDate(row.date), narrative);
   await postJournalEntry(companyId, entry.id, userId);
 
   // Record each line in loan_gl_postings for reporting/reversal

@@ -11,6 +11,7 @@ import {
   recordReclass,
 } from './loanReclassService';
 import type { SnapshotRow } from './loanReclassService';
+import { assertClosesInOrder, assertFiscalPeriodResolved } from './loanPostingGuards';
 
 export { buildReclassificationInput } from './loanReclassService';
 export type { SnapshotRow } from './loanReclassService';
@@ -117,6 +118,7 @@ export async function closeLoanPeriod(
   if (await isPeriodLocked(companyId, yyyymm)) {
     throw new Error(`Period ${yyyymm} is already locked`);
   }
+  await assertClosesInOrder(companyId, yyyymm);
 
   // One JOINed query: every active loan with its latest schedule-row snapshot
   // for the target month. LEFT JOIN on LATERAL so loans with no row in this
@@ -133,6 +135,7 @@ export async function closeLoanPeriod(
       FROM loan_schedule_rows lsr
       JOIN loan_schedule_runs lsrun ON lsrun.id = lsr.run_id
       WHERE lsrun.loan_id = l.id
+        AND lsrun.company_id = ${companyId}
         AND TO_CHAR(lsr.date, 'YYYYMM') = ${yyyymm}
       ORDER BY lsrun.computed_at DESC NULLS LAST, lsr.period DESC
       LIMIT 1
@@ -174,6 +177,7 @@ export async function closeLoanPeriod(
     if (input.lines.length === 0) continue;
 
     const entry = await createJournalEntry(companyId, input, userId);
+    assertFiscalPeriodResolved(entry.fiscalPeriodId, postingDate, narrative);
     await postJournalEntry(companyId, entry.id, userId);
     await recordReclass(companyId, loanId, yyyymm, snapshot.stLiability, entry.id);
     reclassEntries.push(entry.id);

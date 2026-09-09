@@ -41,3 +41,35 @@ Migration 645 backfill probed on the fixture inside a rolled-back transaction:
 Gates: bunx tsc --noEmit clean. bunx eslint on src/modules/accounting/services/loans/ and
        src/lib/amortisation/engine.ts clean. check-migration-rls.ts OK. agent-docs:check OK.
 File sizes: every file in the loans module is under the 300-line limit.
+
+=== Review round 2 (H1, M2-M5, L1-L6) ===
+
+Integration (fixture PostgreSQL, --no-file-parallelism):
+  k081-loan-reclass-movement.int.test.ts
+  k081-loan-reclass-backfill.int.test.ts      (new, 8)
+  k081-loan-close-ordering.int.test.ts        (new, 3)
+  k082-loan-arrears-staging.int.test.ts
+  k083-loan-period-journal-idempotency.int.test.ts
+  k083-loan-post-lock-timeout.int.test.ts     (new, 3)
+  -> Test Files 6 passed, Tests 32 passed
+
+Unit (loans + amortisation): 13 files, 177 passed.
+FULL unit suite with DATABASE_URL UNSET: 796 passed | 36 skipped (832 files),
+9469 passed | 234 skipped (9703 tests).
+
+bunx tsc --noEmit: clean.
+bunx eslint (5 loan service files + engine.ts): clean.
+bun run agent-docs:check: OK, 74 mirrors match.
+bunx tsx scripts/ci/check-migration-rls.ts: OK.
+bunx tsx scripts/ci/check-gl-journal-lines-scope.ts: OK.
+psql -f scripts/migrations/sql/659_...sql against the fixture: DO, 0 rows reconstructed.
+
+Mutation proof:
+  * backfill test pointed at 645's DO block instead of 659's -> 5 of 8 RED
+    (H1 duplicate reference, clean-loan-alongside-refused, M3 same-month sum,
+     L4 reversed entry, tenant-named abort). Restored.
+  * assertClosesInOrder + assertFiscalPeriodResolved calls commented out in
+    closeLoanPeriod -> all 3 ordering tests RED. Restored.
+  * SET LOCAL lock_timeout removed from lockLoanForUpdate -> the lock test and
+    the following one hang to the 30s vitest timeout instead of failing fast
+    (2 RED). Restored.
