@@ -17,6 +17,7 @@
  * contract: an acceptor who cannot prove ownership is now refused, so that
  * expectation is 401 here and 200 is asserted in the ownership-proof case.
  */
+import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
@@ -37,6 +38,9 @@ const token = `k041${'0'.repeat(28)}${existingUser.replace(/-/g, '')}`;
 const newToken = `k041n${'0'.repeat(27)}${newInvitee.replace(/-/g, '')}`;
 const inviteId = crypto.randomUUID();
 const newInviteId = crypto.randomUUID();
+
+/** company_invitations.token holds sha256 of the token carried by the link. */
+const stored = (raw: string) => createHash('sha256').update(raw).digest('hex');
 
 /** The password the pre-existing account already has. Only GoTrue knows it. */
 const REAL_PASSWORD = 'existing-real-password-2026';
@@ -72,8 +76,8 @@ beforeAll(async () => {
     `INSERT INTO company_invitations(id,company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
      VALUES($1,$2,$3,'viewer',$4,$5,now()+interval '7 days',$6),
            ($7,$8,$9,'manager',$4,$10,now()+interval '7 days',$11)`,
-    [inviteId, invitingCompany, email, inviter, token, existingUser,
-      newInviteId, newInviteeCompany, newEmail, newToken, newInvitee]);
+    [inviteId, invitingCompany, email, inviter, stored(token), existingUser,
+      newInviteId, newInviteeCompany, newEmail, stored(newToken), newInvitee]);
 
   vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);

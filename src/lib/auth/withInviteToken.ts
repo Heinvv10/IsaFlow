@@ -6,6 +6,7 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { als } from '@/lib/als';
+import { hashInviteToken } from './inviteToken';
 
 let _pool: pg.Pool | null = null;
 function pool(): pg.Pool {
@@ -25,7 +26,12 @@ function pool(): pg.Pool {
   return _pool;
 }
 
-export interface InviteTokenRequest extends NextApiRequest { inviteToken: string; }
+export interface InviteTokenRequest extends NextApiRequest {
+  /** The token exactly as it appeared in the mailed link. */
+  inviteToken: string;
+  /** What `company_invitations.token` actually holds. Compare against this. */
+  inviteTokenHash: string;
+}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Handler = (req: any, res: NextApiResponse<any>) => any;
 
@@ -35,13 +41,17 @@ export function withInviteToken(handler: Handler): NextApiHandler {
     if (typeof rawToken !== 'string' || rawToken.length < 16) {
       return res.status(400).json({ success: false, error: { code: 'BAD_TOKEN', message: 'Invite token missing' } });
     }
+    const tokenHash = hashInviteToken(rawToken);
     (req as InviteTokenRequest).inviteToken = rawToken;
+    (req as InviteTokenRequest).inviteTokenHash = tokenHash;
 
     const client = await pool().connect();
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
-      await client.query(`SELECT set_config('app.invite_token', $1, true)`, [rawToken]);
+      // The RLS policy invites_by_token compares this GUC to the stored column,
+      // which holds the digest — never the raw token from the link.
+      await client.query(`SELECT set_config('app.invite_token', $1, true)`, [tokenHash]);
       await als.run(
         { client, userId: '', companyId: '', claims: {} },
         async () => { await handler(req, res); }
