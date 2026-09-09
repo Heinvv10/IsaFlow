@@ -25,10 +25,12 @@ records nothing. A settlement LARGER than the invoice balance is banked in full:
 receipt is debited to bank and credited to the customer, the invoice absorbs only what it
 owed, and the remainder stays as an unapplied receipt. Truncating it would drop real cash.
 
-**Actor.** `customer_payments.created_by` is NOT NULL and a gateway callback has no user,
-so the invoice's own `created_by` is used — resolved through `resolveUserUuid`, because that
-column is `varchar` while the payment's is `uuid` and an imported author would otherwise
-abort the insert. Stamped `system:paystack-receipt:v1`, never `human:<userId>`.
+**Actor.** `customer_payments.created_by` is NOT NULL and a gateway callback has no user.
+The invoice's own `created_by` is used when it is a UUID belonging to the paying company;
+otherwise the company's default member, deterministically chosen. It is NOT `resolveUserUuid`,
+whose fallback is unscoped and would stamp another tenant's user. With no member at all the
+delivery fails rather than attributing the receipt to a stranger. Stamped
+`system:paystack-receipt:v1`, never `human:<userId>`.
 
 **Dating and fees.** The receipt is dated `paid_at`, not processing time, so a redelivery
 days later still books into the settlement's period. The gateway fee, when the payload
@@ -39,7 +41,7 @@ actual deposit. See review-fixes.md for the account-choice caveat.
 `src/lib/publicRouteTx.ts` (new, shared with K-035), `pages/api/webhooks/paystack.ts`,
 `pages/api/portal/payments/paystack/verify.ts`.
 
-**Tests.** `tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts` — 13
+**Tests.** `tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts` — 19
 passed against the disposable production schema (was 2 failed / 2). Each asserts the
 journal balances, that DR Bank and CR Receivable each equal the invoice's `amount_paid`,
 and that the fiscal period is set. Adjacent cases: webhook + verify both firing, webhook
@@ -51,6 +53,21 @@ throws if called.
 **Migration / rollback.** `scripts/migrations/sql/620_customer_payments_card_reference_unique.sql`
 adds a partial unique index behind the idempotency read. Rollback: `DROP INDEX
 ux_customer_payments_card_reference`.
+
+**BEFORE DEPLOYING 620**, run this against production. One hit makes `CREATE UNIQUE INDEX`
+fail and stops the deploy at this migration; cancel or merge the duplicates first. Expected:
+zero rows. `isaflow_dev` returns zero across 57 card payments; production has NOT been queried.
+The index is built without `CONCURRENTLY` (the runner wraps migrations in a transaction), so it
+takes a SHARE lock on `customer_payments` — deploy out of business hours.
+```sql
+SELECT company_id, bank_reference, count(*) AS duplicates
+FROM customer_payments
+WHERE payment_method = 'card'
+  AND bank_reference IS NOT NULL
+  AND status IS DISTINCT FROM 'cancelled'
+GROUP BY company_id, bank_reference
+HAVING count(*) > 1;
+```
 
 **Historical-data impact.** The query below was run read-only against production `isaflow`
 once, before the instruction arrived not to query production; it is recorded here rather

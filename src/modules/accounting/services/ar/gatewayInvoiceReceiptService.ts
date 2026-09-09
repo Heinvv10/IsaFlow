@@ -23,15 +23,16 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { confirmCustomerPayment } from './customerPaymentAllocationService';
-import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
-import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import { postGatewayFee } from './gatewayFeeService';
 
 /** posting_agent stamp: unattended, so never `human:<userId>`. */
 export const GATEWAY_RECEIPT_AGENT = 'system:paystack-receipt:v1';
 
 /** A cent. Matches confirmCustomerPayment's own settle tolerance. */
-const EPS = 0.01;
+export const EPS = 0.01;
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface GatewayInvoiceReceipt {
   companyId: string;
@@ -72,15 +73,33 @@ export async function recordGatewayInvoiceReceipt(
 ): Promise<{ paymentId: string; journalEntryId?: string } | null> {
   const { companyId, invoiceId, amountRand, reference } = receipt;
 
-  const already = await sql<{ id: string }>`
-    SELECT id FROM customer_payments
+  const already = await sql<{
+    id: string;
+    created_by: string;
+    bank_account_id: string | null;
+    payment_date: string;
+  }>`
+    SELECT id, created_by::text AS created_by, bank_account_id::text AS bank_account_id,
+           payment_date::text AS payment_date
+    FROM customer_payments
     WHERE company_id = ${companyId}::UUID
       AND bank_reference = ${reference}
-      AND status <> 'cancelled'
+      AND status IS DISTINCT FROM 'cancelled'
     LIMIT 1
   `;
   if (already[0]) {
+    // The receipt is already banked — by the webhook, a redelivery, or the
+    // portal verify route. The FEE still may not be: verify carries no fee and
+    // exists to beat the webhook, so returning here used to lose the fee leg
+    // for every customer who reached the return page. Post it against the
+    // receipt that already exists, in that receipt's period.
     log.info('Gateway receipt already recorded', { reference, invoiceId }, 'accounting');
+    await postGatewayFee(
+      receipt,
+      already[0].created_by,
+      already[0].bank_account_id,
+      already[0].payment_date,
+    );
     return null;
   }
 
@@ -95,33 +114,44 @@ export async function recordGatewayInvoiceReceipt(
     throw new Error(`Gateway receipt: invoice ${invoiceId} not found for company ${companyId}`);
   }
 
+  // `amount_paid` counts CONFIRMED payments only. Draft receipts an accountant
+  // has open already claim part of the balance, and confirming both would drive
+  // amount_paid past total_amount — the W3/P2.1 invariant createCustomerPayment
+  // enforces, which has to be carried here now that it is not called.
+  const pendingRows = await sql<{ pending: string }>`
+    SELECT COALESCE(SUM(cpa.amount_allocated), 0)::text AS pending
+    FROM customer_payment_allocations cpa
+    JOIN customer_payments cp ON cp.id = cpa.payment_id
+    WHERE cpa.invoice_id = ${invoiceId}::UUID
+      AND cp.company_id = ${companyId}::UUID
+      AND cp.status = 'draft'
+  `;
+  const pending = Number(pendingRows[0]?.pending ?? 0);
+
   // The gateway can settle more than the invoice still owes — an EFT part-payment
   // landing between the payment link and the card charge is enough. The excess is
   // real cash in the bank, so the receipt is banked in full and only the part the
   // invoice can absorb is allocated; the remainder stays on the customer as an
   // unapplied receipt. Truncating the receipt to fit would drop that cash.
-  const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid ?? 0);
+  const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid ?? 0) - pending;
   const allocated = Math.max(0, Math.min(amountRand, outstanding));
   const unallocated = amountRand - allocated;
   if (unallocated > EPS) {
     log.warn(
       'Gateway receipt exceeds the invoice balance — the excess is banked as an unapplied receipt',
-      { reference, invoiceId, amountRand, outstanding, unallocated },
+      { reference, invoiceId, amountRand, outstanding, pending, unallocated },
       'accounting',
     );
   }
 
   const bankAccount = await getSystemAccount('bank', companyId);
-  // customer_invoices.created_by is `varchar` while customer_payments.created_by
-  // is `uuid`; a non-UUID actor (e.g. an imported 'sage-import') would abort the
-  // insert with 22P02 on every redelivery. Same helper the GL side uses.
-  const actorId = await resolveUserUuid(String(invoice.created_by));
-  const paymentDate = fmtDate(receipt.paidAt ? new Date(receipt.paidAt) : new Date());
+  const actorId = await resolveCompanyActor(companyId, String(invoice.created_by));
+  const paymentDate = settlementDate(receipt);
 
   // Written here rather than through createCustomerPayment: that service
   // requires allocations to equal the payment total, an invariant an
   // over-settlement cannot satisfy, and the only way to satisfy it is to drop
-  // the excess. Its balance validation is replaced by the clamp above.
+  // the excess. Its balance validation is carried by the clamp above.
   const paymentId = randomUUID();
   await sql`
     INSERT INTO customer_payments (
@@ -155,55 +185,56 @@ export async function recordGatewayInvoiceReceipt(
 }
 
 /**
- * Book the gateway's fee so the bank GL matches the NET deposit on the statement.
+ * The date the gateway settled, or today when it did not say.
  *
- * The receipt above debits Bank with the gross amount, but Paystack settles net
- * of its fee, so without this leg the bank account can never be reconciled and
- * no card-fee expense is ever recorded. Posted as its own DR expense / CR Bank
- * entry rather than as a third line, to leave the canonical AR posting untouched.
- *
- * The expense account is the `admin_expense` system role — there is no
- * bank-charges role in this chart, and that is an accounting-policy choice worth
- * overruling if the business wants a dedicated account. Best-effort by design:
- * when the fee is absent from the payload or the role is unresolved, the receipt
- * still stands and the gap is logged, because failing here would turn a settled
- * card payment into a 500.
+ * A malformed `paid_at` would otherwise reach `fmtDate` as an Invalid Date and
+ * make the insert raise 22007 on every redelivery — the same permanent-failure
+ * shape a bad actor id used to cause.
  */
-async function postGatewayFee(
-  receipt: GatewayInvoiceReceipt,
-  actorId: string,
-  bankAccountId: string,
-  paymentDate: string,
-): Promise<void> {
-  const fee = Number(receipt.feeRand ?? 0);
-  if (!Number.isFinite(fee) || fee <= EPS) return;
-
-  let expenseAccountId: string;
-  try {
-    expenseAccountId = String((await getSystemAccount('admin_expense', receipt.companyId)).id);
-  } catch (err) {
+function settlementDate(receipt: GatewayInvoiceReceipt): string {
+  if (receipt.paidAt) {
+    const parsed = new Date(receipt.paidAt);
+    if (!Number.isNaN(parsed.getTime())) return fmtDate(parsed);
     log.warn(
-      'Gateway fee not posted — no admin_expense system account; bank will not reconcile by the fee',
-      { reference: receipt.reference, fee, error: err instanceof Error ? err.message : String(err) },
+      'Gateway receipt carried an unparseable paid_at — dating it today',
+      { reference: receipt.reference, paidAt: receipt.paidAt },
       'accounting',
     );
-    return;
   }
+  return fmtDate(new Date());
+}
 
-  const je = await createJournalEntry(
-    receipt.companyId,
-    {
-      entryDate: paymentDate,
-      description: `Paystack fee ${receipt.reference}`,
-      source: 'auto_payment',
-      lines: [
-        { glAccountId: expenseAccountId, debit: fee, credit: 0, description: 'Paystack transaction fee' },
-        { glAccountId: bankAccountId, debit: 0, credit: fee, description: 'Paystack transaction fee' },
-      ],
-    },
-    actorId,
-    { postingAgent: GATEWAY_RECEIPT_AGENT },
+/**
+ * A user who actually belongs to the paying company, for the NOT NULL
+ * `created_by` a gateway callback has no user to fill.
+ *
+ * NOT `resolveUserUuid`: its fallback is `SELECT id FROM users … LIMIT 1` with
+ * no company filter and no ORDER BY, so an invoice authored by an import string
+ * would stamp the payment, its confirmation and its journal with whichever
+ * person the heap yielded first — from any tenant. Fails closed instead: a
+ * receipt attributed to a stranger is worse than a retryable 500, and K-035
+ * makes the redelivery reprocess once a member exists.
+ */
+async function resolveCompanyActor(companyId: string, invoiceAuthor: string): Promise<string> {
+  if (UUID_PATTERN.test(invoiceAuthor)) {
+    const owned = await sql<{ user_id: string }>`
+      SELECT cu.user_id FROM company_users cu
+      WHERE cu.company_id = ${companyId}::UUID AND cu.user_id = ${invoiceAuthor}::TEXT
+      LIMIT 1
+    `;
+    if (owned[0]) return invoiceAuthor;
+  }
+  // Deterministic, not heap order: the default member, then the oldest.
+  const member = await sql<{ user_id: string }>`
+    SELECT cu.user_id FROM company_users cu
+    JOIN users u ON u.id::TEXT = cu.user_id
+    WHERE cu.company_id = ${companyId}::UUID
+      AND cu.user_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    ORDER BY cu.is_default DESC NULLS LAST, cu.created_at ASC NULLS LAST, cu.user_id ASC
+    LIMIT 1
+  `;
+  if (member[0]) return String(member[0].user_id);
+  throw new Error(
+    `Gateway receipt: company ${companyId} has no member to attribute the payment to`,
   );
-  await postJournalEntry(receipt.companyId, je.id, actorId);
-  log.info('Posted gateway fee', { reference: receipt.reference, fee, journalEntryId: je.id }, 'accounting');
 }

@@ -33,3 +33,11 @@ Full unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run --testT
 --maxWorkers=4):  784 files passed | 36 skipped; 9320 tests passed | 234 skipped.
 tsc --noEmit clean; eslint clean on all five source files; migration-naming, migration-rls
 and agent-docs gates all OK. Migration 620 applied to the fixture DB.
+
+--- After the follow-up review (N1-N7) ---
+bun run test:integration -- k-035 + k-036 + public-route-tx  ->  3 files, 29 passed
+Mutation: reverting the three source files to 7179f208 turns 5 of the 6 new cases red
+(5 failed / 14 passed).
+tsc --noEmit clean; eslint clean on all six source files; migration-naming (338 files),
+migration-rls and agent-docs gates all OK. Migration 620 dropped and re-applied on the
+fixture DB after the IS DISTINCT FROM change. Production was NOT queried.

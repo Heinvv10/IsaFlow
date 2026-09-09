@@ -105,6 +105,12 @@ beforeAll(async () => {
   await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [
     customerId, companyId, 'K-036 debtor',
   ]);
+  // The actor for an unattended posting is resolved from this company's members,
+  // never from the global users table.
+  await pool.query(
+    "INSERT INTO company_users(id,company_id,user_id,role,is_default) VALUES($1,$2,$3,'admin',true)",
+    [crypto.randomUUID(), companyId, userId],
+  );
   // The canonical AR path resolves both system accounts through
   // systemAccountResolver, which only sees is_system_account + is_active rows.
   await pool.query(
@@ -154,6 +160,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [companyId]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [companyId]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [companyId]);
+    await pool.query('DELETE FROM company_users WHERE company_id=$1', [companyId]);
     await pool.query('DELETE FROM customers WHERE company_id=$1', [companyId]);
     await pool.query('DELETE FROM companies WHERE id=$1', [companyId]);
     await pool.query('DELETE FROM users WHERE id=$1', [userId]);
@@ -448,6 +455,169 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
         [companyId, rows[0].client_id, reference, rows[0].bank_account_id, rows[0].created_by],
       ),
     ).rejects.toThrow(/duplicate key value|ux_customer_payments_card_reference/);
+  });
+
+  it('books the fee even when the verify route banked the receipt first', async () => {
+    // The return page exists to beat the webhook and carries no fee. Before the
+    // fee posting moved outside the receipt dedupe, the webhook short-circuited
+    // and the bank leg stayed gross for every customer who reached that page.
+    const reference = 'k036_verifyfee_ref';
+    const feeRand = 29.0;
+    await seedPaymentRequest(reference);
+    verifyTransaction.mockResolvedValue({
+      status: 'success', id: 555000333, channel: 'card',
+      authorization: { authorizationCode: 'AUTH_k036c' },
+    });
+
+    await callVerify(reference);
+    const webhookResult = await deliverWebhook(reference, { fees: Math.round(feeRand * 100) });
+    expect(webhookResult.state.statusCode).toBe(200);
+
+    const { rows: payments } = await pool.query(
+      'SELECT id FROM customer_payments WHERE company_id=$1', [companyId],
+    );
+    expect(payments.length).toBe(1);
+
+    const { rows: jes } = await pool.query(
+      'SELECT id FROM gl_journal_entries WHERE company_id=$1', [companyId],
+    );
+    expect(jes.length).toBe(2);
+
+    let bankNet = 0;
+    let feeDebit = 0;
+    for (const je of jes) {
+      for (const l of await journalLines(String(je.id))) {
+        if (l.gl_account_id === bankAccountId) bankNet += l.debit - l.credit;
+        if (l.gl_account_id === expenseAccountId) feeDebit += l.debit - l.credit;
+      }
+    }
+    expect(feeDebit).toBeCloseTo(feeRand, 2);
+    expect(bankNet).toBeCloseTo(INVOICE_TOTAL - feeRand, 2);
+  });
+
+  it('does not book the fee twice when the webhook is redelivered', async () => {
+    const reference = 'k036_feeretry_ref';
+    const feeRand = 12.0;
+    await seedPaymentRequest(reference);
+
+    await deliverWebhook(reference, { fees: Math.round(feeRand * 100) });
+    await deliverWebhook(reference, { fees: Math.round(feeRand * 100) });
+
+    const { rows } = await pool.query(
+      "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND description LIKE 'Paystack fee %'",
+      [companyId],
+    );
+    expect(rows[0].n).toBe(1);
+  });
+
+  it('attributes a non-UUID author to a member of the PAYING company', async () => {
+    // resolveUserUuid would have picked whichever user the heap yielded first,
+    // from any tenant, and stamped the payment and its journal with a stranger.
+    const otherCompanyId = crypto.randomUUID();
+    const otherUserId = crypto.randomUUID();
+    const reference = 'k036_actorscope_ref';
+    await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [otherCompanyId, 'K-036 other tenant']);
+    await pool.query(
+      "INSERT INTO users(id,email,role,is_active,account_type) VALUES($1,$2,'admin',true,'direct')",
+      [otherUserId, `${otherUserId}@k036.test.local`],
+    );
+    await pool.query(
+      "INSERT INTO company_users(id,company_id,user_id,role) VALUES($1,$2,$3,'admin')",
+      [crypto.randomUUID(), otherCompanyId, otherUserId],
+    );
+    try {
+      await pool.query('UPDATE customer_invoices SET created_by=$1 WHERE id=$2', ['sage-import', invoiceId]);
+      await seedPaymentRequest(reference);
+      const result = await deliverWebhook(reference);
+      expect(result.state.statusCode).toBe(200);
+
+      const after = await expectBalancedReceipt(INVOICE_TOTAL);
+      expect(after.paymentRow!.created_by).toBe(userId);
+      const { rows } = await pool.query(
+        'SELECT count(*)::int AS n FROM company_users WHERE company_id=$1 AND user_id=$2',
+        [companyId, after.paymentRow!.created_by],
+      );
+      expect(rows[0].n).toBe(1);
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id=$1', [otherCompanyId]);
+      await pool.query('DELETE FROM companies WHERE id=$1', [otherCompanyId]);
+      await pool.query('DELETE FROM users WHERE id=$1', [otherUserId]);
+    }
+  });
+
+  it('fails the delivery rather than attributing the receipt to nobody', async () => {
+    const reference = 'k036_noactor_ref';
+    await pool.query('UPDATE customer_invoices SET created_by=$1 WHERE id=$2', ['sage-import', invoiceId]);
+    await pool.query('DELETE FROM company_users WHERE company_id=$1', [companyId]);
+    try {
+      await seedPaymentRequest(reference);
+      const result = await deliverWebhook(reference);
+      // Retryable, not a stranger's name on the ledger. K-035 reprocesses it.
+      expect(result.state.statusCode).toBe(500);
+      const after = await ledgerFootprint();
+      expect(after.payments).toBe(0);
+      expect(after.journals).toBe(0);
+      expect(Number(after.invoice.amount_paid)).toBeCloseTo(0, 2);
+    } finally {
+      await pool.query(
+        "INSERT INTO company_users(id,company_id,user_id,role,is_default) VALUES($1,$2,$3,'admin',true)",
+        [crypto.randomUUID(), companyId, userId],
+      );
+    }
+  });
+
+  it('leaves room for a draft receipt already claiming the invoice balance', async () => {
+    // createCustomerPayment subtracted pending draft allocations before deciding
+    // what an invoice can absorb. That invariant has to survive not calling it,
+    // or both receipts confirm and amount_paid passes total_amount.
+    const reference = 'k036_draft_ref';
+    const draftId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO customer_payments(id,company_id,client_id,payment_date,total_amount,
+         payment_method,bank_reference,created_by,status)
+       VALUES($1,$2,$3,CURRENT_DATE,$4,'eft','K036-DRAFT',$5,'draft')`,
+      [draftId, companyId, customerId, INVOICE_TOTAL, userId],
+    );
+    await pool.query(
+      'INSERT INTO customer_payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,$3)',
+      [draftId, invoiceId, INVOICE_TOTAL],
+    );
+    await seedPaymentRequest(reference);
+
+    const result = await deliverWebhook(reference);
+    expect(result.state.statusCode).toBe(200);
+
+    const { rows: gateway } = await pool.query(
+      'SELECT id, total_amount FROM customer_payments WHERE company_id=$1 AND bank_reference=$2',
+      [companyId, reference],
+    );
+    // The cash is still banked in full...
+    expect(Number(gateway[0].total_amount)).toBeCloseTo(INVOICE_TOTAL, 2);
+    // ...but nothing is allocated, because the draft already claims the balance.
+    const { rows: allocs } = await pool.query(
+      'SELECT COALESCE(sum(amount_allocated),0)::float8 AS a FROM customer_payment_allocations WHERE payment_id=$1',
+      [gateway[0].id],
+    );
+    expect(allocs[0].a).toBeCloseTo(0, 2);
+    const { rows: inv } = await pool.query(
+      'SELECT amount_paid::float8 AS p FROM customer_invoices WHERE id=$1', [invoiceId],
+    );
+    expect(inv[0].p).toBeCloseTo(0, 2);
+  });
+
+  it('dates a receipt with an unparseable paid_at today instead of failing forever', async () => {
+    const reference = 'k036_baddate_ref';
+    await seedPaymentRequest(reference);
+
+    const result = await deliverWebhook(reference, { paid_at: 'not-a-date' });
+    expect(result.state.statusCode).toBe(200);
+
+    const after = await expectBalancedReceipt(INVOICE_TOTAL);
+    const { rows } = await pool.query(
+      'SELECT (payment_date = CURRENT_DATE) AS today FROM customer_payments WHERE id=$1',
+      [after.paymentRow!.id],
+    );
+    expect(rows[0].today).toBe(true);
   });
 
   it('does not touch another tenant\'s invoice with the same reference', async () => {
