@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { seedApAccounts } from './apSyntheticAccounts';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstrap';
 import { provisionForensicFixture, validateFixtureTarget, type ForensicFixture } from '../forensic-fixture';
@@ -24,13 +25,14 @@ async function request<T>(person: 'u1' | 'u2' | 'u3', fn: (ctx: ControlTx) => Pr
     const token = user.tokens[bearer && person === 'u1' ? 1 : 0]!;
     const result = await withControlRequest({ client, userId: user.id, companyId: user.companyId, claims: {} },
       { personId: user.id, companyId: user.companyId, authMethod: bearer ? 'pat' : 'cookie',
-        ...(bearer ? { connectionId: token.id, grantId: token.id, grantedScopes: ['write:approvals', 'write:invoices', 'write:post'] } : {}) },
+        ...(bearer ? { connectionId: token.id, grantId: token.id, grantedScopes: ['write:approvals', 'write:invoices', 'write:bank-tx', 'write:post'] } : {}) },
       () => fn(requireControlTx()));
     await client.query('COMMIT'); return result;
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 }
 beforeAll(async () => {
   fixture = await provisionForensicFixture(config);
+  await seedApAccounts(pool, fixture.companyA);
   await pool.query('INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,$3)', [supplier, fixture.companyA, 'Forensic supplier']);
   await pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,tax_amount,total_amount,currency,created_by)
     VALUES($1,$2,$3,'FORENSIC-KERNEL','2026-09-09',100,15,115,'ZAR',$4)`, [invoice, fixture.companyA, supplier, fixture.u1.id]);
@@ -268,7 +270,7 @@ it('rechecks the original requester token after revocation or scope attenuation'
   const token = fixture.u1.tokens[1]!;
   for (const change of ['revoked', 'scope', 'expired']) {
     await pool.query("UPDATE personal_access_tokens SET scopes=$1,revoked_at=null,expires_at=clock_timestamp()+interval '1 day' WHERE company_id=$2 AND id=$3",
-      [['write:approvals', 'write:invoices', 'write:post'], fixture.companyA, token.id]);
+      [['write:approvals', 'write:invoices', 'write:bank-tx', 'write:post'], fixture.companyA, token.id]);
     const targetRef = await freshPayment();
     const approval = await request('u1', ctx => requestOperationApproval(ctx, targetRef), true);
     await request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved'));

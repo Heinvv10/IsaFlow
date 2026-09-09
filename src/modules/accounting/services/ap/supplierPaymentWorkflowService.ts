@@ -3,19 +3,29 @@
  * Approve and process payment operations — split from supplierPaymentService.ts.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
-import { getSystemAccount } from '../gl/systemAccountResolver';
+import { resolveApControlAccounts } from './apControlAccounts';
+import { requireControlTx } from '../controls/context';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { getSupplierPaymentById } from './supplierPaymentService';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { runApControlled, type ApApprovalOptions } from './apControlBoundary';
+import type { ControlledEffectPermit } from '../controls/approvalExecutionService';
+import { registerGeneratedJournal } from '../controls/generatedJournalPermit';
+import { applyControlledSupplierSettlement } from './supplierPaymentSettlement';
+import { recordPaymentStatusApproval } from './supplierPaymentStatusControl';
 type Row = DbRow;
 
-export async function approveSupplierPayment(
+export async function approveSupplierPayment(companyId: string, id: string, userId: string): Promise<SupplierPayment> {
+  return recordPaymentStatusApproval(companyId, id, userId, () => approveSupplierPaymentEffect(companyId, id, userId));
+}
+
+async function approveSupplierPaymentEffect(
   companyId: string,
   id: string,
   userId: string,
@@ -46,23 +56,20 @@ export async function approveSupplierPayment(
  *   settle_by_contra tool) pass it. Same reasoning as
  *   approveSupplierInvoice / postSupplierInvoiceToGL.
  */
-export async function processSupplierPayment(
+async function processSupplierPaymentEffect(
   companyId: string,
   id: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts: { postingAgent?: string } | undefined,
+  permit: ControlledEffectPermit,
 ): Promise<SupplierPayment> {
   try {
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
 
-    const apAccount = await getSystemAccount('payable', companyId);
-    const bankAccount = payment.bankAccountId
-      ? ((await sql`SELECT * FROM gl_accounts WHERE id = ${payment.bankAccountId}::UUID AND company_id = ${companyId}::UUID`) as Row[])[0]
-      : await getSystemAccount('bank', companyId);
-
-    if (!bankAccount) throw new Error('Bank account not found');
+    const { chosen } = await resolveApControlAccounts(requireControlTx(), { operation: 'supplier_payment.process', entityType: 'supplier_payment', entityId: id });
+    const apAccount = chosen.payable!, bankAccount = chosen.bank!;
 
     const lines: JournalLineInput[] = [
       {
@@ -83,27 +90,18 @@ export async function processSupplierPayment(
       entryDate: payment.paymentDate,
       description: `Supplier payment ${payment.paymentNumber}`,
       source: 'auto_supplier_payment',
+      sourceRecordId: id,
       lines,
     }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
 
-    await postJournalEntry(companyId, journalEntry.id, userId);
+    const parentControl = { permit, parent: { operation: 'supplier_payment.process' as const, entityType: 'supplier_payment', entityId: id } };
+    await registerGeneratedJournal(requireControlTx(), parentControl, journalEntry.id, 'journal.post');
+    await postJournalEntry(companyId, journalEntry.id, userId, { parentControl });
 
     // Run on the ALS-bound connection so the outer request-scoped tx provides
     // atomicity — withTransaction would deadlock against rows already locked
     // by this same request (e.g. the JE we just inserted/posted above).
-    for (const alloc of payment.allocations) {
-      const newPaid = alloc.amountAllocated;
-      await sql`
-        UPDATE supplier_invoices
-        SET amount_paid = amount_paid + ${newPaid},
-            status = CASE
-              WHEN (total_amount - (amount_paid + ${newPaid})) <= 0.01 THEN 'paid'
-              WHEN (amount_paid + ${newPaid}) > 0 THEN 'partially_paid'
-              ELSE status
-            END
-        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
-      `;
-    }
+    await applyControlledSupplierSettlement(id, permit.accountingDate ?? payment.paymentDate, permit);
 
     const updatedRows = (await sql`
       UPDATE supplier_payments
@@ -128,22 +126,22 @@ export async function processSupplierPayment(
  * its allocations, and set the payment to 'cancelled'. Reconciled payments
  * are anchored to a bank reconciliation and must be un-reconciled first.
  */
-export async function voidSupplierPayment(
-  companyId: string,
-  id: string,
-  userId: string,
-): Promise<SupplierPayment> {
-  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a
-  // failure after the reversal's draft INSERTs must roll them back.
-  return withSavepoint('void_supplier_payment', () =>
-    voidSupplierPaymentInner(companyId, id, userId),
-  );
+export async function processSupplierPayment(companyId: string, id: string, userId: string,
+  opts?: { postingAgent?: string } & ApApprovalOptions): Promise<SupplierPayment> {
+  return runApControlled(companyId, userId, { operation: 'supplier_payment.process', entityType: 'supplier_payment', entityId: id },
+    opts, permit => processSupplierPaymentEffect(companyId, id, userId, opts, permit));
+}
+export async function voidSupplierPayment(companyId: string, id: string, userId: string,
+  opts?: ApApprovalOptions): Promise<SupplierPayment> {
+  return runApControlled(companyId, userId, { operation: 'supplier_payment.void', entityType: 'supplier_payment', entityId: id },
+    opts, permit => voidSupplierPaymentInner(companyId, id, userId, permit));
 }
 
 async function voidSupplierPaymentInner(
   companyId: string,
   id: string,
   userId: string,
+  permit: ControlledEffectPermit,
 ): Promise<SupplierPayment> {
   try {
     const payment = await getSupplierPaymentById(companyId, id);
@@ -168,28 +166,16 @@ async function voidSupplierPaymentInner(
         String(jeRows[0]!.status) === 'posted' &&
         jeRows[0]!.reversed_at == null
       ) {
-        await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
+        const parentControl = { permit, parent: { operation: 'supplier_payment.void' as const, entityType: 'supplier_payment', entityId: id } };
+        await registerGeneratedJournal(requireControlTx(), parentControl, payment.glJournalEntryId, 'journal.reverse');
+        await reverseJournalEntry(companyId, payment.glJournalEntryId, userId, { parentControl, reversalDate: permit.accountingDate });
       }
     }
 
     // Un-apply allocations: roll amount_paid back and recompute status.
     // A voided payment returns the invoice to its pre-payment state
     // ('approved' when nothing else is paid, 'partially_paid' otherwise).
-    for (const alloc of payment.allocations) {
-      // Mirrors processSupplierPayment's CASE: compare the REMAINING paid
-      // amount against total_amount so an invoice still fully covered by
-      // OTHER payments keeps status 'paid' (PR #203 review MEDIUM).
-      await sql`
-        UPDATE supplier_invoices
-        SET amount_paid = GREATEST(amount_paid - ${alloc.amountAllocated}, 0),
-            status = CASE
-              WHEN (total_amount - GREATEST(amount_paid - ${alloc.amountAllocated}, 0)) <= 0.01 THEN 'paid'
-              WHEN GREATEST(amount_paid - ${alloc.amountAllocated}, 0) > 0.01 THEN 'partially_paid'
-              ELSE 'approved'
-            END
-        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
-      `;
-    }
+    await applyControlledSupplierSettlement(id, permit.accountingDate ?? payment.paymentDate, permit);
 
     // Guarded flip: only a still-processed payment can be voided (concurrent
     // void/reconcile loses the race cleanly).
