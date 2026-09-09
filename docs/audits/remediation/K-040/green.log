@@ -1,0 +1,43 @@
+K-040 GREEN — 2026-09-09T10:16:46+02:00 — branch fix/audit-k040-wip-run-lock
+
+== integration (real Postgres fixture, two/three pool clients) ==
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-040
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  10:16:46
+   Duration  5.84s (transform 166ms, setup 0ms, import 277ms, tests 5.37s, environment 0ms)
+
+
+== unit (practiceWipService) ==
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+
+== full unit suite, DATABASE_URL unset ==
+ Test Files  790 passed | 36 skipped (826)
+      Tests  9393 passed | 234 skipped (9627)
+
+== tsc / eslint ==
+tsc --noEmit: clean
+eslint: clean
+
+== mutation checks (production change reverted, test re-run, then restored) ==
+1. `FOR UPDATE OF te` deleted from wipEntryLock.ts:
+   Tests 2 failed | 2 passed (4)
+   × bills a time entry on exactly one invoice when two runs overlap
+     AssertionError: expected [Function] to throw error matching
+     /no eligible approved time entries/ but got 'current transaction is aborted...'
+   × refuses the run rather than half-billing when the lock cannot be taken
+     AssertionError: expected /being invoiced by another request/ but got
+     'canceling statement due to lock timeout'
+   Note, honestly: without the lock the losing run is not serialised, races on to
+   its invoice INSERT and dies on uq_customer_invoices_company_number — the
+   accidental guard the validator documented. The realised double-bill on master
+   is recorded in red.log (validator's run), not reproduced by this ordering.
+2. `if (marked !== eligibleIds.length)` disabled in practiceWipService.ts:
+   Tests 1 failed | 7 passed (8)
+   × throws when fewer entries were marked billed than were selected
+Both changes restored; suites re-run green (above).
