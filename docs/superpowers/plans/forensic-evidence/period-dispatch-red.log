@@ -1,0 +1,48 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/services/controls/periodDispatcher.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/periodDispatcher.test.ts (4 tests | 4 failed) 10ms
+   × uses authoritative nonfinancial material for fiscal_period 7ms
+   × uses authoritative nonfinancial material for fiscal_year 1ms
+   × uses authoritative nonfinancial material for vat_period 0ms
+   × uses authoritative nonfinancial material for company_lockdown_intent 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/periodDispatcher.test.ts > uses authoritative nonfinancial material for fiscal_period
+ FAIL  tests/unit/services/controls/periodDispatcher.test.ts > uses authoritative nonfinancial material for fiscal_year
+ FAIL  tests/unit/services/controls/periodDispatcher.test.ts > uses authoritative nonfinancial material for vat_period
+ FAIL  tests/unit/services/controls/periodDispatcher.test.ts > uses authoritative nonfinancial material for company_lockdown_intent
+AssertionError: expected undefined to deeply equal { binding: { amount: null, …(1) } }
+
+- Expected:
+{
+  "binding": {
+    "amount": null,
+    "currency": null,
+  },
+}
+
++ Received:
+undefined
+
+ ❯ tests/unit/services/controls/periodDispatcher.test.ts:12:46
+     10|  const ctx={} as ControlTx,ref={entityType,entityId:'synthetic',operat…
+     11|  material.period.mockResolvedValue({binding:{amount:null,currency:null…
+     12|  expect(await materializeOperation(ctx,ref)).toEqual({binding:{amount:…
+       |                                              ^
+     13|  expect(material.period).toHaveBeenCalledWith(ctx,ref);expect(material…
+     14| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  10:49:02
+   Duration  408ms (transform 139ms, setup 0ms, import 196ms, tests 10ms, environment 0ms)
+
+error: script "test:unit" exited with code 1
