@@ -608,8 +608,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "30b0e8af",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts"
@@ -618,7 +618,7 @@
     "K-016/red.log",
     "K-016/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "30b0e8af",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -639,8 +639,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "30b0e8af",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k017-bank-rule-vat-net-control-account.int.test.ts"
@@ -649,7 +649,7 @@
     "K-017/red.log",
     "K-017/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "30b0e8af",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -706,8 +706,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "fe21320e",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k019-transfer-relink-double-bind.int.test.ts"
@@ -716,7 +716,7 @@
     "K-019/red.log",
     "K-019/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "fe21320e",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -812,8 +812,8 @@
    "correctedTrigger": "Sequential recalculation removes the repayment deduction while retaining the reduced loan balance. Do not restate the original double-decrement claim.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ebeac9ca",
-   "status": "confirmed",
+   "currentSha": "dd112c24",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts"
@@ -822,7 +822,7 @@
     "K-022/red.log",
     "K-022/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "dd112c24",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -2660,7 +2660,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "status": "candidate",
-   "dependencies": [],
+   "dependencies": [
+    "R-021: the import raises 42703 before any row is written; reproduce K-088 after R-021"
+   ],
    "testNames": [],
    "evidencePaths": [],
    "fixCommit": null,
@@ -8494,6 +8496,59 @@
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "high"
+  },
+  {
+   "id": "R-021",
+   "claim": "sageImportService.importSupplierInvoices selects eleven columns sage_supplier_invoices does not have, so it raises 42703 on its first statement for every tenant (K-015 class in a third service).",
+   "area": "migrations",
+   "affectedPaths": [
+    "src/modules/accounting/services/core/sageImportService.ts"
+   ],
+   "sourceLabel": "K-015 fix round 5",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Named by a fixer or reviewer during remediation; not yet reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "candidate",
+   "dependencies": [
+    "Refines K-088 (Sage supplier-invoice import idempotency): the import has never run; validate K-088 on top of this"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
+  },
+  {
+   "id": "R-022",
+   "claim": "A bank rule targeting a transfer contra is not recorded as a transfer allocation; needs a schema change to mark rule-driven transfers.",
+   "area": "bank",
+   "affectedPaths": [
+    "src/modules/accounting/services/gl/bankContraVat.ts",
+    "src/modules/accounting/services/bank/bankRuleAutoPostLine.ts"
+   ],
+   "sourceLabel": "Review of K-016/K-017 fix round 3",
+   "sourceIds": [],
+   "correctedTrigger": null,
+   "severityRationale": "Named by a fixer or reviewer during remediation; not yet reproduced as its own test.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "faa2ef39",
+   "status": "candidate",
+   "dependencies": [
+    "Schema change; reviewer recommended naming, not fixing, inside K-017"
+   ],
+   "testNames": [],
+   "evidencePaths": [],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "Not assessed",
+   "canonicalItem": null,
+   "reportedSeverity": "low"
   }
  ],
  "sourceInventory": [
