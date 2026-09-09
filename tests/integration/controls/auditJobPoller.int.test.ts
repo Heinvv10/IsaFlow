@@ -42,7 +42,8 @@ it('polls actual queued jobs, skips revoked oldest authority, and publishes only
 it('runs the executable once-mode CLI against only the explicitly validated synthetic database',async()=>{
  const job=await enqueue('u1');
  const result=await promisify(execFile)('bun',['scripts/forensic/run-audit-worker.ts','--company',fixture.companyA,'--once'],{
-  cwd:process.cwd(),env:{...process.env,ISAFLOW_AUDIT_WORKER_DATABASE_URL:validateFixtureTarget(config).connectionString},timeout:15000,maxBuffer:65536,
+  cwd:process.cwd(),env:{...process.env,ISAFLOW_AUDIT_WORKER_DATABASE_URL:validateFixtureTarget(config).connectionString,
+   ISAFLOW_AUDIT_WORKER_NODE_PATH:process.execPath,ISAFLOW_AUDIT_WORKER_ENTRY_PATH:process.env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT},timeout:15000,maxBuffer:65536,
  });
  expect(result.stdout+result.stderr).toContain('Audit queue worker stopped');
  expect((await pool.query('SELECT state FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows[0].state).toBe('succeeded');
