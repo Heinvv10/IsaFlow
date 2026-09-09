@@ -92,7 +92,10 @@ export default function TrialBalancePage() {
   useEffect(() => { void loadTB(); }, [loadTB]);
 
   const handleExport = () => {
-    if (selectedPeriod) window.open(`/api/accounting/trial-balance-export?fiscal_period_id=${selectedPeriod}`, '_blank');
+    if (!selectedPeriod) return;
+    const params = new URLSearchParams({ fiscal_period_id: selectedPeriod });
+    if (costCentreId) params.set('cost_centre_id', costCentreId);
+    window.open(`/api/accounting/trial-balance-export?${params}`, '_blank');
   };
 
   const sumOf = (key: 'openingDebit' | 'openingCredit' | 'periodDebit' | 'periodCredit') =>
