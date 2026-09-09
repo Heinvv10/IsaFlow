@@ -1,39 +1,69 @@
 # K-022 fix — recalculating payroll dropped the loan deduction and kept the reduced balance
 
-**Trigger.** Calculate a draft run with a loan instalment due, then calculate it again (Recalculate,
-or any second call before the run locks).
+**Trigger.** Calculate a draft run with a loan instalment due, then calculate it again.
 
 **Before.** The first pass set `payroll_loan_schedule.paid_flag = true`, wrote a
-`payroll_loan_payments` row and reduced `payroll_loans.outstanding_balance`. `calculatePayrollRun`
-rebuilds `payroll_run_lines` on every call, but both `listActiveLoansForRun` and the schedule lookup
-inside `applyLoanToRun` filter `paid_flag = false`, so the second pass offered no loan and injected
-no LOAN deduction. Net pay rose by the instalment while the loan still read as repaid.
+`payroll_loan_payments` row and reduced `payroll_loans.outstanding_balance`. Both
+`listActiveLoansForRun` and the schedule lookup in `applyLoanToRun` filter `paid_flag = false`, so
+the second pass injected no LOAN deduction. Net pay rose by the instalment while the loan still read
+as repaid.
 
-**After.** `calculatePayrollRun` calls `reverseLoanApplicationsForRun(companyId, runId)` immediately
-before `listActiveLoansForRun`. It deletes the payment rows this run created (joined to
-`payroll_loans` for the company scope), clears `paid_flag` on the matching schedule rows, adds the
-principal back to `outstanding_balance`, subtracts it from `total_principal_paid` /
-`total_interest_charged`, and returns a `settled` loan to `active` with `settled_at` cleared. The
-forward path then re-applies identically, so recalculation is idempotent. The run-lock check at
-`payrollRunService.ts:122` still runs first, so an approved run cannot be reversed. A payment another
-run applied for the same period keeps its own `run_id` and is untouched.
+**After.** `calculatePayrollRun` delegates the loan half to `applyRunLoans`, which in one
+`withTransaction`, holding `FOR UPDATE` on the affected loans: refuses a run whose
+`journal_entry_id` is still set; reverses the payments this run wrote; then re-applies the
+instalments due. Recalculation is idempotent. `applyLoanToRun` and `listActiveLoansForRun` take an
+optional `TxSql` executor so the whole sequence stays on one connection.
 
-**Files.**
-- `src/modules/accounting/services/payroll/payrollLoanReversal.ts` (new, 71 lines)
-- `src/modules/accounting/services/payroll/payrollRunService.ts` (import + one call + comment)
-- `src/modules/accounting/services/payroll/.claude.md` + generated `AGENTS.md` mirror
+## Review findings from commit b77557ce, all addressed
 
-**Tests.** `tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts` — 4 passed
-against the real schema fixture DB: the validator's RED case, a third calculation reducing the
-balance exactly once, an approved run rejected with `PayrollRunLockedError` and its loan state
-untouched, and a second tenant whose loan is unaffected while its own run reopens and re-settles a
-settled loan. Mutation check: commenting out the reversal call turns all 4 red (`green.log`).
-`bunx tsc --noEmit` and `bunx eslint` on both changed source files are clean.
+- **HIGH-1** `reopenPayrollRun` moves an approved run to `calculated` and leaves the GL journal
+  posted, so the reversal could move the subledger under a journal nothing re-posts. `applyRunLoans`
+  now throws `PayrollRunJournalPostedError` when the run has a live `journal_entry_id` and payments
+  to undo, directing the caller to `reversePayrollRunJournal` first.
+- **MEDIUM-1** a loan closed between calculations is reversed but not re-applied. The delete is no
+  longer traceless: each removed payment is tombstoned on `payroll_loan_payment_reversals`
+  (migration 620) with `reapplied` set true only when the forward path retook it, and a
+  `log.warn` names the loans it did not.
+- **MEDIUM-2** reverse and re-apply now run in one transaction under `FOR UPDATE` with a 5s
+  `lock_timeout`, raising `PayrollLoanLockTimeoutError` on contention.
+- **LOW-1** a payment stranded by a deleted run (`run_id` set NULL by the FK) is reclaimed by
+  period, so a replacement run takes the instalment again.
+- **LOW-2** `applyLoanToRun`'s schedule lookup gained `ORDER BY sequence`; the supporting index is
+  not unique, so the bare `LIMIT 1` took heap order.
+- **LOW-3** the restore is `LEAST(principal, outstanding_balance + principal_paid)`, so a balance
+  the forward path clamped at zero cannot be restored above the loan principal.
+- **LOW-4** the loan orchestration moved out of `payrollRunService.ts`, which is now 487 lines,
+  below the 498 it had before this work. Still over the 300-line cap, which predates it.
+- **LOW-5** the test snapshot helper asserts row counts before indexing.
 
-**Migration / rollback.** None. Revert the commit to roll back; no schema or data change.
+## Files
 
-**Historical-data impact.** Existing rows can already be wrong — the fix repairs nothing. Read-only
-query (do NOT run on production without approval):
+- `src/modules/accounting/services/payroll/payrollRunLoanApplication.ts` (new, 185 lines)
+- `src/modules/accounting/services/payroll/payrollLoanReversal.ts` (new, 136 lines)
+- `src/modules/accounting/services/payroll/payrollLoanService.ts` (executor param, `ORDER BY`)
+- `src/modules/accounting/services/payroll/payrollRunService.ts` (call site)
+- `scripts/migrations/sql/620_payroll_loan_payment_reversals.sql` (new)
+- module `.claude.md` and its generated `AGENTS.md` mirror
+
+## Tests
+
+10 passed against the fixture DB: 4 in `tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts`
+and 6 in `tests/integration/k022-payroll-loan-reversal-edge-cases.int.test.ts`. Full unit suite with
+no fixture env: 9320 passed, 0 failed. `green.log` records every mutation check, including the one
+that does not kill: removing `FOR UPDATE` while keeping the transaction leaves all 10 green. The
+transaction boundary is what the concurrency tests prove; the lock is defence-in-depth.
+
+## Migration / rollback
+
+Migration 620 creates `payroll_loan_payment_reversals` with `IF NOT EXISTS`, RLS enabled and forced,
+and a `tenant_isolation` policy. Applied twice to the fixture DB to prove idempotence; not run
+against production. Prefix 620 was free across every active worktree when chosen, but peers already
+hold 619 twice, so re-check before merging. Rollback: revert the commit and
+`DROP TABLE payroll_loan_payment_reversals`.
+
+## Historical-data impact
+
+The fix repairs nothing existing. Read-only query, NOT run against production:
 
 ```sql
 SELECT l.company_id, l.id, l.loan_number, l.principal, l.outstanding_balance,
@@ -46,10 +76,12 @@ HAVING l.principal - l.outstanding_balance - COALESCE(SUM(p.principal_paid),0) <
 ```
 
 Each hit is an employee whose payslip did not take the instalment while the loan reads as repaid, so
-the staff-loan asset is overstated against what was actually recovered. Ran clean on the fixture DB;
-not run on production.
+the staff-loan asset is overstated against what was recovered. It returned no rows on the fixture DB.
 
-**Limits.** The loan writes still sit outside the `withTransaction` block that rebuilds the run
-lines, covered only by the `withAuth` request transaction — unchanged by this fix. The reversal is
-not concurrency-guarded: two simultaneous calculations of the same run can still interleave, which
-is a separate defect from the sequential one K-022 records.
+## Limits
+
+`FOR UPDATE` is not killed by any test I could construct: with the transaction in place, the row
+locks the DELETE and UPDATE take already serialise the single-loan case, and the `ON CONFLICT` on
+`payroll_loan_payments` makes the surviving interleavings converge. A run with a live journal is now
+refused rather than silently corrected, which changes behaviour for anyone recalculating a reopened
+run that carries loan deductions.

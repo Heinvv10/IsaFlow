@@ -19,7 +19,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 type Row = DbRow;
@@ -385,8 +385,14 @@ export interface ApplyLoanResult {
   closingBalance: number;
 }
 
-export async function applyLoanToRun(input: ApplyLoanToRunInput): Promise<ApplyLoanResult | null> {
-  const loanRows = (await sql`
+// `db` lets payrollRunLoanApplication run the reverse-then-apply pair on one
+// transaction-bound executor; it defaults to the request client for every
+// other caller.
+export async function applyLoanToRun(
+  input: ApplyLoanToRunInput,
+  db: TxSql = sql,
+): Promise<ApplyLoanResult | null> {
+  const loanRows = (await db`
     SELECT id, company_id, employee_id, status, outstanding_balance,
            total_interest_charged, total_principal_paid,
            method, annual_interest_rate
@@ -397,13 +403,16 @@ export async function applyLoanToRun(input: ApplyLoanToRunInput): Promise<ApplyL
   const loanRow = loanRows[0];
   if (!loanRow || loanRow.status !== 'active') return null;
 
-  const scheduleRows = (await sql`
+  // ORDER BY sequence: the supporting index is not unique, so a bare LIMIT 1
+  // would take whichever row the heap returned first.
+  const scheduleRows = (await db`
     SELECT id, sequence, opening_balance, interest, principal, installment, closing_balance
       FROM payroll_loan_schedule
      WHERE loan_id = ${input.loanId}::uuid
        AND due_period_year = ${input.periodYear}
        AND due_period_month = ${input.periodMonth}
        AND paid_flag = false
+     ORDER BY sequence
      LIMIT 1
   `) as Row[];
   const scheduleRow = scheduleRows[0];
@@ -419,7 +428,7 @@ export async function applyLoanToRun(input: ApplyLoanToRunInput): Promise<ApplyL
   const rateShortfall = Math.max(0, input.officialRate - loanRate);
   const fringeBenefit = round2((rateShortfall * opening) / 12);
 
-  await sql`
+  await db`
     INSERT INTO payroll_loan_payments (
       loan_id, run_id, period_year, period_month,
       opening_balance, interest_charged, principal_paid, fringe_benefit, closing_balance
@@ -443,7 +452,7 @@ export async function applyLoanToRun(input: ApplyLoanToRunInput): Promise<ApplyL
       run_id = EXCLUDED.run_id
   `;
 
-  await sql`
+  await db`
     UPDATE payroll_loan_schedule
        SET paid_flag = true
      WHERE id = ${String(scheduleRow.id)}::uuid
@@ -452,7 +461,7 @@ export async function applyLoanToRun(input: ApplyLoanToRunInput): Promise<ApplyL
   const newBalance = round2(Math.max(0, Number(loanRow.outstanding_balance) - principal));
   const newStatus: LoanStatus = newBalance <= 0.0001 ? 'settled' : 'active';
 
-  await sql`
+  await db`
     UPDATE payroll_loans
        SET outstanding_balance = ${newBalance},
            total_interest_charged = total_interest_charged + ${interest},
@@ -521,8 +530,9 @@ export async function listActiveLoansForRun(
   companyId: string,
   periodYear: number,
   periodMonth: number,
+  db: TxSql = sql,
 ): Promise<Array<{ loanId: string; employeeId: string }>> {
-  const rows = (await sql`
+  const rows = (await db`
     SELECT DISTINCT l.id AS loan_id, l.employee_id
       FROM payroll_loans l
       JOIN payroll_loan_schedule s ON s.loan_id = l.id
