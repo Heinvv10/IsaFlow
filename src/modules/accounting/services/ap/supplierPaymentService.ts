@@ -9,6 +9,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validatePaymentAllocations } from '../../utils/paymentAllocation';
+import { assertBillAllocatable } from './supplierAllocationLines';
 import type {
   SupplierPayment,
   PaymentAllocation,
@@ -137,13 +138,26 @@ export async function createSupplierPayment(companyId: string,
   try {
     const invoiceIds = input.allocations.map(a => a.invoiceId);
     const invoiceRows = (await sql`
-      SELECT id, invoice_number, total_amount, amount_paid, balance
+      SELECT id, invoice_number, supplier_id, status, total_amount, amount_paid, balance
       FROM supplier_invoices
       WHERE id = ANY(${invoiceIds}::UUID[])
         AND company_id = ${companyId}::UUID
     `) as Row[];
     if (invoiceRows.length !== invoiceIds.length) {
       throw new Error('One or more invoice IDs not found or belong to a different company');
+    }
+    // The query above names the company and the ids only. Without these two
+    // checks a payment raised against supplier A settled supplier B's bill, and
+    // a draft, cancelled, pending_approval or disputed bill — none of which has
+    // credited AP — took the payment as readily as an approved one. Checked
+    // here rather than in the WHERE clause so the refusal can say which bill and
+    // why: a bare "not found" would mislead on a cancelled bill.
+    for (const row of invoiceRows) {
+      assertBillAllocatable({
+        invoiceNumber: String(row.invoice_number),
+        status: String(row.status),
+        supplierId: String(row.supplier_id),
+      }, input.supplierId);
     }
 
     // W3-AP (P2.1): amount_paid only moves at PROCESS time — without counting
