@@ -16,7 +16,7 @@ export async function materializeAssetDepreciationOperation(ctx: ControlTx, ref:
   const [company] = await ctx.sql`SELECT id,default_currency,lockdown_enabled,lockdown_date::text
     FROM companies WHERE id=${companyId}::uuid FOR SHARE` as Row[];
   const [intent] = await ctx.sql`SELECT id,requester_person_id,asset_id,period_date::text
-    FROM control_asset_depreciation_intents WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid FOR UPDATE` as Row[];
+    FROM control_asset_depreciation_intents WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid` as Row[];
   if (!company || !intent) throw new Error('Depreciation operation not found');
   const currency = company.default_currency, date = intent.period_date;
   if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency) || typeof date !== 'string' || !isRealCalendarDate(date)) {

@@ -4,7 +4,7 @@ vi.mock('@/modules/accounting/services/controls/operationVersions', () => ({ rea
 import { materializeAssetDepreciationOperation } from '@/modules/accounting/services/controls/assetDepreciationOperationMaterializer';
 import type { ControlTx, OperationRef } from '@/modules/accounting/services/controls/contracts';
 const id='11111111-1111-1111-1111-111111111111';
-const ref={entityType:'asset_depreciation_intent',entityId:id,operation:'asset_depreciation.post'} as unknown as OperationRef;
+const ref:OperationRef={entityType:'asset_depreciation_intent',entityId:id,operation:'asset_depreciation.post'};
 function context(overrides:Record<string,unknown>={}) {
  const data={company:{id,default_currency:'ZAR'},intent:{id,asset_id:id,period_date:'2026-02-28'},
   asset:{id,asset_number:'ASSET1',purchase_price:'1200',purchase_date:'2026-01-01',accumulated_depreciation:'0',tax_accumulated_depreciation:'0',useful_life_years:1,tax_useful_life_years:1,deferred_tax_rate:'0.27',status:'available',below_threshold:false},

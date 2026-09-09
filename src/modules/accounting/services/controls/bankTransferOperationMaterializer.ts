@@ -18,7 +18,7 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
     FROM companies WHERE id=${companyId}::uuid FOR SHARE` as Row[];
   const [intent] = await ctx.sql`SELECT id,requester_person_id,from_gl_account_id,to_gl_account_id,
     amount::text,accounting_date::text,reference FROM control_bank_transfer_intents
-    WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid FOR UPDATE` as Row[];
+    WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid` as Row[];
   if (!company || !intent) throw new Error('Bank transfer operation not found');
   const currency = company.default_currency, date = intent.accounting_date;
   if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency) || typeof date !== 'string' || !isRealCalendarDate(date)) {
