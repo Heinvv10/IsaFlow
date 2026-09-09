@@ -1,0 +1,43 @@
+import type {Pool} from 'pg';
+import {als,type RequestContext} from '@/lib/als';
+import {log} from '@/lib/logger';
+export interface AuditWorkerIdentity {companyId:string;personId:string;jobId:string}
+/** Cold transaction boundary. Cancellation completes before its backend can return to the pool. */
+export async function withAuditWorkerTransaction<T>(pool:Pool,identity:AuditWorkerIdentity,isolation:'read committed'|'repeatable read',
+ deadlineAt:number,signal:AbortSignal|undefined,work:(store:RequestContext)=>Promise<T>):Promise<T>{
+ if(als.getStore())throw new Error('Audit worker requires a cold transaction');
+ signal?.throwIfAborted();
+ const client=await pool.connect();let cancellation:Promise<void>|undefined,backend:number|undefined;
+ const cancel=()=>{
+  if(backend===undefined||cancellation)return;
+  const pid=backend;
+  cancellation=(async()=>{
+   const connection=await pool.connect();
+   try{await connection.query('SELECT pg_cancel_backend($1)',[pid]);}finally{connection.release();}
+  })().catch(()=>{log.warn('Audit worker cancellation request failed',{},'audit-worker');});
+ };
+ try{
+  signal?.throwIfAborted();
+  if(Date.now()>=deadlineAt)throw new Error('Audit worker resource deadline');
+  await client.query(isolation==='repeatable read'?'BEGIN ISOLATION LEVEL REPEATABLE READ':'BEGIN');
+  await client.query('SET LOCAL ROLE app_user');
+  const claims={sub:identity.personId,company_id:identity.companyId,role:'authenticated'};
+  await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true),set_config('statement_timeout',$3,true),set_config('lock_timeout',$4,true)",
+   [JSON.stringify(claims),identity.companyId,`${Math.max(1,deadlineAt-Date.now())}ms`,'5000ms']);
+  const result=await client.query('SELECT pg_backend_pid() AS pid');backend=Number(result.rows[0]?.pid);
+  if(!Number.isInteger(backend)||backend<=0)throw new Error('Audit worker backend unavailable');
+  signal?.addEventListener('abort',cancel,{once:true});signal?.throwIfAborted();
+  const store:RequestContext={client,userId:identity.personId,companyId:identity.companyId,claims};
+  const value=await work(store);
+  signal?.throwIfAborted();if(Date.now()>=deadlineAt)throw new Error('Audit worker resource deadline');
+  if(store.controlWriteFailed||store.criticalAuditFailed||store.txUnusable)throw new Error('Audit worker audit integrity failure');
+  await client.query('COMMIT');return value;
+ }catch(error){
+  await cancellation;
+  try{await client.query('ROLLBACK');}catch{log.warn('Audit worker rollback failed',{},'audit-worker');}
+  throw error;
+ }finally{
+  signal?.removeEventListener('abort',cancel);
+  await cancellation;backend=undefined;client.release();
+ }
+}
