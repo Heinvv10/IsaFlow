@@ -180,6 +180,7 @@ export async function reverseJournalEntry(
       projectId: l.projectId,
       costCenterId: l.costCenterId,
       buId: l.buId,
+      vatType: l.vatType,
     }));
 
     // Only entryDate is chosen here; createJournalEntry still derives the
