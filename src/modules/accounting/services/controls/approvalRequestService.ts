@@ -63,13 +63,13 @@ export async function decideOperationApproval(ctx: ControlTx, id: string,
   const authorities = await approvalAuthorities(ctx, id); // Sorted people before policy/domain locks.
   const { assertEffectivePermission, resolveEffectivePermissions } = await import('@/lib/auth/effectivePermissions');
   await assertEffectivePermission(ctx, 'write:approvals');
-  await assertEffectivePermission(ctx, operationPermission(ref.operation,'read'));
   const actor = await resolveEffectivePermissions(ctx);
   return withSavepoint('control_approval_decision', async () => {
     const [initial] = await ctx.sql`
       SELECT binding FROM control_operation_approvals WHERE company_id=${ctx.principal.companyId}::uuid AND id=${id}::uuid
     ` as Array<{ binding: ApprovalRow['binding'] }>;
     if (!initial) throw new Error('Approval not found');
+    await assertEffectivePermission(ctx, operationPermission(initial.binding.operation,'read'));
     const material = await loadOperationMaterial(ctx, initial.binding);
     const row = await lockApproval(ctx, id);
     if (!['pending', 'approved'].includes(row.status) || !row.unexpired) throw new Error('Approval is terminal or expired');

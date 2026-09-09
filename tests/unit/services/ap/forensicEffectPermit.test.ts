@@ -7,7 +7,7 @@ vi.mock('@/lib/auth/effectivePermissions', () => ({ assertEffectivePermission: v
 vi.mock('@/modules/accounting/services/controls/approvalRequestService', () => ({ initializeOperationObservations: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/controls/operationMaterializer', async importOriginal => ({
   ...await importOriginal<typeof import('@/modules/accounting/services/controls/operationMaterializer')>(),
-  loadOperationMaterial: vi.fn(async () => ({ binding: { policies: [] }, bindingHash: 'material' })),
+  loadOperationMaterial: vi.fn(async () => ({ binding: { policies: [], accountingDate: '2026-09-09' }, bindingHash: 'material' })),
 }));
 it('accepts a newly issued context in the same active request but refuses a nested independent effect', async () => {
   const personId = randomUUID(), companyId = randomUUID();
