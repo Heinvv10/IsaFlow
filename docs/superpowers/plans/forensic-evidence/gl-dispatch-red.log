@@ -1,0 +1,27 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/operationApprovalMaterial.test.ts (3 tests | 1 failed) 8ms
+   × retains explicit reversal dates and reconstructs them from a persisted binding 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/operationApprovalMaterial.test.ts > retains explicit reversal dates and reconstructs them from a persisted binding
+Error: Unsupported AP operation
+ ❯ canonicalOperationRef src/modules/accounting/services/controls/operationMaterializer.ts:13:50
+     11|     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_…
+     12|     : ref.entityType === 'supplier_payment' ? ['supplier_payment.proce…
+     13|   if (!operations.includes(ref.operation)) throw new Error('Unsupporte…
+       |                                                  ^
+     14|   return { entityType: ref.entityType, entityId: ref.entityId,
+     15|     ...(ref.expectedVersion === undefined ? {} : { expectedVersion: re…
+ ❯ tests/unit/services/controls/operationApprovalMaterial.test.ts:19:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  10:03:22
+   Duration  720ms (transform 255ms, setup 0ms, import 330ms, tests 8ms, environment 0ms)
+

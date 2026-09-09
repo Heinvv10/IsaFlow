@@ -1,3 +1,6 @@
+import { isRealCalendarDate } from '@/lib/validation';
+import { materializeGlOperation } from './glOperationMaterializer';
+import { operationRuleType } from './operationPermissions';
 import { canonicalJson, operationBindingHash } from './canonical';
 import { assertControlTx } from './context';
 import { materializeApOperation, type ApMaterial } from './apOperationMaterializer';
@@ -9,10 +12,14 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.entityId)) throw new Error('Invalid operation reference');
   const operations = ref.entityType === 'supplier_invoice'
     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_invoice.cancel']
-    : ref.entityType === 'supplier_payment' ? ['supplier_payment.process', 'supplier_payment.void'] : [];
-  if (!operations.includes(ref.operation)) throw new Error('Unsupported AP operation');
+    : ref.entityType === 'supplier_payment' ? ['supplier_payment.process', 'supplier_payment.void']
+      : ref.entityType === 'journal_entry' ? ['journal.post','journal.reverse'] : [];
+  if (!operations.includes(ref.operation)) throw new Error('Unsupported controlled operation');
+  const reversalDate = ref.reversalDate ?? (ref.operation === 'journal.reverse' && 'accountingDate' in ref ? ref.accountingDate : undefined);
+  if (reversalDate !== undefined && (ref.operation !== 'journal.reverse' || typeof reversalDate !== 'string' || !isRealCalendarDate(reversalDate))) throw new Error('Invalid reversal date');
   return { entityType: ref.entityType, entityId: ref.entityId,
     ...(ref.expectedVersion === undefined ? {} : { expectedVersion: ref.expectedVersion }),
+    ...(reversalDate === undefined ? {} : { reversalDate }),
     operation: ref.operation === 'supplier_invoice.approve' ? 'supplier_invoice.post' : ref.operation };
 }
 export interface OperationMaterial extends ApMaterial {
@@ -25,8 +32,9 @@ export async function loadOperationMaterial(ctx: ControlTx, input: OperationRef)
   const ref = canonicalOperationRef(input);
   // Root627 policy mutations take the same tenant lock, including INSERT phantoms.
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
-  const rules = await loadApprovalRules(ctx, ref.entityType === 'supplier_invoice' ? 'supplier_invoice' : 'payment');
-  const material = await materializeApOperation(ctx, ref);
+  const rules = await loadApprovalRules(ctx, operationRuleType(ref.operation));
+  const material = await materializeOperation(ctx, ref);
+  if (!material.supplierId && rules.some(rule => rule.aggregate_window_days !== null)) throw new Error('Supplier aggregate policy cannot evaluate this operation');
   const [clock] = await ctx.sql`SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day` as Array<{ day: string }>;
   if (!clock) throw new Error('Execution clock unavailable');
   const exposure = new Map<string, string>();
@@ -62,4 +70,9 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
       WHERE control_policy_exposure.state<>'committed'
     `;
   }
+}
+
+/** Authoritative source material is shared by approval, execution and after-effect evidence. */
+export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
+  return ref.entityType==='journal_entry' ? materializeGlOperation(ctx,ref) : materializeApOperation(ctx,ref);
 }

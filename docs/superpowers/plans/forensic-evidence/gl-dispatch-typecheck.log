@@ -1,0 +1,22 @@
+$ tsc --noEmit
+src/modules/accounting/services/controls/approvalExecutionService.ts(67,17): error TS2345: Argument of type 'Readonly<{ operationId: string; accountingDate: string | null; operation: "supplier_invoice.approve" | "supplier_invoice.post" | "supplier_invoice.cancel" | "supplier_payment.process" | ... 18 more ... | "historical_import.post"; entityType: string; entityId: string; }>' is not assignable to parameter of type 'ControlledEffectPermit'.
+  Types of property 'accountingDate' are incompatible.
+    Type 'string | null' is not assignable to type 'string'.
+      Type 'null' is not assignable to type 'string'.
+src/modules/accounting/services/controls/approvalExecutionService.ts(69,33): error TS2345: Argument of type 'Readonly<{ operationId: string; accountingDate: string | null; operation: "supplier_invoice.approve" | "supplier_invoice.post" | "supplier_invoice.cancel" | "supplier_payment.process" | ... 18 more ... | "historical_import.post"; entityType: string; entityId: string; }>' is not assignable to parameter of type 'ControlledEffectPermit'.
+  Types of property 'accountingDate' are incompatible.
+    Type 'string | null' is not assignable to type 'string'.
+      Type 'null' is not assignable to type 'string'.
+src/modules/accounting/services/controls/approvalExecutionService.ts(69,69): error TS2345: Argument of type 'Readonly<{ operationId: string; accountingDate: string | null; operation: "supplier_invoice.approve" | "supplier_invoice.post" | "supplier_invoice.cancel" | "supplier_payment.process" | ... 18 more ... | "historical_import.post"; entityType: string; entityId: string; }>' is not assignable to parameter of type 'ControlledEffectPermit'.
+  Types of property 'accountingDate' are incompatible.
+    Type 'string | null' is not assignable to type 'string'.
+      Type 'null' is not assignable to type 'string'.
+src/modules/accounting/services/controls/approvalExecutionService.ts(78,51): error TS2345: Argument of type 'OperationRef | { reversalDate: string | null; operation: "supplier_invoice.approve" | "supplier_invoice.post" | "supplier_invoice.cancel" | "supplier_payment.process" | ... 18 more ... | "historical_import.post"; expectedVersion?: number | undefined; entityType: string; entityId: string; }' is not assignable to parameter of type 'OperationRef'.
+  Type '{ reversalDate: string | null; operation: ControlOperation; expectedVersion?: number; entityType: string; entityId: string; }' is not assignable to type 'OperationRef'.
+    Types of property 'reversalDate' are incompatible.
+      Type 'string | null' is not assignable to type 'string | undefined'.
+        Type 'null' is not assignable to type 'string | undefined'.
+src/modules/accounting/services/controls/approvalQueries.ts(71,68): error TS2551: Property 'operation' does not exist on type 'ApprovalRow'. Did you mean 'operation_id'?
+src/modules/accounting/services/controls/approvalQueries.ts(80,70): error TS2551: Property 'operation' does not exist on type 'ApprovalRow'. Did you mean 'operation_id'?
+src/modules/accounting/services/controls/approvalRequestService.ts(66,60): error TS2304: Cannot find name 'ref'.
+src/modules/accounting/services/controls/operationMaterializer.ts(35,46): error TS2345: Argument of type 'string' is not assignable to parameter of type '"supplier_invoice" | "payment"'.
