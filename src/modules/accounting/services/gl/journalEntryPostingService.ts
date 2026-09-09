@@ -13,7 +13,15 @@ import {
   mapEntryRow,
 } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
-import { getPeriodStatusForDate } from './periodStatusService';
+import {
+  claimJournalReversal,
+  releaseJournalReversalClaim,
+  withReversalTransaction,
+} from './journalEntryReversalClaim';
+import { resolveReversalDate } from './journalEntryReversalDate';
+
+// Re-exported: the MCP reverse tool and journalEntryService import it from here.
+export { resolveReversalDate };
 
 type Row = DbRow;
 
@@ -129,60 +137,6 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
   }
 }
 
-/** A calendar date, and a real one — `2026-02-30` matches the shape but is not a day. */
-function isCalendarDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [y, m, d] = value.split('-').map(Number) as [number, number, number];
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
-}
-
-/**
- * Default to the original date while its period is open; otherwise use today.
- * An explicit date must be real, not precede the original, and have an open
- * period. Check period existence here: posting permits a null fiscalPeriodId,
- * which would leave the correction outside period-bounded reports.
- * Exported for read-only preflight: callers must distinguish a refusal before
- * writes from a failure after the contra has posted.
- */
-export async function resolveReversalDate(
-  companyId: string,
-  originalDate: string,
-  requested: string | undefined,
-): Promise<string> {
-  if (requested === undefined) {
-    const originalPeriod = await getPeriodStatusForDate(companyId, originalDate);
-    // fmtDate(new Date()), not toISOString — between 00:00 and 02:00 SAST the
-    // latter stamps yesterday.
-    return originalPeriod === 'open' ? originalDate : fmtDate(new Date());
-  }
-  if (!isCalendarDate(requested)) {
-    throw new Error(`reversal_date must be a real calendar date in YYYY-MM-DD format, got "${requested}"`);
-  }
-  // String comparison is safe and total for zero-padded ISO dates.
-  if (requested < originalDate) {
-    throw new Error(
-      `reversal_date ${requested} is before the entry it reverses (${originalDate}). `
-      + 'A correction cannot be dated earlier than the entry it corrects.',
-    );
-  }
-  // The TARGET date's period, not the original's. Refused BEFORE
-  // createJournalEntry inserts anything, so there is no draft to clean up and
-  // the caller is told which of the two problems it has.
-  const targetPeriod = await getPeriodStatusForDate(companyId, requested);
-  if (targetPeriod === 'no_period') {
-    throw new Error(
-      `No fiscal period covers reversal_date ${requested}. `
-      + 'Create the fiscal year first — posting outside every period would leave the '
-      + 'reversal invisible to the trial balance, the VAT201 and the AFS.',
-    );
-  }
-  if (targetPeriod !== 'open') {
-    throw new Error(`The fiscal period covering reversal_date ${requested} is closed.`);
-  }
-  return requested;
-}
-
 /** Automated callers stamp the contra via opts; omitted opts keep human attribution. */
 export async function reverseJournalEntry(
   companyId: string,
@@ -190,6 +144,12 @@ export async function reverseJournalEntry(
   userId: string,
   opts?: PostingActorOpts & { reversalDate?: string },
 ): Promise<JournalEntry> {
+  // One transaction around the whole reversal. Inside a request there already
+  // is one and this runs on it; outside one (scripts/fixes, cron) it opens and
+  // commits its own. That is what keeps the claim below from outliving the
+  // contra it stands for: a crash anywhere in between rolls both back, and a
+  // rerun repairs the entry instead of finding it permanently marked reversed.
+  return withReversalTransaction({ companyId, userId }, async () => {
   try {
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
@@ -213,33 +173,37 @@ export async function reverseJournalEntry(
       vatType: l.vatType,
     }));
 
-    // A correction belongs in the period it corrects. Dating every reversal to
-    // TODAY moved the correction into a later period than the entry it undoes:
-    // the two no longer net to zero in any period-bounded report, and when the
-    // pair straddles a VAT period the return for the original period stays
-    // overstated while the next one is understated.
-    //
-    // So: date the reversal to the ORIGINAL entry_date when that period is
-    // still open, and fall back to today only when it is not. The fallback is
-    // what the previous unconditional-today rule was really protecting — a
-    // closed original period must not make old documents permanently
-    // un-cancellable, and postJournalEntry would throw ClosedFiscalPeriodError.
-    //
     // Only entryDate is chosen here; createJournalEntry still derives the
     // fiscal period FROM that date, so the period can never disagree with it.
-    //
-    // All of that is the DEFAULT. A caller may name the date instead — see
-    // resolveReversalDate — and when it does, the original period is not even
-    // consulted: the fallback it drives is precisely what is being overridden.
+    // Why that date and not today: see journalEntryReversalDate.
     const originalDate = fmtDate(entry.entryDate);
     const reversalDate = await resolveReversalDate(companyId, originalDate, opts?.reversalDate);
 
-    const reversalEntry = await createJournalEntry(companyId, {
-      entryDate: reversalDate,
-      description: `Reversal of ${entry.entryNumber}`,
-      source: entry.source,
-      lines: reversalLines,
-    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
+    // Claim the reversal BEFORE any contra is written. The `entry.reversedAt`
+    // guard above reads an unlocked row, so two overlapping callers both saw
+    // NULL, both cleared it, and both posted a contra — leaving the reversed
+    // accounts at the NEGATIVE of the original instead of zero. The claim is a
+    // single predicated UPDATE: the loser gets zero rows and refuses here,
+    // before it has created anything to clean up.
+    if (!await claimJournalReversal(companyId, id, userId)) {
+      throw new Error('Journal entry already reversed');
+    }
+
+    let reversalEntry: JournalEntry;
+    try {
+      reversalEntry = await createJournalEntry(companyId, {
+        entryDate: reversalDate,
+        description: `Reversal of ${entry.entryNumber}`,
+        source: entry.source,
+        lines: reversalLines,
+      }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
+    } catch (err) {
+      // Nothing exists yet, but the claim does. Inside a request transaction the
+      // rollback undoes it; outside one (cron, scripts) this is what stops a
+      // failed attempt from leaving the entry permanently un-reversible.
+      await releaseJournalReversalClaim(companyId, id);
+      throw err;
+    }
 
     try {
       await postJournalEntry(companyId, reversalEntry.id, userId);
@@ -257,12 +221,30 @@ export async function reverseJournalEntry(
       // matches nothing. gl_journal_lines cascades from this row
       // (gl_journal_lines_journal_entry_id_fkey ON DELETE CASCADE), so the draft's
       // lines go with it and no posted line is ever reachable from here.
-      await sql`
+      const deleted = (await sql`
         DELETE FROM gl_journal_entries
         WHERE id         = ${reversalEntry.id}::UUID
           AND company_id = ${companyId}::UUID
           AND status     = 'draft'
-      `;
+        RETURNING id
+      `) as Row[];
+
+      // Release the claim ONLY when the contra is genuinely gone. If
+      // postJournalEntry threw AFTER its status UPDATE landed, the DELETE above
+      // matched nothing and a POSTED contra survives — unlinked, so the unique
+      // index cannot see it. Clearing reversed_at there would invite a retry
+      // that posts a second one. Leaving the claim set is the honest state: a
+      // posted contra exists, so the original really is reversed, and the
+      // orphan is named in the log for repair.
+      if (deleted.length > 0) {
+        await releaseJournalReversalClaim(companyId, id);
+      } else {
+        log.error(
+          'Reversal post failed but the contra is not a draft — claim kept, contra left unlinked',
+          { originalId: id, contraId: reversalEntry.id },
+          'accounting',
+        );
+      }
       throw err;
     }
 
@@ -274,21 +256,29 @@ export async function reverseJournalEntry(
     // reports while the contra stayed, driving accounts to the NEGATIVE of the
     // original instead of zero.
     //
-    // Both link-back UPDATEs must succeed together. We use the request-scoped
+    // reversed_at / reversed_by were already written by the claim above; only
+    // the contra's link back to the original is left. We use the request-scoped
     // sql client (auto-routed via AsyncLocalStorage) instead of withTransaction
     // here — withTransaction would acquire a separate pool client and deadlock
     // against the rows already locked by the request-scoped tx (e.g. the
     // reversal JE we just inserted/posted in this same request).
-    await sql`
-      UPDATE gl_journal_entries
-      SET reversed_by = ${userId}::UUID, reversed_at = NOW()
-      WHERE id = ${id} AND company_id = ${companyId}
-    `;
-    await sql`
-      UPDATE gl_journal_entries
-      SET reversal_of_id = ${id}::UUID
-      WHERE id = ${reversalEntry.id} AND company_id = ${companyId}
-    `;
+    try {
+      await sql`
+        UPDATE gl_journal_entries
+        SET reversal_of_id = ${id}::UUID
+        WHERE id = ${reversalEntry.id} AND company_id = ${companyId}
+      `;
+    } catch (err) {
+      // ux_gl_je_reversal_of (migration 619). The claim makes this unreachable
+      // in the product — it is the storage-layer backstop for a caller that
+      // wrote reversed_at by hand — so surface the same wording the claim uses
+      // rather than a raw constraint name in a 500.
+      if (typeof err === 'object' && err !== null
+        && (err as { constraint?: unknown }).constraint === 'ux_gl_je_reversal_of') {
+        throw new Error('Journal entry already reversed');
+      }
+      throw err;
+    }
 
     log.info('Reversed journal entry', { originalId: id, reversalId: reversalEntry.id }, 'accounting');
     return reversalEntry;
@@ -296,4 +286,5 @@ export async function reverseJournalEntry(
     log.error('Failed to reverse journal entry', { id, error: err }, 'accounting');
     throw err;
   }
+  });
 }

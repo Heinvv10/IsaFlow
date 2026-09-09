@@ -13,7 +13,8 @@ PAYG Flow wallet, subscription billing, and Stitch Express payments. Owns mutati
 | `flowOperationCatalog.ts` | Single source of truth for Flow costs per operation code (`bank.import`=1, `invoice.create`=3, `report.tb`=10, `afs.generate`=50). Categories: `basic` / `standard` / `advanced` / `premium`. |
 | `flowWalletService.ts` | Wallet CRUD + ledger writes. Balance/ledger writes for `deductFlows`, `refundFlows`, `adminAdjust`, `setAutoTopup`, and bundle-purchase complete-paths run inside `withTransaction`. `recalculateNudge` and `failBundlePurchase` use bare `sql` (single-row UPDATEs, no ledger row). |
 | `stitchClient.ts` | Stitch Express REST client (NOT GraphQL). OAuth2 `client_credentials` → bearer token cached in-memory; cache invalidated 60s before expiry. |
-| `subscriptionBillingService.ts` | Recurring-debit lifecycle: `generateDueCharges` (queue) → `runQueuedCharges` (execute via `debitFromMandate`). |
+| `subscriptionBillingService.ts` | Recurring-debit lifecycle: `generateDueCharges` (queue a charge per due subscription, then void/close-out subscriptions flagged `cancel_at_period_end`) → `runQueuedCharges` (claim the attempt, then execute via Paystack `chargeAuthorization`). |
+| `subscriptionPeriod.ts` | Subscription period transitions, shared by the cron and the Paystack webhook: `advancePeriodForSettledCharge`, `settleSubscriptionCharge`, `markPastDueIfExhausted`, `voidChargesForCancellingSubscriptions`, `closeOutCancelledSubscriptions`, plus `MAX_ATTEMPTS`. |
 
 ## Caller contract
 - Wrapped metered API routes call `getFlowCost(code)` from `flowOperationCatalog` — NEVER hard-code Flow integers in route handlers.
@@ -37,14 +38,23 @@ PAYG Flow wallet, subscription billing, and Stitch Express payments. Owns mutati
 ## Business rules
 - Ledger types: `purchase | debit | refund | admin_adjustment`. Each balance-changing function writes one ledger row; `recalculateNudge` and `failBundlePurchase` change non-balance state and write no ledger row.
 - Nudge levels are recomputed on every deduct/refund and exposed via `recalculateNudge`. **Auto-topup is a v2 hook**: callers that want auto-topup must explicitly invoke `triggerAutoTopup` (e.g. from a route after `deductFlows` raises `InsufficientFlowsError`). It is not fired inside `deductFlows`.
-- Subscription charge state: `queued → succeeded | failed`. `failed` rows are retried up to `MAX_ATTEMPTS=3` with `RETRY_BACKOFF_HOURS=24` backoff.
-- Mandate must be `active` AND have `stitch_bank_account_id` set; otherwise the charge is marked `failed` with `failure_reason='mandate_not_active'` (NB: the file-header comment says `'no_mandate'` — the runtime string is `'mandate_not_active'`, see `subscriptionBillingService.ts:181`).
+- Subscription charge state: `queued → submitted | settled | failed | cancelled`. `failed` rows are retried up to `MAX_ATTEMPTS=3` with `RETRY_BACKOFF_HOURS=24` backoff; `runQueuedCharges` claims each attempt with a status- and attempt_count-predicated UPDATE, so two overlapping cron runs cannot both spend the same attempt.
+- Mandate must be `active` AND have `paystack_authorization_code` set; otherwise the charge is marked `failed` with `failure_reason='mandate_not_active_or_missing_authorization'`.
+- **The subscription period moves only on settlement**, never when a charge is queued. Every period/status write is keyed on `subscription_charges.subscription_id` (migration 624) — a company may hold several subscription rows, and keying on `company_id` alone made one charge move all of them. Charges predating 624 have a NULL `subscription_id` and move nothing.
+- After `MAX_ATTEMPTS` failures the subscription is set `past_due` and no further charge is raised for that period. `past_due` currently gates no feature — dunning (suspend / notify) is not implemented.
 
 ## Gotchas
-- **Stitch recurring debits are gated.** `debitFromMandate` is a deliberate stub — it throws `RECURRING_DISABLED_MSG` until Stitch upgrades the tenant to the `client_recurringpaymentconsentrequest` scope. `subscriptionBillingService.runQueuedCharges` is wired to call it but the success branch is unreachable in prod. Tables stay in place — re-enabling needs no migration. **This stub is NOT a "no-stubs" rule violation** — it is a dependency-boundary guard; do not delete or replace with a fake success.
+- **Recurring debits run through Paystack, not Stitch.** `runQueuedCharges` calls
+  `paystackClient.chargeAuthorization` against the mandate's `paystack_authorization_code`; that
+  path is live in production. The Stitch `debitFromMandate` stub in `stitchClient.ts` is a
+  dependency-boundary guard for the ungranted `client_recurringpaymentconsentrequest` scope and is
+  no longer on the subscription path — do not delete it or replace it with a fake success.
+- **A charge stuck in `submitted` needs `resolveStaleSubmittedCharges`.** Only a webhook moves a
+  charge out of `submitted`; the cron calls the resolver first each run so a charge whose webhook
+  never arrived is verified against Paystack after `STALE_SUBMITTED_HOURS` and settled or failed.
 - Stitch token cache is process-local; in serverless contexts each cold start re-auths. Acceptable today (low call volume).
 - `flowOperationCatalog` is `as const satisfies Record<...>` — adding a new op code MUST update the type-narrowed map; do not push to it dynamically.
-- No tests exist in this module yet — claims of "tested" elsewhere are aspirational; treat the lifecycle as battle-untested in production until covered.
+- The subscription lifecycle is covered by `tests/integration/k-033-*.int.test.ts` and `k-034-*.int.test.ts` (28 cases against the production schema, Paystack mocked) plus `tests/unit/services/billing/` and `tests/unit/api/admin-subscription-cancel-at-period-end.test.ts`. The Flow wallet and Stitch paths are still uncovered — do not read the subscription coverage as module-wide.
 
 ## Related files
 - `pages/api/billing/*` — tenant-facing wallet, bundle purchase, subscription, invoices.
