@@ -102,3 +102,48 @@ session between the candidate SELECT and the DELETE.
  FAIL  tests/unit/services/cashFlowReport.test.ts
 Both reproduce on an origin/master baseline run of the same command
 (base-full-suite.log, round 2 above) and pass in isolation on either tree.
+
+=== K-009 round 4 (re-review findings M12 L13 L14) ===
+
+--- Targeted real-DB suite ---
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+--- Mocked unit (migrationOpeningBalances + migrationExecuteSubtype) ---
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+
+--- Mutation checks (7-test real-DB suite) ---
+### MUTATION A: drop the ON CONFLICT ... WHERE imported_from = EXCLUDED.imported_from guard (M3)
+ Test Files  2 failed (2)
+      Tests  4 failed | 3 passed (7)
+### MUTATION B: replace bulk+loop with one unqualified DELETE guarded only on gl_journal_lines (H1)
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 4 passed (7)
+### MUTATION C: drop the imported_from = NULL update on retained accounts (M4)
+ Test Files  2 failed (2)
+      Tests  4 failed | 3 passed (7)
+### MUTATION D: drop the ownership check in the opening-balance lookup (M7)
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 5 passed (7)
+### MUTATION E: drop the set-based fast path, leaving only the per-account loop (L11)
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+### MUTATION F: report a not-owned account as 'no GL account was created' again (M12)
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 5 passed (7)
+### RESTORED
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+MUTATION E is an EQUIVALENT MUTANT: the fast path is a round-trip
+optimisation whose results are identical to the loop's. The L8 and L13
+zero-row branches have NO test: reproducing either needs a concurrent
+delete or an RLS session between the candidate SELECT and the DELETE.
+
+--- Full unit suite, no DATABASE_URL ---
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9322 passed | 234 skipped (9556)
+No failures this run. The two order-dependent flakes seen in earlier rounds
+(bankAllocationUnwind, cashFlowReport) also appear on an origin/master
+baseline run of the same command and pass in isolation on either tree.

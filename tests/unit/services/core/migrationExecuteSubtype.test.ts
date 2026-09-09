@@ -64,7 +64,7 @@ describe('executeMigration — income-statement rows without a subtype', () => {
     ], [], []);
     expect(r.accountsImported).toBe(1);
     expect(r.errors).toEqual([
-      'Account "5900 5900": code already used by an account not imported from xero — left unchanged',
+      'Account "5900 5900": code already used by an account the xero import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)',
     ]);
   });
 });

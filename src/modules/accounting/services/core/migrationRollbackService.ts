@@ -65,27 +65,36 @@ export async function rollbackMigration(
     });
 
     if (bulk) {
-      log.info('Rollback complete', { companyId, source, deleted: bulk.length, retained: 0 }, 'migration');
-      return { deleted: bulk.length, retained: 0, retainedCodes: [] };
-    }
-
-    for (const [i, row] of candidates.entries()) {
-      const id = String(row.id);
-      const code = String(row.account_code);
-      try {
-        // RETURNING, not the absence of a throw: a candidate the SELECT saw
-        // can be gone by now, or invisible to an RLS USING clause, and neither
-        // is a deletion this rollback performed.
-        const gone = await withSavepoint(`mig_rb_${i}`, async () => (await sql`
-          DELETE FROM gl_accounts
-          WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-          RETURNING id
-        `) as DbRow[]);
-        if (gone.length > 0) { deleted += 1; } else { retained.push({ id, code }); }
-      } catch (err) {
-        // A deadlock or a lock timeout is not a retention decision — rethrow.
-        if (!isFkViolation(err)) throw err;
-        retained.push({ id, code });
+      // Not `bulk.length === candidates.length` assumed: a statement that
+      // succeeds can still touch fewer rows than the SELECT saw — a concurrent
+      // delete, or a row hidden by an RLS USING clause — and those survivors
+      // keep an armed tag. Whatever did not come back is retained, and is
+      // untagged by the shared tail below exactly as the loop's are.
+      const removed = new Set(bulk.map(r => String(r.id)));
+      deleted = bulk.length;
+      for (const row of candidates) {
+        if (removed.has(String(row.id))) continue;
+        retained.push({ id: String(row.id), code: String(row.account_code) });
+      }
+    } else {
+      for (const [i, row] of candidates.entries()) {
+        const id = String(row.id);
+        const code = String(row.account_code);
+        try {
+          // RETURNING, not the absence of a throw: a candidate the SELECT saw
+          // can be gone by now, or invisible to an RLS USING clause, and
+          // neither is a deletion this rollback performed.
+          const gone = await withSavepoint(`mig_rb_${i}`, async () => (await sql`
+            DELETE FROM gl_accounts
+            WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+            RETURNING id
+          `) as DbRow[]);
+          if (gone.length > 0) { deleted += 1; } else { retained.push({ id, code }); }
+        } catch (err) {
+          // A deadlock or a lock timeout is not a retention decision — rethrow.
+          if (!isFkViolation(err)) throw err;
+          retained.push({ id, code });
+        }
       }
     }
 
