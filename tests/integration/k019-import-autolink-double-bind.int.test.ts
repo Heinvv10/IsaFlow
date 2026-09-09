@@ -240,8 +240,11 @@ describe('K-019 import batch auto-link', () => {
     for (let i = 0; i < 5; i += 1) await seedAllocatedTransfer(targetBank, 1);
     const batchId = await seedBatch(targetBank, 5);
 
-    const { linked } = await autoLinkImportedBatchTransfers(company, batchId);
+    const { linked, passes } = await autoLinkImportedBatchTransfers(company, batchId);
     expect(linked).toBe(5);
+    // The claim the name makes: the rank pairing settles all five in ONE
+    // statement. One-row-per-pass would report five and still link five.
+    expect(passes).toBe(1);
 
     const claimed = (await rowsOn(targetBank)).filter((r) => r.matched_journal_line_id !== null);
     expect(new Set(claimed.map((r) => r.matched_journal_line_id)).size).toBe(5);
@@ -300,7 +303,7 @@ describe('K-019 import batch auto-link', () => {
       const result = await als.run(ctxFor(client, company), () =>
         autoLinkImportedBatchTransfers(company, 'not-a-uuid'),
       );
-      expect(result).toEqual({ linked: 0, failed: true });
+      expect(result).toEqual({ linked: 0, passes: 0, failed: true });
       const res = await client.query('SELECT 1 AS ok');
       expect(res.rows[0].ok).toBe(1);
       await client.query('COMMIT');

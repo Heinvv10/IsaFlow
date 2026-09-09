@@ -28,8 +28,8 @@ vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [] }),
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransferLinkService', () => ({
-  relinkTransferCounterparts: vi.fn().mockResolvedValue({ linked: 0, failed: false }),
-  autoLinkImportedBatchTransfers: vi.fn().mockResolvedValue({ linked: 0, failed: false }),
+  relinkTransferCounterparts: vi.fn().mockResolvedValue({ linked: 0, passes: 0, failed: false }),
+  autoLinkImportedBatchTransfers: vi.fn().mockResolvedValue({ linked: 0, passes: 0, failed: false }),
 }));
 
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
@@ -228,7 +228,7 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
     // this the import returns errors: [] and the failure lives only in a log.
     const { relinkTransferCounterparts } =
       await import('@/modules/accounting/services/bank/bankTransferLinkService');
-    vi.mocked(relinkTransferCounterparts).mockResolvedValueOnce({ linked: 0, failed: true });
+    vi.mocked(relinkTransferCounterparts).mockResolvedValueOnce({ linked: 0, passes: 0, failed: true });
 
     const result = await importParsedTransactions(
       'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',

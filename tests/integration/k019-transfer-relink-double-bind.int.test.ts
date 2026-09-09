@@ -133,10 +133,11 @@ describe('K-019 relinkTransferCounterparts', () => {
 
     try {
       await client.query('BEGIN');
-      const { linked } = await als.run(ctxFor(recording, company), () =>
+      const { linked, passes } = await als.run(ctxFor(recording, company), () =>
         relinkTransferCounterparts(company, s.targetBank),
       );
       expect(linked).toBe(5);
+      expect(passes).toBe(1);
       // One linking statement; the second is the pass that finds nothing.
       expect(updates).toHaveLength(2);
       await client.query('COMMIT');
@@ -282,7 +283,7 @@ describe('K-019 relinkTransferCounterparts', () => {
       const result = await als.run(ctxFor(client, company), () =>
         relinkTransferCounterparts(company, 'not-a-uuid'),
       );
-      expect(result).toEqual({ linked: 0, failed: true });
+      expect(result).toEqual({ linked: 0, passes: 0, failed: true });
 
       // The transaction is still usable: this would raise 25P02 otherwise.
       const res = await client.query('SELECT 1 AS ok');

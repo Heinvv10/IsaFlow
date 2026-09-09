@@ -22,6 +22,8 @@ M12 import: drop the per_line stage                       -> 1 failed
 M13 import: drop the NOT EXISTS anti-join                 -> 2 failed
 M14 import: drop bt_used.company_id                       -> 1 failed
 M15 import: drop et.company_id / jl.company_id            -> 1 failed
+M16 import: link one row per pass (WHERE tx_rank = 1)     -> 1 failed
+M17 relink: link one row per pass (WHERE tx_rank = 1)     -> 3 failed
 RESTORED                                                  -> 19 passed
 
 M1 and M12 first SURVIVED. The mutation script had replaced the first textual
@@ -42,6 +44,18 @@ test in each file, and both mutations fail with "expected 3 to be 2".
 
 M7 is deterministic only because its fixture inserts the higher-id journal leg
 FIRST, so heap order and id order disagree.
+
+M16/M17 guard the round-3 claim that the rank pairing settles N contenders in ONE
+statement. `TransferLinkResult.passes` reports the linking statements a call ran,
+so both single-statement tests assert passes === 1 rather than only the row count,
+which one-row-per-pass would satisfy just as well.
+
+NOT mutation-proved: the two import routes now pass `result.errors` out as
+`warnings` (bank-transactions-bulk-commit, bank-feeds/[id]/extension-ingest).
+That is a one-line mapping in each, and neither route has a unit-test harness in
+this repo, so nothing fails if it is removed. The service half — the import
+result carrying the entry when a pass reports failed — is covered by two unit
+tests in bankImportService.bulk.test.ts.
 
 === FULL UNIT SUITE (bunx vitest run, DATABASE_URL and fixture env UNSET) ===
 With the default 10s test timeout this suite is flaky on this box, and this
