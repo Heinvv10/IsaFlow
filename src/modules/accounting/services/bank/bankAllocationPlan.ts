@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import {z} from 'zod';
 import {canonicalMoney} from '../controls/canonical';
+import {bankTransferPlanSchema} from './bankAllocationTransferPlan';
 const D=Decimal.clone({precision:80});
 export function allocationMoney(value:string):string{
  const amount=new D(canonicalMoney(value));
@@ -14,6 +15,7 @@ const common={version:z.literal(1),bankTransactionId:id,description:z.string().m
 const application=z.object({invoiceId:id,amount:money}).strict();
 const partyDimensions={cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional()};
 const schema=z.discriminatedUnion('kind',[
+ bankTransferPlanSchema,
  z.object({...common,kind:z.literal('account'),vatAccountId:id.optional(),lines:z.array(accountLine).length(1)}).strict(),
  z.object({...common,kind:z.literal('split'),vatAccountId:id.optional(),lines:z.array(accountLine).min(1).max(100)}).strict(),
  z.object({...common,...partyDimensions,kind:z.literal('customer'),partyId:id,applications:z.array(application).max(100)}).strict(),
@@ -22,6 +24,7 @@ const schema=z.discriminatedUnion('kind',[
 export type BankAllocationPlan=z.infer<typeof schema>;
 export function parseBankAllocationPlan(input:unknown):BankAllocationPlan{
  const plan=schema.parse(input);
+ if(plan.kind==='transfer'&&plan.transfer.mode==='post'&&plan.transfer.oppositeBankTransactionId===plan.bankTransactionId)throw new Error('Transfer opposite bank transaction must be different');
  if('lines' in plan&&plan.vatAccountId&&!plan.lines.some(line=>line.vatCode==='standard'))throw new Error('VAT account requires a taxable allocation');
  if('applications' in plan&&new Set(plan.applications.map(a=>a.invoiceId.toLowerCase())).size!==plan.applications.length)throw new Error('Duplicate allocation invoice');
  return plan;
@@ -36,7 +39,10 @@ export function buildBankAllocationLines(plan:BankAllocationPlan,source:{bankAcc
  const signed=new D(canonicalMoney(source.signedAmount)),amount=allocationMoney(signed.abs().toFixed()),spent=signed.lt(0);
  const description=plan.description??'Bank allocation',result:ExactBankJournalLine[]=[];
  const add=(accountId:string,value:string,debit:boolean,desc=description,vatType:string|null=null,dims?:{cc1Id?:string;cc2Id?:string;buId?:string})=>result.push({accountId,debit:debit?value:'0',credit:debit?'0':value,description:desc,vatType,cc1Id:dims?.cc1Id??null,cc2Id:dims?.cc2Id??null,buId:dims?.buId??null});
- if('applications' in plan){
+ if(plan.kind==='transfer'){
+  if(plan.counterpartyAccountId===source.bankAccountId)throw new Error('Transfer bank accounts must be different');
+  add(plan.counterpartyAccountId,amount,spent);
+ }else if('applications' in plan){
   if(isBankAllocationRefund(plan.kind,source.signedAmount)&&plan.applications.length)throw new Error('Refund applications must be empty');
   if(!source.controlAccountId)throw new Error('Allocation control account unavailable');
   if(plan.applications.reduce((sum,a)=>sum.add(a.amount),new D(0)).gt(amount))throw new Error('Applications exceed bank amount');
