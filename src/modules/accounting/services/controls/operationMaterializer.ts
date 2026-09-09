@@ -26,6 +26,7 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
   if(!validId)throw new Error('Invalid operation reference');
   const operations = ref.entityType === 'supplier_invoice'
     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_invoice.cancel']
+    : ref.entityType === 'bank_allocation_reversal_intent' ? ['bank_allocation.reverse']
     : ref.entityType === 'bank_allocation_intent' ? ['bank_allocation.post']
     : ref.entityType === 'bank_transfer_intent' ? ['bank_transfer.post']
     : ref.entityType === 'asset_depreciation_intent' ? ['asset_depreciation.post']
@@ -92,7 +93,7 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
 
 /** Authoritative source material is shared by approval, execution and after-effect evidence. */
 export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
-  if(ref.entityType==='bank_allocation_intent')return materializeBankAllocationOperation(ctx,ref);
+  if(['bank_allocation_intent','bank_allocation_reversal_intent'].includes(ref.entityType))return materializeBankAllocationOperation(ctx,ref);
   if(ref.entityType==='bank_transfer_intent')return materializeBankTransferOperation(ctx,ref);
   if(ref.entityType==='asset_depreciation_intent')return materializeAssetDepreciationOperation(ctx,ref);
   if(['customer_invoice','customer_payment','credit_note','credit_note_application','recurring_invoice_run'].includes(ref.entityType))return materializeArOperation(ctx,ref);

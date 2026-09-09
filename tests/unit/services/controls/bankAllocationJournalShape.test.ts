@@ -21,3 +21,10 @@ it('supports only the frozen bank allocation operation and entity association',(
  expect(canonicalOperationRef(ref)).toEqual(ref);
  expect(()=>canonicalOperationRef({...ref,entityType:'bank_transfer_intent'})).toThrow();
 });
+
+it('admits only the immutable bank reversal reference and takes its date from stored intent',()=>{
+ const ref={operation:'bank_allocation.reverse' as const,entityType:'bank_allocation_reversal_intent',entityId:'11111111-1111-4111-8111-111111111111'};
+ expect(canonicalOperationRef(ref)).toEqual(ref);
+ expect(()=>canonicalOperationRef({...ref,entityType:'bank_allocation_intent'})).toThrow();
+ expect(()=>canonicalOperationRef({...ref,reversalDate:'2026-10-01'})).toThrow();
+});
