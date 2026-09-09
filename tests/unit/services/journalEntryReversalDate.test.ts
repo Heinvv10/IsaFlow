@@ -19,7 +19,13 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {
+  // reverseJournalEntry claims the reversal with a predicated UPDATE before it
+  // creates the contra; one row back means this caller won it. Everything else
+  // this suite exercises is indifferent to the rows returned.
+  const sqlMock = Object.assign(
+    vi.fn((strings: readonly string[]) =>
+      Promise.resolve(strings.join(' ').includes('reversed_at IS NULL') ? [{ id: 'claimed' }] : [])),
+    {
     transaction: vi.fn(),
     unsafe: vi.fn((s: string) => s),
   });
@@ -41,6 +47,28 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+vi.mock('@/lib/alsTransaction', async () => {
+  const { als } = await import('@/lib/als');
+  return {
+    // reverseJournalEntry wraps itself in a transaction (withAlsTransaction) so
+    // the reversal claim cannot outlive the contra, and the claim REFUSES to run
+    // without one. Bind a client whose BEGIN/COMMIT and lock_timeout statements
+    // are no-ops, so this suite keeps asserting reversal semantics.
+    withAlsTransaction: (
+      actor: { userId: string; companyId: string | undefined },
+      fn: () => Promise<unknown>,
+    ) =>
+      als.run(
+        {
+          client: { query: async () => ({ rows: [{ v: '0' }] }) } as never,
+          userId: actor.userId,
+          companyId: actor.companyId,
+          claims: {},
+        },
+        fn,
+      ),
+  };
+});
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -165,7 +193,8 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
     mockGet.mockResolvedValue(postedEntry(ORIGINAL_DATE));
     mockCreate.mockResolvedValue({ id: REVERSAL_ID });
     mockPeriodStatus.mockResolvedValue('open');
-    mockSql.mockResolvedValue([]);
+    mockSql.mockImplementation((strings: readonly string[]) =>
+      Promise.resolve(strings.join(' ').includes('reversed_at IS NULL') ? [{ id: 'claimed' }] : []));
   });
 
   /** All SQL text issued during the call, one string per sql`` invocation. */
@@ -188,11 +217,38 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
     expect(del!).toMatch(/company_id/i);
   });
 
-  it('never issues the reversed_at / reversal_of_id link-backs when posting fails', async () => {
+  it('releases the reversal claim when the draft it created was actually deleted', async () => {
+    // The claim is taken BEFORE the contra exists (K-010), so `reversed_at` is
+    // written on the way in. The invariant is not "never written" — it is that a
+    // failed post leaves the original UNMARKED and UNLINKED. The DELETE below is
+    // made to report one row removed, which is the case where the contra is
+    // genuinely gone and the claim must go with it.
+    mockSql.mockImplementation((strings: readonly string[]) => {
+      const text = strings.join(' ');
+      if (text.includes('reversed_at IS NULL')) return Promise.resolve([{ id: 'claimed' }]);
+      if (/DELETE\s+FROM\s+gl_journal_entries/i.test(text)) return Promise.resolve([{ id: REVERSAL_ID }]);
+      return Promise.resolve([]);
+    });
+
     await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch(() => undefined);
     const text = issuedSql().join(' | ');
-    expect(text).not.toMatch(/reversed_at/i);
     expect(text).not.toMatch(/reversal_of_id/i);
+    const release = issuedSql().find((t) => /reversed_at\s*=\s*NULL/i.test(t));
+    expect(release, 'a failed post must release the reversal claim').toBeDefined();
+    expect(release!).toMatch(/reversed_by\s*=\s*NULL/i);
+    expect(release!).toMatch(/company_id/i);
+  });
+
+  it('KEEPS the claim when the contra was not a draft and so survived the delete', async () => {
+    // postJournalEntry can throw after its status UPDATE has landed. The
+    // `status = 'draft'` guard then matches nothing and a POSTED contra
+    // survives, unlinked — invisible to the unique index. Clearing reversed_at
+    // there would invite a retry that posts a second one, so the claim stays:
+    // a posted contra exists, so the original really is reversed.
+    await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch(() => undefined);
+    const text = issuedSql().join(' | ');
+    expect(text).not.toMatch(/reversal_of_id/i);
+    expect(issuedSql().find((t) => /reversed_at\s*=\s*NULL/i.test(t))).toBeUndefined();
   });
 });
 
