@@ -19,11 +19,8 @@
  * deliberately out of scope for the assurance programme.
  */
 
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import {loadUnappliedCashHistory,type CashHistoryCoverage} from '../shared/unappliedCashHistory';
 
-/** A cent. Matches the listing this accompanies. */
-const EPS = 0.01;
 
 export interface OriginBucket {
   receipts: number;
@@ -49,8 +46,8 @@ export interface UnappliedReceiptOrigins {
    */
   notStampedAsAgent: OriginBucket;
   /**
-   * No journal linked at all. Its own bucket rather than folded into the one
-   * above: "we cannot tell" and "a person did it" are different facts.
+   * Retained compatibility bucket. Missing original posted journals are now
+   * excluded from historical totals and disclosed by historyCoverage.
    */
   noJournal: OriginBucket;
   total: OriginBucket;
@@ -58,55 +55,22 @@ export interface UnappliedReceiptOrigins {
   agentTools: AgentToolBreakdown[];
   /** Carried into the response so the asymmetry is never lost in transit. */
   caveat: string;
+  historyCoverage: CashHistoryCoverage;
+  postedThrough: string;
 }
 
 const CAVEAT =
   'An mcp: stamp proves an agent. Everything else with a journal is reported as "not stamped as '
   + 'an agent", NOT as human: createJournalEntry stamps human:<userId> whenever a caller omits '
   + 'the posting meta, so an unknown number of agent postings sit in that bucket. Receipts with '
-  + 'no journal are counted separately because nothing is known about them at all.';
+  + 'no original posted journal are excluded from asserted historical totals and disclosed by historyCoverage.';
 
 export async function getUnappliedReceiptOrigins(
   companyId: string,
   asAt: string,
 ): Promise<UnappliedReceiptOrigins> {
-  // THE ON CLAUSE OF THE OUTER JOIN BELOW CARRIES ONLY JOIN KEYS, deliberately.
-  // A predicate that must RESTRICT the result belongs in WHERE: inside an outer
-  // join's ON it restricts nothing — the unmatched row survives carrying NULL
-  // columns, and those NULLs flow straight into the arithmetic.
-  // kpiChartsService did exactly that (is_active = true AND
-  // account_subtype = 'bank' in a LEFT JOIN ON) and charted every transaction
-  // regardless of account.
-  //
-  // A receipt with no journal is a legitimate outcome here rather than
-  // something to filter away, and it is classified explicitly as `noJournal`
-  // instead of being allowed through as a NULL posting_agent that reads like a
-  // human.
-  const rows = (await sql`
-    SELECT je.posting_agent,
-           COUNT(*)::INT AS receipts,
-           COALESCE(SUM(cp.total_amount - COALESCE(alloc.allocated, 0)), 0) AS unapplied
-    FROM customer_payments cp
-    -- OUTER JOIN: ON carries ONLY join keys. See the note above the query.
-    LEFT JOIN gl_journal_entries je
-      ON je.id = cp.gl_journal_entry_id
-     AND je.company_id = cp.company_id
-    LEFT JOIN LATERAL (
-      SELECT SUM(cpa.amount_allocated) AS allocated
-      FROM customer_payment_allocations cpa
-      LEFT JOIN control_cash_application_intents app ON app.company_id = cp.company_id AND app.id = cpa.application_intent_id
-      LEFT JOIN control_cash_application_reversal_intents inverse ON inverse.company_id = cp.company_id AND inverse.id = cpa.reversal_intent_id
-      WHERE cpa.payment_id = cp.id
-        AND COALESCE(app.accounting_date, cp.payment_date) <= ${asAt}::DATE
-        AND (inverse.reversal_date IS NULL OR inverse.reversal_date > ${asAt}::DATE)
-    ) alloc ON TRUE
-    WHERE cp.company_id = ${companyId}::UUID
-      AND cp.status <> 'cancelled'
-      AND cp.payment_date <= ${asAt}::DATE
-      AND (cp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
-    GROUP BY je.posting_agent
-    ORDER BY unapplied DESC
-  `) as DbRow[];
+  const history=await loadUnappliedCashHistory(companyId,'customer',asAt);
+  const rows=history.rows.map(row=>({posting_agent:row.posting_agent,receipts:1,unapplied:row.unapplied_amount}));
 
   const agent = empty();
   const system = empty();
@@ -122,10 +86,12 @@ export async function getUnappliedReceiptOrigins(
     const unapplied = round2(Number(row.unapplied ?? 0));
 
     if (postingAgent === null) {
-      add(noJournal, receipts, unapplied);
+      add(notStampedAsAgent, receipts, unapplied);
     } else if (postingAgent.startsWith('mcp:')) {
       add(agent, receipts, unapplied);
-      agentTools.push({ postingAgent, receipts, unapplied });
+      const existing=agentTools.find(item=>item.postingAgent===postingAgent);
+      if(existing){existing.receipts+=receipts;existing.unapplied=round2(existing.unapplied+unapplied);}
+      else agentTools.push({ postingAgent, receipts, unapplied });
     } else if (postingAgent.startsWith('system:')) {
       add(system, receipts, unapplied);
     } else {
@@ -146,6 +112,8 @@ export async function getUnappliedReceiptOrigins(
     },
     agentTools,
     caveat: CAVEAT,
+    historyCoverage: history.historyCoverage,
+    postedThrough: history.postedThrough,
   };
 }
 
