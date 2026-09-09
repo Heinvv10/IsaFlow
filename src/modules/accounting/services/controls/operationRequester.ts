@@ -7,6 +7,8 @@ export async function assertOperationRequester(ctx:ControlTx,ref:OperationRef,re
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
  else if(ref.entityType==='bank_allocation_reversal_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_bank_allocation_reversal_intents
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
+ else if(ref.entityType==='bank_statement_attestation_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_bank_statement_attestation_intents
+  WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
  else if(ref.entityType==='bank_transfer_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_bank_transfer_intents
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
  else if(ref.entityType==='asset_depreciation_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_asset_depreciation_intents

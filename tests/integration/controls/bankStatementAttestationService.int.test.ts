@@ -123,3 +123,16 @@ it('passes a current independently reviewed quiet statement locally without clai
  await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND id=$3',[Buffer.from('Changed after review'),fixture.companyA,document]);
  expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}))).status).toBe('unknown');
 });
+
+it('commits an independently approved local statement effect once through central dispatch',async()=>{
+ const prepared=await actor(ctx=>prepareBankStatementAttestation(ctx,input()));
+ await expect(actor(ctx=>requestOperationApproval(ctx,prepared.operation),'u2')).rejects.toThrow('Original intent requester');
+ const approval=await actor(ctx=>requestOperationApproval(ctx,prepared.operation));
+ await expect(actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'))).rejects.toThrow(/Self/);
+ await actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');
+ const result=await actor(ctx=>executeBankStatementAttestation(ctx,prepared.intentId,approval.id));
+ expect(result.status).toBe('locally_reviewed');
+ expect(await actor(ctx=>executeBankStatementAttestation(ctx,prepared.intentId))).toEqual(result);
+ expect((await actor(ctx=>queryVerifiedBankStatements(ctx,null))).populationCount).toBe(1);
+ expect((await pool.query('SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1',[fixture.companyA])).rows[0].n).toBe(0);
+});
