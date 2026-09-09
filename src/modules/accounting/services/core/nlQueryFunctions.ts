@@ -1,8 +1,5 @@
 import { parse } from 'pgsql-ast-parser';
-
-type Node = Record<string, unknown>;
-const object = (value: unknown): value is Node =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
+import { object } from './nlQueryRelations';
 
 /**
  * Functions an NL query may call. Relation validation cannot see the SQL text
@@ -14,7 +11,8 @@ export const ALLOWED_FUNCTIONS: ReadonlySet<string> = new Set([
   // aggregates
   'count', 'sum', 'avg', 'min', 'max', 'string_agg', 'array_agg', 'bool_and', 'bool_or',
   'every', 'stddev', 'stddev_pop', 'stddev_samp', 'variance', 'var_pop', 'var_samp',
-  'percentile_cont', 'percentile_disc', 'mode',
+  'percentile_cont', 'percentile_disc', 'mode', 'corr', 'covar_pop', 'covar_samp',
+  'regr_slope', 'regr_intercept', 'regr_r2', 'json_agg', 'jsonb_agg',
   // window
   'row_number', 'rank', 'dense_rank', 'percent_rank', 'cume_dist', 'ntile',
   'lag', 'lead', 'first_value', 'last_value', 'nth_value',
@@ -24,16 +22,23 @@ export const ALLOWED_FUNCTIONS: ReadonlySet<string> = new Set([
   'any', 'all', 'some', 'exists',
   // maths
   'abs', 'round', 'ceil', 'ceiling', 'floor', 'trunc', 'sign', 'mod', 'power', 'sqrt',
-  'exp', 'ln', 'log', 'div',
+  'exp', 'ln', 'log', 'log10', 'div', 'cbrt', 'degrees', 'radians', 'pi', 'factorial',
+  'width_bucket', 'num_nonnulls', 'num_nulls',
   // strings
   'lower', 'upper', 'initcap', 'length', 'char_length', 'character_length',
   'trim', 'ltrim', 'rtrim', 'btrim', 'concat', 'concat_ws', 'substring', 'substr',
   'left', 'right', 'replace', 'split_part', 'position', 'strpos', 'reverse',
-  'starts_with', 'regexp_replace',
+  'starts_with', 'translate', 'ascii', 'chr', 'md5', 'encode', 'decode', 'sha256',
+  'regexp_replace', 'regexp_matches', 'regexp_split_to_array', 'regexp_count', 'regexp_substr',
+  // format only builds a string; EXECUTE is forbidden and the statement is a single validated SELECT
+  'format',
+  // arrays and JSON over values already fetched by the surrounding query
+  'array_to_string', 'string_to_array', 'array_length', 'cardinality', 'array_position',
+  'to_json', 'to_jsonb', 'json_build_object', 'jsonb_build_object',
   // dates and conversion
   'now', 'date_trunc', 'date_part', 'age', 'to_char', 'to_number', 'to_date',
   'to_timestamp', 'make_date', 'make_interval', 'justify_days', 'justify_hours',
-  'justify_interval',
+  'justify_interval', 'date_bin',
 ]);
 
 /** Bare keywords that read session or role state rather than tenant data. */
