@@ -130,10 +130,13 @@ describeIfDb('K-014 postSupplierInvoiceToGL check-then-act without a row lock', 
       const p2 = run(c2, () => postSupplierInvoiceToGL(COMPANY, id, USER));
 
       // Wait for c2 to be blocked on a lock — proof it got past the guard and
-      // is already posting — before releasing c1.
+      // is already posting — before releasing c1. Bounded WELL under the
+      // helper's 5s lock_timeout: at the timeout the wait we are watching for
+      // would end in a SupplierInvoiceLockTimeoutError instead, and a genuine
+      // pass would read as a failure.
       const probe = await pool.connect();
       let blocked = false;
-      for (let i = 0; i < 200 && !blocked; i++) {
+      for (let i = 0; i < 80 && !blocked; i++) {
         const r = await probe.query(
           `SELECT 1 FROM pg_stat_activity
             WHERE pid = $1 AND wait_event_type = 'Lock'`, [c2Pid],

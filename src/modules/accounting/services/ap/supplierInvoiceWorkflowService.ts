@@ -204,9 +204,11 @@ export async function postSupplierInvoiceToGL(
   // both post an Expense/VAT/AP journal, and the second UPDATE strands the
   // first where cancelSupplierInvoiceInner (which reverses only the id on the
   // row) can never reach it — AP credited twice for one bill. The bulk action
-  // (supplier-invoices-bulk-action.ts, action=post_gl) walks up to 100 bills in
-  // one transaction, so the window is seconds. Locking only in approve left
-  // this path free to race an approve that WAS holding the row lock.
+  // (supplier-invoices-bulk-action.ts, action=post_gl) walks up to the route's
+  // 200-id cap in one transaction, so the window is seconds. Each id there is
+  // wrapped in its own savepoint, so this lock timing out is that id's failure
+  // and not the batch's. Locking only in approve left this path free to race an
+  // approve that WAS holding the row lock.
   //
   // Taken BEFORE the read so the guards below see settled state: a caller that
   // blocked here re-reads the journal id the winner wrote and early-returns

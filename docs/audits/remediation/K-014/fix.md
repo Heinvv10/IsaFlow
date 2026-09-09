@@ -13,16 +13,33 @@ the row lock did not block this path either.
 re-reads settled state and returns `{ alreadyPosted: true }` with the winner's journal id.
 Guard order is otherwise unchanged (cancelled still refused; not-found still thrown).
 
+**Blast radius, fixed in the follow-up commit.** The lock carries a 5s `lock_timeout` whose
+55P03 ABORTS the request transaction, and since PR #264 a whole bulk batch is one transaction.
+So one contended bill failed every sibling with 25P02, and `withAuth` COMMITs on a <500
+response — PostgreSQL runs that as ROLLBACK without raising, so the route answered 200 with a
+success count for rows that had been discarded. Every id in
+`supplier-invoices-bulk-action.ts` is now wrapped in `withSavepoint('bulk_supplier_invoice_item')`,
+so a failed row rolls back to its savepoint and its siblings persist. If the savepoint's own
+rollback fails (`als.getStore()?.txUnusable`) the route throws instead, so a genuinely lost
+batch is reported as 5xx rather than as success.
+
 **Files.**
 - `src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts` (+16, lock + comment)
+- `pages/api/accounting/supplier-invoices-bulk-action.ts` (per-id savepoint, tx-unusable bail,
+  header comment corrected — the batch IS one transaction)
+- `src/modules/accounting/services/ap/.claude.md` (recent-changes entry)
 - `tests/integration/k014-supplier-bill-double-gl-post.int.test.ts` (+3 adjacent cases)
+- `tests/integration/k014-bulk-post-gl-savepoint.int.test.ts` (new, drives the real route)
 - `tests/unit/services/supplierInvoiceCancelReversal.test.ts` (mock the lock; +1 case)
 
-**Tests.** Integration on real PostgreSQL, 4/4: sequenced two-client race (one journal, AP
-credited 115.00, journal balanced 115 DR = 115 CR), sequential retry idempotence, wrong tenant
-refused with nothing posted, cancelled bill still refused. Unit 10/10. Mutation-proof: reverting
-the lock returns the race test to RED (`expected 2 to be 1`); see `green.log`. Unit suite shows
-the same 204 pre-existing failures as origin/master.
+**Tests.** Integration on real PostgreSQL, 6/6 across two files. The lock file, 4/4: sequenced
+two-client race (one journal, AP credited 115.00, journal balanced 115 DR = 115 CR), sequential
+retry idempotence, wrong tenant refused with nothing posted, cancelled bill still refused. The
+bulk file, 2/2, driving the real route through `withAuth` with a second pool client holding
+`FOR UPDATE` past the timeout: the uncontended sibling posts when the earlier id times out, and
+a bill posted before the timeout stays posted, balanced and linked. Unit 10/10 plus the bulk
+route's own 9/9. Mutation-proof both ways: reverting the lock returns the race test to RED
+(`expected 2 to be 1`), reverting the savepoint returns both bulk tests to RED. See `green.log`.
 
 **Migration / rollback.** None. Rollback is reverting the commit.
 
@@ -37,7 +54,10 @@ SELECT si.company_id, si.id, si.invoice_number, count(*) AS journals
  GROUP BY 1,2,3 HAVING count(*) > 1;
 ```
 
-**Limits.** The lock is held to end of request, so a bulk post of 100 bills holds 100 row locks,
-as bulk approve already does; a contended bill fails that one line with the existing 5s lock
-timeout, which the bulk handler already reports per invoice. The file was 495 lines before this
-change and is 511 after — over the 300-line guidance, pre-existing and not refactored here.
+**Limits.** The lock is held to end of request, so a batch at the route's 200-id cap holds 200
+row locks, as bulk approve already does. A contended bill now fails that id alone: reported as
+that item's error, rolled back to its savepoint, siblings committed. `supplierInvoiceWorkflowService.ts`
+was 495 lines before this change and is 511 after — over the 300-line guidance, pre-existing and
+not refactored here. The savepoint change also covers `approve` and `cancel` on the same route,
+which carried the same hazard before this commit; that is wider than K-014 but the same defect
+and the same two lines.
