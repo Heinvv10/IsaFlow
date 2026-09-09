@@ -1,4 +1,6 @@
 const operations: Record<string,{read:string;write:string;rule:'supplier_invoice'|'payment'|'journal_entry'|'payroll_run'|'payroll_compensation'|'fiscal_period'|'fiscal_year'|'company_lockdown'|'vat_period'|'asset_depreciation'|'customer_invoice'|'credit_note'|'payment_release'|'invoice_match_override'|'historical_import'|'bank_statement_attestation'}>={
+  'cash_application.apply':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
+  'cash_application.reverse':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
   'payroll_compensation.change':{read:'read:payroll',write:'write:payroll',rule:'payroll_compensation'},
   'invoice_match.override':{read:'read:invoices',write:'write:invoices',rule:'invoice_match_override'},
   'bank_allocation.post':{read:'read:bank-tx',write:'write:bank-tx',rule:'payment'},
