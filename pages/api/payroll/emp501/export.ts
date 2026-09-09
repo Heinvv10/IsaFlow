@@ -13,6 +13,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { escapeCsv } from '@/lib/csv';
+import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 
 type Row = DbRow;
 
@@ -46,6 +47,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
   const taxYear = taxYearRaw;
 
+  // Only approved/paid runs exist in the general ledger; a calculated or
+  // cancelled run declared here would over-state remuneration to SARS.
+  const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
+
   log.info('EMP501 export requested', { companyId, taxYear }, 'emp501Export');
 
   const rows = (await sql`
@@ -62,6 +67,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     JOIN payroll_employees   pe  ON pe.id  = prl.employee_id
     WHERE prh.company_id = ${companyId}::uuid
+      AND prh.status = ANY(${declarableStatuses}::text[])
       AND (
         (prh.period_year = ${taxYear - 1} AND prh.period_month >= 3)
         OR

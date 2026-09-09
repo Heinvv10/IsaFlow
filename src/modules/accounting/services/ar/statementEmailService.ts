@@ -17,48 +17,13 @@ type Row = DbRow;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface StatementTransaction {
-  date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
-  reference: string;
-  debit: number;
-  credit: number;
-  balance: number;
-}
+import type {
+  StatementTransaction,
+  StatementExclusion,
+  StatementPayload,
+} from './statementEmailTypes';
 
-/** A candidate row the statement could not include, and why. */
-export interface StatementExclusion {
-  id: string;
-  /** Machine-stable snake_case code — callers branch on it. */
-  reason: string;
-  detail?: string;
-  amount?: number;
-  documentNumber?: string;
-}
-
-export interface StatementPayload {
-  customer: { id: string; name: string; email: string | null };
-  /**
-   * The date of the EARLIEST transaction on the statement, not a rolling
-   * window. None of the three queries has a lower bound, so a statement runs
-   * from inception; the previous value was `Date.now() − 365 days` computed
-   * through toISOString(), which both claimed a window the query did not use
-   * and rolled back a day on this UTC+2 host.
-   */
-  fromDate: string;
-  toDate: string;
-  transactions: StatementTransaction[];
-  /** Candidate rows deliberately left out of the running balance. Never omitted. */
-  excluded: StatementExclusion[];
-  /** Candidate rows before any classification filter: transactions + excluded. */
-  universeTotal: number;
-  summary: {
-    totalInvoiced: number;
-    totalPaid: number;
-    totalCredits: number;
-    balance: number;
-  };
-}
+export type { StatementExclusion, StatementPayload };
 
 // ─── Date helper ─────────────────────────────────────────────────────────────
 
@@ -125,15 +90,20 @@ export async function fetchStatementData(
       ORDER BY invoice_date
     ` as Promise<Row[]>,
 
+    // The receipt is credited at what the customer PAID, not at what has been
+    // matched to invoices. The old COALESCE(SUM(allocated), total) fell back to
+    // the receipt total only when there were no allocation rows at all, so a
+    // partly allocated receipt was credited at its allocated figure and the
+    // unapplied remainder vanished from a document we email the customer,
+    // overstating what they owe. Allocation is an internal matching detail; the
+    // statement is an account-level document.
     sql`
       SELECT cp.id, cp.payment_number, cp.payment_date, cp.status,
-        COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
+        cp.total_amount AS amount_received
       FROM customer_payments cp
-      LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
       WHERE cp.client_id = ${customerId}::UUID
         AND cp.company_id = ${companyId}::UUID
         AND cp.payment_date <= ${asAtDate}::DATE
-      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.total_amount, cp.status
     ` as Promise<Row[]>,
 
     sql`
@@ -177,7 +147,7 @@ export async function fetchStatementData(
         id: String(pmt.id),
         reason: 'payment_not_confirmed',
         detail: `Receipt is '${status}'; it settles nothing until it is confirmed or reconciled.`,
-        amount: Number(pmt.amount_allocated),
+        amount: Number(pmt.amount_received),
         documentNumber: String(pmt.payment_number ?? ''),
       });
       continue;
@@ -187,7 +157,7 @@ export async function fetchStatementData(
       type: 'payment',
       reference: String(pmt.payment_number ?? ''),
       debit: 0,
-      credit: Number(pmt.amount_allocated),
+      credit: Number(pmt.amount_received),
       balance: 0,
     });
   }
