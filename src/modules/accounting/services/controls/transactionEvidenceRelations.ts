@@ -10,6 +10,13 @@ export async function listDomainEvidenceNeighbors(ctx:ControlTx,ref:EvidenceIden
     UNION ALL SELECT 'supplier_invoice',a.invoice_id::text,'supplier_payment',a.payment_id::text,'payment_allocation'
       FROM payment_allocations a JOIN supplier_invoices i ON i.id=a.invoice_id AND i.company_id=${c}::uuid
       JOIN supplier_payments p ON p.id=a.payment_id AND p.company_id=${c}::uuid
+    UNION ALL SELECT 'customer_invoice',a.invoice_id::text,'customer_payment',a.payment_id::text,'customer_payment_allocation'
+      FROM customer_payment_allocations a JOIN customer_invoices i ON i.id=a.invoice_id AND i.company_id=${c}::uuid
+      JOIN customer_payments p ON p.id=a.payment_id AND p.company_id=${c}::uuid
+    UNION ALL SELECT 'customer_invoice',id::text,'journal_entry',gl_journal_entry_id::text,'posted_journal' FROM customer_invoices WHERE company_id=${c}::uuid
+    UNION ALL SELECT 'customer_payment',id::text,'journal_entry',gl_journal_entry_id::text,'posted_journal' FROM customer_payments WHERE company_id=${c}::uuid
+    UNION ALL SELECT 'customer_invoice',customer_invoice_id::text,'credit_note',id::text,'customer_invoice_credit' FROM credit_notes WHERE company_id=${c}::uuid AND type='customer'
+    UNION ALL SELECT 'credit_note',id::text,'journal_entry',gl_journal_entry_id::text,'posted_journal' FROM credit_notes WHERE company_id=${c}::uuid
     UNION ALL SELECT 'supplier_invoice',id::text,'journal_entry',gl_journal_entry_id::text,'posted_journal' FROM supplier_invoices WHERE company_id=${c}::uuid
     UNION ALL SELECT 'supplier_payment',id::text,'journal_entry',gl_journal_entry_id::text,'posted_journal' FROM supplier_payments WHERE company_id=${c}::uuid
     UNION ALL SELECT 'bank_transaction',b.id::text,'journal_entry',l.journal_entry_id::text,'matched_journal_line'

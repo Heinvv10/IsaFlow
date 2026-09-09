@@ -142,3 +142,30 @@ it('actual shared posting and reversal produces the posted reversed flag and rec
  expect(result.coverage.historicalCoverage).toBe('recorded_since');expect(result.coverage.earliestRecordedEvent).toBeTruthy();
  expect(result.edges.some(e=>e.relation==='reversal')).toBe(true);
 });
+it.each(['customer_invoice','customer_payment'])('traverses actual %s allocations, posting journals, credit notes and owned documents',async entityType=>{
+ const c=fixture.companyA,u=fixture.u1.id,customer=randomUUID(),invoice=randomUUID(),payment=randomUUID(),credit=randomUUID();
+ const invoiceJournal=randomUUID(),paymentJournal=randomUUID(),creditJournal=randomUUID(),reversal=randomUUID(),bank=randomUUID(),line=randomUUID();
+ const invoiceDoc=randomUUID(),paymentDoc=randomUUID(),creditDoc=randomUUID(),capture=randomUUID();
+ await pool.query("INSERT INTO customers(id,company_id,name) VALUES($1,$2,'SECRET CUSTOMER')",[customer,c]);
+ for(const journal of [invoiceJournal,paymentJournal,creditJournal,reversal]){
+  await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_date,status,created_by) VALUES($1,$2,CURRENT_DATE,'draft',$3)",[journal,c,u]);
+ }
+ await pool.query('UPDATE gl_journal_entries SET reversal_of_id=$3 WHERE company_id=$1 AND id=$2',[c,reversal,creditJournal]);
+ await pool.query('INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit) VALUES($1,$2,$3,$4,100,0)',[line,c,invoiceJournal,ids.account]);
+ await pool.query('INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,matched_journal_line_id) VALUES($1,$2,$3,CURRENT_DATE,100,$4)',[bank,c,ids.account,line]);
+ await pool.query('INSERT INTO customer_invoices(id,company_id,client_id,customer_id,invoice_number,invoice_date,total_amount,created_by,gl_journal_entry_id) VALUES($1,$2,$3,$3,$4,CURRENT_DATE,100,$5,$6)',[invoice,c,customer,invoice,u,invoiceJournal]);
+ await pool.query('INSERT INTO customer_payments(id,company_id,client_id,payment_date,total_amount,created_by,gl_journal_entry_id) VALUES($1,$2,$3,CURRENT_DATE,100,$4,$5)',[payment,c,customer,u,paymentJournal]);
+ await pool.query('INSERT INTO customer_payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,100)',[payment,invoice]);
+ await pool.query("INSERT INTO credit_notes(id,company_id,type,client_id,customer_invoice_id,credit_date,created_by,gl_journal_entry_id) VALUES($1,$2,'customer',$3,$4,CURRENT_DATE,$5,$6)",[credit,c,customer,invoice,u,creditJournal]);
+ await pool.query("INSERT INTO procurement_documents(id,entity_type,entity_id,file_url) VALUES($1,'customer_invoice',$2,'SECRET URL'),($3,'customer_payment',$4,'SECRET URL'),($5,'credit_note',$6,'SECRET URL')",[invoiceDoc,invoice,paymentDoc,payment,creditDoc,credit]);
+ await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type) VALUES($1,$2,'SECRET CAPTURE','pdf')",[capture,c]);
+ await pool.query('UPDATE gl_journal_entries SET source_document_id=$3 WHERE company_id=$1 AND id=$2',[c,invoiceJournal,capture]);
+ const result=await inspect({entityType,entityId:entityType==='customer_invoice'?invoice:payment});
+ expect(result.nodes.map(n=>n.entityId)).toEqual(expect.arrayContaining([invoice,payment,credit,invoiceJournal,paymentJournal,creditJournal,reversal,bank,invoiceDoc,paymentDoc,creditDoc,capture]));
+ expect(result.edges.some(e=>e.relation==='customer_payment_allocation')).toBe(true);
+ expect(result.edges.filter(e=>e.relation==='posted_journal')).toHaveLength(3);
+ expect(result.edges.some(e=>e.relation==='customer_invoice_credit')).toBe(true);expect(result.edges.some(e=>e.relation==='reversal')).toBe(true);
+ expect(result.coverage.documentCounts).toEqual({captured:1,procurement:3,bank_attachment:0});
+ expect(result.coverage.status).toBe('complete');expect(JSON.stringify(result)).not.toContain('SECRET');
+ await expect(inspect({entityType,entityId:entityType==='customer_invoice'?invoice:payment},true)).rejects.toThrow('Evidence unavailable');
+});
