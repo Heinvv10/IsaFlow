@@ -7,6 +7,12 @@
 -- so the database refuses the delete; deleteCostCentre reports the counts first.
 --
 -- Rollback: re-run the ALTERs with ON DELETE SET NULL / no action clause.
+--
+-- apply-migrations.ts wraps each file in BEGIN/COMMIT, so the DROP CONSTRAINT
+-- ACCESS EXCLUSIVE lock on both tables is held across the ADD CONSTRAINT scan.
+-- lock_timeout makes the deploy fail fast rather than queue every query on
+-- payroll_employees and assets behind a pending lock request.
+SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE payroll_employees
   DROP CONSTRAINT IF EXISTS payroll_employees_cost_centre_id_fkey;

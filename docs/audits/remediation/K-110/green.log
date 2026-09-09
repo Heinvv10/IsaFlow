@@ -20,3 +20,32 @@ payroll_employees_cost_centre_id_fkey and assets_cost_centre_id_fkey.
 Full unit suite, DATABASE_URL unset: Test Files 800 passed | 40 skipped (840);
 Tests 9553 passed | 243 skipped (9796).
 bunx tsc --noEmit: clean. bunx eslint on the 4 changed src files: clean.
+
+=== Review round 2 (9 findings) ===
+
+tests/integration/k110-cost-centre-delete-unassigns.int.test.ts   1 passed
+tests/integration/k110-cost-centre-delete-adjacent.int.test.ts    4 passed
+tests/integration/k110-cost-centre-guard-coverage.int.test.ts     4 passed (new)
+
+Mutation proof, each behavioural finding reverted in turn:
+ MEDIUM-1  documents label removed from the guard
+           -> RED "refuses a centre referenced only by a supplier invoice"
+ MEDIUM-2  children label removed
+           -> RED "refuses a parent centre instead of silently reparenting its children"
+ LOW-2     employees label removed
+           -> RED "refuses to delete a cost centre that payroll employees are assigned to"
+           (this is the mutation the round-1 test survived; it now asserts the
+            counted message, which only the guard's payroll branch produces)
+ LOW-3     23503 catch removed
+           -> RED "maps a cross-tenant FK violation onto the same refusal, not a 500"
+ Restored: 9 passed across the three files.
+
+MEDIUM-3 lock_timeout proved against the fixture: a competing transaction held
+ACCESS SHARE on payroll_employees, 649 was run inside a transaction and aborted
+after 6s with "canceling statement due to lock timeout" instead of waiting out
+the 20s lock. Constraints unchanged by the aborted run (confdeltype still 'r').
+scripts/apply-migrations.ts:122 wraps each file in BEGIN/COMMIT, so SET LOCAL
+applies; running the file through bare psql warns and is expected.
+
+LOW-4: agent-docs:generate run, agent-docs:check OK (74 mirrors).
+LOW-5: partially addressed, disposition recorded in fix.md.

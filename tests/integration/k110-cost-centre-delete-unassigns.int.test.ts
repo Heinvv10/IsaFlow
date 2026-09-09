@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import costCentresAction from '../../pages/api/accounting/cost-centres-action';
+import { deleteCostCentre } from '../../src/modules/accounting/services/core/costCentreService';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
@@ -52,6 +53,12 @@ it('refuses to delete a cost centre that payroll employees are assigned to', asy
   const centres = await pool.query('SELECT id FROM cost_centres WHERE id=$1', [centre]);
   const emp = await pool.query('SELECT cost_centre_id FROM payroll_employees WHERE id=$1', [employee]);
   // RED: today the delete succeeds and the employee's assignment is silently nulled.
-  expect({ centreRows: centres.rows.length, employeeCentre: emp.rows[0].cost_centre_id })
-    .toEqual({ centreRows: 1, employeeCentre: centre });
+  expect({
+    status: result.state.statusCode,
+    centreRows: centres.rows.length,
+    employeeCentre: emp.rows[0].cost_centre_id,
+  }).toEqual({ status: 400, centreRows: 1, employeeCentre: centre });
+  // The counted message is what distinguishes the guard's payroll branch from
+  // the FK catching the same delete: both end at 400, only the guard says why.
+  await expect(deleteCostCentre(company, centre)).rejects.toThrow('1 employee(s)');
 });

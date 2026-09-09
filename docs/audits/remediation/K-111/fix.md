@@ -13,4 +13,9 @@
 
 **Historical-data impact.** None. No stored value is wrong; the defect was in reported feedback only. Operational residue: an operator who read "0 transactions reassigned" may have repeated a merge (idempotent) or reversed one manually, which would have moved live documents to the wrong supplier. No read-only impact SQL can distinguish that from a legitimate reassignment.
 
-**Limits.** Other services that read a count off a bare `UPDATE` were not swept; only the three named here were changed. `bankTransactionQueryService.ts:208` already carries a comment documenting the same hazard.
+**Limits.** A repo-wide sweep for the defect class found one further live instance and it is fixed here: `bankTransactionQueryService.bulkAcceptTransactions` read `.count` off an UPDATE with no `RETURNING` and fell back to `ids.length`, reporting success for every id the operator sent including rows the `status IN ('imported','allocated')` predicate skipped. That is worse than the K-111 defect it neighbours, which under-reported to zero. Tests: `tests/integration/k111-bulk-accept-row-count.int.test.ts` (3). No other `rowCount`-off-a-tagged-template or `Array.isArray(x) ? x.length : 0` instance remains.
+
+## Review round 2 dispositions (blind review of a9e8c3e7)
+
+- **MEDIUM-4 (live over-reporting instance left in the sweep).** Fixed. `bulkAcceptTransactions` now carries `RETURNING id` and counts `result.length`, matching `deleteTransactions` twenty lines above. Three real-DB tests cover the status predicate, tenant scoping and the empty-list short circuit.
+- **LOW-4 (no module doc entry).** Fixed. Entries added to `core/`, `reports/` and `bank/` `.claude.md`; mirrors regenerated.
