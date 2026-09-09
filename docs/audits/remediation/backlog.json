@@ -1531,11 +1531,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-041/red.log",
+    "K-041/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1557,11 +1562,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-042-reinvite-unique-violation.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-042/red.log",
+    "K-042/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1583,11 +1593,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-043-self-approval-and-approver-role.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-043/red.log",
+    "K-043/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1610,11 +1625,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-044-recurring-autopost-forbidden-status.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-044/red.log",
+    "K-044/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1636,11 +1656,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-045-documents-supplier-invoice-ownership.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-045/red.log",
+    "K-045/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1662,11 +1687,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-046/red.log",
+    "K-046/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1688,11 +1718,18 @@
    "correctedTrigger": "Migration 501 resolves a covering fiscal period on INSERT. Validate only uncovered-date/missing-period behavior; a covering-period insert is not proof of an invisible journal.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "0f16391e",
+   "status": "false-positive",
+   "dependencies": [
+    "Headline (NULL fiscal period) disproved: migration 501 trigger fills fiscal_period_id and depreciationRunPlan refuses no_period; residual defect retained: posted_at/posted_by NULL at status=posted on auto_depreciation journals (K-047/validation.md)"
+   ],
+   "testNames": [
+    "tests/integration/k047-depreciation-journal-posted-metadata.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-047/red.log",
+    "K-047/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1714,11 +1751,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-048/red.log",
+    "K-048/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1740,11 +1782,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-049/red.log",
+    "K-049/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1766,11 +1813,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k050-close-readiness-as-at-subledger.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-050/red.log",
+    "K-050/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1792,11 +1844,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k051-account-merge-into-header-hides-balance.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-051/red.log",
+    "K-051/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -1818,16 +1875,23 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "0f16391e",
+   "status": "confirmed",
+   "dependencies": [
+    "Same root cause as K-051 (no leaf/level guard on the target account); fixed together with one shared guard"
+   ],
+   "testNames": [
+    "tests/integration/k052-reclassification-onto-header-account.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-052/red.log",
+    "K-052/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
-   "canonicalItem": null,
+   "canonicalItem": "K-051",
    "reportedSeverity": "high"
   },
   {
@@ -8815,6 +8879,38 @@
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Nil on production (same probe): no migrated documents with VAT lines exist beyond one auto_migration journal.",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
+  },
+  {
+   "id": "R-027",
+   "claim": "postClosingJournal writes source='year_end', which gl_journal_entries_source_check does not list, so year-end close fails for every tenant before the K-046 contra bug is reached.",
+   "area": "gl",
+   "affectedPaths": [
+    "src/modules/accounting/services/gl/yearEndCloseService.ts",
+    "scripts/migrations/sql"
+   ],
+   "sourceLabel": "K-046 validation",
+   "sourceIds": [],
+   "correctedTrigger": "Executed on the fixture: 23514 on gl_journal_entries_source_check for source='year_end'.",
+   "severityRationale": "Year-end close is impossible for every company; closing journals missing and periods stay unlocked.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "0f16391e",
+   "status": "confirmed",
+   "dependencies": [
+    "Fixed with K-046 (migration adding year_end to the source CHECK)"
+   ],
+   "testNames": [
+    "tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-046/validation.md",
+    "K-046/red.log"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "No wrong rows; no year-end close has ever completed.",
    "canonicalItem": null,
    "reportedSeverity": "high"
   }
