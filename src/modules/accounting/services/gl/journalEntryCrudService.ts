@@ -65,6 +65,8 @@ export function mapLineRow(row: Row): JournalLine {
     description: row.description ? String(row.description) : undefined,
     projectId: row.project_id ? String(row.project_id) : undefined,
     costCenterId: row.cost_center_id ? String(row.cost_center_id) : undefined,
+    cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,
+    cc2Id: row.cc2_id ? String(row.cc2_id) : undefined,
     buId: row.bu_id ? String(row.bu_id) : undefined,
     vatType: row.vat_type ? String(row.vat_type) as VatType : undefined,
     createdAt: String(row.created_at),
@@ -267,13 +269,15 @@ export async function createJournalEntry(
       ...input.lines.map((line) => sql`
         INSERT INTO gl_journal_lines (
           journal_entry_id, gl_account_id, debit, credit,
-          description, project_id, cost_center_id, bu_id, vat_type, company_id
+          description, project_id, cost_center_id, cc1_id, cc2_id, bu_id, vat_type, company_id
         ) VALUES (
           ${entryId}::UUID, ${line.glAccountId}::UUID,
           ${line.debit}, ${line.credit},
           ${line.description || null},
           ${line.projectId || null},
           ${line.costCenterId || null},
+          ${line.cc1Id || null}::UUID,
+          ${line.cc2Id || null}::UUID,
           ${line.buId || null}::UUID,
           ${line.vatType || null},
           ${companyId}::UUID
