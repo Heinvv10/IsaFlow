@@ -10,7 +10,7 @@
  * trigger a re-link pass without re-importing.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
@@ -22,6 +22,12 @@ type Row = Record<string, unknown>;
  *     `matched_journal_line_id`
  *   - Has a matching amount (opposite sign) and date (±2 days)
  *
+ * A GL movement can only be the counterpart of ONE bank line, so a journal
+ * line already referenced by a `bank_transactions.matched_journal_line_id` is
+ * excluded outright, and at most one imported transaction may win any single
+ * line in a pass. A runner-up is not lost: once the winner claims the line,
+ * the next pass re-evaluates the runner-up against the lines still free.
+ *
  * Updates matching transactions to `status = 'allocated'` with the JE link.
  * Returns the count of rows updated.
  */
@@ -30,7 +36,10 @@ export async function relinkTransferCounterparts(
   bankAccountId: string,
 ): Promise<number> {
   try {
-    const result = (await sql`
+    // The import path calls this inside the request transaction, so a
+    // failure swallowed below would otherwise leave that transaction aborted
+    // (25P02) and every later statement in the request would fail.
+    const result = (await withSavepoint('relink_transfer_counterparts', () => sql`
       WITH source_allocs AS (
         -- Allocated transactions on OTHER bank accounts whose JE has a line
         -- for the current bank's GL account (bankAccountId).
@@ -54,6 +63,13 @@ export async function relinkTransferCounterparts(
           AND bt_src.bank_account_id != ${bankAccountId}::UUID
           AND bt_src.status          = 'allocated'
           AND bt_src.matched_journal_line_id IS NOT NULL
+          -- The counterpart leg is only free if no bank line already claims it.
+          AND NOT EXISTS (
+            SELECT 1
+            FROM bank_transactions bt_used
+            WHERE bt_used.company_id              = ${companyId}::UUID
+              AND bt_used.matched_journal_line_id = jl_mine.id
+          )
       ),
       best_matches AS (
         -- For each unlinked imported transaction, pick the closest source alloc
@@ -61,7 +77,8 @@ export async function relinkTransferCounterparts(
           bt_new.id               AS new_tx_id,
           sa.target_je_line_id,
           sa.src_bank_id          AS counterparty_bank_id,
-          sa.allocated_entity_name
+          sa.allocated_entity_name,
+          ABS(bt_new.transaction_date::DATE - sa.src_date::DATE) AS date_distance
         FROM bank_transactions bt_new
         JOIN source_allocs sa ON (
           ABS(bt_new.amount + sa.src_amount) < 0.01
@@ -73,7 +90,19 @@ export async function relinkTransferCounterparts(
           AND bt_new.company_id      = ${companyId}::UUID
           AND bt_new.status          = 'imported'
         ORDER BY bt_new.id,
-                 ABS(bt_new.transaction_date::DATE - sa.src_date::DATE) ASC
+                 ABS(bt_new.transaction_date::DATE - sa.src_date::DATE) ASC,
+                 sa.target_je_line_id
+      ),
+      winners AS (
+        -- One bank line per GL movement. Closest date wins; new_tx_id breaks
+        -- the tie so a re-run of the same pass picks the same winner.
+        SELECT DISTINCT ON (target_je_line_id)
+          new_tx_id,
+          target_je_line_id,
+          counterparty_bank_id,
+          allocated_entity_name
+        FROM best_matches
+        ORDER BY target_je_line_id, date_distance ASC, new_tx_id
       )
       UPDATE bank_transactions bt
       SET status                  = 'allocated',
@@ -88,12 +117,12 @@ export async function relinkTransferCounterparts(
           -- beside a freshly rewritten account.
           allocation_rule_id = NULL, allocation_rule_name = NULL,
           updated_at              = NOW()
-      FROM best_matches m
+      FROM winners m
       WHERE bt.id         = m.new_tx_id
         AND bt.company_id = ${companyId}::UUID
         AND bt.status     = 'imported'
       RETURNING bt.id
-    `) as Row[];
+    `)) as Row[];
 
     const count = result.length;
     if (count > 0) {
