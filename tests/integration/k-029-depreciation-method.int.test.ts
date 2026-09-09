@@ -31,6 +31,7 @@ const reducingId = crypto.randomUUID();
 const sumOfYearsId = crypto.randomUUID();
 const straightId = crypto.randomUUID();
 const otherTenantAssetId = crypto.randomUUID();
+const expiredId = crypto.randomUUID();
 
 const PERIOD = '2026-09-30';
 
@@ -61,12 +62,13 @@ async function seedAsset(
   life: number,
   method: string,
   accDep: number,
+  purchaseDate = '2024-01-15',
 ) {
   await pool.query(
     `INSERT INTO assets(id,company_id,asset_number,name,purchase_date,purchase_price,
        salvage_value,useful_life_years,depreciation_method,accumulated_depreciation,status)
-     VALUES($1,$2,$3,$4,'2024-01-15',$5,0,$6,$7,$8,'available')`,
-    [id, companyId, number, `${method} plant`, price, life, method, accDep],
+     VALUES($1,$2,$3,$4,$9,$5,0,$6,$7,$8,'available')`,
+    [id, companyId, number, `${method} plant`, price, life, method, accDep, purchaseDate],
   );
 }
 
@@ -78,6 +80,9 @@ beforeAll(async () => {
   await seedAsset(sumOfYearsId, company, 'K029-0002', 60000, 3, 'sum_of_years', SUM_OF_YEARS_ACC_DEP);
   await seedAsset(straightId, company, 'K029-0003', 120000, 10, 'straight_line', 0);
   await seedAsset(otherTenantAssetId, otherCompany, 'K029-9001', 50000, 5, 'reducing_balance', 0);
+  // Life ended in 2020 with R60 000 of the R100 000 still undepreciated — the
+  // shape a part-migrated register carries into its first run after deploy.
+  await seedAsset(expiredId, company, 'K029-0004', 100000, 5, 'straight_line', 40000, '2015-01-31');
 
   await pool.query(
     `INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
@@ -152,11 +157,14 @@ describe('K-029 depreciation method', () => {
     const assets = await loadDepreciationAssets(company);
     const plan = await planDepreciationRun(company, PERIOD, assets);
     expect(plan.blocker).toBeNull();
-    expect(plan.postable).toHaveLength(3);
+    expect(plan.postable).toHaveLength(4);
 
     const result = await executeDepreciationRun(company, userId, plan, assets);
     expect(result.glFailed).toBe(0);
-    expect(result.processed).toBe(3);
+    // All four are processed: the expired asset's POLICY charge is zero, but
+    // its tax track still has life, which is exactly why it must not be skipped
+    // out of the plan. The next test pins that it posts no policy journal.
+    expect(result.processed).toBe(4);
 
     const expected: Record<string, number> = {
       'K029-0001': REDUCING_BALANCE_MONTHLY,
@@ -196,6 +204,36 @@ describe('K-029 depreciation method', () => {
       );
       expect(Number(ledger.rows[0]!.policy_current_dep)).toBeCloseTo(charge, 2);
     }
+  });
+
+  it('charges nothing for an asset already past its life, and says why', async () => {
+    // Follow-up review HIGH-A: the final-month true-up used >=, so this asset
+    // was handed its whole R60 000 remaining book value as one month's charge.
+    const assets = await loadDepreciationAssets(company);
+    const plan = await planDepreciationRun(company, PERIOD, assets);
+
+    const row = plan.rows.find((r) => r.assetNumber === 'K029-0004');
+    expect(row).toBeDefined();
+    // It still posts — its tax track may have life left — but the note names
+    // the stranded amount instead of the run silently moving it.
+    expect(row!.skipReason).toBeNull();
+    expect(row!.lifeExpiredNote).toContain('60000.00');
+    expect(row!.lifeExpiredNote).toContain('prior-period correction');
+
+    // No policy journal was posted for it by the run above.
+    const { rows } = await pool.query(
+      `SELECT 1 FROM gl_journal_entries WHERE company_id=$1 AND entry_number=$2`,
+      [company, 'DEP-K029-0004-2026-09'],
+    );
+    expect(rows).toHaveLength(0);
+
+    // And the subledger records a zero policy charge, not a 60 000 one.
+    const ledger = await pool.query(
+      `SELECT policy_current_dep FROM asset_period_ledger
+        WHERE company_id=$1 AND asset_id=$2 AND yyyymm='202609'`,
+      [company, expiredId],
+    );
+    expect(Number(ledger.rows[0]!.policy_current_dep)).toBe(0);
   });
 
   it('agrees with the asset-service calculator the CSV and the detail page read', () => {

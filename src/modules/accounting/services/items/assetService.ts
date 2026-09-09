@@ -118,6 +118,9 @@ function calcByMethod(input: CalcInput, method: DepreciationMethod): Depreciatio
     if (remaining <= 0) {
       return { monthlyAmount: 0, annualAmount: 0, annualRate, method, remainingMonths: 0 };
     }
+    // Same final-month true-up the run applies, so this returns the figure the
+    // GL will actually carry rather than one cent-fraction short of it.
+    if (monthsElapsed === Math.round(totalMonths) - 1) monthlyDep = remaining;
     monthlyDep = Math.min(monthlyDep, remaining);
   }
   return {

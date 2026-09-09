@@ -10,10 +10,8 @@ import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle
 import { AssetDualTrackPanel } from '@/components/assets/AssetDualTrackPanel';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import {
-  annualPolicyCharge,
-  toDepreciationMethod,
-} from '@/modules/accounting/services/items/farDepreciationService';
+import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
+import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
 
 // ---- Types ----
 
@@ -27,7 +25,6 @@ interface Asset {
   salvage_value: number | null; depreciation_method: string | null;
 }
 
-interface DepRow { year: number; open: number; dep: number; close: number; accum: number; }
 interface DispForm { disposal_date: string; disposal_method: string; disposal_amount: string; reason: string; }
 
 // ---- Helpers ----
@@ -40,31 +37,6 @@ const fmtD = (v: string | Date | null | undefined): string => {
   return (v instanceof Date ? v.toISOString() : v).split('T')[0] ?? '—';
 };
 
-/**
- * The schedule the monthly run will actually post, not a straight-line
- * approximation of it. It used to charge cost / years flat and ignore both the
- * asset's method and its residual, so a reducing-balance asset's own page
- * contradicted the journals in the GL.
- */
-function buildSchedule(a: Asset): DepRow[] {
-  const yrs = a.useful_life_years; const cost = Number(a.purchase_price ?? 0);
-  if (!yrs || yrs <= 0 || cost <= 0) return [];
-  const cap = Math.min(Math.ceil(yrs), 30);
-  const residual = Number(a.salvage_value ?? 0);
-  const method = toDepreciationMethod(a.depreciation_method);
-  let accum = 0;
-  return Array.from({ length: cap }, (_, i) => {
-    const yr = i + 1; const open = cost - accum;
-    const charge = annualPolicyCharge({
-      method, cost, residual, usefulLifeYears: yrs, monthsElapsed: i * 12,
-    });
-    // Final year trues the schedule up onto the residual, as the run does.
-    const dep = Math.max(0, Math.min(yr < cap ? charge : open - residual, open - residual));
-    accum += dep;
-    return { year: yr, open, dep, close: Math.max(residual, cost - accum), accum };
-  });
-}
-
 function currentYear(a: Asset): number {
   if (!a.purchase_date) return -1;
   const ms = Date.now() - new Date(fmtD(a.purchase_date)).getTime();
@@ -74,7 +46,7 @@ function currentYear(a: Asset): number {
 // ---- Sub-components ----
 
 function DepTable({ asset }: { asset: Asset }) {
-  const rows = buildSchedule(asset);
+  const rows = buildDepreciationSchedule(asset);
   const cur = currentYear(asset);
   if (!rows.length) return null;
   return (
@@ -83,6 +55,9 @@ function DepTable({ asset }: { asset: Asset }) {
         <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Depreciation Schedule</h2>
         <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
           {toDepreciationMethod(asset.depreciation_method).replace(/_/g, ' ')} · {asset.useful_life_years}-year life · Cost {fmtC(asset.purchase_price)}
+        </p>
+        <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
+          Annual figures. Year one is before the run&apos;s first-month pro-rate, so the twelve posted journals total slightly less.
         </p>
       </div>
       <div className="overflow-x-auto">
