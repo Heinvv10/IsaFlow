@@ -40,7 +40,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
     if (filters?.clientId) {
       rows = (await sql`
         SELECT cp.*, c.name AS client_name,
-          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
+          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id AND cpa.reversed_at IS NULL), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
         WHERE cp.client_id = ${filters.clientId}::UUID AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
@@ -51,7 +51,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
     } else if (filters?.status) {
       rows = (await sql`
         SELECT cp.*, c.name AS client_name,
-          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
+          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id AND cpa.reversed_at IS NULL), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
         WHERE cp.status = ${filters.status} AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
@@ -62,7 +62,7 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
     } else {
       rows = (await sql`
         SELECT cp.*, c.name AS client_name,
-          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
+          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id AND cpa.reversed_at IS NULL), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
         WHERE cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
@@ -91,8 +91,9 @@ export async function getCustomerPaymentById(companyId: string,
     const allocRows = (await sql`
       SELECT cpa.*, ci.invoice_number
       FROM customer_payment_allocations cpa
-      LEFT JOIN customer_invoices ci ON ci.id = cpa.invoice_id
-      WHERE cpa.payment_id = ${id}
+      JOIN customer_payments cp ON cp.id = cpa.payment_id
+      LEFT JOIN customer_invoices ci ON ci.id = cpa.invoice_id AND ci.company_id = cp.company_id
+      WHERE cpa.payment_id = ${id} AND cp.company_id = ${companyId}::UUID AND cpa.reversed_at IS NULL
     `) as Row[];
 
     return { ...mapPaymentRow(rows[0]!), allocations: allocRows.map(mapAllocationRow) };

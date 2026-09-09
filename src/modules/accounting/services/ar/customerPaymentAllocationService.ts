@@ -1,3 +1,4 @@
+import {assertCashApplicationsUnapplied} from '../shared/cashApplicationCancellation';
 /**
  * Customer Payment Allocation Service
  * GL posting for customer invoices and payment confirmation/cancellation logic.
@@ -124,8 +125,9 @@ async function cancelCustomerPaymentEffect(
     }
 
     const ctx=requireArControl(companyId,userId);
+    await assertCashApplicationsUnapplied(ctx,id,'customer');
     const data=await lockArPaymentSources(ctx,id);
-    for(const allocation of data.allocations){
+    for(const allocation of data.allocations.filter(a=>a.reversed_at==null)){
       if(new Decimal(String(allocation.invoice_paid)).lt(String(allocation.amount_allocated)))throw new Error('Invoice balance cannot absorb the receipt cancellation');
     }
     // Reverse GL journal entry

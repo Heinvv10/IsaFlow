@@ -1,5 +1,8 @@
+import {seedBankAllocationSupplier} from './bankAllocationSupplierFixture';
+import {approveSupplierInvoice} from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import {getUnappliedPayments} from '@/modules/accounting/services/ap/unappliedPaymentService';
 import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
-import {confirmCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
+import {confirmCustomerPayment,cancelCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import {getUnappliedReceipts} from '@/modules/accounting/services/ar/unappliedReceiptService';
 import {lockCustomerPaymentForUpdate} from '@/modules/accounting/services/core/paymentLock';
 import {loadCashApplicationSources} from '@/modules/accounting/services/shared/cashApplicationSources';
@@ -143,6 +146,7 @@ it('binds fresh application approval to original maker and permits an independen
  await expect(actor(()=>requestOperationApproval(requireControlTx(),prepared.operation as Parameters<typeof requestOperationApproval>[1]),'u2')).rejects.toThrow('Original intent requester');
  const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation as Parameters<typeof requestOperationApproval>[1]));
  await expect(actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'))).rejects.toThrow(/Self/);
+ await expect(actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u1',true)).rejects.toThrow(/Self|authenticated human/);
  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
  expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
 });
@@ -176,4 +180,84 @@ it('executes the legacy receipt adapter only with its exact approved immutable i
  await expect(actor(()=>applyReceiptPlan(fixture.companyA,{...preview,lines:preview.lines.map(line=>({...line,amount:114}))},fixture.u1.id,options))).rejects.toThrow(/immutable intent/);
  await actor(()=>applyReceiptPlan(fixture.companyA,preview,fixture.u1.id,options));
  expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('115.00');
+});
+
+it('cancels direct receipt after approved unapplication without subtracting retained history again',async()=>{
+ const {invoice}=await postedCash(),paymentId=randomUUID();
+ await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,currency_code,created_by) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'ZAR',$4)",[paymentId,fixture.companyA,customer,fixture.u1.id]);
+ const confirmation=await actor(()=>requestOperationApproval(requireControlTx(),{entityType:'customer_payment',entityId:paymentId,operation:'customer_payment.confirm'}));
+ await actor(()=>decideOperationApproval(requireControlTx(),confirmation.id,'approved'),'u2');
+ await actor(()=>confirmCustomerPayment(fixture.companyA,paymentId,fixture.u1.id,{approvalId:confirmation.id}));
+ const application=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),application.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ await actor(()=>executeCashApplication(requireControlTx(),application.intentId,{approvalId:approval.id}));
+ const inverse=await actor(()=>prepareCashApplicationReversal(requireControlTx(),{originalIntentId:application.intentId,reversalDate:'2026-09-11',reason:'Synthetic before cancellation'}));
+ const inverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),inverse.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),inverseApproval.id,'approved'),'u2');
+ await actor(()=>executeCashApplicationReversal(requireControlTx(),inverse.intentId,{approvalId:inverseApproval.id}));
+ const cancellation=await actor(()=>requestOperationApproval(requireControlTx(),{entityType:'customer_payment',entityId:paymentId,operation:'customer_payment.cancel',reversalDate:'2026-09-12'}));
+ await actor(()=>decideOperationApproval(requireControlTx(),cancellation.id,'approved'),'u2');
+ await actor(()=>cancelCustomerPayment(fixture.companyA,paymentId,fixture.u1.id,'Synthetic cancel',{approvalId:cancellation.id,reversalDate:'2026-09-12'}));
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
+ expect((await pool.query('SELECT status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,paymentId])).rows[0].status).toBe('cancelled');
+ expect((await pool.query('SELECT amount_allocated::text,reversal_intent_id FROM customer_payment_allocations WHERE application_intent_id=$1',[application.intentId])).rows).toEqual([{amount_allocated:'115.00',reversal_intent_id:inverse.intentId}]);
+});
+
+it('applies and reverses supplier bank cash and reports immutable accounting dates',async()=>{
+ const expense=randomUUID();
+ for(const [id,role,type,balance] of [[randomUUID(),'payable','liability','credit'],[expense,'default_expense','expense','debit'],[randomUUID(),'vat_input','asset','debit']])await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level) VALUES($1,$2,left($1::uuid::text,12),$3,$4,$3,$5,true,true,3)",[id,fixture.companyA,role,type,balance]);
+ const supplier=await seedBankAllocationSupplier(pool,fixture,(person,fn)=>actor(()=>fn(requireControlTx()),person)),tx=randomUUID();
+ await pool.query("UPDATE supplier_invoices SET subtotal=100,tax_rate=15,tax_amount=15,total_amount=115,currency='ZAR' WHERE company_id=$1 AND id=$2",[fixture.companyA,supplier.invoice]);
+ await pool.query("INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,tax_rate,tax_amount,gl_account_id) VALUES($1,'Cash target expense',1,100,100,15,15,$2)",[supplier.invoice,expense]);
+ await actor(()=>approveSupplierInvoice(fixture.companyA,supplier.invoice,fixture.u1.id));
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',-115,'Unapplied supplier cash','imported')",[tx,fixture.companyA,bank]);
+ const bankIntent=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'supplier',bankTransactionId:tx,partyId:supplier.supplier,applications:[]}));
+ const bankApproval=await actor(()=>requestOperationApproval(requireControlTx(),bankIntent.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),bankApproval.id,'approved'),'u2');
+ const posted=await actor(()=>executeBankAllocation(requireControlTx(),bankIntent.intentId,{approvalId:bankApproval.id}));
+ const application=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'supplier',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:supplier.invoice,amount:'115.00'}]}));
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),application.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ await actor(()=>executeCashApplication(requireControlTx(),application.intentId,{approvalId:approval.id}));
+ const inverse=await actor(()=>prepareCashApplicationReversal(requireControlTx(),{originalIntentId:application.intentId,reversalDate:'2026-09-11',reason:'Synthetic supplier unapply'}));
+ const inverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),inverse.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),inverseApproval.id,'approved'),'u2');
+ await actor(()=>executeCashApplicationReversal(requireControlTx(),inverse.intentId,{approvalId:inverseApproval.id}));
+ for(const [asAt,expected] of [['2026-09-09',115],['2026-09-10',0],['2026-09-11',115]] as const){
+  const report=await actor(()=>getUnappliedPayments(fixture.companyA,{asAt,limit:500}));
+  expect(report.rows.find(row=>row.paymentId===posted.paymentId)?.unappliedAmount??0).toBe(expected);
+ }
+ expect((await pool.query('SELECT amount_paid::text,payment_matched FROM supplier_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,supplier.invoice])).rows[0]).toEqual({amount_paid:'0.00',payment_matched:false});
+ expect((await pool.query('SELECT amount_allocated::text,reversal_intent_id FROM payment_allocations WHERE application_intent_id=$1',[application.intentId])).rows).toEqual([{amount_allocated:'115.00',reversal_intent_id:inverse.intentId}]);
+});
+
+it('requires approved unapplication before cancelling cash with active controlled allocations',async()=>{
+ const {invoice}=await postedCash(),paymentId=randomUUID();
+ await pool.query("INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,currency_code,created_by) VALUES($1,$2,$3,left($1::uuid::text,28),'2026-09-09',115,'ZAR',$4)",[paymentId,fixture.companyA,customer,fixture.u1.id]);
+ const confirmation=await actor(()=>requestOperationApproval(requireControlTx(),{entityType:'customer_payment',entityId:paymentId,operation:'customer_payment.confirm'}));
+ await actor(()=>decideOperationApproval(requireControlTx(),confirmation.id,'approved'),'u2');
+ await actor(()=>confirmCustomerPayment(fixture.companyA,paymentId,fixture.u1.id,{approvalId:confirmation.id}));
+ const application=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'50.00'}]}));
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),application.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ await actor(()=>executeCashApplication(requireControlTx(),application.intentId,{approvalId:approval.id}));
+ await expect((async()=>{
+  const ref={entityType:'customer_payment',entityId:paymentId,operation:'customer_payment.cancel' as const,reversalDate:'2026-09-12'};
+  const cancellation=await actor(()=>requestOperationApproval(requireControlTx(),ref));
+  await actor(()=>decideOperationApproval(requireControlTx(),cancellation.id,'approved'),'u2');
+  return actor(()=>cancelCustomerPayment(fixture.companyA,paymentId,fixture.u1.id,'Synthetic bypass',{approvalId:cancellation.id,reversalDate:'2026-09-12'}));
+ })()).rejects.toThrow(/unapplication|application|controlled/i);
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('50.00');
+});
+
+it('serializes concurrent execution of one approved cash intent into one effect and allocation',async()=>{
+ const {invoice,posted}=await postedCash();
+ const application=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),application.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ const results=await Promise.all([actor(()=>executeCashApplication(requireControlTx(),application.intentId,{approvalId:approval.id})),actor(()=>executeCashApplication(requireControlTx(),application.intentId,{approvalId:approval.id}))]);
+ expect(results[1]).toEqual(results[0]);
+ expect((await pool.query('SELECT count(*)::int AS n FROM customer_payment_allocations WHERE application_intent_id=$1',[application.intentId])).rows[0].n).toBe(1);
+ expect((await pool.query("SELECT count(*)::int AS n FROM control_operation_effects WHERE company_id=$1 AND entity_type='cash_application_intent' AND entity_id=$2",[fixture.companyA,application.intentId])).rows[0].n).toBe(1);
 });

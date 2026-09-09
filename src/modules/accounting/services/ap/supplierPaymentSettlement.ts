@@ -1,3 +1,4 @@
+import {assertCashApplicationsUnapplied} from '../shared/cashApplicationCancellation';
 import { requireControlTx } from '../controls/context';
 import { assertControlledEffectPermit, type ControlledEffectPermit } from '../controls/approvalExecutionService';
 import { recordCommittedChange } from '../controls/changeEventService';
@@ -9,11 +10,12 @@ export async function applyControlledSupplierSettlement(paymentId: string, accou
   const ctx = requireControlTx(), companyId = ctx.principal.companyId;
   if (!['supplier_payment.process', 'supplier_payment.void'].includes(permit.operation)) throw new Error('Invalid settlement parent');
   assertControlledEffectPermit(ctx, permit, { operation: permit.operation, entityType: 'supplier_payment', entityId: paymentId });
+  if(permit.operation==='supplier_payment.void')await assertCashApplicationsUnapplied(ctx,paymentId,'supplier');
   const allocations = await ctx.sql`
     SELECT pa.invoice_id,pa.amount_allocated::text FROM payment_allocations pa
     JOIN supplier_payments sp ON sp.id=pa.payment_id
     JOIN supplier_invoices si ON si.id=pa.invoice_id AND si.company_id=sp.company_id AND si.supplier_id=sp.supplier_id
-    WHERE sp.company_id=${companyId}::uuid AND sp.id=${paymentId}::uuid ORDER BY si.id FOR UPDATE OF si
+    WHERE sp.company_id=${companyId}::uuid AND sp.id=${paymentId}::uuid AND pa.reversed_at IS NULL ORDER BY si.id FOR UPDATE OF si
   ` as Array<{ invoice_id: string; amount_allocated: string }>;
   for (const allocation of allocations) {
     const [before] = await ctx.sql`SELECT * FROM supplier_invoices WHERE company_id=${companyId}::uuid AND id=${allocation.invoice_id}::uuid` as Record<string, unknown>[];

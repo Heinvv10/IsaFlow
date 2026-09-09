@@ -1,4 +1,5 @@
 import {assertStandalonePaymentVoid,assertStandalonePaymentProcess} from './batchPaymentValidation';
+import {assertCashApplicationsUnapplied} from '../shared/cashApplicationCancellation';
 /**
  * Supplier Payment Workflow Service
  * Approve and process payment operations — split from supplierPaymentService.ts.
@@ -155,6 +156,8 @@ async function voidSupplierPaymentInner(
     if (payment.status !== 'processed') {
       throw new Error(`Only processed payments can be voided (status: ${payment.status})`);
     }
+
+    await assertCashApplicationsUnapplied(requireControlTx(),id,'supplier');
 
     // Reverse the payment journal (skip if already reversed — reversed_at is
     // the marker; the original keeps status='posted' under metadata semantics).
