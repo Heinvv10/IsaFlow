@@ -110,10 +110,13 @@ describeIfDb('K-144 a matched journal line must belong to the caller company', (
   });
 
   it('refuses a journal line belonging to another company', async () => {
-    // Pinned to the message, not a bare toThrow: the old code raised a raw FK
-    // violation here too, so any-throw would pass without the tenant check.
+    // Pinned to the LINE's message, not a bare toThrow and not a bare
+    // /not found/: the old code raised a raw FK violation here too, and
+    // `lockForStatusWrite` throws `Bank transaction <id> not found` on a
+    // different failure entirely — either would green this without the tenant
+    // check ever running.
     await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA, foreignLine)))
-      .rejects.toThrow(/not found/i);
+      .rejects.toThrow(new RegExp(`Journal line ${foreignLine} not found`));
     const row = await admin.query(
       'SELECT status, matched_journal_line_id FROM bank_transactions WHERE id = $1', [bankTxA]);
     expect(row.rows[0].matched_journal_line_id).toBeNull();
@@ -123,7 +126,7 @@ describeIfDb('K-144 a matched journal line must belong to the caller company', (
   it('refuses a journal line that does not exist at all', async () => {
     const ghost = randomUUID();
     await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA, ghost))).rejects.toThrow(
-      /not found|does not belong|invalid/i);
+      new RegExp(`Journal line ${ghost} not found`));
   });
 
   it('refuses to bind one journal line to a second bank transaction', async () => {

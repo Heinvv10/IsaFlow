@@ -61,12 +61,21 @@ MUTATION PROOF — each production change reverted in turn, test re-run, restore
        back to 'partially_paid'                    → 3 failed (3)
   All restored and re-run GREEN; the index was re-created from the migration file.
 
-NOTE — the round-1 working tree had BROKEN three unit files that its green.log
-recorded as load-related timeouts: bankReconciliationService.test.ts (11 failed),
+NOTE (corrected in round 3) — the round-2 working tree, NOT round 1, had broken
+three unit files: bankReconciliationService.test.ts (11 failed),
 bankTxStatusMutationsLock.test.ts (4) and bank/autoPostUndoService.test.ts (1) all
 failed with 'No "withSavepoint" export is defined on the "@/lib/neon" mock'. Their
 mocks now carry a pass-through withSavepoint, which is what the real helper does
 with no ALS client.
+
+The round-2 NOTE this replaces claimed those were the files round 1 had recorded
+as load-related timeouts. They were not: round 1's block names three DIFFERENT
+files (bankAllocationService.test.ts, bank/bankAllocationUnwind.test.ts,
+cashFlowReport.test.ts) and records 6 failures, which cannot contain 11+4+1=16.
+And at 9be9bc16c neither the three sources nor bankReconciliationService.test.ts
+referenced withSavepoint at all (grep -c -> 0 on each), so round 1 could not have
+hit this breakage. Round 1's timeout attribution stands; the self-correction was
+the inaccurate record.
 
 FULL UNIT SUITE (DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset, load avg ~11):
   Test Files  802 passed | 40 skipped (842)
@@ -78,3 +87,28 @@ bun run agent-docs:check: OK: 74 mirror(s) match.
 bun scripts/ci/check-migration-rls.ts: OK.
 bun scripts/audit-migration-naming.ts: no new duplicate prefixes.
 File sizes: autoPostGateService 291, autoPostSettingsService 127, all others < 300.
+
+=== ROUND 3 (blind review r2: 1 HIGH, 2 MEDIUM, 6 LOW) ===
+INTEGRATION (fixture DB, K-140..K-145): 11 files / 47 tests passed.
+  new: k144-migration-657-dedupe.int.test.ts (8), k144-match-line-lock-timeout.int.test.ts (1)
+UNIT (targeted): autoMatchRaceHandling 6, k145-non-csv-parse-guard 11, plus the seven
+  rule-related suites 63 passed | 2 skipped.
+
+MUTATION PROOF (production change reverted, test re-run, then restored):
+  1. migration 657 restored to the fe9e62ac2 ranking -> 5 failed / 3 passed (8)
+  2. matchTransaction drops the 55P03 arm            -> 1 failed (1)
+  3. raced set drops BankTransactionLockTimeoutError -> 1 failed / 5 passed (6)
+  4. rulePattern drops `?? 'exact'`                  -> 1 failed / 6 passed (7)
+  5. QIF guard drops the `^[DT]` record test         -> 1 failed / 10 passed (11)
+  (L-C is a test-only tightening and has no production counterpart to mutate.)
+
+FULL UNIT SUITE (DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL / ISAFLOW_DISPOSABLE_AUTH_TEST unset):
+  Test Files  802 passed | 40 skipped (842)
+  Tests  9575 passed | 243 skipped (9818)      — 0 failed
+
+tsc --noEmit: clean.
+eslint (5 changed src files): clean.
+bun run agent-docs:check: OK: 74 mirror(s) match.
+bun scripts/audit-migration-naming.ts: no new duplicate prefixes.
+bun scripts/ci/check-migration-rls.ts: OK.
+File sizes: bankRulesMatchingService 268, bankRulesSuggestionPass 98, all others < 300.

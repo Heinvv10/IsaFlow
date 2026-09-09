@@ -157,7 +157,13 @@ function isEmptyPeriodEnvelope(format: BankFormat, body: string): boolean {
   if (format === 'qif') {
     // A QIF with a type header and no `^` terminator has declared itself a QIF
     // and delivered no records; the parser reports exactly that.
-    return /^\s*!Type:/im.test(body) && !/\^/.test(body);
+    //
+    // The `^` test alone is not enough: a file carrying real records whose
+    // FINAL terminator is missing has no `^` either, and would import silently
+    // as zero rows — the misleading success this guard exists to stop. `D`
+    // (date) and `T` (amount) open every transaction record, so their absence
+    // is what makes "no records" true rather than merely unterminated.
+    return /^\s*!Type:/im.test(body) && !/\^/.test(body) && !/^[DT]/m.test(body);
   }
   if (format === 'mt940') {
     // :20: opens the statement, :61: is the statement line. An account with no

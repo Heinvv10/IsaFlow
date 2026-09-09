@@ -62,12 +62,8 @@ neither was reopened. Every H/M/L below was fixed on this branch.
 | L-4 | FIXED | `si.deleted_at IS NULL` / `ci.deleted_at IS NULL` on both invoice candidate queries. | `tests/integration/k142-match-candidate-filters.int.test.ts` (3) |
 | L-5 | FIXED | PO candidates filter `('approved','partially_received')` — the statuses the CHECK constraint actually allows. | same file |
 
-**Migration.** 657 `657_bank_tx_matched_line_unique.sql`, applied to the fixture DB and
-mutation-proved by dropping the index. It first RELEASES the losing side of any existing
-double-binding (ranked reconciled → allocated → matched, then `created_at`, then id;
-partitioned by `company_id` so it never compares across tenants) and rewinds `status` only
-for rows that were merely `matched`. Rollback: `DROP INDEX uq_bank_tx_matched_line;` — the
-released links are not restored by that and would need the impact query below.
+**Migration.** 657 `657_bank_tx_matched_line_unique.sql` — see the round-2 table below for
+its corrected dedupe pass. Rollback: `DROP INDEX uq_bank_tx_matched_line;`.
 
 **Historical-data impact.** Rows already double-bound before 657 lose the duplicate link.
 Read-only census to run before applying (NOT run here):
@@ -85,3 +81,36 @@ branch; rows whose `suggested_category` names a rule whose `match_pattern` conta
 **Limits.** The QIF envelope test uses a multi-line `!Type:`/`!Option:` body on purpose — a
 one-line QIF is already exempt via the line count, so it would not exercise the new branch.
 `bank-rules-preview` is proved at the bound-parameter level (mocked DB), not end to end.
+
+
+---
+
+# Blind review round 2 — disposition per finding
+
+The reviewer independently VERIFIED H-1 (both LIKE arms byte-identical across `_`, `%`,
+backslash and all-`%`), the 23505 name check, and the savepoint's connection recovery; those
+were not redone. Every finding below was fixed on this branch.
+
+| # | Disposition | Where | Proof |
+|---|---|---|---|
+| H-A | FIXED | Migration 657's dedupe pass. The rank is swapped so `allocated` (the one status meaning an allocation posted a journal for THIS row — `bankTxStatusMutations.ts:29-36`) outranks `reconciled`, so the owner keeps the line. And a loser whose status is not `'matched'` is no longer released at all: a `DO` block RAISEs, naming every such `company/line/tx/status`, so the migration fails loudly and a human unwinds one side. The UPDATE is now predicated `AND bt.status = 'matched'` as well, so no row can end carrying a status that claims an allocation it no longer has. | `tests/integration/k144-migration-657-dedupe.int.test.ts` (8) — runs the real migration file against planted shapes inside a rolled-back transaction: allocated+matched and reconciled+matched release the matched loser to `imported`; allocated+reconciled, two allocated, two reconciled and allocated+excluded all RAISE; the refusal names the reconciled borrower and not the allocated owner; a single binding is untouched and the index still builds |
+| M-A | FIXED | 657 makes two racers block on the INDEX where they never contended before, and that wait is bounded by `lockBankTransactionForUpdate`'s 5s `lock_timeout` — so a slow peer hands the UPDATE a raw `55P03`, not a 23505. `matchTransaction`'s inner catch now maps `55P03` to `BankMatchTargetError('LINE_CLAIMED')` (a `lock_timeout` on THIS statement can only mean the line is claimed), and `BankTransactionLockTimeoutError` joins `autoMatchTransactions`' `raced` set. | `tests/integration/k144-match-line-lock-timeout.int.test.ts` (1) — a real peer holding past 5s; `autoMatchRaceHandling.test.ts` (6) |
+| M-B | FIXED | `green.log`'s round-2 NOTE corrected: round **2**'s working tree broke those three files, not round 1's; round 1's timeout attribution stands. | `green.log` |
+| L-A | FIXED | `rulePattern()` (`bankRulesSuggestionPass.ts`) is the one place a rule row becomes a pattern, for both arms, and reads `String(rule.match_type ?? 'exact')` — matching the old SQL's NULL fall-through instead of widening it to `contains` via `String(null) === 'null'`. | `k141-suggestion-arm-like-metacharacters.int.test.ts` (7) — two new NULL cases |
+| L-B | FIXED | `bankRulesMatchingService.ts` 331 → 268: the suggestion arm moved to `bankRulesSuggestionPass.ts` (98). No call site moved. | `bunx tsc --noEmit` clean; the seven rule-related unit suites green |
+| L-C | FIXED | Both `/not found/i` assertions pinned to `Journal line <id> not found`, which `lockForStatusWrite`'s `Bank transaction <id> not found` can no longer satisfy. | `k144-match-unvalidated-journal-line.int.test.ts` (5) |
+| L-D | FIXED, with a correction to the finding | `isEmptyPeriodEnvelope`'s QIF arm also requires no `^D`/`^T` record lines. Measured: a WELL-FORMED QIF missing only its final `^` already parses correctly (the parser flushes the trailing record), so that specific case was never silently zeroed. The reachable hazard is a file carrying record lines the parser could NOT read and no `^` at all — that was exempted as an empty period and imported as zero rows. | `k145-non-csv-parse-guard.test.ts` (11) |
+| L-E | FIXED (documented) | The `CREATE UNIQUE INDEX` stays non-`CONCURRENTLY` — the release pass must share its transaction, and `CONCURRENTLY` cannot run in a transaction block — but the trade is now stated in the file: ACCESS EXCLUSIVE on `bank_transactions` for the build, so 657 is a maintenance-window deploy. | migration header |
+| L-F | FIXED | `bank/.claude.md` gains the auto-post family (`autoPostGateService`, `autoPostSettingsService`, `autoPostUndoService`), `bankRulesSuggestionPass` / `bankRulesMatchingHelpers`, the real `applyRules(companyId, bankAccountId, userId, ruleIds?)` signature and `rulePattern`'s NULL rule. Mirror regenerated. | `bun run agent-docs:check` — OK: 74 mirrors match |
+
+**Migration choice.** 657 was CORRECTED in place rather than followed by 661. It is unpushed,
+unmerged and has never run anywhere but this fixture DB, so no deployed checksum exists to
+conflict with; and a follow-up cannot undo a one-shot destructive UPDATE that 657 would have
+already performed. Prefix 661 stays free.
+
+**Historical-data impact (revised).** 657 no longer writes anything unless a loser is
+`status='matched'`; every other double-binding stops the deploy with the rows named. Run the
+census below first — if it returns zero rows, 657 is a pure index build:
+`SELECT company_id, matched_journal_line_id, COUNT(*), array_agg(id), array_agg(status)
+ FROM bank_transactions WHERE matched_journal_line_id IS NOT NULL
+ GROUP BY company_id, matched_journal_line_id HAVING COUNT(*) > 1;`

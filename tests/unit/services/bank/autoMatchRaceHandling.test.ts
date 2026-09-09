@@ -37,6 +37,7 @@ import {
   BankTransactionAllocatedError,
   BankMatchTargetError,
 } from '@/modules/accounting/services/bank/bankTxStatusMutations';
+import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
 import { autoMatchTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
@@ -95,6 +96,24 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       if (txId === TX(2)) {
         throw new BankMatchTargetError('LINE_CLAIMED', `Journal line jl-2 is already matched to bank transaction ${TX(9)}`);
       }
+      return { id: txId };
+    });
+
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+
+    expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(1);
+  });
+
+  // The third face of the same race. `uq_bank_tx_matched_line` (migration 657)
+  // makes two racers block on the INDEX where they previously never contended,
+  // and that wait is bounded by lockBankTransactionForUpdate's 5s lock_timeout
+  // — so a slow peer surfaces as a lock timeout rather than a 23505. Escaping,
+  // it would abort the run with the earlier matches COMMITted by withAuth's 4xx.
+  it('skips a lock timeout the same way', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankTransactionLockTimeoutError(txId);
       return { id: txId };
     });
 

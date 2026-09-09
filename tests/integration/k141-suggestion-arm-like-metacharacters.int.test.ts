@@ -56,7 +56,7 @@ async function suggested(): Promise<string[]> {
   return r.rows.map((x: { description: string }) => x.description);
 }
 
-async function rule(name: string, matchType: string, pattern: string): Promise<void> {
+async function rule(name: string, matchType: string | null, pattern: string): Promise<void> {
   await admin.query(
     `INSERT INTO bank_categorisation_rules
        (company_id, rule_name, match_field, match_type, match_pattern,
@@ -131,6 +131,23 @@ describeIfDb('K-141 H-1 the suggestion arm must escape LIKE metacharacters too',
     await apply();
     // Sorted in JS rather than compared to the query's own DB-collation order.
     expect([...await suggested()].sort()).toEqual(['SALARYXJAN', 'SALARY_JAN'].sort());
+  });
+
+  // Adjacent case (review r2 L-A): `match_type` is nullable, and the SQL this
+  // arm used to build fell through to the EXACT branch for NULL. `String(null)`
+  // is `'null'`, which `toSqlPattern`'s `default:` widens to `%pattern%` — so a
+  // legacy NULL row would start suggesting strictly more, unattended. `exact`
+  // keeps the old meaning: 'SALARY' is nobody's whole description.
+  it('treats a NULL match_type as exact, not contains', async () => {
+    await rule('K141 null match type', null, 'SALARY');
+    await apply();
+    expect(await suggested()).toEqual([]);
+  });
+
+  it('a NULL match_type still suggests on the identical description', async () => {
+    await rule('K141 null match type exact hit', null, 'SALARY_JAN');
+    await apply();
+    expect(await suggested()).toEqual(['SALARY_JAN']);
   });
 
   // Adjacent case: a rule belonging to ANOTHER company must not reach these
