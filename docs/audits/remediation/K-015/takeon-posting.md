@@ -90,13 +90,20 @@ both commit. Removing the lock now takes it red with two rows.
   which is what the memo asked for; the two turnover figures are asserted explicitly so the
   behaviour is recorded rather than discovered.
 
-## The highest-risk unknown is still open
+## The highest-risk unknown is CLOSED — the fix is forward-only
 
-Whether any production tenant has already committed documents with `amount_paid > 0` through either
-path decides forward-only versus a repair migration. **This session does not touch the production
-database**, so the read-only query below has not been run. K-015 proves the AP wizard step never
-once succeeded, so AP wizard exposure should be zero — but AR and the Sage path are unmeasured, and
-the memo is explicit that zero must not be assumed from the AP evidence.
+The memo named this as the question that decides forward-only versus a repair migration: whether
+any production tenant had already committed documents with `amount_paid > 0` through either path.
+
+**Measured on 2026-09-09 by the team lead**, with the read-only query below, against production:
+**0 `customer_invoices` and 0 `supplier_invoices`** with `amount_paid > 0` carrying an
+`auto_migration` journal. Nothing was posted under the old shape, so there is nothing to repair.
+This change is forward-only: no reversing journals, no VAT201 restatement, no data migration.
+
+This session did not run that query and does not touch the production database; the result is
+recorded here as reported.
+
+The query, for whoever needs to repeat it:
 
 ```sql
 SELECT ci.company_id, ci.invoice_number, ci.total_amount, ci.amount_paid, ci.balance,
@@ -112,3 +119,7 @@ SELECT ci.company_id, ci.invoice_number, ci.total_amount, ci.amount_paid, ci.bal
  GROUP BY 1,2,3,4,5,6,7,8;
 -- Same shape for supplier_invoices / 'payable' / 'vat_input' / 'auto_supplier_invoice'.
 ```
+
+One thing the probe does not settle: it covers the `auto_migration` journals this branch changes.
+The Sage commit path posts under `auto_invoice` and `auto_supplier_invoice` and is unchanged here,
+so its own exposure belongs with that follow-up.

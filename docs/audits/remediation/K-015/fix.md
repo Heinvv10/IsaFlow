@@ -156,6 +156,7 @@ or VAT line**. A document settled in full before the cutover posts nothing and k
 `sageMigrationCommitService` still posts the full invoice with its VAT line, so R-001 and the VAT
 re-declaration remain open there.
 
-**Still unmeasured, and it decides forward-only versus a repair migration:** whether any production
-tenant has already committed documents with `amount_paid > 0` through either path. The read-only
-query is in `takeon-posting.md`; this session does not touch the production database.
+**Forward-only — measured, not assumed.** The team lead ran the read-only probe against production
+on 2026-09-09: 0 customer invoices and 0 supplier invoices with `amount_paid > 0` carrying an
+`auto_migration` journal. Nothing was posted under the old shape, so there is no repair migration,
+no reversing journals and no VAT201 restatement. Detail and the query in `takeon-posting.md`.
