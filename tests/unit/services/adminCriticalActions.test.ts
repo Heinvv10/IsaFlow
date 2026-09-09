@@ -1,20 +1,23 @@
-// K-097 (adjacent). CRITICAL_ACTIONS is matched against the `action` string a call site
-// passes to logAdminAction. An entry nothing emits protects nothing, and the
-// mismatch is invisible: the audit write for a privileged action is simply
-// treated as best-effort and its failure swallowed. That is exactly what
-// happened to the company feature-flag overrides, which the set named
-// 'feature.override' / 'feature.remove_override' while the routes emit
-// 'company_feature.override_set' / 'company_feature.override_removed'.
+// K-097 (adjacent). BEST_EFFORT_ACTIONS is matched against the `action` string a
+// call site passes to logAdminAction, and it is the ONLY escape from
+// fail-closed: a name on it lets an admin mutation commit unaudited.
 //
-// This test enumerates the action literals actually emitted across src/ and
-// pages/ — both those passed to logAdminAction and those written straight into
-// admin_audit_log — and requires every CRITICAL_ACTIONS entry to be one of
-// them.
+// Two ways for that matching to be wrong, and this file guards both:
+//
+//  1. A name on the list that no `logAdminAction` call site emits. The entry is
+//     inert, and the mismatch is invisible. This bit the old CRITICAL_ACTIONS
+//     allow-list twice — 'feature.override' / 'feature.remove_override' while
+//     the routes emit 'company_feature.override_set' / '…override_removed', and
+//     'impersonation_start', which is written by a direct INSERT INTO
+//     admin_audit_log and therefore never passes through logAdminAction at all.
+//     So the two emission mechanisms are enumerated SEPARATELY: a direct-insert
+//     action is not governed by this service and must not count as covered.
+//  2. A privileged action smuggled onto the list. Asserted by name below.
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
-import { CRITICAL_ACTIONS } from '@/modules/admin/services/auditService';
+import { BEST_EFFORT_ACTIONS } from '@/modules/admin/services/auditService';
 
 const ROOT = join(__dirname, '..', '..', '..');
 const SCAN_DIRS = ['src', 'pages'];
@@ -29,23 +32,31 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-function emittedActions(): Set<string> {
-  const found = new Set<string>();
+interface Emissions {
+  /** Actions passed to logAdminAction — the only ones this service governs. */
+  viaService: Set<string>;
+  /** Actions written straight into admin_audit_log by a route. */
+  viaDirectInsert: Set<string>;
+}
+
+function emittedActions(): Emissions {
+  const viaService = new Set<string>();
+  const viaDirectInsert = new Set<string>();
   // A handful of routes write the audit row directly rather than through the
   // service; the action literal is the second VALUES column there too.
   const insertRe = /INSERT INTO admin_audit_log[\s\S]{0,400}?VALUES\s*\([\s\S]{0,200}?,\s*'([A-Za-z0-9_.]+)'/g;
   for (const dir of SCAN_DIRS) {
     for (const file of walk(join(ROOT, dir))) {
       const src = readFileSync(file, 'utf8');
-      for (const action of callSiteActions(src)) found.add(action);
+      for (const action of callSiteActions(src)) viaService.add(action);
       if (src.includes('INSERT INTO admin_audit_log')) {
         insertRe.lastIndex = 0;
         let m: RegExpExecArray | null;
-        while ((m = insertRe.exec(src)) !== null) found.add(m[1]!);
+        while ((m = insertRe.exec(src)) !== null) viaDirectInsert.add(m[1]!);
       }
     }
   }
-  return found;
+  return { viaService, viaDirectInsert };
 }
 
 /**
@@ -94,14 +105,23 @@ function secondArgument(src: string, from: number): string | null {
   return null;
 }
 
-describe('CRITICAL_ACTIONS', () => {
-  it('names only actions that some call site actually emits', () => {
-    const emitted = emittedActions();
+describe('BEST_EFFORT_ACTIONS', () => {
+  it('names only actions that a logAdminAction call site actually emits', () => {
+    const { viaService } = emittedActions();
     // Guard the guard: if the scan finds nothing the assertion below is vacuous.
-    expect(emitted.size).toBeGreaterThan(20);
+    expect(viaService.size).toBeGreaterThan(20);
 
-    const orphaned = [...CRITICAL_ACTIONS].filter((a) => !emitted.has(a)).sort();
-    expect(orphaned).toEqual([]);
+    const inert = [...BEST_EFFORT_ACTIONS].filter((a) => !viaService.has(a)).sort();
+    expect(inert).toEqual([]);
+  });
+
+  it('does not count a direct INSERT INTO admin_audit_log as covered', () => {
+    const { viaService, viaDirectInsert } = emittedActions();
+    // impersonate.ts writes this row itself, so logAdminAction never sees the
+    // name and putting it on either list decides nothing. If that route is ever
+    // moved onto the service, this expectation is the thing that notices.
+    expect(viaDirectInsert.has('impersonation_start')).toBe(true);
+    expect(viaService.has('impersonation_start')).toBe(false);
   });
 
   it('finds the action even when the first argument contains a comma', () => {
@@ -117,22 +137,25 @@ describe('CRITICAL_ACTIONS', () => {
     expect(callSiteActions('logAdminAction(actorOnly);')).toEqual([]);
   });
 
-  it('covers the privileged writes that must never commit unaudited', () => {
+  it('never exempts a privileged write from the audit requirement', () => {
+    // The first block was on the old CRITICAL_ACTIONS allow-list; the second
+    // was not, and is exactly what an allow-list gets wrong — each of these
+    // moves money, reprices billing, grants free paid service, or grants and
+    // revokes access to a tenant's books.
     for (const action of [
-      'user.suspend',
-      'user.delete',
-      'company.create',
-      'company.delete',
-      'impersonation_start',
-      'subscription.create',
-      'trial.convert_to_paid',
-      'plan.create',
-      'flow.adjust',
-      'invoice.mark_paid',
-      'company_feature.override_set',
-      'company_feature.override_removed',
+      'user.suspend', 'user.delete', 'user.reset_password',
+      'company.create', 'company.delete', 'company.suspend',
+      'subscription.create', 'subscription.cancel', 'trial.convert_to_paid',
+      'plan.create', 'plan.update', 'flow.adjust', 'invoice.mark_paid',
+      'company_feature.override_set', 'company_feature.override_removed',
+
+      'flow.bundle.create', 'flow.bundle.update', 'flow.bundle.deactivate',
+      'invoice.create', 'invoice.send',
+      'trial.extend', 'trial.bulk_extend', 'company.extend_trial',
+      'user.add_to_company', 'user.remove_from_company', 'user.activate',
+      'flow.eligibility', 'feature_flag.update',
     ]) {
-      expect(CRITICAL_ACTIONS.has(action)).toBe(true);
+      expect(BEST_EFFORT_ACTIONS.has(action)).toBe(false);
     }
   });
 });

@@ -33,3 +33,36 @@ At the default worker count this box was at load average 150-160 from other agen
 SHIFTING set of 4-5 unrelated suites (bank allocation, cash flow, tracker exclusion) timed out
 — a different set each run, all passing in isolation, none importing anything changed here.
 --maxWorkers=4 removes the contention and the suite is clean.
+
+=== ROUND 3 (2026-09-09) ===
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k095-mandate-activation-guards.int.test.ts
+  Test Files  1 passed (1)   Tests  4 passed (4)
+
+MUTATION (activateAuthorisedMandate -> blind UPDATE, no NOT EXISTS / status guard / savepoint):
+  Test Files  1 failed (1)   Tests  4 failed (4)
+  AssertionError: expected error: duplicate key value violates unique constraint
+    "ux_sub_mandates_company_active" to be null
+  -> restored, re-run green.
+
+MUTATION (logAdminAction catch returns instead of throwing):
+  tests/integration/k097*: Test Files 2 failed   Tests 18 failed | 1 passed
+  tests/unit/services/admin/auditService.test.ts + adminCriticalActions.test.ts:
+    Test Files 1 failed | 1 passed   Tests 3 failed | 6 passed
+  -> restored, re-run green.
+
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k095 k096 k097
+  Test Files  9 passed (9)   Tests  37 passed (37)
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+  -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9548 passed | 243 skipped (9791)
+
+$ bunx tsc --noEmit                 -> exit 0
+$ bunx eslint <4 changed src/pages> -> exit 0, no output
+$ bun run agent-docs:check          -> OK: 74 agent document mirror(s) match canonical sources.
+
+MIGRATION: none added in round 3. The constraint HIGH-1 asked for
+(ux_sub_mandates_company_active, UNIQUE on company_id WHERE status='active') already exists
+from migration 429_stitch_payments.sql:103, confirmed present on the fixture DB.
+Reserved prefix 656 is RELEASED, unused.
