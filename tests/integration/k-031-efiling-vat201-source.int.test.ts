@@ -554,6 +554,11 @@ describe('K-031 VAT201 source', () => {
     // And the input side still comes from the report's own variance.
     const badInput = { ...filed, rateCheck: { ...filed.rateCheck, inputVariance: 900 } };
     expect(evaluateVat201Filability(badInput).filable).toBe(false);
+
+    // The rate is read off the report, never re-declared here, so the check
+    // can never run at a rate the boxes were not derived at.
+    const otherRate = { ...filed, rateCheck: { ...filed.rateCheck, rate: 0 } };
+    expect(evaluateVat201Filability(otherRate).filable).toBe(false);
   });
 
   it('refuses to file a period whose supply values are negative', async () => {

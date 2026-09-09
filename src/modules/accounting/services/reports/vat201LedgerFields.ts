@@ -45,7 +45,6 @@
 import { generateVAT201, type VAT201Data } from './vat201Service';
 import { getVat201Report, type Vat201Report } from './vat201ReportService';
 import { getNilRatedSupplies } from './vat201NilRatedSupplies';
-import { SA_VAT_RATE } from './vatBoxBasis';
 
 /** Output boxes whose value is reported in field 2 or field 3, not field 1. */
 const NIL_RATED_OUTPUT_BOXES: readonly string[] = ['2', '2A', '3'];
@@ -227,7 +226,14 @@ export function evaluateVat201Filability(
   // mixed journal, which field 1 has given back to field 2 or 3, so the
   // report's variance describes a declaration nobody is making. Input has no
   // supply-value field on this form, so its variance stays the report's.
-  const outputVariance = r2(vat201.field5_outputVAT - vat201.field1_standardRatedSupplies * SA_VAT_RATE);
+  //
+  // The rate comes off the report rather than being imported, so this file
+  // cannot check a return at a rate the boxes were not derived at. It also
+  // keeps the file out of the vat-guard gate's rate-constant rule without an
+  // allowlist entry, which is the honest outcome: nothing here posts.
+  const outputVariance = r2(
+    vat201.field5_outputVAT - vat201.field1_standardRatedSupplies * vat201.rateCheck.rate,
+  );
   const { inputVariance } = vat201.rateCheck;
   if (
     varianceIsMaterial(outputVariance, vat201.field5_outputVAT)

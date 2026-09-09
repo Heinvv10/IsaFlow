@@ -169,3 +169,41 @@ $ bunx tsc --noEmit                                              TSC_CLEAN
 $ bunx eslint <changed src files>                                ESLINT_CLEAN
 
 No query was run against the production database.
+
+================================================================================
+FIFTH COMMIT — vat-guard-coverage gate
+================================================================================
+
+`bun scripts/ci/check-vat-guard-coverage.ts` failed on the branch:
+  src/modules/accounting/services/reports/vat201LedgerFields.ts
+    matched: rate_constant
+The file imported SA_VAT_RATE from vatBoxBasis, and the rule's RATE_CONSTANTS
+regex matches any `\w*VAT_(RATE|PCT)\w*`.
+
+Fixed by removing the constant rather than allowlisting it. `Vat201Report`
+already carries the rate its own boxes were derived at (`rateCheck.rate`), so
+the filing check now reads that. It cannot run at a rate the boxes were not
+derived at, and the allowlist stays at 13 entries — the script argues that list
+should shrink, not grow, and nothing in this file posts.
+
+$ bun scripts/ci/check-vat-guard-coverage.ts
+[vat-guard] OK — 1905 files scanned, 13 attended/no-claim paths allowlisted.
+
+=== MUTATION CHECK ===
+M. re-hardcode the rate
+   `field1 * vat201.rateCheck.rate` -> `field1 * 0.15`
+   integration: 1 failed | 15 passed
+   The added assertion sets rateCheck.rate to 0 and expects the return to stop
+   being filable; with the rate hardcoded it stays filable.
+
+=== GREEN ===
+$ bun run test:integration -- tests/integration/k-031-efiling-vat201-source.int.test.ts
+      Tests  16 passed (16)
+$ bunx vitest run tests/unit/sars/efiling-submission.test.ts
+      Tests  25 passed (25)
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+ Test Files  791 passed | 36 skipped (827)
+      Tests  9407 passed | 234 skipped (9641)
+
+$ bunx tsc --noEmit                                              TSC_CLEAN
+$ bunx eslint src/.../vat201LedgerFields.ts                      ESLINT_CLEAN
