@@ -38,6 +38,12 @@ export async function transferControlFixture(){
  }
  const execute=(intentId:string,approvalId?:string,person:'u1'|'u2'='u1')=>actor(ctx=>executeBankAllocation(ctx,intentId,{approvalId}),person);
  const saved=async(intentId:string)=>(await pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[f.companyA,intentId])).rows[0].payload;
- return{pool,f,from,to,bank,actor,prepare,approve,execute,saved,close:()=>pool.end()};
+ const journals=async()=>(await pool.query("SELECT id,source,source_record_id,status FROM gl_journal_entries WHERE company_id=$1 ORDER BY id",[f.companyA])).rows;
+ const banks=async()=>(await pool.query('SELECT id,status,matched_journal_line_id,counterparty_account_id,transfer_journal_entry_id,allocation_type FROM bank_transactions WHERE company_id=$1 ORDER BY id',[f.companyA])).rows;
+ const effects=async()=>(await pool.query('SELECT entity_id,operation,binding_hash,result FROM control_operation_effects WHERE company_id=$1 ORDER BY id',[f.companyA])).rows;
+ async function snapshot(){return{journals:await journals(),banks:await banks(),effects:await effects(),
+  changes:(await pool.query('SELECT id FROM control_change_events WHERE company_id=$1 ORDER BY id',[f.companyA])).rows,
+  approvals:(await pool.query('SELECT id,status FROM control_operation_approvals WHERE company_id=$1 ORDER BY id',[f.companyA])).rows};}
+ return{pool,f,from,to,bank,actor,prepare,approve,execute,saved,journals,banks,effects,snapshot,close:()=>pool.end()};
  }catch(error){await pool.end();throw error;}
 }
