@@ -49,9 +49,22 @@ executor so the whole sequence stays on one connection.
 - **LOW-D** every `rows[0]` read in the tests is behind a length assertion.
 - **LOW-2 (partial → done)** migration 622 records `payroll_loan_payments.schedule_row_id`, so the
   undo clears the row that was flagged rather than every row for the period.
-- **LOW-3 (partial → done)** migration 622 records `loan_balance_before`, so a balance the forward
-  path clamped at zero is restored to the exact figure it started from, not to the principal
-  ceiling. Rows written before 622 keep NULL and use the previous approximate path.
+- **LOW-3 (partial → done)** migration 622 records `loan_balance_before`, which bounds the restore
+  in the clamp case. Rows written before 622 keep NULL and use the previous approximate path.
+
+## Third review (1 HIGH regression, 1 MEDIUM), both fixed
+
+- **HIGH-1** the round-3 restore assigned `loan_balance_before` absolutely, which overwrote anything
+  that had moved the balance since. A later period's instalment is exactly such a mover: with March
+  and April both taken, recalculating March erased April's R1,000 from the balance while its payment
+  row and `total_principal_paid` still recorded it — the staff-loan asset overstated against what was
+  recovered, which is the harm K-022 exists to prevent. The restore is now RELATIVE:
+  `outstanding_balance + LEAST(principal_paid, loan_balance_before)`, which adds back exactly what
+  `applyLoanToRun` subtracted, clamp included. Both operands are cast `::numeric` — `LEAST` over two
+  untyped bind parameters deduces text, and `numeric + text` has no operator.
+- **MEDIUM-1** `dry_run` on `calculate_pay_run` promised a recost that the live call would refuse.
+  Both paths now call `runHasLoanWork`, so the dry run reports the refusal in `skipped` and leaves
+  `effects` empty. It only reads the loans when a journal is actually posted.
 
 ## Files
 
@@ -62,10 +75,10 @@ executor so the whole sequence stays on one connection.
 
 ## Tests
 
-14 integration tests across the two K-022 files, plus 4 route tests in
-`tests/unit/api/payrollCalculateRefusals.test.ts` and 2 added to `tests/unit/mcp/payRunLifecycle.test.ts`.
-`green.log` lists every mutation check; all six kill now, including `FOR UPDATE`, which the first
-round could not.
+15 integration tests across the two K-022 files, plus 4 route tests in
+`tests/unit/api/payrollCalculateRefusals.test.ts` and 5 added to `tests/unit/mcp/payRunLifecycle.test.ts`.
+`green.log` lists every mutation check; all eight kill, including `FOR UPDATE`, the absolute-restore
+regression and the dry-run guard.
 
 ## Migrations / rollback
 
@@ -100,6 +113,13 @@ the staff-loan asset is overstated against what was recovered.
 either is an adjacent refactor of code K-022 does not touch, which the fixer brief forbids and which
 would collide with the peer branches editing those files. The two new files are 220 and 183 lines.
 
-A run with a live journal is now refused rather than silently corrected, which changes behaviour for
-anyone recalculating a reopened run that carries loan deductions. The `stranded` reclaim path
-remains outside the journal guard by construction.
+The journal guard is deliberately coarse: on a journal-posted run, ANY active loan with an instalment
+due that period blocks recalculation, even where the recalculation would change nothing about that
+loan. So a reopened run carrying loans cannot be recalculated until its journal is reversed. That is
+the conservative reading and the message names the remedy, but it is a real workflow constraint, not
+an edge case. The `stranded` reclaim path remains outside the guard by construction — the original
+run is gone, so there is no `journal_entry_id` left to check.
+
+Informational: `ADD COLUMN ... REFERENCES payroll_loan_schedule(id)` in 622 takes a brief ACCESS
+EXCLUSIVE lock on `payroll_loan_payments`. The column is all-NULL so nothing is validated, but on a
+large table the lock is still taken.

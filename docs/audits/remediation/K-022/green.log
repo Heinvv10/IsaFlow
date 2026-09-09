@@ -1,38 +1,39 @@
-K-022 — verification of the second review-remediation commit
-============================================================
+K-022 — verification of the third review-remediation commit
+===========================================================
 
 1. Integration tests (disposable fixture DB, production schema)
    $ bun run test:integration -- tests/integration/k022
    Test Files  2 passed (2)
-        Tests  14 passed (14)
+        Tests  15 passed (15)
    - k022-payroll-recalc-drops-loan-deduction.int.test.ts    4 tests
-   - k022-payroll-loan-reversal-edge-cases.int.test.ts      10 tests
+   - k022-payroll-loan-reversal-edge-cases.int.test.ts      11 tests
 
 2. Unit tests added for the delivery of the two refusals
    $ bunx vitest run tests/unit/mcp/payRunLifecycle.test.ts \
                      tests/unit/api/payrollCalculateRefusals.test.ts
    Test Files  2 passed (2)
-        Tests  22 passed (22)
+        Tests  25 passed (25)
 
 3. Full unit suite, NO fixture env sourced (DATABASE_URL etc. unset)
    $ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL -u GOTRUE_URL \
          -u JWT_SECRET -u ENCRYPTION_KEY -u ISAFLOW_DISPOSABLE_AUTH_TEST \
          -u DATABASE_SSL bunx vitest run
-   files 821  passed 9316  failed 10  pending 234
-   The 10 failures fall in 5 files, none of them payroll:
-     tests/unit/components/trackerExclusion.test.ts
-     tests/unit/services/bankAllocationService.test.ts
+   files 821  passed 9327  failed 2  pending 234
+   The 2 failures are in 2 files, neither payroll:
      tests/unit/services/cashFlowReport.test.ts
-     tests/unit/services/bank/bankAllocationDateShift.test.ts
      tests/unit/services/bank/bankAllocationUnwind.test.ts
-   Re-run in isolation on the same tree: 5 files, 27 tests, ALL PASSED. They are
-   10s-timeout flakes on a box running many parallel agent sessions, not a
-   regression from this change. The same command on the previous commit
-   reported 820 files / 9320 passed / 0 failed; the +1 file and +6 tests here
-   are the new route and MCP refusal tests.
+   Re-run in isolation on the same tree: 2 files, 17 tests, ALL PASSED. These
+   same files flaked in the previous round too (10 failures across 5 files,
+   all passing in isolation). They are 10s-timeout flakes on a box running
+   many parallel agent sessions, not a regression from this change.
 
 4. Mutation checks — production change reverted, tests re-run, then restored.
-   ALL SIX KILL, including FOR UPDATE, which the previous round could not.
+   ALL EIGHT KILL.
+   THIS ROUND:
+   0a. restore assigned loan_balance_before absolutely (the regression)  1 failed
+       (the two-period test: March recalculated after April was taken)
+   0b. dry_run journal guard removed                                     1 failed
+   PREVIOUS ROUNDS, ALL RE-RUN ON THIS TREE:
    a. journal guard narrowed back to the reverse path only        1 failed
    b. lockLoansForRun call removed (FOR UPDATE never taken)        3 failed
       (the reviewer's two-client test is the discriminator)
@@ -40,8 +41,8 @@ K-022 — verification of the second review-remediation commit
    d. tombstone `stranded` flag hardcoded false                    1 failed
    e. exact schedule-row clear forced onto the period match        1 failed
       (killed by the two-rows-in-one-period fixture)
-   f. success-path lock_timeout restore removed                    2 failed
-   Earlier round, still valid on this tree:
+   f. success-path lock_timeout restore removed                    3 failed
+   Earlier rounds, measured on the trees they applied to, NOT re-run here:
    g. reversal call removed from calculatePayrollRun               4 failed
    h. tombstone INSERT removed                                     2 failed
    i. stranded `run_id IS NULL` clause removed                     1 failed

@@ -439,6 +439,55 @@ describe('K-022 loan reversal edge cases', () => {
     }
   });
 
+  it('does not erase a later period\'s repayment when an earlier run is recalculated', async () => {
+    // Two draft runs, March and April, both taken. Recalculating March must add
+    // back only what March subtracted. Assigning the balance March started from
+    // would overwrite April's R1,000, leaving the loan reading R1,000 more owing
+    // than the payment rows account for.
+    const t = await createTenant({ principal: 12000, outstanding: 12000, instalment: 1000 });
+    await pool.query(
+      `INSERT INTO payroll_loan_schedule(loan_id,sequence,due_period_year,due_period_month,
+         opening_balance,interest,principal,installment,closing_balance,paid_flag)
+       VALUES($1,2,2026,4,11000,0,1000,1000,10000,false)`,
+      [t.loan],
+    );
+    const aprilRun = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status)
+       VALUES($1,$2,4,2026,'draft')`,
+      [aprilRun, t.company],
+    );
+
+    await calculatePayrollRun(t.run, t.company);
+    await calculatePayrollRun(aprilRun, t.company);
+    const both = await loanState(t.loan);
+    expect(both.outstanding).toBe(10000);
+    expect(both.principalPaid).toBe(2000);
+    expect(await paymentRowCount(t.loan)).toBe(2);
+
+    await calculatePayrollRun(t.run, t.company);
+
+    const after = await loanState(t.loan);
+    expect(after.outstanding).toBe(10000);
+    expect(after.principalPaid).toBe(2000);
+    expect(await paymentRowCount(t.loan)).toBe(2);
+    expect(await schedulePaidFlags(t.loan)).toEqual([true, true]);
+    expect(await loanDeductionOnPayslip(t.run)).toBe(1000);
+    expect(await loanDeductionOnPayslip(aprilRun)).toBe(1000);
+
+    // The invariant the historical-impact query checks: principal minus balance
+    // minus recorded payments is zero.
+    const recorded = (await pool.query(
+      `SELECT l.principal - l.outstanding_balance - COALESCE(SUM(p.principal_paid),0) AS unexplained
+         FROM payroll_loans l LEFT JOIN payroll_loan_payments p ON p.loan_id = l.id
+        WHERE l.id = $1 GROUP BY l.id`, [t.loan])).rows;
+    expect(recorded).toHaveLength(1);
+    expect(Number(recorded[0].unexplained)).toBe(0);
+
+    await pool.query('DELETE FROM payroll_run_lines WHERE run_id=$1', [aprilRun]);
+    await pool.query('DELETE FROM payroll_run_headers WHERE id=$1', [aprilRun]);
+  });
+
   it('reclaims an instalment stranded by a deleted run', async () => {
     const t = await createTenant({ principal: 12000, outstanding: 10000, instalment: 1000 });
     await calculatePayrollRun(t.run, t.company);

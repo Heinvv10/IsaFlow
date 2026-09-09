@@ -26,9 +26,14 @@
  *
  * Exactness: migration 622 records schedule_row_id and loan_balance_before on
  * every new payment, so the undo clears the row that was actually flagged and
- * restores the balance the payment started from. Rows written before that
- * migration carry NULL and fall back to matching by period and adding the
- * principal back, bounded by the loan principal.
+ * adds back exactly what was subtracted. The restore is RELATIVE — the amount
+ * applyLoanToRun took is LEAST(principal_paid, loan_balance_before), because of
+ * its zero-clamp, and that is what goes back. Assigning loan_balance_before
+ * absolutely would overwrite anything that moved the balance since, and a later
+ * period's instalment is exactly such a mover: recalculating March would erase
+ * April's repayment from the balance while its payment row still recorded it.
+ * Rows written before 622 carry NULL and fall back to matching by period and
+ * adding the principal back, bounded by the loan principal.
  */
 
 import { sql } from '@/lib/neon';
@@ -140,11 +145,14 @@ export async function reverseLoanApplicationsForRun(
     }
 
     if (payment.loanBalanceBefore != null) {
-      // Exact: the balance the payment started from, whether or not
-      // applyLoanToRun's zero-clamp bit.
+      // Exactly what was subtracted, added back relatively. LEAST covers the
+      // zero-clamp: a R1,000 instalment against a R400 balance took only R400.
+      // Both operands are cast: LEAST over two untyped bind parameters deduces
+      // text, and `numeric + text` has no operator.
       await db`
         UPDATE payroll_loans
-           SET outstanding_balance = ${payment.loanBalanceBefore},
+           SET outstanding_balance = outstanding_balance
+                 + LEAST(${payment.principalPaid}::numeric, ${payment.loanBalanceBefore}::numeric),
                total_principal_paid = total_principal_paid - ${payment.principalPaid},
                total_interest_charged = total_interest_charged - ${payment.interestCharged},
                status = CASE WHEN status = 'settled' THEN 'active' ELSE status END,

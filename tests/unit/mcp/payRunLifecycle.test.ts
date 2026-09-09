@@ -25,6 +25,18 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
 }));
+// The error classes must be the real ones — the tool branches on them, and a
+// stubbed sentinel would let those branches pass by accident.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLoanApplication', async () => {
+  const actual = await vi.importActual<
+    typeof import('@/modules/accounting/services/payroll/payrollRunLoanApplication')
+  >('@/modules/accounting/services/payroll/payrollRunLoanApplication');
+  return {
+    PayrollLoanLockTimeoutError: actual.PayrollLoanLockTimeoutError,
+    PayrollRunJournalPostedError: actual.PayrollRunJournalPostedError,
+    runHasLoanWork: vi.fn(),
+  };
+});
 
 import {
   calculatePayrollRun,
@@ -35,6 +47,7 @@ import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/pay
 import {
   PayrollLoanLockTimeoutError,
   PayrollRunJournalPostedError,
+  runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { approvePayRunTool, calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -84,6 +97,7 @@ describe('calculate_pay_run', () => {
     vi.clearAllMocks();
     vi.mocked(getPayrollRun).mockResolvedValue(run() as never);
     vi.mocked(calculatePayrollRun).mockResolvedValue(run({ status: 'calculated' }) as never);
+    vi.mocked(runHasLoanWork).mockResolvedValue(false);
   });
 
   it('does NOT require write:post — costing writes no journal', () => {
@@ -151,6 +165,39 @@ describe('calculate_pay_run', () => {
     expect(out.dryRun).toBe(true);
     expect(out.wroteNothing).toBe(true);
     expect(calculatePayrollRun).not.toHaveBeenCalled();
+  });
+
+  it('dry run PREDICTS the posted-journal refusal instead of promising a recost', async () => {
+    // dry_run must run the row-state guards the live path runs, or it promises
+    // an action calculatePayrollRun then refuses.
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ journalEntryId: JE }) as never);
+    vi.mocked(runHasLoanWork).mockResolvedValue(true);
+
+    const out = parseOk(await calculatePayRunTool.handler(
+      { run_id: RUN, dry_run: true, ...KEY }, ctx(),
+    ));
+    expect(out.effects).toEqual([]);
+    expect(JSON.stringify(out.skipped)).toContain('Reverse the payroll journal first');
+    expect(calculatePayrollRun).not.toHaveBeenCalled();
+  });
+
+  it('dry run still promises the recost when the journal carries no loan work', async () => {
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ journalEntryId: JE }) as never);
+    vi.mocked(runHasLoanWork).mockResolvedValue(false);
+
+    const out = parseOk(await calculatePayRunTool.handler(
+      { run_id: RUN, dry_run: true, ...KEY }, ctx(),
+    ));
+    expect(JSON.stringify(out.effects)).toContain('Recost run');
+    expect(out.skipped).toEqual([]);
+  });
+
+  it('dry run does not even ask about loans when no journal is posted', async () => {
+    const out = parseOk(await calculatePayRunTool.handler(
+      { run_id: RUN, dry_run: true, ...KEY }, ctx(),
+    ));
+    expect(JSON.stringify(out.effects)).toContain('Recost run');
+    expect(runHasLoanWork).not.toHaveBeenCalled();
   });
 
   it('refuses a malformed run_id before any read', async () => {
