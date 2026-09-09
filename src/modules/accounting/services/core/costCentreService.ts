@@ -3,15 +3,16 @@
  *
  * Accounting GL cost centres use cc_type to distinguish cc1 vs cc2 dimensions.
  * Payroll cost centres track per-employee assignment and run-level roll-ups.
- * The payroll_employees.cost_centre_id FK (mig 450) is the single source of
- * truth for HR cost allocation. costCentreSummaryForRun groups a completed
- * run's payroll_run_lines by that FK and returns per-centre breakdown + totals.
+ * The payroll_employees.cost_centre_id FK (mig 450, made RESTRICT by mig 649)
+ * is the single source of truth for HR cost allocation. costCentreSummaryForRun
+ * groups a run's payroll_run_lines by it. Delete eligibility: costCentreUsageGuard.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { recordEmployeeChange } from '../payroll/payrollEmployeeHistoryService';
+import { assertCostCentreUnused, cannotDeleteMessage, FK_VIOLATION } from './costCentreUsageGuard';
 
 // ── GL / Accounting cost centre types ─────────────────────────────────────────
 
@@ -80,30 +81,15 @@ export async function toggleCostCentre(companyId: string, id: string, isActive: 
 }
 
 export async function deleteCostCentre(companyId: string, id: string): Promise<void> {
-  // Check for usage in journal lines, payroll assignments and assets. The
-  // payroll_employees FK was ON DELETE SET NULL before migration 649, so a
-  // delete used to silently unassign every employee on the centre.
-  const usage = (await sql`
-    SELECT
-      (SELECT COUNT(*) FROM gl_journal_lines jl
-        WHERE (jl.cost_center_id = ${id}::UUID OR jl.cc1_id = ${id}::UUID OR jl.cc2_id = ${id}::UUID)
-          AND jl.company_id = ${companyId}::UUID) AS journal_lines,
-      (SELECT COUNT(*) FROM payroll_employees pe
-        WHERE pe.cost_centre_id = ${id}::UUID AND pe.company_id = ${companyId}::UUID) AS employees,
-      (SELECT COUNT(*) FROM assets a
-        WHERE a.cost_centre_id = ${id}::UUID AND a.company_id = ${companyId}::UUID) AS assets
-  `) as Record<string, unknown>[];
-  const used: string[] = [];
-  const journalLines = Number(usage[0]?.journal_lines ?? 0);
-  const employees = Number(usage[0]?.employees ?? 0);
-  const assets = Number(usage[0]?.assets ?? 0);
-  if (journalLines > 0) used.push(`${journalLines} journal line(s)`);
-  if (employees > 0) used.push(`${employees} employee(s)`);
-  if (assets > 0) used.push(`${assets} asset(s)`);
-  if (used.length > 0) {
-    throw new Error(`Cannot delete cost centre that is used by ${used.join(', ')}. Deactivate instead.`);
+  await assertCostCentreUnused(companyId, id);
+  try {
+    await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+  } catch (err) {
+    // Guard is tenant-scoped, the RESTRICT FKs are not: another company's row
+    // is invisible above and reaches us as a 23503.
+    if ((err as { code?: string }).code === FK_VIOLATION) throw new Error(cannotDeleteMessage([]));
+    throw err;
   }
-  await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId}`;
 }
 
 function mapGlRow(row: Record<string, unknown>): CostCentre {
