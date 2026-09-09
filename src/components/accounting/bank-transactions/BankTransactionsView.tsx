@@ -1,3 +1,4 @@
+import {BankTransferPending} from './BankTransferPending';
 import {AppLayout} from '@/components/layout/AppLayout';
 import {BankTxTable} from '../BankTxTable';
 import {BankTxBankCards} from './BankTxBankCards';
@@ -13,7 +14,7 @@ export function BankTransactionsView(props:ReturnType<typeof useBankTransactions
  const {
   bankControl,glAccounts,setGlAccounts,suppliers,setSuppliers,customers,setCustomers,cc1Options,
   cc2Options,buOptions,bankAccounts,selectedBank,setSelectedBank,refreshBankAccounts,transactions,isLoading,
-  error,relinkFailed,tab,setTab,page,setPage,total,searchTerm,
+  error,transferRelink,tab,setTab,page,setPage,total,searchTerm,
   setSearchTerm,fromDate,setFromDate,toDate,setToDate,fromAmount,setFromAmount,toAmount,
   setToAmount,sortOrder,setSortOrder,allocationFilter,setAllocationFilter,txType,setTxType,allocType,
   setAllocType,hasSuggestion,setHasSuggestion,selectedIds,setSelectedIds,rowSelections,setRowSelections,smartRunning,
@@ -89,11 +90,7 @@ export function BankTransactionsView(props:ReturnType<typeof useBankTransactions
         {/* Table */}
         <div className="px-4 py-2">
           <AutoPostRunsPanel onUndone={loadTransactions} />
-          {relinkFailed && (
-            <div className="flex items-center gap-2 text-xs text-amber-400 py-1 pb-2">
-              <AlertCircle className="h-3 w-3" /> Transfer re-linking failed for this account — counterpart transfers may still show as unallocated.
-            </div>
-          )}
+          <BankTransferPending bankAccountId={selectedBank} pending={transferRelink.pending} failed={transferRelink.failed}/>
           {aiPolling > 0 && (
             <div className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] py-1 pb-2">
               <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
