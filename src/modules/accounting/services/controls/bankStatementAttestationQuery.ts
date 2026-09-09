@@ -1,5 +1,6 @@
+import {currentStatementReview} from './bankStatementReviewValidity';
 import type {ControlTx} from './contracts';
-import {assertStatementRead,bankStatementSourceFingerprint} from './bankStatementAttestationSource';
+import {assertStatementRead} from './bankStatementAttestationSource';
 import type {StatementIntent} from './bankStatementAttestationMaterial';
 interface ReviewRow extends StatementIntent {
  population:string;effect_id:string;approval_id:string|null;version:string|null;
@@ -33,13 +34,7 @@ export async function queryVerifiedBankStatements(ctx:ControlTx,cutoff:string|nu
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND (${cutoff}::date IS NULL OR i.period_end<=${cutoff}::date)
   ORDER BY i.id,e.id LIMIT 10001` as ReviewRow[];
  return{populationCount:Number(rows[0]?.population??0),over:rows.length>10000,rows:rows.slice(0,10000).map(row=>{
-  const source={account:{id:row.bank_account_id,account_type:row.account_type??'',account_subtype:row.account_subtype??'',is_active:row.is_active??false},
-   document:{id:row.document_id??'',hash:row.document_hash??'',status:row.document_status??''},currency:row.current_currency};
-  const active=!!row.approval_id&&row.independent_decision&&row.bytes_verified&&row.version!==null
-   &&row.account_type==='asset'&&row.account_subtype==='bank'&&row.is_active===true&&row.current_currency===row.currency
-   &&bankStatementSourceFingerprint(source)===row.source_fingerprint&&row.result.intentId===row.id&&row.result.sourceHash===row.expected_source_hash
-   &&row.result.sourceFingerprint===row.source_fingerprint&&row.result.bankAccountId===row.bank_account_id
-   &&row.result.sourceDocumentId===row.source_document_id&&row.result.status==='locally_reviewed';
+  const active=currentStatementReview(row,!!row.approval_id&&row.independent_decision&&row.version!==null);
   return{row,active};
  })};
 }
