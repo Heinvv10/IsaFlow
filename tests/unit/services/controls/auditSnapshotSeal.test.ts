@@ -67,3 +67,27 @@ it('rejects accessor-bearing expected identities without invoking caller code',(
  expect(()=>verifyAuditSnapshot(sealed,{get companyId(){reads++;return companyId;},snapshotId})).toThrow();
  expect(reads).toBe(0);
 });
+
+it('authenticates every retained evidence parent and normalizes relation order',()=>{
+ key();const input=capture();
+ const relations=[{parentSource:'journals',parentId:'j2',relation:'supporting_document'},
+  {parentSource:'journals',parentId:'j1',relation:'supporting_document'}];
+ const material={...input,evidence:[{...input.evidence[0]!,relations}]};
+ const sealed=sealAuditSnapshot(material);
+ expect(sealAuditSnapshot({...material,evidence:[{...input.evidence[0]!,relations:[...relations].reverse()}]})).toEqual(sealed);
+ const retained=verifyAuditSnapshot(sealed,{companyId,snapshotId});
+ expect(retained.evidence[0]).toMatchObject({relations:[relations[1],relations[0]]});
+ expect(sealAuditSnapshot({...material,evidence:[{...input.evidence[0]!,relations:[relations[0]]}]}).canonicalHash).not.toBe(sealed.canonicalHash);
+});
+it('refuses a retained evidence relation to a missing parent or duplicate relation',()=>{
+ key();const input=capture();const relation={parentSource:'journals',parentId:'j1',relation:'supporting_document'};
+ for(const relations of [[{...relation,parentId:'absent'}],[{...relation,parentSource:'foreign'}],[relation,relation]]){
+  expect(()=>sealAuditSnapshot({...input,evidence:[{...input.evidence[0]!,relations}]})).toThrow(/parent|duplicate/i);
+ }
+});
+it('preserves old snapshot canonical bytes without inventing evidence relations',()=>{
+ key();const sealed=sealAuditSnapshot(capture());
+ const body=verifyAuditSnapshot(sealed,{companyId,snapshotId});
+ expect(body.evidence[0]).not.toHaveProperty('relations');
+ expect(sealAuditSnapshot(body)).toEqual(sealed);
+});
