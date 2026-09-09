@@ -3,32 +3,32 @@
 
 # Netcash API routes
 
-Integration with the Netcash payment gateway for EFT batch submissions. Reads company-stored `netcash_service_key` / `netcash_payouts_key` credentials, submits payment batches, persists a submission record to `netcash_submissions`, and polls for status updates. Delegates to `services/ap/netcashService.ts`.
+Integration with the Netcash payment gateway for EFT batch submissions. Submission uses the shared immutable payment-release service. The private dispatcher reads company-stored credentials only after approval and revalidation, commits an attempting claim before transmission, and records the outcome in the release outbox. Legacy submission history/status readers remain separate.
 
 ## Endpoints
 
 | Method + path | Handler | Purpose |
 |---|---|---|
-| `POST /api/accounting/netcash/submit` | `submit.ts` | Submit an EFT batch. Body: `{ batchPaymentId? }` OR `{ payments: NetcashPayment[] }`. Records submission regardless of outcome. |
+| `POST /api/accounting/netcash/submit` | `submit.ts` | Prepare with `{action:'prepare',batchPaymentId}` or release with `{action:'release',intentId,approvalId}`. Raw payments arrays are refused. |
 | `GET /api/accounting/netcash/status?submissionId=` | `status.ts` | Poll Netcash for submission status. Updates `netcash_submissions` row on non-terminal states. Short-circuits if already `completed` or `failed`. |
 | `GET /api/accounting/netcash/submissions?status=&limit=&offset=` | `submissions.ts` | List submission history for the company. Default limit 50, max 200. |
 | `POST /api/accounting/netcash/test-connection` | `test-connection.ts` | Test a service key against the Netcash API. Body: `{ serviceKey }`. Returns `{ valid, mock? }`. |
 
 ## Auth
 
-All routes: `withAuth(withErrorHandler(handler))` — no CSRF wrapper. Mutation endpoints (POST) rely on session auth only.
+All routes use authenticated company context. Submit uses `withAuth(withErrorHandler(withCsrf(handler)))` and the shared service rechecks `write:release` and underlying bank authority.
 
-**Note:** `submit.ts` and `test-connection.ts` are state-mutating POSTs without CSRF middleware — flag for security review if CSRF protection is needed for these payment operations.
+Submit never transmits before its outer transaction commits. The queued response proves durable enqueueing, not provider acceptance; uncertain provider outcomes are not automatically retried.
 
 ## Response contract
 
-All routes use `apiResponse.success` / `.badRequest` / `.notFound`. `submit.ts` returns `{ submissionId, batchReference, recordCount, totalAmountCents, mock? }`. `status.ts` returns `{ submissionId, status, detail, polled, mock? }`. Clients MUST unwrap `json.data`.
+All routes use `apiResponse.success` / `.badRequest` / `.notFound`. `submit.ts` returns prepared intent metadata or `{intentId,status:"queued"}`. `status.ts` returns `{ submissionId, status, detail, polled, mock? }`. Clients MUST unwrap `json.data`.
 
 ## Business rules / gotchas
 
 - `netcash_enabled` must be `true` on the company row — `submit.ts` returns 400 if not enabled.
-- `submit.ts` accepts either a `batchPaymentId` (loads payments from `supplier_payment_batches`) or a raw `payments[]` array — not both simultaneously.
+- Preparation requires an owned approved batch with current immutable payment preparations and verified beneficiaries. Release requires an independently approved immutable intent; raw bank instructions are never accepted.
 - Amounts in `NetcashPayment.amount` are in **cents** (rands × 100).
 - `status.ts` maps Netcash status strings to internal enum values (`completed | failed | processing | submitted`) via a keyword-match function — no strict string equality.
-- A submission record is always written, even on failure, so audit trail is complete.
+- Release intent, reservation, outbox claim and terminal evidence are persisted separately. Rollback does not dispatch; attempting or uncertain releases never blindly retransmit.
 - Test-connection uses the same service key validation path as live submissions.

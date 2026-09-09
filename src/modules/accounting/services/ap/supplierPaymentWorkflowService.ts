@@ -1,3 +1,4 @@
+import {assertStandalonePaymentVoid} from './batchPaymentValidation';
 /**
  * Supplier Payment Workflow Service
  * Approve and process payment operations — split from supplierPaymentService.ts.
@@ -146,6 +147,7 @@ async function voidSupplierPaymentInner(
   try {
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
+    assertStandalonePaymentVoid(payment.batchId);
     if (payment.status === 'reconciled') {
       throw new Error('Cannot void a reconciled payment — remove it from the bank reconciliation first');
     }
