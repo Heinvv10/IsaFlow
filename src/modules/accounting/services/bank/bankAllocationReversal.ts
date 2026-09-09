@@ -27,7 +27,7 @@ export async function prepareBankAllocationReversal(ctx:ControlTx,input:unknown)
   if(state.periods.length!==1||state.periods[0]!.status!=='open')throw new Error('Open reversal period required');
   await recordCommittedChange(ctx,{entityType:'bank_allocation_reversal_intent',entityId:id,previousVersion:null,newVersion:1,action:'bank_allocation.reversal_prepared',accountingDate:plan.reversalDate,
    before:null,after:{originalIntentId,bankTransactionId:original.plan.bankTransactionId,reversalDate:plan.reversalDate,reason:plan.reason},bindingHash:null,protectedEvidenceRef:null});
-  return{intentId:id,operation:{entityType:'bank_allocation_reversal_intent',entityId:id,operation:'bank_allocation.reverse' as const}};
+  return{intentId:id,bankTransactionId:original.plan.bankTransactionId,operation:{entityType:'bank_allocation_reversal_intent',entityId:id,operation:'bank_allocation.reverse' as const}};
  });
 }
 export async function executeBankAllocationReversal(ctx:ControlTx,intentId:string,options?:PostingActorOpts&{approvalId?:string}){

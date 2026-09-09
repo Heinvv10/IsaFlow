@@ -1,3 +1,4 @@
+import {resolveBankTransferOriginal} from '@/modules/accounting/services/bank/bankAllocationTransferOriginal';
 import Decimal from 'decimal.js';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from '@/modules/accounting/services/controls/context';
@@ -37,9 +38,10 @@ export async function dispatchBankControlAction(ctx:ControlTx,input:unknown){
  if(body.action==='prepare_split_allocate')return prepareBankAllocation(ctx,{version:1,kind:'split',bankTransactionId:body.bankTransactionId,description:body.description,vatAccountId:body.vatAccountId,
   lines:body.lines.map(line=>({accountId:line.contraAccountId,amount:line.amount,description:line.description,vatCode:line.vatCode??'none',cc1Id:line.cc1Id,cc2Id:line.cc2Id,buId:line.buId}))});
  if(body.action==='prepare_reverse'){
-  const original=await loadBankAllocationOriginal(ctx,body.originalIntentId);
-  if(original.plan.bankTransactionId!==body.bankTransactionId)throw new Error('Prepared original bank does not match request');
-  return prepareBankAllocationReversal(ctx,{originalIntentId:body.originalIntentId,reversalDate:body.reversalDate,reason:body.reason});
+  const originalIntentId=await resolveBankTransferOriginal(ctx,body.originalIntentId);
+  const original=await loadBankAllocationOriginal(ctx,originalIntentId);
+  if(original.plan.bankTransactionId!==body.bankTransactionId&&!original.transfer?.banks.some(bank=>bank.id===body.bankTransactionId))throw new Error('Prepared original bank does not match request');
+  return prepareBankAllocationReversal(ctx,{originalIntentId,reversalDate:body.reversalDate,reason:body.reason});
  }
  if(body.action==='reverse'){
   const state=await loadBankAllocationReversal(ctx,body.intent_id);
