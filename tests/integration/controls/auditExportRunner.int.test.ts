@@ -8,6 +8,7 @@ import {withControlRequest,requireControlTx} from '@/modules/accounting/services
 import {enqueueAuditSnapshot,getAuditJob} from '@/modules/accounting/services/controls/auditJobService';
 import {enqueueAuditExport} from '@/modules/accounting/services/controls/auditExportJobService';
 import {runAuditJob,runAuditSnapshotJob} from '@/modules/accounting/services/controls/auditJobRunner';
+import {createAuditJobPoller} from '@/modules/accounting/services/controls/auditJobPoller';
 import {getAuditExportFiles,readAuditExportChunk} from '@/modules/accounting/services/controls/auditExportReadService';
 const config=fixtureConfigFromEnv(process.env),pool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:2});
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
@@ -60,4 +61,9 @@ it('rolls back staged files and header when chunk storage fails',async()=>{
  expect((await pool.query('SELECT job_id FROM control_audit_export_files WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows).toEqual([]);
  expect((await pool.query('SELECT job_id FROM control_audit_export_results WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows).toEqual([]);
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'failed',resultExportId:null});
+});
+it('dispatches a queued export through the actual server poller',async()=>{
+ const job=await enqueue(),poller=createAuditJobPoller({companyIds:[fixture.companyA],batchSize:10},{pool});
+ await poller.pollOnce();
+ expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'succeeded',resultExportId:job.id});
 });
