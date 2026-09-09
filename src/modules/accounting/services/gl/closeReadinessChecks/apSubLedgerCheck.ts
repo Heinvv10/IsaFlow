@@ -37,6 +37,18 @@ export async function apSubLedgerCheck(
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND si.status IN ('approved', 'partially_paid')
+      -- K-053: same rule as arSubLedgerCheck — a soft-deleted bill stays on
+      -- this side only while its journal is still standing on the other one.
+      AND (
+        si.deleted_at IS NULL
+        OR EXISTS (
+          SELECT 1 FROM gl_journal_entries je
+          WHERE je.id = si.gl_journal_entry_id
+            AND je.company_id = si.company_id
+            AND je.status = 'posted'
+            AND je.reversed_at IS NULL
+        )
+      )
       AND si.invoice_date <= ${period.endDate}::date
   `) as Row[];
 
