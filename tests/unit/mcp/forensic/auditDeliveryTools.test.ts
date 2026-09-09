@@ -1,4 +1,4 @@
-import {it,expect,vi} from 'vitest';
+import {beforeEach,it,expect,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({ctx:{issued:'fixture'},permission:vi.fn(async()=>undefined),snapshot:vi.fn(async()=>({id:'job',state:'queued'})),export:vi.fn(async()=>({id:'export',state:'queued'})),
  status:vi.fn(async()=>({state:'queued'})),header:vi.fn(),page:vi.fn(),snapshotChunk:vi.fn(async()=>({item:{ordinal:0},chunkOrdinal:0,bytes:new Uint8Array([0,255])})),files:vi.fn(),exportChunk:vi.fn(async()=>({file:{ordinal:0},chunkOrdinal:0,bytes:new Uint8Array([1,2])}))}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>mocks.ctx}));
@@ -10,6 +10,7 @@ vi.mock('@/modules/accounting/services/controls/auditSnapshotPageService',()=>({
 vi.mock('@/modules/accounting/services/controls/auditExportReadService',()=>({getAuditExportFiles:mocks.files,readAuditExportChunk:mocks.exportChunk}));
 import {auditDeliveryTools} from '@/lib/mcp/tools/auditDelivery';
 import {validateToolArguments} from '@/lib/mcp/inputValidation';
+beforeEach(()=>vi.clearAllMocks());
 const id='11111111-1111-4111-8111-111111111111',ctx={userId:'user',companyId:'company',scopes:['read:reports'],tokenJti:'token',oauthAppId:null};
 async function call(name:string,args:Record<string,unknown>){return auditDeliveryTools.find(tool=>tool.name===name)!.handler(args,ctx);}
 const valid=[{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotency_key:'retry'},
@@ -17,6 +18,12 @@ const valid=[{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotency_key
  {snapshot_id:id,section:'records',ordinal:0,chunk_ordinal:0},{job_id:id},{job_id:id,file_ordinal:0,chunk_ordinal:0}];
 it('admits every actual tool contract through the registry input gate',()=>{
  auditDeliveryTools.forEach((tool,index)=>expect(validateToolArguments(tool,valid[index])).toMatchObject({ok:true}));
+});
+it('enforces UUID, key lengths and patterns before handlers',()=>{
+ expect(validateToolArguments(auditDeliveryTools[0],{...valid[0],idempotency_key:''}).ok).toBe(false);
+ expect(validateToolArguments(auditDeliveryTools[0],{...valid[0],idempotency_key:'contains spaces'}).ok).toBe(false);
+ expect(validateToolArguments(auditDeliveryTools[2],{job_id:'not-a-uuid'}).ok).toBe(false);
+ expect(validateToolArguments(auditDeliveryTools[6],{job_id:id,cursor:'01'}).ok).toBe(false);
 });
 it('accepts only a matching registry company assertion without forwarding it as business authority',async()=>{
  for(let index=0;index<2;index++){
