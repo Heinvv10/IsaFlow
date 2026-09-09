@@ -36,6 +36,7 @@ import {
   type HashableTransaction,
 } from '../../utils/bankTransactionHash';
 import type { BankFormat, ParsedBankTransaction } from '../../types/bank.types';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 export interface AgentImportArgs {
   companyId: string;
@@ -82,7 +83,7 @@ export async function bankGlAccountBelongsToCompany(
     SELECT id FROM gl_accounts
     WHERE id = ${bankAccountId}::UUID
       AND company_id = ${companyId}::UUID
-      AND account_subtype = 'bank'
+      AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
       AND is_active = true
     LIMIT 1
   `) as Array<{ id: string }>;

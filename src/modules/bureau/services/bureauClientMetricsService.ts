@@ -12,6 +12,7 @@
  */
 import { sql } from '@/lib/neon';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type Scalar = number | string | null | undefined;
 
@@ -76,7 +77,7 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
             AND je.status = 'posted'
           GROUP BY jl.gl_account_id
         ) b ON b.gl_account_id = ga.id
-       WHERE ga.account_subtype = 'bank' AND ga.company_id = ${companyId}::UUID
+       WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND ga.company_id = ${companyId}::UUID
     `,
     // AR open (same allowlist as arAgingService)
     sql`

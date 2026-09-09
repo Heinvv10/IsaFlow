@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { commitARInvoice, commitAPInvoice, upsertCustomer, upsertSupplier } from './sageMigrationCommitService';
 import type { Row, CommitPayload, CommitSummary } from './sageMigrationTypes';
 import { sageAccountSubtype } from './sageAccountSubtype';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 
 export async function commitSageMigration(payload: CommitPayload): Promise<CommitSummary> {
@@ -122,7 +123,7 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
   if (btx?.records?.length) {
     const BATCH = 500;
     const accountId = btx.bankAccountId;
-    const ok = (await sql`SELECT 1 FROM gl_accounts WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID AND account_subtype = 'bank' LIMIT 1`) as Row[];
+    const ok = (await sql`SELECT 1 FROM gl_accounts WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) LIMIT 1`) as Row[];
     if (!ok.length) {
       summary.bankTransactions.failed.push(`Bank account ${accountId} not found for company`);
     } else {

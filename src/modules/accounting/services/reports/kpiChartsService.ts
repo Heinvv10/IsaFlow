@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 
 export interface ChartPoint {
@@ -105,7 +106,7 @@ export async function getCashFlowChart(companyId: string, months: number): Promi
           SELECT 1 FROM gl_accounts ga
           WHERE ga.id = bt.bank_account_id
             AND ga.company_id = ${companyId}::UUID
-            AND ga.account_subtype = 'bank'
+            AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
         )
       GROUP BY m.month_start
       ORDER BY m.month_start

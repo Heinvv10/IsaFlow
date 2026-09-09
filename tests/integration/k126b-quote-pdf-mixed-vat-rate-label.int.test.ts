@@ -22,6 +22,8 @@ const nullLineRateQuote = crypto.randomUUID();
 const disagreeingQuote = crypto.randomUUID();
 const roundingQuote = crypto.randomUUID();
 const driftedQuote = crypto.randomUUID();
+const linelessQuote = crypto.randomUUID();
+const linelessZeroVatQuote = crypto.randomUUID();
 const otherCompany = crypto.randomUUID();
 const otherCustomer = crypto.randomUUID();
 
@@ -90,13 +92,20 @@ beforeAll(async () => {
     `INSERT INTO customer_quotes(id,company_id,quote_number,client_id,quote_date,subtotal,tax_rate,tax_amount,total,status,created_by)
      VALUES($1,$2,'K126B-Q7',$3,'2026-01-01',100,15,15,115,'sent',$4)`,
     [driftedQuote, company, otherCustomer, user]);
+  // Round 4 review, LOW-2: no lines at all, and a stored R15 of VAT. Nothing on
+  // the page can account for it, and `lines.length > 0` suppressed the note in
+  // exactly that case.
+  await seedQuote(linelessQuote, 'K126B-Q8', 15, 0, 15, []);
+  // The control: no lines and no VAT is an empty quote, not a disagreement.
+  await seedQuote(linelessZeroVatQuote, 'K126B-Q9', 15, 0, 0, []);
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM customer_quote_lines WHERE quote_id = ANY($1::uuid[])',
       [[mixedQuote, singleQuote, uniformZeroQuote, nullLineRateQuote,
-        disagreeingQuote, roundingQuote, driftedQuote]]);
+        disagreeingQuote, roundingQuote, driftedQuote, linelessQuote,
+        linelessZeroVatQuote]]);
     await pool.query('DELETE FROM customer_quotes WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, otherCompany]]);
@@ -144,6 +153,23 @@ it('states on the page that the VAT total disagrees with the rates the lines car
   // The label and the figure contradict each other; the page must say so
   // rather than leaving the customer to notice.
   expect(text.some((t) => /differs by .* from the rates the lines above carry/.test(t))).toBe(true);
+});
+
+it('states the disagreement on a quote with no lines to account for its VAT', async () => {
+  const text = pdfText(await generateQuotePdf(company, linelessQuote));
+
+  expect(text).toContain('No line items on this quotation.');
+  // Zero lines means zero tolerance: the whole R15 is unaccounted for.
+  const note = text.find((t) => /not accounted for by any line item/.test(t));
+  expect(note).toBeDefined();
+  expect(note).toContain('15.00');
+});
+
+it('says nothing on an empty quote that states no VAT either', async () => {
+  const text = pdfText(await generateQuotePdf(company, linelessZeroVatQuote));
+
+  expect(text).toContain('No line items on this quotation.');
+  expect(text.some((t) => /not accounted for|differs by/.test(t))).toBe(false);
 });
 
 it('does not report per-line rounding as a disagreement', async () => {

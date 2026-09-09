@@ -46,9 +46,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // An unresolvable id gets its own row (the grouping key is the id), so the
     // placeholder must name it — otherwise the CSV shows several identical
     // 'Unknown customer' lines that neither aggregate nor can be attributed.
+    // An invoice carrying NEITHER id would have no id to name, and printing
+    // `Unknown customer (null)` into a customer-facing CSV states an id that
+    // does not exist. `customer_invoices.customer_id` is NOT NULL today, so
+    // the COALESCE key cannot be null and this branch is unreachable — it is
+    // here because the label, not the constraint, is what makes it safe.
     const data = rows.map(r => ({
       clientId: r.client_id,
-      clientName: r.client_name ?? `Unknown customer (${String(r.client_id)})`,
+      clientName: r.client_name
+        ?? (r.client_id == null
+          ? 'Unattributed'
+          : `Unknown customer (${String(r.client_id)})`),
       invoiceCount: Number(r.invoice_count),
       totalSales: Number(r.total_sales),
       paymentsReceived: Number(r.payments_received),

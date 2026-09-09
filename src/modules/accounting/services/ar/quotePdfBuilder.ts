@@ -151,7 +151,11 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   );
   const vatDisagreement = Math.round((headerVat - linesVat) * 100) / 100;
   const roundingTolerance = lines.length / 100;
-  const vatDisagrees = lines.length > 0 && Math.abs(vatDisagreement) > roundingTolerance;
+  // A quote with NO lines and a non-zero header VAT is a disagreement of the
+  // whole amount, not an exemption from the check: nothing on the page can
+  // account for it, and `lines.length > 0` suppressed the note in exactly that
+  // case. Zero lines means zero tolerance.
+  const vatDisagrees = Math.abs(vatDisagreement) > roundingTolerance;
   if (vatDisagrees) {
     log.warn('Quote VAT total disagrees with the rates its lines carry', {
       quoteId, headerVat, linesVat: Math.round(linesVat * 100) / 100, vatDisagreement,
@@ -207,7 +211,9 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
     doc.setFontSize(6.5);
     doc.setTextColor(...COLORS.DANGER);
     doc.text(
-      `The VAT total differs by ${fmtZAR(vatDisagreement)} from the rates the lines above carry.`,
+      lines.length > 0
+        ? `The VAT total differs by ${fmtZAR(vatDisagreement)} from the rates the lines above carry.`
+        : `The VAT total of ${fmtZAR(vatDisagreement)} is not accounted for by any line item.`,
       MARGIN, y,
     );
     doc.setTextColor(...COLORS.TEXT_PRIMARY);

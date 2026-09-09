@@ -191,3 +191,66 @@ ORDER  BY company_id, account_code;
 Every such account is a chart-of-accounts defect to correct at source; the report now names them
 instead of hiding them. Invoice PDFs re-rendered for an invoice whose stored `tax_amount` disagrees
 with its lines will now print a red note stating the unattributable amount.
+
+---
+
+## Round 5 — the six findings of review-k091-r4
+
+**HIGH-1 (fixed).** `allocateVatToLines` no longer divides by `Σ weights`. Each line keeps its own
+`round2(amount × rate)`; only the residual is moved, and only while it is within one cent per RATED
+line. Beyond that the header is disagreeing with its lines, not rounding, and the excess is returned
+as `unattributed` — printed in red on the invoice and `log.warn`ed. A R100 line at 15% under a R30
+header now prints R15.00 with a note for the other R15.00, not R30.00 in silence.
+
+**MEDIUM-1 (fixed).** One definition of "does this account hold bank transactions?". Twenty-six
+SQL sites move from the literal `'bank'` to `account_subtype = ANY(BANK_SUBTYPES)`, and the
+TypeScript comparisons in four files (`bankReconciliationService`, `accountReclassifyService`,
+`accountReportingClass`, `bank-accounts`) to the new `isBankSubtype`. The nine the review enumerated, plus every other
+site that selects GL accounts as bank accounts — `bankAccountStatusService` (`cash.statement.v1`,
+which the coverage report prints beside `cash.balance.v1`), `kpiDashboardService`, `kpiChartsService`,
+`cash-movement`, `consolidatedReportingService`, `openingBalanceReadService`, `hasBankAccountService`,
+`bureauClientMetricsService`, `sageMigrationOrchestrator` — because widening coverage alone would
+have moved the disagreement one report to the left rather than removing it.
+
+**MEDIUM-2 (fixed).** Same change as HIGH-1. Nothing divides by `Σ weights`, so mixed-sign weights
+cannot explode: `hdr=15, weights=[100, −99.999999]` now yields `[100.00, −100.00]` with `15.00`
+unattributed instead of `[1500000003.79, −1499999988.79]`.
+
+**LOW-1 (fixed).** `fetchOpeningCash` / `fetchClosingCash` moved to `afs/afsKpiCash.ts` (62 lines).
+`afsKpiService.ts` is 262 lines, back under the 300-line rule.
+
+**LOW-2 (fixed).** `vatDisagrees` no longer carries `lines.length > 0`. Zero lines means zero
+tolerance, and the note reads "is not accounted for by any line item" when there is no table above it.
+
+**LOW-3 (fixed in code; the finding is unreachable).** The `Unknown customer (null)` label is
+replaced by `Unattributed` when the grouping key is null. It cannot fire today:
+`customer_invoices.customer_id` is `NOT NULL` in the live schema (verified on the fixture DB), so
+`COALESCE(ci.client_id, ci.customer_id)` is never null. No test — a row that violates a NOT NULL
+constraint cannot be seeded, and asserting an unreachable branch would be asserting nothing. The
+guard stays because the label, not the constraint, is what makes it safe.
+
+**Files (round 5).** `ar/vatLineAllocation.ts`, `ar/invoicePdfBuilder.ts`, `ar/quotePdfBuilder.ts`,
+`gl/accountSubtypes.ts` (+`isBankSubtype`), `afs/afsKpiService.ts`, new `afs/afsKpiCash.ts`,
+`reports/sales-by-customer.ts`, and the 26 bank-subtype query sites listed above.
+
+**Tests (round 5).** New `tests/unit/services/vatLineAllocation.test.ts` (10) and
+`tests/unit/services/bankSubtypeVocabulary.test.ts` (5). Integration: 44 across the six files
+(k091b 9, k091 5, k126 10, k126b 10, k126c 4, k093 6). Full unit suite 9583 passed / 243 skipped,
+`DATABASE_URL` unset. `tsc --noEmit`, `eslint` on changed src/pages, `agent-docs:check` all clean.
+
+**Mutation proof (round 5).** M-A remove the residual tolerance → 6 unit tests red. M-B let a
+zero-rated line absorb a cent → 1 red. M-C coverage back to the literal `'bank'` → 3 red. M-D
+importer back to the literal → 4 red. M-F restore `lines.length > 0` on the quote note → 1 red.
+M-G narrow `isBankSubtype` to `subtype === 'bank'` → 1 red. Baseline green before each; every
+mutation reverted.
+
+**Historical-data impact (round 5).** No stored row changes, no migration. Accounts spelled
+`bank_account` gain a coverage row, a statement-import path and a place in every bank-balance report
+that previously omitted them — their cash balance was already counted by `cash.balance.v1`, so the
+two figures stop disagreeing rather than either one moving on its own. Find them read-only:
+```sql
+SELECT company_id, account_code, account_name, account_type, account_subtype
+FROM   gl_accounts
+WHERE  account_subtype = 'bank_account'
+ORDER  BY company_id, account_code;
+```

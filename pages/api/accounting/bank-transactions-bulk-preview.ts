@@ -47,6 +47,7 @@ import {
 } from '@/modules/accounting/utils/bankTransactionHash';
 import { compareBankAccountNumbers } from '@/modules/accounting/utils/bankAccountNumberMatch';
 import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '30mb' } },
@@ -95,7 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     FROM gl_accounts
     WHERE id = ${bankAccountId}
       AND company_id = ${companyId}
-      AND account_subtype = 'bank'
+      AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
       AND is_active = true
     LIMIT 1
   `) as Array<{ id: string; account_name: string; bank_account_number: string | null }>;
