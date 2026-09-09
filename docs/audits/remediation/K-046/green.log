@@ -1,0 +1,36 @@
+K-046 / R-027 — GREEN + mutation proof (disposable production-schema fixture)
+
+Migration applied to the fixture:
+  psql -f scripts/migrations/sql/627_gl_je_source_year_end.sql  -> ALTER TABLE, ALTER TABLE
+  pg_get_constraintdef(...) LIKE '%year_end%'                   -> t
+
+GREEN
+  bun run test:integration -- tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts
+                              tests/integration/k-046-year-end-close-adjacent.int.test.ts
+  Test Files  2 passed (2)
+  Tests       7 passed (7)      [3 from the validator's RED file, 4 adjacent]
+
+MUTATION 1 — revert the sign derivation in yearEndJournalBuilder.buildPreview
+  (debit: balance / credit: balance, as on origin/master)
+  Test Files  2 failed (2)
+  Tests       6 failed | 1 passed (7)
+
+MUTATION 2 — revert migration 627 by re-applying 509's constraint to the fixture
+  Test Files  2 failed (2)
+  Tests       4 failed | 3 passed (7)
+  (restored by re-applying 627)
+
+MUTATION 3 — remove the validateJournalEntry guard from postClosingJournal
+  tests/integration/k-046-year-end-close-adjacent.int.test.ts
+    Test Files  1 failed (1)   Tests 1 failed | 3 passed (4)
+  tests/unit/services/glEntrySourceConstraint.test.ts
+    Test Files  1 failed (1)   Tests 1 failed | 5 passed (6)
+
+FULL UNIT SUITE (no DATABASE_URL in the environment: `env -u DATABASE_URL bunx vitest run`)
+  Test Files  792 passed | 36 skipped (828)
+  Tests       9435 passed | 234 skipped (9669)
+
+GATES
+  bunx tsc --noEmit                                  -> exit 0, no output
+  bunx eslint <the three changed src files>          -> exit 0, no output
+  bunx tsx scripts/ci/check-migration-rls.ts         -> OK

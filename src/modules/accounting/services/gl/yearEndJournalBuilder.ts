@@ -66,15 +66,33 @@ export function buildPreview(
   retained: RetainedEarningsAccount,
   netIncome: number,
 ): YearEndJournalPreview {
+  // The SIDE COMES FROM THE SIGN, not from the account type.
+  //
+  // `balance` is a NET measure — revenue is `credit - debit`, expense is
+  // `debit - credit` — and the `HAVING ... != 0` filters keep contra rows in.
+  // A revenue account carrying a net DEBIT balance (a refund or reversal
+  // larger than the year's billing to it) therefore arrives NEGATIVE, and
+  // writing it straight into `debit` produced `debit: -500`, which
+  // `gl_journal_lines_debit_check` rejects with 23514. The whole close then
+  // aborted, so a tenant with one contra P&L account could never close a year.
+  // Closing such an account still means posting the opposite of its balance;
+  // only the side flips. `netIncome` is unchanged and the journal still
+  // balances either way.
   const lines: YearEndJournalLine[] = [
-    ...revenueAccounts.map((a) => ({
-      accountId: String(a.id), accountCode: String(a.account_code), accountName: String(a.account_name),
-      debit: Number(a.balance), credit: 0,
-    })),
-    ...expenseAccounts.map((a) => ({
-      accountId: String(a.id), accountCode: String(a.account_code), accountName: String(a.account_name),
-      debit: 0, credit: Number(a.balance),
-    })),
+    ...revenueAccounts.map((a) => {
+      const balance = Number(a.balance);
+      return {
+        accountId: String(a.id), accountCode: String(a.account_code), accountName: String(a.account_name),
+        debit: balance >= 0 ? balance : 0, credit: balance < 0 ? -balance : 0,
+      };
+    }),
+    ...expenseAccounts.map((a) => {
+      const balance = Number(a.balance);
+      return {
+        accountId: String(a.id), accountCode: String(a.account_code), accountName: String(a.account_name),
+        debit: balance < 0 ? -balance : 0, credit: balance >= 0 ? balance : 0,
+      };
+    }),
     {
       accountId: retained.id, accountCode: retained.accountCode, accountName: retained.accountName,
       debit: netIncome < 0 ? Math.abs(netIncome) : 0,
