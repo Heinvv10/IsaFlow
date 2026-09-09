@@ -55,3 +55,6 @@ Read this ledger, worker report artifacts, and committed specification. Finish P
 - Node22.23.1 full CI exit0 on a107aa8b (docs-only over f57f71a7): 787 unit files/9335 tests passed,36 files/234 tests skipped;57 component files/390 tests passed; build and all gates PASS. DATABASE_URL unset; no real DB acceptance in this run. Log baseline-ci-node22.log.
 - Fresh historical migration replay first needs sslmode=disable, then fails at migration220 because companies does not exist. Confirmed pre-existing ordering prerequisite; new programme migrations will receive separate upgrade proof on current-schema fixture, historical replay remains tracked limitation.
 - Shared contracts candidate and 38 requirement-to-test mappings recorded. Preventive worker reviewing cross-contract consistency; fixture worker owns safe bootstrap/tests, no heavy runs.
+
+## Contract independent review
+- preventive_map reviewed named4aa6907c: three confirmed contract gaps (multi-policy decision binding, nullable nonmonetary amount, employee beneficiary support). Fixed in following contract commit, plus explicit tx/lock/protected-evidence contracts. No code capability inferred from this review.
