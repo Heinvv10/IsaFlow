@@ -61,14 +61,20 @@ it('independent approval executes once; failed effect rolls back consumption for
     throw new Error('Synthetic effect failure');
   }))).rejects.toThrow('Synthetic effect failure');
   expect((await pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2', [fixture.companyA, approval.id])).rows[0].status).toBe('approved');
+  let executions = 0;
   const run = () => request('u1', ctx => executeControlledOperation(ctx, ref, approval.id, async () => {
+    executions++;
     await ctx.sql`UPDATE supplier_payments SET description='one effect' WHERE company_id=${fixture.companyA}::uuid AND id=${payment}::uuid`;
     return { paymentId: payment };
   }));
   const results = await Promise.allSettled([run(), run()]);
-  expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
-  expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+  expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(2);
+  expect(results[0]).toEqual(results[1]); expect(executions).toBe(1);
   expect((await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2', [fixture.companyA, payment])).rows).toHaveLength(1);
+  try {
+    await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2", [fixture.companyA, fixture.u2.id]);
+    await expect(run()).rejects.toThrow('authority');
+  } finally { await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2", [fixture.companyA, fixture.u2.id]); }
 });
 
 async function freshPayment(amount = '115'): Promise<OperationRef> {
@@ -176,7 +182,7 @@ it('binds invoice line totals and treats approve/post as the same controlled ope
     const approval = await request('u1', ctx => requestOperationApproval(ctx, invoiceRef));
     await request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved'));
     await expect(request('u1', ctx => executeControlledOperation(ctx, { ...invoiceRef, operation: 'supplier_invoice.post' }, approval.id, noEffect))).resolves.toEqual({ accepted: true });
-    await expect(request('u1', ctx => executeControlledOperation(ctx, invoiceRef, approval.id, noEffect))).rejects.toThrow();
+    await expect(request('u1', ctx => executeControlledOperation(ctx, invoiceRef, approval.id, noEffect))).resolves.toEqual({ accepted: true });
   } finally { await pool.query('DELETE FROM approval_rules WHERE company_id=$1 AND id=$2', [fixture.companyA, invoiceRule]); }
 });
 it('serializes same-day supplier exposure so concurrent split operations cannot both avoid approval', async () => {
@@ -252,8 +258,8 @@ it('does not execute a no-policy operation twice under one server-issued operati
   const targetRef = await freshPayment(); let effects = 0;
   await request('u1', async ctx => {
     const effect = async () => ({ sequence: ++effects });
-    await executeControlledOperation(ctx, targetRef, null, effect);
-    await expect(executeControlledOperation(ctx, targetRef, null, effect)).rejects.toThrow('committed');
+    const first = await executeControlledOperation(ctx, targetRef, null, effect);
+    await expect(executeControlledOperation(ctx, targetRef, null, effect)).resolves.toEqual(first);
   });
   expect(effects).toBe(1);
 });

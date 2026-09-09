@@ -33,19 +33,30 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   await assertEffectivePermission(ctx, 'write:invoices');
   await assertEffectivePermission(ctx, 'write:post');
   return withSavepoint('controlled_ap_operation', async () => {
-    const material = await loadOperationMaterial(ctx, ref);
+    // Preserve policy-before-approval lock order, including replay lookups.
+    await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
     const row = approvalId ? await lockApproval(ctx, approvalId) : null;
-    if (material.binding.policies.length && !row) throw new Error('Independent operation approval is required');
     if (row) {
-      assertApprovalExecutable(row, material.bindingHash);
       await assertRequesterAuthority(row, authorities);
       await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
     }
     const operationId = row?.operation_id ?? ctx.principal.operationId;
+    const [committed] = await ctx.sql`
+      SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
+        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND entity_id=${ref.entityId}
+        AND operation_id=${operationId}::uuid
+    ` as Array<{ id: string; result: T }>;
+    if (committed) {
+      if (row && (row.status !== 'consumed' || row.consumed_effect_id !== committed.id)) throw new Error('Approval effect linkage is invalid');
+      return committed.result;
+    }
+    const material = await loadOperationMaterial(ctx, ref);
+    if (material.binding.policies.length && !row) throw new Error('Independent operation approval is required');
+    if (row) assertApprovalExecutable(row, material.bindingHash);
     const prior = await ctx.sql`
       SELECT id FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
         AND operation=${ref.operation} AND entity_type=${ref.entityType} AND entity_id=${ref.entityId}
-        AND (binding_hash=${material.bindingHash} OR operation_id=${operationId}::uuid)
+        AND binding_hash=${material.bindingHash}
     `;
     if (prior.length) throw new Error('Operation effect already committed');
     await initializeOperationObservations(ctx, material);
