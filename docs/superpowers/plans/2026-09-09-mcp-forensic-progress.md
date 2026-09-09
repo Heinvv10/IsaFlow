@@ -12,10 +12,10 @@
 | Task | Status | Owner | Evidence / next action |
 | --- | --- | --- | --- |
 | 0 baseline/remediation reconciliation | in_progress | root | Selected latest merged baseline; unmerged work not absorbed |
-| 0 complete tool matrix | in_progress | inventory | Read-only exact-baseline report /tmp/isaflow-forensic-phase0-inventory/ |
-| 0 preventive bypass map/subplans | in_progress | preventive_map | Report /tmp/isaflow-forensic-phase0-preventive/ |
-| 0 evidence/detectors/subplans | in_progress | evidence_map | Report /tmp/isaflow-forensic-phase0-evidence/ |
-| 0 disposable PostgreSQL and baseline CI | pending | root | Inspect fixture prerequisites, provision own instance |
+| 0 complete tool matrix | source_verified | inventory | forensic-evidence/tool-matrix.json: 131 tools,69 reads,62 writes,30 posting; runtime contract tests pending |
+| 0 preventive bypass map/subplans | source_verified | preventive_map | forensic-evidence/phase1-preventive-plan.md and entrypoint-matrix.tsv; runtime reproductions planned |
+| 0 evidence/detectors/subplans | source_verified | evidence_map | forensic-evidence/phase2-4-subplans.md |
+| 0 disposable PostgreSQL and baseline CI | in_progress | root/evidence_map | Node22 full CI green; own PG restored+upgrades616-618; fixture worker branch feat/mcp-forensic-fixtures-20260909 |
 | 0 shared contracts/requirement-test matrix | pending | root | Reconcile worker reports |
 | 1 preventive shared controls | pending | unassigned | Depends on Phase 0 gate |
 | 2 change history/evidence | pending | unassigned | Minimal event writer required in Phase 1 |
@@ -49,3 +49,9 @@ Read this ledger, worker report artifacts, and committed specification. Finish P
 - Own container isaflow-forensic-pg-20260909, pgvector/pgvector:pg16, localhost:33149/isaflow_schema_fixture, disposable password forensic-local-only.
 - Restored existing local schema-only artifact, preserving RLS/owners/grants; no source DB access. Restore log forensic-evidence/schema-restore.log. Historical migration replay and new upgrade migrations remain separate required evidence.
 - Existing remediation branch list: forensic-evidence/remediation-branches.txt; baseline integrates only already-merged work.
+
+## Baseline results and current tasks
+- Node20.12 full CI exit1: unit/component Rolldown startup ERR_INVALID_ARG_VALUE format array; all remaining gates including build PASS. No app-code failure inferred. Log baseline-ci.log.
+- Node22.23.1 full CI exit0 on a107aa8b (docs-only over f57f71a7): 787 unit files/9335 tests passed,36 files/234 tests skipped;57 component files/390 tests passed; build and all gates PASS. DATABASE_URL unset; no real DB acceptance in this run. Log baseline-ci-node22.log.
+- Fresh historical migration replay first needs sslmode=disable, then fails at migration220 because companies does not exist. Confirmed pre-existing ordering prerequisite; new programme migrations will receive separate upgrade proof on current-schema fixture, historical replay remains tracked limitation.
+- Shared contracts candidate and 38 requirement-to-test mappings recorded. Preventive worker reviewing cross-contract consistency; fixture worker owns safe bootstrap/tests, no heavy runs.
