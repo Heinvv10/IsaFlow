@@ -5,7 +5,7 @@ const vat=z.enum(['none','standard','zero_rated','exempt']);
 const description=z.string().max(500).optional();
 const execution={bankTransactionId:id,intent_id:id,approval_id:id};
 export const bankControlSchema=z.discriminatedUnion('action',[
- z.object({action:z.literal('prepare_allocate'),bankTransactionId:id,allocationType:z.enum(['account','customer','supplier']).default('account'),
+ z.object({action:z.literal('prepare_allocate'),bankTransactionId:id,allocationType:z.enum(['account','customer','supplier','transfer']).default('account'),
   contraAccountId:id.optional(),entityId:id.optional(),description,vatCode:vat.optional(),vatAccountId:id.optional(),cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional(),
   autoApply:z.boolean().optional(),applications:z.array(z.object({invoiceId:id,amount}).strict()).max(100).optional()}).strict(),
  z.object({action:z.literal('prepare_split_allocate'),bankTransactionId:id,description,vatAccountId:id.optional(),

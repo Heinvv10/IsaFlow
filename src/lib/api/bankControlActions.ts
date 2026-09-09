@@ -18,6 +18,11 @@ export async function dispatchBankControlAction(ctx:ControlTx,input:unknown){
  await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${company}`},0))`;
  if(body.action==='prepare_allocate'){
+  if(body.allocationType==='transfer'){
+   if(!body.contraAccountId||body.entityId||body.vatCode!==undefined||body.vatAccountId||body.cc1Id||body.cc2Id||body.buId
+    ||body.autoApply!==undefined||body.applications!==undefined)throw new Error('Transfer preparation requires only the owned counterparty bank account');
+   return prepareBankAllocation(ctx,{version:1,kind:'transfer',bankTransactionId:body.bankTransactionId,counterpartyAccountId:body.contraAccountId,description:body.description});
+  }
   if(body.allocationType!=='account'){
    if(!body.entityId||body.contraAccountId||body.vatAccountId||body.vatCode)throw new Error('Party preparation requires only the owned party and application instructions');
    return preparePartyBankAllocation(ctx,{kind:body.allocationType,bankTransactionId:body.bankTransactionId,partyId:body.entityId,
