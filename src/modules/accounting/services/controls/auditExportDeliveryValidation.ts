@@ -21,6 +21,10 @@ const typed=Object.getPrototypeOf(Uint8Array.prototype) as object;
 const byteLength=Object.getOwnPropertyDescriptor(typed,'byteLength')!.get!;
 const byteOffset=Object.getOwnPropertyDescriptor(typed,'byteOffset')!.get!;
 const arrayBuffer=Object.getOwnPropertyDescriptor(typed,'buffer')!.get!;
+/** Byte-size admission shared by manifest and aggregate delivery accounting. */
+export function assertDeliverySize(bytes:number):void{
+ if(!Number.isSafeInteger(bytes)||bytes<0||bytes>limits.bundleBytes)throw new Error('Export delivery resource limit');
+}
 function fields(value:unknown,names:string[]){
  if(!value||typeof value!=='object'||![Object.prototype,null].includes(Object.getPrototypeOf(value))
   ||Reflect.ownKeys(value).length!==names.length)throw new Error('Invalid export delivery fields');
@@ -39,9 +43,12 @@ export async function prepareDelivery(bundle:AuditEvidenceBundle,identity:z.infe
  if(values.companyId!==identity.companyId||values.snapshotId!==identity.snapshotId||values.canonicalSnapshotHash!==identity.canonicalSnapshotHash)throw new Error('Export delivery identity changed');
  const raw=fields(values.manifest,['version','keyId','canonicalData','canonicalHash','authentication']);
  if(raw.version!==1||typeof raw.keyId!=='string'||raw.keyId!==(process.env.CONTROL_SNAPSHOT_KEY_ID??'current')
-  ||typeof raw.canonicalData!=='string'||Buffer.byteLength(raw.canonicalData)>200*1024*1024
+  ||typeof raw.canonicalData!=='string'
   ||!hash.safeParse(raw.canonicalHash).success||!hash.safeParse(raw.authentication).success)throw new Error('Invalid export manifest');
- const envelope=raw as unknown as AuthenticatedExportManifest,manifestBytes=Buffer.from(canonicalJson(envelope));
+ assertDeliverySize(Buffer.byteLength(raw.canonicalData));
+ const envelope=raw as unknown as AuthenticatedExportManifest,encodedManifest=canonicalJson(envelope);
+ assertDeliverySize(Buffer.byteLength(encodedManifest));
+ const manifestBytes=Buffer.from(encodedManifest);
  const files=values.files;
  if(!Array.isArray(files)||Object.getPrototypeOf(files)!==Array.prototype||files.length+1>limits.maxFiles
   ||Reflect.ownKeys(files).length!==files.length+1)throw new Error('Export file population limit');
@@ -52,7 +59,7 @@ export async function prepareDelivery(bundle:AuditEvidenceBundle,identity:z.infe
   const f=fields(d.value,['path','mediaType','byteLength','sha256','bytes']),{bytes,...rest}=f;
   const parsed=metadata.parse(detachIndexValue(rest));
   if(!(bytes instanceof Uint8Array)||byteLength.call(bytes)!==parsed.byteLength)throw new Error('Export file length changed');
-  total+=parsed.byteLength;if(total>limits.bundleBytes)throw new Error('Export delivery resource limit');
+  total+=parsed.byteLength;assertDeliverySize(total);
   pending.push({metadata:parsed,source:new Uint8Array(arrayBuffer.call(bytes),byteOffset.call(bytes),parsed.byteLength)});
  }
  check();await setImmediate();check();

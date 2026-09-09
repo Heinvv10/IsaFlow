@@ -6,12 +6,17 @@ import {exportDeliveryRows,openExportDeliveryHeader,openExportDeliveryFile,openE
 import type {ExportDeliveryRow} from '@/modules/accounting/services/controls/auditExportDeliveryContract';
 import {indexCryptography} from '@/modules/accounting/services/controls/auditSnapshotIndexCrypto';
 import {sealExportManifest,type ExportManifest} from '@/modules/accounting/services/controls/auditEvidenceExportMaterial';
+import {assertDeliverySize} from '@/modules/accounting/services/controls/auditExportDeliveryValidation';
 const hash=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 afterEach(()=>vi.unstubAllEnvs());
-async function fixture(payroll=false){
+it('admits manifest sizes above 200 MiB under the aggregate contract without allocating their bytes',()=>{
+ for(const bytes of [200*1024*1024+1,1073741824])expect(()=>assertDeliverySize(bytes)).not.toThrow();
+ for(const bytes of [-1,NaN,Infinity,1.5,1073741825])expect(()=>assertDeliverySize(bytes)).toThrow();
+});
+async function fixture(payroll=false,evidenceRepeats=50000){
  vi.stubEnv('ENCRYPTION_KEY','synthetic-delivery-encryption-key-0000000000001');
  vi.stubEnv('CONTROL_SNAPSHOT_SIGNING_KEY','synthetic-delivery-signing-key-000000000000001');
- const companyId=randomUUID(),snapshotId=randomUUID(),bytes=Buffer.from('中文\u0000'.repeat(50000));
+ const companyId=randomUUID(),snapshotId=randomUUID(),bytes=Buffer.from('中文\u0000'.repeat(evidenceRepeats));
  const sealed=sealAuditSnapshot({version:1,companyId,snapshotId,cutoff:'2026-09-09',capturedAt:'2026-09-09T01:00:00Z',
   records:[],populations:['journal_entry','journal_line',...payroll?['payroll_run','payroll_run_line']:[]].map(source=>({source,count:0,excludedCount:0,exclusions:[]})),
   checks:[],evidence:[{id:'source',sha256:hash(bytes),byteLength:bytes.length,mediaType:'application/octet-stream'}],coverage:[],missingSources:[]});
@@ -64,7 +69,8 @@ it('detaches bytes before header and never invokes caller accessors',async()=>{
  }
 });
 it('observes a real timer abort before publishing anything',async()=>{
- const input=await fixture(),controller=new AbortController();const timer=setTimeout(()=>controller.abort(),0);
+ // Enough real byte work that the native timer becomes due during verification, even with a warm KDF cache.
+ const input=await fixture(false,2000000),controller=new AbortController();const timer=setTimeout(()=>controller.abort(),0);
  try{await expect(exportDeliveryRows(input.bundle,input.identity,['read:reports'],{signal:controller.signal}).next()).rejects.toThrow(/abort/i);}finally{clearTimeout(timer);}
 });
 it('derives payroll permission from authenticated zero-count source families',async()=>{

@@ -16,3 +16,11 @@ TDD: real rendered bundle reconstruction including multichunk UTF8/evidence/full
 - Initial five actual renderer/crypto tests90121 terminal0; expanded nine57534 terminal0; final strengthened byte-reconstruction/mutation tests14509 terminal0, nine passed. Includes complete PDF/CSV/JSON/original evidence and signed manifest reconstruction, zero-count payroll permission derivation, source-manifest consistency, no header before last-byte verification, cross-domain/brand/generation/chunk failures, native timer cancellation and intrinsic byte length.
 - Exact 100006-file and 1 GiB descriptor boundaries exercised without allocating a gigabyte. This proves validation boundaries only, not a full-size export's completion or process memory budget.
 - Source TypeScript40807 terminal0; scoped source ESLint48653 terminal0; git diff --check clean. No DB tests, registry edits or production operations. Heavy lease returned. Independent named review remains required before integration.
+
+## Independent review correction
+
+Root reviewed d6493741f and questioned its separate 200 MiB raw manifest cap. The original snapshot's 100 MiB bound does not itself establish that cap for duplicated export metadata and added file paths. Removed that unsupported admission rule; production assertDeliverySize now applies the root 1 GiB limit to raw canonicalData before encoding, encoded signed manifest before Buffer allocation, and aggregate manifest plus every file before copying.
+
+Behavior-preserving extraction of the old predicate allowed focused numeric production-boundary RED7e9a5f (terminal1): 200 MiB+1 was rejected. Corrected regression admits through1GiB, rejects overflow and noninteger/nonfinite sizes. This is a source-boundary finding and test, not a reproduction rendering a >200 MiB manifest or completing a 1 GiB export.
+
+Full10unit80837 had nine passes and one timing-test failure: warm verification of350KiB finished before its native timer became due. Increased only that timer fixture to14MB actual retained evidence so byte work crosses the timer threshold. No cancellation implementation change. Final10units46426 terminal0; sourceTS81234 terminal0; scopedlint89011 terminal0. Memory/time acceptance at maximum bundle size remains unverified.
