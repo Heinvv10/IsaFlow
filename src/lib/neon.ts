@@ -305,6 +305,15 @@ export function getPoolForTests(): pg.Pool {
   return getPool();
 }
 
+/**
+ * The process-wide pool, for the few handlers that must open their own
+ * BEGIN/COMMIT and bind it into ALS themselves (routes outside withAuth, e.g.
+ * the Paystack webhook, which has no user or company to authenticate).
+ */
+export function getDbPool(): pg.Pool {
+  return getPool();
+}
+
 export type TxSql = (
   strings: TemplateStringsArray,
   ...values: unknown[]
