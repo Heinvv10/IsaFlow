@@ -20,3 +20,4 @@ Post-deploy verification (in addition to the deploy script's golden paths + inte
 - VAT201 page loads for Demo and fields foot (K-031/K-032).
 - Golden path h-payroll-run covers K-022; j-fixed-assets-far covers K-027/K-029.
 - K-010 introduces src/lib/alsTransaction.ts for out-of-request reversals; the fixture role is a superuser that bypasses RLS, so confirm which role production connects as and that the new transaction sets the same GUCs/RLS context as withAuth before relying on it for cron/script callers.
+- Sage import admin page (K-038 SageCommitSummary panel) and the depreciation run page (K-029 "No charge"/"GL Failed" labels) load on Demo with the new panels rendered — browser proof required.
