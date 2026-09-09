@@ -8,7 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
-import { updateSession, type ImportResult, type MigrationError } from '../core/migrationService';
+import { updateSession, type ImportResult, type ImportRowContext, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
 import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
@@ -26,6 +26,13 @@ export interface APInvoiceRow {
   /** Optional: absent and 0 mean the same thing — nothing has been paid. */
   amountPaid?: number;
   reference?: string;
+  /**
+   * The wizard page's manual supplier correction, which used to be sent and
+   * silently dropped: the row schema stripped it and the service matched on the
+   * name regardless, so the operator's fix in the UI did nothing. Empty means
+   * the page had nothing to send.
+   */
+  supplierId?: string;
 }
 
 // ── AP Invoice Import ────────────────────────────────────────────────────────
@@ -35,11 +42,17 @@ export async function importAPInvoices(
   sessionId: string,
   invoices: APInvoiceRow[],
   userId: string,
+  rowContext?: ImportRowContext,
 ): Promise<ImportResult> {
-  const errors: MigrationError[] = [];
+  // Rows the route's schema already rejected lead the list; they were never
+  // handed to this loop but they belong to this step's report and to the
+  // session, which is the only place the operator sees them after a reload.
+  const errors: MigrationError[] = [...(rowContext?.priorErrors ?? [])];
   const warnings: MigrationError[] = [];
+  /** The position of the service's row `i` in the operator's file. */
+  const fileRow = (i: number) => rowContext?.sourceRows?.[i] ?? i;
   let imported = 0;
-  let skipped = 0;
+  let skipped = errors.length;
 
   // Before any read: the idempotency check below is a read-then-write.
   await lockMigrationImport(companyId);
@@ -58,9 +71,20 @@ export async function importAPInvoices(
   for (let i = 0; i < invoices.length; i++) {
     const inv = invoices[i]!;
     try {
-      const supplierId = matchContact(inv.supplierName, supRows);
+      // The page's manual correction wins over the name match, but only after
+      // it is checked against THIS company's suppliers — it arrives from the
+      // browser and is otherwise an unscoped id.
+      const overrideId = inv.supplierId
+        ? supRows.find(s => String(s.id) === inv.supplierId)?.id
+        : undefined;
+      if (inv.supplierId && !overrideId) {
+        errors.push({ step: 'ap_invoices', row: fileRow(i), field: 'supplierId', message: `Supplier not found for this company: ${inv.supplierId}` });
+        skipped++;
+        continue;
+      }
+      const supplierId = overrideId ? String(overrideId) : matchContact(inv.supplierName, supRows);
       if (!supplierId) {
-        errors.push({ step: 'ap_invoices', row: i, field: 'supplierName', message: `Supplier not found: ${inv.supplierName}` });
+        errors.push({ step: 'ap_invoices', row: fileRow(i), field: 'supplierName', message: `Supplier not found: ${inv.supplierName}` });
         skipped++;
         continue;
       }
@@ -75,14 +99,14 @@ export async function importAPInvoices(
         const detail = `subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`;
         if (amountsDrift > 0.05) {
           errors.push({
-            step: 'ap_invoices', row: i, field: 'totalAmount',
+            step: 'ap_invoices', row: fileRow(i), field: 'totalAmount',
             message: `Amounts do not add up for ${inv.invoiceNumber}: ${detail}`,
           });
           skipped++;
           continue;
         }
         warnings.push({
-          step: 'ap_invoices', row: i, field: 'totalAmount',
+          step: 'ap_invoices', row: fileRow(i), field: 'totalAmount',
           message: `Imported with a rounding difference: ${inv.invoiceNumber} — ${detail}`,
         });
       }
@@ -111,35 +135,50 @@ export async function importAPInvoices(
         // only because uq_customer_invoices_company_number (migration 220)
         // refuses it; production has no equivalent index on supplier_invoices,
         // and cannot get one: rows with no invoice number are legitimate and
-        // repeat. So the number is the key only when there IS one, and a
-        // blank-numbered row falls back to the fingerprint, which is the most
-        // identity it has. This is a read-then-write and is therefore not safe
-        // against two imports of the same file running at the same instant;
-        // lockMigrationImport above is what serialises them.
+        // repeat — APInvoiceRowSchema allows a blank number for exactly that
+        // reason, so this fallback is on the live path. So the number is the
+        // key only when there IS one, and a blank-numbered row falls back to
+        // the fingerprint, which is the most identity it has. This is a
+        // read-then-write and is therefore not safe against two imports of the
+        // same file running at the same instant; lockMigrationImport above is
+        // what serialises them.
+        //
+        // Compared case-INSENSITIVELY. computeFingerprint lowercases, so the
+        // key this replaced ignored case; keying on the raw column would have
+        // let a re-exported CSV whose number came back as `inv-1` rather than
+        // `INV-1` mint a second bill and a second take-on journal.
+        //
+        // NO `deleted_at IS NULL`. Soft-deleting a migrated bill does not touch
+        // its take-on entry — softDeleteService only guards `status = 'posted'`
+        // and a migrated bill is approved/partially_paid/paid — so the money is
+        // still in the payable control account. Letting the row be imported
+        // again would carry that balance twice for one visible bill.
         const hasNumber = inv.invoiceNumber.trim() !== '';
         const already = hasNumber
           ? (await sql`
-              SELECT id FROM supplier_invoices
+              SELECT id, deleted_at FROM supplier_invoices
               WHERE company_id = ${companyId}::UUID
                 AND supplier_id = ${supplierId}::UUID
-                AND invoice_number = ${inv.invoiceNumber}
-                AND deleted_at IS NULL
+                AND LOWER(invoice_number) = LOWER(${inv.invoiceNumber})
               LIMIT 1
             `) as Row[]
           : (await sql`
-              SELECT id FROM supplier_invoices
+              SELECT id, deleted_at FROM supplier_invoices
               WHERE company_id = ${companyId}::UUID
                 AND supplier_id = ${supplierId}::UUID
                 AND duplicate_fingerprint = ${migFingerprint}
-                AND deleted_at IS NULL
               LIMIT 1
             `) as Row[];
         if (already.length > 0) {
+          const wasDeleted = already[0]!.deleted_at != null;
+          const subject = hasNumber
+            ? `Already imported: ${inv.invoiceNumber} for this supplier.`
+            : 'Already imported: a bill with no number and the same amount for this supplier.';
           errors.push({
-            step: 'ap_invoices', row: i, field: 'invoiceNumber',
-            message: hasNumber
-              ? `Already imported: ${inv.invoiceNumber} for this supplier. Correcting an imported bill is an edit, not a re-import.`
-              : `Already imported: a bill with no number and the same amount for this supplier`,
+            step: 'ap_invoices', row: fileRow(i), field: 'invoiceNumber',
+            message: wasDeleted
+              ? `${subject} It was deleted, but its take-on entry is still in the ledger — reverse that entry before bringing the bill back, or importing it again would count the balance twice.`
+              : `${subject} Correcting an imported bill is an edit, not a re-import.`,
           });
           return false;
         }
@@ -197,7 +236,7 @@ export async function importAPInvoices(
       if (rowImported) imported++; else skipped++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      errors.push({ step: 'ap_invoices', row: i, message: msg });
+      errors.push({ step: 'ap_invoices', row: fileRow(i), message: msg });
       skipped++;
     }
   }

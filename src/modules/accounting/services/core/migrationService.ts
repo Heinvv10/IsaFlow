@@ -49,6 +49,23 @@ export interface MigrationError {
   severity?: 'error' | 'warning';
 }
 
+/**
+ * Where the rows the service was handed came from, and what was rejected before
+ * it saw them.
+ *
+ * The routes validate the body ROW BY ROW, so the array a service receives is
+ * the file with its bad lines removed and its indexes closed up. Reporting a
+ * failure against the position in that shortened array names the wrong line in
+ * the operator's spreadsheet, so the route passes the mapping back and every
+ * `row` the service writes is a position in the FILE.
+ */
+export interface ImportRowContext {
+  /** `sourceRows[i]` is the request-body position of the service's row `i`. */
+  sourceRows?: number[];
+  /** Rows the route's schema rejected; merged into this step's errors. */
+  priorErrors?: MigrationError[];
+}
+
 export interface ImportResult {
   imported: number;
   skipped: number;

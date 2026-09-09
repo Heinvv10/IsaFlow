@@ -223,3 +223,54 @@ NOT DONE
   L4 — origin/fix/audit-k015-k089-migration-balance-due is behind this branch and
   still carries 625_supplier_invoice_duplicate_fingerprint_unique.sql. This
   session may not push. The branch MUST be pushed before PR #373 is read.
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 4 — the 11 findings of review-k015b-r3.md
+════════════════════════════════════════════════════════════════════════════
+
+GREEN (disposable fixture DB, DATABASE_URL sourced)
+  k015-ap-migration-balance-due-column.int.test.ts ....... 20 passed
+  k089-ar-migration-balance-due-column.int.test.ts ....... (in the group below)
+  r001-r002-r020-takeon-posting.int.test.ts .............. 19 passed
+  k015-sage-import-duplicate-savepoint.int.test.ts
+  api/sageImportService.test.ts
+  → 5 files, 60 tests passed.
+
+  tests/unit/migration/migrationRowSchemas.test.ts ....... 18 passed
+  components (vitest.components.config.ts) .............. 63 files, 419 passed
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run)
+  Test Files  792 passed | 36 skipped (828)
+  Tests       9433 passed | 234 skipped (9667)
+
+MUTATION PROOF — production change reverted, test re-run, restored. All went RED.
+  M-E  drop LOWER() from the lookup ................ 1 failed | 19 passed
+  M-D  restore `AND deleted_at IS NULL` ............ 1 failed | 19 passed
+  L-4  ignore inv.supplierId ....................... 1 failed | 19 passed
+  M-C  fileRow(i) => i (drop the file mapping) ..... 1 failed | 19 passed
+  M-B  remove reversePriorOpeningBalances() ........ 2 failed | 17 passed
+  M-B  write only the `true` control flag .......... 1 failed | 18 passed
+  H-1  invoiceNumber back to .min(1) ............... 1 failed | 17 passed
+
+M-A — the shared table is no longer locked. 40 consecutive probes of
+  `SET lock_timeout='3s'; SELECT count(*) FROM public.supplier_invoices;`
+  ran against the shared fixture DB for the entire duration of the k015 suite
+  (20 tests, all passing). Cancellations: ZERO. Under the previous DROP-INDEX
+  revision the reviewer measured the same probe being cancelled at 3s.
+  The property kept: each such test asserts, before it writes, that the table
+  its search_path resolves to carries no UNIQUE index on
+  (company_id, supplier_id, invoice_number) — production's shape.
+
+STATIC
+  bunx tsc --noEmit ......... clean
+  bunx eslint <11 changed src/pages files> ......... clean
+  bun run agent-docs:check .. OK: 74 mirrors match
+
+FILE SIZES (300-line cap)
+  sageImportService.ts .................. 539 -> 281
+  sageSupplierInvoiceImportService.ts ... new, 217
+  sageLedgerRelinkGuard.ts .............. new,  91
+  migrationImportService.ts ............. 301 -> 199
+  migrationWizardOpeningBalanceService.ts new, 180
+  migrationApService.ts ................. 252
+  migrationRowSchemas.ts ................ 127
