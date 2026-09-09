@@ -1,0 +1,28 @@
+K-058 GREEN
+
+1. Integration test, fixed build (fixture DB, real schema):
+   $ bun run test:integration -- tests/integration/k058-debtors-drops-null-client-id.int.test.ts
+   Test Files  1 passed (1)
+        Tests  7 passed (7)
+
+2. Mutation check — production change reverted
+   (`git checkout -- src/modules/accounting/services/ar/debtorsManagerService.ts`),
+   same test file rerun:
+     × the debtors summary agrees with AR aging
+     × the overdue list shows the NULL client_id invoice
+     × groups the legacy invoice under customer_id and leaves an explicit client_id alone
+     × the drill-down from the summary row returns the legacy invoice
+     × collection stats count the legacy invoice customer exactly once
+     × does not leak the other company's NULL client_id invoice
+   Test Files  1 failed (1)
+        Tests  6 failed | 1 passed (7)
+   The single pass is the control: getARAging already COALESCEs, so it is
+   unaffected by the debtors-service change in either direction.
+   Production file then restored and the 7/7 pass reproduced.
+
+3. Full unit suite, DATABASE_URL unset (`env -u DATABASE_URL bunx vitest run`):
+   Test Files  792 passed | 36 skipped (828)
+        Tests  9434 passed | 234 skipped (9668)
+
+4. $ bunx tsc --noEmit                                              -> exit 0, no output
+   $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts -> exit 0, no output

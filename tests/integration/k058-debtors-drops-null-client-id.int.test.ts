@@ -1,0 +1,142 @@
+/**
+ * K-058 — RED. Three debtors-dashboard queries key on `ci.client_id` alone
+ * where the rest of AR uses `COALESCE(ci.client_id, ci.customer_id)`:
+ *
+ *   getDebtorsSummary   INNER JOIN customers ON c.id = ci.client_id  (line 115)
+ *   getDebtorDetail     WHERE ci.client_id = $2                      (line 163)
+ *   getOverdueInvoices  INNER JOIN customers ON c.id = ci.client_id  (line 214)
+ *
+ * `customer_invoices.client_id` is NULLABLE; `customer_id` is NOT NULL (fixture
+ * schema, information_schema). An invoice with a NULL client_id therefore
+ * matches nothing in the inner join and is dropped silently — it is not shown,
+ * not totalled, and not reported as excluded.
+ *
+ * `getARAging` (arAgingService.ts:41,44) reads the same invoices through
+ * COALESCE and DOES include it, so the debtors dashboard and the AR aging
+ * report disagree about the same book. This test asserts both surfaces see the
+ * same money, which is the property that actually matters.
+ *
+ * Expected on a fixed build: R1,750 on both. On origin/master the dashboard
+ * reports R1,000 and aging reports R1,750.
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'crypto';
+import { sql } from '@/lib/neon';
+import {
+  getDebtorsSummary,
+  getOverdueInvoices,
+  getDebtorDetail,
+  getCollectionStats,
+} from '@/modules/accounting/services/ar/debtorsManagerService';
+import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
+
+const DATABASE_URL = process.env.DATABASE_URL;
+const describeIfDb = DATABASE_URL ? describe : describe.skip;
+
+const COMPANY = randomUUID();
+const OTHER_COMPANY = randomUUID();
+const USER = randomUUID();
+const TAG = `K058-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+
+const LINKED = 1000;
+const LEGACY = 750;
+const SPLIT = 400;
+const LEGACY_ONLY = 250;
+const OTHER = 9999;
+
+let customer: string;
+let otherCustomer: string;
+let billTo: string;
+let legacyOnly: string;
+
+describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () => {
+  beforeAll(async () => {
+    await sql`INSERT INTO companies (id, name, registration_number, created_at)
+              VALUES (${COMPANY}::UUID, ${'K058 ' + TAG}, ${TAG}, NOW()),
+                     (${OTHER_COMPANY}::UUID, ${'K058 other ' + TAG}, ${TAG + '-O'}, NOW())`;
+    customer = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'K058 ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
+    billTo = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'K058 billto ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
+    legacyOnly = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'K058 legacyonly ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
+    otherCustomer = ((await sql`INSERT INTO customers (company_id, name) VALUES (${OTHER_COMPANY}::UUID, ${'K058 other ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
+    await sql`
+      INSERT INTO customer_invoices
+        (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
+         status, total_amount, amount_paid, created_by)
+      VALUES
+        (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + '-LINKED'}, '2026-01-15', '2026-02-15', 'approved', ${LINKED}, 0, ${USER}::UUID),
+        (${COMPANY}::UUID, NULL,              ${customer}::UUID, ${TAG + '-LEGACY'}, '2026-01-15', '2026-02-15', 'approved', ${LEGACY}, 0, ${USER}::UUID),
+        (${COMPANY}::UUID, ${billTo}::UUID,    ${customer}::UUID, ${TAG + '-SPLIT'},  '2026-01-15', '2026-02-15', 'approved', ${SPLIT},  0, ${USER}::UUID),
+        (${COMPANY}::UUID, NULL,              ${legacyOnly}::UUID, ${TAG + '-LEGACYONLY'}, '2026-01-15', '2026-02-15', 'approved', ${LEGACY_ONLY}, 0, ${USER}::UUID)`;
+    await sql`
+      INSERT INTO customer_invoices
+        (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
+         status, total_amount, amount_paid, created_by)
+      VALUES
+        (${OTHER_COMPANY}::UUID, NULL, ${otherCustomer}::UUID, ${TAG + '-OTHER'}, '2026-01-15', '2026-02-15', 'approved', ${OTHER}, 0, ${USER}::UUID)`;
+  }, 60000);
+
+  afterAll(async () => {
+    await sql`DELETE FROM customer_invoices WHERE company_id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID)`;
+    await sql`DELETE FROM customers WHERE company_id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID)`;
+    await sql`DELETE FROM companies WHERE id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID)`;
+  }, 60000);
+
+  it('AR aging already counts the NULL client_id invoice', async () => {
+    const buckets = await getARAging(COMPANY);
+    const row = buckets.find((b) => b.entityId === customer);
+    expect(row!.total).toBeCloseTo(LINKED + LEGACY, 2);
+  });
+
+  it('the debtors summary agrees with AR aging', async () => {
+    const summary = await getDebtorsSummary(COMPANY);
+    const total = summary.reduce((s, d) => s + d.totalOutstanding, 0);
+    expect(total).toBeCloseTo(LINKED + LEGACY + SPLIT + LEGACY_ONLY, 2);
+  });
+
+  it('the overdue list shows the NULL client_id invoice', async () => {
+    const overdue = await getOverdueInvoices(COMPANY);
+    expect(overdue.map((i) => i.invoiceNumber).sort()).toEqual(
+      [TAG + '-LEGACY', TAG + '-LEGACYONLY', TAG + '-LINKED', TAG + '-SPLIT'],
+    );
+  });
+
+  // ── Adjacent cases ─────────────────────────────────────────────────────────
+
+  it('groups the legacy invoice under customer_id and leaves an explicit client_id alone', async () => {
+    const summary = await getDebtorsSummary(COMPANY);
+    const byCustomer = summary.find((d) => d.clientId === customer);
+    const byBillTo = summary.find((d) => d.clientId === billTo);
+    // COALESCE takes client_id first, so the SPLIT invoice stays with billTo and
+    // does NOT collapse into the customer_id group.
+    expect(byCustomer!.totalOutstanding).toBeCloseTo(LINKED + LEGACY, 2);
+    expect(byCustomer!.invoiceCount).toBe(2);
+    expect(byBillTo!.totalOutstanding).toBeCloseTo(SPLIT, 2);
+    expect(byBillTo!.invoiceCount).toBe(1);
+  });
+
+  it('the drill-down from the summary row returns the legacy invoice', async () => {
+    const detail = await getDebtorDetail(COMPANY, customer);
+    expect(detail.map((i) => i.invoiceNumber).sort()).toEqual(
+      [TAG + '-LEGACY', TAG + '-LINKED'],
+    );
+    const sum = detail.reduce((s, i) => s + i.outstanding, 0);
+    expect(sum).toBeCloseTo(LINKED + LEGACY, 2);
+  });
+
+  it('collection stats count the legacy invoice customer exactly once', async () => {
+    const stats = await getCollectionStats(COMPANY);
+    expect(stats.totalOutstanding).toBeCloseTo(LINKED + LEGACY + SPLIT + LEGACY_ONLY, 2);
+    // customer, billTo and legacyOnly. Before the fix the NULL client_id rows
+    // were invisible to COUNT DISTINCT and legacyOnly went missing entirely.
+    expect(stats.clientCount).toBe(3);
+  });
+
+  it('does not leak the other company\'s NULL client_id invoice', async () => {
+    const summary = await getDebtorsSummary(COMPANY);
+    expect(summary.some((d) => d.clientId === otherCustomer)).toBe(false);
+    const overdue = await getOverdueInvoices(COMPANY);
+    expect(overdue.some((i) => i.invoiceNumber === TAG + '-OTHER')).toBe(false);
+    const other = await getDebtorsSummary(OTHER_COMPANY);
+    expect(other.reduce((s, d) => s + d.totalOutstanding, 0)).toBeCloseTo(OTHER, 2);
+  });
+});
