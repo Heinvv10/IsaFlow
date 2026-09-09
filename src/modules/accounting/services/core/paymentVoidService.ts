@@ -34,7 +34,7 @@
  * subledger-to-control gap behind an ordinary-looking reversal. If the unwind
  * throws, nothing has been posted.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from './paymentLock';
@@ -218,18 +218,26 @@ export async function voidPaymentDocument(
   // writes two payments against one journal today and no unique index forbids
   // it, so this is a guard against a shape the schema permits rather than a
   // live defect.
-  const unwound = payment.journalEntryId
-    ? await unwindBankAllocationApplication(companyId, payment.journalEntryId)
-    : await unwindOnePayment(companyId, kind, payment.id);
+  // The unwind and the contra share ONE savepoint of their own (K-021). Without
+  // it the pair is atomic only because today's single caller happens to hold a
+  // savepoint and never catches: a REST route over this function, or any caller
+  // that turned the throw into a 4xx, would commit the unwind with the journal
+  // still standing — the invoice reopened and the cash still posted. Owning the
+  // boundary here makes that independent of who calls it.
+  const unwound = await withSavepoint('void_payment_unwind', async () => {
+    const result = payment.journalEntryId
+      ? await unwindBankAllocationApplication(companyId, payment.journalEntryId)
+      : await unwindOnePayment(companyId, kind, payment.id);
 
-  if (payment.journalEntryId) {
-    const { reverseJournalEntry } = await import('../gl/journalEntryService');
-    // No catch: a closed period or an already-reversed entry must reach the
-    // caller's savepoint. Flattening it into a returned error would RELEASE the
-    // savepoint and commit the unwind above with the journal still standing —
-    // the invoice reopened and the cash still posted.
-    await reverseJournalEntry(companyId, payment.journalEntryId, userId, opts);
-  }
+    if (payment.journalEntryId) {
+      const { reverseJournalEntry } = await import('../gl/journalEntryService');
+      // No catch: a closed period or an already-reversed entry must reach the
+      // savepoint above — and through it the caller's. Flattening it into a
+      // returned error would RELEASE both and commit the unwind.
+      await reverseJournalEntry(companyId, payment.journalEntryId, userId, opts);
+    }
+    return result;
+  });
 
   log.info('Voided payment document', {
     companyId, kind, paymentId,
