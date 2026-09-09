@@ -17,6 +17,7 @@
  *     "this customer has paid you R50,000 that nobody has confirmed".
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockUnsafe, recordSqlCall } from '../../helpers/sqlFragmentMock';
 
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
@@ -25,14 +26,16 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
 vi.mock('@/lib/neon', () => ({
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => {
-      sqlCalls.push({ sql: strings.join('?'), values });
+      sqlCalls.push(recordSqlCall(strings, values));
       return mockImpl(strings, ...values);
     },
     // Part of the real client. The statement queries splice the as-at
     // soft-delete predicate through it (shared/softDeleteLedgerPresence), and
     // building a fragment is NOT a query: recording it here would shift every
-    // queued response after it.
-    { unsafe: (text: string) => text },
+    // queued response after it. mockUnsafe reproduces the real client's
+    // splicing (text into the SQL, values into the parameters) and rejects if
+    // the fragment is awaited instead of interpolated — see the helper.
+    { unsafe: mockUnsafe },
   ),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));

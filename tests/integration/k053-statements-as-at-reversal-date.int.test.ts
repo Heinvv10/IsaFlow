@@ -16,6 +16,10 @@
  *   - supplierStatementService.fetchSupplierStatementData
  *   - supplierStatementBalancesService.getSupplierStatementBalances
  *   - pages/api/accounting/reports-supplier-ledger     (running balance to dateTo)
+ *   - customerLedgerService.getCustomerLedger          (round 6; the AR mirror
+ *     of reports-supplier-ledger, and the sixth surface the round-5 census
+ *     missed — BOTH its legs, since its opening balance was dated while its
+ *     soft-delete test was not)
  *
  * dunningService, dunningCronService and smart-reminder are NOT here: they chase
  * as at NOW, never take an as-at date, and the undated predicate is correct for
@@ -35,6 +39,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { fetchStatementData } from '@/modules/accounting/services/ar/statementEmailService';
 import { fetchSupplierStatementData } from '@/modules/accounting/services/ap/supplierStatementService';
 import { getSupplierStatementBalances } from '@/modules/accounting/services/ap/supplierStatementBalancesService';
+import { getCustomerLedger } from '@/modules/accounting/services/ar/customerLedgerService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
@@ -62,6 +67,10 @@ const DOC_DATE = shift(-120);
 const DUE_DATE = shift(-100);
 /** Inside the closed period, after the document, well before the delete. */
 const AS_AT_BEFORE = shift(-90);
+/** After the reversal, which lands TODAY. */
+const AS_AT_AFTER = shift(1);
+/** Inside the window but before the document — the opening balance is zero. */
+const LEDGER_FROM = shift(-150);
 const PAYMENT_DATE = shift(-110);
 const WINDOW_FROM = shift(-200);
 
@@ -121,7 +130,7 @@ async function account(id: string, code: string, name: string, type: string, nor
     VALUES (${id}::UUID, ${COMPANY}::UUID, ${code}, ${name}, ${type}, ${normal}, 3, true, true, ${subtype})`;
 }
 
-type StatementBody = { data: { transactions: { reference: string }[]; summary: { totalInvoiced: number } } };
+type StatementBody = { data: { transactions: { reference: string }[]; summary: { totalInvoiced: number; balance: number } } };
 async function customerStatement(to: string): Promise<StatementBody['data']> {
   const req = request({ 'sb-access-token': token, active_company_id: COMPANY }, 'GET');
   (req as unknown as { query: unknown }).query = { customerId: customer, fromDate: WINDOW_FROM, toDate: to };
@@ -332,6 +341,90 @@ describeIfDb('K-053 the as-at statement surfaces are dated to the reversal', () 
       .find((r) => r.entityId === creditSupplier);
     expect(after?.total ?? 0).toBeCloseTo(0, 2);
     expect(after?.onAccount).toBeCloseTo(ON_ACCOUNT, 2);
+  });
+
+  /**
+   * Round 6, HIGH-1. The AR customer ledger is the surface the round-5 census
+   * missed. It is the document the customer is sent and asked to pay, it takes
+   * dateFrom/dateTo, and it read the UNDATED `deleted_at IS NULL OR deleted_at
+   * > NOW()` — so after round 5 it disagreed with the emailed statement round 5
+   * had just fixed, and it was the one that disagreed with the GL.
+   *
+   * Three dates: before the reversal, ON it, and after it. All four surfaces
+   * must answer the same number as the control account at each.
+   */
+  it('the AR customer ledger, both statements and the GL all foot, at every as-at date', async () => {
+    for (const asAt of [AS_AT_BEFORE, TODAY, AS_AT_AFTER]) {
+      const control = await controlBalance(receivable, asAt);
+      const ledger = await getCustomerLedger(COMPANY, customer, { dateFrom: LEDGER_FROM, dateTo: asAt });
+      const email = await fetchStatementData(COMPANY, customer, asAt);
+      const screen = await customerStatement(asAt);
+
+      expect(ledger, asAt).not.toBeNull();
+      expect(ledger!.closingBalance, `ledger vs GL @ ${asAt}`).toBeCloseTo(control, 2);
+      expect(email!.summary.balance, `email vs GL @ ${asAt}`).toBeCloseTo(control, 2);
+      expect(screen.summary.balance, `screen vs GL @ ${asAt}`).toBeCloseTo(control, 2);
+    }
+    // And the movement is real, not a pair of zeroes agreeing with each other.
+    expect(await controlBalance(receivable, AS_AT_BEFORE)).toBeCloseTo(GROSS, 2);
+    expect(await controlBalance(receivable, AS_AT_AFTER)).toBeCloseTo(0, 2);
+  });
+
+  /**
+   * The OPENING leg is the half a `dateFrom` after the document exercises, and
+   * it is dated to dateTo rather than to dateFrom on purpose: this statement
+   * lists documents and never the GL reversal the delete posts, so a delete
+   * falling inside the window produces no row. Dating the opening to dateFrom
+   * would carry the invoice into an opening balance that nothing in the window
+   * then takes back out, and the closing figure would stop tying to the GL.
+   */
+  it('the customer ledger OPENING balance is dated too, so a delete inside the window still foots', async () => {
+    // Window opens AFTER the invoice, so the invoice can only reach the
+    // closing balance through the opening leg; and it closes after the
+    // reversal, so the delete falls inside it.
+    const inWindow = await getCustomerLedger(COMPANY, customer, {
+      dateFrom: AS_AT_BEFORE, dateTo: AS_AT_AFTER,
+    });
+    expect(inWindow!.transactions).toHaveLength(0);
+    expect(inWindow!.openingBalance).toBeCloseTo(0, 2);
+    expect(inWindow!.closingBalance).toBeCloseTo(await controlBalance(receivable, AS_AT_AFTER), 2);
+
+    // The same window ending BEFORE the reversal keeps it, on both legs.
+    const beforeReversal = await getCustomerLedger(COMPANY, customer, {
+      dateFrom: AS_AT_BEFORE, dateTo: shift(-1),
+    });
+    expect(beforeReversal!.openingBalance).toBeCloseTo(GROSS, 2);
+    expect(beforeReversal!.closingBalance).toBeCloseTo(await controlBalance(receivable, shift(-1)), 2);
+  });
+
+  /**
+   * dateTo is optional on this surface too. An absent one means "up to now",
+   * not a NULL that would make the fragment return NULL and drop every
+   * soft-deleted invoice unconditionally.
+   */
+  it('an unbounded customer ledger answers as at today', async () => {
+    const unbounded = await getCustomerLedger(COMPANY, customer, {});
+    expect(unbounded!.transactions).toHaveLength(0);
+    expect(unbounded!.closingBalance).toBeCloseTo(await controlBalance(receivable, TODAY), 2);
+  });
+
+  /** LOW-2: a statement is not drawn for a customer that has been deleted. */
+  it('no statement is drawn for a soft-deleted customer', async () => {
+    await sql`UPDATE customers SET deleted_at = NOW()
+              WHERE id = ${customer}::UUID AND company_id = ${COMPANY}::UUID`;
+    try {
+      expect(await fetchStatementData(COMPANY, customer, AS_AT_BEFORE)).toBeNull();
+      expect(await getCustomerLedger(COMPANY, customer, {})).toBeNull();
+
+      const req = request({ 'sb-access-token': token, active_company_id: COMPANY }, 'GET');
+      (req as unknown as { query: unknown }).query = { customerId: customer, toDate: AS_AT_BEFORE };
+      const result = response();
+      await customerStatementRoute(req, result.res);
+      expect(result.state.statusCode).toBe(404);
+    } finally {
+      await sql`UPDATE customers SET deleted_at = NULL
+                WHERE id = ${customer}::UUID AND company_id = ${COMPANY}::UUID`;
+    }
   });
 
   it('the supplier ledger running balance is drawn to its own window end', async () => {

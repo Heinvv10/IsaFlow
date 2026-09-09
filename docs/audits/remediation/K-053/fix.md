@@ -26,11 +26,20 @@ WHERE deleted_at IS NOT NULL AND status NOT IN ('draft','cancelled')
 GROUP BY company_id;
 ```
 
-**Rounds 2-5.** See `fix-round2.md` (GL reversal on delete), `fix-round3.md`, `fix-round4.md`
+**Rounds 2-6.** See `fix-round2.md` (GL reversal on delete), `fix-round3.md`, `fix-round4.md`
 (the exclusion dated to the reversal) and `fix-round5.md` (the as-at statement surfaces, the
-typed reversal-period error, the purge cascade and the parity precondition). The one-line
+typed reversal-period error, the purge cascade and the parity precondition) and `fix-round6.md`
+(the AR customer ledger — the sixth as-at surface — the completed `deleted_at` census with a
+disposition per site, the faithful `sql.unsafe` test mock, and the undo-window copy). The one-line
 `deleted_at IS NULL` described above is superseded at every AS-AT surface by
 `shared/softDeleteLedgerPresence.documentInLedgerAsAtFragment`; it survives only where the
 question is asked as at NOW (dunning, the dunning cron, smart-reminder).
 
-**Limits.** The purge gap is NOT wired here (out of scope per task): the advertised 5-minute undo window never expires, so a mistaken soft-delete now hides a genuine receivable the UI cannot recover. Needs its own change, or the UI should stop calling it a 5-minute window. The supplier-ledger payment leg is unchanged.
+**Limits.** `purgeExpiredDeletes` is deliberately still uncalled and should stay that way — see
+`fix-round6.md`; hard-deleting a soft-deleted invoice permanently breaks the sub-ledger/GL tie for
+every past as-at date. Round 6 corrected the copy instead: the UI and the API now say the record is
+hidden rather than erased, which is what actually happens. The supplier-ledger payment leg is
+unchanged, and the on-screen statement still differs from the emailed one on credit-note valuation
+and on having no opening balance (round 6, LOW-3 — its own item). Three files remain over the
+300-line cap (`supplierInvoiceWorkflowService` 516, `journalEntryPostingService` 359,
+`dunningService` 357), all pre-existing.

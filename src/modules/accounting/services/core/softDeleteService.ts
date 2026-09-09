@@ -137,6 +137,44 @@ async function undoDeleteInner(
 
 
 /**
+ * The invoice arm of the purge, as ONE statement.
+ *
+ * The `soft_delete_journal_reversals` row (migration 653) is keyed on
+ * (company_id, entity_type, entity_id) and has no FK to the invoice, so it has
+ * to be deleted alongside the document or it is stranded. Doing that as a
+ * second round-trip after the document DELETE has already committed its work
+ * leaves exactly that stranding when the second statement fails, and — if a
+ * caller is ever added inside a request transaction — the caught error poisons
+ * the connection (25P02) and every later table's DELETE fails silently.
+ *
+ * A data-modifying CTE runs to completion whether or not anything selects from
+ * it, and both arms see the same snapshot, so the pair is atomic without a
+ * savepoint: either the document and its reversal row both go, or neither does.
+ * The pairing is on (company_id, entity_id), never entity_id alone — this purge
+ * spans every tenant and two of them can hold the same id.
+ */
+function purgeInvoices(
+  table: 'customer_invoices' | 'supplier_invoices',
+  entityType: 'customer_invoice' | 'supplier_invoice',
+): Promise<DbRow[]> {
+  const doomed = sql.unsafe(
+    `DELETE FROM ${table}
+     WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes'
+     RETURNING id, company_id`,
+  );
+  return sql`
+    WITH purged AS (
+      ${doomed}
+    ), cascaded AS (
+      DELETE FROM soft_delete_journal_reversals r
+      WHERE r.entity_type = ${entityType}
+        AND (r.company_id, r.entity_id) IN (SELECT p.company_id, p.id FROM purged p)
+    )
+    SELECT id, company_id FROM purged
+  ` as Promise<DbRow[]>;
+}
+
+/**
  * Hard-purge records that were soft-deleted more than 5 minutes ago.
  * Intended to be called by a scheduled background job.
  * Returns the total count of purged records across all tables.
@@ -168,26 +206,14 @@ export async function purgeExpiredDeletes(): Promise<number> {
     { entityType: 'supplier',         fn: () => sql`DELETE FROM suppliers WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
     { entityType: 'item',             fn: () => sql`DELETE FROM items WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
     { entityType: 'bank_rule',        fn: () => sql`DELETE FROM bank_rules WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'customer_invoice', fn: () => sql`DELETE FROM customer_invoices WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'supplier_invoice', fn: () => sql`DELETE FROM supplier_invoices WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'customer_invoice', fn: () => purgeInvoices('customer_invoices', 'customer_invoice') },
+    { entityType: 'supplier_invoice', fn: () => purgeInvoices('supplier_invoices', 'supplier_invoice') },
   ];
 
   for (const { entityType, fn } of tables) {
     try {
       const rows = await fn();
       if (rows.length > 0) {
-        if (entityType === 'customer_invoice' || entityType === 'supplier_invoice') {
-          // Company-scoped by pair, not by entity_id alone: the id list comes
-          // from a purge that spans every tenant.
-          await sql`
-            DELETE FROM soft_delete_journal_reversals r
-            WHERE r.entity_type = ${entityType}
-              AND (r.company_id, r.entity_id) IN (
-                SELECT c::UUID, e::UUID
-                FROM unnest(${rows.map((r) => String(r.company_id))}::text[],
-                            ${rows.map((r) => String(r.id))}::text[]) AS t(c, e)
-              )`;
-        }
         // BL-80: log per-tenant attribution so a mis-fired purge is observable
         const companyIds = [...new Set(rows.map((r) => String(r.company_id)))];
         log.info('Purged expired soft-deletes', {

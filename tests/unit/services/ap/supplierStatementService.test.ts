@@ -16,6 +16,7 @@
  * And the sign runs the other way: this is a payable.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockUnsafe, recordSqlCall } from '../../helpers/sqlFragmentMock';
 
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
@@ -24,14 +25,16 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
 vi.mock('@/lib/neon', () => ({
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => {
-      sqlCalls.push({ sql: strings.join('?'), values });
+      sqlCalls.push(recordSqlCall(strings, values));
       return mockImpl(strings, ...values);
     },
     // Part of the real client. The statement queries splice the as-at
     // soft-delete predicate through it (shared/softDeleteLedgerPresence), and
     // building a fragment is NOT a query: recording it here would shift every
-    // queued response after it.
-    { unsafe: (text: string) => text },
+    // queued response after it. mockUnsafe reproduces the real client's
+    // splicing (text into the SQL, values into the parameters) and rejects if
+    // the fragment is awaited instead of interpolated — see the helper.
+    { unsafe: mockUnsafe },
   ),
 }));
 
@@ -144,6 +147,19 @@ describe('fetchSupplierStatementData — what it drops, it names', () => {
   it('returns null for a supplier in another company', async () => {
     routeMock({ supplier: [] });
     expect(await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31')).toBeNull();
+  });
+
+  // MEDIUM-1, round 6: only worth asserting because the `unsafe` mock now
+  // splices the fragment the way the real client does. Under the old
+  // `(t) => t` stub the predicate was recorded as a VALUE and this assertion
+  // would have been scored against a fiction.
+  it('asks the DATED soft-delete question, bound to the as-at date', async () => {
+    routeMock();
+    await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31');
+    const q = sqlCalls.find((c) => c.sql.includes('FROM supplier_invoices'))!;
+    expect(q.sql).toContain('si.deleted_at IS NULL');
+    expect(q.sql).toContain('reversal_of_id');
+    expect(q.values).toContain('2026-03-31');
   });
 
   it('scopes every query by company', async () => {

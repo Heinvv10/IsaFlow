@@ -217,3 +217,35 @@ Full unit suite, fixture env UNSET
 bunx tsc --noEmit           : clean (no output)
 bunx eslint <changed files> : clean (no output)
 bun run agent-docs:check    : OK: 74 agent document mirror(s) match canonical sources.
+
+=== ROUND 6 (2026-09-09) — census closed, MEDIUM + 5 LOW ===
+bun run test:integration -- tests/integration/k053*
+  Test Files  11 passed (11)
+  Tests       51 passed (51)          [round 5: 47]
+
+bunx vitest run tests/unit/services/{ap/supplierStatementService,ar/statementDataCompleteness,gl/periodCloseReadinessService,ap/supplierStatementBalancesService,p21InputValidation}.test.ts
+  Test Files  5 passed (5)   Tests 84 passed (84)   [+1 new fidelity assertion => 85 with it]
+
+FULL unit suite, DATABASE_URL UNSET (env -u DATABASE_URL bunx vitest run):
+  Test Files  793 passed | 36 skipped (829)
+  Tests       9440 passed | 234 skipped (9674)
+
+bunx tsc --noEmit                 -> clean
+bunx eslint <changed src/pages>   -> clean
+bun run agent-docs:check          -> OK: 74 mirrors match
+
+MUTATION PROOFS (each applied, observed RED, then restored):
+ 1. customerLedgerService: both fragment calls -> `(ci.deleted_at IS NULL OR ci.deleted_at > NOW())`
+    x the AR customer ledger, both statements and the GL all foot, at every as-at date
+      AssertionError: ledger vs GL @ 2026-06-11: expected +0 to be close to 1150
+    x the customer ledger OPENING balance is dated too, so a delete inside the window still foots
+ 2. supplierStatementService.test.ts: `unsafe: mockUnsafe` -> `unsafe: (text) => text`
+    x asks the DATED soft-delete question, bound to the as-at date
+      AssertionError: expected '\n      SELECT si.id, ...' to contain 'si.deleted_at IS NULL'
+ 3. statementEmailService: drop `AND deleted_at IS NULL` from the customer lookup
+    x no statement is drawn for a soft-deleted customer
+      AssertionError: expected { customer: {...}, ... } to be null
+ 4. softDeleteService.purgeInvoices: `(r.company_id, r.entity_id) IN (SELECT p.company_id, p.id ...)`
+    -> `r.entity_id IN (SELECT p.id ...)`
+    x the purge removes the reversal rows of the documents it purged, and only those
+      AssertionError: expected +0 to be 1
