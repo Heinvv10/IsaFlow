@@ -75,9 +75,9 @@ it('returns explicit unavailable RESOURCE_LIMIT for a single oversized event bef
 });
 it('keeps categorisation rules, legacy bank rules and GL parents distinct and preserves exact recorded rules',async()=>{
  const f=historyFixture(),categorisation=randomUUID(),legacy=randomUUID(),account=randomUUID();
- await pool.query("INSERT INTO bank_categorisation_rules(id,company_id,rule_name,match_value) VALUES($1,$2,'Synthetic categorisation','test')",[categorisation,f.companyA]);
+ await pool.query("INSERT INTO bank_categorisation_rules(id,company_id,rule_name,match_pattern) VALUES($1,$2,'Synthetic categorisation','test')",[categorisation,f.companyA]);
  await pool.query("INSERT INTO bank_rules(id,company_id,name,match_value) VALUES($1,$2,'Synthetic legacy','test')",[legacy,f.companyA]);
- await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level) VALUES($1,$2,left($1::text,12),'Synthetic history GL','asset','debit',3)",[account,f.companyA]);
+ await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level) VALUES($1,$2,left($1::uuid::text,12),'Synthetic history GL','asset','debit',3)",[account,f.companyA]);
  for(const [entityType,entityId] of [['bank_categorisation_rule',categorisation],['bank_rule',legacy],['gl_account',account]])expect((await actor(ctx=>readControlEntityHistory(ctx,{entityType:entityType!,entityId:entityId!}))).coverage.historical).toBe('untracked');
  await expect(actor(ctx=>readControlEntityHistory(ctx,{entityType:'bank_rule',entityId:categorisation}))).rejects.toThrow();
  const rule={match_pattern:'Rent',priority:0,auto_create_entry:false,gl_account_id:account};await event(categorisation,1,rule,'bank_categorisation_rule');
@@ -100,4 +100,15 @@ it('requires mixed-operation payroll authority before decrypting a contacts even
   await expect(actor(ctx=>readControlEntityHistory(ctx,{entityType:'supplier',entityId:id}),'u2')).rejects.toThrow(/permission/i);
  }
  finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[f.companyA,f.u2.id]);}
+});
+it('does not reject legal large source-reference metadata when its distinct authority families are bounded',async()=>{
+ const f=historyFixture(),id=await supplier();
+ const accounts=(await pool.query("INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,level) SELECT $1,'H-'||left($2::text,8)||'-'||n,'Synthetic authority source','asset','debit',3 FROM generate_series(1,1001) n RETURNING id",[f.companyA,id])).rows as {id:string}[];
+ const sources=accounts.map(row=>({entityType:'gl_account',entityId:row.id,version:1,fingerprint:'a'.repeat(64)}));
+ await actor(async ctx=>{
+  await recordCommittedChange(ctx,{entityType:'supplier',entityId:id,previousVersion:null,newVersion:1,action:'baseline_observed',accountingDate:null,before:null,after:{status:'recorded'},bindingHash:null,protectedEvidenceRef:null});
+  await ctx.sql`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,binding,binding_hash,status,expires_at)
+   VALUES(${f.companyA}::uuid,${ctx.principal.operationId}::uuid,'journal.post','journal_entry',${randomUUID()},${f.u1.id},'cookie',${JSON.stringify({sourceVersions:sources,beneficiaries:[]})}::jsonb,${'a'.repeat(64)},'pending',clock_timestamp()+interval '1 day')`;
+ });
+ expect((await actor(ctx=>readControlEntityHistory(ctx,{entityType:'supplier',entityId:id}))).items[0]?.after).toEqual({status:'recorded'});
 });
