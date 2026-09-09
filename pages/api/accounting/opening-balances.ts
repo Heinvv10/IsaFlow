@@ -1,4 +1,5 @@
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { OpeningBalanceValidationError, postOpeningBalances } from '@/modules/accounting/services/gl/openingBalancePostingService';
 /**
  * Opening Balances API
  * GET /api/accounting/opening-balances - Get posting-level accounts for balance entry
@@ -44,83 +45,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = (req as AuthenticatedNextApiRequest).user.id;
-    const { balances } = req.body;
-
-    if (!balances || !Array.isArray(balances) || balances.length === 0) {
-      return apiResponse.validationError(res, { balances: 'Array of {accountId, debit, credit} required' });
-    }
-
-    // Validate amounts are valid numbers
-    for (const b of balances) {
-      const debit = Number(b.debit || 0);
-      const credit = Number(b.credit || 0);
-      if (isNaN(debit) || isNaN(credit) || debit < 0 || credit < 0) {
-        return apiResponse.badRequest(res, `Invalid amount for account ${b.accountId}: debit and credit must be non-negative numbers`);
-      }
-    }
-
-    // Validate DR = CR
-    const totalDebit = balances.reduce((sum: number, b: { debit: number }) => sum + Number(b.debit || 0), 0);
-    const totalCredit = balances.reduce((sum: number, b: { credit: number }) => sum + Number(b.credit || 0), 0);
-
-    if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      return apiResponse.badRequest(res, `Debits (${totalDebit.toFixed(2)}) must equal Credits (${totalCredit.toFixed(2)})`);
-    }
-
     try {
-      // Get first open fiscal period
-      const [period] = await sql`
-        SELECT id FROM fiscal_periods
-        WHERE status = 'open' AND company_id = ${companyId}
-        ORDER BY start_date ASC
-        LIMIT 1
-      `;
-
-      // Create opening balance journal entry + lines atomically
-      const entry = await withTransaction(async (tx) => {
-        const entryRows = await tx`
-          INSERT INTO gl_journal_entries (
-            id, company_id, entry_number, entry_date, description,
-            source, status, fiscal_period_id,
-            total_debit, total_credit,
-            created_by, created_at
-          ) VALUES (
-            gen_random_uuid(),
-            ${companyId},
-            'OB-' || LPAD((SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 4) AS INTEGER)), 0) + 1 FROM gl_journal_entries WHERE entry_number LIKE 'OB-%' AND company_id = ${companyId})::text, 4, '0'),
-            COALESCE((SELECT start_date FROM fiscal_periods WHERE id = ${period?.id || null} AND company_id = ${companyId}), CURRENT_DATE),
-            'Opening Balances',
-            'opening_balance', 'posted', ${period?.id || null},
-            ${totalDebit}, ${totalCredit},
-            ${userId}, NOW()
-          )
-          RETURNING *
-        `;
-        const newEntry = entryRows[0] as { id: string } | undefined;
-        if (!newEntry) throw new Error('Failed to create journal entry');
-
-        // Create journal lines within same transaction
-        for (const b of balances as { accountId: string; debit: number; credit: number }[]) {
-          if (Number(b.debit) > 0 || Number(b.credit) > 0) {
-            await tx`
-              INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
-              VALUES (gen_random_uuid(), ${newEntry.id}, ${b.accountId}, ${Number(b.debit) || 0}, ${Number(b.credit) || 0}, 'Opening Balance', NOW(), ${companyId}::UUID)
-            `;
-          }
-        }
-        return newEntry;
-      });
-
-      log.info('Opening balances posted', {
-        entryId: entry.id,
-        lines: balances.length,
-        totalDebit,
-        module: 'accounting',
-      });
-
+      const entry = await postOpeningBalances(companyId, userId, req.body?.balances);
+      log.info('Opening balances posted', { entryId: entry.id, companyId }, 'accounting');
       return apiResponse.success(res, { journalEntry: entry });
     } catch (err) {
-      log.error('Failed to save opening balances', { error: err, module: 'accounting' });
+      if (err instanceof OpeningBalanceValidationError) return apiResponse.badRequest(res, err.message);
+      log.error('Failed to save opening balances', { error: err, companyId }, 'accounting');
       return apiResponse.databaseError(res, err, 'Failed to save opening balances');
     }
   }
