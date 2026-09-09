@@ -6,7 +6,7 @@ import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} fro
 import {seedApAccounts} from './apSyntheticAccounts';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 import {finalizeRequestTransaction} from '@/lib/auth/transactionFinalization';
-import {voidSupplierPayment} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {voidSupplierPayment,processSupplierPayment} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import {seedReleaseSupplier} from './paymentReleaseFixture';
 import {approveSupplierInvoice,cancelSupplierInvoice} from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import {createBatch,approveBatch,processBatch} from '@/modules/accounting/services/ap/batchPaymentService';
@@ -200,4 +200,23 @@ it.each(['doubled','reversed direction','wrong bank'] as const)('refuses a fresh
  else await pool.query(`UPDATE gl_journal_lines SET gl_account_id=$3 WHERE company_id=$1 AND gl_account_id=$4
   AND journal_entry_id=(SELECT gl_journal_entry_id FROM supplier_payment_batches WHERE company_id=$1 AND id=$2)`,[fixture.companyA,batch.id,accounts.default_expense,accounts.bank]);
  await expect(actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}))).rejects.toThrow('settlement');
+});
+
+it.each(['revoked approver','expired approval'] as const)('refuses EFT download after export with %s',async changed=>{
+ const {batch}=await postedBatch();
+ const intent=await actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ const approval=await actor(ctx=>requestOperationApproval(ctx,{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch'}));
+ await actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');
+ await actor(ctx=>enqueuePaymentRelease(ctx,intent.intentId,approval.id));
+ await actor(ctx=>schedulePaymentReleaseDispatch(ctx,intent.intentId));
+ if(changed==='revoked approver')await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);
+ else await pool.query("UPDATE control_operation_approvals SET requested_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1 AND id=$2",[fixture.companyA,approval.id]);
+ try{await expect(actor(ctx=>getReleasedEftFile(ctx,intent.intentId))).rejects.toThrow();}
+ finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);}
+});
+it('refuses standalone processing of an approved batch child before individual journal creation',async()=>{
+ const {batch}=await postedBatch(false);
+ const [payment]=(await pool.query('SELECT id FROM supplier_payments WHERE company_id=$1 AND batch_id=$2',[fixture.companyA,batch.id])).rows;
+ await expect(actor(()=>processSupplierPayment(fixture.companyA,payment.id,fixture.u1.id))).rejects.toThrow('batch');
+ expect((await pool.query('SELECT status,gl_journal_entry_id FROM supplier_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,payment.id])).rows[0]).toEqual({status:'approved',gl_journal_entry_id:null});
 });

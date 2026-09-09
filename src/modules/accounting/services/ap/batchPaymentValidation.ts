@@ -28,3 +28,8 @@ export function validateBatchInput(input:BatchPaymentCreateInput){
 export function assertStandalonePaymentVoid(batchId: unknown): void {
  if (batchId !== null && batchId !== undefined) throw new Error('Cannot void an individual batch payment');
 }
+
+/** A batch child can be posted only by its aggregate batch effect. */
+export function assertStandalonePaymentProcess(batchId:unknown):void{
+ if(batchId!==null&&batchId!==undefined)throw new Error('Cannot process an individual batch payment');
+}

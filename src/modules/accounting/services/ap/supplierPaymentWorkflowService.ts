@@ -1,4 +1,4 @@
-import {assertStandalonePaymentVoid} from './batchPaymentValidation';
+import {assertStandalonePaymentVoid,assertStandalonePaymentProcess} from './batchPaymentValidation';
 /**
  * Supplier Payment Workflow Service
  * Approve and process payment operations — split from supplierPaymentService.ts.
@@ -67,6 +67,7 @@ async function processSupplierPaymentEffect(
   try {
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
+    assertStandalonePaymentProcess(payment.batchId);
     if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
 
     const { chosen } = await resolveApControlAccounts(requireControlTx(), { operation: 'supplier_payment.process', entityType: 'supplier_payment', entityId: id });
