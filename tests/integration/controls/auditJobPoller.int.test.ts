@@ -1,6 +1,8 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
@@ -34,4 +36,13 @@ it('polls actual queued jobs, skips revoked oldest authority, and publishes only
   await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='reports'",[fixture.companyA,fixture.u2.id]);
   expect((await poller.pollOnce()).results[0]).toMatchObject({state:'succeeded',snapshotId:bad.id});
  }finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='reports'",[fixture.companyA,fixture.u2.id]);}
+});
+
+it('runs the executable once-mode CLI against only the explicitly validated synthetic database',async()=>{
+ const job=await enqueue('u1');
+ const result=await promisify(execFile)('bun',['scripts/forensic/run-audit-worker.ts','--company',fixture.companyA,'--once'],{
+  cwd:process.cwd(),env:{...process.env,ISAFLOW_AUDIT_WORKER_DATABASE_URL:validateFixtureTarget(config).connectionString},timeout:15000,maxBuffer:65536,
+ });
+ expect(result.stdout+result.stderr).toContain('Audit queue worker stopped');
+ expect((await pool.query('SELECT state FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows[0].state).toBe('succeeded');
 });
