@@ -68,7 +68,7 @@ it('a suppressed delete cannot produce false deleted history or a partial bulk r
   let result:number|undefined,failure:unknown;
   try{result=await f.actor(()=>deleteRules(f.f.companyA,ids));}catch(error){failure=error;}
   const remaining=await Promise.all(ids.map(row)),afterEvents=await Promise.all(ids.map(history));
-  expect(failure,{returned:result,remaining:remaining.filter(Boolean).length,versions:afterEvents.map(list=>list.length)}).toBeDefined();
+  expect(failure,JSON.stringify({returned:result,remaining:remaining.filter(Boolean).length,versions:afterEvents.map(list=>list.length)})).toBeDefined();
   expect(remaining).toEqual(before);expect(afterEvents).toEqual(events);
  }finally{await f.pool.query(`DROP TRIGGER IF EXISTS ${name} ON bank_categorisation_rules`);await f.pool.query(`DROP FUNCTION ${name}()`);}
 });
