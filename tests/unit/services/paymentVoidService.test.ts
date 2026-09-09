@@ -21,7 +21,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn(),
+  // The unwind and the contra share a savepoint; with `sql` mocked there is no
+  // transaction to hold one, so run the block straight through.
+  withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
+}));
 vi.mock('@/modules/accounting/services/core/paymentLock', () => ({
   lockCustomerPaymentForUpdate: vi.fn(),
   lockSupplierPaymentForUpdate: vi.fn(),

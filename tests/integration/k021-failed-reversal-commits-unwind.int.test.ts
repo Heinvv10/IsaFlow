@@ -34,6 +34,14 @@ let token = '';
 const today = new Date();
 const monthStart = new Date(Date.UTC(today.getFullYear(), today.getMonth(), 1)).toISOString().slice(0, 10);
 const monthEnd = new Date(Date.UTC(today.getFullYear(), today.getMonth() + 1, 0)).toISOString().slice(0, 10);
+// The ORIGINAL entry's period, derived from today rather than hard-coded: a
+// fixed month collides with the current one when the suite runs in that month,
+// and getPeriodStatusForDate's `SELECT status … LIMIT 1` has no ORDER BY, so
+// which of two overlapping rows wins is heap order.
+const old = new Date(Date.UTC(today.getFullYear(), today.getMonth() - 14, 10));
+const oldDate = old.toISOString().slice(0, 10);
+const oldStart = new Date(Date.UTC(old.getUTCFullYear(), old.getUTCMonth(), 1)).toISOString().slice(0, 10);
+const oldEnd = new Date(Date.UTC(old.getUTCFullYear(), old.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K021 reversal fixture']);
@@ -41,9 +49,9 @@ beforeAll(async () => {
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
   await pool.query(
     `INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-     VALUES($1,$3,'K021 Feb 2026',2,2026,DATE '2026-02-01',DATE '2026-02-28','closed'),
+     VALUES($1,$3,'K021 old',2,2098,$6::date,$7::date,'closed'),
            ($2,$3,'K021 current',1,2099,$4::date,$5::date,'closed')`,
-    [oldPeriod, nowPeriod, company, monthStart, monthEnd],
+    [oldPeriod, nowPeriod, company, monthStart, monthEnd, oldStart, oldEnd],
   );
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)
@@ -58,8 +66,8 @@ beforeAll(async () => {
   );
   await pool.query(
     `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,status,created_by,fiscal_period_id,posted_at,posted_by,source)
-     VALUES($1,$2,DATE '2026-02-10','K021 bank receipt','posted',$3,$4,NOW(),$3,'auto_bank_recon')`,
-    [je, company, user, oldPeriod],
+     VALUES($1,$2,$5::date,'K021 bank receipt','posted',$3,$4,NOW(),$3,'auto_bank_recon')`,
+    [je, company, user, oldPeriod, oldDate],
   );
   await pool.query(
     `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
@@ -68,8 +76,8 @@ beforeAll(async () => {
   );
   await pool.query(
     `INSERT INTO customer_payments(id,company_id,client_id,payment_date,total_amount,status,gl_journal_entry_id,created_by)
-     VALUES($1,$2,$3,DATE '2026-02-10',1000,'reconciled',$4,$5)`,
-    [payment, company, customer, je, user],
+     VALUES($1,$2,$3,$6::date,1000,'reconciled',$4,$5)`,
+    [payment, company, customer, je, user, oldDate],
   );
   await pool.query(
     'INSERT INTO customer_payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,1000)',
@@ -77,8 +85,8 @@ beforeAll(async () => {
   );
   await pool.query(
     `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,matched_journal_line_id,allocation_type)
-     VALUES($1,$2,$3,DATE '2026-02-10',1000,'K021 receipt','allocated',$4,'customer')`,
-    [bankTx, company, bank, bankLine],
+     VALUES($1,$2,$3,$5::date,1000,'K021 receipt','allocated',$4,'customer')`,
+    [bankTx, company, bank, bankLine, oldDate],
   );
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
