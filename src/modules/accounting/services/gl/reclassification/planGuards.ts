@@ -10,6 +10,7 @@
  */
 
 import { getAccountById } from '../chartOfAccountsService';
+import { isReportVisibleLeaf } from '../isReportVisibleLeaf';
 import { getPeriodStatusForDate } from '../periodStatusService';
 import { isVatPeriodLocked } from '../../reports/vatPeriodLockService';
 import type { AccountType } from '../accountClassification';
@@ -21,6 +22,7 @@ export interface ReclassAccount {
   type: AccountType;
   subtype: string | null;
   isActive: boolean;
+  level: number;
 }
 
 /** A fault in the REQUEST. The caller returns it as a pre-write toolError. */
@@ -59,6 +61,7 @@ async function loadAccount(
     type: account.accountType as AccountType,
     subtype: account.accountSubtype ?? null,
     isActive: account.isActive,
+    level: account.level,
   };
 }
 
@@ -115,6 +118,22 @@ export async function admitReclassification(
       refused:
         `Target account ${target.code} is deactivated and cannot receive a posting. ` +
         'Reactivate it, or choose another target.',
+    };
+  }
+
+  // A level 1 or 2 account that has children is a HEADER: the balance sheet and
+  // the trend report select an account only when `level >= 3 OR it has no
+  // children`, so every rand moved onto one leaves both reports while the trial
+  // balance still foots. Refused rather than warned about, for the same reason
+  // as the VAT control accounts below — the caller supplies the target id and
+  // has no other signal that the account is unreachable.
+  if (!(await isReportVisibleLeaf(companyId, target.id, target.level))) {
+    return {
+      refused:
+        `${target.code} ${target.name} is a header account (level ${target.level} with ` +
+        'children), and the balance sheet and trend report omit it. Lines moved there would ' +
+        'disappear from both while the trial balance still foots. Choose one of its ' +
+        'children, or another leaf account.',
     };
   }
 
