@@ -1,21 +1,25 @@
+CREATE TABLE
 NOTICE:  relation "control_operation_approvals" already exists, skipping
 NOTICE:  column "requester_auth_method" of relation "control_operation_approvals" already exists, skipping
-CREATE TABLE
+ALTER TABLE
 NOTICE:  column "requester_grant_id" of relation "control_operation_approvals" already exists, skipping
+ALTER TABLE
 NOTICE:  column "requester_granted_scopes" of relation "control_operation_approvals" already exists, skipping
 ALTER TABLE
-ALTER TABLE
+CREATE TABLE
 NOTICE:  relation "control_operation_decisions" already exists, skipping
-ALTER TABLE
-CREATE TABLE
-CREATE TABLE
 NOTICE:  relation "control_policy_exposure" already exists, skipping
+CREATE TABLE
+NOTICE:  constraint "control_policy_exposure_company_id_policy_id_operation_enti_key" of relation "control_policy_exposure" does not exist, skipping
+ALTER TABLE
+CREATE INDEX
 CREATE INDEX
 CREATE TABLE
+ALTER TABLE
+NOTICE:  relation "control_policy_exposure_bucket_unique" already exists, skipping
 NOTICE:  relation "control_policy_exposure_window_idx" already exists, skipping
 NOTICE:  relation "control_operation_effects" already exists, skipping
 NOTICE:  column "control_version" of relation "approval_rules" already exists, skipping
-ALTER TABLE
 NOTICE:  column "aggregate_window_days" of relation "approval_rules" already exists, skipping
 ALTER TABLE
 NOTICE:  column "aggregate_by" of relation "approval_rules" already exists, skipping
@@ -59,6 +63,6 @@ DROP POLICY
 CREATE POLICY
 REVOKE
 GRANT
-GRANT
 NOTICE:  relation "control_operation_effects_intent_idx" already exists, skipping
+GRANT
 CREATE INDEX
