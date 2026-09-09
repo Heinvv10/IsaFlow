@@ -24,6 +24,13 @@ import { IN_SERVICE_STATUSES } from '@/modules/accounting/services/items/depreci
 
 type Row = Record<string, unknown>;
 
+/**
+ * Rows per export. The old self-fetch passed `limit=500`; the direct query had
+ * none, so a large register built its whole CSV in memory as one string. A
+ * truncated export says so in a trailing row rather than quietly ending.
+ */
+const MAX_EXPORT_ROWS = 5000;
+
 export const DEPRECIATION_CSV_HEADER =
   'Asset Number,Name,Purchase Price,Book Value,Accum Depreciation,Useful Life (yrs),Salvage Value,Method,Monthly Depreciation';
 
@@ -33,9 +40,11 @@ export const DEPRECIATION_CSV_HEADER =
  * disagrees with. It used to hard-code straight line.
  */
 export function buildDepreciationCsv(assets: Row[], periodDate: string): string {
+  const truncated = assets.length > MAX_EXPORT_ROWS;
+  const rows = truncated ? assets.slice(0, MAX_EXPORT_ROWS) : assets;
   return [
     DEPRECIATION_CSV_HEADER,
-    ...assets.map((a) => {
+    ...rows.map((a) => {
       const pp = Number(a.purchase_price);
       const sv = Number(a.salvage_value || 0);
       const uly = Number(a.useful_life_years);
@@ -46,7 +55,7 @@ export function buildDepreciationCsv(assets: Row[], periodDate: string): string 
         usefulLifeYears: uly,
         purchaseDate: fmtDate(a.purchase_date as string | Date),
         periodDate,
-        openingAccDep: Number(a.accumulated_depreciation),
+        openingAccDep: Number(a.accumulated_depreciation || 0),
         method,
         ...(a.disposal_date ? { disposalDate: fmtDate(a.disposal_date as string | Date) } : {}),
       });
@@ -55,13 +64,16 @@ export function buildDepreciationCsv(assets: Row[], periodDate: string): string 
         csvCell(String(a.name)),
         pp.toFixed(2),
         Number(a.current_book_value ?? pp).toFixed(2),
-        Number(a.accumulated_depreciation).toFixed(2),
+        Number(a.accumulated_depreciation || 0).toFixed(2),
         String(uly),
         sv.toFixed(2),
         csvCell(method),
         monthlyDep.toFixed(2),
       ].join(',');
     }),
+    ...(truncated
+      ? [`"TRUNCATED","Only the first ${MAX_EXPORT_ROWS} assets are listed; narrow the register or export by category.",,,,,,,`]
+      : []),
   ].join('\n');
 }
 
@@ -84,6 +96,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         AND purchase_price > 0
         AND useful_life_years > 0
       ORDER BY asset_number
+      LIMIT ${MAX_EXPORT_ROWS + 1}
     `) as Row[];
 
     const period = fmtDate(new Date());

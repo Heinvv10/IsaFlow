@@ -14,6 +14,7 @@ import {
 } from '../../src/modules/accounting/services/items/depreciationRunPlan';
 import { executeDepreciationRun } from '../../src/modules/accounting/services/items/depreciationRunService';
 import { postDualDepreciationToLedger } from '../../src/modules/accounting/services/gl/assetDepreciationPosting';
+import { previewDepreciationJournals } from '../../src/modules/accounting/services/items/depreciationRunPreview';
 import { calculateDepreciation } from '../../src/modules/accounting/services/items/assetService';
 import {
   calculatePolicyDepreciation,
@@ -32,6 +33,7 @@ const sumOfYearsId = crypto.randomUUID();
 const straightId = crypto.randomUUID();
 const otherTenantAssetId = crypto.randomUUID();
 const expiredId = crypto.randomUUID();
+const expiredNoTaxId = crypto.randomUUID();
 
 const PERIOD = '2026-09-30';
 
@@ -83,6 +85,14 @@ beforeAll(async () => {
   // Life ended in 2020 with R60 000 of the R100 000 still undepreciated — the
   // shape a part-migrated register carries into its first run after deploy.
   await seedAsset(expiredId, company, 'K029-0004', 100000, 5, 'straight_line', 40000, '2015-01-31');
+  // The same shape but with its TAX track exhausted too, so the run charges it
+  // nothing on either and it would otherwise leave the loop as an anonymous +1
+  // to `skipped`, absent from `results` entirely.
+  await seedAsset(expiredNoTaxId, company, 'K029-0005', 100000, 5, 'straight_line', 40000, '2015-01-31');
+  await pool.query(
+    'UPDATE assets SET tax_accumulated_depreciation = purchase_price WHERE id = $1',
+    [expiredNoTaxId],
+  );
 
   await pool.query(
     `INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
@@ -157,14 +167,16 @@ describe('K-029 depreciation method', () => {
     const assets = await loadDepreciationAssets(company);
     const plan = await planDepreciationRun(company, PERIOD, assets);
     expect(plan.blocker).toBeNull();
-    expect(plan.postable).toHaveLength(4);
+    expect(plan.postable).toHaveLength(5);
 
     const result = await executeDepreciationRun(company, userId, plan, assets);
     expect(result.glFailed).toBe(0);
-    // All four are processed: the expired asset's POLICY charge is zero, but
-    // its tax track still has life, which is exactly why it must not be skipped
-    // out of the plan. The next test pins that it posts no policy journal.
+    // Four are processed: the three live assets, plus the expired one whose
+    // POLICY charge is zero but whose tax track still has life — exactly why it
+    // must not be skipped out of the plan. The fifth charges nothing on either
+    // track and is counted as skipped.
     expect(result.processed).toBe(4);
+    expect(result.skipped).toBe(1);
 
     const expected: Record<string, number> = {
       'K029-0001': REDUCING_BALANCE_MONTHLY,
@@ -234,6 +246,44 @@ describe('K-029 depreciation method', () => {
       [company, expiredId],
     );
     expect(Number(ledger.rows[0]!.policy_current_dep)).toBe(0);
+  });
+
+  it('carries the life-expired note into the run result and the dry run', async () => {
+    // Round-3 review MEDIUM-D: the note was computed, attached, and read by
+    // nothing in production. Both consumers must show it.
+    const assets = await loadDepreciationAssets(company);
+    const plan = await planDepreciationRun(company, PERIOD, assets);
+
+    // 1. The dry run replaces its own generic "no depreciation left" wording,
+    //    which reads as the opposite of the truth for this asset.
+    const preview = await previewDepreciationJournals(company, plan, assets);
+    const previewRow = preview.writesWithoutJournal.find((w) => w.id === expiredId);
+    expect(previewRow).toBeDefined();
+    expect(previewRow!.reason).toBe('subledger_row_only_no_journal');
+    expect(previewRow!.detail).toContain('60000.00');
+    expect(previewRow!.detail).not.toContain('no policy depreciation left');
+
+    // 2. The live run names it in `results`, which the REST route returns and
+    //    the MCP tool maps, instead of an anonymous +1 to `skipped`.
+    const result = await executeDepreciationRun(company, userId, plan, assets);
+    const resultRow = result.results.find((r) => r.assetNumber === 'K029-0004');
+    expect(resultRow).toBeDefined();
+    expect(resultRow!.policyDep).toBe(0);
+    expect(resultRow!.lifeExpiredNote).toContain('60000.00');
+
+    // The three healthy assets were posted by the previous test and are now
+    // skipped as already_posted, so the two expired ones are the only rows —
+    // and both carry a note.
+    expect(result.results.filter((r) => r.lifeExpiredNote !== undefined)).toHaveLength(2);
+
+    // 3. The one that charges nothing on EITHER track is still named. It used
+    //    to leave the loop as an anonymous +1 to `skipped` with no row at all.
+    const bothTracksZero = result.results.find((r) => r.assetNumber === 'K029-0005');
+    expect(bothTracksZero).toBeDefined();
+    expect(bothTracksZero!.policyDep).toBe(0);
+    expect(bothTracksZero!.taxDep).toBe(0);
+    expect(bothTracksZero!.entryId).toBeNull();
+    expect(bothTracksZero!.lifeExpiredNote).toContain('60000.00');
   });
 
   it('agrees with the asset-service calculator the CSV and the detail page read', () => {

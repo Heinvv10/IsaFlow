@@ -63,6 +63,32 @@ describe('depreciation CSV export (MEDIUM-5)', () => {
   it('emits the header alone for an empty register', () => {
     expect(buildDepreciationCsv([], '2026-09-30')).toBe(DEPRECIATION_CSV_HEADER);
   });
+
+  it('caps the export and says so rather than ending quietly (LOW-E)', () => {
+    // The query asks for MAX_EXPORT_ROWS + 1 so the builder can tell a full
+    // page from an overflow. 5 001 rows in, 5 000 assets plus a marker out.
+    const many = Array.from({ length: 5_001 }, (_, i) => ({ ...row, asset_number: `A${i}` }));
+    const lines = buildDepreciationCsv(many, '2026-09-30').split('\n');
+    expect(lines).toHaveLength(5_002);           // header + 5 000 + marker
+    expect(lines[5_001]).toContain('TRUNCATED');
+    expect(lines[5_000]).toContain('A4999');
+  });
+
+  it('emits no marker when the register fits', () => {
+    const many = Array.from({ length: 5_000 }, (_, i) => ({ ...row, asset_number: `A${i}` }));
+    const lines = buildDepreciationCsv(many, '2026-09-30').split('\n');
+    expect(lines).toHaveLength(5_001);
+    expect(lines[5_000]).not.toContain('TRUNCATED');
+  });
+
+  it('reads a missing accumulated_depreciation as zero, not NaN (LOW-F)', () => {
+    const { accumulated_depreciation: _omitted, ...noAccDep } = row;
+    const line = buildDepreciationCsv([noAccDep], '2026-09-30').split('\n')[1]!;
+    expect(line).not.toContain('NaN');
+    // Year 3 with nothing accumulated still charges 1 200.00, and the accum
+    // column reads 0.00 rather than NaN.
+    expect(line.split(',').slice(-5)).toEqual(['0.00', '5', '0.00', '"reducing_balance"', '1200.00']);
+  });
 });
 
 describe('assetService final-month true-up (LOW-B)', () => {
