@@ -25,3 +25,7 @@ it('refuses mismatched saved bank or approval entity and malformed success recei
  fetch.mockResolvedValue({ok:true,json:async()=>({success:true,data:{pending:true}})});
  await expect(executeSavedBankOperation(bank,saved())).rejects.toThrow(/receipt/i);
 });
+
+it('transfer preparation sends only the selected destination bank account, never inherited party VAT or dimensions',()=>{
+ expect(buildBankAllocationPreparation('source',{type:'transfer',entityId:'destination',label:'Destination bank',vatCode:'standard',cc1Id:'old-dimension',buId:'old-unit'})).toEqual({action:'prepare_allocate',bankTransactionId:'source',allocationType:'transfer',contraAccountId:'destination'});
+});
