@@ -94,7 +94,7 @@ export async function getVatPeriodLines(
           )
         )
     )
-    , cancelled_entries AS (
+    , cancelled_entries_base AS (
       SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
         WHERE ci.company_id = ${companyId}::UUID AND ci.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
           AND ci.gl_journal_entry_id IS NOT NULL
@@ -106,6 +106,15 @@ export async function getVatPeriodLines(
       SELECT cn.gl_journal_entry_id FROM credit_notes cn
         WHERE cn.company_id = ${companyId}::UUID AND cn.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
           AND cn.gl_journal_entry_id IS NOT NULL
+    )
+    -- A cancellation posts a reversing journal that no document row links to.
+    -- Suppress it with its original, or the reversal alone lands in the boxes.
+    , cancelled_entries AS (
+      SELECT id FROM cancelled_entries_base
+      UNION
+      SELECT rev.id FROM gl_journal_entries rev
+        WHERE rev.company_id = ${companyId}::UUID
+          AND rev.reversal_of_id IN (SELECT id FROM cancelled_entries_base)
     )
     SELECT
       jl.id::TEXT              AS line_id,
