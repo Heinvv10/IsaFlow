@@ -1,3 +1,4 @@
+import {readHistoricalJournalRelationship} from '../controls/historicalJournalRelationship';
 import {assertGeneratedJournalMoney} from '../controls/generatedJournalMoney';
 import { als } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';
@@ -34,6 +35,9 @@ export async function runJournalControl<T>(companyId: string, userId: string, re
     const effectiveRef = ref.operation === 'journal.reverse' ? { ...ref, reversalDate: parent.permit.accountingDate } : ref;
     return await withSavepoint('controlled_generated_journal', async () => {
       const material = await materializeGlOperation(ctx, effectiveRef);
+      if(parent.parent.operation==='historical_import.post'&&(await readHistoricalJournalRelationship(ctx,parent,ref.entityId,ref.operation as 'journal.post'|'journal.reverse')).length!==1){
+        throw new Error('Historical journal no longer matches its approved source plan');
+      }
       assertGeneratedJournalMoney(parent.permit,material.binding);
       await initializeOperationObservations(ctx, material);
       const result = await effect(ctx, material, parent);

@@ -1,4 +1,5 @@
 import {assertStandaloneBankChildReversal} from './bankChildReversalGuard';
+import {historicalImportInvoiceEvidence} from './historicalImportInvoiceEvidence';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from './canonical';
 import {UUID_RE,isRealCalendarDate} from '@/lib/validation';
@@ -31,8 +32,12 @@ export async function materializeArOperation(ctx:ControlTx,ref:OperationRef):Pro
  if(invoice){
   const data=await lockArInvoiceSources(ctx,ref.entityId);header=data.header;
   const accounts=await resolveArAccounts(ctx,reverse?[]:['receivable','default_revenue','vat_output']);
-  ({amount,currency}=deriveArInvoiceMoney(header,data.lines,accounts.ledgerCurrency));
-  source={...data,accounts:accounts.facts};accountingDate=fmtDate(header.invoice_date);
+  const archivalSummary=data.lines.length?null:await historicalImportInvoiceEvidence(ctx,'customer_invoice',ref.entityId);
+  if(archivalSummary){
+   if(archivalSummary.currency!==accounts.ledgerCurrency)throw new Error('Historical invoice currency differs from ledger');
+   amount=archivalSummary.totalAmount;currency=archivalSummary.currency;
+  }else ({amount,currency}=deriveArInvoiceMoney(header,data.lines,accounts.ledgerCurrency));
+  source={...data,archivalSummary,accounts:accounts.facts};accountingDate=fmtDate(header.invoice_date);
  }else{
   const data=await lockArPaymentSources(ctx,ref.entityId);header=data.header;
   if(reverse)await assertStandaloneBankChildReversal(ctx,ref.entityId,header.gl_journal_entry_id);
