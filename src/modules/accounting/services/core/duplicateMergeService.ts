@@ -8,6 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { mergeControlledSuppliers } from './supplierMergeControl';
 
  
 type SqlResult = { rowCount?: number };
@@ -30,7 +31,7 @@ export async function mergeEntities(
   if (primaryId === duplicateId) throw new Error('Primary and duplicate cannot be the same entity');
 
   if (entityType === 'customer') return mergeCustomers(companyId, primaryId, duplicateId);
-  if (entityType === 'supplier') return mergeSuppliers(companyId, primaryId, duplicateId);
+  if (entityType === 'supplier') return mergeControlledSuppliers(companyId, primaryId, duplicateId);
   return mergeItems(companyId, primaryId, duplicateId);
 }
 
@@ -90,44 +91,6 @@ async function mergeCustomers(companyId: string, primaryId: string, duplicateId:
 }
 
 // ── Supplier merge ────────────────────────────────────────────────────────────
-
-async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string): Promise<MergeResult> {
-  const check = await sql`
-    SELECT id FROM suppliers
-    WHERE id IN (${primaryId}::UUID, ${duplicateId}::UUID)
-      AND company_id = ${companyId}::UUID
-      AND deleted_at IS NULL
-  `;
-  if ((check as unknown[]).length !== 2) throw new Error('One or both suppliers not found for this company');
-
-  let count = 0;
-
-  const r1 = await sql`
-    UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID
-    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r1.rowCount ?? 0);
-
-  const r2 = await sql`
-    UPDATE supplier_payments SET supplier_id = ${primaryId}::UUID
-    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r2.rowCount ?? 0);
-
-  const r3 = await sql`
-    UPDATE supplier_purchase_orders SET supplier_id = ${primaryId}::UUID
-    WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r3.rowCount ?? 0);
-
-  await sql`
-    UPDATE suppliers SET deleted_at = NOW()
-    WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
-  `;
-
-  log.info('Supplier merge complete', { primaryId, duplicateId, count }, 'duplicate-merge');
-  return { reassignedTransactions: count };
-}
 
 // ── Item merge ────────────────────────────────────────────────────────────────
 

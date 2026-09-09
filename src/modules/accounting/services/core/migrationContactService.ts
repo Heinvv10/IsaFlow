@@ -4,6 +4,9 @@
  */
 
 import { sql } from '@/lib/neon';
+import { createSupplier, updateSupplier } from './supplierWriteService';
+import { supplierWrite } from './supplierBankWriteAdapter';
+import type { EvidenceRef } from '../controls/contracts';
 import { log } from '@/lib/logger';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
@@ -24,6 +27,7 @@ export interface CustomerImportRow {
 }
 
 export interface SupplierImportRow {
+  evidenceRefs?: readonly EvidenceRef[];
   name: string;
   email?: string;
   phone?: string;
@@ -118,71 +122,37 @@ export async function importSuppliers(
   sessionId: string,
   suppliers: SupplierImportRow[],
   duplicateStrategy: DuplicateStrategy = 'skip',
-): Promise<ImportResult> {
-  const errors: MigrationError[] = [];
-  let imported = 0;
-  let skipped = 0;
-
-  const existingRows = (await sql`
-    SELECT id, COALESCE(company_name, name) AS name FROM suppliers
-    WHERE company_id = ${companyId}::UUID
-  `) as DbRow[];
-  const existing = existingRows.map(r => ({ id: String(r.id), name: String(r.name) }));
-
-  for (let i = 0; i < suppliers.length; i++) {
-    const sup = suppliers[i]!;
-    if (!sup.name?.trim()) {
-      errors.push({ step: 'suppliers', row: i, field: 'name', message: 'Name is required' });
-      skipped++;
-      continue;
-    }
-
-    try {
-      const duplicate = findDuplicate(sup.name, existing);
-
-      if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
-
-      if (duplicate && duplicateStrategy === 'overwrite') {
-        await sql`
-          UPDATE suppliers SET
-            email               = COALESCE(${sup.email ?? null}, email),
-            phone               = COALESCE(${sup.phone ?? null}, phone),
-            vat_number          = COALESCE(${sup.vatNumber ?? null}, vat_number),
-            bank_name           = COALESCE(${sup.bankName ?? null}, bank_name),
-            bank_account_number = COALESCE(${sup.bankAccountNumber ?? null}, bank_account_number),
-            bank_branch_code    = COALESCE(${sup.bankBranchCode ?? null}, bank_branch_code),
-            bank_account_type   = COALESCE(${sup.bankAccountType ?? null}, bank_account_type)
-          WHERE id = ${duplicate.id}::UUID AND company_id = ${companyId}::UUID
-        `;
-        imported++;
-        continue;
+): Promise<ImportResult & { beneficiaryReviews: Array<{ supplierId: string; proposalId: string; status: string }> }> {
+  return supplierWrite(companyId, async () => {
+    const errors: MigrationError[] = [];
+    const beneficiaryReviews: Array<{ supplierId: string; proposalId: string; status: string }> = [];
+    let imported = 0, skipped = 0;
+    const rows = await sql`SELECT id,COALESCE(company_name,name) AS name FROM suppliers
+      WHERE company_id=${companyId}::uuid AND deleted_at IS NULL` as DbRow[];
+    const existing = rows.map(r => ({ id:String(r.id),name:String(r.name) }));
+    for (let i=0;i<suppliers.length;i++) {
+      const sup = suppliers[i]!;
+      if (!sup.name?.trim()) {
+        errors.push({step:'suppliers',row:i,field:'name',message:'Name is required'}); skipped++; continue;
       }
-
-      await sql`
-        INSERT INTO suppliers (
-          company_id, name, email, phone, vat_number, registration_number,
-          billing_address, contact_person, payment_terms,
-          bank_name, bank_account_number, bank_branch_code, bank_account_type, notes
-        ) VALUES (
-          ${companyId}::UUID, ${sup.name}, ${sup.email ?? null}, ${sup.phone ?? null},
-          ${sup.vatNumber ?? null}, ${sup.registrationNumber ?? null},
-          ${sup.billingAddress ?? null}, ${sup.contactPerson ?? null},
-          ${sup.paymentTerms ?? 30},
-          ${sup.bankName ?? null}, ${sup.bankAccountNumber ?? null},
-          ${sup.bankBranchCode ?? null}, ${sup.bankAccountType ?? null}, ${sup.notes ?? null}
-        )
-      `;
+      const duplicate = findDuplicate(sup.name,existing);
+      if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
+      const input = { ...sup,address:sup.billingAddress };
+      // All banking and material contact writes share one transactional control boundary.
+      const row = duplicate && duplicateStrategy === 'overwrite'
+        ? await updateSupplier(companyId,duplicate.id,input) : await createSupplier(companyId,input);
+      if (!row) throw new Error('Supplier disappeared during import; retry after reviewing the source');
+      if (row.beneficiary_review) {
+        const review = row.beneficiary_review as {proposalId:string;status:string};
+        beneficiaryReviews.push({supplierId:String(row.id),proposalId:review.proposalId,status:review.status});
+      }
+      if (!duplicate) existing.push({id:String(row.id),name:sup.name});
       imported++;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push({ step: 'suppliers', row: i, message: msg });
-      skipped++;
     }
-  }
-
-  await updateSession(sessionId, companyId, { suppliersImported: imported, stepsCompleted: { suppliers: true } });
-  log.info('Supplier import complete', { companyId, imported, skipped }, 'migration');
-  return { imported, skipped, errors };
+    await updateSession(sessionId,companyId,{suppliersImported:imported,stepsCompleted:{suppliers:true}});
+    log.info('Supplier import complete',{companyId,imported,skipped},'migration');
+    return {imported,skipped,errors,beneficiaryReviews};
+  });
 }
 
 // ── Duplicate detection ──────────────────────────────────────────────────────
