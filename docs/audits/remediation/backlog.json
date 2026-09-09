@@ -7945,7 +7945,8 @@
    "dependencies": [
     "K-015",
     "K-015 fixed (branch 5672a828): R-001 still reproduces on the fixed path \u2014 a fully paid bill imports with amount_paid 115 and balance 0 while the only journal leaves the payable control at a net credit of 115 with no settlement entry (K-015/fix.md)",
-    "K-038 fixer confirms the Sage path has no opening-balance step; paid cash arrives only as unallocated imported bank rows with no GL leg, so after K-038 the subledger is right and the control account is not (K-038/fix.md)"
+    "K-038 fixer confirms the Sage path has no opening-balance step; paid cash arrives only as unallocated imported bank rows with no GL leg, so after K-038 the subledger is right and the control account is not (K-038/fix.md)",
+    "K-038 reviewer: once amount_paid is carried, both AR and AP sub-ledger close-readiness checks flip to fail for migrated companies because the control account still carries the full invoice; fixing R-001 is therefore a prerequisite for month-end close on migrated books"
    ],
    "testNames": [],
    "evidencePaths": [],
