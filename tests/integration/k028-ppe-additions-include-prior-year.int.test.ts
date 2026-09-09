@@ -48,7 +48,12 @@ async function ledgerRow(assetId: string, yyyymm: string, cost: number, opening:
 }
 
 beforeAll(async () => {
-  await pool.query("INSERT INTO companies(id,name) VALUES($1,'K028 AFS fixture')", [company]);
+  // financial_year_start = 1 explicitly: the column DEFAULTS to 3 (March), and
+  // the calendar-2026 figures below only read as written for a December year end.
+  await pool.query(
+    "INSERT INTO companies(id,name,financial_year_start) VALUES($1,'K028 AFS fixture',1)",
+    [company],
+  );
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query('INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,$3)', [company, user, 'admin']);
   await pool.query(
