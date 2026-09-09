@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { updateQuoteStatus, convertToInvoice, convertToSalesOrder } from '@/modules/accounting/services/ar/quoteService';
+import { QuoteNotConvertibleError } from '@/modules/accounting/services/ar/quoteConvertService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
@@ -41,13 +42,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, result);
     }
     case 'convert-to-order': {
-      const result = await convertToSalesOrder(companyId, id, userId);
-      // null now means EITHER no such quote for this company OR the quote was
-      // already claimed by an earlier conversion (K-121): the status-predicated
-      // UPDATE inside the service refuses the second caller. 'Quote not found'
-      // alone read as a bug on a double-click.
-      if (!result) return apiResponse.notFound(res, 'Unconverted quote', id);
-      return apiResponse.success(res, { salesOrderId: result.salesOrderId });
+      try {
+        const result = await convertToSalesOrder(companyId, id, userId);
+        if (!result) return apiResponse.notFound(res, 'Quote', id);
+        return apiResponse.success(res, { salesOrderId: result.salesOrderId });
+      } catch (err) {
+        // 409, not 404: the quote exists, its status just forbids the
+        // conversion — including the double-click case, where the winner's
+        // order id is handed back so the client can open it instead of being
+        // told its quote does not exist. Nothing is written before the guard
+        // refuses, so answering 4xx here commits no partial work.
+        if (err instanceof QuoteNotConvertibleError) {
+          return apiResponse.conflict(res, err.message, {
+            quoteStatus: err.quoteStatus,
+            salesOrderId: err.existingOrderId,
+          });
+        }
+        throw err;
+      }
     }
     default:
       return apiResponse.badRequest(res, `Unknown action: ${action}`);
