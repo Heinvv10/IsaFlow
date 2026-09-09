@@ -17,6 +17,8 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID(), user = crypto.randomUUID(), customer = crypto.randomUUID();
 const mixedQuote = crypto.randomUUID();
 const singleQuote = crypto.randomUUID();
+const uniformZeroQuote = crypto.randomUUID();
+const nullLineRateQuote = crypto.randomUUID();
 
 /** jsPDF writes uncompressed content streams; literal parens are escaped. */
 function pdfText(buf: Buffer): string[] {
@@ -62,11 +64,18 @@ beforeAll(async () => {
     [['Standard rated item', 100, 15], ['Zero rated export item', 100, 0]]);
   await seedQuote(singleQuote, 'K126B-Q2', 15, 200, 30,
     [['Plain item A', 100, 15], ['Plain item B', 100, 15]]);
+  // Every line zero-rated, header still holding the 15.00 column default.
+  await seedQuote(uniformZeroQuote, 'K126B-Q3', 15, 200, 0,
+    [['Export item A', 100, 0], ['Export item B', 100, 0]]);
+  // A line with no rate of its own, under a non-default header rate.
+  await seedQuote(nullLineRateQuote, 'K126B-Q4', 20, 100, 20,
+    [['Unrated line', 100, null]]);
 });
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM customer_quote_lines WHERE quote_id = ANY($1::uuid[])', [[mixedQuote, singleQuote]]);
+    await pool.query('DELETE FROM customer_quote_lines WHERE quote_id = ANY($1::uuid[])',
+      [[mixedQuote, singleQuote, uniformZeroQuote, nullLineRateQuote]]);
     await pool.query('DELETE FROM customer_quotes WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=$1', [company]);
@@ -85,6 +94,25 @@ it('does not claim a single VAT rate the lines contradict', async () => {
 it('still states the rate when every line carries the same one', async () => {
   const text = pdfText(await generateQuotePdf(company, singleQuote));
   expect(vatLabelOf(text)).toBe('VAT (15%)');
+});
+
+it('states the rate the lines carry, not the header default they contradict', async () => {
+  const text = pdfText(await generateQuotePdf(company, uniformZeroQuote));
+
+  // Every line is 0%, the header is the 15.00 column default. Labelling this
+  // 'VAT (15%)' contradicts both lines on the same page; the lines agree with
+  // each other, so there IS a single rate to state and it is 0.
+  expect.soft(rateCellOf(text, 'Export item A')).toBe('0%');
+  expect(vatLabelOf(text)).toBe('VAT (0%)');
+});
+
+it('falls back to the quote header rate for a line carrying none', async () => {
+  const text = pdfText(await generateQuotePdf(company, nullLineRateQuote));
+
+  // Previously the cell was `Number(line.tax_rate || 15)`, i.e. the literal 15
+  // regardless of what the quote's own header said.
+  expect.soft(rateCellOf(text, 'Unrated line')).toBe('20%');
+  expect(vatLabelOf(text)).toBe('VAT (20%)');
 });
 
 it('will not render another tenant\'s quote', async () => {

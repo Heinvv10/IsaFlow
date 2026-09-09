@@ -142,7 +142,15 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   const headerTaxRate = Number(inv.tax_rate ?? 15);
   const lineRate = (item: Row): number =>
     item.tax_rate != null ? Number(item.tax_rate) : headerTaxRate;
-  const mixedRates = new Set(items.map(lineRate)).size > 1;
+  // The totals label must state the rate the LINES carry, not the header's. A
+  // fully zero-rated invoice whose header still holds the 15.00 column default
+  // is the ordinary shape of that disagreement, and labelling it 'VAT (15%)'
+  // contradicts every line on the same page. Only when the lines disagree with
+  // each other is there no single rate to state.
+  const distinctRates = [...new Set(items.map(lineRate))];
+  const totalsVatLabel = distinctRates.length === 1
+    ? `VAT (${distinctRates[0]}%)`
+    : distinctRates.length === 0 ? `VAT (${headerTaxRate}%)` : 'VAT';
   autoTable(doc, {
     startY: y,
     head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
@@ -192,7 +200,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
 
   const totalLines: TotalLine[] = [
     { label: 'Subtotal', value: fmtZAR(subtotal) },
-    { label: mixedRates ? 'VAT' : `VAT (${headerTaxRate}%)`, value: fmtZAR(taxAmount) },
+    { label: totalsVatLabel, value: fmtZAR(taxAmount) },
     { label: 'TOTAL DUE', value: fmtZAR(totalAmount), isTotal: true },
   ];
   if (amountPaid > 0) {
