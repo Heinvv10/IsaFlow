@@ -114,3 +114,46 @@ census below first — if it returns zero rows, 657 is a pure index build:
 `SELECT company_id, matched_journal_line_id, COUNT(*), array_agg(id), array_agg(status)
  FROM bank_transactions WHERE matched_journal_line_id IS NOT NULL
  GROUP BY company_id, matched_journal_line_id HAVING COUNT(*) > 1;`
+
+
+---
+
+# Blind review round 3 — disposition per finding
+
+Round 3 returned 0 HIGH. The reviewer re-ran migration 657 against a real database in all
+16 double-binding shapes and ruled the in-place correction of 657 correct; that work is not
+revisited here.
+
+| # | Disposition | Where | Proof |
+|---|---|---|---|
+| M1 | FIXED | `lock_timeout` bounds EVERY lock wait in the request, so the `55P03` on the match UPDATE also fires on a relation-level wait — DDL, `VACUUM FULL`, or 657's own index build. Mapped to `LINE_CLAIMED` unconditionally it told users mid-deploy that their journal line was "already matched to another bank transaction" (false) and counted the row in `skippedRaced` ("allocated by another request"). `tableLockUnavailable()` (`bankTxLock.ts`) now separates the two with `LOCK TABLE bank_transactions IN ROW EXCLUSIVE MODE NOWAIT` — the mode the UPDATE itself takes, which conflicts with every DDL lock and with nothing a concurrent writer holds. Granted → the wait was on the row, still `LINE_CLAIMED`. Refused → new `BankMatchUnavailableError` ("could not be matched right now — retry in a moment"), which claims nothing about the line. `autoMatchTransactions` still skips the row (the run must not lose the matches already applied) but counts it in a separate `skippedUnavailable`, surfaced in the UI notice and in the MCP tool's `skipped_unavailable`. | `tests/integration/k144-match-table-lock-not-a-race.int.test.ts` (3: probe true under a real SHARE lock and false when free; a peer holding the line past 5s still `LINE_CLAIMED`; opt-in end-to-end under `BANK_TABLE_LOCK_E2E=1`). `tests/unit/services/bank/matchLockClassification.test.ts` (4). `autoMatchRaceHandling.test.ts` (8) |
+| L1 | NOT FIXED — deliberate | 657's `ELSE 3` bucket refuses `imported` alongside `excluded`. The reviewer found no code path that produces `status='imported'` with a non-NULL link, so the shape is unproven, and the migration's logic was ruled settled this round. If the pre-deploy census below returns an `imported` row, clear it by hand before the window: `UPDATE bank_transactions SET matched_journal_line_id = NULL WHERE id = '<loser id>' AND company_id = '<company>' AND status = 'imported';` | census SQL below |
+| L2 | FIXED | `isEmptyPeriodEnvelope`'s QIF arm tested `/^[DT]/m`, stricter than `parseQifRecord`, which trims each line and upper-cases the prefix. An indented or lower-case `D`/`T` record was therefore read as "no records", exempted as an empty period, and imported as zero rows. Now `/^\s*[DTdt]/m`. | `tests/unit/bank/k145-non-csv-parse-guard.test.ts` (13: indented and lower-case cases added) |
+| L3 | FIXED | `bankReconciliationService.ts` 369 → 274 lines: `autoMatchTransactions` moved to `bankAutoMatchService.ts` (118) and re-exported, so no call site moved. `bankTxStatusMutations.ts` stays at 257 with the lock classification living in `bankTxLock.ts` (155). | `bunx tsc --noEmit` clean; full unit suite green |
+| L4 | FIXED | `DROP INDEX IF EXISTS uq_bank_tx_matched_line` in the 657 test's setup, so a database that has not applied 657 reports real results instead of erroring in setup. | `k144-migration-657-dedupe.int.test.ts` (8) |
+| L5 | FIXED | `bankRulesSuggestionPass.ts` ranks `ORDER BY r.priority ASC, r.created_at ASC, r.id ASC`. Equal-priority rules previously left the winner to heap order, and the auto-post gate sweep posts the chosen suggestion unattended. | `tests/integration/k141-suggestion-priority-tiebreak.int.test.ts` (2) — rules inserted newest-first so physical and intended order disagree; mutation-proved |
+| L6 | NOT FIXED — flagged | `rulePattern`'s `?? 'exact'` narrows a NULL `match_type` from the old `contains` reading. Narrowing is the safe direction for an unattended poster, and no migration is proposed. Rules that relied on the old reading stop auto-posting silently; find them with the SQL below and set `match_type = 'contains'` where that was the intent. | — |
+
+**Migration.** None this round. Prefix 661, reserved in case 657 needed a follow-up file, is
+free again.
+
+**Historical-data impact.** Unchanged from round 2 (the 657 census). Two read-only queries to
+run before the deploy (NOT run here):
+
+```sql
+-- L1: a double-binding whose loser is `imported` stops the migration; clear it first.
+SELECT company_id, matched_journal_line_id, array_agg(id), array_agg(status)
+FROM bank_transactions WHERE matched_journal_line_id IS NOT NULL
+GROUP BY company_id, matched_journal_line_id HAVING COUNT(*) > 1;
+
+-- L6: rules whose NULL match_type used to mean `contains`.
+SELECT id, company_id, rule_name, match_pattern, auto_create_entry
+FROM bank_categorisation_rules WHERE match_type IS NULL AND is_active;
+```
+
+**Limits.** The end-to-end "match during DDL" case is opt-in: it holds SHARE on
+`bank_transactions` for the full 5s `lock_timeout`, which wedges any integration file running
+beside it. It passed under `BANK_TABLE_LOCK_E2E=1` (recorded in `green.log`); the default run
+proves the same mapping through the probe and the unit test. The probe is a second round trip
+only on the 55P03 path, and a DDL window that opens between the failed UPDATE and the probe
+reports "retry" for a genuine race — the harmless direction.

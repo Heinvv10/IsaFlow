@@ -37,7 +37,9 @@ import {
   BankTransactionAllocatedError,
   BankMatchTargetError,
 } from '@/modules/accounting/services/bank/bankTxStatusMutations';
-import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
+import {
+  BankTransactionLockTimeoutError, BankMatchUnavailableError,
+} from '@/modules/accounting/services/bank/bankTxLock';
 import { autoMatchTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
@@ -122,6 +124,40 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
     expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
     expect(result.matched).toBe(2);
     expect(result.skippedRaced).toBe(1);
+  });
+
+  // A locked TABLE is skipped like a race — the run must not lose the matches
+  // already applied — but it is NOT a race, and `skippedRaced` reaches the user
+  // as "allocated by another request". Counting it there says something false
+  // about a row nothing is known about.
+  it('counts a table-lock skip apart from the raced ones', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankMatchUnavailableError(txId);
+      return { id: txId };
+    });
+
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+
+    expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(0);
+    expect(result.skippedUnavailable).toBe(1);
+  });
+
+  // Adjacent case: a raced row and a locked table in the same run are reported
+  // as the two different things they are.
+  it('separates the two counters when both happen in one run', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(1)) throw new BankTransactionLockTimeoutError(txId);
+      if (txId === TX(2)) throw new BankMatchUnavailableError(txId);
+      return { id: txId };
+    });
+
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+
+    expect(result.matched).toBe(1);
+    expect(result.skippedRaced).toBe(1);
+    expect(result.skippedUnavailable).toBe(1);
   });
 
   // Adjacent case: the type alone is not the licence to continue. A target the
