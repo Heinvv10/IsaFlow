@@ -138,3 +138,34 @@ env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
 bunx tsc --noEmit         -> clean (exit 0)
 bunx eslint               -> clean (exit 0)
 bun run agent-docs:check  -> OK: 74 mirrors match
+
+=== ROUND 4 (2026-09-09) ===
+Integration (fixture Postgres, migration 653 applied), `bun run test:integration -- tests/integration/k053`:
+  Test Files  8 passed (8)
+  Tests       35 passed (35)
+  incl. NEW k053-aging-as-at-reversal-date.int.test.ts  5 passed
+  incl. k053-soft-delete-undo-identity.int.test.ts     10 passed (was 8)
+
+Mutation proof (each reverted, run, restored):
+  1. softDeleteLedgerPresence.documentInLedgerAsAt -> `(<alias>.deleted_at IS NULL)`
+     k053-aging-as-at-reversal-date: 4 failed | 1 passed (5)
+     (with round 3's nested-template shape: 3 failed | 2 passed)
+  2. `AND deleted_at IS NULL` removed from both cancel FOR UPDATE reads
+     k053-soft-delete-undo-identity: 1 failed | 8 passed (9)
+     "promise resolved instead of rejecting" — cancel SUCCEEDS on a deleted document
+  3. isUserFixable -> round 3's substring list
+     k053-soft-delete-undo-identity: 1 failed | 9 passed (10)
+     "expected 500 to be 400" — the un-posted-reversal chain refusal answered 500
+
+Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files  792 passed | 36 skipped (828)
+  Tests       9434 passed | 234 skipped (9668)
+  BEFORE round 4 this was 25 failed across periodCloseReadinessService.test.ts and
+  mcp/w2/subledgerSnapshot.test.ts — round 3's nested `sql` fragment consumed queued
+  mockResolvedValueOnce rows. Fixed by building the fragment with a single sql.unsafe
+  and adding `unsafe` to periodCloseReadinessService's neon mock.
+
+bunx tsc --noEmit           : clean (no output)
+bunx eslint <changed files> : clean (no output)
+bun run agent-docs:check    : OK: 74 agent document mirror(s) match canonical sources.

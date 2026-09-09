@@ -28,6 +28,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryPostingService';
 import { assertInvoiceDeletable } from './softDeleteInvoiceGuards';
+import { SoftDeleteRefusalError } from './softDeleteErrors';
 
 /**
  * Lock the document's journal entry and report whether it is still live.
@@ -86,9 +87,17 @@ async function chainHead(
     // here soft-deletes the document with its journal left standing, which is
     // the exact defect this service exists to prevent, with nothing in the
     // response, the log or the audit trail to say so.
-    throw new Error(
+    // A REFUSAL, not a fault: zero un-reversed entries is reachable without
+    // any corruption, because the walk only follows posted rows — a reversal
+    // that was voided, or a draft left by a path other than reverseJournalEntry,
+    // empties the chain. Typed so the route answers 400 with the entry to look
+    // at rather than 500 with nothing, which would block the delete forever
+    // until somebody read the server log.
+    throw new SoftDeleteRefusalError(
       `Journal entry ${rootJournalEntryId} has an unexpected reversal chain ` +
-        `(${rows.length} un-reversed entries); refusing to delete this document`,
+        `(${rows.length} un-reversed posted entries): this document's journal ` +
+        'cannot be reversed safely. Open that entry in the GL and put its ' +
+        'reversal chain back into a posted state before deleting the document.',
     );
   }
   return { id: String(rows[0]!.id), standing: Number(rows[0]!.depth) % 2 === 1 };

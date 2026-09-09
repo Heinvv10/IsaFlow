@@ -23,6 +23,8 @@ import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/custom
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { softDelete, undoDelete } from '@/modules/accounting/services/core/softDeleteService';
+import { cancelCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCancelService';
+import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import softDeleteRoute from '../../pages/api/accounting/soft-delete';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
@@ -340,5 +342,76 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
       holder.release();
     }
     expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
+  });
+
+  it('cancelling a soft-deleted document is refused as not found, not a 500', async () => {
+    // The delete reverses the approval journal but deliberately KEEPS
+    // gl_journal_entry_id pointing at the original so the undo can find it.
+    // Cancel used to lock the row with no deleted_at filter and then reverse
+    // that same entry, which is already reversed_at-stamped: reverseJournalEntry
+    // threw 'Journal entry already reversed', an uncaught fault the cancel route
+    // and the MCP cancel tools both map to 500. Refusing on the lock read is the
+    // fix; the document is not found because the delete already removed it.
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
+    await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
+
+    await expect(inTx(() => cancelCustomerInvoice(COMPANY, arInvoice, USER)))
+      .rejects.toThrow(/not found/i);
+    await expect(inTx(() => cancelSupplierInvoice(COMPANY, apInvoice, USER)))
+      .rejects.toThrow(/not found/i);
+
+    // And the refusal changed nothing: still deleted, still one recorded
+    // reversal each, and the undo still round-trips the ledger.
+    expect(await recordedReversals(arInvoice)).toBe(1);
+    expect(await recordedReversals(apInvoice)).toBe(1);
+    const statuses = (await sql`
+      SELECT status FROM customer_invoices WHERE id = ${arInvoice}::UUID
+    `) as { status: string }[];
+    expect(statuses[0]!.status).not.toBe('cancelled');
+
+    expect(await inTx(() => undoDelete(COMPANY, 'customer_invoice', arInvoice, USER))).toBe(true);
+    expect(await inTx(() => undoDelete(COMPANY, 'supplier_invoice', apInvoice, USER))).toBe(true);
+  });
+
+  it('the route decides 400 vs 500 by TYPE: refusals are 400, data faults stay 500', async () => {
+    // Round 3 decided with `message.includes('not found')`, which also matched
+    // reverseJournalEntry's `Journal entry <id> not found` and getSystemAccount's
+    // "... account not found" — genuine faults, answered as a 400 carrying the
+    // raw internal message and never reaching the log.error branch.
+    const post = async (entityId: string) => {
+      const req = request({ 'sb-access-token': token, active_company_id: COMPANY }, 'POST');
+      (req as unknown as { body: unknown }).body = { entityType: 'customer_invoice', entityId };
+      const result = response();
+      await softDeleteRoute(req, result.res);
+      return result.state;
+    };
+
+    // A refusal: nothing by that id in this company.
+    expect((await post(randomUUID())).statusCode).toBe(400);
+
+    // A fault: the link points at another company's entry. Not something the
+    // caller can fix, so it must NOT come back as a 400 with internals in it.
+    expect((await post(crossTenantLinked)).statusCode).toBe(500);
+
+    // A refusal again, and the one MEDIUM-3 named: the walk follows posted rows
+    // only, so a reversal left un-posted empties the chain. That is reachable
+    // without corruption and used to be an opaque 500 that blocked the delete
+    // for good.
+    const reversal = ((await sql`
+      SELECT id FROM gl_journal_entries
+      WHERE company_id = ${COMPANY}::UUID AND reversal_of_id = (
+        SELECT gl_journal_entry_id FROM customer_invoices WHERE id = ${manuallyReversed}::UUID
+      )
+    `) as { id: string }[])[0]!.id;
+    await sql`UPDATE gl_journal_entries SET status = 'draft'
+              WHERE id = ${reversal}::UUID AND company_id = ${COMPANY}::UUID`;
+    try {
+      const state = await post(manuallyReversed);
+      expect(state.statusCode).toBe(400);
+      expect(JSON.stringify(state.body)).toMatch(/unexpected reversal chain/i);
+    } finally {
+      await sql`UPDATE gl_journal_entries SET status = 'posted'
+                WHERE id = ${reversal}::UUID AND company_id = ${COMPANY}::UUID`;
+    }
   });
 });

@@ -1,0 +1,78 @@
+/**
+ * K-053 round 4: whether a document belongs on the SUB-LEDGER side of an as-at
+ * comparison, given that soft-delete now reverses its approval journal.
+ *
+ * The delete reverses through reverseJournalEntry, which dates the reversal to
+ * the ORIGINAL entry date only while that period is open and otherwise to
+ * TODAY (resolveReversalDate, gl/journalEntryPostingService). So for a document
+ * raised in a closed prior month — the ordinary case — the GL keeps carrying it
+ * right up to the delete date and only then nets to zero.
+ *
+ * Round 3 answered "is this document out of the ledger?" with an UNDATED test
+ * (deleted_at IS NULL, or an EXISTS on the linked entry's reversed_at). Both
+ * sides of an as-at comparison are then measured on different clocks: the GL
+ * half is bounded by entry_date <= as-at, the document half is not. An invoice
+ * dated 2026-03-15, deleted on 2026-09-09, read as at 2026-06-30 left R1,150 on
+ * the control account with nothing on the sub-ledger side — a false difference
+ * at EVERY as-at date between the two, and a hard fail on the close checklist.
+ *
+ * The dated answer is the reversal chain's PARITY as at the date. The link
+ * column always points at the original entry and reversing is additive
+ * (reversing O posts R with reversal_of_id = O, reversing R posts R2), so the
+ * chain is linear and the document's journal is standing exactly when an ODD
+ * number of its posted entries are dated on or before the as-at date. That one
+ * predicate covers every population without a historical repair:
+ *
+ *   - deleted before this change, journal never reversed  -> 1, standing, kept
+ *   - deleted after it, as-at before the reversal          -> 1, standing, kept
+ *   - deleted after it, as-at on or after the reversal     -> 2, out, dropped
+ *   - the delete's reversal itself reversed by hand        -> 3, standing, kept
+ *   - never posted, or the link is NULL                    -> 0, out, dropped
+ *
+ * CASE rather than OR so the recursive walk is only ever evaluated for a
+ * deleted row: CASE guarantees the arms are not evaluated when the condition
+ * decides it, an OR arm is merely likely to be ordered that way by the planner.
+ *
+ * Built with ONE `sql.unsafe` rather than a nested tagged template. A nested
+ * `sql` call is a call on the mocked client in every unit suite that stubs
+ * `@/lib/neon`, so it silently consumes a `mockResolvedValueOnce` and shifts
+ * every queued row after it; `unsafe` builds the same spliceable fragment
+ * without one. The tenant is carried as a PARAMETER, not as the correlated
+ * `<alias>.company_id`, so the fragment scopes itself the way every other query
+ * in the codebase does and a caller cannot forget it.
+ */
+
+import { sql } from '@/lib/neon';
+
+/** Table alias the surrounding query gives the invoice: `ci` (AR) or `si` (AP). */
+export type InvoiceAlias = 'ci' | 'si';
+
+/**
+ * A boolean fragment: TRUE when the document belongs on the sub-ledger side of
+ * a comparison drawn as at `asAtStr`. Replaces a bare `<alias>.deleted_at IS
+ * NULL` and must be paired with a GL half bounded by `entry_date <= asAtStr`.
+ *
+ * The row must expose `deleted_at` and `gl_journal_entry_id`.
+ */
+export function documentInLedgerAsAt(alias: InvoiceAlias, asAtStr: string, companyId: string) {
+  return sql.unsafe(
+    `(CASE WHEN ${alias}.deleted_at IS NULL THEN TRUE ELSE (
+        WITH RECURSIVE chain AS (
+          SELECT je.id, je.entry_date
+          FROM gl_journal_entries je
+          WHERE je.id = ${alias}.gl_journal_entry_id
+            AND je.company_id = $1::UUID
+            AND je.status = 'posted'
+          UNION ALL
+          SELECT j.id, j.entry_date
+          FROM gl_journal_entries j
+          JOIN chain ON j.reversal_of_id = chain.id
+          WHERE j.company_id = $2::UUID
+            AND j.status = 'posted'
+        )
+        SELECT COUNT(*) FILTER (WHERE chain.entry_date <= $3::date) % 2 = 1
+        FROM chain
+      ) END)`,
+    [companyId, companyId, asAtStr],
+  );
+}

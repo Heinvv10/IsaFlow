@@ -6,8 +6,10 @@
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
+import { softDeleteRow, restoreRow } from './softDeleteRowOps';
 import { assertNoOpenDocuments } from './masterDeleteGuards';
 import { prepareInvoiceDelete, reinstateInvoiceJournal } from './softDeleteJournalService';
+import { SoftDeleteRefusalError } from './softDeleteErrors';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -26,124 +28,6 @@ const INVOICE_ENTITY_TYPES = new Set(['customer_invoice', 'supplier_invoice']);
 
 export function isValidEntityType(entityType: string): boolean {
   return ALLOWED_ENTITY_TYPES.has(entityType);
-}
-
-// ── Soft-delete per table ────────────────────────────────────────────────────
-
-async function softDeleteRow(
-  entityType: string,
-  entityId: string,
-  companyId: string,
-): Promise<boolean> {
-  let rows: { id: string }[];
-
-  switch (entityType) {
-    case 'customer':
-      rows = await sql`
-        UPDATE customers SET deleted_at = NOW()
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'supplier':
-      rows = await sql`
-        UPDATE suppliers SET deleted_at = NOW()
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'item':
-      rows = await sql`
-        UPDATE items SET deleted_at = NOW()
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'bank_rule':
-      rows = await sql`
-        UPDATE bank_rules SET deleted_at = NOW()
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'customer_invoice':
-      rows = await sql`
-        UPDATE customer_invoices SET deleted_at = NOW()
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'supplier_invoice':
-      rows = await sql`
-        UPDATE supplier_invoices SET deleted_at = NOW()
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    default:
-      throw new Error(`Unknown entity type: ${entityType}`);
-  }
-
-  return rows.length > 0;
-}
-
-// ── Restore per table ────────────────────────────────────────────────────────
-
-async function restoreRow(
-  entityType: string,
-  entityId: string,
-  companyId: string,
-): Promise<boolean> {
-  let rows: { id: string }[];
-
-  switch (entityType) {
-    case 'customer':
-      rows = await sql`
-        UPDATE customers SET deleted_at = NULL
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'supplier':
-      rows = await sql`
-        UPDATE suppliers SET deleted_at = NULL
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'item':
-      rows = await sql`
-        UPDATE items SET deleted_at = NULL
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'bank_rule':
-      rows = await sql`
-        UPDATE bank_rules SET deleted_at = NULL
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'customer_invoice':
-      rows = await sql`
-        UPDATE customer_invoices SET deleted_at = NULL
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    case 'supplier_invoice':
-      rows = await sql`
-        UPDATE supplier_invoices SET deleted_at = NULL
-        WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
-        RETURNING id
-      ` as { id: string }[];
-      break;
-    default:
-      throw new Error(`Unknown entity type: ${entityType}`);
-  }
-
-  return rows.length > 0;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -195,7 +79,7 @@ async function softDeleteInner(
 
     const deleted = await softDeleteRow(entityType, entityId, companyId);
     if (!deleted) {
-      throw new Error(`${entityType} not found or already deleted`);
+      throw new SoftDeleteRefusalError(`${entityType} not found or already deleted`);
     }
 
     log.info('Soft deleted entity', { entityType, entityId, companyId }, 'accounting');

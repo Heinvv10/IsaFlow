@@ -23,6 +23,8 @@ import {
   undoDelete,
   isValidEntityType,
 } from '@/modules/accounting/services/core/softDeleteService';
+import { SoftDeleteRefusalError } from '@/modules/accounting/services/core/softDeleteErrors';
+import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 /**
  * Refusals the caller can act on, as opposed to a fault. Both the delete and
@@ -31,18 +33,20 @@ import {
  * fix, not a 500. withAuth only ROLLBACKs above 4xx, so the savepoint inside
  * softDelete/undoDelete is what keeps a 400 from committing the reversal's
  * draft rows.
+ *
+ * Decided by TYPE, not by substring. The old `message.includes('not found')`
+ * also matched reverseJournalEntry's `Journal entry <id> not found` and
+ * getSystemAccount's "... account not found" — genuine data faults, which the
+ * undo path (newly wired to this helper) then answered as a 400 carrying the
+ * raw internal message, skipping the log.error branch entirely. Only the
+ * missing-fiscal-period case is still matched on text: fiscalPeriodAutoCreate
+ * and resolveReversalDate raise it as a plain Error.
  */
 function isUserFixable(err: unknown): err is Error {
   if (!(err instanceof Error)) return false;
-  const message = err.message;
-  return (
-    message.includes('not found') ||
-    message.includes('already deleted') ||
-    message.includes('Cannot delete a posted') ||
-    message.includes('with payments') ||
-    message.includes('fiscal period') ||
-    message.includes('No fiscal period')
-  );
+  if (err instanceof SoftDeleteRefusalError) return true;
+  if (err instanceof ClosedFiscalPeriodError) return true;
+  return err.message.includes('fiscal period');
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

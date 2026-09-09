@@ -73,14 +73,22 @@ async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Net movement on an account across POSTED journals only. */
-async function controlBalance(accountId: string): Promise<number> {
+/**
+ * Net movement on an account across POSTED journals dated on or before the
+ * as-at date. The bound is not decoration: the aging figures these balances
+ * are compared against are drawn AS AT that date, so an unbounded sum proves a
+ * whole-of-ledger tie and says nothing about the as-at one. Round 3 had no
+ * bound here and the date-blind exclusion it shipped went unseen because of it
+ * — see k053-aging-as-at-reversal-date.int.test.ts.
+ */
+async function controlBalance(accountId: string, asAt: string = AS_AT): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(l.debit - l.credit), 0) AS net
     FROM gl_journal_lines l
     JOIN gl_journal_entries e ON e.id = l.journal_entry_id
     WHERE l.company_id = ${COMPANY}::UUID AND l.gl_account_id = ${accountId}::UUID
       AND e.status = 'posted'
+      AND e.entry_date <= ${asAt}::date
   `) as { net: string | number }[];
   return Number(rows[0]!.net);
 }
