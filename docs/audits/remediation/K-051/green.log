@@ -1,31 +1,42 @@
 K-051 / K-052 — GREEN evidence (branch fix/audit-k051-k052-header-account-guard, off origin/master 0f16391e)
+Second pass, 2026-09-09: blind-review findings in scratchpad/review-k051.md (4 MEDIUM / 4 LOW) closed.
 
-1. RED on origin/master (my worktree, before any production edit):
-   bun run test:integration -- k051... k052...
+1. RED on origin/master (before any production edit):
    -> Test Files 2 failed (2); Tests 2 failed | 1 passed (3)
    K-051: expected +0 to be close to 1500 (total assets after the merge).
    K-052: admitReclassification admitted the level-2 header target.
 
-2. GREEN after the fix (tests reshaped to assert the refusal, plus adjacent cases):
-   -> Test Files 2 passed (2); Tests 9 passed (9)
-      K-051 4 tests, K-052 5 tests, real disposable Postgres.
+2. GREEN: bun run test:integration -- k051... k052...
+   -> Test Files 2 passed (2); Tests 17 passed (17)   [K-051 9, K-052 8], real disposable Postgres.
 
-3. Mutation check — both guards disabled in place (`if (false && ...)`), tests re-run:
-   -> Tests 3 failed | 6 passed (9)
-      x refuses a merge that would turn the target into a header account
-      x refuses a level-2 target that is ALREADY a header, even from a childless source
-      x refuses a reclassification whose target is a parent header account
-   Production files restored from backup afterwards; `grep -c "if (false"` = 0 in both.
+3. Mutation checks — 9 mutations, each applied alone, both suites re-run, then restored:
+   M1 drop `level >= 3` early return in the merge guard      -> 1 failed (level-3-with-children admitted)
+   M2 drop the account-type gate in the merge guard          -> 1 failed (level-2 expense header)
+   M3 drop the harmless-source exemption                     -> 1 failed (already-header, empty source)
+   M4 neuter the merge guard entirely (`if (true) return;`)  -> 3 failed (both refusals + knock-on)
+   M5 run the header guard BEFORE the descendant check       -> 1 failed (cycle reported as header)
+   M6 drop `level >= 3` in isReportVisibleLeaf               -> 1 failed (K-052 level-3 with children)
+   M7 drop the account-type gate in isReportVisibleLeaf      -> 1 failed (K-052 expense header)
+   M8 revert `Number(level) || 1` to `?? 1`                  -> 1 failed (refusal reads "level 0")
+   M9 disable the K-052 refusal (`if (false)`)               -> 2 failed
+   Files diffed against pre-mutation backups afterwards: IDENTICAL; no `if (true) return` / `if (false`
+   left anywhere under services/gl/.
 
 4. Full unit suite, DATABASE_URL unset (`env -u DATABASE_URL bunx vitest run`):
-   run A -> 1 failed | 9427 passed | 234 skipped  (reclassificationLockSequence: its mocked
-            getAccountById omitted `level`; fixture updated)
-   run B -> 6 failed | 9428 passed  (bankAllocationService x4, cashFlowReport, bankAllocationUnwind)
-   run C -> 1 failed | 9433 passed  (bankAllocationUnwind only)
-   The failing set changes between runs and all four files pass in isolation
-   (4 files / 28 tests passed). None of them import accountMergeGuards, planGuards or
-   isReportVisibleLeaf. Treated as pre-existing flakiness under full-suite load, NOT verified
-   against a clean origin/master run.
+   -> 5 files failed | 787 passed | 36 skipped; Tests 10 failed | 9424 passed | 234 skipped.
+   All 10 are 10s timeouts in bankAllocationService, bank/bankAllocationDateShift,
+   bank/bankAllocationUnwind and cashFlowReport. Load average was 122 (parallel agent sessions).
+   The four files pass in isolation (4 files / 24 tests passed) and none import accountMergeGuards,
+   accountMergeService, planGuards, accountParentRules or isReportVisibleLeaf. Load-related, not
+   this branch — NOT verified against a clean origin/master run.
+   Targeted: reclassificationLockSequence + mergeGlAccountsTool + tests/unit/services/gl/
+   -> 28 files passed | 1 skipped; 379 passed | 4 skipped.
 
-5. bunx tsc --noEmit: clean. bunx eslint on the three changed src files: clean.
-   bun run agent-docs:check: OK, 74 mirrors match.
+5. bunx tsc --noEmit: clean. bunx eslint on the five changed src files: clean.
+
+6. Concurrency (review LOW). The requested post-write re-read was implemented, then REMOVED as
+   unreachable: `gl_accounts_parent_account_id_fkey` references gl_accounts(id), so a concurrent
+   child INSERT or reparent UPDATE onto the target needs FOR KEY SHARE on the target row and the
+   merge's FOR UPDATE conflicts with it. Proved with two pool clients: both statements return
+   55P03 under a 1s lock_timeout while the lock is held, and nothing is written. The first attempt
+   at an interleaving test deadlocked (40P01) for exactly this reason, which is what surfaced it.
