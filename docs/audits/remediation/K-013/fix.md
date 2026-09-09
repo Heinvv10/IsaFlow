@@ -105,3 +105,36 @@ WHERE status = 'active' AND EXISTS (
      OR COALESCE((li->>'quantity')::numeric, 0) <= 0
      OR li->>'unitPrice' IS NULL);
 ```
+
+---
+
+# Re-review round (blind re-review of 1c39bf80 — 1 HIGH, 2 LOW, 1 partial)
+
+**H2 — a lock timeout aborted the request transaction outside any savepoint.** The savepoint now
+opens BEFORE the lock: `generateInvoiceFromRecurring` is a one-line `withSavepoint` around
+`runOneTemplate`, so the template lock, the invoice-number `MAX()` read and everything after them
+are covered. A 55P03 rolls back to that savepoint, the transaction stays usable, and the typed
+`RecurringInvoiceLockTimeoutError` ("retry in a moment") is a real per-template skip. Same shape as
+the fix K-014 applied to its bulk route, placed in the service so both callers inherit it. The
+`assertTxUsable()` rethrows added in the previous round stay: they still catch the case where the
+savepoint's OWN rollback fails, which is the only case that sets `txUnusable`.
+
+**M1 — now fully closed.** The partial was H2; with the whole body inside the savepoint there is no
+statement left outside it.
+
+**L4 — `lock_timeout` restored** to `DEFAULT` on the lock's success path, matching
+`approveCustomerInvoice`. Not on the failure path: after a timeout the transaction is aborted and
+that statement would raise 25P02 over the typed error.
+
+**L5 — aggregate check tightened.** Subtotal, tax and total are compared separately, so a wrong
+subtotal offset by a compensating tax no longer passes, and the tolerance is capped at R1.00 rather
+than growing a cent per line. A nullish stored column is skipped rather than read as zero.
+
+**Tests.** 14 integration (was 12) and 17 unit (was 14). The new integration test holds the template
+row with a second pool client past the 5s timeout and asserts three things: the contended template
+fails with the typed lock error, the uncontended sibling still generates, and the runner's `COMMIT`
+returns the command `COMMIT` rather than being silently executed as `ROLLBACK`. Mutations P1-P3 in
+`green-followup.log` each turn tests red.
+
+**Behaviour change, restated for callers.** "Run Now" on a template that is not yet due is refused,
+and the message tells the operator to move the next run date forward.

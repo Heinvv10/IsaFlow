@@ -1,0 +1,36 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k013-recurring-invoice-no-lines-no-gl.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-013
+
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  06:26:56
+   Duration  6.72s (transform 396ms, setup 0ms, import 508ms, tests 6.00s, environment 0ms)
+
+
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+   Start at  06:27:03
+   Duration  264ms (transform 32ms, setup 0ms, import 46ms, tests 10ms, environment 0ms)
+
+
+=== Full unit suite, DATABASE_URL unset (brief addendum) ===
+785 files passed | 36 skipped (821) — 9337 passed | 234 skipped (9571), 0 failed.
+(The earlier round's 6 failures were 10s timeouts under load in bank/cash-flow
+files; origin/master showed 10 of the same. This run had none.)
+No production database was queried at any point.
+
+=== Mutation check (follow-up round) ===
+P1  lock taken OUTSIDE the savepoint again  -> 1 failed | 12 passed  (H2)
+P2  lock_timeout not restored on success    -> 1 failed | 13 passed  (L4)
+P3  tolerance uncapped and total-only       -> 2 failed | 15 passed  (L5, unit)
+Restored after each; final runs 14 integration + 17 unit passed.
+
+P2 note: the leak is only visible on the lock helper itself. A full run masks
+it, because approveCustomerInvoice issues SET LOCAL lock_timeout = DEFAULT on
+its own success path — the first version of that test passed under the mutation
+and was rewritten to call lockRecurringTemplate directly.
+
+Still not mutation-covered, unchanged: the `AND company_id` on the schedule
+UPDATE (L3) and the savepoint-name sequencing (L2).

@@ -16,6 +16,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { als } from '../../src/lib/als';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { generateInvoiceFromRecurring } from '../../src/modules/accounting/services/ar/recurringInvoiceService';
+import { lockRecurringTemplate } from '../../src/modules/accounting/services/ar/recurringInvoiceLock';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -388,4 +389,82 @@ it('rolls the invoice back when the schedule advance itself fails', async () => 
   const after = await pool.query(
     "SELECT count(*)::int AS n FROM customer_invoices WHERE company_id=$1 AND notes='Overflow'", [company]);
   expect(after.rows[0].n).toBe(0);
+});
+
+it('survives a lock timeout: the contended template fails alone and its siblings commit', async () => {
+  // Review H2: the 5s lock_timeout raises 55P03, which ABORTS the request
+  // transaction. Taken outside a savepoint there is nothing to unwind to —
+  // every later template fails 25P02, the runner reports them as skips, and
+  // withAuth COMMITs on the 200, a COMMIT Postgres executes as ROLLBACK. The
+  // caller is then handed ids for invoices that do not exist. assertTxUsable
+  // cannot see this: txUnusable is set only when a savepoint's rollback fails.
+  const contended = crypto.randomUUID(), sibling = crypto.randomUUID();
+  for (const [id, name] of [[contended, 'Contended'], [sibling, 'Sibling']] as [string, string][]) {
+    await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
+      VALUES($1,$2,$3,$4,'monthly',CURRENT_DATE - INTERVAL '3 days',$3,$5::jsonb,100,15,15,115,$6,'active')`,
+      [id, company, name, customer, JSON.stringify([{ description: `${name} line`, quantity: 1, unitPrice: 100 }]), user]);
+  }
+
+  // Holder keeps the contended template's row locked past the 5s timeout.
+  const holder = await pool.connect();
+  const runner = await pool.connect();
+  try {
+    await holder.query('BEGIN');
+    await holder.query('SELECT * FROM recurring_invoices WHERE id=$1 FOR UPDATE', [contended]);
+
+    await runner.query('BEGIN');
+    const ctx = { client: runner, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0];
+    const outcome = await als.run(ctx, async () => {
+      const results: string[] = [];
+      for (const id of [contended, sibling]) {
+        try {
+          results.push(`ok:${await generateInvoiceFromRecurring(company, id, user)}`);
+        } catch (err) {
+          results.push(`err:${err instanceof Error ? err.name : 'unknown'}`);
+        }
+      }
+      return results;
+    });
+
+    expect(outcome[0]).toBe('err:RecurringInvoiceLockTimeoutError');
+    // The transaction survived the abort, so the uncontended sibling ran.
+    expect(outcome[1]).toMatch(/^ok:/);
+    // And the COMMIT is a real COMMIT, not a silent ROLLBACK.
+    const commit = await runner.query('COMMIT');
+    expect(commit.command).toBe('COMMIT');
+    await holder.query('ROLLBACK');
+  } finally {
+    holder.release(); runner.release();
+  }
+
+  const kept = await pool.query(
+    "SELECT count(*)::int AS n FROM customer_invoices WHERE company_id=$1 AND notes='Sibling'", [company]);
+  expect(kept.rows[0].n).toBe(1);
+  const lost = await pool.query(
+    "SELECT count(*)::int AS n FROM customer_invoices WHERE company_id=$1 AND notes='Contended'", [company]);
+  expect(lost.rows[0].n).toBe(0);
+  const ri = (await pool.query('SELECT run_count FROM recurring_invoices WHERE id=$1', [contended])).rows[0];
+  expect(Number(ri.run_count)).toBe(0);
+});
+
+it('restores lock_timeout after a successful lock, so it does not leak onto later statements', async () => {
+  // Review L4: SET LOCAL lock_timeout = '5s' is a transaction setting. Left
+  // set, the 5s ceiling applies to every later statement in the request and can
+  // fail an unrelated write with 55P03 for reasons of its own. Asserted on the
+  // lock helper directly: a full run would mask the leak, because
+  // approveCustomerInvoice resets the setting on its own success path.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const before = (await client.query('SHOW lock_timeout')).rows[0].lock_timeout;
+    const ctx = { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0];
+    const row = await als.run(ctx, () => lockRecurringTemplate(company, template));
+    expect(row).not.toBeNull();
+    const after = (await client.query('SHOW lock_timeout')).rows[0].lock_timeout;
+    expect(after).toBe(before);
+    expect(after).not.toBe('5s');
+    await client.query('COMMIT');
+  } finally {
+    client.release();
+  }
 });
