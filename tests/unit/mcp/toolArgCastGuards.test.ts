@@ -21,7 +21,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/neon', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/neon')>();
-  const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), {
+  const sqlFn = Object.assign(vi.fn(async (strings: TemplateStringsArray) => {
+    // Independent known empty cash population; a census SELECT still returns one row.
+    return strings.join('').includes('WITH census AS') ? [{ id: null, population_count: '0' }] : [];
+  }), {
     transaction: vi.fn(),
     unsafe: vi.fn((s: string) => s),
   });

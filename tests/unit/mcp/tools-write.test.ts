@@ -542,6 +542,9 @@ describe('write-tool manifest invariants', () => {
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
     const argsByTool: Record<string, Record<string, unknown>> = {
+      // Scan real validation refusals; successful jobs require issued authority and actual storage.
+      audit_snapshot: { cutoff: '2026-09-09', sources: [], checks: [], ...KEY },
+      export_audit_evidence: { snapshot_id: 'not-a-uuid', ...KEY },
       create_draft_invoice: { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_quote: { customer_name: 'A', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_journal: { date: '2026-06-30', lines: [{ account_id: 'ddd887ce-a246-46cb-898c-2bd2f4ddecfe', debit: 1, credit: 0 }, { account_id: '3413c139-d94c-48bd-8513-baff94ff4818', debit: 0, credit: 1 }], ...KEY },
@@ -654,6 +657,7 @@ describe('write-tool manifest invariants', () => {
       approve_pay_run: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
+    expect(Object.keys(argsByTool).sort()).toEqual([...WRITE_NAMES].sort());
     for (const name of WRITE_NAMES) {
       corpus += JSON.stringify(await tool(name).handler(argsByTool[name]!, ctx()));
     }
