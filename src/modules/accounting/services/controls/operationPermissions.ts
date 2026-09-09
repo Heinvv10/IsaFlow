@@ -41,6 +41,8 @@ function definition(operation:string){
   return operations[operation]!;
 }
 export function operationPermission(operation:string,access:'read'|'write'):string{return definition(operation)[access];}
+/** The approval reader uses this authoritative catalogue before querying any domain rows. */
+export function approvalOperationNames():readonly string[]{return Object.freeze(Object.keys(operations).sort());}
 export function operationRuleType(operation:string){return definition(operation).rule;}
 
 export function operationRequiresPosting(operation:string):boolean{
