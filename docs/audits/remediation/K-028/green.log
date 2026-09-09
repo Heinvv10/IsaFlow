@@ -1,0 +1,30 @@
+K-028 (PPE additions) + R-007 (fiscal-year boundaries) — GREEN
+
+Integration (real Postgres fixture, DATABASE_URL sourced):
+  bun run test:integration -- tests/integration/k028
+  Test Files  2 passed (2)
+  Tests       6 passed (6)
+    k028-ppe-additions-include-prior-year.int.test.ts  2 (validator RED, now green)
+    k028-afs-summary-fiscal-year.int.test.ts           4 (adjacent cases)
+
+Full unit suite (DATABASE_URL unset):
+  env -u DATABASE_URL bunx vitest run
+  Test Files  790 passed | 36 skipped (826)
+  Tests       9391 passed | 234 skipped (9625)
+  (A first run showed 2 timeouts in cashFlowReport.test.ts and a
+   bankReconciliation ordering test — 10.3s on a 2-test file, under parallel
+   load. Both pass in isolation and neither imports afs-summary.ts. A clean
+   re-run of the whole suite passed 9391/9391.)
+
+tsc --noEmit    exit 0
+eslint pages/api/accounting/assets/afs-summary.ts  exit 0
+
+MUTATION PROOF (production change reverted, tests re-run, then restored):
+  1. additions expression back to `MIN(apl.yyyymm) >= currentYearStart`
+       -> 5 failed | 1 passed (6). Both K-028 tests RED, plus all three
+          fiscal-year figure tests, which also depend on the additions test.
+  2. boundaries back to `${year}01` / `${year-1}${month}`
+       -> 2 failed | 4 passed (6). The February-year-end and interim-period
+          tests RED; the K-028 pair stays green, confirming the two defects
+          are independent.
+  Restored, re-ran: 6 passed (6).
