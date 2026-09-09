@@ -18,6 +18,9 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlFn,
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+    // The reversal's writes run inside a savepoint; with `sql` mocked there is
+    // no transaction to hold one, so run the body straight through.
+    withSavepoint: vi.fn((_name: string, fn: () => unknown) => fn()),
     fmtDate: vi.fn(() => '2026-08-04'),
   };
 });
@@ -26,6 +29,10 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
   postJournalEntry: vi.fn(),
   reverseJournalEntry: vi.fn(),
+  resolveReversalDate: vi.fn(async () => '2026-08-04'),
+}));
+vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
+  getPeriodStatusForDate: vi.fn(async () => 'open'),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(),
@@ -54,13 +61,17 @@ const LINE_ID = '33333333-3333-3333-3333-333333333333';
 const JE_ID = '44444444-4444-4444-4444-444444444444';
 const USER_ID = '55555555-5555-5555-5555-555555555555';
 
-/** SELECT tx → SELECT journal_entry_id for the matched line → UPDATE reset. */
+/**
+ * SELECT tx → SELECT journal_entry_id for the matched line → SELECT entry_date
+ * for the reversal-date pre-flight → UPDATE reset.
+ */
 function primeReversal(): void {
   vi.mocked(sql)
     .mockResolvedValueOnce([
       { id: TX_ID, status: 'allocated', matched_journal_line_id: LINE_ID },
     ] as never)
     .mockResolvedValueOnce([{ journal_entry_id: JE_ID }] as never)
+    .mockResolvedValueOnce([{ entry_date: '2026-08-04' }] as never)
     .mockResolvedValueOnce([] as never);
 }
 
