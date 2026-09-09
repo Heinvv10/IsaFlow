@@ -22,7 +22,9 @@ const bodySchema=z.object({
   nextCursor:z.null(),coverage:z.array(text),missingSources:z.array(text),capturedAt:z.string().datetime(),cutoff:date,
   sourceVersions:z.array(z.object({entityType:text,entityId:text,version:z.number().int().nonnegative(),fingerprint:hash}).strict()),
  }).strict()).max(6),
- evidence:z.array(z.object({id:text,sha256:hash,byteLength:z.number().int().nonnegative().max(100*1024*1024),mediaType:text}).strict()).max(AUDIT_JOB_LIMITS.maxRecords),
+ evidence:z.array(z.object({id:text,sha256:hash,byteLength:z.number().int().nonnegative().max(100*1024*1024),mediaType:text,
+  relations:z.array(z.object({parentSource:text,parentId:text,relation:text}).strict()).max(AUDIT_JOB_LIMITS.maxRecords).optional(),
+ }).strict()).max(AUDIT_JOB_LIMITS.maxRecords),
  coverage:z.array(text).max(1000),missingSources:z.array(text).max(1000),
 }).strict();
 export type AuditSnapshotData=z.infer<typeof bodySchema>;
@@ -51,6 +53,16 @@ function normalize(input:unknown):AuditSnapshotData{
  body.records=sortedUnique(body.records,row=>canonicalJson([row.source,row.id]));
  body.populations=sortedUnique(body.populations,row=>row.source);
  body.evidence=sortedUnique(body.evidence,row=>row.id);
+ const parents=new Set(body.records.map(row=>canonicalJson([row.source,row.id])));let relationCount=0;
+ for(const evidence of body.evidence){
+  if(evidence.relations===undefined)continue; // Old sealed snapshots retain their original canonical bytes.
+  relationCount+=evidence.relations.length;
+  if(relationCount>AUDIT_JOB_LIMITS.maxRecords)throw new Error('Snapshot evidence relation limit');
+  evidence.relations=sortedUnique(evidence.relations,row=>canonicalJson([row.parentSource,row.parentId,row.relation]));
+  for(const relation of evidence.relations){
+   if(!parents.has(canonicalJson([relation.parentSource,relation.parentId])))throw new Error('Snapshot evidence parent missing');
+  }
+ }
  body.checks=sortedUnique(body.checks,row=>row.checkId);
  body.coverage=sortedUnique(body.coverage,value=>value);body.missingSources=sortedUnique(body.missingSources,value=>value);
  const counts=new Map<string,number>();for(const row of body.records)counts.set(row.source,(counts.get(row.source)??0)+1);
