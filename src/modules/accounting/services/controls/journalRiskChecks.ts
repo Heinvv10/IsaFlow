@@ -11,6 +11,7 @@ export async function checkJournalRisks(ctx:ControlTx,options:RiskCheckOptions={
   if(row.version===null)missing.push('historical_journal_versions_unavailable');
   if(row.actualBasis!=='posted_at')missing.push('actual_posting_time_unavailable_creation_time_used');
   if(!row.periodEventId)missing.push('historical_period_state_unavailable');
+  if(row.changeCount>100)missing.push('journal_change_history_exceeds_100');
   if(row.lineCount>100)missing.push('journal_line_material_exceeds_100');
   if(!row.reversalOwned)missing.push('reversal_parent_ownership_unavailable');
  }

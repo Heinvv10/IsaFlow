@@ -3,6 +3,7 @@ const Money=Decimal.clone({precision:80});
 export interface JournalRiskRow {
  id:string;accountingDate:string;actualAt:Date|string|null;actualBasis:'posted_at'|'created_at';personId:string|null;
  amount:string;currency:string;reversalOfId:string|null;reversedAt:Date|string|null;periodState:string|null;periodEventId:string|null;version:number|null;
+ changes?:readonly {id:string;action:string;periodState:string|null;periodEventId:string|null}[];
 }
 export interface JournalThreshold {id:string;version:number;amount:string;operator:'greater_than'|'greater_equal'}
 const parts=(at:Date|string|null)=>{
@@ -20,6 +21,7 @@ export function analyseJournalRisks<T extends JournalRiskRow>(rows:readonly T[],
    if(actual.hour<8||actual.hour>=18)signals.push('outside_business_hours');
    if(actual.weekday===0||actual.weekday===6)signals.push('weekend_actual_time');
   }
+  if(row.changes?.some(change=>change.periodEventId&&['closed','locked'].includes(change.periodState??'')))signals.push('change_after_recorded_period_close');
   if(row.reversalOfId||row.reversedAt)signals.push('reversal_relation');
   if(row.actualBasis==='posted_at'&&row.periodEventId&&['closed','locked'].includes(row.periodState??''))signals.push('write_after_recorded_period_close');
  }

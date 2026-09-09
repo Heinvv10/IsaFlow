@@ -2,7 +2,7 @@ import type {ControlTx} from './contracts';
 import {assertControlTx} from './context';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import type {StatementObservation} from './bankStatementCompletenessAnalysis';
-export interface BankStatementSource extends StatementObservation {population:string;currency:string;documentId:string|null;documentHash:string|null;version:number|null;sourceStatus:string|null}
+export interface BankStatementSource extends StatementObservation {population:string;currency:string;documentId:string|null;documentHash:string|null;version:number|null;sourceStatus:string|null;importedFingerprint:string}
 /** Source import roots stay visible even when their account/document relationship is corrupt. */
 export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|null){
  assertControlTx(ctx);await assertEffectivePermission(ctx,'read:reports');await assertEffectivePermission(ctx,'read:bank-tx');
@@ -22,6 +22,9 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
   AND b.transaction_date>=r.period_start AND b.transaction_date<=r.period_end) AS "importedCount",
  COALESCE((SELECT SUM(b.amount) FROM bank_transactions b WHERE b.company_id=${ctx.principal.companyId}::uuid AND b.bank_account_id=a.id
   AND b.transaction_date>=r.period_start AND b.transaction_date<=r.period_end),0)::text AS "importedNet",
+ (SELECT encode(digest(COALESCE(string_agg(f.id::text||':'||f.amount::text||':'||f.transaction_date::text,',' ORDER BY f.id),''),'sha256'),'hex')
+  FROM(SELECT b.id,b.amount,b.transaction_date FROM bank_transactions b WHERE b.company_id=${ctx.principal.companyId}::uuid
+   AND b.bank_account_id=a.id AND b.transaction_date>=r.period_start AND b.transaction_date<=r.period_end ORDER BY b.id LIMIT 10001) f) AS "importedFingerprint",
  d.id AS "documentId",d.raw_bytes_sha256 AS "documentHash",
  COALESCE(d.raw_bytes IS NOT NULL AND octet_length(d.raw_bytes) BETWEEN 1 AND 10485760 AND d.status NOT IN ('deleted','rejected')
   AND encode(digest(d.raw_bytes,'sha256'),'hex')=d.raw_bytes_sha256,false) AS "sourceBytesVerified"

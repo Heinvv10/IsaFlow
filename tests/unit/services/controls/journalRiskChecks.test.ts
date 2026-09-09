@@ -18,3 +18,8 @@ it('keeps reversals explicit and only flags closed-state chronology supplied by 
  .toEqual(expect.arrayContaining(['reversal_relation','write_after_recorded_period_close']));
  expect(analyseJournalRisks([{...row(),periodState:'open',periodEventId:'reopened'}],[])).toEqual([]);
 });
+it('retains a recorded amendment made during closure even after a later ordinary change',()=>{
+ const changed={...row(),changes:[{id:'change1',action:'journal.amended',periodState:'closed',periodEventId:'close1'},
+  {id:'change2',action:'journal.amended',periodState:'open',periodEventId:'open2'}]};
+ expect(analyseJournalRisks([changed],[])[0]?.reasons).toContain('change_after_recorded_period_close');
+});
