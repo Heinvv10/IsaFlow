@@ -1,0 +1,11 @@
+### MUTATION 1: restore imported_from = EXCLUDED.imported_from on conflict
+96:            imported_from   = EXCLUDED.imported_from
+ Test Files  2 failed (2)
+      Tests  2 failed | 2 passed (4)
+### MUTATION 2: drop the NOT EXISTS journal-line guard
+0
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 3 passed (4)
+### RESTORED
+ Test Files  2 passed (2)
+      Tests  4 passed (4)

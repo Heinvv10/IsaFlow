@@ -68,6 +68,10 @@ export async function executeMigration(
 
   if (validAccounts.length > 0) {
     try {
+      // imported_from is set on INSERT only, never on conflict: an account the
+      // company created itself must not acquire the source tag just because its
+      // code collides with an imported one — rollbackMigration deletes on that
+      // tag, and a NULL tag is what says "this account was not imported".
       await transaction((txSql) =>
         validAccounts.map(acct => txSql`
           INSERT INTO gl_accounts (
@@ -88,8 +92,7 @@ export async function executeMigration(
           ON CONFLICT (company_id, account_code) DO UPDATE SET
             account_name    = EXCLUDED.account_name,
             account_type    = EXCLUDED.account_type,
-            account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype),
-            imported_from   = EXCLUDED.imported_from
+            account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype)
         `)
       );
       accountsImported = validAccounts.length;
@@ -220,15 +223,26 @@ export async function rollbackMigration(
   let deleted = 0;
 
   try {
-    // Remove GL accounts imported from this source
+    // Remove GL accounts imported from this source, except any that already
+    // carry journal lines — the FK is NO ACTION, so an unqualified DELETE
+    // raises 23503 and aborts the whole rollback. Those accounts are retained.
     const acctRows = (await sql`
       DELETE FROM gl_accounts
       WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
+        AND NOT EXISTS (
+          SELECT 1 FROM gl_journal_lines jl
+          WHERE jl.gl_account_id = gl_accounts.id AND jl.company_id = ${companyId}::UUID
+        )
       RETURNING id
     `) as DbRow[];
     deleted += acctRows.length;
 
-    log.info('Rollback complete', { companyId, source, deleted }, 'migration');
+    const retainedRows = (await sql`
+      SELECT count(*)::INT AS n FROM gl_accounts
+      WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
+    `) as DbRow[];
+
+    log.info('Rollback complete', { companyId, source, deleted, retained: Number(retainedRows[0]?.n ?? 0) }, 'migration');
   } catch (err) {
     log.error('Rollback failed', { companyId, source, error: err }, 'migration');
     throw err;
