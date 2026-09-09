@@ -10,7 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
-import { buildTakeOnLines, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
+import { buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 type Row = DbRow;
 
@@ -40,6 +40,9 @@ export async function importAPInvoices(
   const warnings: MigrationError[] = [];
   let imported = 0;
   let skipped = 0;
+
+  // Before any read: the idempotency check below is a read-then-write.
+  await lockMigrationImport(companyId);
 
   // No default_expense and no vat_input: a take-on document posts neither. See
   // migrationPostingSupport for why re-declaring the VAT is the deciding reason.

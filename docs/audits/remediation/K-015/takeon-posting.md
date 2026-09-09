@@ -53,6 +53,26 @@ would strand the operator with imported data and no way forward.
 and is unchanged here — a separate follow-up, as instructed. `historicalImport` therefore still has
 that caller; it is not orphaned by this change.
 
+## The race the lookup left open, and where it actually was
+
+`lockMigrationImport(companyId)` takes `pg_advisory_xact_lock(hashtext(company_id ||
+':migration-import'))` at the start of both document steps, before any read. It is
+transaction-scoped, so `withAuth`'s single request transaction releases it on COMMIT or ROLLBACK
+with no unlock to forget; it is re-entrant; and it is keyed on the company, so two tenants never
+wait on each other.
+
+**The race was AP only, and the first version of this test proved nothing.** I wrote the
+concurrency test against AR, it passed, and then it *kept* passing with the lock removed. The
+reason: the AR insert names `ON CONFLICT (company_id, invoice_number)` against
+`uq_customer_invoices_company_number`, so a second inserter already blocks on that index and then
+does nothing. AR was never racy. AP has no unique constraint at all — `duplicate_fingerprint`
+cannot carry one — so its idempotency is a bare read-then-write, and two concurrent runs each find
+nothing and both insert.
+
+Retargeted at AP, the test holds two transactions open at once, asserts the second is still blocked
+250ms after the first has finished its work, and asserts one document and one journal entry after
+both commit. Removing the lock now takes it red with two rows.
+
 ## Carried consequences, stated
 
 - `gl_journal_entry_id` on a migrated document points at an entry for the OUTSTANDING amount, not
