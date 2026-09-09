@@ -16,6 +16,17 @@ type Row = DbRow;
 export interface UndoResult {
   reversed: number;
   skipped: number;
+  /**
+   * Rows carrying the run's tag that had nothing left to reverse — neither a
+   * matched journal line nor a provisional JE. The product makes them:
+   * `unmatchTransaction` and `reverseReconciledTransaction` both clear
+   * `matched_journal_line_id` and leave `auto_post_run_id` set, so a user who
+   * undoes one line by hand and then undoes the run has one of these. All the
+   * undo does for such a row is clear the stale tag, which is not a reversal
+   * and must not be counted as one — `reversed` is the number the operator
+   * reconciles against.
+   */
+  alreadyUndone: number;
 }
 
 export async function undoRun(companyId: string, runId: string, userId: string): Promise<UndoResult> {
@@ -35,6 +46,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
 
   let reversed = 0;
   let skipped = 0;
+  let alreadyUndone = 0;
 
   for (const tx of txRows) {
     const txId = String(tx.id);
@@ -50,8 +62,10 @@ export async function undoRun(companyId: string, runId: string, userId: string):
           'auto-post-undo',
         );
       }
+      let didReverse = false;
       if (tx.matched_journal_line_id) {
         await reverseReconciledTransaction(companyId, txId, userId);
+        didReverse = true;
       } else if (tx.provisional_je_id) {
         await reverseJournalEntry(companyId, String(tx.provisional_je_id), userId);
         await sql`
@@ -59,12 +73,22 @@ export async function undoRun(companyId: string, runId: string, userId: string):
           SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
           WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
         `;
+        didReverse = true;
       }
       await sql`
         UPDATE bank_transactions SET auto_post_run_id = NULL
         WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
       `;
-      reversed += 1;
+      if (didReverse) {
+        reversed += 1;
+      } else {
+        alreadyUndone += 1;
+        log.info(
+          'Auto-post undo found a tagged transaction with nothing to reverse — clearing the stale run tag only',
+          { companyId, runId, txId },
+          'auto-post-undo',
+        );
+      }
     } catch (err) {
       log.error(
         'Auto-post undo failed for transaction — run will still be marked undone; manual reversal required for this tx',
@@ -81,6 +105,6 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  log.info('Auto-post run undone', { companyId, runId, reversed, skipped }, 'auto-post-undo');
-  return { reversed, skipped };
+  log.info('Auto-post run undone', { companyId, runId, reversed, skipped, alreadyUndone }, 'auto-post-undo');
+  return { reversed, skipped, alreadyUndone };
 }

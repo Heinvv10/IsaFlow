@@ -7,7 +7,7 @@
  * orchestration and settings logic to this file.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { allocateTransaction } from './bankAllocationService';
@@ -230,6 +230,12 @@ interface SweepRow {
  * else uses the suggestion (allocate) path. The run row is created lazily on
  * the first successful post — a sweep that posts nothing leaves no run row.
  */
+/**
+ * Savepoint name for one row of the sweep. `withSavepoint` caps names at 31
+ * characters, so this is a constant rather than an interpolation.
+ */
+const SWEEP_ROW_SAVEPOINT = 'auto_post_gate_line';
+
 export async function sweep(
   companyId: string,
   txIds: string[],
@@ -289,64 +295,82 @@ export async function sweep(
       continue;
     }
 
-    let jePosted = false;
+    // One row per savepoint, exactly as the rule sweep does
+    // (bankRulesMatchingService). Every request is ONE PostgreSQL transaction
+    // on the ALS client, and `allocateTransaction` opens with a
+    // `SELECT … FOR UPDATE` under `SET LOCAL lock_timeout` that sits OUTSIDE
+    // its own withTransaction — so a row a peer is holding raises a real 55P03
+    // that aborts the whole request. Without the savepoint the catch below
+    // swallowed it, every later row failed 25P02 with a skip reason about the
+    // abort rather than about itself, and the COMMIT threw away the posts this
+    // sweep had already made while the response still reported success.
+    //
+    // `runId` is restored on rollback: `ensureRun` INSERTs the run row inside
+    // the savepoint, so a row that mints the run and then fails leaves the
+    // in-memory id pointing at a row that no longer exists — which the next row
+    // would write into `auto_post_run_id`.
+    const runIdBeforeRow: string | null = runId;
     try {
-      if (isImport) {
-        const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence });
-        if (!res.journalEntryId) {
-          skipped.push({ txId: row.id, reason: res.skipped ?? 'no target' });
-          continue;
+      const skipReason = await withSavepoint(SWEEP_ROW_SAVEPOINT, async (): Promise<string | null> => {
+        if (isImport) {
+          const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence });
+          if (!res.journalEntryId) {
+            return res.skipped ?? 'no target';
+          }
+        } else {
+          // THE UNATTENDED POSTING BOUNDARY. `allocateTransaction` is the
+          // ATTENDED path and deliberately coerces nothing — the screen warned
+          // and the user's choice stands. Nobody is watching here, so the two
+          // VAT guards run before the call rather than inside it: s17(2)(a)
+          // entertainment denial, and the accounts on which no supply can arise
+          // at all. Without this the gate posts `suggested_vat_code` verbatim,
+          // and a high-confidence LLM suggestion of 'standard' on a salary
+          // account is exactly the R237,021.60 shape this feature exists to
+          // stop — just arriving through a different door than the rule sweep.
+          const requestedVat = row.suggested_vat_code ?? undefined;
+          const guarded = await resolveRuleVatCode({
+            allocType: 'account',
+            companyId,
+            requestedVatCode: requestedVat ?? 'none',
+            glAccountId: row.suggested_gl_account_id,
+            denialContext: { bankTxId: row.id, source: 'auto_post_gate' },
+            guardContext: { bankTxId: row.id, ruleName: 'auto-post gate' },
+          });
+          // Only substitute when a guard actually fired. Otherwise pass the
+          // original value through untouched, `undefined` included, so a row
+          // nobody objected to posts exactly as it did before this guard existed.
+          const effectiveVat = guarded.denied || guarded.nonSupplyCoerced
+            ? guarded.vatCode : requestedVat;
+          await allocateTransaction(
+            companyId, row.id, row.suggested_gl_account_id, userId,
+            row.description ?? undefined, 'account', undefined,
+            effectiveVat,
+            undefined, undefined, undefined, undefined,
+            { postingAgent: AUTO_POST_AGENT },
+          );
+          if (guarded.denied) vatDenied += 1;
+          if (guarded.nonSupplyCoerced) nonSupplyCoerced += 1;
         }
-        jePosted = true;
-      } else {
-        // THE UNATTENDED POSTING BOUNDARY. `allocateTransaction` is the
-        // ATTENDED path and deliberately coerces nothing — the screen warned
-        // and the user's choice stands. Nobody is watching here, so the two
-        // VAT guards run before the call rather than inside it: s17(2)(a)
-        // entertainment denial, and the accounts on which no supply can arise
-        // at all. Without this the gate posts `suggested_vat_code` verbatim,
-        // and a high-confidence LLM suggestion of 'standard' on a salary
-        // account is exactly the R237,021.60 shape this feature exists to
-        // stop — just arriving through a different door than the rule sweep.
-        const requestedVat = row.suggested_vat_code ?? undefined;
-        const guarded = await resolveRuleVatCode({
-          allocType: 'account',
-          companyId,
-          requestedVatCode: requestedVat ?? 'none',
-          glAccountId: row.suggested_gl_account_id,
-          denialContext: { bankTxId: row.id, source: 'auto_post_gate' },
-          guardContext: { bankTxId: row.id, ruleName: 'auto-post gate' },
-        });
-        // Only substitute when a guard actually fired. Otherwise pass the
-        // original value through untouched, `undefined` included, so a row
-        // nobody objected to posts exactly as it did before this guard existed.
-        const effectiveVat = guarded.denied || guarded.nonSupplyCoerced
-          ? guarded.vatCode : requestedVat;
-        await allocateTransaction(
-          companyId, row.id, row.suggested_gl_account_id, userId,
-          row.description ?? undefined, 'account', undefined,
-          effectiveVat,
-          undefined, undefined, undefined, undefined,
-          { postingAgent: AUTO_POST_AGENT },
-        );
-        if (guarded.denied) vatDenied += 1;
-        if (guarded.nonSupplyCoerced) nonSupplyCoerced += 1;
-        jePosted = true;
+        const id = await ensureRun(isImport ? null : (row.suggested_strategy ?? null));
+        await sql`
+          UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
+          WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID
+        `;
+        return null;
+      });
+      if (skipReason !== null) {
+        skipped.push({ txId: row.id, reason: skipReason });
+        continue;
       }
-      const id = await ensureRun(isImport ? null : (row.suggested_strategy ?? null));
-      await sql`
-        UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
-        WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID
-      `;
       posted += 1;
       totalAmount += Math.abs(Number(row.amount));
     } catch (err) {
+      // The savepoint took the JE and the run-tag back together, so the
+      // orphaned-JE case this used to report can no longer arise. It also took
+      // back the `bank_auto_post_runs` row if THIS row minted it.
+      runId = runIdBeforeRow;
       const reason = err instanceof Error ? err.message : String(err);
-      if (jePosted) {
-        log.error('Auto-post JE posted but run-tag failed — JE orphaned (needs manual reconciliation)', { companyId, txId: row.id, reason }, 'auto-post-gate');
-      } else {
-        log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
-      }
+      log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
       skipped.push({ txId: row.id, reason });
     }
   }

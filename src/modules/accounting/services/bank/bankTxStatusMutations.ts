@@ -66,11 +66,57 @@ async function lockForStatusWrite(companyId: string, bankTxId: string, verb: str
   return row;
 }
 
+/**
+ * The journal line and reconciliation a match points at must belong to the
+ * caller's company, and the line must not already be claimed by another row.
+ *
+ * `lockForStatusWrite` above checks only the BANK row. The FK to
+ * `gl_journal_lines(id)` is not a tenant check — referential integrity is not
+ * subject to row-level security — so an id from another company was accepted
+ * and the row left `matched` against a line no query in this company can
+ * resolve. A non-existent id surfaced as a raw FK violation, which also poisons
+ * the request transaction instead of returning a clean 400. And one line bound
+ * to two bank transactions double-counts that line in the reconciled balance.
+ *
+ * The `bank_transfer` arm of `bank-match-confirm.ts` already looks its line up
+ * company-scoped before calling; the `journal_line` arm did not.
+ */
+async function assertMatchTargets(
+  companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string,
+): Promise<void> {
+  const line = (await sql`
+    SELECT id FROM gl_journal_lines
+    WHERE id = ${journalLineId}::UUID AND company_id = ${companyId}::UUID
+    LIMIT 1`) as Row[];
+  if (line.length === 0) throw new Error(`Journal line ${journalLineId} not found`);
+
+  const claimed = (await sql`
+    SELECT id FROM bank_transactions
+    WHERE matched_journal_line_id = ${journalLineId}::UUID
+      AND company_id = ${companyId}::UUID
+      AND id <> ${bankTxId}::UUID
+    LIMIT 1`) as Row[];
+  if (claimed.length > 0) {
+    throw new Error(
+      `Journal line ${journalLineId} is already matched to bank transaction ${String(claimed[0]!.id)}`,
+    );
+  }
+
+  if (reconciliationId) {
+    const rec = (await sql`
+      SELECT id FROM bank_reconciliations
+      WHERE id = ${reconciliationId}::UUID AND company_id = ${companyId}::UUID
+      LIMIT 1`) as Row[];
+    if (rec.length === 0) throw new Error(`Reconciliation ${reconciliationId} not found`);
+  }
+}
+
 export async function matchTransaction(
   companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string
 ): Promise<BankTransaction> {
   try {
     await lockForStatusWrite(companyId, bankTxId, 'match');
+    await assertMatchTargets(companyId, bankTxId, journalLineId, reconciliationId);
     let rows: Row[];
     if (reconciliationId) {
       rows = (await sql`
