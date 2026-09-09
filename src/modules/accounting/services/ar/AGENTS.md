@@ -12,7 +12,7 @@
 - **Dunning (PRD-06 Phase 5)**: `dunningService.ts` (render + send), `dunningCronService.ts`, `dunningAdmin.ts`, `dunningDefaults.ts`, `dunningOverridesService.ts`, `dunningInboundParseService.ts`.
 - **Sent-folder mirror (PRD-06 Phase 6)**: `sentMirrorService.ts`, `sentMirrorAdmin.ts`.
 - **Disputes (PRD-06 Phase 3)**: `disputeService.ts`.
-- **Statements**: `statementEmailService.ts`, `statementEmailTemplate.ts`.
+- **Statements**: `statementEmailService.ts`, `statementEmailTypes.ts`, `statementEmailTemplate.ts`.
 - **Customer portal**: `portalService.ts` (bcrypt auth, separate from GoTrue), `portalChatbotService.ts`, `portalTokenService.ts`.
 - `index.ts` — barrel (conflicting symbol files listed in header).
 

@@ -1,0 +1,123 @@
+== GREEN (fix applied) ==
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k020-reconciled-balance-double-count.int.test.ts" "tests/integration/k020-reconciled-balance-recompute.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-020
+
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  05:57:50
+   Duration  1.80s (transform 1.34s, setup 0ms, import 2.01s, tests 748ms, environment 0ms)
+
+
+== MUTATION CHECK: production file reverted to origin/master ==
+3 of 4 tests went RED (2000 vs 1050; 800 vs 400 twice); the tenant/date-boundary test
+stays green on master because it asserts the freshly-computed snapshot with no matched rows.
+File restored to the fixed version afterwards; tsc --noEmit and eslint both clean.
+
+== FULL UNIT SUITE (no fixture env; DATABASE_URL unset) ==
+$ env -u DATABASE_URL bunx vitest run
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+   Duration  73.69s
+No mocked fixture elsewhere broke on the SET-clause rewrite.
+
+================= REVIEW ROUND (0 HIGH / 3 MEDIUM / 4 LOW) =================
+
+== INTEGRATION (fix applied, fixture DB) ==
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+== MUTATION CHECK (service reverted to origin/master, captured) ==
+     × reflects the adjustment journal and does not re-add matched movements
+     × does not move the balance when a transaction becomes matched
+     × leaves the row untouched when called with the wrong company_id
+     × refuses an adjustment posted to a different bank account, and posts nothing
+     × refuses an adjustment on a completed reconciliation and preserves its balances
+AssertionError: expected 2000 to be 1050
+AssertionError: expected 800 to be 400
+AssertionError: expected 800 to be 400
+AssertionError: promise resolved "'1de19a53-...'" instead of rejecting  (wrong bank account)
+AssertionError: promise resolved "'c1684fb3-...'" instead of rejecting  (completed reconciliation)
+ Test Files  2 failed (2)
+      Tests  5 failed | 1 passed (6)
+Service restored; git diff --stat confirms the fixed version is back in place.
+The one test that stays green asserts a freshly computed snapshot with no matched
+rows, where the old formula yields the same 400.
+
+== FULL UNIT SUITE (no fixture env; DATABASE_URL unset) ==
+$ env -u DATABASE_URL bunx vitest run
+ Test Files  782 passed | 2 failed | 36 skipped (820)
+      Tests  9318 passed | 2 failed | 234 skipped (9554)
+The 2 failures are 10s timeouts in tests/unit/services/cashFlowReport.test.ts and
+tests/unit/services/bank/bankAllocationUnwind.test.ts — neither module is touched by
+this change, and both pass in isolation (2 files, 17 tests) on this same tree. The box
+is running many parallel agent suites; these are contention timeouts, not regressions.
+
+== FIXTURE BREAK CAUGHT BY THE FULL SUITE (real, fixed) ==
+tests/unit/services/bl80-83-tenant-isolation.test.ts mocked `sql` with a single
+mockResolvedValueOnce for the balance query. startReconciliation now composes the
+shared fragment and so calls sql() three times; the queued value was consumed by an
+argument expression and the unconsumed queue leaked into the next test, failing 3
+tests across BL-82 and BL-83. The mock now queues all three. 10/10 pass.
+
+== tsc / eslint ==
+bunx tsc --noEmit → clean. bunx eslint on the service and [reconId].tsx → clean.
+
+================= RE-REVIEW ROUND (1 MEDIUM / 1 LOW) =================
+
+== FULL UNIT SUITE (no fixture env; DATABASE_URL unset) ==
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+Fully green: the 2 timeouts recorded in the previous round were contention, as stated.
+
+== COMPONENT SUITE (vitest.components.config.ts; the .ts unit config excludes .tsx) ==
+$ bun run test:components
+      Tests  386 passed (386)
+Includes the new tests/unit/components/reconciliationBalances.test.tsx (2).
+
+== INTEGRATION (fixture DB) ==
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+== N2 mutation check: the mock no longer encodes the sql() call count ==
+bl80-83-tenant-isolation.test.ts → 10/10 pass against the NEW service (3 sql calls)
+bl80-83-tenant-isolation.test.ts → 10/10 pass against origin/master (1 sql call)
+Service restored afterwards.
+
+== N1 mutation check ==
+Tile reverted to formatCurrency(recon.reconciledBalance) → 1 of 2 component tests red.
+Component restored afterwards.
+
+== tsc / eslint ==
+bunx tsc --noEmit → clean. eslint on the service, the page and the new component → clean
+(the orphaned CheckCircle2 import the extraction left behind was removed).
+
+== NOT DONE ==
+No browser proof of the reconciliation page: no dev server is running on :3200 and
+starting a build on this box would disrupt the other agents' suites. The two conditionals
+are covered by a real jsdom render instead.
+
+================= ROUND-3 RE-REVIEW (1 LOW) =================
+
+== COMPONENT SUITE ==
+$ bun run test:components
+ Test Files  56 passed (56)
+      Tests  388 passed (388)
+reconciliationBalances.test.tsx is now 4 tests (was 2).
+
+== MUTATION CHECK on the status gate ==
+Ungating the sentence (always "Post an adjustment to recompute.") →
+ Tests  1 failed | 3 passed (4)  — the completed-row test goes red. Component restored.
+
+== FULL UNIT SUITE (no fixture env; DATABASE_URL unset) ==
+ Test Files  782 passed | 2 failed | 36 skipped (820)
+      Tests  9318 passed | 2 failed | 234 skipped (9554)
+The same two contention timeouts as round 2: tests/unit/services/cashFlowReport.test.ts
+and tests/unit/services/bank/bankAllocationUnwind.test.ts. Re-run together in isolation
+on this tree: 2 files, 17 tests passed. Neither module is touched by this change.
+
+== tsc / eslint ==
+bunx tsc --noEmit → clean. eslint on ReconciliationBalances.tsx → clean. eslint cannot
+lint tests/** at all here: those paths are outside tsconfig, so the project service
+rejects them ("was not found by the project service"). Pre-existing, not from this change.

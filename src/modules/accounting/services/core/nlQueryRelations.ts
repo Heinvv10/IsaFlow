@@ -1,7 +1,7 @@
 import { parse } from 'pgsql-ast-parser';
 
 type Node = Record<string, unknown>;
-const object = (value: unknown): value is Node =>
+export const object = (value: unknown): value is Node =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** Validate physical relations, preserving lexical CTE visibility and identifier case. */
