@@ -12,11 +12,11 @@ import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
 import { resolveSettlementAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
 import { matchContact } from './migrationContactMatch';
+import type { DbRow } from '@/types/db';
 
 // Re-exported: migrationApService and the wizard's unit tests have imported
 // matchContact from here since before it moved to its own module.
 export { matchContact };
-import type { DbRow } from '@/types/db';
 
 
 export interface OpeningBalanceRow {
