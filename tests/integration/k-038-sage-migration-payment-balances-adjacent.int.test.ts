@@ -212,7 +212,7 @@ describe('K-038 adjacent — AP', () => {
       Date: '2026-03-01T00:00:00', DueDate: '2026-03-31T00:00:00',
       Exclusive: 700, Tax: 33.33, Total: 733.33, AmountDue: 0, Status: 'x',
     } as never]);
-    const { invoiceId } = await commitAPInvoice(companyId, userId, m as never);
+    const { invoiceId, warning } = await commitAPInvoice(companyId, userId, m as never);
     const row = await apRow(invoiceId);
     // The stored total is the recomputed one, not Sage's 733.33.
     expect(Number(row.total_amount)).toBe(733.32);
@@ -221,6 +221,56 @@ describe('K-038 adjacent — AP', () => {
     expect(Number(row.balance)).toBeGreaterThanOrEqual(0);
     expect(row.status).toBe('paid');
     expect(row.payment_matched).toBe(true);
+    // The missing cent is IsaFlow's own recompute, not a discarded credit.
+    expect(warning).toBeUndefined();
+  });
+
+  it('a fully settled bill whose RECOMPUTED total lands ABOVE Sage\'s leaves no phantom residual', async () => {
+    // The mirror of AP-ODD and the case a clamp cannot reach: it only binds
+    // when the paid amount exceeds the total. 812.50 / 58.40 gives a 7.19%
+    // rate that recomputes to 870.92 against Sage's 870.90, so carrying the
+    // source's paid amount across would strand this settled bill at
+    // partially_paid with an 0.02 residual in AP aging forever.
+    const [m] = mapSageAPInvoices([{
+      ID: 1, SupplierId: 1, Supplier: { Name: 'K-038 Supplier' },
+      DocumentNumber: `${tag}-AP-ODD2`, Reference: `${tag}-AP-ODD2`,
+      Date: '2026-03-01T00:00:00', DueDate: '2026-03-31T00:00:00',
+      Exclusive: 812.50, Tax: 58.40, Total: 870.90, AmountDue: 0, Status: 'x',
+    } as never]);
+    const { invoiceId, warning } = await commitAPInvoice(companyId, userId, m as never);
+    const row = await apRow(invoiceId);
+    expect(Number(row.total_amount)).toBe(870.92);
+    expect(Number(row.amount_paid)).toBe(870.92);
+    expect(Number(row.balance)).toBe(0);
+    expect(row.status).toBe('paid');
+    expect(row.payment_matched).toBe(true);
+    // Sub-cent recompute dust is not a customer credit.
+    expect(warning).toBeUndefined();
+  });
+
+  it('a part-settled bill at a non-round rate keeps exactly the source outstanding amount', async () => {
+    const [m] = mapSageAPInvoices([{
+      ID: 1, SupplierId: 1, Supplier: { Name: 'K-038 Supplier' },
+      DocumentNumber: `${tag}-AP-ODD3`, Reference: `${tag}-AP-ODD3`,
+      Date: '2026-03-01T00:00:00', DueDate: '2026-03-31T00:00:00',
+      Exclusive: 9999.99, Tax: 1234.56, Total: 11234.55, AmountDue: 200, Status: 'x',
+    } as never]);
+    const { invoiceId } = await commitAPInvoice(companyId, userId, m as never);
+    const row = await apRow(invoiceId);
+    // Whatever the recomputed total came to, R200 is what is still owed.
+    expect(Number(row.balance)).toBe(200);
+    expect(Number(row.amount_paid)).toBeCloseTo(Number(row.total_amount) - 200, 2);
+    expect(row.status).toBe('partially_paid');
+  });
+
+  it('a genuine AP overpayment is still clamped AND reported', async () => {
+    const [m] = mapSageAPInvoices([apSource(`${tag}-AP-OVER`, 1150, -200)]);
+    const { invoiceId, warning } = await commitAPInvoice(companyId, userId, m as never);
+    const row = await apRow(invoiceId);
+    expect(Number(row.amount_paid)).toBe(Number(row.total_amount));
+    expect(Number(row.balance)).toBe(0);
+    expect(warning).toContain('200');
+    expect(warning).toContain(`${tag}-AP-OVER`);
   });
 
   it('a fully settled bill lands paid, matched, zero balance', async () => {

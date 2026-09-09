@@ -52,3 +52,28 @@ Test Files  790 passed | 36 skipped (826)
 === bunx tsc --noEmit ===  exit 0
 === bunx eslint (both service files, types, sage-commit route) ===  exit 0
 === bun run agent-docs:check ===  OK: 74 mirrors match
+
+════════ Review round 3 (scratchpad/review-k038-followup.md) ════════
+
+=== bun run test:integration -- tests/integration/k-038 ===
+Test Files  3 passed (3)      Tests  16 passed (16)
+
+=== bun run test:components (full) ===
+Test Files  58 passed (58)    Tests  395 passed (395)
+
+=== Mutation check C+D (AP re-anchored to the source paid amount; sub-cent
+    warning threshold removed) ===
+Tests  3 failed | 13 passed (16)
+  × a fully settled bill at a NON-ROUND blended VAT rate still lands paid, never a negative balance
+  × a fully settled bill whose RECOMPUTED total lands ABOVE Sage's leaves no phantom residual
+  × a part-settled bill at a non-round rate keeps exactly the source outstanding amount
+
+=== Mutation check E (warnings disclosure hidden in SageCommitSummary) ===
+Tests  3 failed | 2 passed (5)
+
+=== Full unit suite, DATABASE_URL unset ===
+Test Files  790 passed | 36 skipped (826)
+     Tests  9391 passed | 234 skipped (9625)
+
+=== bunx tsc --noEmit ===  clean
+=== bunx eslint (commit service, SageCommitSummary, sage-import page) ===  exit 0
