@@ -2,8 +2,13 @@ import {sql} from '@/lib/neon';
 
 /** One statement observes payment, lifecycle and application history consistently. */
 export async function queryUnappliedCashHistory(companyId:string,kind:'customer'|'supplier',asAt:string){
- return sql`
- WITH payments AS (
+ const result=await sql`
+ WITH census AS (
+  SELECT (
+   (SELECT COUNT(*) FROM customer_payments WHERE company_id=${companyId}::uuid AND ${kind}='customer' AND payment_date<=${asAt}::date)
+   +(SELECT COUNT(*) FROM supplier_payments WHERE company_id=${companyId}::uuid AND ${kind}='supplier' AND payment_date<=${asAt}::date)
+  )::text AS population_count
+ ), payments AS (
   SELECT cp.id,cp.company_id,cp.payment_number,cp.payment_date,cp.total_amount,cp.status,
    cp.bank_reference AS reference,cp.description,cp.gl_journal_entry_id,cp.created_at,cp.updated_at,
    c.id AS party_id,c.name AS party_name
@@ -23,6 +28,7 @@ export async function queryUnappliedCashHistory(companyId:string,kind:'customer'
   SELECT a.payment_id,a.invoice_id,a.amount_allocated,a.application_intent_id,a.reversal_intent_id,a.reversed_at,a.created_at
   FROM payment_allocations a JOIN payments p ON p.id=a.payment_id AND p.company_id=${companyId}::uuid WHERE ${kind}='supplier'
  )
+ , history AS (
  SELECT p.*,je.status AS journal_status,je.entry_date AS journal_date,je.posting_agent,
   je.created_at AS journal_created_at,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('date',j.entry_date,'id',j.id,'createdAt',j.created_at))
@@ -45,5 +51,10 @@ export async function queryUnappliedCashHistory(companyId:string,kind:'customer'
    WHERE a.payment_id=p.id),'[]'::jsonb) AS allocations
  FROM payments p LEFT JOIN gl_journal_entries je ON je.company_id=p.company_id AND je.id=p.gl_journal_entry_id
  ORDER BY p.payment_date,p.id LIMIT 100001
- `;
+ ) SELECT history.*,census.population_count FROM census LEFT JOIN history ON TRUE ORDER BY history.payment_date,history.id
+ ` as Record<string,unknown>[];
+ if(!result.length)throw new Error('Independent cash population census unavailable');
+ const populationCount=Number(result[0]!.population_count);
+ if(result.some(row=>Number(row.population_count)!==populationCount))throw new Error('Inconsistent cash population census');
+ return{populationCount,rows:result.filter(row=>row.id!=null).map(({population_count:_count,...row})=>row)};
 }

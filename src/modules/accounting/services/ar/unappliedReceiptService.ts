@@ -21,17 +21,11 @@ export interface UnappliedReceiptsResult {
   rows: UnappliedReceiptRow[];
   /** Receipts with an unapplied remainder that this report could attribute. */
   rowsTotal: number;
-  /** Every receipt with an unapplied remainder, before the attribution filter. */
-  universeTotal: number;
-  /**
-   * EVERY receipt whose customer cannot be resolved, not just the ones on this
-   * page — the caller reports them as `excludedRows`, and the envelope's
-   * completeness check (`rowsTotal + excluded === universeTotal`) only means
-   * anything if the excluded set is complete. Capped at
-   * `UNATTRIBUTED_CAP`; going over it raises a completeness fault, which is the
-   * correct outcome — a book with hundreds of orphaned receipts has a bigger
-   * problem than a truncated list.
-   */
+  /** Omitted until an independent historical eligible-remainder count is available. */
+  universeTotal?: number;
+  /** Entire unattributed recognized-cash bucket (bounded at 500). Historical
+   * unresolved cash is separately disclosed in historyCoverage; its amount is
+   * never guessed or silently included in a synthetic universe claim. */
   unattributed: UnappliedReceiptRow[];
   /** Sum of `unappliedAmount` over `rowsTotal` receipts. Not just the page. */
   totalUnapplied: number;
@@ -53,7 +47,7 @@ export interface UnappliedReceiptsOptions {
 
 export async function getUnappliedReceipts(companyId:string,opts:UnappliedReceiptsOptions):Promise<UnappliedReceiptsResult>{
  const history=await loadUnappliedCashHistory(companyId,'customer',opts.asAt),page=cashHistoryPage(history.rows,opts);
- return{rows:page.page.map(mapRow),unattributed:page.orphans.map(mapRow),rowsTotal:page.rowsTotal,universeTotal:page.universeTotal,
+ return{rows:page.page.map(mapRow),unattributed:page.orphans.map(mapRow),rowsTotal:page.rowsTotal,
   totalUnapplied:page.totalUnapplied,totalUnattributed:page.totalUnattributed,postedThrough:history.postedThrough,historyCoverage:history.historyCoverage};
 }
 function mapRow(row:CashHistoryRow):UnappliedReceiptRow{
