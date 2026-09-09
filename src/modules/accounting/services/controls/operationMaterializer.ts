@@ -56,7 +56,7 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
       VALUES(${ctx.principal.companyId}::uuid,${rule.id},${material.supplierId},${material.binding.currency},
         ${material.windowStart}::date,${material.binding.operation},${material.binding.entityId},${material.binding.amount}::numeric,
         ${state},${approvalId}::uuid)
-      ON CONFLICT(company_id,policy_id,operation,entity_id) DO UPDATE SET
+      ON CONFLICT(company_id,policy_id,operation,entity_id,beneficiary_key,currency) DO UPDATE SET
         beneficiary_key=EXCLUDED.beneficiary_key,currency=EXCLUDED.currency,window_start=EXCLUDED.window_start,
         amount=EXCLUDED.amount,state=EXCLUDED.state,approval_id=EXCLUDED.approval_id
       WHERE control_policy_exposure.state<>'committed'

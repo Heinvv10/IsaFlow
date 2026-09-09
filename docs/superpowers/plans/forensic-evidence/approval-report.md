@@ -47,3 +47,25 @@ The focused tsconfig extends this worktree's root configuration and includes the
 ## Remaining integration boundary
 
 Actual AP status eligibility, ledger accounts, domain authorization constraints and nested writer propagation must be enforced and tested when existing writers are connected. The synthetic effect callback proves transactional control behavior; it is not a production payment-posting test. Payroll, GL, period, beneficiary activation, external release, rule mutation APIs, parent batches and outbox adapters remain later scoped work. Independent commit review is pending; no whole-programme completion claim is made.
+
+## Independent review follow-up to 84aae2e9
+
+Review identified additional defects; the original commit is retained as the named red baseline. These were reproduced before fixes:
+
+| Regression | Actual red result | Evidence |
+|---|---|---|
+| Same parent batch, separate beneficiaries/currencies | Second INSERT violates old exposure unique key | `/tmp/operation-approval-exposure-red.log` |
+| Policy update concurrent with inspection | One operation rejects after row/advisory lock inversion | `/tmp/operation-approval-policy-deadlock-red.log` |
+| Process permit used for void on same entity | Guard does not throw | `/tmp/operation-approval-review-red.log` |
+| Unrelated same-tenant captured document with forged parent reference | Decision resolves approved | Same review red log |
+| Same server-issued operation identity, no-policy retry | Callback resolves `{ sequence: 2 }` | Same review red log |
+| Original requester token revoked, later cookie execution | Execution resolves `{ accepted: true }` | `/tmp/operation-approval-grant-red.log` |
+| Disjoint scope attenuation in updated helper | Empty SQL aggregate becomes null and execution succeeds | `/tmp/operation-approval-review-green.log` (15 passed, 1 failed) |
+
+The permit now binds the canonical operation as well as context and entity. Captured evidence requires an actual owned invoice `source_document_id` relationship, directly or through an owned payment allocation, and a matching raw-byte hash when supplied; the capture row is share-locked. A durable operation identity lookup rejects a retry before its callback even after the entity version changes. Root's unique effect-intent index supplies a database backstop. Aggregate upserts now include beneficiary and currency in their conflict identity.
+
+Requests persist authentication method, original grant identity and original granted-scope ceiling from the active context. Requester authority revalidation checks both invoice-write and approval permissions, current grant validity, and the current stored scopes intersected with that original ceiling. Unknown legacy authentication metadata fails closed. Non-cookie null scope results are independently refused in the service; root corrected the SQL intersection to return an empty array. Human decision actors retain their own live role and permission checks.
+
+Root owns the corresponding migration changes: company authority advisory locking before person locks; policy advisory locking before UPDATE target tuple locks; exposure identity dimensions; immutable approval binding columns; persisted requester grant metadata; and unique durable effect identity. No migration file is included in this worker's follow-up.
+
+Final follow-up verification: **17 real PostgreSQL tests pass** in 6.43 seconds (`/tmp/operation-approval-review-final-pg.log`), **18 unit tests pass** in 1.27 seconds (`/tmp/operation-approval-review-final-unit.log`), focused TypeScript passes (`/tmp/operation-approval-review-typecheck.log`), and source lint passes (`/tmp/operation-approval-review-final-lint.log`). Tests include all red scenarios above, original token expiration as well as revocation/scope reduction, and a positive captured source link followed by detachment refusal. Pool cleanup completed. The database lease was returned after verification. Commands and disposable target are unchanged from above.

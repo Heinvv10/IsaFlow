@@ -3,17 +3,17 @@ import { withSavepoint } from '@/lib/neon';
 import type { ControlTx, OperationRef } from './contracts';
 import { assertControlTx } from './context';
 import { canonicalJson } from './canonical';
-import { approvalAuthorities, approvalDecisions, assertApprovalAuthority, lockApproval, validateDecisions, type ApprovalRow } from './approvalQueries';
+import { approvalAuthorities, approvalDecisions, assertRequesterAuthority, lockApproval, validateDecisions, type ApprovalRow } from './approvalQueries';
 import { canonicalOperationRef, loadOperationMaterial, reserveOperationExposure } from './operationMaterializer';
 import { materializeApOperation } from './apOperationMaterializer';
 import { initializeOperationObservations } from './approvalRequestService';
 
-export interface ControlledEffectPermit { readonly operationId: string; readonly entityType: string; readonly entityId: string }
+export interface ControlledEffectPermit { readonly operationId: string; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }
 const permits = new WeakMap<ControlledEffectPermit, ControlTx>();
 const executing = new WeakSet<ControlTx>();
 export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledEffectPermit, parent: OperationRef): void {
   assertControlTx(ctx);
-  if (permits.get(permit) !== ctx || permit.entityType !== parent.entityType || permit.entityId !== parent.entityId) {
+  if (permits.get(permit) !== ctx || permit.operation !== canonicalOperationRef(parent).operation || permit.entityType !== parent.entityType || permit.entityId !== parent.entityId) {
     throw new Error('Controlled effect permission is not valid');
   }
 }
@@ -38,18 +38,18 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     if (material.binding.policies.length && !row) throw new Error('Independent operation approval is required');
     if (row) {
       assertApprovalExecutable(row, material.bindingHash);
-      await assertApprovalAuthority(authorities.find(person => person.person_id === row.requester_person_id), 'write:invoices');
+      await assertRequesterAuthority(row, authorities);
       await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
     }
+    const operationId = row?.operation_id ?? ctx.principal.operationId;
     const prior = await ctx.sql`
       SELECT id FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
         AND operation=${ref.operation} AND entity_type=${ref.entityType} AND entity_id=${ref.entityId}
-        AND binding_hash=${material.bindingHash}
+        AND (binding_hash=${material.bindingHash} OR operation_id=${operationId}::uuid)
     `;
     if (prior.length) throw new Error('Operation effect already committed');
     await initializeOperationObservations(ctx, material);
-    const operationId = row?.operation_id ?? ctx.principal.operationId;
-    const permit = Object.freeze({ operationId, entityType: ref.entityType, entityId: ref.entityId });
+    const permit = Object.freeze({ operationId, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId });
     permits.set(permit, ctx); executing.add(ctx);
     let result: T;
     try { result = await effect(permit); } finally { permits.delete(permit); executing.delete(ctx); }
