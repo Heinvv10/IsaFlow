@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
+import { fmtDate } from '@/lib/fmtDate';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch, assertOk } from '@/lib/apiFetch';
-import { TypeBadge, getTransactionUrl } from '@/components/accounting/supplierStatementParts';
+import { TypeBadge, getTransactionUrl, type SupplierInfo, type Summary } from '@/components/accounting/supplierStatementParts';
 
 interface Transaction {
   id: number | string;
@@ -19,25 +20,12 @@ interface Transaction {
   balance: number;
 }
 
-interface SupplierInfo {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-}
-
-interface Summary {
-  totalInvoiced: number;
-  totalPaid: number;
-  totalReturns: number;
-  balance: number;
-}
-
 type TypeFilter = 'all' | 'invoice' | 'payment' | 'debit_note';
 
 export default function SupplierStatementDetailPage() {
   const router = useRouter();
   const supplierId = router.query.supplierId as string;
+  const asAtDate = typeof router.query.as_at_date === 'string' ? router.query.as_at_date : fmtDate(new Date());
 
   const [supplier, setSupplier] = useState<SupplierInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -52,7 +40,7 @@ export default function SupplierStatementDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}`);
+      const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}&as_at_date=${encodeURIComponent(asAtDate)}`);
       await assertOk(res, 'Failed to load supplier statement');
       const json = await res.json();
       const data = json.data || json;
@@ -64,7 +52,7 @@ export default function SupplierStatementDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [supplierId]);
+  }, [supplierId, asAtDate]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -116,7 +104,7 @@ export default function SupplierStatementDetailPage() {
       clientName: supplier.name,
       clientEmail: supplier.email || undefined,
       clientPhone: supplier.phone || undefined,
-      asAtDate: new Date().toISOString().split('T')[0] ?? '',
+      asAtDate,
       totalInvoiced: summary.totalInvoiced,
       totalPaid: summary.totalPaid,
       totalCredits: summary.totalReturns,
@@ -149,7 +137,7 @@ export default function SupplierStatementDetailPage() {
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Link href="/accounting/supplier-statements" className="p-3 rounded-lg hover:bg-[var(--ff-bg-tertiary)] transition-colors" title="Back to Supplier Statements">
+                <Link href={`/accounting/supplier-statements?as_at_date=${asAtDate}`} className="p-3 rounded-lg hover:bg-[var(--ff-bg-tertiary)] transition-colors" title="Back to Supplier Statements">
                   <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" aria-hidden="true" />
                   <span className="sr-only">Back to Supplier Statements</span>
                 </Link>
@@ -160,7 +148,7 @@ export default function SupplierStatementDetailPage() {
                   <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">
                     {supplier?.name || 'Supplier Statement'}
                   </h1>
-                  <p className="text-sm text-[var(--ff-text-secondary)]">Full AP transaction history</p>
+                  <p className="text-sm text-[var(--ff-text-secondary)]">AP transaction history as at {asAtDate}</p>
                 </div>
               </div>
               {transactions.length > 0 && (
