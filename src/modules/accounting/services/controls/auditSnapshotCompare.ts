@@ -35,6 +35,7 @@ export function compareSealedAuditSnapshots(inputCompanyId:string,inputFirst:Sna
   records:changes(a.records,b.records,row=>({source:row.source,id:row.id}),row=>row),
   checks:changes(a.checks,b.checks,row=>({checkId:row.checkId}),checkMaterial),
   evidence:changes(a.evidence,b.evidence,row=>({id:row.id}),row=>row),
+  evidenceGaps:changes(a.evidenceGaps??[],b.evidenceGaps??[],row=>({id:row.id}),row=>row),
   populationChanged:canonicalJson(a.populations)!==canonicalJson(b.populations),
   coverageChanged:canonicalJson([a.coverage,a.missingSources])!==canonicalJson([b.coverage,b.missingSources]),
  };
