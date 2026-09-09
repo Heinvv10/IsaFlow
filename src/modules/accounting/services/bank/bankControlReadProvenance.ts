@@ -1,3 +1,4 @@
+import {readBankTransferOriginal} from './bankTransferReadProvenance';
 import Decimal from 'decimal.js';
 import {fmtDate} from '@/lib/fmtDate';
 import type {ControlTx} from '../controls/contracts';
@@ -7,6 +8,7 @@ type Row=Record<string,unknown>;
 export interface BankControlRow {id:string;status:string;amount:string;transaction_date:Date|string;bank_account_id:string;matched_journal_line_id:string|null}
 /** Uses only owned bank/journal/intent/receipt facts, never live beneficiary or invoice material. */
 export async function readBankCurrentOriginal(ctx:ControlTx,bank:BankControlRow){
+ const transfer=await readBankTransferOriginal(ctx,bank);if(transfer)return transfer;
  const company=ctx.principal.companyId;
  const effects=await ctx.sql`SELECT e.entity_id,e.result,e.binding_hash,e.operation_id,i.payload,i.bank_transaction_id,i.accounting_date::text,i.amount::text,
   j.id AS journal_id,j.entry_date,j.status AS journal_status,j.reversed_at,j.source,j.source_record_id,
