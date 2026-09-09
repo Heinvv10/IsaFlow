@@ -42,8 +42,24 @@ function vatCellOf(text: string[], description: string): string | undefined {
  * mixed one. Searched from 'Subtotal' onwards: the line-items table's own column
  * header is also the bare string 'VAT' and comes first in document order.
  */
+function totalsBlockOf(text: string[]): string[] {
+  const i = text.lastIndexOf('Subtotal');
+  // Without this the slice would start at 0 and the line-table's own 'VAT'
+  // column header would answer for the totals label — which is exactly what
+  // the mixed-rate test expects, so it would pass vacuously.
+  if (i < 0) throw new Error('no totals block: the "Subtotal" token is absent');
+  return text.slice(i + 1);
+}
+
 function vatLabelOf(text: string[]): string | undefined {
-  return text.slice(text.lastIndexOf('Subtotal') + 1).find((t) => t === 'VAT' || /^VAT \(/.test(t));
+  return totalsBlockOf(text).find((t) => t === 'VAT' || /^VAT \(/.test(t));
+}
+
+/** The rand figure printed beside the totals block's VAT label. */
+function totalsVatOf(text: string[]): string | undefined {
+  const block = totalsBlockOf(text);
+  const i = block.findIndex((t) => t === 'VAT' || /^VAT \(/.test(t));
+  return i < 0 ? undefined : block[i + 1];
 }
 
 async function seedInvoice(id: string, number: string, taxRate: number | null,
@@ -99,9 +115,13 @@ it('prints each line\'s own VAT rate, and the VAT column foots to the totals blo
   expect.soft(vatCell('Standard rated')).toBe('R 15.00');
   expect.soft(vatCell('Zero rated export')).toBe('R 0.00');
 
+  const rands = (v: string | undefined) => Number(String(v).replace(/[^0-9.]/g, ''));
   const columnVat = [vatCell('Standard rated'), vatCell('Zero rated export')]
-    .reduce((s, v) => s + Number(String(v).replace(/[^0-9.]/g, '')), 0);
-  expect(columnVat).toBe(15); // the tax_amount printed in the totals block
+    .reduce((sum, v) => sum + rands(v), 0);
+  // Read the totals block rather than a literal, so a change to how the totals
+  // VAT is rendered cannot leave this assertion silently agreeing with itself.
+  expect(totalsVatOf(text)).toBe('R 15.00');
+  expect(columnVat).toBe(rands(totalsVatOf(text)));
 });
 
 it('drops the percentage from the totals label when the lines carry more than one rate', async () => {
