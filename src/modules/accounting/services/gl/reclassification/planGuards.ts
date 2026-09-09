@@ -78,6 +78,15 @@ export interface GuardInput {
   from: string | null;
   to: string | null;
   postingDate: string | null;
+  /**
+   * TRUE only on the path that is about to WRITE, and the same flag that
+   * decides the candidate-line lock in `plan.ts` — so the two locks this
+   * request takes are taken together or not at all. A preview must not hold
+   * `FOR UPDATE` on the target for its duration: it would block every real
+   * batch and every `merge_gl_accounts` naming that account, to protect a
+   * verdict nothing is about to act on.
+   */
+  lockCandidateLines: boolean;
 }
 
 export interface AdmissibleMove {
@@ -136,16 +145,21 @@ export async function admitReclassification(
   // unreachable. Revenue and expense targets are exempt: the income statement
   // has no level filter, so nothing disappears there (`isReportVisibleLeaf`).
   //
-  // Locked before it is asked, and only for the targets the rule can bite, so
-  // the verdict still holds when the lines are written. Unlike `mergeAccounts`,
-  // this path never locks the account: `lockReclassLinesForUpdate` takes the
-  // journal LINES, and the write itself (`UPDATE gl_journal_lines SET
-  // gl_account_id = target`) takes only FOR KEY SHARE on the target through
-  // `gl_accounts_parent_account_id_fkey` — which does not conflict with the FOR
-  // KEY SHARE a concurrent `createAccount` needs. So without this the window is
-  // real, and `assertParentUsable` cannot close it either: at that instant the
-  // target carries no posted lines, the case it deliberately admits.
-  if (isSubjectToLeafRule(target.level, target.type)) {
+  // Locked before it is asked, and only on the WRITE path and only for the
+  // targets the rule can bite, so the verdict still holds when the lines are
+  // written. Unlike `mergeAccounts`, this path never locks the account:
+  // `lockReclassLinesForUpdate` takes the journal LINES, and the write itself
+  // (`UPDATE gl_journal_lines SET gl_account_id = target`) takes only FOR KEY
+  // SHARE on the target through `gl_accounts_parent_account_id_fkey` — which
+  // does not conflict with the FOR KEY SHARE a concurrent `createAccount`
+  // needs. So without this the window is real on the write path.
+  //
+  // A preview takes no lock, for the same reason it locks no candidate lines:
+  // it can be overtaken by a batch that commits before it, exactly as a report
+  // can, and that is cheaper than blocking every real batch on the account.
+  // `assertParentUsable` takes the mirror lock on its own path, so the create
+  // that would race a real batch is ordered against it from both sides.
+  if (input.lockCandidateLines && isSubjectToLeafRule(target.level, target.type)) {
     await lockGlAccountsForUpdate(companyId, [target.id]);
   }
   if (!(await isReportVisibleLeaf(companyId, target.id, target.level, target.type))) {

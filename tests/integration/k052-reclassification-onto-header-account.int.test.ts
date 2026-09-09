@@ -33,8 +33,9 @@ const raceTarget = crypto.randomUUID(), raceIntruder = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 
 /**
- * The guard takes `FOR UPDATE` on a leaf-rule target, which needs a request
- * transaction — `withAuth` supplies one in production, `als.run` here.
+ * The WRITE path: the guard takes `FOR UPDATE` on a leaf-rule target, which
+ * needs a request transaction — `withAuth` supplies one in production,
+ * `als.run` here.
  */
 async function admit(sourceAccountId: string, targetAccountId: string, companyId = company) {
   const client = await getPoolForTests().connect();
@@ -44,7 +45,7 @@ async function admit(sourceAccountId: string, targetAccountId: string, companyId
       { client, userId: user, companyId, claims: {} } as unknown as Parameters<typeof als.run>[0],
       () => admitReclassification({
         companyId, sourceAccountId, targetAccountId,
-        from: null, to: null, postingDate: '2026-03-31',
+        from: null, to: null, postingDate: '2026-03-31', lockCandidateLines: true,
       }),
     );
     await client.query('COMMIT');
@@ -53,6 +54,21 @@ async function admit(sourceAccountId: string, targetAccountId: string, companyId
     await client.query('ROLLBACK');
     throw err;
   } finally { (client as PoolClient).release(); }
+}
+
+/**
+ * The same guard with NO request transaction, which is the instrument that can
+ * see whether it locked: `lockGlAccountsForUpdate` throws outside one. A
+ * preview must reach a verdict here, and so must a write path whose target the
+ * leaf rule cannot bite.
+ */
+function admitWithoutTransaction(
+  targetAccountId: string, lockCandidateLines: boolean,
+) {
+  return admitReclassification({
+    companyId: company, sourceAccountId: source, targetAccountId,
+    from: null, to: null, postingDate: '2026-03-31', lockCandidateLines,
+  });
 }
 
 beforeAll(async () => {
@@ -176,7 +192,7 @@ it('holds the header verdict against a concurrent createAccount', async () => {
       { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0],
       () => admitReclassification({
         companyId: company, sourceAccountId: source, targetAccountId: raceTarget,
-        from: null, to: null, postingDate: '2026-03-31',
+        from: null, to: null, postingDate: '2026-03-31', lockCandidateLines: true,
       }),
     );
     expect(isRefusal(admitted)).toBe(false);
@@ -198,10 +214,42 @@ it('holds the header verdict against a concurrent createAccount', async () => {
       intruder.release();
     }
     await client.query('COMMIT');
+  } catch (err) {
+    // Without this a failing assertion returns the connection to the pool with
+    // the transaction still open and `FOR UPDATE` still held, and `afterAll`'s
+    // DELETE then blocks until the hook times out — the fixture rows survive
+    // into the next run. Same shape as `admit()` above.
+    await client.query('ROLLBACK');
+    throw err;
   } finally { (client as PoolClient).release(); }
 
   const { rows } = await pool.query(
     'SELECT COUNT(*)::int AS n FROM gl_accounts WHERE parent_account_id=$1 AND company_id=$2',
     [raceTarget, company]);
   expect(rows[0].n).toBe(0);
+});
+
+it('takes NO account lock on the PREVIEW path', async () => {
+  // `propose_reclassification` and a dry run reach this guard with
+  // lockCandidateLines false. Holding FOR UPDATE on the target for the length
+  // of a preview would block every real batch and every merge naming it, to
+  // protect a verdict nothing is about to act on. Asserted with no request
+  // transaction, because that is what the lock helper refuses to run without.
+  const admitted = await admitWithoutTransaction(raceTarget, false);
+  expect(isRefusal(admitted)).toBe(false);
+});
+
+it('takes NO account lock for an EXPENSE target, even on the write path', async () => {
+  // The narrowing that keeps the preview cost bounded and leaves expense-chart
+  // work lock-free: the income statement has no level filter, so no expense
+  // target can lose anything and there is no verdict to hold.
+  const admitted = await admitWithoutTransaction(expenseHeader, true);
+  expect(isRefusal(admitted)).toBe(false);
+});
+
+it('still refuses a header target on the preview path', async () => {
+  // The lock is what the preview drops — not the rule. A dry run that admitted
+  // what the live call refuses would be worse than no dry run at all.
+  const admitted = await admitWithoutTransaction(header, false);
+  expect(isRefusal(admitted)).toBe(true);
 });

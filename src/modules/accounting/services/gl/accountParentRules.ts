@@ -18,6 +18,7 @@
 
 import { sql } from '@/lib/neon';
 import { isSubjectToLeafRule } from './isReportVisibleLeaf';
+import { lockGlAccountsForUpdate } from './glAccountLock';
 
 /**
  * Mirrors `MAX_TREE_DEPTH` in accountReclassifyService, which caps the two
@@ -91,6 +92,25 @@ export async function assertParentUsable(
   // still stops anyone POSTING to the parent afterwards — that is an explicit
   // refusal at post time, not silent loss, and it is the accountant's call.
   if (isSubjectToLeafRule(Number(parent.level), parent.account_type)) {
+    // LOCKED BEFORE THE READ, and this is what makes the verdict hold.
+    //
+    // The check and the INSERT/UPDATE sit in one request transaction, but the
+    // INSERT's own FOR KEY SHARE on the parent is taken AFTER the verdict is
+    // formed and this function never re-reads. So a reclassification that posts
+    // the parent's first lines can commit in between: the write blocks on the
+    // peer's FOR UPDATE, then proceeds on a verdict formed when the parent was
+    // still empty, and the parent becomes exactly the invisible header this
+    // guard exists to prevent. Taking the lock FIRST turns that into a wait —
+    // the read below runs on the settled row and refuses.
+    //
+    // The mirror of `admitReclassification`'s lock, on the same rows, in the
+    // same ascending-id idiom, and narrowed the same way: only a level 1-2
+    // asset/liability/equity parent can lose anything, so an expense chart edit
+    // still takes no lock. Both paths lock the ACCOUNT before any line lock, so
+    // the two cannot cycle. Requires a request transaction (`withAuth` or the
+    // MCP bearer pipeline) — every production caller of `createAccount` and
+    // `reclassifyAccount` runs inside one.
+    await lockGlAccountsForUpdate(companyId, [parentId]);
     const posted = (await sql`
       SELECT 1 FROM gl_journal_lines
        WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID
