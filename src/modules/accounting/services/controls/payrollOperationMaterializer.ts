@@ -1,3 +1,4 @@
+import { assertPayrollCalculationReceipt, readPayrollCalculationReceipt } from './payrollCalculationReceipt';
 import { createHash } from 'node:crypto';
 import { canonicalJson } from './canonical';
 import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
@@ -12,6 +13,7 @@ export async function materializePayrollOperation(ctx: ControlTx, ref: Operation
   if (ref.entityType !== 'payroll_run' || !UUID_RE.test(ref.entityId) || !['payroll_run.post','payroll_run.reopen'].includes(ref.operation)) throw new Error('Unsupported payroll operation');
   const sources = await lockPayrollSources(ctx, ref.entityId);
   const { header, company } = sources;
+  if (ref.operation === 'payroll_run.post') assertPayrollCalculationReceipt(sources,await readPayrollCalculationReceipt(ctx,ref.entityId));
   if (typeof company.default_currency !== 'string' || !/^[A-Z]{3}$/.test(company.default_currency)) throw new Error('Payroll ledger currency unavailable');
   const date = lastDayOfMonthIso(Number(header.period_year), Number(header.period_month));
   if (!isRealCalendarDate(date)) throw new Error('Invalid payroll period');

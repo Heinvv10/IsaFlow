@@ -4,6 +4,8 @@ import { randomUUID,randomBytes } from 'node:crypto';
 import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstrap';
 import { provisionForensicFixture,validateFixtureTarget,type ForensicFixture } from '../forensic-fixture';
 import { withControlRequest,requireControlTx } from '@/modules/accounting/services/controls/context';
+import { lockPayrollSources } from '@/modules/accounting/services/controls/payrollSourceMaterial';
+import { payrollCalculationHashes } from '@/modules/accounting/services/controls/payrollCalculationReceipt';
 import { materializePayrollOperation } from '@/modules/accounting/services/controls/payrollOperationMaterializer';
 import { operationBindingHash } from '@/modules/accounting/services/controls/canonical';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
@@ -12,6 +14,7 @@ process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3,statement_timeout:7000});
 let fixture:ForensicFixture;
+let syntheticCalculationVersion=0;
 const run=randomUUID(),employee=randomUUID(),component=randomUUID(),assignment=randomUUID(),period=randomUUID();
 const ref={entityType:'payroll_run',entityId:run,operation:'payroll_run.post' as const};
 const accounts=['5200','2140','2150','2160','1110','2175'].map(code=>({id:randomUUID(),code}));
@@ -43,8 +46,14 @@ beforeAll(async()=>{
     VALUES($1,$2,9,2026,'calculated',100,10,2,1,0,89,1)`,[run,fixture.companyA]);
   await pool.query(`INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,paye,uif_employee,uif_employer,sdl,eti,net_pay)
     VALUES($1,$2,100,10,1,1,1,0,89)`,[run,employee]);
+  await seedSyntheticReceipt();
 });
 afterAll(async()=>{await pool.end();});
+async function seedSyntheticReceipt(){
+  const hashes=await actor('u1',async ctx=>payrollCalculationHashes(await lockPayrollSources(ctx,run)));
+  await pool.query(`INSERT INTO control_payroll_calculations(company_id,run_id,calculation_version,input_hash,output_hash,created_by)
+    VALUES($1,$2,$3,$4,$5,$6)`,[fixture.companyA,run,++syntheticCalculationVersion,hashes.input_hash,hashes.output_hash,fixture.u1.id]);
+}
 const read=()=>actor('u1',ctx=>materializePayrollOperation(ctx,ref));
 const hash=(m:Awaited<ReturnType<typeof materializePayrollOperation>>)=>operationBindingHash({...m.binding,policies:[]});
 it('derives authoritative exact payroll material without creating history or financial effects',async()=>{
@@ -61,12 +70,15 @@ it('fingerprints current employee compensation, employee data, account, period a
     ["UPDATE gl_accounts SET account_subtype='labour' WHERE company_id=$1 AND id=$2",[fixture.companyA,accounts[0]!.id],'UPDATE gl_accounts SET account_subtype=NULL WHERE company_id=$1 AND id=$2'],
     ["UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND id=$2",[fixture.companyA,period],"UPDATE fiscal_periods SET status='open' WHERE company_id=$1 AND id=$2"],
     ["UPDATE companies SET default_currency='USD' WHERE id=$1",[fixture.companyA],"UPDATE companies SET default_currency='ZAR' WHERE id=$1"],
-  ] as const){try{await pool.query(query,[...values]);expect(hash(await read())).not.toBe(original);}finally{await pool.query(restore,[...values]);}}
+  ] as const){try{await pool.query(query,[...values]);
+    if(query.includes('payroll_employee'))await expect(read()).rejects.toThrow('recalculate');
+    else expect(hash(await read())).not.toBe(original);
+  }finally{await pool.query(restore,[...values]);await seedSyntheticReceipt();}}
 });
 it('refuses another tenant and unreconciled calculated totals',async()=>{
   await expect(actor('u3',ctx=>materializePayrollOperation(ctx,ref))).rejects.toThrow('unavailable');
   try{await pool.query('UPDATE payroll_run_headers SET total_gross=101 WHERE company_id=$1 AND id=$2',[fixture.companyA,run]);
-    await expect(read()).rejects.toThrow('reconcile');
+    await expect(read()).rejects.toThrow('recalculate');
   }finally{await pool.query('UPDATE payroll_run_headers SET total_gross=100 WHERE company_id=$1 AND id=$2',[fixture.companyA,run]);}
 });
 it('refuses active account gaps and uncovered periods without invented defaults',async()=>{
@@ -76,4 +88,12 @@ it('refuses active account gaps and uncovered periods without invented defaults'
   try{await pool.query("UPDATE fiscal_periods SET end_date='2026-09-29' WHERE company_id=$1 AND id=$2",[fixture.companyA,period]);
     await expect(read()).rejects.toThrow('missing');
   }finally{await pool.query("UPDATE fiscal_periods SET end_date='2026-09-30' WHERE company_id=$1 AND id=$2",[fixture.companyA,period]);}
+});
+
+it('refuses legacy calculated output without an immutable calculation receipt',async()=>{
+  const legacy=randomUUID();
+  await pool.query(`INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_net,employee_count)
+    VALUES($1,$2,8,2026,'calculated',100,100,1)`,[legacy,fixture.companyA]);
+  await pool.query(`INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,net_pay) VALUES($1,$2,100,100)`,[legacy,employee]);
+  await expect(actor('u1',ctx=>materializePayrollOperation(ctx,{...ref,entityId:legacy}))).rejects.toThrow('recalculate');
 });
