@@ -55,6 +55,8 @@ export type DebitOutcome =
  */
 const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // ── Reads the UI does not meter ──────────────────────────────────────────
+  duplicate_invoice_checks: null,
+  payment_risk_checks: null,
   company_profile: null,
   list_companies: null,
   search_gl: null,

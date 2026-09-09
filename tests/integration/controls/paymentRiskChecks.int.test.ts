@@ -8,6 +8,7 @@ import {finalizeRequestTransaction} from '@/lib/auth/transactionFinalization';
 import {checkDuplicateInvoices} from '@/modules/accounting/services/controls/duplicateInvoiceChecks';
 import {checkPaymentRisks} from '@/modules/accounting/services/controls/paymentRiskChecks';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+import {duplicateInvoiceChecksTool,paymentRiskChecksTool} from '@/lib/mcp/tools/forensicRiskChecks';
 import {seedRiskAttemptHistory} from './paymentRiskAttemptFixture';
 import {seedReleaseSupplier} from './paymentReleaseFixture';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
@@ -131,4 +132,19 @@ it('reads repeated immutable preparations through actual release joins without i
  expect((await actor(ctx=>checkPaymentRisks(ctx,{}))).findings.filter(f=>f.kind==='repeated_prepared_release')).toEqual(repeated);
  expect((await actor(ctx=>checkPaymentRisks(ctx,{}),'u3')).findings).toEqual([]);
  expect((await pool.query('SELECT state FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=ANY($2::uuid[])',[fixture.companyA,[first,second]])).rows).toEqual([{state:'attempting'},{state:'attempting'}]);
+});
+
+it('actual detective tool handlers use bound tenant authority and refuse revoked reads',async()=>{
+ const s=await supplier();await invoice(s);await invoice(s);
+ const transport={companyId:fixture.companyB,userId:fixture.u3.id,scopes:['read:reports'],tokenJti:'synthetic',oauthAppId:null};
+ for(const tool of [duplicateInvoiceChecksTool,paymentRiskChecksTool]){
+  const answer=await actor(()=>tool.handler({limit:1},transport));
+  const dto=JSON.parse(answer.content[0]!.text!);
+  expect(dto).toHaveProperty('coverage');expect(dto).toHaveProperty('populationCount');
+  expect(JSON.stringify(dto)).not.toContain(fixture.companyB);
+  if(tool===duplicateInvoiceChecksTool)expect(dto.populationCount).toBe(2);
+ }
+ // Revocation is proven by the shared authority fixture below; no transport grant can replace membership.
+ await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[fixture.companyA,fixture.u1.id]);
+ for(const tool of [duplicateInvoiceChecksTool,paymentRiskChecksTool])await expect(actor(()=>tool.handler({},transport))).rejects.toThrow();
 });

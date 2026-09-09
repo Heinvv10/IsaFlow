@@ -30,7 +30,7 @@ interface Schema {
 }
 interface Row { name: string; scope: string | null; write: boolean; requires_post: boolean;
   per_user_idempotency: boolean; input_schema: Record<string, unknown> }
-const frozen = JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-matrix.json', 'utf8')) as { tools: Row[] };
+const frozen = JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-contract-current.json', 'utf8')) as { tools: Row[] };
 const UUID = '11111111-1111-4111-8111-111111111111';
 function sample(schema: Schema): unknown {
   if (schema.enum) return schema.enum[0];
@@ -59,9 +59,9 @@ const context = (scopes: string[]): McpToolContext => ({ companyId: UUID, userId
   scopes, tokenJti: UUID, oauthAppId: null });
 
 describe('every registered tool has a frozen schema/auth fixture', () => {
-  it('matches all 131 tool names and all schema keywords without silently skipping a new tool', () => {
-    expect(MCP_TOOLS).toHaveLength(131);
-    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(131);
+  it('matches all 133 tool names and all schema keywords without silently skipping a new tool', () => {
+    expect(MCP_TOOLS).toHaveLength(133);
+    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(133);
     expect(MCP_TOOLS.map(t => t.name).sort()).toEqual(frozen.tools.map(t => t.name).sort());
     expect([...CLIENT_MCP_TOOL_NAMES].sort()).toEqual(MCP_TOOLS.map(t => t.name).sort());
     const visit = (s: Schema) => {

@@ -570,8 +570,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 69 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(69);
+  it('exactly 71 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(71);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -660,7 +660,7 @@ describe('suite-wide invariants', () => {
     expect(desc).toMatch(/never redirect|cannot redirect|not a selector/i);
   });
 
-  it('token-scan: no credential material in the manifest or any result envelope', async () => {
+  it('token-scan: no credential material in the manifest or sampled result envelopes', async () => {
     // Feed every service mock innocuous data, run every tool, scan everything.
     vi.mocked(getCompany).mockResolvedValue({ name: 'Co' } as never);
     vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue('fp-1');
@@ -698,6 +698,10 @@ describe('suite-wide invariants', () => {
     );
 
     const happyArgs: Record<string, Record<string, unknown>> = {
+      // These require a real authenticated ControlTx. Scan their input refusal here;
+      // successful DTOs and current authority are exercised in paymentRiskChecks.int.test.ts.
+      duplicate_invoice_checks: { limit: 101 },
+      payment_risk_checks: { limit: 101 },
       profit_and_loss: { period_start: '2026-06-01', period_end: '2026-06-30' },
       vat_status: { period_start: '2026-05-01', period_end: '2026-06-30' },
       search_gl: { account_code: '1000', from_date: '2026-01-01', to_date: '2026-06-30' },
