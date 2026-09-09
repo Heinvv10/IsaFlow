@@ -23,3 +23,28 @@ Full unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run):
 
 bunx tsc --noEmit           exit 0
 bunx eslint <changed file>  exit 0
+
+── Review round (blind review of 637b6609: 1 HIGH, 3 MEDIUM, 4 LOW) ──
+
+Integration suite after the review fixes: 12 passed (12).
+Component suite file tests/unit/components/belowThresholdAssetsPage.test.tsx: 2 passed (2).
+
+Mutation checks, one per behavioural finding — each reverted alone, then restored:
+  M1  status guard removed        -> 2 failed (disposed, written-off)
+  L1  conflict() -> badRequest()  -> 2 failed (repeat, concurrent)
+  L4  fiscal-period pre-check cut -> 1 failed (closed period)
+  M2  `expensed` cut from GET     -> 1 failed (GET reports expensed)
+  L3  `SET LOCAL lock_timeout` cut-> 1 failed, "Test timed out in 20000ms" (the
+                                     request queued behind the held row forever)
+  L2/M2 page reverted to 637b6609 -> 2 failed (both component tests)
+Restored; 12/12 and 2/2 green again.
+
+Full unit suite, DATABASE_URL unset:
+  Test Files  790 passed | 36 skipped (826)
+  Tests  9391 passed | 234 skipped (9625)
+
+bunx tsc --noEmit     exit 0
+bun run lint          clean (eslint covers src + pages; tests/** sits outside
+                      tsconfig and cannot be linted — pre-existing, applies to
+                      every test file in the repo)
+bun run agent-docs:check  OK: 74 mirrors match

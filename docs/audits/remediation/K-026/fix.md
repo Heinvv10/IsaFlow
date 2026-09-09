@@ -18,7 +18,7 @@ is a shared reference table) and returns 400 "Asset has already been expensed" w
 so the lock is held until COMMIT and a concurrent second request blocks, then sees the
 committed flag.
 
-**Files.** `pages/api/accounting/assets/below-threshold.ts` (only production file).
+**Files.** `pages/api/accounting/assets/below-threshold.ts`, `pages/accounting/assets/below-threshold.tsx`, `pages/api/accounting/assets/.claude.md` (+ its AGENTS.md mirror).
 
 **Tests.** `tests/integration/k026-below-threshold-expense-repeat.int.test.ts` —
 7 tests, real Postgres, real handler: repeat POST posts once; account 6000 debited 1 200
@@ -52,3 +52,49 @@ re-expense after a reversal is refused; if reversal becomes a supported workflow
 guard must key on a live journal instead. The validator's separate observation that the
 journal credits `bank` (double-counting the spend when the purchase was already captured
 as a bill or bank payment) is untouched here and needs its own K id.
+
+---
+
+## Review round (blind review of 637b6609)
+
+**M1 — a disposed asset could still be expensed.** The locked SELECT read `a.status`
+and never used it, so an asset whose disposal had already recognised the gain or loss
+returned 200 and posted the cost a second time. Now 400 for `disposed` and
+`written_off`, mirroring `dispose.ts`.
+
+**M2 — the list route hid the new refusal.** `GET` overwrote the real column with a
+hardcoded `belowThreshold: true`, so the page offered "Post to GL" on an asset the POST
+now refuses forever. `GET` returns `expensed` from `assets.below_threshold`, and the page
+renders those rows as Expensed with no button.
+
+**M3 — `pages/api/accounting/assets/.claude.md`** stated the old wrapper and described
+the POST as a plain delegation. Auth and Business-rules bullets updated;
+`bun run agent-docs:generate` re-mirrored `AGENTS.md` (74 mirrors, check OK).
+
+**L1 — 400 was the wrong status for a repeat.** Now `apiResponse.conflict` (409), so a
+caller can tell a state conflict from the route's three input 400s.
+
+**L2 — the refusal never reached the user.** The page read `json.message`, but
+`apiResponse` nests it under `error`, so every failure showed the generic fallback. Now
+`json.error?.message`.
+
+**L3 — the row lock had no bound.** `SET LOCAL lock_timeout = '5s'` before the `FOR
+UPDATE`, restored to `DEFAULT` on the success path only (a `finally` would throw 25P02
+over the typed error — see `creditNoteLock.ts`), and `55P03` maps to 409 with a retry
+message. `dispose.ts` carries the same gap and is deliberately not changed from here.
+
+**L4 — a closed fiscal period returned 500.** Fixed by pre-checking the period covering
+today, NOT by catching `ClosedFiscalPeriodError`: by the time that throws, the hook has
+already created the draft journal, and `withAuth` COMMITs on a 4xx, so a post-hoc catch
+would leave an orphan draft behind where the 500 rolled back cleanly. A date with no
+period row is left alone — the posting service creates one.
+
+**H1 — the journal credits Bank, double-crediting a purchase already captured.** Not
+changed here, on both reviewers' instruction: it needs its own K id, a swap of the credit
+leg to `resolveAssetAccountId`, and correction of historical `auto_asset_expense`
+postings. Registered, not fixed.
+
+Tests: integration file now 12 tests (disposed, written-off, closed period, lock
+contention, GET `expensed`, plus the original seven); new component test
+`tests/unit/components/belowThresholdAssetsPage.test.tsx`, 2 tests. Every behavioural
+finding mutation-checked individually — see `green.log`.
