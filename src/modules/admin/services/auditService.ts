@@ -4,7 +4,7 @@
  * Read/query functions live in auditQueryService.ts.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import type { AuditLogEntry, PaginatedResult } from '../types/admin.types';
@@ -37,16 +37,20 @@ export interface AuditLogFilters {
   limit?: number;
 }
 
-/** Critical actions that MUST be audit-logged — fail the request if logging fails. */
-const CRITICAL_ACTIONS = new Set([
+/**
+ * Critical actions that MUST be audit-logged — fail the request if logging
+ * fails. Every entry has to be a string some call site actually passes to
+ * `logAdminAction`; a name nothing emits protects nothing. Guarded by
+ * tests/unit/services/adminCriticalActions.test.ts.
+ */
+export const CRITICAL_ACTIONS = new Set([
   'user.suspend', 'user.reset_password', 'user.update', 'user.force_logout',
-  'user.impersonate',
   'impersonation_start',
   'company.suspend', 'company.delete', 'company.impersonate',
   'company.activate', 'company.export_data',
   'subscription.cancel', 'subscription.update',
   'plan.update', 'plan.archive',
-  'feature.override', 'feature.remove_override',
+  'company_feature.override_set', 'company_feature.override_removed',
 ]);
 
 export async function logAdminAction(
@@ -58,25 +62,32 @@ export async function logAdminAction(
   ipAddress: string | null
 ): Promise<void> {
   try {
-    await sql`
-      INSERT INTO admin_audit_log (
-        admin_user_id,
-        action,
-        target_type,
-        target_id,
-        details,
-        ip_address,
-        created_at
-      ) VALUES (
-        ${adminUserId},
-        ${action},
-        ${targetType},
-        ${targetId},
-        ${details ? JSON.stringify(details) : null},
-        ${ipAddress},
-        NOW()
-      )
-    `;
+    // The audit write is best-effort for non-critical actions, and it shares
+    // the request transaction withPlatformAdmin/withAdmin opened. Without a
+    // savepoint a failed INSERT aborts that transaction, Postgres answers the
+    // middleware's COMMIT with a silent ROLLBACK, and the admin mutation this
+    // log entry describes disappears behind a 2xx.
+    await withSavepoint('admin_audit_log_write', async () => {
+      await sql`
+        INSERT INTO admin_audit_log (
+          admin_user_id,
+          action,
+          target_type,
+          target_id,
+          details,
+          ip_address,
+          created_at
+        ) VALUES (
+          ${adminUserId},
+          ${action},
+          ${targetType},
+          ${targetId},
+          ${details ? JSON.stringify(details) : null},
+          ${ipAddress},
+          NOW()
+        )
+      `;
+    });
   } catch (err) {
     log.error('logAdminAction failed', { adminUserId, action, error: err }, 'auditService');
     if (CRITICAL_ACTIONS.has(action)) {
