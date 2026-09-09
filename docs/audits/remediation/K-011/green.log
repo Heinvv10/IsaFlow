@@ -1,0 +1,27 @@
+K-011 GREEN + mutation check
+
+1) RED on branch off origin/master (fix not applied):
+   tests/integration/k011-credit-note-apply-lost-update.int.test.ts
+   1 test | 1 failed — AssertionError: expected '50.00' to be '150.00'
+
+2) GREEN with FOR UPDATE on the invoice SELECT + relative amount_paid write:
+   k011-credit-note-apply-lost-update.int.test.ts   1 passed
+   k011-credit-note-apply-adjacent.int.test.ts      3 passed
+   Test Files 2 passed (2) | Tests 4 passed (4)
+
+3) Mutation check — production change reverted via
+   `git checkout -- src/modules/accounting/services/ar/creditNoteCancelService.ts`,
+   both files re-run:
+   × applies both credit notes without one erasing the other
+       expected '50.00' to be '150.00'
+   × caps the second note at the outstanding balance the first one left
+       expected [ '150.00', '100.00' ] to deeply equal [ '150.00', '50.00' ]
+   × does not erase a receipt allocation committed while the apply was in flight
+       expected '100.00' to be '160.00'
+   ✓ refuses a credit note belonging to another tenant and writes nothing
+       (tenant scoping is not part of the race; it stays green by design)
+   Tests 3 failed | 1 passed (4)
+   Production file restored byte-for-byte afterwards; the 4-pass run above is
+   the post-restore state.
+
+4) bunx tsc --noEmit — clean. bunx eslint on the changed src file — clean.

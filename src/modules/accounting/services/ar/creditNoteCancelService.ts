@@ -142,9 +142,16 @@ export async function applyCreditNoteToInvoice(
   if (String(cn.status) !== 'approved') throw new Error('Credit note must be approved before applying');
   if (String(cn.type) !== 'customer') throw new Error('Only customer credit notes can be applied to invoices');
 
+  // ...and the invoice SECOND, also locked. Without FOR UPDATE, `outstanding`
+  // below is derived from a row another request may already be changing, and
+  // the absolute write erases whatever it wrote: a second credit note or a
+  // receipt allocation applied concurrently vanishes from amount_paid while
+  // still counting as applied. The note-then-invoice order is the one the
+  // comment above establishes, so the lock added here does not create a cycle.
   const invRows = (await sql`
     SELECT * FROM customer_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
+    FOR UPDATE
   `) as Record<string, unknown>[];
   if (invRows.length === 0) throw new Error('Invoice not found');
   const inv = invRows[0]!;
@@ -156,10 +163,9 @@ export async function applyCreditNoteToInvoice(
   const applyAmount = Math.min(Number(cn.total_amount), outstanding);
   if (applyAmount <= 0) throw new Error('Invoice has no outstanding balance');
 
-  const newPaid = Number(inv.amount_paid) + applyAmount;
   await sql`
     UPDATE customer_invoices
-    SET amount_paid = ${newPaid}
+    SET amount_paid = COALESCE(amount_paid, 0) + ${applyAmount}
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
   `;
   await recomputeInvoiceStatus(companyId, 'customer', invoiceId);
