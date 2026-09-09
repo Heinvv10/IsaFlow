@@ -263,16 +263,25 @@ export async function updateReconciledBalance(companyId: string, reconciliationI
   // Single atomic UPDATE — avoids race condition from read-then-write pattern.
   // Both the outer UPDATE and inner SELECT are scoped by company_id to prevent
   // cross-tenant contamination if two tenants share a reconciliation_id UUID.
+  // K-020: recompute the bank GL balance live as at statement_date rather than
+  // adding matched bank amounts to the frozen gl_balance snapshot. Matching only
+  // stamps a bank row against an already-posted line, so that movement is already
+  // inside the GL balance and adding it counted it twice; the adjustment journal
+  // this helper is called to reflect never entered the frozen column at all.
   await sql`
-    UPDATE bank_reconciliations
-    SET reconciled_balance = gl_balance + COALESCE((
-      SELECT SUM(amount) FROM bank_transactions
-      WHERE reconciliation_id = ${reconciliationId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status IN ('matched', 'reconciled')
-    ), 0)
-    WHERE id = ${reconciliationId}::UUID
-      AND company_id = ${companyId}::UUID
+    UPDATE bank_reconciliations br
+    SET (gl_balance, reconciled_balance) = (
+      SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0),
+             COALESCE(SUM(jl.debit) - SUM(jl.credit), 0)
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      WHERE jl.gl_account_id = br.bank_account_id
+        AND jl.company_id = ${companyId}::UUID
+        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+        AND je.entry_date <= br.statement_date
+    )
+    WHERE br.id = ${reconciliationId}::UUID
+      AND br.company_id = ${companyId}::UUID
   `;
 }
 
