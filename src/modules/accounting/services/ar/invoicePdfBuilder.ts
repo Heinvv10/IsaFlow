@@ -134,17 +134,21 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   y = renderRefStrip(doc, y, PAGE_W, MARGIN, refFields);
 
   // ── Line Items Table ───────────────────────────────────────────────────────
-  // Per-line VAT is derived from the line amount × invoice tax rate so the
-  // column reflects what actually gets added at totals — items don't carry a
-  // populated tax_amount of their own, so reading the column from the row
-  // would always render R 0.00 even when 15% VAT is applied below.
-  const invTaxRate = Number(inv.tax_rate || 15);
+  // Per-line VAT is derived from the line amount × the LINE's own tax rate.
+  // Items don't carry a populated tax_amount, but they do carry tax_rate, and
+  // an invoice may mix rates (a zero-rated export line beside a standard one).
+  // Falling back to the header rate for every line printed 15% VAT against a
+  // zero-rated line and the VAT column stopped footing to the totals block.
+  const headerTaxRate = Number(inv.tax_rate ?? 15);
+  const lineRate = (item: Row): number =>
+    item.tax_rate != null ? Number(item.tax_rate) : headerTaxRate;
+  const mixedRates = new Set(items.map(lineRate)).size > 1;
   autoTable(doc, {
     startY: y,
     head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
     body: items.map((item: Row) => {
       const lineAmount = Number(item.line_total || item.amount || 0);
-      const lineVat = Math.round(lineAmount * (invTaxRate / 100) * 100) / 100;
+      const lineVat = Math.round(lineAmount * (lineRate(item) / 100) * 100) / 100;
       return [
         item.description || '—',
         Number(item.quantity || 0).toFixed(2),
@@ -188,7 +192,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
 
   const totalLines: TotalLine[] = [
     { label: 'Subtotal', value: fmtZAR(subtotal) },
-    { label: `VAT (${Number(inv.tax_rate || 15)}%)`, value: fmtZAR(taxAmount) },
+    { label: mixedRates ? 'VAT' : `VAT (${headerTaxRate}%)`, value: fmtZAR(taxAmount) },
     { label: 'TOTAL DUE', value: fmtZAR(totalAmount), isTotal: true },
   ];
   if (amountPaid > 0) {

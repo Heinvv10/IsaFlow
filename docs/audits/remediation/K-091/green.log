@@ -1,0 +1,30 @@
+Branch fix/audit-k091-k093-k126-report-figures — GREEN evidence (2026-09-09)
+
+$ bun run test:integration -- tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+MUTATION 1 — production change fully reverted (git checkout of invoicePdfBuilder.ts):
+   x prints each line's own VAT rate, and the VAT column foots to the totals block
+   x drops the percentage from the totals label when the lines carry more than one rate
+      Tests  2 failed | 3 passed (5)
+
+MUTATION 2 — only `?? 15` reverted to `|| 15`:
+      Tests  5 passed (5)
+   No change. pg returns numeric(5,2) as the string '0.00', which is truthy, so the two
+   operators are equivalent. That half of the edit is defensive, not defect-driven, and is
+   recorded as such in fix.md rather than claimed as proven.
+
+Regression runs of the two sibling items on the same branch:
+$ bun run test:integration -- tests/integration/k091-cash-flow-reconciliation-bank-subtype.int.test.ts
+      Tests  3 passed (3)
+$ bun run test:integration -- tests/integration/k093-sales-by-customer-legacy-customer-id.int.test.ts
+      Tests  4 passed (4)
+
+FULL UNIT SUITE, fixture env unset (env -u DATABASE_URL bunx vitest run):
+ Test Files  793 passed | 36 skipped (829)
+      Tests  9447 passed | 234 skipped (9681)
+
+$ bunx tsc --noEmit                              -> clean (exit 0)
+$ bunx eslint invoicePdfBuilder.ts cashFlowReconciliationService.ts sales-by-customer.ts
+                                                 -> clean (exit 0)
