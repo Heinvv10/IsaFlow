@@ -142,6 +142,13 @@ export const reverseAllocationsTool: McpTool = {
     }));
 
     if (dryRun) {
+      // The live reversals run through the control kernel, which refuses one
+      // the company's payment policy binds — and refuses the whole call, as
+      // this preview now does.
+      const { bankAllocationApprovalRequired, BANK_REVERSAL_APPROVAL_TEXT } = await import('./bankPreviewApproval');
+      for (const row of rows) {
+        if (await bankAllocationApprovalRequired(row.amount, 'bank_allocation.reverse')) return toolError(BANK_REVERSAL_APPROVAL_TEXT);
+      }
       return ok({
         bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
         dry_run: true,

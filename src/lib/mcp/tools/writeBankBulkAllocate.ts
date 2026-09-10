@@ -113,15 +113,22 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
       .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
+      // The live call posts each line through the control kernel, which refuses
+      // an allocation the company's payment policy binds. Report those as
+      // skipped rather than as lines that would post.
+      const { partitionBankApprovalBound } = await import('./bankPreviewApproval');
+      const bound = await partitionBankApprovalBound(ctx.companyId, [...postable]);
+      const previewPostable = bound.postable;
+      const previewSkipped = [...skipped, ...bound.skipped].sort((a, b) => a.index - b.index);
       // No batch row either: a dry run that left a batch behind would hand the
       // agent an id that reverses nothing.
       const preview = ok({
         dry_run: true,
         batch_id: null,
         posted: 0,
-        would_post: postable.length,
-        skipped,
-        lines: postable.map(({ txId, line }) => ({
+        would_post: previewPostable.length,
+        skipped: previewSkipped,
+        lines: previewPostable.map(({ txId, line }) => ({
           transaction_id: txId,
           contra_account_id: line.contraAccountId || null,
           alloc_type: line.allocType,
