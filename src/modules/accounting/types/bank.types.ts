@@ -164,6 +164,13 @@ export interface AutoMatchResult {
    * either — the user sees a lower `matched` and needs to know why.
    */
   skippedRaced?: number;
+  /**
+   * High-confidence matches that were NOT applied because `bank_transactions`
+   * was locked at the table level — DDL, a migration's index build. Counted
+   * apart from `skippedRaced`: nothing is known about those rows, so calling
+   * them "allocated by another request" would be a false claim.
+   */
+  skippedUnavailable?: number;
 }
 
 // ── Bank Categorisation Rules ───────────────────────────────────────────────

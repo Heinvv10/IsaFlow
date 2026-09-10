@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
+import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
@@ -83,7 +84,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Match supplier
   const suppliers = await sql`
-    SELECT id, name FROM suppliers WHERE company_id = ${companyId} AND is_active = true
+    SELECT id, name, vat_number FROM suppliers WHERE company_id = ${companyId} AND is_active = true
   ` as Row[];
 
   const supplierMatch = matchSupplierFromExtraction(
@@ -103,6 +104,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const invoiceInput = buildInvoiceFromExtraction(extracted, supplierMatch.supplierId);
   const pipelineConfidence = computePipelineConfidence(extracted, supplierMatch);
 
+  // The VAT segment comes from the SUPPLIER RECORD, never from the OCR'd
+  // `extracted.vendorVatNumber`. Every other producer of duplicate_fingerprint
+  // — ai-invoice-pipeline, supplierInvoiceService, migrationApService,
+  // recurringTransactionService, sageSupplierInvoiceImportService, and
+  // migrations 412 and 670 — reads `suppliers.vat_number`. Calling the same
+  // helper with a different argument produces a different string, so this route
+  // stored fingerprints the lookup could not match and 670 would rewrite away
+  // from what the next capture of the same bill computes: the exact-match step
+  // missed and the bill was accrued twice. The supplier row is also the
+  // stronger identity — it is what the invoice is booked against, whereas the
+  // document's VAT number is a per-scan extraction that varies with OCR quality
+  // and is absent on documents that do not print one.
+  const supplierVatNumber =
+    (suppliers.find((s) => s.id === supplierMatch.supplierId)?.vat_number as string | null | undefined) ?? null;
+
   // Auto-publish gate: duplicate check + rule evaluation
   const gateDecision = await decide({
     companyId,
@@ -110,7 +126,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceNumber: invoiceInput.invoiceNumber ?? null,
     totalAmount: invoiceInput.totalAmount,
     invoiceDate: invoiceInput.invoiceDate,
-    vatNumber: extracted.vendorVatNumber ?? null,
+    vatNumber: supplierVatNumber,
     extractionConfidence: pipelineConfidence,
   });
 
@@ -129,6 +145,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Override status to 'approved' when gate permits auto_publish
   const invoiceStatus = gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
 
+  // ONE producer of duplicate_fingerprint, never an inline expression. This
+  // route used to build the string in the INSERT itself, and the total was a JS
+  // number bound as a parameter and cast to text there: it rendered `115`, not
+  // the NUMERIC(15,2) column's `115.00`, so every
+  // bill captured through this route stored a fingerprint that findDuplicate's
+  // exact-match step (which calls computeFingerprint) could never match, and
+  // the same bill posted a second accrual journal against the payable control
+  // account. Migration 670 canonicalises the stored column once; this keeps it
+  // canonical from here on.
+  const captureFingerprint = computeFingerprint(
+    supplierVatNumber,
+    invoiceInput.invoiceNumber ?? null,
+    invoiceInput.totalAmount,
+  );
+
   // Create supplier invoice
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
@@ -143,11 +174,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms ?? 'net30'}, ${invoiceInput.reference ?? null},
       ${invoiceStatus}, ${userId},
-      lower(
-        coalesce(${extracted.vendorVatNumber ?? null}, 'no-vat') || '|' ||
-        coalesce(${invoiceInput.invoiceNumber ?? null}, 'no-inv') || '|' ||
-        coalesce(${invoiceInput.totalAmount}::text, '0')
-      ),
+      ${captureFingerprint},
       ${documentId}::uuid
     )
     RETURNING id, invoice_number, status

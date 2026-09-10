@@ -32,7 +32,9 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
            p.name AS project_name
     FROM customer_invoices ci
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-    LEFT JOIN projects p ON p.id = ci.project_id
+    -- Scoped: project_id carries no FK, so an unscoped join would print
+    -- another company's project name on this invoice.
+    LEFT JOIN projects p ON p.id = ci.project_id AND p.company_id = ci.company_id
     WHERE ci.id = ${invoiceId}::UUID
       AND ci.company_id = ${companyId}::UUID
   `) as Row[];

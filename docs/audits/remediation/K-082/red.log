@@ -1,0 +1,59 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/loans/loanCompliance-k082-dpd-future-instalment.test.ts (6 tests | 3 failed) 12ms
+     × records days past due, not zero 4ms
+     × moves the exposure to stage 3 5ms
+     × persists the same days past due it reports 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/loans/loanCompliance-k082-dpd-future-instalment.test.ts > assessLoan — a borrower four instalments in arrears > records days past due, not zero
+AssertionError: expected 0 to be greater than 90
+ ❯ tests/unit/services/loans/loanCompliance-k082-dpd-future-instalment.test.ts:100:36
+     98|   it('records days past due, not zero', async () => {
+     99|     const assessment = await assessLoan(COMPANY, LOAN, USER, AS_OF);
+    100|     expect(assessment.daysPastDue).toBeGreaterThan(90);
+       |                                    ^
+    101|   });
+    102|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/services/loans/loanCompliance-k082-dpd-future-instalment.test.ts > assessLoan — a borrower four instalments in arrears > moves the exposure to stage 3
+AssertionError: expected 1 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 1
+
+ ❯ tests/unit/services/loans/loanCompliance-k082-dpd-future-instalment.test.ts:105:30
+    103|   it('moves the exposure to stage 3', async () => {
+    104|     const assessment = await assessLoan(COMPANY, LOAN, USER, AS_OF);
+    105|     expect(assessment.stage).toBe(3);
+       |                              ^
+    106|   });
+    107|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/services/loans/loanCompliance-k082-dpd-future-instalment.test.ts > assessLoan — a borrower four instalments in arrears > persists the same days past due it reports
+AssertionError: expected 0 to be greater than 90
+ ❯ tests/unit/services/loans/loanCompliance-k082-dpd-future-instalment.test.ts:110:45
+    108|   it('persists the same days past due it reports', async () => {
+    109|     await assessLoan(COMPANY, LOAN, USER, AS_OF);
+    110|     expect(Number(inserted!.days_past_due)).toBeGreaterThan(90);
+       |                                             ^
+    111|   });
+    112|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+   Start at  11:30:40
+   Duration  909ms (transform 270ms, setup 0ms, import 432ms, tests 12ms, environment 5ms)
+

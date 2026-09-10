@@ -21,7 +21,7 @@
  * having two unlabelled conventions is not, so each states its own.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { fiscalRangeFor } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { fiscalRangeFor, fiscalWindowForPeriod } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 describe('fiscalRangeFor', () => {
   it('collapses to the calendar year for a January year start', () => {
@@ -101,5 +101,61 @@ describe('getFiscalRangeWithPrior', () => {
     expect(prior).toBeNull();
 
     vi.doUnmock('@/lib/neon');
+  });
+});
+
+describe('fiscalWindowForPeriod', () => {
+  it('is the calendar year for a January start', () => {
+    expect(fiscalWindowForPeriod('202612', 1)).toEqual({
+      start: '202601', end: '202612', priorEnd: '202512',
+    });
+  });
+
+  it('opens in the prior calendar year for a February year end', () => {
+    // financial_year_start = 3, so FY2026 runs March 2025 to February 2026.
+    expect(fiscalWindowForPeriod('202602', 3)).toEqual({
+      start: '202503', end: '202602', priorEnd: '202502',
+    });
+  });
+
+  it('keeps an interim period in the year that is still open', () => {
+    expect(fiscalWindowForPeriod('202509', 3)).toEqual({
+      start: '202503', end: '202509', priorEnd: '202502',
+    });
+  });
+
+  it('puts the opening month itself at the start of its own year', () => {
+    expect(fiscalWindowForPeriod('202503', 3)).toEqual({
+      start: '202503', end: '202503', priorEnd: '202502',
+    });
+    // One month earlier still belongs to the year before.
+    expect(fiscalWindowForPeriod('202502', 3)).toEqual({
+      start: '202403', end: '202502', priorEnd: '202402',
+    });
+  });
+
+  it('wraps priorEnd across December for every start month', () => {
+    for (let m = 1; m <= 12; m++) {
+      const { start, priorEnd } = fiscalWindowForPeriod('202606', m);
+      const startNum = Number(start);
+      const priorNum = Number(priorEnd);
+      // priorEnd is exactly the month before start, so the two windows abut
+      // with no gap and no overlap — what makes opening cost and additions a
+      // partition rather than two overlapping sets.
+      expect(startNum - priorNum).toBe(m === 1 ? 89 : 1);
+      expect(priorNum).toBeLessThan(startNum);
+    }
+  });
+
+  it('refuses a month outside 01-12 rather than doing arithmetic on it', () => {
+    expect(() => fiscalWindowForPeriod('202600', 3)).toThrow(/YYYYMM/);
+    expect(() => fiscalWindowForPeriod('202613', 3)).toThrow(/YYYYMM/);
+    expect(() => fiscalWindowForPeriod('2026', 3)).toThrow(/YYYYMM/);
+  });
+
+  it('refuses an unresolved financial year start rather than assuming March', () => {
+    expect(() => fiscalWindowForPeriod('202612', 0)).toThrow(/never assume March/);
+    expect(() => fiscalWindowForPeriod('202612', 13)).toThrow(/never assume March/);
+    expect(() => fiscalWindowForPeriod('202612', NaN)).toThrow(/never assume March/);
   });
 });

@@ -1,0 +1,348 @@
+# GREEN — K-015 / K-089 plus R-001 / R-002 / R-020 take-on posting
+# Fixture PostgreSQL (isaflow_schema_fixture), migration 625 re-applied (non-unique).
+
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts" "tests/integration/k089-ar-migration-balance-due-column.int.test.ts" "tests/integration/r001-r002-r020-takeon-posting.int.test.ts" "tests/integration/k015-sage-import-duplicate-savepoint.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-015
+
+
+ Test Files  4 passed (4)
+      Tests  38 passed (38)
+   Start at  11:59:19
+   Duration  7.69s (transform 6.29s, setup 0ms, import 10.89s, tests 7.34s, environment 0ms)
+
+## Mutation checks — take-on posting
+
+ T1. buildTakeOnLines posts even a zero outstanding (`<= 0` -> `< 0`)
+       -> r001: 1 failed | 8 passed  ["a document settled in full ... posts nothing at all"]
+ T2. a VAT line added back to the AR take-on entry
+       -> r001: 4 failed | 5 passed  [the no-VAT assertion, both sub-ledger checks,
+          the VAT201 snapshot, and the equity balance]
+ T3. the R-020 control-account refusal removed
+       -> r001: 1 failed | 8 passed  ["refuses an opening trial balance that carries a
+          control account"]
+ T4. R-002 tolerance back to half a cent
+       -> r001: 1 failed | 8 passed  ["imports a cent of rounding with a warning and
+          refuses half a rand"]
+ T5. the completeSession clearing-residual check removed
+       -> r001: 1 failed | 8 passed  ["records the clearing residual on the session ..."]
+
+ T6. lockMigrationImport reduced to a no-op
+       -> WITHDRAWN as recorded. See round 3 below: the AP test kept passing without the lock
+          because the FIXTURE (not production, not master) carries
+          uq_supplier_invoices_supplier_number, which is K-107's unmerged migration 646
+          applied ad-hoc to the shared fixture DB. Corrected and re-proved in round 3.
+
+Earlier rounds' checks are in previous revisions of this file. All mutations restored;
+the run above is 38/38 green across four files.
+
+## What the take-on tests assert on the real database
+
+- receivable/payable net movement = total - amountPaid; default_revenue, default_expense,
+  vat_output and vat_input net movement exactly 0; every entry exactly two lines and balanced.
+- A fully paid document: zero journal lines, status `paid`, gl_journal_entry_id null.
+- arSubLedgerCheck and apSubLedgerCheck both `pass` after a mixed file of part-paid, unpaid
+  and fully paid documents. Under the previous shape both failed.
+- getVATReturn over the period: every box amount, every transaction list, both totals and
+  netVAT byte-identical before and after an import. standardRatedSupplies and
+  standardRatedPurchases DO move (+1000 each) because they are read from the invoice tables,
+  not the GL — asserted explicitly rather than left to be discovered.
+- R-002 boundary: 0.01 imports with a warning, 0.50 is refused naming all three amounts.
+- R-020: a trial balance carrying a receivable or a payable control line is refused and
+  writes nothing; the clearing residual is recorded on the session at completeSession, and
+  not recorded when take-on and the trial balance agree.
+
+## Migration 625
+
+Re-applied to the fixture; already present, so a no-op (IF NOT EXISTS). Non-unique:
+  CREATE INDEX idx_supplier_invoices_supplier_fingerprint
+    ON supplier_invoices (company_id, supplier_id, duplicate_fingerprint)
+    WHERE duplicate_fingerprint IS NOT NULL
+
+bun scripts/audit-migration-naming.ts   -> no new duplicate prefixes
+bun scripts/ci/check-migration-rls.ts   -> OK
+
+## Full unit suite (clean shell, DATABASE_URL and the fixture env unset)
+
+`bunx vitest run --testTimeout=60000`
+  Test Files  792 passed | 36 skipped (828)
+       Tests  9426 passed | 234 skipped (9660)
+
+## Gates
+
+bunx tsc --noEmit                      -> exit 0
+bunx eslint <the changed src/ files>   -> exit 0
+File sizes against the 300-line ceiling: migrationImportService 261, migrationService 227,
+migrationApService 187, migrationPostingSupport 114.
+
+
+# ============================================================================
+# Round 3 — blind review review-k015b.md (8 findings: 4 MEDIUM, 4 LOW), 2026-09-09
+# ============================================================================
+
+$ vitest run --config vitest.integration.config.ts \
+    tests/integration/r001-r002-r020-takeon-posting.int.test.ts \
+    tests/integration/k015-ap-migration-balance-due-column.int.test.ts \
+    tests/integration/k089-ar-migration-balance-due-column.int.test.ts \
+    tests/integration/k015-sage-import-duplicate-savepoint.int.test.ts
+  Test Files  4 passed (4)
+       Tests  42 passed (42)          [was 38 — four new take-on tests]
+
+$ vitest run --config vitest.components.config.ts tests/unit/components/invoiceImportResult.test.tsx
+  Test Files  1 passed (1)   Tests  4 passed (4)
+
+## The index the round-2 mutation was actually blocking on (MEDIUM 1)
+
+  git grep uq_supplier_invoices_supplier_number origin/master -- scripts/migrations/sql/  -> nothing
+  ... over every refs/remotes/origin ref                                                  -> nothing
+  ... over every local branch  -> fix/audit-k107-k120-k121-document-numbering ONLY (migration 646)
+
+So the index is in the shared fixture DB and in NO branch that has been pushed. It is not in
+production. `lockMigrationImport` is load-bearing there, and the test now asserts the outcome
+only the lock produces — "Already imported" from the fingerprint lookup, not a raw 23505.
+
+## Mutation checks — round 3 (each applied alone, then restored; files diffed back to identical)
+
+ M-A. lockMigrationImport -> no-op
+        -> 1 failed | 13 passed
+           "serialises two simultaneous imports..." :
+           AssertionError: expected 'duplicate key value violates unique c…' to contain
+           'Already imported'                       [MEDIUM 1 — now caught, was not before]
+ M-B. assertNoOpeningControlTotal -> early return
+        -> 2 failed | 12 passed
+           "lets a summary-only migration bring AR and AP in on the trial balance, then blocks
+            the documents" and "blocks only the side the trial balance carried":
+           promise resolved instead of rejecting     [MEDIUM 3]
+ M-C. importOpeningBalances: `if (steps[documentStep])` -> `if (false && ...)`
+        -> 1 failed | 13 passed
+           "refuses a control account in the trial balance once the documents are in"
+                                                     [MEDIUM 3, the other direction]
+ M-D. recordClearingResidual: `AND e.created_at >= s.started_at` removed
+        -> 1 failed | 13 passed
+           "does not count an earlier session's take-on into a later session's residual"
+                                                     [LOW 3]
+ M-E. InvoiceImportResult: warnings list rendered from `[]`
+        -> 1 failed | 3 passed (components config)
+           "shows an R-002 rounding warning next to the count"   [MEDIUM 4, browser side]
+ M-F. importARInvoices: warnings no longer merged into the session's errors bucket
+        -> 1 failed | 13 passed
+           "imports a cent of rounding with a warning and refuses half a rand":
+           expected [] to have a length of 1         [MEDIUM 4, persistence side]
+
+## Gates — round 3
+
+bunx tsc --noEmit                                          -> exit 0
+bunx eslint <4 changed services + 3 changed pages/component> -> exit 0
+bun run agent-docs:check                                   -> OK: 74 mirrors match
+Full unit suite, DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL / ISAFLOW_DISPOSABLE_AUTH_TEST unset:
+  `bunx vitest run --testTimeout=60000`
+  Test Files  792 passed | 36 skipped (828)
+       Tests  9426 passed | 234 skipped (9660)
+Full component suite: 61 files / 416 tests passed.
+File sizes against the 300-line ceiling: migrationImportService 284, migrationService 246,
+migrationApService 198, migrationPostingSupport 171, InvoiceImportResult 43.
+
+================================================================================
+Round 4 — review-k015b-r2.md (2 HIGH, 3 MEDIUM, 4 LOW)
+================================================================================
+
+GREEN
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k015-ap-migration-balance-due-column.int.test.ts \
+    tests/integration/k089-ar-migration-balance-due-column.int.test.ts \
+    tests/integration/r001-r002-r020-takeon-posting.int.test.ts \
+    tests/integration/k015-sage-import-duplicate-savepoint.int.test.ts
+    -> Test Files 4 passed (4) | Tests 48 passed (48)      [was 42]
+
+  bunx vitest run --config vitest.components.config.ts
+    -> Test Files 63 passed (63) | Tests 419 passed (419)
+
+  env -u DATABASE_URL bunx vitest run
+    -> Test Files 792 passed | 36 skipped (828)
+       Tests 9426 passed | 234 skipped (9660)              [unchanged]
+
+  bunx tsc --noEmit                                        -> clean
+  bunx eslint <changed src/ + pages/ files>                -> clean
+    (tests/**.tsx report "not found by the project service" — tsconfig excludes
+     tests/**; the pre-existing invoiceImportResult.test.tsx reports identically)
+  bun run agent-docs:check                                 -> OK: 74 mirrors match
+
+NEW TESTS
+  tests/unit/components/apInvoicesWizardPage.test.tsx            (1)  H1
+  tests/unit/components/migrationHubSessionIssues.test.tsx       (2)  M3
+  k015-ap-...int.test.ts  "a re-run with a corrected total does not post the
+    same bill twice"                                                  H2
+  k015-ap-...int.test.ts  "without the borrowed index, a blank-numbered bill
+    still de-duplicates on its fingerprint"                           H2 adjacent
+  k015-ap-...int.test.ts  "the same invoice number for a DIFFERENT supplier is
+    still imported"                                                   H2 adjacent
+  r001-...int.test.ts  "a document step that imported nothing does not bar the
+    summary-only route"                                               M2
+  r001-...int.test.ts  "serialises opening balances against a document step
+    running at the same instant"                                      M1
+  r001-...int.test.ts  "ignores a second, non-system opening-balance-equity
+    account in the residual"                                          L1
+
+FIXTURE CONTAMINATION (R-036) — how the H2 test avoids it
+  The fixture DB carries uq_supplier_invoices_supplier_number, K-107's migration
+  646, which is on no origin ref and NOT in production. It raises 23505 on the
+  corrected re-run and would mask the defect completely. The three new AP tests
+  run `DROP INDEX IF EXISTS uq_supplier_invoices_supplier_number` INSIDE their
+  own transaction and assert it is gone from pg_indexes before importing; DDL is
+  transactional in Postgres, so the ROLLBACK in `finally` restores it and no
+  other worktree's run is affected. Verified: with the index present and the
+  production change reverted the corrected re-run raises "duplicate key value
+  violates unique constraint"; with it dropped it silently imports a SECOND row.
+
+MUTATIONS (production change reverted, test must go RED, then restored)
+  M4-A  ap-invoices.tsx: apiJson({session}) -> apiFetch + json.data?.id
+        -> apInvoicesWizardPage.test.tsx  1 failed
+           "No active migration session" rendered; the POST never fired.
+  M4-B  migrationApService.ts: hasNumber -> false (fingerprint-only key, the
+        pre-fix behaviour), index dropped by the test
+        -> k015-ap  2 failed:
+           "a re-run with a corrected total does not post the same bill twice"
+             AssertionError: expected 1 to be +0   (a SECOND bill was written)
+           "re-running the same file does not import the bill a second time"
+  M4-C  migrationImportService.ts: remove lockMigrationImport from
+        importOpeningBalances
+        -> r001  1 failed: "serialises opening balances against a document step
+           running at the same instant"
+  M4-D  migrationImportService.ts: documentsTakenOn -> {ar: true, ap: true}
+        (gate on the step flag again)
+        -> r001  3 failed: "a document step that imported nothing does not bar
+           the summary-only route", "lets a summary-only migration bring AR and
+           AP in ...", "blocks only the side the trial balance carried"
+  M4-E  index.tsx: remove <SessionIssues />
+        -> migrationHubSessionIssues.test.tsx  1 failed
+  M4-F  migrationService.ts: drop is_system_account/is_active from the residual
+        -> r001  1 failed: "ignores a second, non-system opening-balance-equity
+           account in the residual"
+
+NOT DONE
+  L4 — origin/fix/audit-k015-k089-migration-balance-due is behind this branch and
+  still carries 625_supplier_invoice_duplicate_fingerprint_unique.sql. This
+  session may not push. The branch MUST be pushed before PR #373 is read.
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 4 — the 11 findings of review-k015b-r3.md
+════════════════════════════════════════════════════════════════════════════
+
+GREEN (disposable fixture DB, DATABASE_URL sourced)
+  k015-ap-migration-balance-due-column.int.test.ts ....... 20 passed
+  k089-ar-migration-balance-due-column.int.test.ts ....... (in the group below)
+  r001-r002-r020-takeon-posting.int.test.ts .............. 19 passed
+  k015-sage-import-duplicate-savepoint.int.test.ts
+  api/sageImportService.test.ts
+  → 5 files, 60 tests passed.
+
+  tests/unit/migration/migrationRowSchemas.test.ts ....... 18 passed
+  components (vitest.components.config.ts) .............. 63 files, 419 passed
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run)
+  Test Files  792 passed | 36 skipped (828)
+  Tests       9433 passed | 234 skipped (9667)
+
+MUTATION PROOF — production change reverted, test re-run, restored. All went RED.
+  M-E  drop LOWER() from the lookup ................ 1 failed | 19 passed
+  M-D  restore `AND deleted_at IS NULL` ............ 1 failed | 19 passed
+  L-4  ignore inv.supplierId ....................... 1 failed | 19 passed
+  M-C  fileRow(i) => i (drop the file mapping) ..... 1 failed | 19 passed
+  M-B  remove reversePriorOpeningBalances() ........ 2 failed | 17 passed
+  M-B  write only the `true` control flag .......... 1 failed | 18 passed
+  H-1  invoiceNumber back to .min(1) ............... 1 failed | 17 passed
+
+M-A — the shared table is no longer locked. 40 consecutive probes of
+  `SET lock_timeout='3s'; SELECT count(*) FROM public.supplier_invoices;`
+  ran against the shared fixture DB for the entire duration of the k015 suite
+  (20 tests, all passing). Cancellations: ZERO. Under the previous DROP-INDEX
+  revision the reviewer measured the same probe being cancelled at 3s.
+  The property kept: each such test asserts, before it writes, that the table
+  its search_path resolves to carries no UNIQUE index on
+  (company_id, supplier_id, invoice_number) — production's shape.
+
+STATIC
+  bunx tsc --noEmit ......... clean
+  bunx eslint <11 changed src/pages files> ......... clean
+  bun run agent-docs:check .. OK: 74 mirrors match
+
+FILE SIZES (300-line cap)
+  sageImportService.ts .................. 539 -> 281
+  sageSupplierInvoiceImportService.ts ... new, 217
+  sageLedgerRelinkGuard.ts .............. new,  91
+  migrationImportService.ts ............. 301 -> 199
+  migrationWizardOpeningBalanceService.ts new, 180
+  migrationApService.ts ................. 252
+  migrationRowSchemas.ts ................ 127
+
+=== Round 5 (review-k015b-r4.md, 9 findings) ===
+integration k015-ap-migration-balance-due-column.int.test.ts : 23 passed
+integration k015-sage-import-duplicate-savepoint.int.test.ts : 3 passed
+unit  migrationRowSchemas.test.ts                            : 20 passed
+unit  duplicateDetectionService.test.ts                      : 20 passed
+components apInvoicesWizardPage.test.tsx                     : 2 passed
+FULL unit suite (DATABASE_URL unset): 792 files passed / 36 skipped, 9436 tests passed / 234 skipped
+FULL component suite: 63 files, 420 tests passed
+tsc --noEmit: clean | eslint (6 changed src/pages files): clean
+agent-docs:check: 74 mirrors match | migration-rls, migration-naming, internal-apis guards: OK
+
+Mutation proofs (production code reverted, test observed RED, then restored):
+ 1. blank branch back to `duplicate_fingerprint = $fp`      -> "two DIFFERENT unnumbered bills ... both import" RED (1 failed / 22 passed)
+ 2. computeFingerprint amount back to the bare JS number     -> "TS and SQL fingerprint producers agree" RED (1 failed / 22 passed)
+ 3. purge without `AND gl_journal_entry_id IS NULL`          -> "expiry purge does not hard-delete ..." RED (1 failed / 22 passed)
+ 4. page back to `r.mapped.invoice_number ?? ''`             -> "sends NO invoiceNumber field ..." RED (1 failed / 1 passed)
+ 5. invoiceNumberColumnUnmapped forced false                 -> "tells an UNMAPPED ... apart" RED (1 failed / 19 passed)
+
+=== Round 6 (2026-09-10) ===
+bun run test:integration -- k015-ap-migration-balance-due-column / k015-sage-import-duplicate-savepoint / k089-ar-migration-balance-due-column
+  Test Files 3 passed | Tests 38 passed
+bunx vitest run tests/unit/services/capturePostFingerprint.test.ts   -> 2 passed (new)
+bunx vitest run tests/unit/services/capture/duplicateDetectionService.test.ts -> 21 passed
+bun run test:components -> 63 files / 420 passed
+FULL unit suite, DATABASE_URL UNSET (env -u DATABASE_URL bunx vitest run):
+  Test Files 793 passed | 36 skipped (829); Tests 9439 passed | 234 skipped (9673)
+bunx tsc --noEmit -> clean
+bunx eslint post.ts captureDeduplicationService.ts softDeleteService.ts migrationApService.ts -> clean
+
+Mutation proof (each production change reverted in turn, then restored):
+  1. post.ts inline-SQL fingerprint restored        -> capturePostFingerprint 2 failed
+  2. toColumnScale -> (n).toFixed(2)                -> duplicateDetectionService 1 failed;
+                                                       int "TS and SQL producers agree" failed
+  3. 670's DO $$ cross-tenant guard removed         -> int "670 refuses…" failed
+  4. purge DELETEs unscoped (company_id removed)    -> int "expiry purge…" failed
+  5. blank-row remedy text reverted                 -> int "blank-numbered bill…" failed
+
+=== ROUND 7 (2026-09-10) ===
+$ bunx vitest run tests/unit/services/capturePostFingerprint.test.ts tests/unit/services/capture/duplicateDetectionService.test.ts
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+
+MUTATION (unit) — post.ts supplierVatNumber -> extracted.vendorVatNumber (both call sites),
+and toColumnScale's `if (cents === 0n) return '0.00';` + unsignZero removed:
+     x drops the sign on a negative amount that rounds to zero - NUMERIC has none
+     x binds exactly what computeFingerprint produces
+     x takes the VAT segment from the supplier row, not the OCR extraction
+     x uses 'no-vat' when the supplier record has none, even if the document does
+     x gives the duplicate gate the same VAT it stores
+ Test Files  2 failed (2)
+      Tests  5 failed | 22 passed (27)
+Restored; re-ran: 27 passed (27).
+
+$ source fixture.env && bun run test:integration -- tests/integration/k015-ap-migration-balance-due-column.int.test.ts
+ Test Files  1 passed (1)
+      Tests  25 passed (25)
+
+MUTATION (integration) — 670's coalesce(s.vat_number,'no-vat') replaced with the literal 'no-vat':
+     x a capture-path fingerprint converges with 670, and the exact-match lookup still finds it
+ Test Files  1 failed (1)
+Restored.
+
+$ env -u DATABASE_URL bunx vitest run     # FULL unit suite, fixture env NOT sourced
+ Test Files  793 passed | 36 skipped (829)
+      Tests  9443 passed | 234 skipped (9677)
+
+$ bunx tsc --noEmit                       # exit 0, no output
+$ bunx eslint 'pages/api/accounting/capture/[id]/post.ts' \
+              src/modules/accounting/services/capture/captureDeduplicationService.ts   # exit 0
+$ bun run agent-docs:check
+OK: 74 agent document mirror(s) match canonical sources.

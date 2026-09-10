@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({
   getEfilingConfig: vi.fn(),
   getVatExceptions: vi.fn(),
-  generateVAT201: vi.fn(),
+  getLedgerVAT201: vi.fn(),
   authenticate: vi.fn(),
   submitVAT201: vi.fn(),
   pollStatus: vi.fn(),
@@ -26,7 +26,12 @@ vi.mock('@/modules/accounting/services/reports/sarsEfilingConfig', () => ({
   isEfilingConfigured: () => m.getEfilingConfig() !== null,
 }));
 vi.mock('@/modules/accounting/services/reports/vatExceptionsService', () => ({ getVatExceptions: m.getVatExceptions }));
-vi.mock('@/modules/accounting/services/reports/vat201Service', () => ({ generateVAT201: m.generateVAT201 }));
+// Only the IO is mocked. `evaluateVat201Filability` is pure and is the gate
+// under test here, so it runs for real.
+vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/reports/vat201LedgerFields')>()),
+  getLedgerVAT201: m.getLedgerVAT201,
+}));
 vi.mock('@/modules/accounting/services/reports/sarsEfilingClient', () => ({
   authenticate: m.authenticate,
   submitVAT201: m.submitVAT201,
@@ -49,6 +54,7 @@ import {
   EfilingBlockedError,
   EfilingSubmissionNotFoundError,
   EfilingAlreadyFiledError,
+  draftDrift,
 } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 
 const CID = '11111111-1111-1111-1111-111111111111';
@@ -59,19 +65,32 @@ function cleanReport(over: Record<string, unknown> = {}) {
   return { totalExceptions: 0, degradedData: false, degradedSources: [], ...over };
 }
 
+/** The eleven figures, matching between the saved draft and the regenerated return. */
+const FILED_FIELDS = {
+  field1_standardRatedSupplies: 1000000, field2_zeroRatedSupplies: 0, field3_exemptSupplies: 0,
+  field4_totalImports: 0, field5_outputVAT: 150000, field6_capitalGoods: 0,
+  field7_otherGoods: 100000, field8_services: 0, field9_imports: 0,
+  field10_totalInputVAT: 100000, field11_vatPayableOrRefundable: 50000,
+};
+
+function tiedRateCheck(over: Record<string, unknown> = {}) {
+  return {
+    rate: 0.15, outputImpliedTax: 150000, outputVariance: 0,
+    inputImpliedTax: 100000, inputVariance: 0, ties: true,
+    entriesWithoutBase: [], entriesWithoutBaseTotal: 0, ...over,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   m.getEfilingConfig.mockReturnValue({ baseUrl: 'http://x', isvLogin: 'l', activationKey: 'k' });
   m.getEfilingSubmission.mockResolvedValue({
     id: SID, companyId: CID, formType: 'VAT201',
     periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
-    efilingCorrelationId: null, efilingLastStatus: null,
+    efilingCorrelationId: null, efilingLastStatus: null, formData: { ...FILED_FIELDS },
   });
   m.getVatExceptions.mockResolvedValue(cleanReport());
-  m.generateVAT201.mockResolvedValue({
-    field1_standardRatedSupplies: 1000000, field5_outputVAT: 150000,
-    field10_totalInputVAT: 100000, field11_vatPayableOrRefundable: 50000,
-  });
+  m.getLedgerVAT201.mockResolvedValue({ ...FILED_FIELDS, rateCheck: tiedRateCheck() });
   m.getCompanyVatInfo.mockResolvedValue({ vatNumber: '4123456789', companyName: 'Test Co' });
   m.authenticate.mockResolvedValue({ token: 'tok' });
   m.submitVAT201.mockResolvedValue({ correlationId: 'CORR-1', status: 'received', httpStatus: 202 });
@@ -111,7 +130,7 @@ describe('submitVAT201ToSars', () => {
     m.getEfilingSubmission.mockResolvedValue({
       id: SID, companyId: CID, formType: 'VAT201',
       periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'submitted',
-      efilingCorrelationId: 'CORR-EXISTING', efilingLastStatus: 'received',
+      efilingCorrelationId: 'CORR-EXISTING', efilingLastStatus: 'received', formData: { ...FILED_FIELDS },
     });
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingAlreadyFiledError);
     expect(m.submitVAT201).not.toHaveBeenCalled();
@@ -122,7 +141,7 @@ describe('submitVAT201ToSars', () => {
     m.getEfilingSubmission.mockResolvedValue({
       id: SID, companyId: CID, formType: 'VAT201',
       periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'accepted',
-      efilingCorrelationId: null, efilingLastStatus: 'accepted',
+      efilingCorrelationId: null, efilingLastStatus: 'accepted', formData: { ...FILED_FIELDS },
     });
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingAlreadyFiledError);
     expect(m.submitVAT201).not.toHaveBeenCalled();
@@ -172,6 +191,110 @@ describe('submitVAT201ToSars', () => {
       expect.objectContaining({ eventType: 'error', httpStatus: 500 }),
     );
   });
+
+  it('BLOCKS a return that fails SARS\'s own 15% check, and audits it', async () => {
+    // R1 000 000 of standard supplies implies R150 000 of tax; R158 000 is
+    // R8 000 out, well over the 0.5% bar of R790.
+    m.getLedgerVAT201.mockResolvedValue({
+      ...FILED_FIELDS,
+      field5_outputVAT: 158000,
+      rateCheck: tiedRateCheck({ ties: false, outputVariance: 8000, inputVariance: 0 }),
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingBlockedError);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+    expect(m.insertEfilingEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'blocked', detail: expect.objectContaining({ rateCheckTies: false }) }),
+    );
+  });
+
+  it('files a variance that is immaterial against the tax declared', async () => {
+    // R200 out on R150 000 is 0.13% — under the bar. vatBoxBasis's own R1
+    // absolute tolerance would refuse this book forever.
+    m.getLedgerVAT201.mockResolvedValue({
+      ...FILED_FIELDS,
+      field5_outputVAT: 150200,
+      rateCheck: tiedRateCheck({ ties: false, outputVariance: 200 }),
+    });
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
+      efilingCorrelationId: null, efilingLastStatus: null,
+      formData: { ...FILED_FIELDS, field5_outputVAT: 150200 },
+    });
+    await submitVAT201ToSars(CID, SID, UID);
+    expect(m.submitVAT201).toHaveBeenCalledTimes(1);
+  });
+
+  it('BLOCKS an input breakdown that contradicts its own total', async () => {
+    const contradicted = { ...FILED_FIELDS, field7_otherGoods: -50000, field8_services: 150000 };
+    m.getLedgerVAT201.mockResolvedValue({ ...contradicted, rateCheck: tiedRateCheck() });
+    // Saved draft matches, so this is the filability gate and not draft drift.
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
+      efilingCorrelationId: null, efilingLastStatus: null, formData: { ...contradicted },
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toThrow(/exceeds what the ledger claims/);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+  });
+
+  it('BLOCKS a return declaring a negative supply value', async () => {
+    m.getLedgerVAT201.mockResolvedValue({
+      ...FILED_FIELDS, field1_standardRatedSupplies: -4000, rateCheck: tiedRateCheck(),
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toThrow(/negative/);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+  });
+
+  it('BLOCKS when the ledger has moved since the reviewed draft was saved', async () => {
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
+      efilingCorrelationId: null, efilingLastStatus: null,
+      formData: { ...FILED_FIELDS, field5_outputVAT: 151000 },
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toThrow(/ledger has moved/);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+    expect(m.markSubmissionSubmitted).not.toHaveBeenCalled();
+  });
+
+  it('BLOCKS a draft that holds no figures to compare against', async () => {
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
+      efilingCorrelationId: null, efilingLastStatus: null, formData: null,
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingBlockedError);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+  });
+
+  it('never sends rateCheck to SARS', async () => {
+    await submitVAT201ToSars(CID, SID, UID);
+    const payload = m.submitVAT201.mock.calls[0][2];
+    expect(payload.fields).not.toHaveProperty('rateCheck');
+    expect(payload.fields).not.toHaveProperty('outputInvoices');
+  });
+});
+
+describe('draftDrift (pure)', () => {
+  const regenerated = { ...FILED_FIELDS, rateCheck: tiedRateCheck() } as never;
+
+  it('reports nothing when the draft matches', () => {
+    expect(draftDrift({ ...FILED_FIELDS }, regenerated)).toEqual([]);
+  });
+  it('names each field that moved', () => {
+    const drift = draftDrift({ ...FILED_FIELDS, field5_outputVAT: 151000, field1_standardRatedSupplies: 999000 }, regenerated);
+    expect(drift).toHaveLength(2);
+    expect(drift.join(' ')).toContain('field5_outputVAT');
+    expect(drift.join(' ')).toContain('field1_standardRatedSupplies');
+  });
+  it('ignores a sub-cent difference', () => {
+    expect(draftDrift({ ...FILED_FIELDS, field5_outputVAT: 150000.001 }, regenerated)).toEqual([]);
+  });
+  it('refuses a draft with no figures rather than passing it', () => {
+    expect(draftDrift(null, regenerated)).toHaveLength(1);
+    expect(draftDrift({ some: 'other shape' }, regenerated)).toHaveLength(1);
+  });
 });
 
 describe('pollVAT201Status', () => {
@@ -179,7 +302,7 @@ describe('pollVAT201Status', () => {
     m.getEfilingSubmission.mockResolvedValue({
       id: SID, companyId: CID, formType: 'VAT201',
       periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
-      efilingCorrelationId: null, efilingLastStatus: null,
+      efilingCorrelationId: null, efilingLastStatus: null, formData: { ...FILED_FIELDS },
     });
     await expect(pollVAT201Status(CID, SID)).rejects.toBeInstanceOf(EfilingBlockedError);
     expect(m.pollStatus).not.toHaveBeenCalled();
@@ -189,7 +312,7 @@ describe('pollVAT201Status', () => {
     m.getEfilingSubmission.mockResolvedValue({
       id: SID, companyId: CID, formType: 'VAT201',
       periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'submitted',
-      efilingCorrelationId: 'CORR-1', efilingLastStatus: 'received',
+      efilingCorrelationId: 'CORR-1', efilingLastStatus: 'received', formData: { ...FILED_FIELDS },
     });
     const out = await pollVAT201Status(CID, SID);
     expect(out.status).toBe('accepted');

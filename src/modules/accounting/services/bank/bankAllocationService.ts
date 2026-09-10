@@ -340,7 +340,8 @@ export async function allocateTransaction(
   }
 
   const linesWithDims = lines.map(l =>
-    l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId, buId: buId || l.buId }
+    l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId,
+      cc1Id: cc1Id || l.cc1Id, cc2Id: cc2Id || l.cc2Id, buId: buId || l.buId }
   );
 
   // Carry forward source_document_id from the invoice when allocating against a known entity

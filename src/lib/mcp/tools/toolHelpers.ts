@@ -143,21 +143,60 @@ function truncateForMessage(value: unknown): string {
  * which the census test surfaces the moment it is written.
  */
 const REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'ADJUSTMENT_NOT_APPROVABLE',
+  'APPROVAL_REQUEST_LOCK_TIMEOUT',
   'BANK_ALLOCATION_REFUSED',
+  'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
   'BANK_TX_LOCK_TIMEOUT',
+  'BATCH_NOT_PROCESSABLE',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
+  'DOCUMENT_CLAIM_LOCK_TIMEOUT',
+  'DOCUMENT_NUMBER_LOCK_TIMEOUT',
   'GL_ACCOUNT_LOCK_TIMEOUT',
+  'JOURNAL_REVERSAL_LOCK_TIMEOUT',
+  'LOAN_POST_LOCK_TIMEOUT',
   'PAYMENT_LOCK_TIMEOUT',
   'PAYMENT_POSTED_DURING_VOID',
+  'PAYROLL_LOAN_LOCK_TIMEOUT',
+  'PAYROLL_RUN_JOURNAL_POSTED',
   'RECEIPT_REFUSED',
-  'RECLASS_LINE_LOCKED',
+  'RECLASS_LINE_LOCK_TIMEOUT',
   'RECURRING_INVOICE_LOCK_TIMEOUT',
   'RECURRING_INVOICE_NOT_DUE',
   'RECURRING_INVOICE_TEMPLATE_INVALID',
+  'RECURRING_JOURNAL_LOCK_TIMEOUT',
+  'RECURRING_JOURNAL_NOT_FOUND',
+  'RECURRING_TEMPLATE_LOCK_TIMEOUT',
+  'RECURRING_TEMPLATE_NOT_DUE',
+  'RECURRING_TEMPLATE_TOTALS_MISMATCH',
+  'RULE_AUTHORITY_REQUIRED',
   'SUPPLIER_INVOICE_LOCK_TIMEOUT',
+  'SUPPLIER_PAYMENT_NOT_FOUND',
+  'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
   'SUPPLIER_PAYMENT_REFUSED',
+  'TAX_DIRECTIVE_ALREADY_APPLIED',
+  'TIME_ENTRIES_NOT_CLAIMED',
+  'TIME_ENTRY_LOCK_TIMEOUT',
+  'WIP_ENTRIES_LOCKED',
+  'WRITE_OFF_NOT_APPROVABLE',
+]);
+
+/**
+ * Declared codes that are NOT refusals, and must stay behind the fallback.
+ *
+ * `ClaimOutsideTransactionError` marks a programmer error — a claim attempted
+ * outside a request transaction — not something the caller did or can remedy.
+ * Its message names internal machinery (`withAuth` / `als.run`), so an agent
+ * told it would retry against advice it cannot act on.
+ *
+ * The census in `tests/unit/mcp/typedRefusalReachesAgent.test.ts` requires
+ * every declared code to appear in EXACTLY ONE of these two sets, so a new
+ * coded error is a decision rather than a default disclosure.
+ */
+export const NOT_A_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'CLAIM_OUTSIDE_TRANSACTION',
 ]);
 
 /**

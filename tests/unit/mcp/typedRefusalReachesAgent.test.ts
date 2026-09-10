@@ -45,7 +45,7 @@ import { validateBankReceiptApplication } from '@/modules/accounting/services/ar
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
-import { safeErrorText } from '@/lib/mcp/tools/toolHelpers';
+import { safeErrorText, NOT_A_REFUSAL_CODES } from '@/lib/mcp/tools/toolHelpers';
 import { applyPaymentToSupplierInvoiceTool } from '@/lib/mcp/tools/writeApplySupplierPayment';
 import { applyReceiptToInvoiceTool } from '@/lib/mcp/tools/writeApplyReceipt';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -162,19 +162,25 @@ describe('the safeErrorText allowlist covers every refusal class in the repo', (
       'git', ['grep', '-h', '--untracked', "readonly code = '", '--', 'src/'],
       { encoding: 'utf8' },
     );
-    // Every code declared under `src/` must be SURFACED, which is correct while
-    // all of them are genuine refusals. A future coded error that must stay
-    // hidden (an internal invariant marker) turns this red: the answer then is
-    // to split the census into REFUSAL_CODES plus an explicit not-a-refusal
-    // set, so the default for a new code stays a decision rather than
-    // disclosure. Do not silence it by adding the code to REFUSAL_CODES.
+    // Every code declared under `src/` must be a DECISION: surfaced because it
+    // is a genuine refusal, or listed in NOT_A_REFUSAL_CODES because it is an
+    // internal invariant marker whose message helps nobody. That split is the
+    // one this docblock used to prescribe for the day a non-refusal appeared;
+    // `CLAIM_OUTSIDE_TRANSACTION` is that day. Do NOT resolve a new red here by
+    // adding the code to REFUSAL_CODES without reading its message first.
     const codes = [...out.matchAll(/readonly code = '([A-Z0-9_]+)'/g)].map((m) => m[1]!);
     expect(codes.length).toBeGreaterThanOrEqual(14);
     for (const code of codes) {
-      expect(
-        safeErrorText(Object.assign(new Error(REMEDY), { code }), FALLBACK),
-        `${code} is declared in src/ but missing from REFUSAL_CODES in toolHelpers.ts`,
-      ).toBe(REMEDY);
+      const shown = safeErrorText(Object.assign(new Error(REMEDY), { code }), FALLBACK);
+      if (NOT_A_REFUSAL_CODES.has(code)) {
+        expect(shown, `${code} is not a refusal and must stay behind the fallback`)
+          .toBe(FALLBACK);
+      } else {
+        expect(
+          shown,
+          `${code} is declared in src/ but missing from REFUSAL_CODES in toolHelpers.ts`,
+        ).toBe(REMEDY);
+      }
     }
   });
 });

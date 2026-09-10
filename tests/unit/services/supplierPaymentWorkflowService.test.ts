@@ -25,7 +25,18 @@ const { mockTx } = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/als', async () => {
   const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
-  return { ...actual, als: { ...actual.als, getStore: () => ({ client: mockTx.client }) } };
+  // Spreading the ALS instance keeps `getStore` stubbed but loses the
+  // prototype methods, so `run` — which `inRequestTx` below uses to enter a
+  // request context explicitly — is restored here. The stubbed `getStore`
+  // already reports a context, so running the callback directly is enough.
+  return {
+    ...actual,
+    als: {
+      ...actual.als,
+      getStore: () => ({ client: mockTx.client }),
+      run: <T>(_ctx: unknown, fn: () => T): T => fn(),
+    },
+  };
 });
 
 vi.mock('@/lib/neon', () => {
@@ -55,6 +66,7 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
   getSupplierPaymentById: (...args: unknown[]) => getSupplierPaymentById(...args),
 }));
 
+import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { processSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 
@@ -65,6 +77,18 @@ const FOREIGN_BANK_ACCT = 'gl-bank-belongs-to-company-b';
 const USER_ID = 'user-1';
 
 const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
+
+/**
+ * `claimUnderLockTimeout` refuses to claim outside a request transaction — the
+ * claim would autocommit and could not be rolled back with the posting that
+ * follows it. These unit tests mock `sql`, so the client only has to exist;
+ * `SET LOCAL` goes to the stub.
+ */
+const requestCtx = {
+  client: { query: vi.fn() }, userId: USER_ID, companyId: COMPANY_A, claims: {},
+} as unknown as Parameters<typeof als.run>[0];
+const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => als.run(requestCtx, fn);
+
 
 function makeApprovedPayment() {
   return {
@@ -102,14 +126,17 @@ describe('processSupplierPayment — bank account tenant isolation', () => {
   });
 
   it('scopes the bank-account lookup to companyId', async () => {
-    // call 0 = the payment lock; call 1 = bank account lookup;
-    // call 2 = UPDATE supplier_payments RETURNING *
+    // The merged path takes BOTH: call 0 = the payment row lock; call 1 = the
+    // status-predicated CLAIM; call 2 = bank account lookup;
+    // call 3 = UPDATE supplier_payments SET gl_journal_entry_id RETURNING *.
+    // A non-empty claim result is what stops the path refusing at that step.
     sqlMock
+      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
       .mockResolvedValueOnce([{ id: FOREIGN_BANK_ACCT }])
       .mockResolvedValueOnce([makeProcessedRow()]);
 
-    await processSupplierPayment(COMPANY_A, PAYMENT_ID, USER_ID);
+    await inRequestTx(() => processSupplierPayment(COMPANY_A, PAYMENT_ID, USER_ID));
 
     const bankLookup = sqlMock.mock.calls.find((args) =>
       /FROM\s+gl_accounts/i.test((args[0] as readonly string[]).join(' ')),
@@ -145,10 +172,14 @@ describe('processSupplierPayment — bank account tenant isolation', () => {
   });
 
   it('fails closed when the bank account does not belong to the company', async () => {
-    // Scoped lookup returns no row (foreign account filtered out by company_id).
-    sqlMock.mockResolvedValueOnce([{ id: PAYMENT_ID }]).mockResolvedValueOnce([]);
+    // Lock, then claim wins, then the scoped lookup returns no row (foreign
+    // account filtered out by company_id).
+    sqlMock
+      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([]);
 
-    await expect(processSupplierPayment(COMPANY_A, PAYMENT_ID, USER_ID)).rejects.toThrow(
+    await expect(inRequestTx(() => processSupplierPayment(COMPANY_A, PAYMENT_ID, USER_ID))).rejects.toThrow(
       /bank account not found/i,
     );
   });

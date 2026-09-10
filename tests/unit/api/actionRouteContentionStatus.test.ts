@@ -44,7 +44,11 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
   approveSupplierPayment: vi.fn(),
   processSupplierPayment: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/ap/supplierPaymentWorkflowService', () => ({
+// The route classifies on the REAL error classes, so they come from the actual
+// module — a stub class would be a different constructor and every `instanceof`
+// below would read false.
+vi.mock('@/modules/accounting/services/ap/supplierPaymentWorkflowService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/ap/supplierPaymentWorkflowService')>()),
   voidSupplierPayment: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({

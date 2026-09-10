@@ -1004,3 +1004,66 @@ Identical to the round-16 baseline; no k071/k074 file among the failures (greppe
 lines for `k071|k074|bulkAlloc|bankRules|undo` — no matches).
 
 **Not done:** R-060 and R-065 (out of scope for this round). No migration.
+
+## Round 18 — merge `origin/master` (c1ecf6fb9) into the branch
+
+No new findings. Eleven conflicts, every one resolved by keeping BOTH sides' intent; none of
+them required choosing between two contradictory fixes.
+
+| Conflict | master was fixing | this branch was fixing | kept |
+|---|---|---|---|
+| `bank/bankTxLock.ts` | K-140: `tableLockUnavailable` probe + `BankMatchUnavailableError`, and the reasoning for reading a bare 55P03 as row contention | classification widened to `isLockContention` (55P03 **and** 40P01) + the structural `isBankTransactionLockTimeout` | both. The catch classifies with `isLockContention`; master's comment is kept and extended. `LOCK_NOT_AVAILABLE` was lost in the textual merge and is restored — the probe's `isLockNotAvailable` uses it. |
+| `ar/receiptAllocationLines.ts` | the invoice row lock, factored into the shared `withCustomerInvoiceLock` (also used by `creditNoteCancelService`) | the same lock, hand-rolled, mapping contention to a **retryable** `ReceiptRefusal` so the routes answer 409 | both. Master's helper takes the lock; the call site maps `CustomerInvoiceLockTimeoutError` (its 55P03 mapping) **and** a raw 40P01 to the retryable refusal. The helper is untouched, so its other caller is unaffected. |
+| `core/duplicateMergeService.ts` | `rowCount` is always `undefined` on the `sql` tag, so `count` was always 0 — fixed with `RETURNING id` + `.length` | payments locked before invoices (canonical lock order) | both: payments first, both statements with `RETURNING id`. |
+| `bank/bankRulesMatchingService.ts` | imports for the suggestion pass | `isRetryableContention` for the skip-and-count sweep | both imports; master's `BankTransactionLockTimeoutError` import is dropped because the merged body classifies with the union, which subsumes it. |
+| `mcp/tools/toolHelpers.ts` | `safeErrorText` keyed on `isCallerSafeError` (a `_LOCK_TIMEOUT` suffix test) | an identity ALLOWLIST (`REFUSAL_CODES`) | the allowlist: every code the suffix test admitted is named in it, so master's "contention reaches the agent" intent survives by identity. |
+| `ar/receipt-match/confirm.ts` | `isRefusal = isCallerSafeError` | typed `isReceiptRefusal` / `isRetryableReceiptRefusal` (400/409) | the typed predicates, which are strictly narrower and carry master's lock-timeout case through the retryable arm. |
+| `supplier-payments-action.ts` | the blanket `badRequest(err.message)` replaced by a typed chain ending in `throw err`, so an unclassified error is a 500 that rolls the claim back | a 409 arm for contention | both, contention first. See the one gate-forced addition below. |
+| `bank/.claude.md` (+ regenerated `AGENTS.md`) | new modules and signatures (suggestion pass, auto-post gate/undo, `tableLockUnavailable`, `rulePattern`) | the compressed rewrite of the same sections | the compressed form, with master's new facts folded in. The mirror was regenerated (`agent-docs:generate`), never hand-merged; `agent-docs:check` reports 74 mirrors matching. |
+| `tests/unit/services/ar/receiptApplicationService.test.ts` | the dry-run guard matched on statement forms | the same guard, anchored and alias-aware | this branch's, a strict superset. |
+| `tests/unit/services/supplierPaymentWorkflowService.test.ts` | the status-predicated CLAIM | the payment row lock | both — the merged path takes the lock **and** the claim, so the mock chains gained one more `mockResolvedValueOnce`; the call-index comments say so. |
+
+### What the gate found, and what it forced
+
+The branch's own guards caught six things the textual merge had left inconsistent. Each was
+fixed by making the merged code right, not by relaxing an expectation:
+
+1. **`tests/unit/mcp/typedRefusalReachesAgent.test.ts` census** — master declares 24 refusal
+   codes the allowlist did not name, and renamed `RECLASS_LINE_LOCKED` to
+   `RECLASS_LINE_LOCK_TIMEOUT`. `REFUSAL_CODES` now lists all 38 genuine refusals.
+2. **One of those is not a refusal.** `ClaimOutsideTransactionError`
+   (`CLAIM_OUTSIDE_TRANSACTION`) marks a programmer error — a claim attempted outside a request
+   transaction — and its message names internal machinery, so surfacing it to an agent offers a
+   remedy the caller cannot act on. Under master's `isCallerSafeError` it was hidden. This is
+   the case the census docblock itself prescribed a split for, so the split is implemented:
+   `NOT_A_REFUSAL_CODES` beside `REFUSAL_CODES`, and the census now requires every declared code
+   to be in exactly one set — surfaced, or pinned to the fallback. **This is the only test
+   expectation changed rather than satisfied, and it is the change the test asked for.**
+3. **`als` module mocks vs `tests/unit/helpers/requestCtx`.** Both sides solved "the lock needs
+   a request transaction", master with `enterFakeRequestCtx` (calls `als.enterWith`), this
+   branch by stubbing `als.getStore`. Spreading the ALS instance drops its prototype methods, so
+   the two together threw `als.enterWith is not a function`. Where the branch's `mockTx.present`
+   toggle subsumes the helper (`receiptApplicationService`, `receiptMatchConfirmService`) the
+   helper call is removed; where master's test enters a context explicitly
+   (`supplierPaymentWorkflowService`) the mock restores `run`.
+4. **`undoRun` returns a third counter.** Master added `alreadyUndone`; the branch's exact-equality
+   assertion gained it as `0`, with a note on what it counts.
+5. **`actionRouteContentionStatus.test.ts`** stubbed the workflow service without the two error
+   classes the route now classifies on. The mock uses `importOriginal` so `instanceof` sees the
+   real constructors, not stubs.
+6. **Gate-forced behaviour addition (the only one).** Master's typed chain re-throws anything it
+   does not name, so a typed `SupplierPaymentRefusal` — a books refusal this branch answers 400
+   with its own wording — became a 500. An arm for `isSupplierPaymentRefusal` is added after the
+   contention check. Safe under master's own rule: every construction site of that class is a
+   plan/validate function that has written nothing (`supplierAllocationLines`,
+   `supplierBankPaymentService`, `supplierPaymentApplicationService`). An unclassified error
+   still reaches the 500.
+
+### Gates (round 18, foreground)
+
+`env -u DATABASE_URL bun run ci` (load average 31.70 at start):
+
+    [ci] build PASS
+
+    [ci] all checks passed
+    EXIT=0

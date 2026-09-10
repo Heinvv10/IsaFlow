@@ -15,14 +15,32 @@ export type RuleAllocType = 'account' | 'supplier' | 'customer';
 export type { PeriodStatus } from '../gl/periodStatusService';
 export { getPeriodStatusForDate } from '../gl/periodStatusService';
 
+/**
+ * Escape the LIKE metacharacters a rule's own pattern may contain.
+ *
+ * `match_pattern` is a literal the operator typed, not a pattern language they
+ * were offered. Unescaped, `_` is ILIKE's single-character wildcard, so a rule
+ * keyed on `SALARY_JAN` also claims `SALARYXJAN` and `exact` is not exact; `%`
+ * matches any run of characters, so `50% OFF` claims `50ANYTHING OFF`.
+ * `applyRules` auto-posts a journal for every row the match returns, so an
+ * over-match is a posted misallocation rather than a display glitch.
+ *
+ * Backslash is ILIKE's default escape character, so escaping it first (before
+ * the two wildcards) is what makes a literal backslash in the pattern stay one.
+ */
+function escapeLikeLiteral(matchPattern: string): string {
+  return matchPattern.replace(/[\\%_]/g, ch => `\\${ch}`);
+}
+
 /** Convert rule match type to SQL ILIKE pattern. */
 export function toSqlPattern(matchType: string, matchPattern: string): string {
+  const lit = escapeLikeLiteral(matchPattern);
   switch (matchType) {
-    case 'contains':    return `%${matchPattern}%`;
-    case 'starts_with': return `${matchPattern}%`;
-    case 'ends_with':   return `%${matchPattern}`;
-    case 'exact':       return matchPattern;
-    default:            return `%${matchPattern}%`;
+    case 'contains':    return `%${lit}%`;
+    case 'starts_with': return `${lit}%`;
+    case 'ends_with':   return `%${lit}`;
+    case 'exact':       return lit;
+    default:            return `%${lit}%`;
   }
 }
 
