@@ -92,3 +92,24 @@ it('aggregates only matching verified case IDs and reports missing shards honest
  expect(()=>aggregateCoverage(planned,'hash',[{...report,executed:[{...planned[0],tool:'wrong',committedRefusal:true}]}])).toThrow();
  expect(aggregateCoverage(planned,'hash',[report,{outcome:'passed',build,planHash:'hash',executed:[{...planned[1],committedRefusal:true}]}])).toMatchObject({complete:true,remainingCaseIds:[]});
 });
+
+it('uses a canonical approval operation before testing its current-authority callback',async()=>{
+ const {contractSample}=await import('./contractSamples');
+ const {canonicalOperationRef}=await import('@/modules/accounting/services/controls/operationMaterializer');
+ const inventory=JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-contract-current.json','utf8'));
+ const tool=inventory.tools.find((tool:{name:string})=>tool.name==='request_operation_approval');
+ const args=contractSample(tool);
+ expect(()=>canonicalOperationRef({operation:args.operation as 'journal.post',entityType:String(args.entity_type),entityId:String(args.entity_id)})).not.toThrow();
+});
+
+it('passes actual custom-authorization semantic parsing before the issued-context boundary',async()=>{
+ const {contractSample,SAMPLE_UUID}=await import('./contractSamples');
+ const {MCP_TOOLS}=await import('@/lib/mcp/toolIndex');
+ const inventory=JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-contract-current.json','utf8'));
+ const custom=MCP_TOOLS.filter(tool=>tool.authorize);
+ expect(custom.map(tool=>tool.name).sort()).toEqual(['audit_snapshot','execute_bank_operation','export_audit_evidence','prepare_bank_operation','propose_supplier_bank_change','request_operation_approval']);
+ for(const tool of custom){
+  const contract=inventory.tools.find((row:{name:string})=>row.name===tool.name);
+  await expect(tool.authorize!(contractSample(contract),{companyId:SAMPLE_UUID,userId:SAMPLE_UUID,scopes:[],tokenJti:null,oauthAppId:null}),tool.name).rejects.toThrow('Authenticated control transaction required');
+ }
+});
