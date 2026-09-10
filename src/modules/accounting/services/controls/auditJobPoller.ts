@@ -6,9 +6,12 @@ import {sql} from '@/lib/neon';
 import {canonicalJson} from './canonical';
 import type {AuditWorkerResult} from './auditJobRunner';
 import type {AuditWorkerIdentity} from './auditWorkerTransaction';
+import {AUDIT_JOB_KINDS,AUDIT_WORKER_CLASS_KINDS,type AuditJobKind} from './auditJobContract';
 const schema=z.object({companyIds:z.array(z.string().uuid()).min(1).max(10).refine(ids=>new Set(ids).size===ids.length),
- batchSize:z.number().int().min(1).max(10).default(10)}).strict();
-export interface AuditPollerConfig{companyIds:string[];batchSize?:number}
+ batchSize:z.number().int().min(1).max(10).default(10),
+ // A poller instance serves one worker class; it never discovers kinds outside it (legacy default: the audit class).
+ kinds:z.array(z.enum(AUDIT_JOB_KINDS)).min(1).max(AUDIT_JOB_KINDS.length).refine(kinds=>new Set(kinds).size===kinds.length).default([...AUDIT_WORKER_CLASS_KINDS.audit])}).strict();
+export interface AuditPollerConfig{companyIds:string[];batchSize?:number;kinds?:AuditJobKind[]}
 export type AuditJobExecutor=(identity:AuditWorkerIdentity,options:{signal?:AbortSignal})=>Promise<AuditWorkerResult>;
 export interface AuditPollerOptions{pool:Pool;executeJob:AuditJobExecutor}
 interface Cursor{jobId:string;updatedAt:string}
@@ -27,7 +30,7 @@ async function connect(pool:Pool,signal?:AbortSignal):Promise<PoolClient>{
   },finish);
  });
 }
-async function candidates(pool:Pool,companyId:string,limit:number,cursor:Cursor|undefined,signal?:AbortSignal):Promise<Candidate[]>{
+async function candidates(pool:Pool,companyId:string,kinds:readonly AuditJobKind[],limit:number,cursor:Cursor|undefined,signal?:AbortSignal):Promise<Candidate[]>{
  const client=await connect(pool,signal);let broken=false;
  try{
   signal?.throwIfAborted();await client.query('BEGIN READ ONLY');
@@ -35,7 +38,7 @@ async function candidates(pool:Pool,companyId:string,limit:number,cursor:Cursor|
   const rows=await als.run({client,userId:'audit-queue-poller',companyId,claims:{}},async()=>await sql`
    SELECT j.job_id AS "jobId",i.requester_person_id AS "personId",j.updated_at::text AS "updatedAt"
    FROM control_audit_jobs j JOIN control_audit_job_intents i ON i.company_id=j.company_id AND i.id=j.job_id
-   WHERE j.company_id=${companyId}::uuid AND (j.state='queued' OR (j.state='running' AND j.lease_expires_at<=clock_timestamp()))
+   WHERE j.company_id=${companyId}::uuid AND i.kind=ANY(${kinds}::text[]) AND (j.state='queued' OR (j.state='running' AND j.lease_expires_at<=clock_timestamp()))
     AND (${cursor?.updatedAt??null}::timestamptz IS NULL OR (j.updated_at,j.job_id)>(${cursor?.updatedAt??null}::timestamptz,${cursor?.jobId??null}::uuid))
    ORDER BY j.updated_at,j.job_id LIMIT ${limit}`) as Candidate[];
   signal?.throwIfAborted();await client.query('COMMIT');return rows;
@@ -54,7 +57,7 @@ export function createAuditJobPoller(input:AuditPollerConfig,options:AuditPoller
   const companyId=config.companyIds[nextCompany]!;nextCompany=(nextCompany+1)%config.companyIds.length;
   const results:AuditWorkerResult[]=[];
   try{
-   const rows=await candidates(options.pool,companyId,config.batchSize,cursors.get(companyId),signal);
+   const rows=await candidates(options.pool,companyId,config.kinds,config.batchSize,cursors.get(companyId),signal);
    if(!rows.length)cursors.delete(companyId);
    for(const row of rows){
     if(signal?.aborted)break;
@@ -80,9 +83,9 @@ async function delay(ms:number,signal?:AbortSignal){
  });
 }
 export async function runAuditJobPoller(input:AuditPollerConfig&{once?:boolean;intervalMs?:number},options:AuditPollerOptions&{signal?:AbortSignal}){
- const saved=z.object({companyIds:schema.shape.companyIds,batchSize:schema.shape.batchSize,
+ const saved=z.object({companyIds:schema.shape.companyIds,batchSize:schema.shape.batchSize,kinds:schema.shape.kinds,
   once:z.boolean().default(false),intervalMs:z.number().int().min(1000).max(60000).default(5000)}).strict().parse(JSON.parse(canonicalJson(input)));
- const poller=createAuditJobPoller({companyIds:saved.companyIds,batchSize:saved.batchSize},options);
+ const poller=createAuditJobPoller({companyIds:saved.companyIds,batchSize:saved.batchSize,kinds:saved.kinds},options);
  let polls=0,attempted=0;
  while(!options.signal?.aborted){
   try{const result=await poller.pollOnce(options.signal);polls++;attempted+=result.attempted;}

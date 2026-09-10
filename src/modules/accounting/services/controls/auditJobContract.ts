@@ -5,6 +5,12 @@ export const AUDIT_CHECK_IDS=['duplicate_invoice_checks','payment_risk_checks','
 /** Every kind the shared intent CHECK must name; migrations assert against this list. */
 export const AUDIT_JOB_KINDS=['audit_snapshot','audit_export','audit_compare','audit_check_run'] as const;
 export type AuditJobKind=typeof AUDIT_JOB_KINDS[number];
+export const AUDIT_WORKER_CLASSES=['audit','check_run'] as const;
+export type AuditWorkerClass=typeof AUDIT_WORKER_CLASSES[number];
+/** Each kind belongs to exactly one worker class; a worker never claims a kind outside its class. */
+export const AUDIT_WORKER_CLASS_KINDS:Readonly<Record<AuditWorkerClass,readonly AuditJobKind[]>>=Object.freeze({
+ audit:Object.freeze(['audit_snapshot','audit_export','audit_compare'] as const),check_run:Object.freeze(['audit_check_run'] as const)});
+export const isAuditWorkerClass=(value:unknown):value is AuditWorkerClass=>typeof value==='string'&&(AUDIT_WORKER_CLASSES as readonly string[]).includes(value);
 export const AUDIT_JOB_LIMITS=Object.freeze({pageSize:1000,maxRecords:100000,maxRunSeconds:60,maxAttempts:3,leaseSeconds:90});
 const schema=z.object({
  cutoff:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealCalendarDate),

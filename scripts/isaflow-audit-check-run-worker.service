@@ -1,0 +1,32 @@
+[Unit]
+Description=IsaFlow — forensic check-run queue worker (audit_check_run jobs only)
+# A user unit under velo's own systemd manager (linger enabled): each job runs in a
+# transient `systemd-run --user` unit whose RuntimeMaxSec/MemoryMax come from the
+# check_run class limits, so this poller must share that manager and its cgroup tree.
+# The legacy audit-class worker is a separate instance; the two never claim each other's kinds.
+# Install: ~/.config/systemd/user/, then `systemctl --user enable --now isaflow-audit-check-run-worker`.
+# Drain (stop) this unit before applying migrations that touch control_audit_* tables.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/velo/isaflow
+# Must provide ISAFLOW_AUDIT_WORKER_DATABASE_URL, ISAFLOW_AUDIT_WORKER_NODE_PATH,
+# ISAFLOW_AUDIT_WORKER_ENTRY_PATH (the built run-audit-job artifact), the control
+# encryption/signing keys, and ISAFLOW_CHECK_RUN_COMPANY_ARGS="--company <uuid> [--company <uuid>...]".
+EnvironmentFile=/home/velo/isaflow/.env.audit-worker
+ExecStart=/usr/bin/env bun scripts/forensic/run-audit-worker.ts --class check_run $ISAFLOW_CHECK_RUN_COMPANY_ARGS
+Restart=on-failure
+RestartSec=30
+# The poller only discovers and dispatches; work and its memory live in the per-job units.
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-audit-check-run-worker
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

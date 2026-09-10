@@ -6,7 +6,8 @@ import {getAuthPool} from '@/lib/auth/authPool';
 import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
 import {log} from '@/lib/logger';
 import {canonicalJson} from './canonical';
-import {AUDIT_JOB_LIMITS} from './auditJobContract';
+import {AUDIT_WORKER_CLASS_KINDS,isAuditWorkerClass,type AuditJobKind,type AuditWorkerClass} from './auditJobContract';
+import {AUDIT_PROCESS_LIMITS,type AuditClassLimits} from './auditJobProcessContract';
 import {claimAuditJobForWorker,failAuditJobForWorker,type AuditJobLease,type AuditJobErrorCode} from './auditJobLease';
 import {loadStoredAuditJobDelegation} from './auditJobDelegation';
 import {withControlJobRequest,requireControlTx} from './context';
@@ -22,6 +23,7 @@ const identitySchema=z.object({companyId:z.string().uuid(),personId:z.string().m
 export type AuditWorkerResult={state:'busy'|'not_claimed'}|{state:'succeeded';snapshotId:string;canonicalHash:string}
  |{state:'succeeded';exportId:string;canonicalHash:string}
  |{state:'succeeded';comparisonId:string;canonicalHash:string}
+ |{state:'succeeded';checkRunId:string;canonicalHash:string}
  |{state:'failed';code:AuditJobErrorCode;failureRecorded:boolean};
 let running=false;
 function failureCode(error:unknown,signal:AbortSignal|undefined,timedOut:boolean):AuditJobErrorCode{
@@ -34,23 +36,27 @@ function failureCode(error:unknown,signal:AbortSignal|undefined,timedOut:boolean
 }
 /** Server worker entry, never a tool/status handler. One memory-heavy capture per process. */
 export async function runAuditSnapshotJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal}={}):Promise<AuditWorkerResult>{
- return executeAuditJob(input,options,true);
+ return executeAuditJob(input,options,'audit',true);
 }
-/** Dispatch is derived from authenticated stored intent, never a caller-selected business operation. */
-export async function runAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal}={}):Promise<AuditWorkerResult>{
- return executeAuditJob(input,options,false);
+/** Dispatch is derived from authenticated stored intent, never a caller-selected business operation. The class is server configuration. */
+export async function runAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal;workerClass:AuditWorkerClass}):Promise<AuditWorkerResult>{
+ if(!isAuditWorkerClass(options?.workerClass))throw new Error('Explicit audit worker class required');
+ return executeAuditJob(input,options,options.workerClass,false);
 }
-async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal},snapshotOnly:boolean):Promise<AuditWorkerResult>{
+async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal},workerClass:AuditWorkerClass,snapshotOnly:boolean):Promise<AuditWorkerResult>{
  if(als.getStore())throw new Error('Audit runner cannot execute inside an HTTP transaction');
  const identity=identitySchema.parse(JSON.parse(canonicalJson(input)));
  if(running)return{state:'busy'};
+ const limits:AuditClassLimits=AUDIT_PROCESS_LIMITS[workerClass],kinds:readonly AuditJobKind[]=AUDIT_WORKER_CLASS_KINDS[workerClass];
+ const session={idleInTransactionMs:limits.idleInTransactionMs};
  const pool=options.pool??getAuthPool(),controller=new AbortController();
  running=true;let timedOut=false,lease:AuditJobLease|null=null;
- const deadlineAt=Date.now()+AUDIT_JOB_LIMITS.maxRunSeconds*1000;
- const timer=setTimeout(()=>{timedOut=true;controller.abort(new Error('Audit worker resource deadline'));},AUDIT_JOB_LIMITS.maxRunSeconds*1000);
+ // The class timer and the work transaction share one deadline; the claim keeps its own short bound (plan v6 A7).
+ const started=Date.now(),deadlineAt=started+limits.workDeadlineMs,claimDeadlineAt=Math.min(started+limits.claimDeadlineMs,deadlineAt);
+ const timer=setTimeout(()=>{timedOut=true;controller.abort(new Error('Audit worker resource deadline'));},limits.workDeadlineMs);
  const signal=AbortSignal.any([controller.signal,...options.signal?[options.signal]:[]]);
  try{
-  lease=await withAuditWorkerTransaction(pool,identity,'read committed',deadlineAt,signal,store=>claimAuditJobForWorker(store,identity.jobId));
+  lease=await withAuditWorkerTransaction(pool,identity,'read committed',claimDeadlineAt,signal,store=>claimAuditJobForWorker(store,identity.jobId,kinds),session);
   if(!lease)return{state:'not_claimed'};
   const currentLease=lease;
   const result=await withAuditWorkerTransaction(pool,identity,'repeatable read',deadlineAt,signal,store=>withControlJobRequest(store,currentLease,async()=>{
@@ -60,8 +66,8 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
     if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
     return publishAuditComparison(ctx,currentLease,{signal,deadlineAt});
    }
-   // Check runs execute only in the check-run worker class; the audit class never interprets them as snapshots.
-   if(saved.kind==='audit_check_run')throw new Error('Audit job kind is outside this worker class');
+   // The claim admits only this class's kinds. The check-run phase (plan T2c) is not part of this build, so it fails closed.
+   if(saved.kind==='audit_check_run')throw new Error('Audit check-run phase is not installed');
    if(saved.kind==='audit_export'){
     if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
     const bundle=await exportAuditEvidence(ctx,saved.request.snapshotId,{signal,deadlineAt});
@@ -71,7 +77,7 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
    signal.throwIfAborted();const retained=await retainSnapshotEvidence(ctx,snapshot,saved.request,signal);
    signal.throwIfAborted();const sealed=sealAuditSnapshot(retained.snapshot);signal.throwIfAborted();
    return publishAuditSnapshot(ctx,currentLease,sealed,retained.artifacts,{signal,deadlineAt});
-  }));
+  }),session);
   return{state:'succeeded',...result};
  }catch(error){
   const code=failureCode(error,options.signal,timedOut);let failureRecorded=false;
@@ -80,7 +86,7 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
    const pgCode=error!==null&&typeof error==='object'&&'code'in error?error.code:null;
    const retryable=code==='WORKER_ERROR'&&['40001','40P01','55P03'].includes(String(pgCode));
    try{
-    await withAuditWorkerTransaction(pool,identity,'read committed',Date.now()+5000,undefined,store=>failAuditJobForWorker(store,currentLease,code,retryable));
+    await withAuditWorkerTransaction(pool,identity,'read committed',Date.now()+limits.failureRecordMs,undefined,store=>failAuditJobForWorker(store,currentLease,code,retryable),session);
     failureRecorded=true;
    }catch{log.warn('Audit worker failure could not be recorded with its current lease',{jobId:identity.jobId,code},'audit-worker');}
   }
