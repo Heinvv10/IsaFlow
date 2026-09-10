@@ -10,10 +10,11 @@
  */
 import { controlledOperationApprovalRequiredForPreview } from '@/modules/accounting/services/controls/approvalExecutionService';
 import { requireControlTx } from '@/modules/accounting/services/controls/context';
+import { approvalRequiredReply } from '../approvalReply';
 
-export const PAYROLL_APPROVAL_REQUIRED_TEXT =
-  'An independent approval is required before this pay run can post. Request one with '
-  + 'request_operation_approval, then retry. Nothing was previewed.';
+// Neither payroll tool accepts approval_id, so the reply must not send the agent
+// to request one and retry.
+export const PAYROLL_APPROVAL_REQUIRED_TEXT = approvalRequiredReply({ name: 'approve_pay_run', inputSchema: {} });
 /** Deliberately NOT an approval instruction: the reason is something else. */
 export const PAYROLL_PREVIEW_UNAVAILABLE_TEXT =
   'This pay run could not be previewed — its posting material could not be built (a missing '

@@ -12,14 +12,8 @@ import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
-import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllocationLineError';
-import { BankLineDirectionError, bankLineDirectionErrorText } from './bankLineDirectionError';
-import {
-  MissingSystemAccountError,
-  missingSystemAccountText,
-} from '@/modules/accounting/services/gl/systemAccountKeys';
-import { insufficientScopeMessage, permissionRefusalMessage, OPERATION_APPROVAL_REQUIRED_REPLY } from './scopeRemediation';
-import { EffectivePermissionError } from '@/lib/auth/effectivePermissions';
+import { insufficientScopeMessage } from './scopeRemediation';
+import { handlerErrorReply } from './handlerErrorReply';
 import { assertCurrentToolAuthority } from './currentToolAuthority';
 import { validateToolArguments } from './inputValidation';
 import {withMcpInvocation,type MarkInvocation} from './invocationBoundary';
@@ -48,8 +42,6 @@ function errorResult(text: string): McpToolResult {
 class HandlerRefusal extends Error {
   constructor(readonly result:McpToolResult){super('Tool refused');}
 }
-
-const GENERIC_FAILURE = 'The operation failed. Please try again or contact support.';
 
 export class McpRegistry {
   private tools = new Map<string, McpTool>();
@@ -251,36 +243,7 @@ export class McpRegistry {
         const {billable:_billable,wroteNothing:_wroteNothing,...wire}=err.result;
         return wire;
       }
-      // A line-specific refusal contains only safe caller-owned input.
-      if (err instanceof BulkAllocationLineError) {
-        return errorResult(bulkAllocationLineErrorText(name, err));
-      }
-      // Missing system-account errors are already safe and actionable.
-      if (err instanceof MissingSystemAccountError) {
-        return errorResult(missingSystemAccountText(name, err));
-      }
-      // A line whose sign contradicts the invoice it names is the third. The
-      // refusal has to say WHICH way to go — drop invoice_id and it posts as a
-      // refund — because "the operation failed" on a payload the agent believes
-      // is a routine settlement invites the retry that keeps failing. Nothing
-      // in the message but the caller's own transaction id.
-      if (err instanceof BankLineDirectionError) {
-        return errorResult(bankLineDirectionErrorText(name, err));
-      }
-      // A domain permission refusal names the grant to ask for. Without this a
-      // guard the tool's declared scope does not cover — write:bank-tx behind a
-      // write:invoices tool — reads as "the operation failed", which is the one
-      // reply an agent cannot act on. Same remediation text the scope fence uses.
-      // Every approval-required refusal carries this code — the kernel's own and
-      // the AP/AR boundary wrappers alike. It is the one refusal an agent can act
-      // on by itself, so say how.
-      if (typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'OPERATION_APPROVAL_REQUIRED') {
-        return errorResult(OPERATION_APPROVAL_REQUIRED_REPLY);
-      }
-      if (err instanceof EffectivePermissionError && err.permission) {
-        return errorResult(permissionRefusalMessage(err.permission, err.reason));
-      }
-      return errorResult(GENERIC_FAILURE);
+      return handlerErrorReply(tool, err);
     }
   }
 }

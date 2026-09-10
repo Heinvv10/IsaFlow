@@ -1,4 +1,4 @@
-import type { PermissionReason } from './effectivePermissionPolicy';
+import type { PermissionRefusalReason } from './effectivePermissionPolicy';
 import { assertControlTx } from '@/modules/accounting/services/controls/context';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
 import type { ModulePermission } from './permissionService';
@@ -15,7 +15,7 @@ export class EffectivePermissionError extends Error {
    * one leaks nothing.
    */
   /** Why it was refused, so the reply can say what actually blocks the caller. */
-  constructor(readonly permission?: string, readonly reason?: PermissionReason) {
+  constructor(readonly permission?: string, readonly reason?: PermissionRefusalReason) {
     super('Current permissions do not allow this operation.');
     this.name = 'EffectivePermissionError';
   }

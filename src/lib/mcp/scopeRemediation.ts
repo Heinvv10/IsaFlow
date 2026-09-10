@@ -18,7 +18,7 @@
  * about whether any data exists.
  */
 import type { PatScope } from '@/lib/auth/patScopes';
-import type { PermissionReason } from '@/lib/auth/effectivePermissionPolicy';
+import type { PermissionRefusalReason } from '@/lib/auth/effectivePermissionPolicy';
 
 /**
  * Scopes whose absence needs more than the generic line — in practice, any
@@ -54,7 +54,7 @@ export const SCOPE_REMEDIATION: Partial<Record<PatScope, string>> = {
  * must not be told to re-authorise. A caller missing both a scope and a module
  * grant gets the scope reply first and, once re-authorised, this one.
  */
-export function permissionRefusalMessage(permission: string, reason?: PermissionReason): string {
+export function permissionRefusalMessage(permission: string, reason?: PermissionRefusalReason): string {
   if (reason === 'MISSING_SCOPE') return insufficientScopeMessage(permission);
   if (reason === 'ROLE_CEILING') {
     return `Your role in this company does not allow ${permission}. Granting this connection again `
@@ -68,21 +68,20 @@ export function permissionRefusalMessage(permission: string, reason?: Permission
       + 'connection again will not.';
   }
   if (reason === 'ENTITY_REQUIRED') {
-    // A constrained override (account range or any other restriction) refuses
-    // every operation it cannot check entity by entity, so widening it does not
-    // help: only removing it does.
+    // A constrained override that cannot be checked entity by entity refuses
+    // every such operation (effectivePermissions.ts): widening it cannot help,
+    // only removing the constraint does.
     return `Your ${permission} access carries an account-range or other restriction set by a company `
       + 'owner or admin, and this operation cannot be checked against it. Ask an owner or admin to '
       + 'remove that restriction for you.';
   }
+  if (reason === 'ACCOUNT_OUT_OF_RANGE') {
+    // Here the account WAS checked and fell outside the permitted range.
+    return `The account this operation touches is outside the account range your ${permission} access `
+      + 'allows. Ask a company owner or admin to widen that range to include it.';
+  }
   return `Current permissions do not allow this operation (${permission}).`;
 }
-
-/** The reply to any approval-required refusal, preview or live. */
-export const OPERATION_APPROVAL_REQUIRED_REPLY =
-  'An independent approval is required for this operation under the company\'s approval policy. '
-  + 'Request one with request_operation_approval, then retry with its approval once it is decided. '
-  + 'Nothing was posted.';
 
 /**
  * The reply for a scope the token does not hold. Names the scope so an operator

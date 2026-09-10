@@ -10,13 +10,11 @@
 import { controlledOperationApprovalRequiredForAmount } from '@/modules/accounting/services/controls/approvalExecutionService';
 import { requireControlTx } from '@/modules/accounting/services/controls/context';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import { approvalRequiredReason, approvalRequiredReply } from '../approvalReply';
 
-export const BANK_APPROVAL_REQUIRED_REASON =
-  'an independent approval is required for this allocation — request one with '
-  + 'request_operation_approval, then retry';
-export const BANK_REVERSAL_APPROVAL_TEXT =
-  'An independent approval is required to reverse these allocations. Request one with '
-  + 'request_operation_approval, then retry. Nothing was previewed.';
+// Neither bank tool accepts approval_id; see approvalReply.ts.
+export const BANK_APPROVAL_REQUIRED_REASON = approvalRequiredReason('bulk_allocate_bank_transactions');
+export const BANK_REVERSAL_APPROVAL_TEXT = approvalRequiredReply({ name: 'reverse_allocations', inputSchema: {} });
 
 const amountText = (amount: number) => Math.abs(amount).toFixed(2);
 
