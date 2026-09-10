@@ -25,10 +25,11 @@ export async function platformImportAuthorityFixture(){
  const lockErrors:Array<{code:unknown;message:string}>=[];
  const lockPids:number[]=[];let lockEntered=0,releaseLock!:()=>void;
  const lockResume=new Promise<void>(resolve=>{releaseLock=resolve;});
+ let releaseEntry!:()=>void;const lockEntry=new Promise<void>(resolve=>{releaseEntry=resolve;});
  let escaped:Promise<unknown>|undefined,releaseEscaped:(()=>void)|undefined,escapedQueryRefused=false;
  async function finishEscaped(){releaseEscaped?.();await escaped;return escapedQueryRefused;}
  async function close(){
-  if(closed)return;closed=true;releaseLock();await finishEscaped();
+  if(closed)return;closed=true;releaseEntry();releaseLock();await finishEscaped();
   const results=await Promise.allSettled([pool.end(),roleProbe.end(),
    import('@/lib/auth/withPlatformAdmin.pools').then(async m=>{await Promise.all([m.getAppPool().end(),m.getPlatformAdminPool().end()]);}),
    import('@/lib/neon').then(m=>m.getPoolForTests().end()),
@@ -53,7 +54,9 @@ export async function platformImportAuthorityFixture(){
    const body=req.body as ProbeBody,parent=als.getStore()!;
    const [before]=await sql`SELECT pg_backend_pid() AS pid,current_user AS role,COALESCE(current_setting('app.current_company_id',true),'') AS company`;
    retainedCapability=req.platformImportCapability;
-   if(body.probe==='lock_order')lockPids.push(Number((before as {pid:number}).pid));
+   if(body.probe==='lock_order'){
+    lockPids.push(Number((before as {pid:number}).pid));if(lockPids.length===2)releaseEntry();await lockEntry;
+   }
    if(body.probe==='escaped'){
     let written!:()=>void;const ready=new Promise<void>(resolve=>{written=resolve;});
     const resume=new Promise<void>(resolve=>{releaseEscaped=resolve;});
@@ -132,9 +135,10 @@ export async function platformImportAuthorityFixture(){
     }
     await new Promise(resolve=>setTimeout(resolve,10));
    }
-   throw new Error('Two authority requests did not overlap at the target/advisory boundary');
+   const waiting=await pool.query('SELECT pid,wait_event,wait_event_type,state FROM pg_stat_activity WHERE pid=ANY($1::int[])',[lockPids]);
+   throw new Error(`Two authority requests did not overlap: ${JSON.stringify({lockPids,lockEntered,waiting:waiting.rows})}`);
   }
   async function witness(){return(await pool.query('SELECT name FROM customers WHERE company_id=$1 AND id=$2',[f.companyA,customer])).rows[0]?.name;}
-  return{f,pool,admin,customer,request,witness,close,finishEscaped,waitForLockOverlap,releaseLock,lockErrors,retained:()=>({capability:retainedCapability,context:retainedContext})};
+  return{f,pool,admin,customer,request,witness,close,finishEscaped,waitForLockOverlap,releaseLock:()=>{releaseEntry();releaseLock();},lockErrors,retained:()=>({capability:retainedCapability,context:retainedContext})};
  }catch(error){try{await close();}catch(cleanup){throw new AggregateError([error,cleanup],'Authority fixture setup failed');}throw error;}
 }
