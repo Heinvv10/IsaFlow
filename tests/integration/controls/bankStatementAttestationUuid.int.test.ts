@@ -2,6 +2,7 @@ import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID,createHash} from 'node:crypto';
 import {uuidBoundaryFixture,upper} from './uuidBoundaryFixture';
+import {insertCaseVariantReceipt,appendEntityVersion} from './intentReceiptRows';
 import {prepareBankStatementAttestation} from '@/modules/accounting/services/controls/bankStatementAttestationPreparation';
 import {executeBankStatementAttestation} from '@/modules/accounting/services/controls/bankStatementAttestationEffect';
 import {queryVerifiedBankStatements} from '@/modules/accounting/services/controls/bankStatementAttestationQuery';
@@ -106,4 +107,20 @@ it('cannot execute a second statement attestation beside a receipt that kept a l
  expect(second.error instanceof Error?second.error.message:second.value).toBe('Unexecuted statement attestation belonging to requester required');
  expectOneAttestation(await state(p.intentId));
  await expect(execute(p.intentId)).resolves.toEqual(first);
+});
+/**
+ * A twin receipt and a forked version row are two rows apiece for one intent. A plain join on
+ * lower(entity_id) fans out, so one statement is read as two and the population count doubles.
+ */
+it('reads a twinned receipt and a forked version row as one statement, not two',async()=>{
+ const p=await prepared();
+ await execute(p.intentId,await f.approve(p.operation));
+ const committed=await f.effects('bank_statement_attestation_intent','bank_statement.attest',p.intentId);
+ expect(committed).toHaveLength(1);
+ await insertCaseVariantReceipt(f.pool,f.f.u1,committed[0]!.id);
+ await appendEntityVersion(f.pool,f.f.u1,'bank_statement_attestation_intent',upper(p.intentId),7);
+ expect(await f.effects('bank_statement_attestation_intent','bank_statement.attest',p.intentId)).toHaveLength(2);
+ const verified=await f.actor(ctx=>queryVerifiedBankStatements(ctx,null));
+ expect(verified.rows.filter(r=>r.row.id===p.intentId)).toHaveLength(1);
+ expect(verified.populationCount).toBe(verified.rows.length);
 });

@@ -2,6 +2,7 @@ import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID,createHash} from 'node:crypto';
 import {uuidBoundaryFixture,upper} from './uuidBoundaryFixture';
+import {insertCaseVariantReceipt,appendEntityVersion} from './intentReceiptRows';
 import {queryThreeWayMatch} from '@/modules/accounting/services/ap/threeWayMatchQueryService';
 import {prepareInvoiceMatchOverride} from '@/modules/accounting/services/ap/invoiceMatchOverridePreparation';
 import {executeInvoiceMatchOverride} from '@/modules/accounting/services/ap/invoiceMatchOverrideEffect';
@@ -117,4 +118,19 @@ it('cannot execute a second invoice match override beside a receipt that kept a 
  expect(second.error instanceof Error?second.error.message:second.value).toBe('Unexecuted override belonging to current requester required');
  expectOneOverride(await state(p.intentId,p.invoiceId),p.intentId);
  await expect(execute(p.intentId)).resolves.toEqual(first);
+});
+/**
+ * A twin receipt and a forked version row are two rows apiece for one intent. A plain join on
+ * lower(entity_id) fans out, so one annotation is read as two and the population count doubles.
+ */
+it('reads a twinned receipt and a forked version row as one annotation, not two',async()=>{
+ const p=await prepared();
+ await execute(p.intentId,await f.approve(p.operation));
+ const committed=await f.effects('invoice_match_override_intent','invoice_match.override',p.intentId);
+ expect(committed).toHaveLength(1);
+ await insertCaseVariantReceipt(f.pool,f.f.u1,committed[0]!.id);
+ await appendEntityVersion(f.pool,f.f.u1,'invoice_match_override_intent',upper(p.intentId),7);
+ expect(await f.effects('invoice_match_override_intent','invoice_match.override',p.intentId)).toHaveLength(2);
+ const read=await f.actor(ctx=>queryInvoiceMatchOverrides(ctx,p.invoiceId));
+ expect(read.overrides.filter(o=>o.intentId===p.intentId)).toHaveLength(1);
 });
