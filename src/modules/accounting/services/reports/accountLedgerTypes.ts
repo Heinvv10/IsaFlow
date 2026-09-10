@@ -36,6 +36,7 @@ export interface GetAccountLedgerParams {
   /** Account code (e.g. "1110"). Either accountId or accountCode is required. */
   accountCode?: string;
   costCentreId?: string;
+  businessUnitId?: string;
   fromDate: string;
   toDate: string;
   /** Default: true — only include posted entries */
@@ -45,4 +46,3 @@ export interface GetAccountLedgerParams {
   /** Default: 0 */
   offset?: number;
 }
-
