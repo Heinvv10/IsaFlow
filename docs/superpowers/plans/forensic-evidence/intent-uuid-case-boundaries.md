@@ -1,0 +1,9 @@
+# Owning intent UUID boundary correction
+
+Owner platform_approval_pg; exact base 6228078e0. Owned implementation: cashApplicationControl, cashApplicationReversalControl, bankAllocationControl, bankAllocationReversal and payrollCompensationControl. Shared kernel/materializers/replay remain root-owned.
+
+Plan: five focused unit scenarios assert the initial source/receipt loader receives canonical UUIDs. Ten actual PostgreSQL scenarios independently run first-uppercase and first-lowercase execution with opposite-case receipt retries for all five families. They verify one exact effect, cash/payment/invoice amounts, retained inverse allocation, original/contra journal populations and compensation assignment. Reuse existing actual app_user cash fixture; its invoice PDF snapshot is stubbed, so these scenarios do not certify PDF evidence or HTTP/UI. All financial services and PostgreSQL effects are real.
+
+Status: tests written before implementation. Heavy runs queued behind large_scan; no results yet. Normalize validated UUIDs at the owning service entry so loaders, operation references, closures and result identities share one representation. Root independently reviews the named implementation.
+
+Remaining read-only findings at deac7b7e5, outside ownership: asset depreciation raw receipt/result ID causes replay refusal (period ledger prevents a second depreciation); AR/payroll posting receipt readers use raw text IDs and fail case-variant retry; match override/statement attestation callbacks retain raw IDs; payment release stores raw provider-reference/result IDs but UUID outbox primary key prevents duplicate intent dispatch. Payroll posting receipt directly returns effect.result without replayKnownOperationEffect and needs separate actual revocation testing. Root and reviewer own bank transfer duplicate-money correction. These findings are source traces, not actual PostgreSQL reproductions.

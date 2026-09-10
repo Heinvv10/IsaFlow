@@ -1,0 +1,23 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+const mocks=vi.hoisted(()=>({load:vi.fn(),sql:vi.fn(async()=>[])}));
+vi.mock('@/lib/neon',()=>({withSavepoint:async(_name:string,fn:()=>Promise<unknown>)=>fn()}));
+vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:async()=>undefined}));
+vi.mock('@/modules/accounting/services/controls/context',()=>({assertControlTx:()=>undefined}));
+vi.mock('@/modules/accounting/services/shared/cashApplicationMaterial',()=>({loadCashApplicationIntent:mocks.load}));
+vi.mock('@/modules/accounting/services/shared/cashApplicationReversalMaterial',()=>({loadCashApplicationReversal:mocks.load}));
+vi.mock('@/modules/accounting/services/bank/bankAllocationMaterial',()=>({loadBankAllocationIntent:mocks.load}));
+vi.mock('@/modules/accounting/services/bank/bankAllocationReversalMaterial',()=>({loadBankAllocationReversal:mocks.load}));
+vi.mock('@/modules/accounting/services/controls/payrollCompensationMaterial',()=>({loadPayrollCompensationIntent:mocks.load}));
+import {executeCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
+import {executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
+import {executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
+import {executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
+import {executePayrollCompensation} from '@/modules/accounting/services/controls/payrollCompensationControl';
+const id='abcdefab-cdef-4abc-8def-abcdefabcdef';
+const ctx={principal:{companyId:'00000000-0000-4000-8000-000000000001'},sql:mocks.sql} as unknown as ControlTx;
+beforeEach(()=>{vi.clearAllMocks();mocks.load.mockRejectedValue(new Error('Reached owning loader'));});
+it.each([['cash',executeCashApplication],['cash reversal',executeCashApplicationReversal],['bank',executeBankAllocation],['bank reversal',executeBankAllocationReversal],['compensation',executePayrollCompensation]] as const)('%s canonicalizes before the first receipt/source lookup',async(_name,execute)=>{
+ await expect(execute(ctx,id.toUpperCase())).rejects.toThrow('Reached owning loader');
+ expect(mocks.load).toHaveBeenCalledWith(ctx,id);
+});
