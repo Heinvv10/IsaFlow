@@ -74,6 +74,7 @@ Full AFS lifecycle: draft → review → partner_review → signed_off → filed
 - `src/modules/accounting/services/afs/` — document, sections, statements, overrides, versions, PIS, compliance, exports, signing, management-packs, generation-jobs, afsStorage
 
 ## Recent changes
+- 2026-09-10 (7): `send-for-signing` renders from a one-statement snapshot of the company and branding it fingerprints; it takes no lock on either
 - 2026-09-10 (6): the send holds the company and brand rows FOR SHARE and compares the fingerprint before and after the render; no grandfather back-fills; filed counts as signed and in-review packs are drafts for delivery; warnings only on a real change, shown on the company settings page and returned by the admin rename.
 - 2026-09-10 (5): `PUT /brand-profile` and `PUT /api/accounting/companies` return `warnings` naming any document out for signature the change will invalidate; draft packs are watermarked
 - 2026-09-10 (4): delivery of an unreviewed pack is refused until sign-off; signing renders on a default brand profile when a company has none; reorder refuses duplicate ids
