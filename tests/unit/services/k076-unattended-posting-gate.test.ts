@@ -17,7 +17,8 @@ import {
   buildExpenseJournalFromReceipt,
   shouldAutoPostReceipt,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
-import { unattendedPostingRefusal } from '@/modules/accounting/services/core/unattendedPostingGate';
+import { isAmbiguousTotal, unattendedPostingRefusal } from '@/modules/accounting/services/core/unattendedPostingGate';
+import { UNRECONCILED_WARNING } from '@/modules/accounting/services/core/ocrAmountReconciliation';
 import { SLIPS } from './k076-slip-corpus';
 
 const AUTO_POST = { maxAmount: 5000, minConfidence: 0.85 };
@@ -97,5 +98,49 @@ describe('K-076 the gate judges the stored document, whatever read it', () => {
   it('refuses a credit note by its text when the classification says invoice', () => {
     const doc = stored({ rawText: 'CREDIT NOTE\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00' });
     expect(unattendedPostingRefusal(doc)).toMatch(/credit note/);
+  });
+
+  it('refuses a net and VAT the text does not print', () => {
+    // The VLM's own split of a zero-rated slip: the arithmetic adds up and the
+    // total agrees with the text, and the entry would still claim R13.04 of
+    // input tax on a document that states none.
+    const doc = stored({
+      subtotal: 86.96, vatAmount: 13.04, totalAmount: 100,
+      rawText: 'Maize Meal 1 100.00 100.00\nTotal 100.00',
+    });
+    expect(unattendedPostingRefusal(doc)).toMatch(/no VAT figure is printed/);
+  });
+
+  it('refuses a VAT figure that disagrees with the one the text prints', () => {
+    const doc = stored({ subtotal: 1000, vatAmount: 100, totalAmount: 1100, rawText: 'Sub Total 1000.00\nVAT 150.00\nTotal 1100.00' });
+    expect(unattendedPostingRefusal(doc)).toMatch(/not the VAT the document prints/);
+  });
+});
+
+/**
+ * The part of the gate the AP invoice routes can afford.
+ *
+ * They auto-APPROVE a supplier invoice, and they cannot consult the whole gate:
+ * a PDF invoice the VLM read carries no `rawText`, which the gate refuses
+ * outright. Ambiguity is the half that costs them nothing and stops them
+ * approving a figure nobody chose.
+ */
+describe('K-076 isAmbiguousTotal', () => {
+  it('is true when the text prints two different totals', () => {
+    expect(isAmbiguousTotal({ rawText: 'TOTAL 253.00\nVAT ANALYSIS\nSub Total 200.00\nVAT 30.00\nTotal 230.00', warnings: [] })).toBe(true);
+  });
+
+  it('is true on a stored reconciliation warning even where the text is clean', () => {
+    // An extraction stored by an earlier build, or by the VLM, whose warning is
+    // the only surviving record that its figures did not settle.
+    expect(isAmbiguousTotal({ rawText: 'Total 1150.00', warnings: [`${UNRECONCILED_WARNING} (totals 1150.00, 1000.00)`] })).toBe(true);
+  });
+
+  it('is false on an ordinary single-total document', () => {
+    expect(isAmbiguousTotal({ rawText: 'Sub Total 1000.00\nVAT 150.00\nTotal Due 1150.00', warnings: [] })).toBe(false);
+  });
+
+  it('is false when there is no text to read — the VLM invoice path stays open', () => {
+    expect(isAmbiguousTotal({ rawText: '', warnings: [] })).toBe(false);
   });
 });

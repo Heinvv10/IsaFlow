@@ -106,6 +106,24 @@ describe('K-076 — a section total is never the payable total', () => {
     expect(result.warnings).toEqual([]);
   });
 
+  it('collects candidates across EVERY label form, ordered by where they print', () => {
+    // The loop returned on the FIRST productive pattern, so a plain `Total`
+    // above the payable made `Amount Due` unreachable — one candidate, no
+    // warning, R230.00 posted against a payable of R253.00. Both figures are
+    // candidates now, and the guess offered to the reviewer is the BOTTOM one,
+    // which is what the ordering by match position buys.
+    const below = read('Sub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nGratuity 23.00\nAmount Due 253.00');
+    expect(below.totalAmount).toBe(253);
+    expect(isUnreconciled(below.warnings)).toBe(true);
+    expect(below.autoPost).toBe(false);
+
+    // The same two labels the other way up: the guess follows the DOCUMENT'S
+    // order, not the pattern list's.
+    const above = read('AMOUNT DUE 253.00\nCASH 300.00\nVAT ANALYSIS\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00');
+    expect(above.totalAmount).toBe(230);
+    expect(above.autoPost).toBe(false);
+  });
+
   it('leaves the ordinary single-total slip exactly as it was', () => {
     const result = read('Sub Total 1000.00\nVAT 150.00\nTotal Due 1150.00');
     expect(result).toMatchObject({ subtotal: 1000, vatAmount: 150, totalAmount: 1150, autoPost: true });

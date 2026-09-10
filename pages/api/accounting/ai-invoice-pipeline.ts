@@ -21,7 +21,7 @@ import {
   type PipelineThresholds,
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
-import { isCreditNote } from '@/modules/accounting/services/core/unattendedPostingGate';
+import { isAmbiguousTotal, isCreditNote } from '@/modules/accounting/services/core/unattendedPostingGate';
 import {
   computeFingerprint,
   findDuplicate,
@@ -119,8 +119,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Build invoice
   const invoiceInput = buildInvoiceFromExtraction(extracted, supplierMatch.supplierId);
   const pipelineConfidence = computePipelineConfidence(extracted, supplierMatch);
-  // A refund booked as a purchase reverses the entry; never approve one unattended.
-  const approvalRoute = isCreditNote(extracted) ? 'manual_review'
+  // A refund booked as a purchase reverses the entry, and a document whose own
+  // text prints more than one total approves a number nobody chose: measured on
+  // the k076 corpus, three mixed-basket slips were auto-approved here at
+  // R230.00 against a payable of R253.00 — a WORSE figure than the reader this
+  // branch replaced produced. Neither may be approved with nobody looking.
+  const approvalRoute = isCreditNote(extracted) || isAmbiguousTotal(extracted)
+    ? 'manual_review'
     : determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
 
   // Fetch supplier VAT number (needed for fingerprint + duplicate detection)

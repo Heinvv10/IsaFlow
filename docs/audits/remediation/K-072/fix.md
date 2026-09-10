@@ -935,3 +935,141 @@ W2–W4 run the integration file named. Script and log: `<scratchpad>/agents/fix
 The round-9 mutations N1/N2 (the endorsement rule) have no code left to mutate: the endorsement
 is gone. Three integration fixtures carried `rawText: ''`, which the gate now refuses; they print
 their figures instead, because they test the fence, not the gate.
+
+---
+
+## Round 11 (review of `0545d19e3`: 2 HIGH · 1 MEDIUM · 1 LOW)
+
+### HIGH-1 — the candidate LOOP, not the vocabulary, dropped the payable
+
+`extractTotalCandidates` returned the candidates of the FIRST `TOTAL_PATTERNS` entry that hit and
+never consulted the others, so on any slip printing a plain `Total` above its payable,
+`TOTAL_PATTERNS[1]` (`Amount Due` / `Balance Due` / `Payable`) and `[2]` (`Amount Incl VAT`) were
+unreachable — labels the vocabulary has always known. Measured, `Sub Total 200.00 / VAT 15% 30.00 /
+Total 230.00 / Gratuity 23.00 / Amount Due 253.00` yielded ONE candidate, 230.00, equal to the total
+read: no warning, `autoPost = true`, R230.00 credited to the bank against a payable of R253.00.
+
+**Fixed** by collecting across every pattern and ordering the hits by MATCH POSITION, so
+`selectTotalAmount`'s "the bottom one" still means the figure printed lowest, whichever pattern read
+it. Measured after (`<scratchpad>/agents/fix-k072i/probe-vocab.txt`, real `extractFromText` + real
+`shouldAutoPostReceipt`): U1–U8 all flip from POST to refuse; the eight realistic ordinary receipts
+(Woolworths, Engen, Uber, Mugg & Bean, Spar, Takealot, Pick n Pay, Builders) are byte-identical to
+before, and the corpus that existed before this round still passes unchanged.
+
+**The out-of-vocabulary labels were re-checked**, as the round required, and three still posted
+R230.00 after the loop fix. They are now in the vocabulary, which can only ever ADD a candidate and
+therefore only ever move a slip towards refusal:
+
+| spelling | where it went |
+|---|---|
+| `TOTAAL`, `SUB TOTAAL` | `TOTAL_WORD = Totaa?l`, one alternation used by every guard, every pattern and `SUMMARY_LINE_START` — the failure this file keeps having is one half of a pair learning a spelling |
+| `TO PAY`, `TE BETAAL`, bare `Balance`, `TTL` | `PAYABLE_LABEL`, extracted from `TOTAL_PATTERNS[1]` and shared with `SUMMARY_LINE_START` |
+
+**Deliberately NOT admitted**, because the cost falls on honest documents and is larger than the
+buy — both remain a disclosed limit, and a slip printing its payable under one of them with a plain
+`Total` above still posts the `Total`:
+
+- `Amount Paid` is a paid-TO-DATE figure, not a payable. An ordinary invoice printing
+  `Amount Paid 0.00` above `Balance Due 1150.00` would gain a second candidate and stop posting.
+- a bare `ZAR 253.00` carries no label at all; every currency-marked line item would become a
+  candidate. `Purchase` is the same shape — `Purchase Order 1234` would read 1234 as a total.
+
+### HIGH-2 — the invoice paths approved a wrong number, worse than master on three layouts
+
+`ai-invoice-pipeline.ts` and `capture/[id]/post.ts` took only the credit-note refusal and ignored
+the ambiguity the reader already computes. Measured over the corpus: A1/A2/A4 auto-approved at
+R230.00 against a payable of R253.00 where master read 253.00 — a REGRESSION, and a branch that
+ships worse behaviour than master on a money path cannot merge.
+
+**Fixed** with `isAmbiguousTotal(doc)` (new, in `unattendedPostingGate.ts`): the stored
+reconciliation warning, OR more than one distinct total in `rawText`. Both routes send such a
+document to `manual_review` / `draft`, and in `capture/[id]/post.ts` that overrides `auto_publish`
+as well, whose rules judge the supplier and the duplicate history rather than whether the amount is
+legible. The reported `approvalRoute` and the written `invoiceStatus` now come from one variable, so
+the response cannot say `auto_approve` over a draft invoice.
+
+The routes do NOT take the whole gate, and the reason is measured rather than asserted: a PDF
+invoice the VLM read carries `rawText: ''`, which `unattendedPostingRefusal` refuses outright, so
+the full gate would send every VLM-read invoice to a person. `isAmbiguousTotal('')` is false, so
+that path is untouched.
+
+**Cost, measured** (`<scratchpad>/agents/fix-k072i/probe-inv.txt`, supplier match 1.0, the routes'
+own `DEFAULT_THRESHOLDS`): 27 corpus rows move `auto_approve` → `manual_review`, six of which were
+approving a wrong figure (A1–A4, r8 `Cash Total`, X3) and 21 of which are adversarial multi-total
+layouts where the guess happened to be right. On seven ordinary invoice layouts — Woolworths,
+Engen, a description-first Takealot header, a qty-first header, a PDF invoice with a remittance
+slip below, a plain supplier invoice and Builders — **nothing changed at all**; the qty-first header
+was already `manual_review` on its warning penalty. No corpus row still auto-approves a wrong
+number. This replaces the round-10 claim above that the candidate check "would refuse most PDF
+invoices": that was never measured, and it is wrong.
+
+### MEDIUM-1 — the gate re-read the total and trusted the VLM's net and VAT
+
+`unattendedPostingRefusal` re-read only the total. Measured: a zero-rated slip whose text prints
+`Maize Meal 1 100.00 100.00 / Total 100.00`, stored by the VLM as net 86.96 / VAT 13.04 / total
+100.00, satisfied every check — the arithmetic adds up, the total agrees with the text — and posted
+`EXP 86.96 / VAT-in 13.04 / bank 100`, R13.04 of input tax the document does not state. That is the
+X2 defect ("no VAT figure was read") reached through the VLM instead of the regex reader.
+
+**Fixed** by re-reading with `extractAmounts(rawText)` — the reader's own function, so the re-read
+is identical BY CONSTRUCTION to what a regex-extracted document already holds, and the corpus does
+not move — and refusing when the text prints no VAT figure, or one that disagrees. Corroborating the
+VAT is sufficient for the net as well: with the total corroborated and `subtotal + VAT === total`
+already checked, the net is determined; where the net is null the builder derives `total − VAT`,
+which is now corroborated too.
+
+Measured (`<scratchpad>/agents/fix-k072i/probe-vlm.txt`): M1 (the case above) and M5 (same, null
+net) now refuse with "no VAT figure is printed on the document"; M2 (VLM 13.04, text prints
+`VAT 0.00`) and M4 (VLM 100, text prints 150) refuse with "not the VAT the document prints"; M3, a
+VLM extraction that agrees with the printed VAT, still posts `EXP 1000 / VAT 150 / BANK 1150`. The
+over-refusal cost on the corpus is **zero rows** — 58/58 unchanged — because every corpus row is
+regex-extracted and its stored VAT is what the re-read produces.
+
+### LOW-1 — the corpus could not fail the HIGH-1 class
+
+Every row came from a previous reviewer, so none printed its payable under a second label. 21 rows
+added: eleven `U` rows printing the payable under `Amount Due` / `Balance Due` / `Amount Payable` /
+`Amount Incl VAT` / `Grand Total` / `TOTAAL` / `TO PAY` / `TE BETAAL` / `Balance` / `TTL` /
+`NETT PAYABLE` below a plain `Total`, two more with the payable ABOVE a VAT-analysis block, and
+eight `N` rows of ORDINARY receipts in the proportion a real till roll prints them — a corpus of
+nothing but counter-examples cannot show an over-refusal. Corpus 53 → 74 rows; the gate test 58 →
+79 assertions. Three of the eight ordinary receipts refuse, and each for a pre-existing reason the
+round did not introduce: N1 Woolworths prints its VAT as `VAT INCLUDED` (a label gap — it refuses
+rather than inventing 15%), N2 Engen and N7 Pick n Pay by the 0.85 confidence floor, on master too.
+
+### Mutations, round 11 (file copies, restored byte-identical; `<scratchpad>/agents/fix-k072i/mutate.py`)
+
+Baseline `tests/unit/services/k076* k072*`: 437 tests green.
+
+| # | Mutation | Outcome |
+|---|---|---|
+| G1 | candidate loop returns on the first productive pattern | RED (12) |
+| G2 | candidates not ordered by match position | RED (1) |
+| G3 | `PAYABLE_LABEL` loses `Balance` / `TO PAY` / `TE BETAAL` / `TTL` | RED (4) |
+| G4 | `TOTAL_WORD` loses the Afrikaans spelling | RED (1) |
+| G5 | gate stops refusing a VAT the text does not print | RED (1) |
+| G6 | gate stops comparing the re-read VAT | RED (1) |
+| G7 | `isAmbiguousTotal` ignores the stored warning | RED (1) |
+| G8 | `isAmbiguousTotal` treats any candidate as ambiguous | RED (1) |
+| W1 | `ai-invoice-pipeline` drops the ambiguity check | RED (1, integration) |
+| W2 | `capture/[id]/post` drops the ambiguity check | RED (1, integration) |
+
+Confirmed by the round-10 reviewer and not touched: `VAT-0.00`/`VAT-150.00`, the five `VALUE_SEP`
+pins, photo receipts refused on `rawText: ''`, and the four-path credit-note census.
+
+### Historical impact
+
+Not measured — production must not be queried from here. The SQL Hein can run to size it:
+
+```sql
+-- Documents auto-posted or auto-approved whose stored text prints a payable
+-- under a second label. Read `extracted_data->>'rawText'` and re-run the gate.
+SELECT cd.id, cd.company_id, cd.posted_at,
+       cd.extracted_data->>'totalAmount' AS stored_total,
+       cd.extracted_data->>'rawText'     AS raw_text
+  FROM captured_documents cd
+ WHERE cd.posted_at IS NOT NULL
+   AND cd.extracted_data->>'rawText' ~* '(amount|balance)[^a-z]{0,3}(due|owing|payable)|totaal|te betaal|to pay'
+   AND cd.extracted_data->>'rawText' ~* '(^|[^a-z])total'
+ ORDER BY cd.posted_at DESC;
+```

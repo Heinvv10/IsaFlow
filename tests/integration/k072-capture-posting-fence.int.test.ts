@@ -48,9 +48,11 @@ const postedThenConfirmDoc = crypto.randomUUID();
 const foreignDoc = crypto.randomUUID();
 const creditNoteDoc = crypto.randomUUID();
 const creditNoteJournalDoc = crypto.randomUUID();
+const ambiguousTotalDoc = crypto.randomUUID();
 const documents = [
   inboxAfterJournalDoc, confirmBypassDoc, rejectedDoc, rejectedInboxDoc,
   attachedDoc, inboxOnlyDoc, postedThenConfirmDoc, foreignDoc, creditNoteDoc, creditNoteJournalDoc,
+  ambiguousTotalDoc,
 ];
 
 const inboxAfterJournalEvent = crypto.randomUUID();
@@ -58,8 +60,10 @@ const confirmBypassEvent = crypto.randomUUID();
 const rejectedInboxEvent = crypto.randomUUID();
 const inboxOnlyEvent = crypto.randomUUID();
 const creditNoteEvent = crypto.randomUUID();
+const ambiguousTotalEvent = crypto.randomUUID();
 const events = [
   inboxAfterJournalEvent, confirmBypassEvent, rejectedInboxEvent, inboxOnlyEvent, creditNoteEvent,
+  ambiguousTotalEvent,
 ];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -230,6 +234,7 @@ beforeAll(async () => {
   await seedEvent(rejectedInboxDoc, rejectedInboxEvent);
   await seedEvent(inboxOnlyDoc, inboxOnlyEvent);
   await seedEvent(creditNoteDoc, creditNoteEvent);
+  await seedEvent(ambiguousTotalDoc, ambiguousTotalEvent);
   await seedDoc(rejectedDoc);
   await seedDoc(attachedDoc);
   await seedDoc(postedThenConfirmDoc);
@@ -281,6 +286,23 @@ describe('K-072 HIGH-1 the capture inbox is inside the fence', () => {
     expect(again.state.statusCode).toBe(400);
     expect(await invoiceCount(inboxOnlyDoc)).toBe(1);
     expect(await inputTaxClaimed(inboxOnlyDoc)).toBe(150);
+  });
+
+  it('never approves a document whose own text prints two different totals', async () => {
+    // `inboxOnlyDoc` above is the same route on an unambiguous slip and lands
+    // 'approved', so this is the ambiguity and nothing else. Its own amount, so
+    // the duplicate gate does not answer 409 against the R1 150 invoices.
+    const basket = {
+      subtotal: 220, vatAmount: 33, totalAmount: 253,
+      rawText: 'Waltons Stationery\nTOTAL 253.00\nCASH 300.00\nCHANGE 47.00\n'
+        + 'VAT ANALYSIS\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00',
+    };
+    await pool.query(
+      'UPDATE captured_documents SET extracted_data = extracted_data || $3::jsonb WHERE id=$1 AND company_id=$2',
+      [ambiguousTotalDoc, company, JSON.stringify(basket)],
+    );
+    expect((await inboxPost(ambiguousTotalEvent)).state.statusCode).toBe(200);
+    expect(await invoiceStatuses(ambiguousTotalDoc)).toEqual(['draft']);
   });
 
   it('never approves a credit note from the inbox, whatever sign its figures carry', async () => {

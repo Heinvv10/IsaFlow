@@ -49,9 +49,11 @@ const cancelledInvoiceDoc = crypto.randomUUID();
 const bothRoutesDoc = crypto.randomUUID();
 const twoLiveRowsDoc = crypto.randomUUID();
 const creditNoteDoc = crypto.randomUUID();
+const ambiguousTotalDoc = crypto.randomUUID();
 const documents = [
   journalThenPipelineDoc, pipelineTwiceDoc, rejectedPipelineDoc,
   reversedJournalDoc, cancelledInvoiceDoc, bothRoutesDoc, twoLiveRowsDoc, creditNoteDoc,
+  ambiguousTotalDoc,
 ];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -179,6 +181,18 @@ async function markCreditNote(documentId: string): Promise<void> {
   );
 }
 
+/** Reprint the document's text as a mixed basket whose VAT analysis is below the tender. */
+async function markAmbiguousTotals(documentId: string): Promise<void> {
+  const text = 'Waltons Stationery\nTOTAL 1150.00\nCASH 1200.00\nCHANGE 50.00\n'
+    + 'VAT ANALYSIS\nSub Total 870.00\nVAT 15% 130.50\nTotal 1000.50';
+  await pool.query(
+    `UPDATE captured_documents
+        SET extracted_data = jsonb_set(extracted_data, '{rawText}', to_jsonb($3::text))
+      WHERE id=$1 AND company_id=$2`,
+    [documentId, company, text],
+  );
+}
+
 async function journalIds(documentId: string): Promise<string[]> {
   return (await pool.query(
     `SELECT id FROM gl_journal_entries
@@ -287,6 +301,16 @@ describe('K-072 r7 HIGH-1 ai-invoice-pipeline is inside the fence', () => {
     expect(await postedAt(bothRoutesDoc)).not.toBeNull();
     // Approved unattended — the case the credit-note refusal below must not become.
     expect(await invoiceStatuses(bothRoutesDoc)).toEqual(['approved']);
+  });
+
+  it('never approves a document whose own text prints two different totals', async () => {
+    // The receipt routes refuse this slip; this one approved it, at whichever
+    // figure the ambiguous read happened to store — measured on the k076 corpus
+    // at R230.00 against a payable of R253.00, a WORSE number than the reader
+    // this branch replaced produced. `status = 'approved'` is unattended.
+    await markAmbiguousTotals(ambiguousTotalDoc);
+    expect((await pipeline(ambiguousTotalDoc)).state.statusCode).toBe(200);
+    expect(await invoiceStatuses(ambiguousTotalDoc)).toEqual(['draft']);
   });
 
   it('never approves a credit note unattended, whatever sign its figures carry', async () => {
