@@ -255,15 +255,13 @@ each writer back to where the id enters. Directories walked in addition to round
 | S23 | `companies.stripe_customer_id` (varchar) | — | a Stripe id | **not a customer id** |
 | S24 | `practice_client_contacts.client_id` | `practice/practiceClientService.ts:258` ← `practice/client-contacts.ts` POST | `body.clientId` — unfenced | **FK is `practice_clients`, not `customers`** — same shape, different parent. Registered as **R-073** (reserved), below |
 | S25 | `practice_client_rate_overrides.client_id` | `practice/clients/[id]/rate-overrides.ts` → `practiceClientRateOverrideService` | route `id` | FK `practice_clients`; the routed path checks `assertClientBelongsToCompany` (`:42`) first. The `@deprecated` `practiceStaffRateService.createClientRateOverride` has no route |
-| S26 | `time_entries`, `practice_jobs`, `practice_entry_templates` `.practice_client_id` | practice services | — | FK `practice_clients` — R-073's class; not walked here |
+| S26 | `time_entries`, `practice_jobs`, `practice_entry_templates` `.practice_client_id` | practice services | — | **not a customer id** — each FKs `practice_clients`, a different parent table; handed to R-073 with S24, whose scope is exactly that table |
 
-Columns a name- or FK-based query cannot find, stated rather than assumed complete:
-polymorphic `entity_id` columns (`entity_udf_values` — its only writer
-`setEntityUdfValues` has no caller; `audit_log`, `document_links`,
-`accounting_adjustments`, `procurement_documents` — not walked), `loans.counterparty_id`
-(no FK, and no reader resolves it against `customers`), and customer ids inside JSONB
-(`recurring_transactions.template_data` is row 8; other JSONB not enumerable from
-`information_schema`).
+Columns a name- or FK-based query cannot find — the polymorphic ones — are walked in
+round 4 below (P1–P8); round 3 left four of them "not walked", and one of those was a
+live cross-tenant write. Customer ids inside JSONB: `recurring_transactions.template_data`
+is row 8; other JSONB is not enumerable from `information_schema`, and that limit is
+stated rather than assumed away.
 
 **Measured, end to end.** `tests/integration/customer-ownership-fence-routes.int.test.ts`
 drives every r3 site through its real handler — `withAuth`, CSRF, write access — on
@@ -281,6 +279,33 @@ The reviewer's grading note stands and is worth keeping precise: none of S8–S1
 rendered by the portal superuser route today, so their name joins stay inside RLS for
 `app_user`. S18 is the exception — portal-facing by construction.
 
+### Round 4 — the polymorphic columns, every one walked
+
+The r3 review measured `accounting_adjustments.entity_id` taking company B's customer
+through `adjustments.ts` POST (HTTP 200, row stored under A). Round 3 had listed that
+column as "not walked", which is neither a fence nor a reason. Every polymorphic id
+column on `isaflow_dev` (`entity_id` / `*_entity_id` / `target_id` / `counterparty_id`,
+from `information_schema.columns`) is now walked to its writers:
+
+| # | Column | Writer(s) | Can it hold a body-supplied customer id? | Disposition |
+|---|---|---|---|---|
+| P1 | `accounting_adjustments.entity_id` | `items/adjustmentService.ts` `createAdjustment` ← `adjustments.ts:32` POST | yes — `req.body.entityId`; CHECK limits `entity_type` to `customer`/`supplier` | **FIXED (r4)** — `if (entityType === 'customer') assertCustomerInCompany(…)` before the INSERT; the route's catch answers 400 with nothing written. The **supplier arm** is the same shape and goes to **R-068** (supplier twin, already holding `bankAllocationService`'s supplier arm): its fence needs an `assertSupplierInCompany` that R-068 is to build, and adding one here would fork that work. A unit case pins that the supplier arm issues no customer read |
+| P2 | `procurement_documents.entity_id` | `core/documentStorageService.ts:124` `uploadDocument` ← `documents.ts` POST; `documents.ts:183` UPDATE | no — `documents.ts:118` calls `verifyEntityOwnership` first, which admits only this company's supplier/customer invoices, payments and credit notes; the UPDATE writes `is_active` only, after the same check (`:178`) | **walked, already fenced** |
+| P3 | `document_links.linked_entity_id` | `documentStorageService.ts:169-205` `autoLinkSupplierInvoice` | no — writes PO / GRN / supplier-invoice ids read from a supplier invoice already checked by P2 | **walked, not a customer id** |
+| P4 | `document_validation_results.entity_id` | `document-validation.ts:113` | no — every `entityType` arm first reads the entity `WHERE company_id` and 404s on a miss; there is no customer arm | **walked, already fenced** |
+| P5 | `audit_log.entity_id` | `core/auditTrailService.ts:82` | records the id the request NAMED — an audit trail must keep a refused or foreign id as asked; no reader joins `customers` on it (`rg audit_log … join`: 0) | **walked, exempt by purpose** |
+| P6 | `close_run_proposals.target_entity_id` | `gl/closeRun/closeRunRepo.ts:141` ← `closeRunService.ts:72` | no — `closeRunProposalBuilder.ts:75,93` sets it to a journal id from the company's own close run, or `null` | **walked, not a customer id** |
+| P7 | `entity_udf_values.entity_id` | `core/udfService.ts:152` `setEntityUdfValues` | its only writer has no caller (`rg setEntityUdfValues`: definition only) | **walked, no caller** |
+| P8 | `loans.counterparty_id` | `loans/loanService.ts:107,184` | a caller-supplied uuid, but no FK and no reader resolves it against `customers` or any table (`rg counterparty_id`: loanService's own mapper only; `contraSettlementService`'s is an unrelated alias) | **walked, references nothing** |
+| — | `admin_audit_log.target_id` (varchar) | platform-admin audit | same purpose as P5, and outside the tenant model | **exempt by purpose** |
+
+**Measured.** `adjustments POST (customer)` is a new case in
+`customer-ownership-fence-routes.int.test.ts`: B's customer → 400 and 0 rows; A's own →
+200 and one row. With the fence commented out (file copy): `1 failed | 28 passed (29)`,
+`× 'adjustments POST (customer)' refuses company B's customer and stores nothing` —
+`expected 200 to be 400`. The unit file adds the same arm; the fence mutant turns 2 of
+its 17 red.
+
 ### Reserved, not fixed here
 
 **R-068** — the supplier twin. `ap/supplierInvoiceService.ts:144` writes
@@ -289,6 +314,10 @@ one company-scoped read above it (`:134`) fetches `vat_number` for the duplicate
 fingerprint and a miss yields `NULL`, not a refusal. `pages/api/accounting/purchase-orders.ts:42`
 does the same with `body.supplierId`. `supplierBelongsToCompany` exists and, again,
 only the MCP tools call it. Out of scope here per the brief.
+
+**R-068 also owns `adjustmentService.ts` `createAdjustment`'s supplier arm** (P1 above):
+`entity_type = 'supplier'` with a body `entityId`, joined to `suppliers` for the name
+and posted against AP control on approval.
 
 **R-068 also owns `bankAllocationService.ts:246-249`** — the supplier arm of
 `allocateTransaction`, identical in shape to the customer arm fixed above:
@@ -322,12 +351,29 @@ path that runs as a superuser.
 
 ## Tests
 
+**How the integration files were run.** Both R-067 integration files guard themselves
+with `assertNotProductionDb`, which allows only `isaflow_dev` / `isaflow_test` — so they
+refuse `isaflow_schema_fixture`, the database `fixture.env` names (EXIT=1, all skipped).
+Every integration result in this document came from this exact command, which takes
+`JWT_SECRET` from `fixture.env` and overrides `DATABASE_URL` with the `isaflow_dev` URL
+from the main checkout's `.env.local`; it never names `isaflow`:
+
+```bash
+cd /home/hein/Workspace/IsaFlow/.worktrees/fix-R-067 &&
+DEV=$(grep '^DATABASE_URL' ../../.env.local | cut -d= -f2-) &&   # …:7772/isaflow_dev
+source <scratchpad>/fixture.env &&                                # for JWT_SECRET only
+export DATABASE_URL="$DEV" &&
+bunx vitest run --config vitest.integration.config.ts --no-file-parallelism \
+  tests/integration/customer-ownership-fence.int.test.ts \
+  tests/integration/customer-ownership-fence-routes.int.test.ts
+```
+
 | File | What it pins |
 |---|---|
 | `tests/unit/services/assertCustomerInCompany.test.ts` (7) | the fence itself: owned passes, foreign refuses, absent id issues **no query**, the read is scoped by `company_id` **and asks nothing about `deleted_at`** (`:64` asserts the clause is absent — property 4), savepoint name ≤31 chars, 22P02 → refusal, any other error propagates |
 | `tests/unit/services/customerOwnershipFence.test.ts` (19) | per call site, **by outcome**: a foreign id is refused and the ownership SELECT is the *only* statement that ran (no INSERT/UPDATE/DELETE); an own-tenant id gets past the fence into the rest of the path |
-| `tests/unit/services/customerOwnershipFenceSatellites.test.ts` (14) | round 3's service arms (S8, S9, S14, S15 ×2, S17 ×2): foreign id refused with the ownership SELECT the only statement run; own id proceeds; an update with no customer id issues no customer query |
-| `tests/integration/customer-ownership-fence-routes.int.test.ts` (27) | round 3, end to end through the real handlers: all 13 r3 write arms refuse B's customer with 0 rows written and still store A's; the refused delivery note reserves no document number |
+| `tests/unit/services/customerOwnershipFenceSatellites.test.ts` (17) | round 3–4's service arms (S8, S9, S14, S15 ×2, S17 ×2, P1): foreign id refused with the ownership SELECT the only statement run; own id proceeds; an update with no customer id, and a supplier adjustment, issue no customer query |
+| `tests/integration/customer-ownership-fence-routes.int.test.ts` (29) | rounds 3–4, end to end through the real handlers: all 14 write arms refuse B's customer with 0 rows written and still store A's; the refused delivery note reserves no document number |
 | `tests/integration/customer-ownership-fence.int.test.ts` (6) | against a real database, because the hole *is* the schema: company B's customer is refused and `customer_invoices` is left empty; company A's own customer still creates the invoice with both columns set; a non-UUID is refused **inside a real `als.run` request transaction** which then stays usable; a soft-deleted own customer still edits its draft quote while B's is still refused; a bank receipt allocated to B's customer posts nothing and the same receipt against A's customer allocates |
 
 Two existing suites (`customerInvoiceCreateRetry`, `customerPaymentService`) now stub
@@ -475,6 +521,8 @@ SELECT t.tbl, t.id, t.company_id, t.customer_id, c.company_id AS customer_compan
     UNION ALL SELECT 'time_entries', id, company_id, customer_id FROM time_entries
     UNION ALL SELECT 'archive_customer_invoices', id, company_id, COALESCE(client_id, customer_id)
                 FROM archive_customer_invoices
+    UNION ALL SELECT 'accounting_adjustments', id, company_id, entity_id
+                FROM accounting_adjustments WHERE entity_type = 'customer'
     UNION ALL SELECT 'portal_payment_links', pl.id, ci.company_id, pl.client_id
                 FROM portal_payment_links pl JOIN customer_invoices ci ON ci.id = pl.invoice_id
   ) t
