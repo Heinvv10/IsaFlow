@@ -99,7 +99,9 @@ export async function deleteRule(companyId: string, id: string): Promise<void> {
 export async function deleteRules(companyId: string, ids: string[]): Promise<number> {
   return withBankRuleChange(companyId,ids,async(ctx,rows)=>{
     if(!rows.length)return 0;
-    await ctx.sql`DELETE FROM bank_categorisation_rules WHERE company_id=${companyId}::uuid AND id=ANY(${rows.map(row=>row.id)}::uuid[])`;
+    const deleted=await ctx.sql`DELETE FROM bank_categorisation_rules WHERE company_id=${companyId}::uuid AND id=ANY(${rows.map(row=>row.id)}::uuid[]) RETURNING id` as {id:string}[];
+    const affected=new Set(deleted.map(row=>row.id));
+    if(deleted.length!==rows.length||affected.size!==rows.length||rows.some(row=>!affected.has(String(row.id))))throw new Error('Bank rule deletion did not affect the exact owned population');
     for(const row of rows)await recordBankRuleChange(ctx,String(row.id),row,null,'deleted');
     return rows.length;
   });
