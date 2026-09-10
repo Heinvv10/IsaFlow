@@ -31,6 +31,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { PAYROLL_APPROVAL_REQUIRED_TEXT, payrollApprovalRequired } from './payrollPreviewApproval';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -166,6 +167,7 @@ export const approvePayRunTool: McpTool = {
 
 
     if (args.dry_run === true) {
+    if (await payrollApprovalRequired(ctx.companyId, run.id)) return toolError(PAYROLL_APPROVAL_REQUIRED_TEXT);
       return ok({
         dryRun: true,
         wroteNothing: true,

@@ -7,7 +7,7 @@
  * does with it — so the preview asks the kernel the same question, read-only,
  * and reports the document as skipped with the reason instead.
  */
-import { controlledOperationApprovalRequired } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { controlledOperationApprovalRequiredForPreview } from '@/modules/accounting/services/controls/approvalExecutionService';
 import { requireControlTx } from '@/modules/accounting/services/controls/context';
 import type { OperationRef } from '@/modules/accounting/services/controls/contracts';
 
@@ -27,7 +27,7 @@ export async function partitionApprovalBound(
 ): Promise<ApprovalPartition> {
   const partition: ApprovalPartition = { postable: [], skipped: [] };
   for (const candidate of candidates) {
-    const required = await controlledOperationApprovalRequired(requireControlTx(),
+    const required = await controlledOperationApprovalRequiredForPreview(requireControlTx(),
       { entityType: ref.entityType, entityId: candidate.id, operation: ref.operation });
     if (required) {
       partition.skipped.push({ index: candidate.index, document_id: candidate.id, reason: APPROVAL_REQUIRED_REASON });
