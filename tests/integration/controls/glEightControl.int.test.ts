@@ -7,7 +7,7 @@ import {getPostedAccountBalance} from '@/modules/accounting/services/gl/glAccoun
 let f:Awaited<ReturnType<typeof glEightFixture>>;
 beforeAll(async()=>{f=await glEightFixture();},30000);afterAll(async()=>{if(f)await f.close();});
 const balanceQueries=(queries:string[])=>queries.filter(q=>/debit_total/i.test(q));
-async function row(id:string){return(await f.pool.query('SELECT * FROM gl_accounts WHERE company_id=$1 AND id=$2',[f.f.companyA,id])).rows[0];}
+async function row(id:string){return(await f.pool.query("SELECT (to_jsonb(a)-'bank_opening_balance')||jsonb_build_object('bank_opening_balance',a.bank_opening_balance::text) AS material FROM gl_accounts a WHERE company_id=$1 AND id=$2",[f.f.companyA,id])).rows[0];}
 for(const [signed,message] of [[130000,'130000.00'],[-450,'-450.00']] as const){
  it(`refuses a posted ${signed} balance with named money and no account, journal or audit mutation`,async()=>{
   const id=await f.account();await f.post(id,signed);const before=await f.state(),queries:string[]=[];
