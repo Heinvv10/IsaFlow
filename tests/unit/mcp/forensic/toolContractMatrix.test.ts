@@ -65,9 +65,9 @@ const context = (scopes: string[]): McpToolContext => ({ companyId: UUID, userId
   scopes, tokenJti: UUID, oauthAppId: null });
 
 describe('every registered tool has a frozen schema/auth fixture', () => {
-  it('matches all 156 tool names and all schema keywords without silently skipping a new tool', () => {
-    expect(MCP_TOOLS).toHaveLength(156);
-    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(156);
+  it('matches all 160 tool names and all schema keywords without silently skipping a new tool', () => {
+    expect(MCP_TOOLS).toHaveLength(160);
+    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(160);
     expect(MCP_TOOLS.map(t => t.name).sort()).toEqual(frozen.tools.map(t => t.name).sort());
     expect([...CLIENT_MCP_TOOL_NAMES].sort()).toEqual(MCP_TOOLS.map(t => t.name).sort());
     const visit = (s: Schema) => {
@@ -76,7 +76,7 @@ describe('every registered tool has a frozen schema/auth fixture', () => {
       if (s.items) visit(s.items);
     };
     for (const t of MCP_TOOLS) visit(t.inputSchema);
-    expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(68);
+    expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(71);
     expect(MCP_TOOLS.filter(t => t.requiresPost)).toHaveLength(32);
   });
 

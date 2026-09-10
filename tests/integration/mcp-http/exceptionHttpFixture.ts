@@ -21,8 +21,8 @@ export async function exceptionHttpFixture(){
   await f.pool.query("INSERT INTO feature_flags(code,name,is_global) VALUES('mcp_connector','Synthetic MCP',false) ON CONFLICT(code) DO NOTHING");
   for(const [company,person] of [[f.f.companyA,f.f.u1.id],[f.f.companyB,f.f.u3.id]])await f.pool.query("INSERT INTO company_feature_overrides(company_id,feature_id,enabled,set_by) SELECT $1,id,true,$2 FROM feature_flags WHERE code='mcp_connector' ON CONFLICT(company_id,feature_id) DO UPDATE SET enabled=true",[company,person]);
   const {mcpRegistry}=await import('@/lib/mcp/toolIndex'),{forensicExceptionTools}=await import('@/lib/mcp/tools/forensicExceptions');
-  // Explicit temporary composition; root owns final discovery integration.
-  for(const tool of forensicExceptionTools)if(!mcpRegistry.listTools().some(t=>t.name===tool.name))mcpRegistry.register(tool);
+  const missing=forensicExceptionTools.filter(tool=>!mcpRegistry.listTools().some(t=>t.name===tool.name));
+  if(missing.length)throw new Error(`Default registry lacks exception tools: ${missing.map(tool=>tool.name).join(", ")}`);
   const mcp=(await import('../../../pages/api/mcp/index')).default,rest=(await import('../../../pages/api/accounting/control-exceptions')).default;
   server=createServer((req,res)=>{const url=new URL(req.url!,'http://127.0.0.1');void apiResolver(req,res,Object.fromEntries(url.searchParams),{default:url.pathname==='/api/mcp'?mcp:rest},
    {previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,url.pathname).catch(()=>{res.statusCode=500;res.end('Synthetic exception HTTP failure');});});
