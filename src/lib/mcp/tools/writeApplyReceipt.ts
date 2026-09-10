@@ -23,16 +23,15 @@
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunEffect, type DryRunResult } from '@/lib/mcp/contracts';
 import {
-  applyReceiptPlan,
-  planReceiptApplication,
   type ReceiptApplicationLine,
 } from '@/modules/accounting/services/ar/receiptApplicationService';
 import {
   confirmReceiptMatch,
   validateBankReceiptApplication,
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
+import { assertBankAllocationAuthority } from '@/modules/accounting/services/bank/bankAllocationService';
 import { mcpPostingAgent } from '../postingAgent';
-import { allocationsSchema, parseAllocations } from './cashApplicationArgs';
+import { CASH_APPLICATION_INTENT_REQUIRED_TEXT, allocationsSchema, parseAllocations } from './cashApplicationArgs';
 import { guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'apply_receipt_to_invoice';
@@ -56,7 +55,10 @@ export const applyReceiptToInvoiceTool: McpTool = {
     + 'a loan or intercompany account without cash (settle_by_contra), credit notes '
     + '(create_credit_note), or receipts that were posted straight to the control account by a '
     + 'journal with no customer payment record behind them — those are invisible to this tool. '
-    + 'Run with dry_run first: it reports every balance that would move and writes nothing.',
+    + 'payment_id is REFUSED today, live and dry run alike: applying an existing payment needs a '
+    + 'prepared cash application intent and independent approval this connector cannot prepare yet. '
+    + 'Run with dry_run first: for bank_transaction_id it reports every balance that would move '
+    + 'and writes nothing.',
   scope: 'write:invoices',
   write: true,
   // Both branches move a customer's outstanding balance, and one of them posts
@@ -89,7 +91,8 @@ export const applyReceiptToInvoiceTool: McpTool = {
     if (!paymentId === !bankTxId) {
       return toolError(
         'Name the cash with exactly one of payment_id or bank_transaction_id. '
-        + 'payment_id applies a receipt already in the ledger (no journal posts); '
+        + 'payment_id (an existing payment) is refused today — it needs a prepared, approved cash '
+        + 'application intent this connector cannot prepare; '
         + 'bank_transaction_id allocates an imported bank line (one journal posts).',
       );
     }
@@ -103,62 +106,11 @@ export const applyReceiptToInvoiceTool: McpTool = {
 
     return bankTxId
       ? applyFromBankLine(ctx.companyId, ctx.userId, bankTxId, allocations, dryRun)
-      : applyFromPayment(ctx.companyId, ctx.userId, paymentId!, allocations, dryRun);
+      // Refused up front, live and preview alike: applying an existing payment needs a
+      // prepared, approved cash application intent this connector cannot prepare yet.
+      : toolError(CASH_APPLICATION_INTENT_REQUIRED_TEXT);
   },
 };
-
-/**
- * Cash already in the ledger. Plan (every guard, under the payment's row lock)
- * then apply. Only the plan may refuse — once `applyReceiptPlan` has run, a
- * returned `toolError` would free the idempotency key for a retry that applies
- * the receipt twice, so nothing below the plan is caught.
- */
-async function applyFromPayment(
-  companyId: string,
-  userId: string,
-  paymentId: string,
-  allocations: readonly { invoiceId: string; amount: number }[],
-  dryRun: boolean,
-) {
-  let plan;
-  try {
-    plan = await planReceiptApplication(companyId, paymentId, allocations);
-  } catch (err) {
-    return toolError(safeErrorText(err, 'Could not apply this receipt.'));
-  }
-
-  if (dryRun) {
-    return dryRunResult({
-      journals: [],
-      effects: [
-        ...invoiceEffects(plan.lines),
-        {
-          entityType: 'customer_invoice' as const,
-          entityId: plan.paymentId,
-          documentNumber: plan.paymentNumber,
-          field: 'receipt_unapplied_amount',
-          before: plan.unappliedBefore,
-          after: plan.unappliedAfter,
-        },
-      ],
-    });
-  }
-
-  await applyReceiptPlan(companyId, plan, userId);
-  return ok({
-    source: 'payment',
-    posted_journal_entry_id: null,
-    journal_posted: false,
-    payment_id: plan.paymentId,
-    payment_number: plan.paymentNumber,
-    customer_id: plan.customerId,
-    receipt_amount: plan.paymentTotal,
-    applied_now: round2(plan.allocatedAfter - plan.allocatedBefore),
-    unapplied_remainder: plan.unappliedAfter,
-    payment_status: plan.paymentStatusAfter,
-    invoices: plan.lines.map(lineReply),
-  });
-}
 
 /**
  * An imported bank line. Every refusal is answered from READS by
@@ -173,6 +125,9 @@ async function applyFromBankLine(
   allocations: readonly { invoiceId: string; amount: number }[],
   dryRun: boolean,
 ) {
+  // The allocation service's own authority, run on the preview too: a dry run
+  // skips the write, never the guard.
+  await assertBankAllocationAuthority(companyId, userId);
   let validation;
   try {
     validation = await validateBankReceiptApplication(companyId, bankTxId, allocations);
@@ -261,6 +216,3 @@ function dryRunResult(parts: Pick<DryRunResult, 'journals' | 'effects'>) {
   return { ...ok(result), wroteNothing: true };
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}

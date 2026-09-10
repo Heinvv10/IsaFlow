@@ -16,6 +16,9 @@ vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async () => []),
   withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()),
 }));
+vi.mock('@/lib/mcp/tools/bulkApprovePreviewApproval', () => ({
+  partitionApprovalBound: vi.fn(async (candidates: Array<{ index: number; id: string }>) => ({ postable: candidates, skipped: [] })),
+}));
 vi.mock('@/lib/mcp/tools/bulkApprovePeriods', () => ({
   resolvePeriodSkips: vi.fn(async () => new Map()),
 }));

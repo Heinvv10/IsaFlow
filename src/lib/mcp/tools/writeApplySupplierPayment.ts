@@ -21,16 +21,15 @@
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunEffect, type DryRunResult } from '@/lib/mcp/contracts';
 import {
-  applySupplierPaymentPlan,
-  planSupplierPaymentApplication,
   type SupplierApplicationLine,
 } from '@/modules/accounting/services/ap/supplierPaymentApplicationService';
 import {
   applyBankLineToSupplierInvoices,
   validateBankSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierBankPaymentService';
+import { assertBankAllocationAuthority } from '@/modules/accounting/services/bank/bankAllocationService';
 import { mcpPostingAgent } from '../postingAgent';
-import { allocationsSchema, parseAllocations } from './cashApplicationArgs';
+import { CASH_APPLICATION_INTENT_REQUIRED_TEXT, allocationsSchema, parseAllocations } from './cashApplicationArgs';
 import { guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'apply_payment_to_supplier_invoice';
@@ -55,7 +54,10 @@ export const applyPaymentToSupplierInvoiceTool: McpTool = {
     + 'Does NOT cover: customer receipts (apply_receipt_to_invoice), settlement against a loan or '
     + 'intercompany account without cash (settle_by_contra), or supplier credit notes '
     + '(create_credit_note). '
-    + 'Run with dry_run first: it reports every balance that would move and writes nothing.',
+    + 'payment_id is REFUSED today, live and dry run alike: applying an existing payment needs a '
+    + 'prepared cash application intent and independent approval this connector cannot prepare yet. '
+    + 'Run with dry_run first: for bank_transaction_id it reports every balance that would move '
+    + 'and writes nothing.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,
@@ -85,7 +87,8 @@ export const applyPaymentToSupplierInvoiceTool: McpTool = {
     if (!paymentId === !bankTxId) {
       return toolError(
         'Name the cash with exactly one of payment_id or bank_transaction_id. '
-        + 'payment_id applies a payment already in the ledger (no journal posts); '
+        + 'payment_id (an existing payment) is refused today — it needs a prepared, approved cash '
+        + 'application intent this connector cannot prepare; '
         + 'bank_transaction_id allocates an imported bank line (one journal posts).',
       );
     }
@@ -99,58 +102,11 @@ export const applyPaymentToSupplierInvoiceTool: McpTool = {
 
     return bankTxId
       ? applyFromBankLine(ctx.companyId, ctx.userId, bankTxId, allocations, dryRun)
-      : applyFromPayment(ctx.companyId, ctx.userId, paymentId!, allocations, dryRun);
+      // Refused up front, live and preview alike: applying an existing payment needs a
+      // prepared, approved cash application intent this connector cannot prepare yet.
+      : toolError(CASH_APPLICATION_INTENT_REQUIRED_TEXT);
   },
 };
-
-async function applyFromPayment(
-  companyId: string,
-  userId: string,
-  paymentId: string,
-  allocations: readonly { invoiceId: string; amount: number }[],
-  dryRun: boolean,
-) {
-  let plan;
-  try {
-    plan = await planSupplierPaymentApplication(companyId, paymentId, allocations);
-  } catch (err) {
-    return toolError(safeErrorText(err, 'Could not apply this payment.'));
-  }
-
-  if (dryRun) {
-    return dryRunResult({
-      journals: [],
-      effects: [
-        ...billEffects(plan.lines),
-        {
-          entityType: 'supplier_invoice' as const,
-          entityId: plan.paymentId,
-          documentNumber: plan.paymentNumber,
-          field: 'payment_unapplied_amount',
-          before: plan.unappliedBefore,
-          after: plan.unappliedAfter,
-        },
-      ],
-    });
-  }
-
-  // Nothing below the plan is caught: a returned refusal after a write frees the
-  // idempotency key for a retry that applies the payment twice.
-  await applySupplierPaymentPlan(companyId, plan, userId);
-  return ok({
-    source: 'payment',
-    posted_journal_entry_id: null,
-    journal_posted: false,
-    payment_id: plan.paymentId,
-    payment_number: plan.paymentNumber,
-    supplier_id: plan.supplierId,
-    payment_amount: plan.paymentTotal,
-    applied_now: round2(plan.allocatedAfter - plan.allocatedBefore),
-    unapplied_remainder: plan.unappliedAfter,
-    payment_status: plan.paymentStatusAfter,
-    invoices: plan.lines.map(lineReply),
-  });
-}
 
 async function applyFromBankLine(
   companyId: string,
@@ -159,6 +115,9 @@ async function applyFromBankLine(
   allocations: readonly { invoiceId: string; amount: number }[],
   dryRun: boolean,
 ) {
+  // The allocation service's own authority, run on the preview too: a dry run
+  // skips the write, never the guard.
+  await assertBankAllocationAuthority(companyId, userId);
   let validation;
   try {
     validation = await validateBankSupplierPayment(companyId, bankTxId, allocations);
@@ -244,6 +203,3 @@ function dryRunResult(parts: Pick<DryRunResult, 'journals' | 'effects'>) {
   return { ...ok(result), wroteNothing: true };
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}

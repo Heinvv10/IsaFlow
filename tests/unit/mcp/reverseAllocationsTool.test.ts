@@ -14,6 +14,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('@/lib/mcp/tools/bankPreviewApproval', () => ({
+  partitionBankApprovalBound: vi.fn(async (_companyId: string, lines: Array<{ index: number; txId: string }>) => ({ postable: lines, skipped: [] })),
+  bankAllocationApprovalRequired: vi.fn(async () => false),
+  BANK_APPROVAL_REQUIRED_REASON: 'approval required',
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

@@ -42,8 +42,8 @@ import {
   type BulkApproveAdapter,
   type DocumentState,
   partitionDocuments,
-  postPartitionedDocuments,
 } from '@/lib/mcp/tools/bulkApproveRunner';
+import { postPartitionedDocuments } from '@/lib/mcp/tools/bulkApprovePosting';
 import {
   MAX_DOCUMENTS,
   nothingToApproveText,

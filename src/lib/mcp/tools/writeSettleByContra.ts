@@ -21,6 +21,7 @@ import {
   type Subledger,
 } from '@/modules/accounting/services/core/contraSettlementService';
 import {
+  assertCustomerPaymentAuthority,
   createCustomerPayment,
   confirmCustomerPayment,
 } from '@/modules/accounting/services/ar/customerPaymentService';
@@ -29,6 +30,10 @@ import {
   approveSupplierPayment,
   processSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
+import { assertControlledOperationAuthority, controlledOperationApprovalRequiredForAmount } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { requireControlTx } from '@/modules/accounting/services/controls/context';
+import { approvalRequiredReply } from '../approvalReply';
+import { requireApControl } from '@/modules/accounting/services/ap/apControlBoundary';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
@@ -67,6 +72,9 @@ export const settleByContraTool: McpTool = {
     + 'commercial reason (create_credit_note), or writing a debt off to bad debts, which is a '
     + 'policy decision rather than a settlement. '
     + 'Run with dry_run first: it reports the journal that would post and writes nothing.',
+  // write:invoices is required on both sides (the AP side approves the supplier
+  // payment under it, supplierPaymentStatusControl.ts); write:bank-tx is asserted
+  // additionally, on the preview too, and a refusal names it.
   scope: 'write:invoices',
   write: true,
   requiresPost: true,
@@ -119,6 +127,12 @@ export const settleByContraTool: McpTool = {
       return toolError(`amount has more than two decimal places (${amount}) — amounts are stored to the cent.`);
     }
     const settlementDate = strArg(args, 'settlement_date') ?? fmtDate(new Date());
+    // Both sides settle through a bank-tx write authority: AR through
+    // createCustomerPayment's own assert, AP through the control kernel's
+    // supplier_payment.process. The preview runs the same guard and skips only
+    // the write.
+    if (subledger === 'ar') await assertCustomerPaymentAuthority(ctx.companyId, ctx.userId);
+    else await assertControlledOperationAuthority(requireApControl(ctx.companyId, ctx.userId), 'supplier_payment.process');
 
     // Every refusal is answered from READS, before the first write, so it can
     // be a toolError. Once createCustomerPayment / createSupplierPayment has
@@ -146,6 +160,14 @@ export const settleByContraTool: McpTool = {
       : { id: contra.accountId, code: contra.accountCode, name: contra.accountName };
 
     if (args.dry_run === true) {
+      // The payment this settlement creates is confirmed (AR) or processed (AP)
+      // through the control kernel, which refuses it under a payment approval
+      // policy. The payment does not exist before the write, so the preview asks
+      // the policy question with the amount it holds.
+      const operation = subledger === 'ar' ? 'customer_payment.confirm' : 'supplier_payment.process';
+      if (await controlledOperationApprovalRequiredForAmount(requireControlTx(), operation, amount.toFixed(2))) {
+        return toolError(approvalRequiredReply(settleByContraTool));
+      }
       const result: DryRunResult = {
         dryRun: true,
         journals: [{

@@ -31,6 +31,7 @@ import {
   InsufficientFlowsError,
 } from '@/modules/billing/services/flowWalletService';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { log } from '@/lib/logger';
 
 const mockGetPlan = getCompanyPlan as MockedFunction<typeof getCompanyPlan>;
 const mockDeduct  = deductFlows as MockedFunction<typeof deductFlows>;
@@ -176,6 +177,28 @@ describe('withFlowMeter', () => {
 
     expect(mockRefund).toHaveBeenCalledOnce();
     expect(res.headers['X-Flow-Refunded']).toBe('true');
+  });
+
+  it('refunds a response that has already been sent without logging a refund failure', async () => {
+    // A refusal flushes its body before the meter runs, so setting the header
+    // then throws ERR_HTTP_HEADERS_SENT into the refund catch and logs a
+    // failure that never happened.
+    mockGetPlan.mockResolvedValueOnce({ planCode: 'payg', planId: 'p', subscriptionId: 's' });
+    mockDeduct.mockResolvedValueOnce({ balanceAfter: 97 });
+    mockRefund.mockResolvedValueOnce({ balanceAfter: 100 });
+
+    const res = mockRes() as ReturnType<typeof mockRes> & { headersSent: boolean };
+    res.headersSent = false;
+    const setHeader = res.setHeader.bind(res);
+    res.setHeader = (key: string, value: string) => {
+      if (res.headersSent) throw Object.assign(new Error('Cannot set headers after they are sent to the client'), { code: 'ERR_HTTP_HEADERS_SENT' });
+      setHeader(key, value);
+    };
+    const handler = vi.fn(async () => { res.statusCode = 409; res.headersSent = true; });
+    await withFlowMeter('invoice.create', 3)(handler)({ companyId: 'co-1' } as never, res as never);
+
+    expect(mockRefund).toHaveBeenCalledOnce();
+    expect(log.error).not.toHaveBeenCalled();
   });
 
   it('does NOT refund on 2xx / 3xx', async () => {

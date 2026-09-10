@@ -39,6 +39,15 @@ it('refuses current source revocation for both repeated enqueue and retained rea
  finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[f.f.companyA,f.f.u1.id]);}
  expect((await f.request('GET',{comparisonId:jobId,section:'records'})).status).toBe(200);expect(await jobs()).toHaveLength(1);
 });
+it('refuses a cookie session that may read the sources but may not create audit jobs',async()=>{
+ const before=await jobs();
+ await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,'audit',false)",[f.f.companyA,f.f.u1.id]);
+ try{
+  expect((await f.request('POST',{...body(),idempotencyKey:randomUUID()})).status).toBe(403);
+  expect(await jobs()).toEqual(before);
+  expect((await f.request('GET',{comparisonId:jobId,section:'records'})).status).toBe(200);
+ }finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='audit'",[f.f.companyA,f.f.u1.id]);}
+});
 it('refuses a foreign tenant source and result without returning either retained identity',async()=>{
  for(const response of [await f.request('POST',body(),'u3'),await f.request('GET',{comparisonId:jobId,section:'records'},'u3')]){
   expect(response.status).toBeGreaterThanOrEqual(400);expect(response.body.data??null).toBeNull();

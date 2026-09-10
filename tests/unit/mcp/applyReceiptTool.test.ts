@@ -40,6 +40,9 @@ vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
   validateBankReceiptApplication: vi.fn(),
   confirmReceiptMatch: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  assertBankAllocationAuthority: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/ar/receiptMatchService', () => ({
   getReceiptMatchCandidates: vi.fn(),
 }));
@@ -140,6 +143,12 @@ beforeEach(() => {
 });
 
 describe('apply_receipt_to_invoice — request shape', () => {
+  it('does not describe payment_id as a path that applies anything', async () => {
+    const r = await applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY }, ctx());
+    expect(errText(r)).not.toMatch(/applies a (receipt|payment) already in the ledger/);
+    expect(errText(r)).toMatch(/refused/i);
+  });
+
   it('refuses when neither source is named', async () => {
     const r = await applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY }, ctx());
     expect(errText(r)).toMatch(/exactly one of payment_id or bank_transaction_id/i);
@@ -197,91 +206,16 @@ describe('apply_receipt_to_invoice — request shape', () => {
 });
 
 describe('apply_receipt_to_invoice — payment source', () => {
-  it('applies and reports every balance that moved', async () => {
-    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
-    vi.mocked(applyReceiptPlan).mockResolvedValue(plan());
-
-    const out = parseOk(
-      await applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx()),
-    );
-    expect(out.source).toBe('payment');
-    expect(out.journal_posted).toBe(false);
-    expect(out.posted_journal_entry_id).toBeNull();
-    expect(out.applied_now).toBe(600);
-    expect(out.unapplied_remainder).toBe(400);
-    expect(out.invoices).toEqual([{
-      invoice_id: INV_A,
-      invoice_number: 'INV0001',
-      amount_applied: 600,
-      outstanding_before: 600,
-      outstanding_after: 0,
-      status_before: 'approved',
-      status_after: 'paid',
-    }]);
-    expect(vi.mocked(planReceiptApplication).mock.calls[0]![0]).toBe(COMPANY);
-  });
-
-  it('a dry run runs the guards, writes nothing, and sets wroteNothing', async () => {
-    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
-
+  // Applying an existing payment executes only against a prepared, approved cash
+  // application intent the connector cannot prepare yet, so both calls refuse
+  // before any lock or plan read.
+  it.each([true, false])('refuses up front, before any read (dry_run=%s)', async (dryRun) => {
     const r = await applyReceiptToInvoiceTool.handler(
-      { ...ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true },
-      ctx(),
+      { ...ALLOC, ...KEY, payment_id: PAYMENT, ...(dryRun ? { dry_run: true } : {}) }, ctx(),
     );
-    const out = parseOk(r);
-    expect(planReceiptApplication).toHaveBeenCalledTimes(1);
+    expect(errText(r)).toMatch(/prepared cash application intent and independent approval are required/i);
+    expect(planReceiptApplication).not.toHaveBeenCalled();
     expect(applyReceiptPlan).not.toHaveBeenCalled();
-    expect(r.wroteNothing).toBe(true);
-    expect(out.dryRun).toBe(true);
-    // Cash already in the ledger: no journal, and the preview says so.
-    expect(out.journals).toEqual([]);
-    expect(out.effects).toContainEqual({
-      entityType: 'customer_invoice',
-      entityId: INV_A,
-      documentNumber: 'INV0001',
-      field: 'outstanding',
-      before: 600,
-      after: 0,
-    });
-  });
-
-  it('A DRY RUN REFUSES WHERE THE LIVE CALL WOULD REFUSE', async () => {
-    vi.mocked(planReceiptApplication).mockRejectedValue(
-      new Error('Allocations total R900.00 but only R400.00 of this receipt is unapplied'),
-    );
-    const r = await applyReceiptToInvoiceTool.handler(
-      { ...ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true },
-      ctx(),
-    );
-    expect(errText(r)).toMatch(/only R400\.00 of this receipt is unapplied/);
-    expect(applyReceiptPlan).not.toHaveBeenCalled();
-  });
-
-  it('a pre-write refusal is a toolError; a POST-write failure THROWS', async () => {
-    vi.mocked(planReceiptApplication).mockRejectedValueOnce(new Error('Invoice X not found'));
-    expect(errText(
-      await applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx()),
-    )).toMatch(/not found/i);
-
-    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
-    vi.mocked(applyReceiptPlan).mockRejectedValue(new Error('deadlock detected'));
-    // Not caught. The savepoint unwinds on a throw and not on a returned error,
-    // and a returned refusal would free the key for a retry that applies twice.
-    await expect(
-      applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx()),
-    ).rejects.toThrow(/deadlock/);
-  });
-
-  it('does not leak a driver error message into the refusal', async () => {
-    const pgErr = Object.assign(new Error('relation "customer_payments" does not exist'), {
-      code: '42P01',
-    });
-    vi.mocked(planReceiptApplication).mockRejectedValue(pgErr);
-    const text = errText(
-      await applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx()),
-    );
-    expect(text).not.toMatch(/relation|42P01/);
-    expect(text).toMatch(/Could not apply this receipt/);
   });
 });
 
@@ -360,64 +294,28 @@ describe('apply_receipt_to_invoice — the two paths must not diverge', () => {
     unappliedRemainder: 400,
   };
 
-  it('BOTH DRY RUNS RETURN THE SAME SHAPE — an agent need not know which service ran', async () => {
-    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
-    const fromPayment = parseOk(await applyReceiptToInvoiceTool.handler(
+  it('the payment dry run refuses while the bank dry run previews — each matches its live call', async () => {
+    const fromPayment = await applyReceiptToInvoiceTool.handler(
       { ...ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true }, ctx(),
-    ));
+    );
+    expect(errText(fromPayment)).toMatch(/prepared cash application intent/i);
 
     vi.mocked(validateBankReceiptApplication).mockResolvedValue(validation);
     const fromBank = parseOk(await applyReceiptToInvoiceTool.handler(
       { ...ALLOC, ...KEY, bank_transaction_id: TX, dry_run: true }, ctx(),
     ));
-
-    expect(Object.keys(fromPayment).sort()).toEqual(Object.keys(fromBank).sort());
-    expect(fromPayment.dryRun).toBe(true);
     expect(fromBank.dryRun).toBe(true);
-    // The CONTENT differs, and honestly so: one posts a journal, one does not.
-    expect(fromPayment.journals).toEqual([]);
     expect((fromBank.journals as unknown[]).length).toBe(1);
   });
 
-  it('BOTH LIVE PATHS RETURN THE SAME REPLY KEYS', async () => {
-    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
-    vi.mocked(applyReceiptPlan).mockResolvedValue(plan());
-    const fromPayment = parseOk(await applyReceiptToInvoiceTool.handler(
-      { ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx(),
-    ));
-
-    vi.mocked(validateBankReceiptApplication).mockResolvedValue(validation);
-    vi.mocked(confirmReceiptMatch).mockResolvedValue({
-      ...validation, journalEntryId: 'je-1', customerPaymentId: PAYMENT, paymentStatus: 'confirmed',
-    });
-    const fromBank = parseOk(await applyReceiptToInvoiceTool.handler(
-      { ...ALLOC, ...KEY, bank_transaction_id: TX }, ctx(),
-    ));
-
-    const shared = ['source', 'posted_journal_entry_id', 'journal_posted', 'payment_id',
-      'customer_id', 'applied_now', 'unapplied_remainder', 'payment_status', 'invoices'];
-    for (const key of shared) {
-      expect(fromPayment).toHaveProperty(key);
-      expect(fromBank).toHaveProperty(key);
-    }
-    // And each invoice row is described identically on both.
-    expect(Object.keys((fromPayment.invoices as Record<string, unknown>[])[0]!).sort())
-      .toEqual(Object.keys((fromBank.invoices as Record<string, unknown>[])[0]!).sort());
-  });
-
-  it('A CROSS-TENANT INVOICE IS REFUSED ON BOTH PATHS, with the same generic wording', async () => {
-    vi.mocked(planReceiptApplication).mockRejectedValue(new Error(`Invoice ${INV_A} not found`));
-    const a = errText(await applyReceiptToInvoiceTool.handler(
-      { ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx(),
-    ));
+  it('a cross-tenant invoice on the bank path is refused with the generic wording', async () => {
     vi.mocked(validateBankReceiptApplication).mockRejectedValue(
       new Error(`Invoice ${INV_A} not found`),
     );
     const b = errText(await applyReceiptToInvoiceTool.handler(
       { ...ALLOC, ...KEY, bank_transaction_id: TX }, ctx(),
     ));
-    expect(a).toBe(b);
-    expect(applyReceiptPlan).not.toHaveBeenCalled();
+    expect(b).toMatch(/not found/i);
     expect(confirmReceiptMatch).not.toHaveBeenCalled();
   });
 

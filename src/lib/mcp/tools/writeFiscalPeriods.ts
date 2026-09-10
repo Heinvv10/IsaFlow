@@ -17,8 +17,10 @@ import {
   PeriodNotCloseableError,
 } from '@/modules/accounting/services/gl/fiscalPeriodCloseService';
 import { getFiscalPeriodById, reopenPeriod } from '@/modules/accounting/services/gl/fiscalPeriodService';
+import { assertPeriodControlAuthority } from '@/modules/accounting/services/controls/periodControl';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
+import { approvalRequiredReply } from '../approvalReply';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const DRY = { wroteNothing: true, billable: false } as const;
@@ -39,6 +41,9 @@ export const closeFiscalPeriodTool: McpTool = {
     + 'Also refuses a period that is locked, already closed, or has an open period before it. '
     + 'Run period_close_checklist or dry_run first: a dry run applies every one of these guards and '
     + 'writes nothing. Requires the write:post permission.',
+  // write:journals is the tool's own grant. The period control additionally
+  // asserts write:locks, on the preview as well as the write, and a refusal
+  // names it (see registry.ts); the declared scope is not the whole set.
   scope: 'write:journals',
   write: true,
   requiresPost: true,
@@ -99,6 +104,9 @@ export const reopenFiscalPeriodTool: McpTool = {
     + 'period is refused rather than reported as a change that did not happen. '
     + 'This weakens a control: everything dated inside the period becomes writable again, including '
     + 'by other agents. Reopen for a specific correction and close again. Requires write:post.',
+  // write:journals is the tool's own grant. The period control additionally
+  // asserts write:locks, on the preview as well as the write, and a refusal
+  // names it (see registry.ts); the declared scope is not the whole set.
   scope: 'write:journals',
   write: true,
   requiresPost: true,
@@ -117,6 +125,9 @@ export const reopenFiscalPeriodTool: McpTool = {
     const bad = guardCastableArgs(args, { uuid: ['fiscal_period_id'] });
     if (bad) return bad;
     const dryRun = args.dry_run === true;
+    // The reopen's own authority, run on the preview too: a dry run skips the
+    // write, never the guard.
+    await assertPeriodControlAuthority(ctx.companyId, ctx.userId);
 
     // Every refusal is answered from a READ, so the service call can rethrow.
     const period = await getFiscalPeriodById(ctx.companyId, periodId);
@@ -161,6 +172,9 @@ export const yearEndCloseTool: McpTool = {
     + 'retained earnings with no journal lines behind it, so equity is a computed residual; running '
     + 'this is how that stops being true, and it is worth reading the preview first. '
     + 'Requires the write:post permission.',
+  // write:journals is the tool's own grant. The period control additionally
+  // asserts write:locks, on the preview as well as the write, and a refusal
+  // names it (see registry.ts); the declared scope is not the whole set.
   scope: 'write:journals',
   write: true,
   requiresPost: true,
@@ -211,13 +225,6 @@ export const yearEndCloseTool: McpTool = {
           + 'false, that is the thing to fix, and this close will work once it is.',
         );
       }
-      if (result.error === 'no_fiscal_period') {
-        return toolError(
-          `No fiscal period covers ${result.entryDate}, where the closing journal would be dated. `
-          + 'Posting it without one would leave it outside the trial balance, the VAT201 and the '
-          + 'AFS permanently. Nothing was posted.',
-        );
-      }
       if (result.error === 'ambiguous_retained_earnings') {
         return toolError(
           `More than one account could be retained earnings (${result.accountCodes.join(', ')}) `
@@ -227,6 +234,7 @@ export const yearEndCloseTool: McpTool = {
           + 'Nothing was posted.',
         );
       }
+      if (result.error === 'approval_required') return toolError(approvalRequiredReply(yearEndCloseTool));
       if (result.error === 'no_retained_earnings') {
         return toolError(
           'No account carries the retained_earnings system role for this company. Create one with '

@@ -35,6 +35,9 @@
 
 import { log } from '@/lib/logger';
 import { closePeriod, getFiscalPeriodById } from './fiscalPeriodService';
+import { assertPeriodControlAuthority } from '../controls/periodControl';
+import { assertSuppliedApprovalExecutable, controlledOperationApprovalRequiredForPreview, OperationApprovalRequiredError } from '../controls/approvalExecutionService';
+import { requireControlTx } from '../controls/context';
 import {
   getCloseReadiness,
   type ChecklistItem,
@@ -98,6 +101,9 @@ export async function closePeriodWithReadiness(
   options: ClosePeriodOptions,
 ): Promise<ClosePeriodResult> {
   const dryRun = options.dryRun === true;
+  // The preview answers about a close, so it runs the close's own authority.
+  // Only the write itself is skipped.
+  await assertPeriodControlAuthority(companyId, userId);
 
   // Ownership first, and the miss is generic: a distinct "belongs to another
   // company" reply would be an existence oracle.
@@ -123,6 +129,21 @@ export async function closePeriodWithReadiness(
   const warnings = readiness.items.filter((i) => i.status !== 'pass');
 
   if (dryRun) {
+    // The live close runs through the period control, which refuses under a
+    // fiscal_period approval policy unless it is given an executable approval.
+    // The preview answers exactly as the live close would.
+    const ref = { entityType: 'fiscal_period', entityId: periodId, operation: 'fiscal_period.close' as const };
+    if (options.approvalId) {
+      await assertSuppliedApprovalExecutable(requireControlTx(), ref, options.approvalId);
+    } else {
+      const answer = await controlledOperationApprovalRequiredForPreview(requireControlTx(), ref);
+      // The transport words this per tool: close_fiscal_period cannot carry one.
+      if (answer.kind === 'answered' && answer.required) throw new OperationApprovalRequiredError();
+      if (answer.kind === 'unavailable' && answer.policiesExist) {
+        throw new PeriodNotCloseableError(`${period.periodName} could not be previewed — its close material `
+          + 'could not be built; an approval may also be required. Nothing was closed');
+      }
+    }
     return { period, closed: false, dryRun: true, checklist: readiness.items, warnings };
   }
 

@@ -47,8 +47,8 @@ import {
   type BulkApproveAdapter,
   type DocumentState,
   partitionDocuments,
-  postPartitionedDocuments,
 } from './bulkApproveRunner';
+import { postPartitionedDocuments } from './bulkApprovePosting';
 import {
   MAX_DOCUMENTS,
   nothingToApproveText,
@@ -92,6 +92,8 @@ const adapter: BulkApproveAdapter<FinalizedRow> = {
   // above 31, which would fail the batch before it posted anything.
   savepointPrefix: 'bulk_fin_inv_',
   approvableStatuses: APPROVABLE,
+  operation: 'customer_invoice.post',
+  entityType: 'customer_invoice',
   async readStates(companyId, ids) {
     // ONE query for the batch. `invoice_date` is what postCustomerInvoiceToGL
     // uses as the entry date (via fmtDate), so it is what the fiscal-period
@@ -173,7 +175,9 @@ export const bulkFinalizeInvoicesTool: McpTool = {
       );
     }
 
-    const { postable, skipped, states } = await partitionDocuments(ctx.companyId, ids, adapter);
+    const { postable, skipped, states } = await partitionDocuments(
+      ctx.companyId, ids, adapter, { preview: args.dry_run === true },
+    );
 
     if (args.dry_run === true) {
       const preview = ok({

@@ -187,13 +187,24 @@ async function insertVatPeriodLock(
 }
 
 /** The legacy figures argument is retained for caller compatibility; the ledger owns stored figures. */
+/**
+ * The authority and period-shape guards the live lock runs, callable on their
+ * own: a preview that skips them tells a caller a lock will be taken that the
+ * live call then refuses.
+ */
+export async function assertVatPeriodLockAuthority(companyId: string, userId: string,
+  periodStart: string, periodEnd: string): Promise<void> {
+  const ctx = requirePeriodControl(companyId, userId);
+  await assertEffectivePermission(ctx, 'write:locks');
+  await assertEffectivePermission(ctx, 'read:vat');
+  parseVatPeriodId(`${periodStart}/${periodEnd}`);
+}
+
 export async function lockVatPeriod(companyId: string, periodStart: string, periodEnd: string,
   _figures: VatLockFigures, actor: VatLockActor, notes?: string, options?: PeriodControlOptions): Promise<LockVatPeriodResult> {
   const ctx = requirePeriodControl(companyId, actor.userId);
-  await assertEffectivePermission(ctx, 'write:locks');
-  await assertEffectivePermission(ctx, 'read:vat');
+  await assertVatPeriodLockAuthority(companyId, actor.userId, periodStart, periodEnd);
   const entityId = `${periodStart}/${periodEnd}`;
-  parseVatPeriodId(entityId);
   const existing = await getVatPeriodLock(companyId, periodStart, periodEnd);
   if (existing) return { lock: existing, created: false };
   const ref = { entityType: 'vat_period', entityId, operation: 'vat_period.lock' as const };

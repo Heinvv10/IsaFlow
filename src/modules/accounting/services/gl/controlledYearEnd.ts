@@ -6,7 +6,7 @@ import {fmtDate} from '@/lib/fmtDate';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {requireControlTx} from '../controls/context';
 import {loadOperationMaterial} from '../controls/operationMaterializer';
-import {executeControlledOperation} from '../controls/approvalExecutionService';
+import {assertSuppliedApprovalExecutable,executeControlledOperation} from '../controls/approvalExecutionService';
 import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
 import {readControlEntityVersion} from '../controls/operationVersions';
 import {recordCommittedChange} from '../controls/changeEventService';
@@ -40,11 +40,14 @@ async function prior(ctx:ControlTx,year:string):Promise<CloseYearResult|null>{
  return replayKnownOperationEffect<CloseYearResult>(ctx,{entityType:'fiscal_year',entityId:year,operation:'year.close'},effect.id);
 }
 export async function closeFiscalYear(companyId:string,yearLabel:string,userId:string,options:CloseYearOptions={}):Promise<CloseYearResult|CloseYearDryRunResult|CloseYearError>{
- const ctx=actor(companyId,userId);await assertEffectivePermission(ctx,options.dryRun?'read:reports':'write:locks');
+ // A dry run runs the live authority and skips only the write: previewing a
+ // close this caller cannot perform both misleads it and discloses close state.
+ const ctx=actor(companyId,userId);await assertEffectivePermission(ctx,'write:locks');
+ await assertEffectivePermission(ctx,'write:post');
  if(!/^[1-9][0-9]{3}$/.test(yearLabel))throw new Error('Invalid financial year');
  const parent={entityType:'fiscal_year',entityId:yearLabel,operation:'year.close' as const};
  if(!options.dryRun){
-  await assertEffectivePermission(ctx,'write:post');const result=await prior(ctx,yearLabel);
+  const result=await prior(ctx,yearLabel);
   if(result)return options.approvalId?executeControlledOperation<CloseYearResult>(ctx,parent,options.approvalId,async()=>{throw new Error('Receipt replay cannot create a new effect');}):result;
  }
  let material:Awaited<ReturnType<typeof loadOperationMaterial>>;
@@ -55,6 +58,12 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  if(open.length)return{error:'open_periods',count:open.length,openPeriods:open.map(p=>({id:String(p.id),periodName:String(p.period_name),periodNumber:Number(p.period_number)}))};
  if(facts.periods.some(p=>p.status!=='closed'))throw new Error('Financial year contains locked periods');
  if(facts.closing.retained.is_active!==true)throw new Error('Retained earnings account is inactive');
+ // The kernel's own approval condition, already bound on this material: a
+ // preview must not show a close the live call refuses for want of an approval.
+ // A supplied approval is checked whenever supplied, bound or not, because the
+ // live close locks and checks any approval it is given.
+ if(options.dryRun&&options.approvalId)await assertSuppliedApprovalExecutable(ctx,parent,options.approvalId);
+ else if(options.dryRun&&material.binding.policies.length)return{error:'approval_required'};
  if(options.dryRun)return{dryRun:true,netIncome:Number(facts.closing.netIncome),netIncomeExact:facts.closing.netIncome,preview:preview(yearLabel,facts)};
  return executeControlledOperation(ctx,parent,options.approvalId??null,async permit=>{
   if(await prior(ctx,yearLabel))throw new Error('Financial year already closed');
@@ -62,6 +71,9 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
   if(live.company.lockdown_enabled===true&&(!live.company.lockdown_date||permit.accountingDate<=String(live.company.lockdown_date)))throw new Error('Year-close date is within company lockdown');
   if(live.periods.some(p=>p.status!=='closed')||live.closing.retained.is_active!==true)throw new Error('Financial year source is no longer eligible');
   const closing=live.closing,period=live.periods.find(p=>fmtDate(p.end_date as string|Date)===permit.accountingDate);
+  // Not a configuration outcome: the material check above proves a period ends
+  // on the closing date, so reaching here means the year's periods CHANGED
+  // between that read and this write — a race, like the period check below.
   if(!period)throw new Error('Closing fiscal period unavailable');
   let entry:Row={id:null,source:'year_end',entry_date:permit.accountingDate,emptyYear:true};
   if(closing.plan.length){

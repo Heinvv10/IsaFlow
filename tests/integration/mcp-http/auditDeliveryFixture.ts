@@ -1,4 +1,4 @@
-import {randomBytes,randomUUID} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {createServer} from 'node:http';
 import {Pool} from 'pg';
 import {apiResolver} from 'next/dist/server/api-utils/node/api-resolver';
@@ -24,6 +24,14 @@ export async function auditDeliveryFixture(){
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error('Loopback unavailable');
  const client=mcpHttpClient(`http://127.0.0.1:${address.port}`);let calls=0;
  async function rpc(name:string,args:Record<string,unknown>,person:'u1'|'u2'|'u3'='u1',secondToken=false){calls++;return client.rpc(fixture[person].tokens[secondToken?1:0]!.raw,'tools/call',{name,arguments:args});}
+ /** An extra synthetic PAT for u1/u2 carrying exactly the given scopes. */
+ async function scopedToken(scopes:string[],person:'u1'|'u2'='u1'){
+  const raw=`pat_${randomBytes(16).toString('hex')}`;
+  await pool.query("INSERT INTO personal_access_tokens(id,user_id,company_id,token_hash,token_prefix,name,scopes,expires_at) VALUES($1,$2,$3,$4,$5,'Scoped synthetic',$6,NOW()+INTERVAL '1 day')",
+   [randomUUID(),fixture[person].id,fixture[person].companyId,createHash('sha256').update(raw).digest('hex'),raw.slice(0,12),scopes]);
+  return raw;
+ }
+ async function rpcToken(raw:string,name:string,args:Record<string,unknown>){calls++;return client.rpc(raw,'tools/call',{name,arguments:args});}
  async function call<T>(name:string,args:Record<string,unknown>,person:'u1'|'u2'|'u3'='u1'):Promise<T>{
   const reply=await rpc(name,args,person);const text=reply.result?.content?.map(item=>item.text).join('\n')??'';
   if(reply.result?.isError)throw new Error(`MCP ${name} refused: ${text}`);return JSON.parse(text) as T;
@@ -34,6 +42,6 @@ export async function auditDeliveryFixture(){
   await (await import('@/lib/auth/authPool')).getAuthPool().end();
   await (await import('@/lib/neon')).getPoolForTests().end();await pool.end();
  }
- return{fixture,pool,call,rpc,close,journal,bank,attachment,bytes,calls:()=>calls};
+ return{fixture,pool,call,rpc,rpcToken,scopedToken,close,journal,bank,attachment,bytes,calls:()=>calls};
  }catch(error){await pool.end();throw error;}
 }

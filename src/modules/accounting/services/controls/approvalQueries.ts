@@ -2,6 +2,7 @@ import { operationPermission } from './operationPermissions';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import type { ModulePermission } from '@/lib/auth/permissionService';
 import { assertControlTx } from './context';
+import { SuppliedApprovalRefusal } from './suppliedApprovalRefusal';
 import { canonicalJson, operationBindingHash } from './canonical';
 import type { ControlTx, EvidenceRef, OperationApproval, OperationBinding, PolicyBinding } from './contracts';
 
@@ -31,7 +32,7 @@ export async function lockApproval(ctx: ControlTx, id: string): Promise<Approval
     SELECT *,expires_at>clock_timestamp() AS unexpired FROM control_operation_approvals
     WHERE company_id=${ctx.principal.companyId}::uuid AND id=${id}::uuid FOR UPDATE
   ` as ApprovalRow[];
-  if (!rows[0]) throw new Error('Approval not found');
+  if (!rows[0]) throw new SuppliedApprovalRefusal('Approval not found');
   if (operationBindingHash(rows[0].binding) !== rows[0].binding_hash) throw new Error('Approval material is invalid');
   return rows[0];
 }
@@ -53,14 +54,14 @@ export async function assertApprovalAuthority(authority: AuthorityRow | undefine
     || (authority.current_scopes !== null && (!Array.isArray(authority.current_scopes)
       || authority.current_scopes.some(scope => typeof scope !== 'string'))) || !isActiveUserAccount(authority) || authority.company_suspended_at !== null
     || ['suspended', 'deleted'].includes(authority.company_status ?? '')
-    || (role !== undefined && authority.role !== role) || !Array.isArray(authority.permissions)) throw new Error('Approval authority is no longer valid');
+    || (role !== undefined && authority.role !== role) || !Array.isArray(authority.permissions)) throw new SuppliedApprovalRefusal('Approval authority is no longer valid');
   const overrides: ModulePermission[] = authority.permissions.map(row => ({
     moduleKey: String(row.module_key), moduleName: String(row.module_key), canRead: row.can_read === true,
     canWrite: row.can_write === true, canDelete: row.can_delete === true, canExport: row.can_export === true,
     canApprove: row.can_approve === true, accountRangeFrom: row.account_range_from == null ? null : String(row.account_range_from),
     accountRangeTo: row.account_range_to == null ? null : String(row.account_range_to), restrictions: row.restrictions as Record<string, unknown>,
   }));
-  if (permissionReason(authority.role, permission, authority.current_scopes, overrides)) throw new Error('Approval authority is no longer valid');
+  if (permissionReason(authority.role, permission, authority.current_scopes, overrides)) throw new SuppliedApprovalRefusal('Approval authority is no longer valid');
 }
 export async function assertRequesterAuthority(ctx: ControlTx, row: ApprovalRow, authorities: AuthorityRow[]): Promise<void> {
   const requester = authorities.find(person => person.person_id === row.requester_person_id);
@@ -70,7 +71,7 @@ export async function assertRequesterAuthority(ctx: ControlTx, row: ApprovalRow,
   }
   if (!['cookie', 'pat', 'oauth'].includes(row.requester_auth_method)
     || (row.requester_auth_method !== 'cookie' && !Array.isArray(requester?.current_scopes))) {
-    throw new Error('Requester grant authority is no longer valid');
+    throw new SuppliedApprovalRefusal('Requester grant authority is no longer valid');
   }
   await assertApprovalAuthority(requester, operationPermission(row.binding.operation,'write'));
   await assertApprovalAuthority(requester, 'write:approvals');
@@ -78,7 +79,7 @@ export async function assertRequesterAuthority(ctx: ControlTx, row: ApprovalRow,
 export async function validateDecisions(ctx: ControlTx, row: ApprovalRow, decisions: DecisionRow[], authorities: AuthorityRow[]): Promise<void> {
   for (const policy of row.binding.policies) {
     const decision = decisions.find(d => d.policy_id === policy.policyId);
-    if (!decision || decision.decision !== 'approved' || decision.person_id === row.requester_person_id) throw new Error('Independent approval is required');
+    if (!decision || decision.decision !== 'approved' || decision.person_id === row.requester_person_id) throw new SuppliedApprovalRefusal('Independent approval is required');
     const authority = authorities.find(person => person.person_id === decision.person_id);
     await assertApprovalAuthority(authority, 'write:approvals', policy.approverRole);
     await assertApprovalAuthority(authority, operationPermission(row.binding.operation,'read'));

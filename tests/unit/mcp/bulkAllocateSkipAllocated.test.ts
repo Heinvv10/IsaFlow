@@ -45,6 +45,11 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(),
   reverseReconciledTransaction: vi.fn(),
 }));
+vi.mock('@/lib/mcp/tools/bankPreviewApproval', () => ({
+  partitionBankApprovalBound: vi.fn(async (_companyId: string, lines: Array<{ index: number; txId: string }>) => ({ postable: lines, skipped: [] })),
+  bankAllocationApprovalRequired: vi.fn(async () => false),
+  BANK_APPROVAL_REQUIRED_REASON: 'approval required',
+}));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(),
   findBankTransactionsByReferences: vi.fn(async () => new Map()),

@@ -1,3 +1,4 @@
+import type { PermissionRefusalReason } from './effectivePermissionPolicy';
 import { assertControlTx } from '@/modules/accounting/services/controls/context';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
 import type { ModulePermission } from './permissionService';
@@ -6,7 +7,18 @@ import {loadStoredAuditJobDelegation} from '@/modules/accounting/services/contro
 
 export class EffectivePermissionError extends Error {
   readonly code = 'CONTROL_FORBIDDEN';
-  constructor() { super('Current permissions do not allow this operation.'); this.name = 'EffectivePermissionError'; }
+  /**
+   * The permission the caller was missing, where the raiser knows it. The MCP
+   * transport turns this into a reply that names the grant to ask for; without
+   * it a domain refusal reads as "the operation failed" and the caller has no
+   * route to the answer. Scopes are public (consent screen, PAT UI), so naming
+   * one leaks nothing.
+   */
+  /** Why it was refused, so the reply can say what actually blocks the caller. */
+  constructor(readonly permission?: string, readonly reason?: PermissionRefusalReason) {
+    super('Current permissions do not allow this operation.');
+    this.name = 'EffectivePermissionError';
+  }
 }
 interface Membership extends UserAccountRow {
   role: string; company_status: string | null; company_suspended_at: Date | string | null;

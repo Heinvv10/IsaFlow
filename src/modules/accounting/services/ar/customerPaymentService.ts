@@ -103,13 +103,18 @@ export async function getCustomerPaymentById(companyId: string,
   }
 }
 
-export async function createCustomerPayment(companyId: string, 
+/** The authority a customer payment asserts, callable by a preview that skips only the write. */
+export async function assertCustomerPaymentAuthority(companyId: string, userId: string): Promise<void> {
+  await assertEffectivePermission(requireArControl(companyId, userId), 'write:bank-tx');
+}
+
+export async function createCustomerPayment(companyId: string,
   input: CustomerPaymentCreateInput,
   userId: string
 ): Promise<CustomerPayment> {
   try {
+  await assertCustomerPaymentAuthority(companyId,userId);
   const ctx=requireArControl(companyId,userId);
-  await assertEffectivePermission(ctx,'write:bank-tx');
   const {ledgerCurrency}=await resolveArAccounts(ctx,[]);
     // Validate allocations against invoice balances. W3 (P2.1): amount_paid
     // only reflects CONFIRMED payments — without counting other DRAFT
