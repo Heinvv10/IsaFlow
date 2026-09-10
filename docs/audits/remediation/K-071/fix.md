@@ -1067,3 +1067,90 @@ fixed by making the merged code right, not by relaxing an expectation:
 
     [ci] all checks passed
     EXIT=0
+
+## Round 19 — the `undoRun` contradiction the merge left open, decided; two merge interactions
+
+### `undoRun`: skip and count, but "undone" only when nothing was skipped
+
+Round 18 stopped on `undoRun`, where the two sides encode opposite designs: this branch made
+contention all-or-nothing (re-throw; the bank-line lock deliberately outside a savepoint so the
+request transaction aborts; 409, nothing survives), master's K-140 M-5 made it best-effort (a
+per-row `withSavepoint`, skip-and-count, run marked undone). The textual merge put this branch's
+unsavepointed lock inside master's savepoint, so both `k071-rule-sweep-undo-contention` and
+`k140-undo-run-no-savepoint` failed.
+
+Decision (orchestrator): **neither side alone.** Master's rule stands — one contended row must
+not abort work already completed for other rows — so the per-row savepoint and skip-and-count
+stay. This branch's rule also stands — a response must not claim more than happened — and the
+defect it exposes is in K-140: marking the run **undone** while rows were skipped. A skipped row
+is still posted and still carries the run's tag, so `undone_at` read "fully reversed" while it
+was not. That is a status lying about the ledger.
+
+Implemented (`autoPostUndoService.ts`):
+- every row under its own savepoint; contended, failed and reconciled rows are skipped and
+  counted; nothing is re-thrown from inside the loop;
+- the run is marked undone **only when `skipped === 0`**; the result carries `undone`. A retry
+  selects exactly the rows still tagged, so it finishes a partly-undone run;
+- the status follows what committed: when contention occurred and **no row was written at all**
+  (`reversed === 0 && alreadyUndone === 0` — a stale-tag clear is a write too), the first
+  contention error is re-thrown and the route answers **409** with nothing behind it; once any
+  row was written the answer is **200 with the counts**, because a 4xx after committed work is
+  what `withAuth` (COMMIT below 500) makes dangerous.
+
+**Assertions changed because they encoded the defect, not relaxed:**
+- `k140-undo-run-no-savepoint` asserted `undone_at IS NOT NULL` after a skipped row. It now
+  asserts `{reversed 0, skipped 1, alreadyUndone 1, undone false}`, `undone_at IS NULL` read
+  after COMMIT, the healthy row's tag cleared and the blocked row's tag intact.
+- `autoPostUndoService.test.ts` "still skips a non-contention failure and marks the run undone"
+  and "skips reconciled txs and reverses the rest" asserted the run-UPDATE ran with a row
+  skipped; both now assert it did not. "re-throws contention and does not mark the run undone"
+  became two cases: a contended row after a reversed one is skipped (200 path), and contention
+  with nothing written is re-thrown (409 path).
+- `k071-rule-sweep-undo-contention` "a held line answers 409 and rolls back the lines reversed
+  before it" asserted the all-or-nothing design. It now measures three steps on real SQL through
+  the route under a withAuth-shaped transaction: every line held → 409, both lines `allocated`,
+  run open; the last line held → 200 `{reversed 1, skipped 1, undone false}`, COMMITTED, first
+  line `imported`, held line `allocated`, run open; retry unheld → 200 `{reversed 1, skipped 0,
+  undone true}`, both `imported`, run undone.
+- Added: `k143` reconciled-row case asserts `undone false` and `undone_at IS NULL`; the route
+  unit test pins a partly-undone result as 200 with `undone:false` and `skipped:1`.
+
+**Consequence to know:** a run containing a RECONCILED row can now never be recorded undone —
+that row is deliberately never reversed by undo, and it stays posted and tagged. The panel
+(`AutoPostRunsPanel.tsx`) keeps offering Undo for such a run; a repeat is idempotent (it
+re-selects only still-tagged rows) and answers 200 with `skipped`. The panel does not yet show
+the `skipped` count or `undone:false` to the user — it reloads silently. Not changed here.
+
+Mutations (each run against the 2 unit files and the 3 undo integration files, restored after):
+
+| Mutation | unit | integration |
+|---|---|---|
+| `undone = true` always | 3 failed | k071, k140, k143 failed |
+| never re-throw contention | 1 failed | k071 failed (expects 409) |
+| re-throw whenever contention occurred | 1 failed | k071, k140 failed |
+| ignore `alreadyUndone` in the 409 test | 0 | k140 failed (a stale-tag clear would commit behind 409) |
+
+### `k107-supplier-payment-double-post` failed only on this branch — fixed
+
+Measured alone: 1 failed / 6 on this branch, 6/6 on a clean `git archive` of `origin/master`
+(`ad1fe6937`). Cause: this branch's lock-first ordering in `processSupplierPayment` and
+`voidSupplierPaymentInner` (`lockSupplierPaymentForUpdate` before the read) raised a bare
+`Error('Payment … not found')`, pre-empting master's K-107 typed `SupplierPaymentNotFoundError`
+— the only class `supplier-payments-action` answers 404. Both sites now raise the typed error
+(still pre-write: the lock returned no row). `supplierPaymentVoid.test.ts` now pins the void
+site by class; reverting that site to a bare `Error` turns it red.
+
+### `k144-match-*-lock` timeouts were this branch's too — fixed
+
+Re-run alone on this branch: both files hit the 60s test / 10s hook timeouts. On the master
+archive: 3 passed, 1 skipped. Not load. Cause: master's K-144 `matchTransaction` relied on the
+5s `lock_timeout` that `lockBankTransactionForUpdate` left set for the rest of the request to
+bound the match UPDATE's wait on `uq_bank_tx_matched_line`. This branch restores the default
+after the row lock (so the budget does not leak into every later lock), which made that index
+wait unbounded: a slow peer pinned the request instead of answering LINE_CLAIMED.
+
+Both intents kept: new `withBankLockBudget` (`bankTxLock.ts`) sets the 5s budget for exactly
+the match UPDATE, inside its savepoint (a timeout's ROLLBACK TO also restores the prior value),
+and restores the default on success. `k144-match-line-lock-timeout` gained an outcome check that
+`lock_timeout` after a successful match equals its value before. Mutations: dropping the budget
+wrap → the test times out (60s); dropping the restore → `expected '5s' to be '0'`.

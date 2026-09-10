@@ -10,6 +10,12 @@
  * trailing `UPDATE bank_auto_post_runs … undone` threw — making the catch's own
  * log line, "run will still be marked undone; manual reversal required for this
  * tx", false in exactly the case it describes.
+ *
+ * K-071 r19: that claim is now deliberately NOT made. This test used to assert
+ * the run was marked undone despite the skipped row; a skipped row is still
+ * posted and still tagged, so "undone" there would read as "fully reversed"
+ * while it is not. The run stays open, and a retry picks up the tagged row
+ * (docs/audits/remediation/K-071/fix.md, round 19).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -68,7 +74,7 @@ describeIfDb('K-140 M-5 one failed row must not abort the whole undo', () => {
     await admin.end();
   });
 
-  it('clears the rows it can and still marks the run undone when a peer holds one', async () => {
+  it('clears the rows it can and leaves the run open when a peer holds one', async () => {
     const runId = await makeRun();
     // The blocked row carries a matched line, so `reverseReconciledTransaction`
     // is called and its very first statement — the FOR UPDATE — is what fails.
@@ -108,12 +114,12 @@ describeIfDb('K-140 M-5 one failed row must not abort the whole undo', () => {
     }
 
     // The blocked row is the only casualty; nothing else is lost to 25P02.
-    expect(result!.skipped).toBe(1);
+    expect(result!).toEqual({ reversed: 0, skipped: 1, alreadyUndone: 1, undone: false });
 
-    // The claim the old catch made, now actually true — and it survived COMMIT.
+    // Not undone: the blocked row still carries the run — read after COMMIT.
     const run = await admin.query(
       'SELECT undone_at FROM bank_auto_post_runs WHERE id = $1 AND company_id = $2', [runId, COMPANY]);
-    expect(run.rows[0].undone_at).not.toBeNull();
+    expect(run.rows[0].undone_at).toBeNull();
 
     const rows = await admin.query(
       'SELECT id, auto_post_run_id FROM bank_transactions WHERE id = ANY($1)', [[healthy, blocked]]);
@@ -144,6 +150,6 @@ describeIfDb('K-140 M-5 one failed row must not abort the whole undo', () => {
       req.release();
     }
 
-    expect(result!).toEqual({ reversed: 0, skipped: 0, alreadyUndone: 2 });
+    expect(result!).toEqual({ reversed: 0, skipped: 0, alreadyUndone: 2, undone: true });
   }, 60000);
 });

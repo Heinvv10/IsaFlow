@@ -1,8 +1,12 @@
 /**
  * Auto-Post Undo Service
  * Reverses a whole auto-post run via the existing JE-reversal + tx-reset
- * plumbing. Reconciled transactions are skipped (books hygiene) — the run is
- * still marked undone, with the skip count returned.
+ * plumbing, one savepoint per row. Reconciled transactions (books hygiene),
+ * contended rows and failed rows are skipped and counted; the rest commit.
+ * The run is marked undone only when NOTHING was skipped — a skipped row is
+ * still posted and still carries the run's tag, so "undone" would read as
+ * "fully reversed" while it is not. Such a run stays open, and a retry picks
+ * up exactly the rows still tagged.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
@@ -28,6 +32,8 @@ export interface UndoResult {
    * reconciles against.
    */
   alreadyUndone: number;
+  /** TRUE only when `skipped` is 0 — the run was recorded undone. */
+  undone: boolean;
 }
 
 /**
@@ -54,6 +60,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   let reversed = 0;
   let skipped = 0;
   let alreadyUndone = 0;
+  let contention: unknown = null;
 
   for (const tx of txRows) {
     const txId = String(tx.id);
@@ -108,30 +115,45 @@ export async function undoRun(companyId: string, runId: string, userId: string):
         );
       }
     } catch (err) {
-      // Contention ends the undo instead of being logged as a failure. The one
-      // member this loop can raise is `reverseReconciledTransaction`'s bank-line
-      // lock, taken on the REQUEST transaction rather than in a savepoint, so its
-      // 55P03/40P01 has already aborted it: swallowing it here turned the next
-      // statement into a 25P02 and the route's answer into 400 "Undo failed".
-      // Re-thrown, the route answers 409, withAuth's COMMIT degrades to a
-      // rollback, the lines reversed before this one go with it, and the run
-      // stays open to retry.
-      if (isRetryableContention(err)) throw err;
-      log.error(
-        'Auto-post undo failed for transaction — run will still be marked undone; manual reversal required for this tx',
-        { companyId, runId, txId, error: err instanceof Error ? err.message : String(err) },
-        'auto-post-undo',
-      );
+      // The savepoint has rolled this row back alone — including
+      // `reverseReconciledTransaction`'s bank-line lock, which it takes on the
+      // enclosing transaction — so the request transaction is live and the
+      // rows already reversed stand. Contention is skipped like any failure;
+      // it is kept only to decide the answer below.
+      if (isRetryableContention(err)) {
+        contention ??= err;
+        log.info('Auto-post undo skipped a contended transaction', { companyId, runId, txId }, 'auto-post-undo');
+      } else {
+        log.error(
+          'Auto-post undo failed for transaction — run stays open; manual reversal required for this tx',
+          { companyId, runId, txId, error: err instanceof Error ? err.message : String(err) },
+          'auto-post-undo',
+        );
+      }
       skipped += 1;
     }
   }
 
-  await sql`
-    UPDATE bank_auto_post_runs
-    SET undone_at = NOW(), undone_by = ${userId}::UUID
-    WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
-  `;
+  // Nothing written at all, and a peer's lock is why: every savepoint rolled
+  // back and reconciled rows are never touched, so re-throwing makes the route
+  // answer 409 with nothing committed behind it. Once any row has been written
+  // the counts are the answer instead — a 4xx would COMMIT that work under a
+  // failure status.
+  if (contention !== null && reversed === 0 && alreadyUndone === 0) throw contention;
 
-  log.info('Auto-post run undone', { companyId, runId, reversed, skipped, alreadyUndone }, 'auto-post-undo');
-  return { reversed, skipped, alreadyUndone };
+  const undone = skipped === 0;
+  if (undone) {
+    await sql`
+      UPDATE bank_auto_post_runs
+      SET undone_at = NOW(), undone_by = ${userId}::UUID
+      WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
+    `;
+  }
+
+  log.info(
+    undone ? 'Auto-post run undone' : 'Auto-post run partly undone — run stays open',
+    { companyId, runId, reversed, skipped, alreadyUndone },
+    'auto-post-undo',
+  );
+  return { reversed, skipped, alreadyUndone, undone };
 }

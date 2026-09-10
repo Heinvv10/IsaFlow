@@ -25,7 +25,9 @@
  *
  *   1. ABORTED — raised on the request transaction itself. 55P03/40P01 abort
  *      it, the COMMIT degrades to a rollback, and nothing survives however
- *      much the request wrote first (`undoRun` → `reverseReconciledTransaction`).
+ *      much the request wrote first (`bank-transactions-action` →
+      `reverseReconciledTransaction`, whose bank-line lock precedes its own
+      savepoint).
  *   2. CONFINED — raised inside a `withSavepoint` whose ROLLBACK TO succeeded.
  *      The request transaction is LIVE, and everything written before that
  *      savepoint COMMITs behind the 4xx. Safe only when nothing was written
@@ -36,7 +38,7 @@
  * So: "pre-write, OR confined to a savepoint that rolled back" — and a caller
  * MUST establish which before it answers 409. A loop over savepointed items
  * should not re-throw at all: it skips and counts every member, as `applyRules`
- * does.
+ * does — or re-throws only when no item was written, as `undoRun` does.
  *
  * NOT included: `PaymentPostedDuringVoidError`. It is equally retryable, but it
  * is raised only by `voidPaymentDocument`, which no HTTP route reaches —
