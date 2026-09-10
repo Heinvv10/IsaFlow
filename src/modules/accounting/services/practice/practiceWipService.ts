@@ -3,9 +3,9 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { markEntriesBilled } from './practiceTimeEntryWorkflow';
+import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { mapEntry } from './practiceTimeEntryService';
 import { lockEligibleWipEntries } from './wipEntryLock';
-import { insertWipInvoice } from './wipInvoiceNumber';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 
 export interface WipClientRow {
@@ -154,9 +154,11 @@ export async function generateWipInvoice(
     throw new Error('practice client has no linked AR customer — set link_customer_id before generating an invoice');
   const customerId = String(clientRows[0].link_customer_id);
 
-
   // 2. Load eligible entries, holding a row lock on each for the rest of the
-  //    request so a concurrent run cannot bill the same hours (K-040).
+  //    request so a concurrent run cannot bill the same hours (K-040). The lock
+  //    is taken by the eligibility read itself, so the read is not a
+  //    check-then-act: the loser parks here, and when the winner COMMITs its
+  //    predicate re-evaluates against the billed row and the entry drops out.
   const entries = await lockEligibleWipEntries(companyId, input.practiceClientId, input.timeEntryIds);
 
   if (!entries.length) throw new Error('no eligible approved time entries in selection');
@@ -170,12 +172,35 @@ export async function generateWipInvoice(
 
   // Steps 3-5 write; the route answers a caught error with a 400, which withAuth
   // COMMITs. The savepoint is what makes the billed-count guard below able to
-  // undo the invoice instead of leaving an orphan behind.
+  // undo the invoice — and the number reserved for it — instead of leaving an
+  // orphan behind.
   return withSavepoint('wip_invoice_build', async () => {
-    // 3. Insert the invoice header, retrying the number on a peer's collision.
-    const { invoiceId, invoiceNumber } = await insertWipInvoice(companyId, {
-      customerId, userId, subtotal, taxRate, taxAmount, totalAmount, invoiceDate: invDate,
-    });
+    // 3. Reserve the number from the company sequence. What this replaced was a
+    // third MAX(invoice_number)+1 generator inside the sequence's own uniqueness
+    // domain — it never advanced company_document_numbers — retrying on a message
+    // that contains "unique" with no savepoint, so a real 23505 left the request
+    // transaction aborted and every later attempt failed 25P02 instead (K-107,
+    // K-120). `insertWithReservedNumber` reserves outside each attempt's own
+    // savepoint and retries only on the numbering index, so the retry terminates.
+    const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
+      companyId, 'customer_invoice', 'wip_inv_', 'uq_customer_invoices_company_number',
+      async (number) => {
+        const invRows = (await sql`
+          INSERT INTO customer_invoices (
+            company_id, invoice_number, customer_id, client_id,
+            subtotal, tax_rate, tax_amount, total_amount,
+            invoice_date, status, created_by,
+            currency_code, exchange_rate, functional_total
+          ) VALUES (
+            ${companyId}::UUID, ${number}, ${customerId}::UUID, ${customerId}::UUID,
+            ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
+            ${invDate}, 'draft', ${userId},
+            'ZAR', 1.0, ${totalAmount}
+          ) RETURNING id
+        `) as DbRow[];
+        return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };
+      },
+    );
 
     // 4. Insert line items based on groupBy mode
     const groupBy = input.groupBy ?? 'detailed';
@@ -217,7 +242,11 @@ export async function generateWipInvoice(
 
     // 5. Mark entries billed via workflow. The count is the workflow's way of
     //    reporting a loss: anything short of the full selection means an entry
-    //    was billed elsewhere, so this invoice must not stand.
+    //    was billed elsewhere, so this invoice must not stand. Defence in depth
+    //    behind the row lock above — while that lock holds the claim cannot
+    //    match fewer rows than it selected — but it is still the only guard for
+    //    a future caller that mints without locking, and discarding it is what
+    //    kept the original double-bill silent.
     let marked: number;
     try {
       marked = await markEntriesBilled(companyId, eligibleIds, invoiceId);
