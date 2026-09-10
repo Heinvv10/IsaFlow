@@ -8,7 +8,7 @@ import path from 'path';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import { sql, withTransaction } from '@/lib/neon';
-import { afsSignedPdfPath } from '@/lib/storage/afsStorage';
+import { afsQuarantinedPdfPath, afsSignedPdfPath } from '@/lib/storage/afsStorage';
 import {
   verifySignumWebhookSignature,
   downloadSignedPdf,
@@ -123,6 +123,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   //    and the sign-off are one decision, and the section write guard (which refuses every edit
   //    while signing_requested_at is set) cannot be raced by an edit that started earlier.
   const outcome = await withTransaction(async (tx) => {
+    // A wedged peer must surface as a failed delivery Signum retries, not a pinned connection.
+    await tx`SET LOCAL lock_timeout = '5s'`;
     const locked = (await tx`
       SELECT status, signing_content_fingerprint
       FROM afs_documents
@@ -134,7 +136,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const refusal = await signatureRefusalReason(tx, doc.company_id, doc.id, row.signing_content_fingerprint);
     if (refusal) {
-      await recordSignatureRefusal(tx, doc.company_id, doc.id, refusal);
+      // The signatories DID sign, so the artifact is kept as evidence — in quarantine, never as
+      // the document's signed copy. Signum's API as integrated here has no void/cancel call, so
+      // a person must cancel the request at the provider; the recorded reason says so.
+      const quarantine = afsQuarantinedPdfPath(doc.company_id, doc.id, new Date().toISOString().replace(/[:.]/g, '-'));
+      try {
+        const refusedPdf = await downloadSignedPdf(payload.documentId);
+        await fs.mkdir(path.dirname(quarantine), { recursive: true });
+        await fs.writeFile(quarantine, refusedPdf);
+      } catch (err) {
+        log.error('Refused signature could not be quarantined', {
+          documentId: doc.id, error: err instanceof Error ? err.message : String(err),
+        }, 'signum-webhook');
+      }
+      await recordSignatureRefusal(tx, doc.company_id, doc.id,
+        `${refusal}. The signed copy is quarantined at ${quarantine}; cancel the request at Signum before sending again.`);
       return { signed: false as const, reason: refusal };
     }
 

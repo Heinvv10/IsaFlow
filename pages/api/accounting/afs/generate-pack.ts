@@ -9,7 +9,7 @@ import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { getManagementPackConfig } from '@/modules/accounting/services/afs/managementPackConfigService';
-import { generateManagementPack, DuplicatePackError, UnreviewedPackUnavailableError } from '@/modules/accounting/services/afs/managementPackGeneratorService';
+import { generateManagementPack, DuplicatePackError } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 
 const BodySchema = z.object({
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'period must be YYYY-MM (e.g., 2026-04)'),
@@ -41,9 +41,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err) {
     if (err instanceof DuplicatePackError) {
       return apiResponse.badRequest(res, err.message);
-    }
-    if (err instanceof UnreviewedPackUnavailableError) {
-      return apiResponse.conflict(res, err.message);
     }
     throw err;
   }

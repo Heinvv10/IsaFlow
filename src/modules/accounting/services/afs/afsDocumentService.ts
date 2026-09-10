@@ -21,6 +21,11 @@ function rowToAfsDocument(row: Record<string, unknown>): AfsDocument {
     lockedAt:           row.locked_at instanceof Date ? row.locked_at
                           : row.locked_at != null ? new Date(row.locked_at as string) : null,
     lockedBy:           (row.locked_by as string | null) ?? null,
+    signingRequestedAt: row.signing_requested_at instanceof Date ? row.signing_requested_at
+                          : row.signing_requested_at != null ? new Date(row.signing_requested_at as string) : null,
+    signingRefusedAt:   row.signing_refused_at instanceof Date ? row.signing_refused_at
+                          : row.signing_refused_at != null ? new Date(row.signing_refused_at as string) : null,
+    signingRefusedReason: (row.signing_refused_reason as string | null) ?? null,
     version:            Number(row.version),
     pisScore:           row.pis_score != null ? Number(row.pis_score) : null,
     createdAt:          row.created_at instanceof Date ? row.created_at : new Date(row.created_at as string),

@@ -45,10 +45,18 @@ export async function signatureRefusalReason(
   const counted = (await q`
     SELECT COUNT(*)::int AS cnt
     FROM afs_sections s
-    LEFT JOIN note_templates nt ON nt.section_type = s.section_type
+    JOIN afs_documents d ON d.id = s.document_id AND d.company_id = ${companyId}::UUID
+    LEFT JOIN LATERAL (
+      SELECT nt.is_mandatory
+      FROM note_templates nt
+      WHERE nt.section_type = s.section_type
+        AND nt.framework IN (d.reporting_framework, 'both')
+      ORDER BY (nt.framework = d.reporting_framework) DESC
+      LIMIT 1
+    ) nt ON TRUE
     WHERE s.document_id = ${documentId}::UUID
       AND s.company_id = ${companyId}::UUID
-      AND (nt.is_mandatory = TRUE OR nt.id IS NULL)
+      AND COALESCE(nt.is_mandatory, TRUE)
       AND s.status <> 'signed_off'
   `) as Record<string, unknown>[];
   const notSignedOff = Number(counted[0]?.cnt ?? 0);

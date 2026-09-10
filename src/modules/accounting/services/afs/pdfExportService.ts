@@ -28,6 +28,11 @@ function mapDocumentRow(row: Record<string, unknown>): AfsDocument {
     fiscalYear:         (row.fiscal_year as number | null) ?? null,
     period:             (row.period as string | null) ?? null,
     documentType:       row.document_type as DocumentType,
+    signingRequestedAt: row.signing_requested_at instanceof Date ? row.signing_requested_at
+                          : row.signing_requested_at != null ? new Date(row.signing_requested_at as string) : null,
+    signingRefusedAt:   row.signing_refused_at instanceof Date ? row.signing_refused_at
+                          : row.signing_refused_at != null ? new Date(row.signing_refused_at as string) : null,
+    signingRefusedReason: (row.signing_refused_reason as string | null) ?? null,
     reportingFramework: row.reporting_framework as ReportingFramework,
     status:             row.status as DocumentStatus,
     lockedAt:           (row.locked_at as Date | null) ?? null,
@@ -62,15 +67,18 @@ function mapSectionRow(row: Record<string, unknown>): AfsSection {
   };
 }
 
-// ── Main export function ──────────────────────────────────────────────────────
+// ── Render ────────────────────────────────────────────────────────────────────
 
-export async function exportToPdf(
+/**
+ * Renders the document's CURRENT rows to HTML. Every consumer of the rendered statements —
+ * the PDF export and the signing request — derives its bytes here, from the same rows the
+ * signing fingerprint is taken over, so what is signed is what the database holds.
+ */
+export async function renderDocumentHtml(
   documentId: string,
   companyId: string,
   options?: PdfExportOptions,
-): Promise<Buffer> {
-  log.info('pdfExportService.exportToPdf', { documentId, companyId, options });
-
+): Promise<string> {
   // 1. Load document
   const docRows = (await sql`
     SELECT *
@@ -149,12 +157,22 @@ export async function exportToPdf(
   // registered renders exactly as it does today.
   const charts = buildAfsCharts(sections);
 
-  const html = renderAfsToHtml(
+  return renderAfsToHtml(
     { document, sections, brandProfile: safeBrandProfile, companyName, registrationNumber, charts },
     { watermark: options?.watermark },
   );
+}
 
-  // 7. Convert to PDF via WeasyPrint
+// ── Main export function ──────────────────────────────────────────────────────
+
+export async function exportToPdf(
+  documentId: string,
+  companyId: string,
+  options?: PdfExportOptions,
+): Promise<Buffer> {
+  log.info('pdfExportService.exportToPdf', { documentId, companyId, options });
+
+  const html = await renderDocumentHtml(documentId, companyId, options);
   const buffer = await htmlToPdf(html);
 
   log.info('pdfExportService.exportToPdf complete', { documentId, bytes: buffer.length });

@@ -53,13 +53,25 @@ export async function countMandatorySectionsBelow(
   documentId: string,
   minStatus: SectionStatus,
 ): Promise<number> {
+  // One template row per section type PER FRAMEWORK: joining on the type alone counts a
+  // section up to three times and reads mandatory-ness from a framework this document is not
+  // prepared under. The lateral takes the row registered for the document's own framework,
+  // then the 'both' row, and treats a type with no row at all as mandatory.
   const rows = (await sql`
     SELECT COUNT(*)::int AS cnt
     FROM afs_sections s
-    LEFT JOIN note_templates nt ON nt.section_type = s.section_type
-    WHERE s.document_id = ${documentId}
-      AND s.company_id = ${companyId}
-      AND (nt.is_mandatory = TRUE OR nt.id IS NULL)
+    JOIN afs_documents d ON d.id = s.document_id AND d.company_id = ${companyId}::UUID
+    LEFT JOIN LATERAL (
+      SELECT nt.is_mandatory
+      FROM note_templates nt
+      WHERE nt.section_type = s.section_type
+        AND nt.framework IN (d.reporting_framework, 'both')
+      ORDER BY (nt.framework = d.reporting_framework) DESC
+      LIMIT 1
+    ) nt ON TRUE
+    WHERE s.document_id = ${documentId}::UUID
+      AND s.company_id = ${companyId}::UUID
+      AND COALESCE(nt.is_mandatory, TRUE)
       AND CASE s.status
             WHEN 'pending'        THEN 0
             WHEN 'auto_generated' THEN 1

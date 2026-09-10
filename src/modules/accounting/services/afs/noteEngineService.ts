@@ -5,6 +5,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isZeroBalance } from './noteDataQueryService';
 import { NOTE_GENERATOR_MAP } from './noteGenerators';
+import { lockSectionForWrite, voidSectionAttestation } from './afsSectionAttestation';
 import type { SectionType, ReportingFramework } from './afsTypes';
 
 // ── Internal row shapes ───────────────────────────────────────────────────────
@@ -37,7 +38,15 @@ export async function generateSection(
   sectionId: string,
   fiscalYear: number,
   framework: ReportingFramework,
+  userId: string,
 ): Promise<void> {
+  // ── Stage 0: The write guard, like every other section writer ─────────────
+  // Generated content replaces whatever was there, so it is bound to the document in the
+  // request, refused while that document is locked or out for signature, and it voids the
+  // review the old content carried.
+  const locked = await lockSectionForWrite(companyId, documentId, sectionId);
+  await voidSectionAttestation(companyId, locked, userId, 'Section regenerated from the ledger');
+
   // ── Stage 1: Fetch section + template ─────────────────────────────────────
   const rows = (await sql`
     SELECT
@@ -123,6 +132,7 @@ export async function generateAllSections(
   documentId: string,
   fiscalYear: number,
   framework: ReportingFramework,
+  userId: string,
 ): Promise<void> {
   const sections = (await sql`
     SELECT s.id, s.section_type
@@ -146,6 +156,7 @@ export async function generateAllSections(
           s.id,
           fiscalYear,
           framework,
+          userId,
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

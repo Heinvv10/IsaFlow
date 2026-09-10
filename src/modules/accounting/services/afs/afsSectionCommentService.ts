@@ -77,9 +77,10 @@ export async function addComment(
   body: string,
   parentId?: string
 ): Promise<AfsSectionComment> {
-  // A comment is review correspondence about a section of THIS document, and a locked or
-  // out-for-signature document takes no more of it. Raises ReviewError, which the routes map.
-  await lockSectionForWrite(companyId, documentId, sectionId);
+  // A comment is review correspondence about a section of THIS document — it is not part of
+  // what the statements say or what the signatories sign, so it stays open while signatures are
+  // pending, and is refused only once the document itself is locked. Raises ReviewError.
+  await lockSectionForWrite(companyId, documentId, sectionId, { allowWhileSigning: true });
 
   if (parentId) {
     const parentRows = await sql`
@@ -116,7 +117,7 @@ export async function resolveComment(
   commentId: string,
   resolvedBy: string
 ): Promise<AfsSectionComment> {
-  await lockSectionForWrite(companyId, documentId, sectionId);
+  await lockSectionForWrite(companyId, documentId, sectionId, { allowWhileSigning: true });
   const rows = (await sql`
     UPDATE afs_section_comments
     SET resolved = TRUE,
