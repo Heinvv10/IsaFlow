@@ -20,11 +20,11 @@ beforeEach(()=>{
 });
 it('bounds the claim separately and gives only the work transaction the class deadline',async()=>{
  for(const [workerClass,workMs,idle] of [['check_run',300000,15000],['audit',60000,null]] as const){
-  calls=[];const started=Date.now();
+  calls=[];const before=Date.now();
   expect(await runAuditJob(identity,{pool,workerClass})).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
-  const [claim,work,failure]=calls;
-  expect(claim!.isolation).toBe('read committed');expect(claim!.deadlineAt-started).toBeLessThanOrEqual(5000);expect(claim!.deadlineAt-started).toBeGreaterThan(4000);
-  expect(work!.isolation).toBe('repeatable read');expect(work!.deadlineAt-started).toBeGreaterThan(workMs-1000);expect(work!.deadlineAt-started).toBeLessThanOrEqual(workMs);
+  const after=Date.now(),[claim,work,failure]=calls;
+  expect(claim!.isolation).toBe('read committed');expect(claim!.deadlineAt).toBeGreaterThanOrEqual(before+5000);expect(claim!.deadlineAt).toBeLessThanOrEqual(after+5000);
+  expect(work!.isolation).toBe('repeatable read');expect(work!.deadlineAt).toBeGreaterThanOrEqual(before+workMs);expect(work!.deadlineAt).toBeLessThanOrEqual(after+workMs);
   expect(failure!.deadlineAt-Date.now()).toBeLessThanOrEqual(5000);
   for(const call of calls)expect(call.limits).toEqual({idleInTransactionMs:idle});
  }
