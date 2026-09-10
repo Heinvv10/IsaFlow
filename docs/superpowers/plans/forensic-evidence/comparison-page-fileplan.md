@@ -1,0 +1,9 @@
+# Retained comparison header and paging
+
+Base e00daa760; owned production files auditComparisonReadHeader.ts and auditComparisonPageService.ts only. No schema, worker, transport or registry changes.
+
+Authenticate the saved compare request without treating its original delegation expiry as current reader authority. Read both original authenticated source indexes with the current issued caller, then bind result identity to the succeeded pointer, current generation and retained result lease. Compare ordered source metadata, original side populations, rule version and permission union. Independently count all four output sections in tenant/job/generation/lease-scoped SQL before returning the authenticated header.
+
+The strict page request accepts comparisonId UUID, one closed section, limit 1–100 (default 100), and an untrusted canonical decimal position. Keyset reads cap both rows and cumulative encrypted bytes at 2 MiB; each position must be contiguous and each encrypted item must authenticate against the opened header. The returned canonical hash is the publisher's authenticated full-result hash; a page does not independently recompute it. No read starts a worker, converts a legacy source, or loads original binary material.
+
+Tests first: missing modules; unavailable/queued result; independent census omission; invalid input and shifted positions; source/header inconsistency; authority refusal. Actual PostgreSQL: create two real snapshots and run a real comparison worker producing at least 250 changes; read three pages and recompute the full digest; same-company second reader; foreign tenant; current source-domain revocation; tampered header/item; missing output; queued job remains untouched. Use existing synthetic fixture and explicitly close pools. No PostgreSQL or static run until the root's exclusive lease.
