@@ -1,0 +1,30 @@
+     51|   const stats = await getCollectionStats(company);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/integration/k125-debtors-null-amount-paid.int.test.ts > an unpaid invoice with NULL amount_paid still owes its full total
+AssertionError: expected +0 to be 1150 // Object.is equality
+
+- Expected
++ Received
+
+- 1150
++ 0
+
+ ❯ tests/integration/k125-debtors-null-amount-paid.int.test.ts:52:39
+     50|
+     51|   const stats = await getCollectionStats(company);
+     52|   expect.soft(stats.totalOutstanding).toBe(1150);
+       |                                       ^
+     53| });
+     54|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:31:35
+   Duration  2.36s (transform 429ms, setup 0ms, import 870ms, tests 332ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
