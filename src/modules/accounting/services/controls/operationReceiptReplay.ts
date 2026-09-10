@@ -11,9 +11,12 @@ export async function replayKnownOperationEffect<T>(ctx:ControlTx,input:Operatio
  await assertEffectivePermission(ctx,operationPermission(ref.operation,'write'));
  if(operationRequiresPosting(ref.operation))await assertEffectivePermission(ctx,'write:post');
  if(!UUID_RE.test(effectId))throw new Error('Invalid operation effect association');
+ // One request can request approval for one entity and effect another; only an approval that consumed
+ // this effect, or was bound to the same operation and entity, belongs to it.
  const rows=await ctx.sql`SELECT e.id,e.result,a.id AS approval_id,a.status AS approval_status,a.consumed_effect_id
   FROM control_operation_effects e LEFT JOIN control_operation_approvals a ON a.company_id=e.company_id
-   AND (a.operation_id=e.operation_id OR a.consumed_effect_id=e.id)
+   AND (a.consumed_effect_id=e.id OR (a.operation_id=e.operation_id AND a.operation=e.operation
+    AND a.entity_type=e.entity_type AND lower(a.entity_id)=lower(e.entity_id)))
   WHERE e.company_id=${ctx.principal.companyId}::uuid AND e.id=${effectId}::uuid
    AND e.operation=${ref.operation} AND e.entity_type=${ref.entityType} AND lower(e.entity_id)=${ref.entityId} LIMIT 2` as
   {id:string;result:T;approval_id:string|null;approval_status:string|null;consumed_effect_id:string|null}[];
