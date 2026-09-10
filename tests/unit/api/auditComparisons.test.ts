@@ -1,6 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import type {NextApiRequest,NextApiResponse} from 'next';
 import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
+import {AuditEnqueueQuotaError} from '@/modules/accounting/services/controls/auditEnqueueQuota';
 const shared=vi.hoisted(()=>({enqueue:vi.fn(),page:vi.fn(),ctx:{synthetic:'adapter-only'}}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>shared.ctx}));
 vi.mock('@/modules/accounting/services/controls/auditComparisonJobService',()=>({enqueueAuditComparison:shared.enqueue}));
@@ -32,4 +33,10 @@ it('returns current shared authority denial as forbidden for enqueue and read',a
  shared.enqueue.mockRejectedValueOnce(new EffectivePermissionError());shared.page.mockRejectedValueOnce(new EffectivePermissionError());
  expect((await invoke('POST',{firstSnapshotId:id,secondSnapshotId:id,idempotencyKey:'denied'})).status).toHaveBeenCalledWith(403);
  expect((await invoke('GET',{}, {comparisonId:id,section:'records'})).status).toHaveBeenCalledWith(403);
+});
+it('answers a refused comparison quota with 429, not a server error',async()=>{
+ shared.enqueue.mockRejectedValueOnce(new AuditEnqueueQuotaError('audit_compare','member'));
+ const res=await invoke('POST',{firstSnapshotId:id,secondSnapshotId:id,idempotencyKey:'quota'});
+ expect(res.status,'a comparison quota refusal surfaced as a server error').toHaveBeenCalledWith(429);
+ expect(res.json.mock.calls[0]?.[0]?.error).toMatchObject({code:'RATE_LIMIT',message:'Audit comparison quota exceeded (member)'});
 });
