@@ -22,6 +22,7 @@ export async function platformImportAuthorityFixture(){
  let server:ReturnType<typeof createServer>|undefined,closed=false;
  const finished=new Map<string,()=>void>();
  let retainedCapability:PlatformImportRequestCapability|undefined,retainedContext:ControlTx|undefined;
+ const lockErrors:Array<{code:unknown;message:string}>=[];
  const lockPids:number[]=[];let lockEntered=0,releaseLock!:()=>void;
  const lockResume=new Promise<void>(resolve=>{releaseLock=resolve;});
  let escaped:Promise<unknown>|undefined,releaseEscaped:(()=>void)|undefined,escapedQueryRefused=false;
@@ -75,8 +76,10 @@ export async function platformImportAuthorityFixture(){
      if(body.probe==='lock_order'){
       lockEntered++;await lockResume;
       // Match the existing approval-authority lock order; A1 has no valid persisted admin approval yet.
-      await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${body.companyId}`},0))`;
-      await ctx.sql`SELECT id FROM users WHERE id::text=${ctx.principal.personId} FOR UPDATE`;
+      try{
+       await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${body.companyId}`},0))`;
+       await ctx.sql`SELECT id FROM users WHERE id::text=${ctx.principal.personId} FOR UPDATE`;
+      }catch(error){lockErrors.push({code:error&&typeof error==='object'&&'code' in error?error.code:null,message:error instanceof Error?error.message:String(error)});throw error;}
      }
      const [active]=await ctx.sql`SELECT pg_backend_pid() AS pid,current_user AS role,app.current_company_id()::text AS company,auth.uid()::text AS person`;
      if(body.probe==='restore')throw new Error('Synthetic ordinary target error');
@@ -132,6 +135,6 @@ export async function platformImportAuthorityFixture(){
    throw new Error('Two authority requests did not overlap at the target/advisory boundary');
   }
   async function witness(){return(await pool.query('SELECT name FROM customers WHERE company_id=$1 AND id=$2',[f.companyA,customer])).rows[0]?.name;}
-  return{f,pool,admin,customer,request,witness,close,finishEscaped,waitForLockOverlap,releaseLock,retained:()=>({capability:retainedCapability,context:retainedContext})};
+  return{f,pool,admin,customer,request,witness,close,finishEscaped,waitForLockOverlap,releaseLock,lockErrors,retained:()=>({capability:retainedCapability,context:retainedContext})};
  }catch(error){try{await close();}catch(cleanup){throw new AggregateError([error,cleanup],'Authority fixture setup failed');}throw error;}
 }
