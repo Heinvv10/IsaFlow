@@ -17,6 +17,10 @@ beforeAll(async()=>{
  await f.pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,level,is_active) VALUES($1,$2,left($1::uuid::text,20),'Synthetic policy expense','expense','other','debit',3,true)",[contra,company]);
  await f.pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',-100,'Synthetic policy line','imported')",[imported,company,bankAccount]);
  await f.pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',-100,'Synthetic allocated line','reconciled')",[allocated,company,bankAccount]);
+ const journal=randomUUID(),journalLine=randomUUID();
+ await f.pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,status,source,created_by,description) VALUES($1::uuid,$2,$4,'2026-09-09','posted','manual',$3,'Synthetic allocation journal')",[journal,company,f.fixture.u1.id,journal]);
+ await f.pool.query('INSERT INTO gl_journal_lines(id,journal_entry_id,company_id,gl_account_id,debit,credit) VALUES($1,$2,$3,$4,0,100)',[journalLine,journal,company,bankAccount]);
+ await f.pool.query('UPDATE bank_transactions SET matched_journal_line_id=$1 WHERE company_id=$2 AND id=$3',[journalLine,company,allocated]);
  await f.pool.query("INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role) VALUES($1,$2,'Synthetic payment policy','payment','amount','any',0,'admin')",[randomUUID(),company]);
 },60000);
 afterAll(async()=>{if(f)await f.close();});
