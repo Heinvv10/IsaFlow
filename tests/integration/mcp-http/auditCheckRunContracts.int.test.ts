@@ -14,7 +14,8 @@ it('registers the three check-run tools in the index, the client list and the fl
  for(const name of NAMES){
   const tool=MCP_TOOLS.find(entry=>entry.name===name);
   expect(tool,`${name} is not registered in toolIndex`).toBeDefined();
-  expect(tool!.scope,`${name} does not require read:reports`).toBe('read:reports');
+  // Enqueueing is a write and takes the opt-in write:audit scope; reading a published run takes read:reports.
+  expect(tool!.scope,`${name} has the wrong scope`).toBe(name==='run_control_checks'?'write:audit':'read:reports');
   expect(tool!.write,`${name} write flag is wrong`).toBe(name==='run_control_checks');
   expect(CLIENT_MCP_TOOL_NAMES,`${name} is missing from CLIENT_MCP_TOOL_NAMES`).toContain(name);
   // A missing flow entry bills nothing forever; forensic controls are deliberately free, never absent.

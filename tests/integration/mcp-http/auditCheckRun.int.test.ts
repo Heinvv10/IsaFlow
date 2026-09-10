@@ -83,3 +83,14 @@ it('forbids both reads and a new run once current read:reports is revoked',async
  }finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='reports'",[f.fixture.companyA,f.fixture.u1.id]);}
  expect(await f.call<Summary>('control_check_run',{check_run_id:checkRunId})).toMatchObject({checkRunId});
 });
+it('refuses run_control_checks to a token without write:audit, and still serves it every read',async()=>{
+ const token=f.fixture.u2.tokens[0]!.id;
+ await f.pool.query("UPDATE personal_access_tokens SET scopes=array_remove(scopes,'write:audit') WHERE id=$1",[token]);
+ try{
+  const refused=await f.rpc('run_control_checks',{...args,idempotency_key:randomUUID()},'u2');
+  expect(refused.result?.isError,'a read-only token enqueued a check run').toBe(true);
+  expect(refused.result?.content?.map(item=>item.text).join('\n')).toMatch(/write:audit/);
+  expect(await f.call<Summary>('control_check_run',{check_run_id:checkRunId},'u2')).toMatchObject({checkRunId});
+  expect((await f.call<Page>('control_check_run_findings',{check_run_id:checkRunId,limit:1},'u2')).findings).toHaveLength(1);
+ }finally{await f.pool.query("UPDATE personal_access_tokens SET scopes=array_append(scopes,'write:audit') WHERE id=$1 AND NOT ('write:audit'=ANY(scopes))",[token]);}
+});

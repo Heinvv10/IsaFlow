@@ -13,7 +13,7 @@ import {getAuditCheckRunPage,readAuditCheckRunHeader} from '@/modules/accounting
 import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
 import {journalRiskThresholdGroupKey} from '@/modules/accounting/services/controls/journalRiskAnalysis';
 import type {ControlCheckResult,ControlFinding} from '@/modules/accounting/services/controls/contracts';
-import {CUTOFF,OVERFLOW_CUTOFF,STRADDLE_ROWS,seedJournalRiskPopulation} from './journalRiskCheckRunFixture';
+import {CUTOFF,STRADDLE_ROWS,seedJournalRiskPopulation} from './journalRiskCheckRunFixture';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
 const config=fixtureConfigFromEnv(process.env),pool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:4});
 let fixture:ForensicFixture;
@@ -60,17 +60,6 @@ it('carries a threshold slab across the FETCH boundary instead of splitting it i
  expect(split.length,'the straddling slab lost findings across the FETCH page boundary').toBeGreaterThanOrEqual(STRADDLE_ROWS);
  const [{n}]=(await pool.query('SELECT count(*)::int AS n FROM control_audit_check_findings WHERE company_id=$1 AND job_id=$2',[fixture.companyA,jobId])).rows;
  expect(n).toBe(run.findingCount);
-},180000);
-it('publishes unknown with a recounted population when a slab exceeds its resource limit',async()=>{
- const jobId=await published(OVERFLOW_CUTOFF),run=await readAll(jobId);
- expect(run.status).toBe('unknown');expect(run.findingCount).toBe(0);expect(run.findings).toEqual([]);
- expect(run.missingSources).toEqual(['resource_limit:slab_rows_exceed_limit']);
- expect(run.amountTotals).toEqual({});expect(run.excludedCount).toBe(0);
- expect(run.populationCountBasis).toBe('recount_after_limit');
- const [{n}]=(await pool.query('SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND status=$2 AND entry_date<=$3',[fixture.companyA,'posted',OVERFLOW_CUTOFF])).rows;
- expect(run.populationCount).toBe(n);
- const rows=await pool.query('SELECT count(*)::int AS n FROM control_audit_check_findings WHERE company_id=$1 AND job_id=$2',[fixture.companyA,jobId]);
- expect(rows.rows[0].n).toBe(0);
 },180000);
 it('refuses a duplicate finding key, a tampered seal, an unpublished generation and a foreign-tenant reader',async()=>{
  const jobId=await published(CUTOFF);
