@@ -39,3 +39,7 @@ Platform administration for ISAFlow SaaS operations — company management, user
 - Separate from accounting module — different auth scope
 - Feature flags stored in `platform_features` table
 - Plans stored in `platform_plans` table
+
+## Recent changes
+
+- 2026-09-09: **`trialService.bulkExtendTrials` told the admin every company moved.** It read `.count` off a tagged-template result (`src/lib/neon.ts` resolves to `res.rows`, so `.count` is always undefined) and fell back to `companyIds.length`, over an UPDATE whose `status IS DISTINCT FROM 'deleted'` predicate skips rows — so extending a list containing deleted companies reported full success. Now `RETURNING id` + `rows.length`. Any bulk mutation here must count what the predicate matched, never the length of the id list.
