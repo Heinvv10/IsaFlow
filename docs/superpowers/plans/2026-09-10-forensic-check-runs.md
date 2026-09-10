@@ -1,6 +1,6 @@
-# Plan v4: minimal vertical slice — measurement spike, then journal_risk_checks
+# Plan v5: minimal vertical slice — measurement spike, then journal_risk_checks
 
-Status: narrowed after three independent adversarial reviews rejected the whole-system designs
+Status: v5. Narrowed after three independent adversarial reviews rejected the whole-system designs
 (v1 c47c7e246, v2 3e4c0aaa7, v3 fcd86380a). Verified at `fcd86380a`. Spec `c76b9706`.
 v4 measures first and ships ONE detector; everything else is deferred to a later plan reviewed
 after this slice has run on real data.
@@ -213,3 +213,93 @@ accumulation — remain unmeasured in product code; M5, M7 and M8 exist precisel
 rather than argued. Highest-risk unknown: M1 + M3 + M6 wall time and M9 xmin age for 100k journals with
 change-event children in one transaction. Decisive evidence: the T1 JSON; if the ceiling is exceeded, the
 later plan adopts the population-copy alternative under the constraints already recorded in v2 and v3.
+
+
+---
+
+# v5 amendments (after the v4 review of T2)
+
+The v4 review returned REJECT for T2 with the explicit note that nothing required redesign. These
+amendments supersede the corresponding v4 text. Drift check: the three files changed between
+`6ec30a9cd` and `e9b067fba` are outside every file this plan cites, so all citations remain valid.
+
+## A1. The worker protocol change is real, and is now explicit (v4 finding 1)
+
+Confirmed: the reply union at `auditJobProcessProtocol.ts:5-11` has no check-run variant;
+`RuntimeMaxSec=65s` is a literal at `:28`; and the readiness loop at `auditJobProcess.ts:57-60` reads back
+only `MemoryMax`/`MemorySwapMax` (`auditJobSystemd.ts:25-26` never requests `RuntimeMaxUSec`), so a unit's
+runtime cap is unverified today. T2 therefore changes the protocol: the reply union gains
+`{state:'succeeded', checkRunId, canonicalHash}`; `AuditWorkerResult` gains the variant;
+`AUDIT_PROCESS_LIMITS` becomes per kind class (`audit` keeps 65 s / 8 GiB, `check_run` from the spike);
+`auditProcessArguments(config, unitName, limits)` derives `RuntimeMaxSec` and `MemoryMax` from the class
+limits; `auditUnitProperties` also requests `RuntimeMaxUSec`; and the readiness loop compares both against
+the class limits before releasing the identity. The request schema is unchanged.
+**Spike note:** the running T1 spike is bounded by the same 65 s literal, so its M11/M12 runs must use a
+spike-local copy of the unit arguments with a raised `RuntimeMaxSec`, and the JSON must record which value
+was in force.
+
+## A2. Change facts are capped at 101 exactly as the sync detector does (v4 finding 2)
+
+The adapter scans changes in `(occurred_at, id)` order, feeds `analyseJournalRisks` only the first 101,
+counts everything beyond, and emits `journal_change_history_exceeds_100` when `changeCount > 100`. Signal
+equality is therefore exact rather than aspirational. That both paths are blind to a closed-period change
+beyond position 101 is recorded as a known shared limitation and carried into the later plan.
+`maxChildrenPerParent` remains only as a defensive bound on the 101-row fetch.
+
+## A3. `journal_line_material_exceeds_100` is reproduced, not excluded (v4 finding 3)
+
+The `lines` LATERAL is kept whole (`SUM(debit)`, `COUNT(*)`); only the two `facts` sub-selects are removed
+from the cursor. `lineCount` streams and the marker is emitted exactly as `journalRiskChecks.ts:15`, so the
+status cannot differ from the sync detector on a population whose only missing reason is this marker.
+
+## A4. Owned-file set (v4 finding 4)
+
+Adds `auditJobContract.ts`, `auditJobProtection.ts` (kind allow-list and parse dispatch),
+`auditJobDelegation.ts` (per-kind permissions), `auditJobService.ts` (status union and the result-kind
+identity guard, which would otherwise throw "Audit job result kind changed"), `auditJobProcessProtocol.ts`,
+`auditJobProcess.ts`, `auditJobSystemd.ts`, `journalRiskQueries.ts`, `journalRiskChecks.ts`,
+`invoiceRiskQueriesResult.ts` (extractions), the MCP registry files and the agent-doc mirrors. Shared files
+are requested through root per spec l.20.
+
+## A5. The oracle seam is a defaulted parameter over six named literals (v4 finding 5)
+
+`loadJournalRiskPopulation(ctx, cutoff, limits = JOURNAL_RISK_DEFAULT_LIMITS)` with
+`sourceFetch:10001`, `sourceKeep:10000`, `thresholdFetch:101`, `thresholdKeep:100`, `changeFacts:101`,
+`lineFacts:101` — today's values as defaults. Gate (c0): at defaults the seam's canonical JSON output equals
+the pre-seam detector's on a committed fixture. Differential runs raise only `sourceFetch`/`sourceKeep`
+(200,001 / 200,000) and leave threshold and facts limits at defaults, so `missingPolicy` and both
+`*_exceeds_100` markers are compared rather than excluded. The oracle is paged with
+`collectSnapshotCheckPages` at `limit:100`, and the over-cap fixture must exceed 100 findings so paging is
+genuinely exercised.
+
+## A6. `control_audit_jobs_result_check` is a root-coordinated shared object (v4 finding 6)
+
+676 drops and re-adds it naming all four result columns, then a `DO` block reads `pg_get_constraintdef` and
+raises unless all four appear. Root records which of 674/675 touch the constraint and the required apply
+order; T2a re-asserts after replaying 674, 675 and 676 in every order root permits.
+
+## A7. The claim transaction keeps its own short bound (v4 finding 7)
+
+`executeAuditJob(input, options, instance:{kinds, workDeadlineMs, claimDeadlineMs:5000})`. Only the work
+transaction receives the class deadline, so the claim's `SELECT … FOR UPDATE SKIP LOCKED` no longer inherits
+a ten-minute `statement_timeout`. A contended job row fails the claim fast and the poller moves on, as today.
+
+## A8. Remaining v4 findings
+
+8 the concurrency gate runs across two isolated units, not in-process. 9 threshold over-limit behaviour now
+mirrors the sync detector (LIMIT 101, slice 100, set `missingPolicy`); no `ResourceLimitError` for
+thresholds and `maxThresholds` is removed. 10 `riskAmountTotals(findings)` is extracted from
+`invoiceRiskQueriesResult.ts:26-27` beside `checkStatus` and used by both paths, so the ISO-currency filter
+and `canonicalMoney` normalisation are shared rather than reimplemented. 11 oracle paging as in A5.
+12 the run's public shape is `CheckRunResult`, not `ControlCheckResult`, carrying
+`sourceVersions:{available:false, reason:'deferred_paged_source_versions', count:n}`, covered by the T2d
+contract test. 13 the agent-doc mirrors are regenerated in T2f and the runner is split into
+`auditCheckRunRunner.ts` (orchestration) and `auditCheckRunPhase.ts` (phase A body).
+
+## A9. Gates added to T2b
+
+(4) a check-run unit's `RuntimeMaxUSec` and `MemoryMax` read back equal to the class limits before identity
+release, while a legacy unit still gets 65 s / 8 GiB; (5) the claim transaction's `statement_timeout` is
+observed at ≤5 s while the work transaction gets the class deadline; (6) cross-process concurrency — a
+snapshot job completes in a second unit while a check-run unit sleeps; (7) an out-of-class kind is not
+claimed; (8) the reply union round-trips the new variant and rejects malformed replies.
