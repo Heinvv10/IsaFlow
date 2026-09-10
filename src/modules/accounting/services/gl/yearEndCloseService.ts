@@ -40,7 +40,6 @@ export type CloseYearError =
   | { error: 'approval_required' }
   | { error: 'no_retained_earnings' }
   | { error: 'ambiguous_retained_earnings'; accountCodes: string[] }
-  | { error: 'no_fiscal_period'; entryDate: string }
   | {
       error: 'period_range_mismatch';
       expected: { startDate: string; endDate: string };

@@ -41,8 +41,12 @@ export async function assertEffectivePermission(ctx: ControlTx, permission: stri
     FOR SHARE
   ` as Array<{ account_code: string }>;
   const code = rows[0]?.account_code;
-  // No account to check: the lookup is company-scoped, so a missing one and
-  // another tenant's are the same answer and must stay indistinguishable.
+  // No account to check. The lookup is company-scoped, so a missing account and
+  // ANOTHER TENANT'S are the same zero-row answer and stay indistinguishable —
+  // that is the tenant boundary this reason protects. Inside the company the
+  // two replies do differ ("not found" vs "outside your range"), deliberately:
+  // the account range constrains write:accounts only, this caller can already
+  // list the company's accounts, so which of its own ids exists is not news.
   if (rows.length !== 1 || typeof code !== 'string') throw new EffectivePermissionError(permission, 'ACCOUNT_NOT_FOUND');
   if (constrained.some(p =>
     (p.accountRangeFrom !== null && code < p.accountRangeFrom)

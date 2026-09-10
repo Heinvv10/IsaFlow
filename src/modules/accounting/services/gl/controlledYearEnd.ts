@@ -71,6 +71,9 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
   if(live.company.lockdown_enabled===true&&(!live.company.lockdown_date||permit.accountingDate<=String(live.company.lockdown_date)))throw new Error('Year-close date is within company lockdown');
   if(live.periods.some(p=>p.status!=='closed')||live.closing.retained.is_active!==true)throw new Error('Financial year source is no longer eligible');
   const closing=live.closing,period=live.periods.find(p=>fmtDate(p.end_date as string|Date)===permit.accountingDate);
+  // Not a configuration outcome: the material check above proves a period ends
+  // on the closing date, so reaching here means the year's periods CHANGED
+  // between that read and this write — a race, like the period check below.
   if(!period)throw new Error('Closing fiscal period unavailable');
   let entry:Row={id:null,source:'year_end',entry_date:permit.accountingDate,emptyYear:true};
   if(closing.plan.length){

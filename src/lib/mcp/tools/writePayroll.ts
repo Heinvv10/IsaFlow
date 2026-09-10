@@ -135,7 +135,7 @@ export const postPayrollJournalTool: McpTool = {
     }
 
     if (args.dry_run === true) {
-      const refusal = await payrollPreviewRefusal(ctx.companyId, runId);
+      const refusal = await payrollPreviewRefusal(ctx.companyId, runId, postPayrollJournalTool);
       if (refusal) return toolError(refusal);
       const preview: DryRunResult & {
         advisories: typeof plan.advisories;

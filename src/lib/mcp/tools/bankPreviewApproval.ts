@@ -10,11 +10,11 @@
 import { controlledOperationApprovalRequiredForAmount } from '@/modules/accounting/services/controls/approvalExecutionService';
 import { requireControlTx } from '@/modules/accounting/services/controls/context';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
-import { approvalRequiredReason, approvalRequiredReply } from '../approvalReply';
+import { approvalRequiredReason } from '../approvalReply';
 
-// Neither bank tool accepts approval_id; the reply names the prepared bank route (approvalReply.ts).
+// Keyed by tool NAME, which is all the reason needs; the reversal tool words its
+// own full refusal from its registry entry (approvalReply.ts reads the schema).
 export const BANK_APPROVAL_REQUIRED_REASON = approvalRequiredReason('bulk_allocate_bank_transactions');
-export const BANK_REVERSAL_APPROVAL_TEXT = approvalRequiredReply({ name: 'reverse_allocations', inputSchema: {} });
 
 const amountText = (amount: number) => Math.abs(amount).toFixed(2);
 

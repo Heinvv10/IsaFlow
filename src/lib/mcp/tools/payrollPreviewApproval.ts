@@ -11,10 +11,10 @@
 import { controlledOperationApprovalRequiredForPreview } from '@/modules/accounting/services/controls/approvalExecutionService';
 import { requireControlTx } from '@/modules/accounting/services/controls/context';
 import { approvalRequiredReply } from '../approvalReply';
+import type { McpTool } from '../types';
 
-// Neither payroll tool accepts approval_id, so the reply must not send the agent
-// to request one and retry.
-export const PAYROLL_APPROVAL_REQUIRED_TEXT = approvalRequiredReply({ name: 'approve_pay_run', inputSchema: {} });
+/** The calling tool itself: a synthesised schema could never see an approval_id it grew. */
+type PreviewTool = Pick<McpTool, 'name' | 'inputSchema'>;
 /** Deliberately NOT an approval instruction: the reason is something else. */
 export const PAYROLL_PREVIEW_UNAVAILABLE_TEXT =
   'This pay run could not be previewed — its posting material could not be built (a missing '
@@ -22,12 +22,12 @@ export const PAYROLL_PREVIEW_UNAVAILABLE_TEXT =
   + 'Fix the run and retry; payroll_status names what the run is missing.';
 
 /** The refusal a preview owes, or null when it may go ahead. */
-export async function payrollPreviewRefusal(companyId: string, runId: string): Promise<string | null> {
+export async function payrollPreviewRefusal(companyId: string, runId: string, tool: PreviewTool): Promise<string | null> {
   const ctx = requireControlTx();
   if (ctx.principal.companyId !== companyId) throw new Error('Payroll preview context does not match the tenant');
   const answer = await controlledOperationApprovalRequiredForPreview(ctx,
     { entityType: 'payroll_run', entityId: runId, operation: 'payroll_run.post' });
-  if (answer.kind === 'answered') return answer.required ? PAYROLL_APPROVAL_REQUIRED_TEXT : null;
+  if (answer.kind === 'answered') return answer.required ? approvalRequiredReply(tool) : null;
   // Nothing to withhold when no policy binds this operation: let the preview
   // run and fail (or succeed) on its own terms.
   return answer.policiesExist ? PAYROLL_PREVIEW_UNAVAILABLE_TEXT : null;

@@ -31,6 +31,35 @@ export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledE
     throw new Error('Controlled effect permission is not valid');
   }
 }
+/**
+ * A caller-supplied approval that cannot be used is the CALLER's error — a
+ * wrong id, a rejected decision, material that moved on. Transports answer it
+ * as a conflict rather than a server failure; the code is carried by both the
+ * live execution and its preview, because they run the same checks.
+ */
+export const SUPPLIED_APPROVAL_NOT_EXECUTABLE = 'OPERATION_APPROVAL_NOT_EXECUTABLE';
+/**
+ * SQLSTATEs the control functions RAISE deliberately (627/628 use 42501). A
+ * transport fault — a deadlock, a serialization failure, a constraint — keeps
+ * its own code and stays a server failure.
+ */
+const CONTROL_REFUSAL_SQLSTATES = new Set(['P0001', '42501']);
+async function markSuppliedApprovalFailure<T>(run: () => Promise<T>): Promise<T> {
+  try { return await run(); } catch (error) {
+    const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
+    if (error instanceof Error && (code === undefined || (typeof code === 'string' && CONTROL_REFUSAL_SQLSTATES.has(code)))) {
+      // The SQLSTATE is kept; the marker is what a transport reads.
+      Object.assign(error, { suppliedApprovalRefusal: true, ...(code === undefined ? { code: SUPPLIED_APPROVAL_NOT_EXECUTABLE } : {}) });
+    }
+    throw error;
+  }
+}
+/** True when a caller-supplied approval, not the server, is what failed. */
+export function isSuppliedApprovalRefusal(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const marked = error as { suppliedApprovalRefusal?: unknown; code?: unknown };
+  return marked.suppliedApprovalRefusal === true || marked.code === SUPPLIED_APPROVAL_NOT_EXECUTABLE;
+}
 export function assertApprovalExecutable(row: ApprovalRow, currentHash: string): void {
   if (row.status !== 'approved' || !row.unexpired) throw new Error('Approval is not executable');
   if (row.binding_hash !== currentHash) throw new Error('Approval material changed');
@@ -119,11 +148,13 @@ async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approva
 async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approvalId: string | null, authorities: AuthorityRow[]): Promise<ApprovalRow | null> {
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
   if (!approvalId) return null;
-  const row = await lockApproval(ctx, approvalId);
-  await assertOperationRequester(ctx, ref, row.requester_person_id);
-  await assertRequesterAuthority(row, authorities);
-  await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
-  return row;
+  return markSuppliedApprovalFailure(async () => {
+    const row = await lockApproval(ctx, approvalId);
+    await assertOperationRequester(ctx, ref, row.requester_person_id);
+    await assertRequesterAuthority(row, authorities);
+    await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
+    return row;
+  });
 }
 
 /**
@@ -135,10 +166,14 @@ async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approva
 export async function assertSuppliedApprovalExecutable(ctx: ControlTx, input: OperationRef, approvalId: string): Promise<void> {
   assertControlTx(ctx);
   const ref = canonicalOperationRef(input);
-  const authorities = await approvalAuthorities(ctx, approvalId);
   await withSavepoint('preview_supplied_approval', async () => {
+    // Inside the savepoint: these functions RAISE, and an error outside one
+    // aborts the whole request transaction, so a refusal the caller could act
+    // on would come back as a failed commit instead.
+    const authorities = await markSuppliedApprovalFailure(() => approvalAuthorities(ctx, approvalId));
     const row = await lockPolicyThenApproval(ctx, ref, approvalId, authorities);
-    assertApprovalExecutable(row, (await loadOperationMaterial(ctx, ref)).bindingHash);
+    const bindingHash = (await loadOperationMaterial(ctx, ref)).bindingHash;
+    await markSuppliedApprovalFailure(async () => assertApprovalExecutable(row, bindingHash));
   });
 }
 
@@ -148,9 +183,11 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   assertControlTx(ctx);
   if (executing.has(ctx.principal)) throw new Error('Nested execution requires the parent effect permit');
   const ref = canonicalOperationRef(input);
-  const authorities = approvalId ? await approvalAuthorities(ctx, approvalId) : [];
   await assertControlledOperationAuthority(ctx, ref.operation);
   return withSavepoint('controlled_ap_operation', async () => {
+    // Inside the savepoint for the same reason as the preview above: a raising
+    // authority lookup outside one aborts the caller's whole transaction.
+    const authorities = approvalId ? await markSuppliedApprovalFailure(() => approvalAuthorities(ctx, approvalId)) : [];
     // Preserve policy-before-approval lock order, including replay lookups.
     const row = await lockPolicyThenApproval(ctx, ref, approvalId, authorities);
     const operationId = row?.operation_id ?? ctx.principal.operationId;
@@ -165,7 +202,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     }
     const material = await loadOperationMaterial(ctx, ref);
     if (material.binding.policies.length && !row) throw new OperationApprovalRequiredError();
-    if (row) assertApprovalExecutable(row, material.bindingHash);
+    if (row) await markSuppliedApprovalFailure(async () => assertApprovalExecutable(row, material.bindingHash));
     const prior = await ctx.sql`
       SELECT id FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
         AND operation=${ref.operation} AND entity_type=${ref.entityType} AND lower(entity_id)=${ref.entityId}

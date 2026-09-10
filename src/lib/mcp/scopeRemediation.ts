@@ -76,9 +76,11 @@ export function permissionRefusalMessage(permission: string, reason?: Permission
       + 'remove that restriction for you.';
   }
   if (reason === 'ACCOUNT_NOT_FOUND') {
-    // The account was never returned by the company-scoped lookup, so the
-    // reply must not assert it exists — and says the same thing whether it is
-    // missing or another tenant's, which is what keeps it from being an oracle.
+    // The account was never returned by the company-scoped lookup, so the reply
+    // must not assert it exists — and reads the same whether it is missing or
+    // another tenant's, which is the cross-tenant half of the oracle question.
+    // Within the company it does differ from the out-of-range reply: see
+    // effectivePermissions.ts for why that is safe here.
     return `The account this operation names was not found in this company, so it could not be checked against `
       + `the account range your ${permission} access allows. Check the account id.`;
   }
