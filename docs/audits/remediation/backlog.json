@@ -10214,6 +10214,44 @@
       "severity": "medium",
       "source": "Surfaced by the K-091 r7 outcome reconciliation; recorded 2026-09-10",
       "processNotes": "migrationValidationService sums `balance_due`, which exists on NEITHER customer_invoices NOR supplier_invoices (the project rule is outstanding = total_amount - COALESCE(amount_paid,0); there is no balance_due column). So `validateMigration` has always thrown rather than returning a result -- a validation step that has never once run. Anything that treated a completed migration as 'validated' was relying on a check that could not execute. Found only because K-091's round-7 census was finally done by RECONCILING OUTCOMES rather than grepping for a literal -- the same method change that also surfaced the NULL-subtype NOT IN defect. Out of K-091's scope (it owns report figures, not the migration wizard) and adjacent to K-015, which owns the wizard but whose rounds have been about fingerprints and blank invoice numbers. Needs its own item so neither branch assumes the other covered it."
+    },
+    {
+      "id": "R-051",
+      "claim": "",
+      "area": "accounting/posting",
+      "affectedPaths": [
+        "confirmCustomerPayment",
+        "cancelCustomerPayment",
+        "approveVATAdjustment",
+        "generateJournalFromRecurring",
+        "trg_cp_payment_number",
+        "trg_sp_payment_number"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Duplicate ledger postings and duplicate payment numbers reachable without concurrency, on money tables.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unquantified. K-107 measured the supplier-payment twin directly: bank 2300.00 and amount_paid 2300.00 with two posted journals for one 1150.00 payment.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "The check-then-act posting class survives in AR payments, VAT adjustments and two DB number triggers with no unique index",
+      "severity": "high",
+      "source": "Inventory produced by the K-107 fixer in round 6, as its scoped hand-off; recorded 2026-09-10",
+      "processNotes": "K-107 fixed eight instances of this class across six modules and was then scoped to STOP and inventory the rest rather than keep absorbing a codebase-wide defect. The inventory is in docs/audits/remediation/K-107/fix.md. Headlines: (1) confirmCustomerPayment / cancelCustomerPayment are the unfixed AR twins of the supplier-payment defect -- HIGH, they post to the ledger. (2) approveVATAdjustment is byte-for-byte the adjustment shape already fixed -- HIGH. (3) generateJournalFromRecurring lacks company_id on its UPDATE -- a multi-tenant violation. (4) The DB triggers trg_cp_payment_number and trg_sp_payment_number mint MAX+1 with NO UNIQUE INDEX on either payments table -- the same shape as the stock-adjustment defect, on the two tables that carry money. This one is a database-level fix and needs its own ledger review. Related: R-043 (journal-entry-number trigger not concurrency-safe), R-044, R-045, R-047. Together these are one missing idiom applied inconsistently, not five bugs."
     }
   ],
   "sourceInventory": [
