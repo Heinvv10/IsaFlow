@@ -88,14 +88,18 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
     fireEvent.click(screen.getByRole('button', { name: /Share/ }));
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Share links' })).toBeTruthy());
 
-    const packCall = asked.find(u => u.includes('/api/accounting/reports-pack?type=monthly'))!;
-    const period = new URL(packCall, 'https://x').searchParams;
+    await waitFor(() => expect(asked.some(u => u.includes('/api/accounting/reports-pack?type=monthly'))).toBe(true));
+    const packCall = asked.find(u => u.includes('/api/accounting/reports-pack?type=monthly'));
+    expect(packCall).toBeDefined();
+    const period = new URL(packCall!, 'https://x').searchParams;
 
     fetchMock.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]) === '/api/accounting/share/links')).toBe(true));
 
-    const [, init] = fetchMock.mock.calls.find(c => String(c[0]) === '/api/accounting/share/links')!;
+    const shareCall = fetchMock.mock.calls.find(c => String(c[0]) === '/api/accounting/share/links');
+    expect(shareCall).toBeDefined();
+    const [, init] = shareCall!;
     expect(JSON.parse(String((init as RequestInit).body)).params).toEqual({
       type: 'monthly', from: period.get('from'), to: period.get('to'),
     });
@@ -105,10 +109,15 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
     render(<ReportPacksPage />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy());
 
-    const packCall = asked.find(u => u.includes('/api/accounting/reports-pack?'))!;
-    const packQs = new URL(packCall, 'https://x').searchParams;
-    const commentaryCall = asked.find(u => u.startsWith('/api/accounting/commentary?'))!;
-    const cQs = new URL(commentaryCall, 'https://x').searchParams;
+    await waitFor(() => expect(asked.some(u => u.includes('/api/accounting/reports-pack?'))).toBe(true));
+    const packCall = asked.find(u => u.includes('/api/accounting/reports-pack?'));
+    expect(packCall).toBeDefined();
+    const packQs = new URL(packCall!, 'https://x').searchParams;
+
+    await waitFor(() => expect(asked.some(u => u.startsWith('/api/accounting/commentary?'))).toBe(true));
+    const commentaryCall = asked.find(u => u.startsWith('/api/accounting/commentary?'));
+    expect(commentaryCall).toBeDefined();
+    const cQs = new URL(commentaryCall!, 'https://x').searchParams;
 
     expect(cQs.get('type')).toBe(packQs.get('type'));
     expect(cQs.get('from')).toBe(packQs.get('from'));
@@ -140,6 +149,6 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
     render(<ReportPacksPage />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy());
 
-    expect(asked.some(u => u.startsWith('/api/accounting/commentary'))).toBe(true);
+    await waitFor(() => expect(asked.some(u => u.startsWith('/api/accounting/commentary'))).toBe(true));
   });
 });
