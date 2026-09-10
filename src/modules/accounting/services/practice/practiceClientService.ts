@@ -1,5 +1,6 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type { DbRow } from '@/types/db';
 
 export interface PracticeClient {
@@ -140,6 +141,11 @@ export async function createPracticeClient(
   companyId: string,
   input: PracticeClientInput,
 ): Promise<PracticeClient> {
+  // R-067: link_customer_id becomes the customer_id of every WIP invoice
+  // generateWipInvoice mints for this client (practiceWipService reads it back
+  // as already-trusted), so the fence has to be here, where it enters.
+  await assertCustomerInCompany(companyId, input.linkCustomerId);
+
   const dupes = (await sql`
     SELECT id FROM practice_clients
     WHERE company_id = ${companyId}::UUID AND legal_name = ${input.legalName}
@@ -174,6 +180,7 @@ export async function updatePracticeClient(
     SELECT id FROM practice_clients WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!existing.length) throw new Error('not found');
+  await assertCustomerInCompany(companyId, input.linkCustomerId);
 
   const rows = (await sql`
     UPDATE practice_clients SET

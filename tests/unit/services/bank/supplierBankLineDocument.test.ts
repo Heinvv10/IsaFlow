@@ -11,7 +11,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };
+  // withSavepoint passes through: R-067's tenant fence runs its ownership read
+  // inside one, and an undefined mock would make every customer allocation throw.
+  return {
+    sql: vi.fn(),
+    withTransaction: vi.fn(),
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => Promise.resolve().then(fn)),
+    fmtDate: actual.fmtDate,
+  };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
@@ -70,9 +77,12 @@ const SPENT_TX = {
 /** The same line as money IN — a receipt, or a supplier refund. */
 const RECEIVED_TX = { ...SPENT_TX, amount: 1150 };
 
-function primeSql(tx: typeof SPENT_TX) {
+function primeSql(tx: typeof SPENT_TX, kind: 'supplier' | 'customer' = 'supplier') {
+  mockSql.mockResolvedValueOnce([tx]);                              // lock + fetch the line
+  // R-067: the customer arm fences `entityId` against `customers` immediately
+  // after the lock, before anything is posted. The queue is positional.
+  if (kind === 'customer') mockSql.mockResolvedValueOnce([{ ok: 1 }]);
   mockSql
-    .mockResolvedValueOnce([tx])                                    // lock + fetch the line
     .mockResolvedValueOnce([{ name: 'Acme' }])                      // entity name
     .mockResolvedValueOnce([])                                      // source_document_id carry-forward
     .mockResolvedValueOnce([{ id: 'jl-1' }])                        // bank journal line
@@ -189,7 +199,7 @@ describe('allocateTransaction — supplier payment that NAMES a bill', () => {
 
 describe('allocateTransaction — customer receipt', () => {
   it('applies the receipt it just inserted, by id', async () => {
-    primeSql(RECEIVED_TX);
+    primeSql(RECEIVED_TX, 'customer');
 
     await allocateTransaction(
       COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'customer', ENTITY_ID,
@@ -207,7 +217,7 @@ describe('allocateTransaction — customer receipt', () => {
   });
 
   it('does nothing for a customer REFUND — cash going out is not a receipt', async () => {
-    primeSql(SPENT_TX);
+    primeSql(SPENT_TX, 'customer');
 
     await allocateTransaction(
       COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'customer', ENTITY_ID,

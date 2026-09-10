@@ -576,3 +576,163 @@ not a browser and is not claimed as one.
 - The WIP/AR gap of LOW-2 is documented and registered, not closed (above).
 - **R-074** and **K-050** remain out of scope, unchanged.
 - `practiceReportsService.ts` is still 351 lines, over the 300 cap, as round 2 stated.
+
+---
+
+# Round 4 — meeting current master
+
+Both round-3 findings were about how this branch lands on `origin/master`
+`e5d6d1f6e`, not about round-3 logic. Merge commit: `origin/master` merged in,
+four conflicts resolved by hand.
+
+## MEDIUM-1: `NULL NOT IN (...)` is NULL — this branch re-introduced the under-reporting K-091 had just fixed
+
+`customer_invoices.status` and `supplier_invoices.status` are **nullable**.
+`NULL NOT IN ('draft','cancelled')` evaluates to NULL, not TRUE, so a
+`WHERE ... AND <that>` **silently drops every null-status invoice**. K-091
+landed `COALESCE(ci.status,'') <> 'cancelled'` on `sales-by-customer` for
+exactly this, commenting it as "the same under-reporting this report was fixed
+for" — and round 3 wrote the NULL-unsafe form next door in a file that does not
+conflict, so it would have merged with nobody resolving it.
+
+**Census by the arithmetic, not the spelling.** I enumerated every
+`status`-comparison line this branch WROTE (diff of `ad1fe6937..HEAD`, filtered
+to invoice aliases), then widened to whatever the branch's own pinned
+invariants force to move with it. Fifteen sites, all now
+`COALESCE(<alias>.status, '') NOT IN ('draft', 'cancelled')`:
+
+| File | Sites | Written by this branch? |
+|---|---|---|
+| `reports/sales-by-item.ts` | 1 | yes (r3) — the named finding |
+| `reports/purchases-by-supplier.ts` | 1 | yes (r2) |
+| `reports/sales-by-customer.ts` | 1 | yes (r2), resolved in the merge |
+| `reports-ar-aging.ts` | 2 | yes (r1) |
+| `reports-ap-aging.ts` | 2 | yes (r1) |
+| `gl/integrityChecks/documentChecks.ts` | 1 | yes (r2) |
+| `gl/integrityChecks/vatChecks.ts` | 2 | yes (r2) |
+| `ar/arAgingService.ts` | 2 | **no — moved to keep an invariant** |
+| `ap/apAgingService.ts` | 2 | **no — same** |
+| `reports/transactionReportingService.ts` | 2 | **no — same** |
+
+**Why three pre-existing files moved.** Fixing only the branch-written half
+would have BROKEN two things this branch itself pins:
+
+- `r059-aging-route-equals-service-every-day` and
+  `k053-aging-route-vs-service-rewind` assert route == service. A NULL-safe
+  route beside a NULL-unsafe service disagrees on precisely a null-status row.
+- `r059-period-reports-as-at-period-end` asserts `sales-by-customer` ==
+  `getCustomerReport` (and the AP pair). Same argument.
+- `vatChecks.testRecordsInProduction` says "its balance is in the aging" and
+  `documentChecks.invoicesNullDueDate` quantifies what the ageing understates.
+  Both must select the ageing's population or the claim is false.
+
+So the NULL-safe set is the smallest one under which every claim this branch
+makes stays true. `arSubledgerService` / `apSubledgerService` carry the same
+NULL-unsafe form and are **NOT** changed: they are a different surface, the
+branch never touched their predicates, and they are pinned against the GL by
+the k053 suite — moving them belongs to a K-091 follow-up, not here. **Stated,
+not fixed.**
+
+**Behaviour change, deliberate:** a null-status invoice now appears in the
+ageing, in both ageing routes, in the four period reports and in the two
+integrity checks, at every date including today. It is a real debt — not a
+draft, not cancelled. `isaflow_dev` has **0** such rows on both tables, so this
+is latent there; **production NOT measured**, SQL for Hein:
+
+```sql
+SELECT 'AR' side, COUNT(*) FILTER (WHERE status IS NULL) AS null_status,
+       COALESCE(SUM(total_amount) FILTER (WHERE status IS NULL),0) AS value
+FROM customer_invoices WHERE deleted_at IS NULL
+UNION ALL SELECT 'AP', COUNT(*) FILTER (WHERE status IS NULL),
+       COALESCE(SUM(total_amount) FILTER (WHERE status IS NULL),0)
+FROM supplier_invoices WHERE deleted_at IS NULL;
+```
+
+**One trap hit and fixed in passing:** the first version of these comments
+contained a backtick (`` `NULL NOT IN (...)` ``) INSIDE a `sql` template. That
+ends the template literal — the file no longer parses. It is the exact hazard
+the brief names; the comments carry no backticks now.
+
+## MEDIUM-2: the four merge conflicts, hunk by hunk
+
+All four come from K-091/K-093 landing after this branch's base `ad1fe6937`.
+For each: what master wanted, what the branch wanted, what the resolution keeps.
+
+**1. `pages/api/accounting/reports/sales-by-customer.ts` — two hunks. The one that matters.**
+
+- *Master wanted:* `COALESCE(SUM(COALESCE(ci.amount_paid,0)))` for
+  received/outstanding; `LEFT JOIN customers c ON c.id = COALESCE(ci.client_id,
+  ci.customer_id) AND c.company_id = ci.company_id`; `GROUP BY
+  COALESCE(ci.client_id, ci.customer_id)`; `COALESCE(ci.status,'') <>
+  'cancelled'`.
+- *Branch wanted:* `effectivePaidExpr` over a `rewindAmount` LATERAL — the
+  point-in-time reconstruction; `INNER JOIN customers c ON c.id = ci.client_id`;
+  `GROUP BY ci.client_id`; `ci.status NOT IN ('draft','cancelled')`.
+- *Resolution keeps:* the branch's rewind (master's `amount_paid` snapshot IS
+  the R-059 defect, back on master — taking it reverts round 2's headline fix),
+  and master's join, scoping and grouping (K-093: the inner join on `client_id`
+  alone DROPPED every invoice carrying only `customer_id`). Status takes
+  master's NULL-safety AND the branch's draft exclusion:
+  `COALESCE(ci.status,'') NOT IN ('draft','cancelled')`.
+- *Measured:* putting master's whole file back makes **4 tests red** —
+  `total 1200/paid 1000` where the branch expects `1300/0`. Restored and
+  `cmp`-verified.
+- *Draft decision re-confirmed post-merge:* master counts drafts here, which
+  inverts round 3's "make sales-by-item match sales-by-customer" premise. The
+  resolution takes **R-059's side on both files** — a draft invoice is not a
+  sale — so the two siblings agree again after the merge.
+
+**2–4. `disclosureNoteGenerators.ts`, `notes6to10.ts`, `notes16to20.ts` — one import hunk each.**
+
+- *Master wanted:* the K-091 subtype vocabulary at that spot — `CASH_SUBTYPES`,
+  `rawSubtypesFor`, and in `notes16to20` the `TAX_EXPENSE_SUBTYPES` /
+  `OTHER_INCOME_SUBTYPES` / `NON_OPERATING_EXPENSE_SUBTYPES` imports plus the
+  `DEFERRED_TAX_SUBTYPE` / `CURRENT_TAX_SUBTYPES` split for note 17.
+- *Branch wanted:* `agedBucketTable` / `getAgedBucketTotals`, replacing the
+  hand-rolled year-end queries in notes 3, 4, 10 and 16.
+- *Resolution keeps:* both, plus DROPS the now-dead
+  `documentInLedgerAsAtFragment` import in each — the branch deleted the only
+  query using it, and an unused import fails `bun run ci`'s lint. The intent is
+  not lost: `getARAging`/`getAPAging` apply that same fragment themselves.
+- *Verified master lost nothing:* `git diff ad1fe6937..origin/master` touches
+  **no line** of `noteReceivables`, `notePayables`, `generateNote10…` or
+  `generateNote16…`, and K-091's note-17 arithmetic (`SUM(gjl.debit -
+  gjl.credit)` with the current/deferred split) is present in the merged file.
+  Each merged file differs from master only by the branch's own replacement.
+
+## Round 4 tests
+
+| File | Added |
+|---|---|
+| `r059-period-reports-as-at-period-end` | N, a real unpaid invoice of 300 with `status` NULL, on each side, with an AR line so sales-by-item sees it. Every figure moves 1000→1300 / 0→300; plus a premise test asserting the rows really are NULL and that Postgres really answers NULL to the bare comparison |
+| `r059-aging-route-point-in-time` | a null-status invoice of 300 per side, seeded and removed in its own test: route AND service both age it, at today (900) and at a past date (1800) |
+| `r059-integrity-checks-as-at` | a null-status AR invoice of 700 (no due date) and AP bill of 250 — both checks count them at both dates |
+
+## Round 4 mutations (`sed` in place, restored from file copies, each `cmp`-verified)
+
+Every one of the 12 NULL-safety sites is pinned independently, and the merge
+resolution itself is pinned:
+
+| # | Mutation | Red |
+|---|---|---|
+| S1 | `sales-by-item` COALESCE dropped | period reports FAIL |
+| S2 | `sales-by-customer` COALESCE dropped | period reports FAIL |
+| S3 | `purchases-by-supplier` COALESCE dropped | period reports FAIL |
+| S4 / S5 | `transactionReportingService` AR / AP COALESCE dropped | period reports FAIL (each) |
+| S6 / S7 | `arAgingService` / `apAgingService` COALESCE dropped | ageing route FAIL (each) |
+| S8 / S9 | `reports-ar-aging` / `reports-ap-aging` route COALESCE dropped | ageing route FAIL (each) |
+| S10 | `documentChecks` COALESCE dropped | integrity checks FAIL |
+| S11 / S12 | `vatChecks` AR / AP COALESCE dropped | integrity checks FAIL (each) |
+| M-M | `sales-by-customer.ts` replaced with master's whole file (a naive resolution) | period reports **4 red** |
+
+## Round 4 — not done, stated
+
+- `arSubledgerService` / `apSubledgerService` keep the NULL-unsafe form
+  (above). A K-091 follow-up, not R-059's.
+- The browser check is still not done. Two agents have now failed it for
+  different reasons — this one's session cookie injection was refused by the
+  permission classifier, the reviewer's only reachable browser is a remote
+  Windows host that cannot see this box's dev server. The rendered-DOM suite
+  stands in its place, with its stated limit: `AppLayout` and `next/link` are
+  mocked, so it does not prove the page mounts under the real company context.
+- R-074, R-078 and K-050 remain out of scope, untouched.

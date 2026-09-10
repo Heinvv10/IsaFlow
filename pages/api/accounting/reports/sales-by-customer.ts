@@ -26,14 +26,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const paid = effectivePaidExpr('ar');
     const rows = await sql`
       SELECT
-        ci.client_id,
+        COALESCE(ci.client_id, ci.customer_id) AS client_id,
         c.name AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0)::numeric AS total_sales,
         COALESCE(SUM(${sql.unsafe(paid)}), 0)::numeric AS payments_received,
         COALESCE(SUM(ci.total_amount - ${sql.unsafe(paid)}), 0)::numeric AS outstanding
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
+      -- LEFT and scoped, from K-091: an inner join on ci.client_id alone DROPPED
+      -- every invoice carrying only customer_id, and every invoice whose
+      -- customer row belongs to another company. Only the name comes from it.
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+                           AND c.company_id = ci.company_id
       LEFT JOIN LATERAL (
         ${rewindAmount({ companyId, asAtStr: to, todayStr: fmtDate(new Date()), side: 'ar' })}
       ) unpaid ON TRUE
@@ -50,14 +54,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
-        AND ci.status NOT IN ('draft', 'cancelled')
-      GROUP BY ci.client_id, c.name
+        -- COALESCE, because status is nullable and NULL NOT IN (...) is NULL:
+        -- the bare comparison silently dropped every null-status invoice, the
+        -- same under-reporting this report was fixed for (K-091). The draft
+        -- exclusion is R-059's: a draft invoice is not a sale.
+        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY total_sales DESC
     `;
 
+    // An unresolvable id gets its own row (the grouping key is the id), so the
+    // placeholder must name it — otherwise the CSV shows several identical
+    // 'Unknown customer' lines that neither aggregate nor can be attributed.
+    // An invoice carrying NEITHER id would have no id to name, and printing
+    // `Unknown customer (null)` into a customer-facing CSV states an id that
+    // does not exist. `customer_invoices.customer_id` is NOT NULL today, so
+    // the COALESCE key cannot be null and this branch is unreachable — it is
+    // here because the label, not the constraint, is what makes it safe.
     const data = rows.map(r => ({
       clientId: r.client_id,
-      clientName: r.client_name,
+      clientName: r.client_name
+        ?? (r.client_id == null
+          ? 'Unattributed'
+          : `Unknown customer (${String(r.client_id)})`),
       invoiceCount: Number(r.invoice_count),
       totalSales: Number(r.total_sales),
       paymentsReceived: Number(r.payments_received),

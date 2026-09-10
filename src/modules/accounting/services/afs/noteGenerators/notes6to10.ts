@@ -8,6 +8,7 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { agedBucketTable, getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
+import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -68,7 +69,9 @@ export async function generateNote8FinancialAssets(
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('investment', 'financial_asset', 'loan_receivable')
+      AND ga.account_subtype = ANY(${[
+        ...rawSubtypesFor('investment'), 'financial_asset', 'loan_receivable',
+      ]}::TEXT[])
     GROUP BY ga.account_name, ga.account_subtype
     HAVING SUM(gjl.debit - gjl.credit) <> 0
     ORDER BY ga.account_subtype, ga.account_name
@@ -130,7 +133,10 @@ export async function generateNote9Inventories(
       ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('inventory', 'raw_materials', 'work_in_progress', 'finished_goods', 'consumables')
+      AND ga.account_subtype = ANY(${[
+        ...rawSubtypesFor('inventory'),
+        'raw_materials', 'work_in_progress', 'finished_goods', 'consumables',
+      ]}::TEXT[])
     GROUP BY ga.account_name, ga.account_code, ga.account_subtype
     HAVING COALESCE(SUM(gjl.debit - gjl.credit), 0) <> 0
     ORDER BY ga.account_subtype, ga.account_name

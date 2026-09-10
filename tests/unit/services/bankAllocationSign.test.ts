@@ -39,7 +39,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };
+  // withSavepoint passes through: R-067's tenant fence runs its ownership read
+  // inside one, and an undefined mock would make every customer allocation throw.
+  return {
+    sql: vi.fn(),
+    withTransaction: vi.fn(),
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => Promise.resolve().then(fn)),
+    fmtDate: actual.fmtDate,
+  };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({

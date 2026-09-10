@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { updateSession, type MigrationError } from './migrationService';
 import { lockMigrationImport } from './migrationPostingSupport';
+import { canonicalSubtype } from '../gl/accountSubtypes';
 import type { DbRow } from '@/types/db';
 
 export interface OpeningBalanceRow {
@@ -134,11 +135,16 @@ export async function importOpeningBalances(
     }
 
     const subtype = String(acctRows[0]!.account_subtype ?? '');
-    if (subtype === 'receivable' || subtype === 'payable') {
-      const documentStep = subtype === 'receivable' ? 'ar_invoices' : 'ap_invoices';
+    // Through the shared vocabulary, not the one spelling: a chart whose AR
+    // control account is `debtors` or `accounts_receivable` is the same control
+    // account, and a literal comparison let its opening total post on top of
+    // the documents the AR step had already taken on.
+    const canonical = canonicalSubtype(subtype);
+    if (canonical === 'receivable' || canonical === 'payable') {
+      const documentStep = canonical === 'receivable' ? 'ar_invoices' : 'ap_invoices';
       if (documentsTakenOn[documentStep]) {
         throw new Error(
-          `Opening trial balance carries ${bal.accountCode}, a ${subtype} control account, and the ${subtype === 'receivable' ? 'customer' : 'supplier'} invoice step has already taken those documents on, one line per outstanding document. Importing the control total as well posts the same money a second time. Remove the control account rows from the trial balance.`,
+          `Opening trial balance carries ${bal.accountCode}, a ${canonical} control account, and the ${canonical === 'receivable' ? 'customer' : 'supplier'} invoice step has already taken those documents on, one line per outstanding document. Importing the control total as well posts the same money a second time. Remove the control account rows from the trial balance.`,
         );
       }
       controlTotals[documentStep === 'ar_invoices' ? 'opening_balances_ar_control' : 'opening_balances_ap_control'] = true;

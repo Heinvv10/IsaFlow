@@ -73,7 +73,9 @@ describe('bank allocation dimension workflow (Postgres)', async () => {
               await expect(allocateTransaction(companyId, String(tx!.id), String(f.account_id), userId,
                 undefined, 'account', undefined, 'none',
                 field === 'cc1' ? invalidId : undefined, field === 'cc2' ? invalidId : undefined))
-                .rejects.toThrow(/Cost centre must belong to this company|journal lines name a cost centre outside this company/);
+                .rejects.toThrow(field === 'cc1'
+                  ? 'CC1 must name an active CC1 cost centre in this company'
+                  : 'CC2 must name an active CC2 cost centre in this company');
               const [unchanged] = await sql`SELECT status, matched_journal_line_id FROM bank_transactions
                 WHERE company_id = ${companyId}::UUID AND id = ${String(tx!.id)}::UUID`;
               expect(unchanged).toMatchObject({ status: 'imported', matched_journal_line_id: null });
@@ -84,8 +86,8 @@ describe('bank allocation dimension workflow (Postgres)', async () => {
                 field === 'cc1' ? 'not-a-uuid' : undefined,
                 field === 'cc2' ? 'not-a-uuid' : undefined)))
               .rejects.toThrow(field === 'cc1'
-                ? 'invalid input syntax for type uuid'
-                : 'Cost centre must belong to this company');
+                ? 'CC1 must name an active CC1 cost centre in this company'
+                : 'CC2 must name an active CC2 cost centre in this company');
           }
         });
       });

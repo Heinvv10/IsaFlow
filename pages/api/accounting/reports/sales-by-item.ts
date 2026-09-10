@@ -46,7 +46,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         -- edited — counting them made this report disagree with
         -- sales-by-customer over the same range by every draft, while the
         -- comment above claimed the two were dated alike (R-059 round 3).
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
+        -- so the bare comparison silently DROPPED every null-status invoice —
+        -- the under-reporting K-091 fixed on sales-by-customer.
+        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
       GROUP BY cii.description, ga.account_name
       ORDER BY total_revenue DESC
     `;

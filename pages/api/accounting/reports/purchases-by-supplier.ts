@@ -46,7 +46,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND ${documentInLedgerAsAtFragment('si', to ?? asAtTodayStr(), companyId)}
         AND si.invoice_date >= ${from}
         AND si.invoice_date <= ${to}
-        AND si.status NOT IN ('draft', 'cancelled')
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
+        -- so the bare comparison silently DROPPED every null-status invoice —
+        -- the under-reporting K-091 fixed on sales-by-customer.
+        AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
       GROUP BY si.supplier_id, s.name, s.company_name
       ORDER BY total_purchases DESC
     `;

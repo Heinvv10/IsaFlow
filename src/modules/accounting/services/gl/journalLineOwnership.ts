@@ -14,13 +14,12 @@
  *   the ledger. `create_draft_journal` (`writeJournals.ts`) has always refused
  *   it; this is the same refusal on the REST path. Migration 664 adds the
  *   composite FK that makes the pair unrepresentable.
- * - `cc1_id` / `cc2_id`: the two analysis columns, checked by
- *   `assertJournalCostCentres` (`journalCostCentreValidation.ts`) and delegated
- *   to from here so `createJournalEntry` has ONE assertion to call and no id on
- *   a new line can be added to the INSERT without a home in this module. That
- *   check deliberately does NOT require `is_active`: withdrawing a cost centre
- *   from the picker must not block correcting the history coded to it.
- * - `project_id`, `cost_center_id`, `bu_id`: these carry NO foreign key at all,
+ * - `cc1_id` / `cc2_id` / `bu_id`: the analysis columns checked by
+ *   `assertJournalAnalysisDimensions` (`journalCostCentreValidation.ts`). A new
+ *   assignment must be active, tenant-owned, and in the correct CC1/CC2 slot.
+ *   The two historical-copy callers opt out of the active check only, so a
+ *   withdrawn picker option does not block correcting history coded to it.
+ * - `project_id`, `cost_center_id`: these carry NO foreign key at all,
  *   so a line can be tagged to a dimension this company cannot see or manage,
  *   invisible to every dimension filter and to `costCentreService`'s
  *   company-scoped usage guard — which lets the OWNING tenant delete the row
@@ -46,14 +45,19 @@
  *
  * Both resolve ownership themselves through `ownedDimensions` and drop what
  * they do not own, per line and per dimension, with a `log.warn` and a warning
- * the operator sees. Every other caller stays refused — including these two on
- * the ACCOUNT arm, which cannot be dropped (a line needs an account) and which
- * migration 664's composite FK refuses on the new row regardless.
+ * the operator sees. They then call the shared writer in `historical-copy`
+ * mode, which preserves owned inactive CC1/CC2/BU references while retaining
+ * the slot/type checks. Every other caller uses the stricter default — including
+ * these two on the ACCOUNT arm, which cannot be dropped (a line needs an
+ * account) and which migration 664's composite FK refuses on the new row.
  */
 
 import { sql } from '@/lib/neon';
 import { accountsBelongToCompany } from './chartOfAccountsService';
-import { assertJournalCostCentres } from './journalCostCentreValidation';
+import {
+  assertJournalAnalysisDimensions,
+  type DimensionAssignmentMode,
+} from './journalCostCentreValidation';
 import type { JournalLineInput } from '../../types/gl.types';
 
 type Dimension = 'project' | 'cost centre' | 'business unit';
@@ -128,12 +132,19 @@ export function ownedOrNull(owned: ReadonlySet<string>, id: string | null | unde
  * cost centre, business unit or CC1/CC2 analysis code belonging to another
  * company.
  */
-export async function assertJournalLinesOwned(companyId: string, lines: JournalLineInput[]): Promise<void> {
+export async function assertJournalLinesOwned(
+  companyId: string,
+  lines: JournalLineInput[],
+  dimensionMode: DimensionAssignmentMode = 'new-assignment',
+): Promise<void> {
   if (!(await accountsBelongToCompany(companyId, lines.map((l) => l.glAccountId)))) {
     throw new Error('One or more journal lines name a GL account outside this company');
   }
+  // CC1 is also mirrored into the legacy costCenterId field by bank allocation.
+  // Validate the canonical analysis dimensions first so that mirror cannot
+  // pre-empt the stricter active/type-aware CC1 policy with a generic legacy
+  // ownership error.
+  await assertJournalAnalysisDimensions(companyId, lines, dimensionMode);
   await assertDimensionOwned('project', companyId, lines.map((l) => l.projectId));
   await assertDimensionOwned('cost centre', companyId, lines.map((l) => l.costCenterId));
-  await assertDimensionOwned('business unit', companyId, lines.map((l) => l.buId));
-  await assertJournalCostCentres(companyId, lines);
 }

@@ -85,8 +85,8 @@ describe('BalanceSheetBody', () => {
     // "Assets" is both the grid's title and its band header, so count rather
     // than assert uniqueness.
     expect(screen.getAllByText('Assets').length).toBeGreaterThan(0);
-    expect(screen.getByText('Liabilities and Equity')).toBeInTheDocument();
-    expect(screen.getByText('Total Liabilities and Equity')).toBeInTheDocument();
+    expect(screen.getByText('Equity and Liabilities')).toBeInTheDocument();
+    expect(screen.getByText('Total Equity and Liabilities')).toBeInTheDocument();
   });
 
   it('links every account to account detail, carrying the drill-down window', () => {

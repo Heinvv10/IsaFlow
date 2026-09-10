@@ -2,7 +2,7 @@
  * BalanceSheetBody — the loaded-report branch of the balance sheet page,
  * extracted so the page stays under the 300-line limit. Renders the shared
  * balanced / out-of-balance banner and the two StatementGrid columns
- * (Assets; Liabilities and Equity).
+ * (Assets; Equity and Liabilities).
  */
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
@@ -71,7 +71,7 @@ export function BalanceSheetBody({
       <div className={comparatorColumns ? 'space-y-4' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
         <StatementGrid rows={assets} columns={columns} title="Assets" cents
           expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
-        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Liabilities and Equity" cents
+        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Equity and Liabilities" cents
           expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
       </div>
     </div>

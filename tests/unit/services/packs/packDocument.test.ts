@@ -47,7 +47,7 @@ describe('buildPackDocument', () => {
     const allowed = numbersIn(pack.sections.map((s) => s.data));
     numbersIn(TREND).forEach((n) => allowed.add(n));
     // The one documented exception, inherited from ManagementBalanceSheetRows:
-    // the report has no Total Liabilities and Equity field, so the row sums the
+    // the report has no Total Equity and Liabilities field, so the row sums the
     // two subtotals. Nothing else may be derived.
     allowed.add(Math.round((INPUT.totalLiabilities + INPUT.totalEquity) * 100) / 100);
     // Row depths and chart geometry are structure, not figures.

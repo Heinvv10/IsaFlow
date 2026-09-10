@@ -24,6 +24,16 @@
  * "exactly as sales-by-customer over the same range" while it kept counting
  * drafts. Each AR invoice carries one line for its full amount, so the two
  * reports' revenue must agree: 1000, not 1200.
+ *
+ * ROUND 4 adds N, a real invoice of 300 whose `status` is NULL — the column is
+ * nullable and defaults to 'draft' only when the column is omitted, so rows
+ * carrying NULL exist. `NULL NOT IN ('draft','cancelled')` is NULL, not TRUE,
+ * so every one of these reports SILENTLY DROPPED such an invoice; K-091 fixed
+ * exactly that on sales-by-customer and round 3 re-introduced it next door.
+ * N is unpaid, so it lands in outstanding at both dates and every figure below
+ * carries it: 1300 / 0 / 1300 at END, 1300 / 1000 / 300 today. Drop the
+ * COALESCE from any one of the five surfaces and that surface alone reads
+ * 1000 / … again, which is what the arithmetic here is for.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -117,19 +127,22 @@ describeIfDb('R-059 period sales/purchase reports are as at their period end', (
     customer = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'cust ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
     supplier = ((await sql`INSERT INTO suppliers (company_id, name) VALUES (${COMPANY}::UUID, ${'supp ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
 
-    const [arS, arD] = (await sql`
+    const [arS, arD, arN] = (await sql`
       INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
         due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
       VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + '-AR-S'}, ${RAISED}::date,
         ${RAISED}::date, 'paid', 1000, 0, 0, 1000, 1000, ${USER}::UUID),
              (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + '-AR-D'}, ${RAISED}::date,
-        ${RAISED}::date, 'draft', 200, 0, 0, 200, 0, ${USER}::UUID)
+        ${RAISED}::date, 'draft', 200, 0, 0, 200, 0, ${USER}::UUID),
+             (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + '-AR-N'}, ${RAISED}::date,
+        ${RAISED}::date, NULL, 300, 0, 0, 300, 0, ${USER}::UUID)
       RETURNING id`) as { id: string }[];
     // One line per AR invoice, so sales-by-item has something to aggregate and
     // the draft's 200 is visible to it if it counts drafts (LOW-4).
     await sql`INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, amount)
               VALUES (${arS!.id}::UUID, ${ITEM}, 1, 1000, 1000),
-                     (${arD!.id}::UUID, ${ITEM}, 1, 200, 200)`;
+                     (${arD!.id}::UUID, ${ITEM}, 1, 200, 200),
+                     (${arN!.id}::UUID, ${ITEM}, 1, 300, 300)`;
     const [cp] = (await sql`
       INSERT INTO customer_payments (company_id, payment_number, client_id, payment_date, total_amount, status, created_by)
       VALUES (${COMPANY}::UUID, ${PAYTAG + 'C'}, ${customer}::UUID, ${PAID}::date, 1000, 'confirmed', ${USER}::UUID)
@@ -143,7 +156,9 @@ describeIfDb('R-059 period sales/purchase reports are as at their period end', (
       VALUES (${COMPANY}::UUID, ${supplier}::UUID, ${TAG + '-AP-S'}, ${RAISED}::date, ${RAISED}::date,
         'paid', 1000, 0, 1000, 1000, ${USER}::UUID),
              (${COMPANY}::UUID, ${supplier}::UUID, ${TAG + '-AP-D'}, ${RAISED}::date, ${RAISED}::date,
-        'draft', 200, 0, 200, 0, ${USER}::UUID)
+        'draft', 200, 0, 200, 0, ${USER}::UUID),
+             (${COMPANY}::UUID, ${supplier}::UUID, ${TAG + '-AP-N'}, ${RAISED}::date, ${RAISED}::date,
+        NULL, 300, 0, 300, 0, ${USER}::UUID)
       RETURNING id`) as { id: string }[];
     const [sp] = (await sql`
       INSERT INTO supplier_payments (company_id, payment_number, supplier_id, payment_date, total_amount, status, created_by)
@@ -175,14 +190,32 @@ describeIfDb('R-059 period sales/purchase reports are as at their period end', (
   for (const side of SIDES) {
     it(`${side.name} at a past period end: outstanding is what was owed then, and equals the ageing then`, async () => {
       const line = await side.read(END);
-      expect(line).toEqual({ total: 1000, paid: 0, outstanding: 1000 });
+      // 1000 (S) + 300 (N, null status) — the draft is not a sale.
+      expect(line).toEqual({ total: 1300, paid: 0, outstanding: 1300 });
       expect(line.outstanding).toBeCloseTo(await side.ageing(END), 2);
     });
 
     it(`${side.name} to today: settled, and the draft is not a sale`, async () => {
-      expect(await side.read(TODAY)).toEqual({ total: 1000, paid: 1000, outstanding: 0 });
+      expect(await side.read(TODAY)).toEqual({ total: 1300, paid: 1000, outstanding: 300 });
     });
   }
+
+  it('the premise: N really carries a NULL status on both sides', async () => {
+    const rows = (await sql`
+      SELECT (SELECT COUNT(*)::INT FROM customer_invoices
+              WHERE company_id = ${COMPANY}::UUID AND status IS NULL) AS ar,
+             (SELECT COUNT(*)::INT FROM supplier_invoices
+              WHERE company_id = ${COMPANY}::UUID AND status IS NULL) AS ap
+    `) as { ar: number; ap: number }[];
+    expect(rows[0]).toEqual({ ar: 1, ap: 1 });
+    // And Postgres really answers NULL, not TRUE, to the bare comparison —
+    // the reason every predicate above needs the COALESCE.
+    const [probe] = (await sql`
+      SELECT (NULL::text NOT IN ('draft','cancelled')) IS NULL AS bare_is_null,
+             COALESCE(NULL::text, '') NOT IN ('draft','cancelled') AS coalesced
+    `) as { bare_is_null: boolean; coalesced: boolean }[];
+    expect(probe).toEqual({ bare_is_null: true, coalesced: true });
+  });
 
   async function itemRevenue(to: string): Promise<number> {
     const rows = await callRoute(salesByItem, to);
@@ -192,7 +225,7 @@ describeIfDb('R-059 period sales/purchase reports are as at their period end', (
   for (const to of [END, TODAY]) {
     it(`sales-by-item to ${to === TODAY ? 'today' : 'a past period end'} counts the same sales as sales-by-customer`, async () => {
       const [byCustomer] = await callRoute(salesByCustomer, to);
-      expect(await itemRevenue(to)).toBeCloseTo(1000, 2);
+      expect(await itemRevenue(to)).toBeCloseTo(1300, 2);
       expect(await itemRevenue(to)).toBeCloseTo(Number(byCustomer!.totalSales), 2);
     });
   }
