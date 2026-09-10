@@ -47,11 +47,14 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
       await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
     }
     const operationId = row?.operation_id ?? ctx.principal.operationId;
-    const [committed] = await ctx.sql`
+    // A legacy non-canonical entity_id can leave a case-only duplicate; never pick one of them arbitrarily.
+    const committedRows = await ctx.sql`
       SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
         AND operation=${ref.operation} AND entity_type=${ref.entityType} AND lower(entity_id)=${ref.entityId}
-        AND operation_id=${operationId}::uuid
+        AND operation_id=${operationId}::uuid LIMIT 2
     ` as Array<{ id: string; result: T }>;
+    if (committedRows.length > 1) throw new Error('Committed operation effect is ambiguous');
+    const [committed] = committedRows;
     if (committed) {
       if (row && (row.status !== 'consumed' || row.consumed_effect_id !== committed.id)) throw new Error('Approval effect linkage is invalid');
       return committed.result;
