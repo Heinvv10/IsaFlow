@@ -28,6 +28,19 @@ export async function insertCaseVariantReceipt(pool:Pool,user:Identity,effectId:
   return rows.rows[0] as {id:string;entity_id:string};
  });
 }
+/** Appends a version row spelled as legacy source spelled it; no existing row is edited. */
+export async function appendEntityVersion(pool:Pool,user:Identity,entityType:string,entityId:string,version=1){
+ return asAppUser(pool,user,async client=>{
+  const rows=await client.query(`INSERT INTO control_entity_versions(company_id,entity_type,entity_id,version,material_hash)
+   VALUES($1,$2,$3,$4,$5) RETURNING entity_id`,[user.companyId,entityType,entityId,version,'0'.repeat(64)]);
+  if(rows.rowCount!==1)throw new Error('Version row was not appended');
+  return rows.rows[0] as {entity_id:string};
+ });
+}
+export async function entityVersions(pool:Pool,company:string,entityType:string,entityId:string){
+ return (await pool.query(`SELECT entity_id,version::int AS version FROM control_entity_versions
+  WHERE company_id=$1 AND entity_type=$2 AND lower(entity_id)=$3 ORDER BY entity_id`,[company,entityType,entityId.toLowerCase()])).rows as {entity_id:string;version:number}[];
+}
 export async function receiptsFor(pool:Pool,company:string,intentId:string,operation:string){
  return (await pool.query('SELECT id,entity_id,result FROM control_operation_effects WHERE company_id=$1 AND lower(entity_id)=$2 AND operation=$3 ORDER BY id',
   [company,intentId.toLowerCase(),operation])).rows as {id:string;entity_id:string;result:Record<string,unknown>}[];

@@ -6,7 +6,8 @@ import {requestOperationApproval,decideOperationApproval} from '@/modules/accoun
 import type {ControlTx,OperationRef} from '@/modules/accounting/services/controls/contracts';
 import {executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
 import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
-import {executeCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
+import {prepareCashApplication,executeCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
+import {reverseReconciledTransaction} from '@/modules/accounting/services/bank/bankAllocationService';
 import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
 import {executePayrollCompensation} from '@/modules/accounting/services/controls/payrollCompensationControl';
 import {committed,runLegacySeed,applySeedKeys,type Baseline,type LegacyOp,type LegacySeed} from './intentReceiptLegacyHarness';
@@ -15,19 +16,21 @@ const pool=new Pool({connectionString:validateFixtureTarget(fixtureConfigFromEnv
 const seeds={} as Record<Baseline,LegacySeed>;
 beforeAll(async()=>{seeds.upper=await runLegacySeed('upper');seeds.window=await runLegacySeed('window');},700000);
 afterAll(async()=>{await pool.end();});
-const operationOf:Record<LegacyOp,string>={bank:'bank_allocation.post',bankOriginal:'bank_allocation.post',bankReversal:'bank_allocation.reverse',
+const operationOf:Record<LegacyOp,string>={bank:'bank_allocation.post',bankOriginal:'bank_allocation.post',bankAdapter:'bank_allocation.post',
+ bankPayment:'bank_allocation.post',bankReversal:'bank_allocation.reverse',
  cash:'cash_application.apply',cashReversal:'cash_application.reverse',compensation:'payroll_compensation.change'};
 const approval=(id?:string)=>id?{approvalId:id}:undefined;
 const executeOf:Record<LegacyOp,(ctx:ControlTx,id:string,approvalId?:string)=>Promise<unknown>>={
  bank:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),bankOriginal:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),
+ bankAdapter:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),bankPayment:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),
  bankReversal:(ctx,id,a)=>executeBankAllocationReversal(ctx,id,approval(a)),cash:(ctx,id,a)=>executeCashApplication(ctx,id,approval(a)),
  cashReversal:(ctx,id,a)=>executeCashApplicationReversal(ctx,id,approval(a)),compensation:(ctx,id,a)=>executePayrollCompensation(ctx,id,approval(a)??{}),
 };
 // Traced from source: a legacy run succeeds only when its own post-effect re-materialization agrees with
 // the receipt it just wrote; every other uppercase-first run rolled back and left no receipt at all.
 const traced:Record<Baseline,Record<LegacyOp,boolean>>={
- upper:{bank:true,bankOriginal:true,bankReversal:true,cash:false,cashReversal:false,compensation:true},
- window:{bank:false,bankOriginal:false,bankReversal:true,cash:true,cashReversal:false,compensation:false},
+ upper:{bank:true,bankOriginal:true,bankAdapter:true,bankPayment:true,bankReversal:true,cash:false,cashReversal:false,compensation:true},
+ window:{bank:false,bankOriginal:false,bankAdapter:false,bankPayment:false,bankReversal:true,cash:true,cashReversal:false,compensation:false},
 };
 async function snapshot(seed:LegacySeed){return{effects:await effectRows(pool,seed.fixture.companyA),ledger:await ledgerRows(pool,seed.fixture.companyA)};}
 it('baseline worktrees wrote exactly the traced legacy receipt population and spellings',async()=>{
@@ -84,4 +87,28 @@ it('upper baseline allocation is reversible at HEAD without rewriting its receip
  const withTwin=await snapshot(seed);
  await expect(actorAs(pool,user,ctx=>executeBankAllocationReversal(ctx,prepared.intentId))).rejects.toThrow('Ambiguous operation receipt');
  expect(await snapshot(seed)).toEqual(withTwin);
+},60000);
+it('a cash application finds the legacy uppercase bank origin of its own payment',async()=>{
+ const seed=seeds.upper,outcome=committed(seed,'bankPayment'),user=seed.fixture.u1;applySeedKeys(seed);
+ const paymentId=String(outcome.result.paymentId),invoiceId=seed.extras.bankPaymentInvoice;
+ const prepared=await actorAs(pool,user,ctx=>prepareCashApplication(ctx,{version:1,kind:'customer',paymentId,accountingDate:'2026-09-10',applications:[{invoiceId,amount:'115'}]}));
+ const approvalId=await approve(seed,prepared.operation);
+ await actorAs(pool,user,ctx=>executeCashApplication(ctx,prepared.intentId,{approvalId}));
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[seed.fixture.companyA,invoiceId])).rows).toEqual([{amount_paid:'115.00'}]);
+},60000);
+it('the legacy bank reversal adapter resolves a legacy uppercase allocation as provenance',async()=>{
+ const seed=seeds.upper,outcome=committed(seed,'bankAdapter'),user=seed.fixture.u1;applySeedKeys(seed);
+ const bankTransactionId=String(outcome.result.bankTransactionId);
+ const attempt=await actorAs(pool,user,()=>reverseReconciledTransaction(seed.fixture.companyA,bankTransactionId,user.id))
+  .then(()=>'',(error:Error)=>error.message);
+ expect(attempt).not.toMatch(/explicit verified provenance/);
+ if(attempt)expect(attempt).toMatch(/approval/i);
+},60000);
+it('a forked legacy version lineage fails closed instead of binding the wrong lineage',async()=>{
+ const seed=seeds.upper,outcome=committed(seed,'bankPayment'),user=seed.fixture.u1;applySeedKeys(seed);
+ const rows=(await pool.query('SELECT entity_id,version::int AS version FROM control_entity_versions WHERE company_id=$1 AND entity_type=$2 AND lower(entity_id)=$3 ORDER BY version',
+  [seed.fixture.companyA,'bank_allocation_intent',outcome.intentId])).rows;
+ expect(rows).toEqual([{entity_id:outcome.intentId,version:1},{entity_id:outcome.intentId.toUpperCase(),version:2}]);
+ await expect(actorAs(pool,user,ctx=>requestOperationApproval(ctx,{entityType:'bank_allocation_intent',entityId:outcome.intentId,operation:'bank_allocation.post'})))
+  .rejects.toThrow('Ambiguous control entity version');
 },60000);

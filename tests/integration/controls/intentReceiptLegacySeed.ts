@@ -5,6 +5,7 @@ import {it} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {writeFile} from 'node:fs/promises';
 import {actor,bank,customer,fixture,pool,postedCash} from './cashApplicationFixture';
+import {approveCustomerInvoice} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 import type {OperationRef} from '@/modules/accounting/services/controls/contracts';
@@ -26,6 +27,18 @@ async function bankReceipt(){
  await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',123.45,'Synthetic legacy UUID receipt','imported')",[tx,fixture.companyA,bank]);
  const p=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
  return upperFirst(p.intentId,p.operation,(id,approvalId)=>executeBankAllocation(requireControlTx(),id,{approvalId}));
+}
+/** An uppercase-first receipt whose customer payment later has to be found by cash and reversal readers. */
+async function bankPayment(){
+ const invoice=randomUUID(),tx=randomUUID();
+ await pool.query(`INSERT INTO customer_invoices(id,company_id,customer_id,client_id,invoice_number,invoice_date,subtotal,tax_amount,total_amount,currency_code,exchange_rate,functional_total,created_by)
+  VALUES($1,$2,$3,$3,$4,'2026-09-09',100,15,115,'ZAR',1,115,$5)`,[invoice,fixture.companyA,customer,invoice,fixture.u1.id]);
+ await pool.query("INSERT INTO customer_invoice_items(invoice_id,description,quantity,unit_price,amount,tax_rate) VALUES($1,'Synthetic legacy receipt target',1,100,100,15)",[invoice]);
+ await actor(()=>approveCustomerInvoice(fixture.companyA,invoice,fixture.u1.id));
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',115,'Synthetic legacy unapplied receipt','imported')",[tx,fixture.companyA,bank]);
+ const p=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ const outcome=await upperFirst(p.intentId,p.operation,(id,approvalId)=>executeBankAllocation(requireControlTx(),id,{approvalId}));
+ return{outcome,invoice,bankTransactionId:tx};
 }
 async function bankReversal(){
  const {posted}=await postedCash();
@@ -53,8 +66,11 @@ async function compensation(){
 }
 it('seeds uppercase-first receipts with the baseline source',async()=>{
  const output=process.env.ISAFLOW_INTENT_SEED_OUT;if(!output)throw new Error('ISAFLOW_INTENT_SEED_OUT is required');
- const ops={bank:await bankReceipt(),bankOriginal:await bankReceipt(),bankReversal:await bankReversal(),cash:await cashApplication(),cashReversal:await cashReversal(),compensation:await compensation()};
+ const payment=await bankPayment();
+ const ops={bank:await bankReceipt(),bankOriginal:await bankReceipt(),bankAdapter:await bankReceipt(),bankReversal:await bankReversal(),
+  cash:await cashApplication(),cashReversal:await cashReversal(),compensation:await compensation(),bankPayment:payment.outcome};
  const identity=(user:{id:string;companyId:string})=>({id:user.id,companyId:user.companyId});
  await writeFile(output,JSON.stringify({fixture:{companyA:fixture.companyA,u1:identity(fixture.u1),u2:identity(fixture.u2)},
-  keys:{encryption:process.env.ENCRYPTION_KEY,fingerprint:process.env.CONTROL_FINGERPRINT_KEY},ops}),{mode:0o600});
+  keys:{encryption:process.env.ENCRYPTION_KEY,fingerprint:process.env.CONTROL_FINGERPRINT_KEY},ops,
+  extras:{bankPaymentInvoice:payment.invoice,bankPaymentTransaction:payment.bankTransactionId}}),{mode:0o600});
 },300000);

@@ -20,7 +20,8 @@ const outcome=z.discriminatedUnion('ok',[
  z.object({ok:z.literal(false),intentId:uuid,approvalId:uuid,error:z.string()}),
 ]);
 const seedSchema=z.object({fixture:z.object({companyA:uuid,u1:identity,u2:identity}),keys:z.object({encryption:z.string().min(1),fingerprint:z.string().min(1)}),
- ops:z.object({bank:outcome,bankOriginal:outcome,bankReversal:outcome,cash:outcome,cashReversal:outcome,compensation:outcome})});
+ ops:z.object({bank:outcome,bankOriginal:outcome,bankAdapter:outcome,bankReversal:outcome,cash:outcome,cashReversal:outcome,compensation:outcome,bankPayment:outcome}),
+ extras:z.object({bankPaymentInvoice:uuid,bankPaymentTransaction:uuid})});
 export type LegacySeed=z.infer<typeof seedSchema>;
 export type LegacyOp=keyof LegacySeed['ops'];
 /** Runs the seed with the baseline's own source after proving source, migrations and fixture are exactly the pinned commit. */
