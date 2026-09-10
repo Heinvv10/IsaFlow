@@ -200,7 +200,8 @@ export async function partitionDocuments(
   // call would refuse it for want of an independent approval.
   if (options?.preview === true && postable.length > 0) {
     const { partitionApprovalBound } = await import('./bulkApprovePreviewApproval');
-    const bound = await partitionApprovalBound(postable, adapter);
+    // A copy: the helper's result must never alias the array cleared below.
+    const bound = await partitionApprovalBound([...postable], adapter);
     postable.length = 0; postable.push(...bound.postable);
     skipped.push(...bound.skipped); skipped.sort((a, b) => a.index - b.index);
   }
