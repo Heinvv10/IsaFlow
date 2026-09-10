@@ -1,15 +1,15 @@
-import {afterAll,beforeAll,beforeEach,describe,expect,it,vi} from 'vitest';
+import {afterAll,beforeAll,describe,expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {platformImportApprovalFixture} from './platformImportApprovalFixture';
 import {generateManagementPack} from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import {runDailyScheduler} from '@/modules/accounting/services/afs/packSchedulerService';
-import {deliverPack} from '@/modules/accounting/services/afs/packDeliveryService';
 import type {ManagementPackConfig} from '@/modules/accounting/services/afs/afsTypes';
 
-// The model and outbound delivery are the boundaries replaced; the ledger reads and every row are real.
+// The model is the boundary replaced; the ledger reads and every row are real. Whether the pack
+// is DELIVERED is proven through the real route in afsPackDeliveryGate.int.test.ts — asserting
+// that this generator never calls deliverPack proves nothing, since no branch of it ever does.
 vi.mock('@/modules/accounting/services/afs/packAiSummaryService',()=>({
  generateExecutiveSummary:vi.fn(async()=>'Synthetic summary'),generateSectionCommentary:vi.fn(async()=>'Synthetic commentary')}));
-vi.mock('@/modules/accounting/services/afs/packDeliveryService',()=>({deliverPack:vi.fn(async()=>undefined)}));
 
 /**
  * A pack generated without review used to be marked signed_off — the status that LOCKS a
@@ -21,7 +21,6 @@ describe('management pack generation gate: actual PostgreSQL',()=>{
  let h:Awaited<ReturnType<typeof platformImportApprovalFixture>>;
  beforeAll(async()=>{h=await platformImportApprovalFixture();},30000);
  afterAll(async()=>{await h?.close();});
- beforeEach(()=>{vi.mocked(deliverPack).mockClear();});
  const config=(reviewRequired:boolean):ManagementPackConfig=>({id:randomUUID(),companyId:h.f.companyA,enabled:true,generationDay:1,deliveryDay:5,reviewRequired,
   sectionsEnabled:{kpi_scorecard:true,income_statement:true},recipients:[],packStyle:'executive',comparisonMode:'prior_month',currencyDisplay:'full'});
  const packs=async(period:string)=>(await h.pool.query("SELECT id,status FROM afs_documents WHERE company_id=$1 AND document_type='management_pack' AND period=$2",[h.f.companyA,period])).rows;
@@ -32,7 +31,6 @@ describe('management pack generation gate: actual PostgreSQL',()=>{
   expect(result).toMatchObject({status:'draft',deliveryScheduled:false});
   expect(result.deliveryWithheldReason,'nothing tells the caller why no pack arrived').toMatch(/status that is not yet available/);
   expect(await packs('2031-01')).toEqual([{id:result.documentId,status:'draft'}]);
-  expect(vi.mocked(deliverPack),'an unsigned pack went out anyway').not.toHaveBeenCalled();
  });
 
  it('reports the withheld delivery to the scheduler that runs it',async()=>{
@@ -43,7 +41,6 @@ describe('management pack generation gate: actual PostgreSQL',()=>{
   const withheld=summary.deliveriesWithheld.find(row=>row.companyId===h.f.companyA);
   expect(withheld,'the scheduler reported nothing about the pack it did not deliver').toBeTruthy();
   expect(withheld?.reason).toMatch(/status that is not yet available/);
-  expect(vi.mocked(deliverPack)).not.toHaveBeenCalled();
  });
 
  it('generates a pack that goes to review as a draft with its sections filled',async()=>{
@@ -54,6 +51,5 @@ describe('management pack generation gate: actual PostgreSQL',()=>{
   const sections=(await h.pool.query('SELECT status,content FROM afs_sections WHERE company_id=$1 AND document_id=$2',[h.f.companyA,result.documentId])).rows;
   expect(sections).toHaveLength(2);
   for(const section of sections)expect(section.content,'a section was left empty').not.toBeNull();
-  expect(vi.mocked(deliverPack)).not.toHaveBeenCalled();
  });
 });
