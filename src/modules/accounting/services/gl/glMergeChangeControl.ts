@@ -46,7 +46,7 @@ export async function withGlMergeChanges(companyId:string,source:string,target:s
     source_account_id:string;target_account_id:string;moved_line_ids:string[];moved_line_ids_digest:string;
     reparented_account_ids:string[];relevelled_account_ids:string[];merged_by:string}[];
   const record=recovery[0],descendants=population.accounts.filter(id=>id!==source&&id!==target);
-  if(recovery.length!==1||record.source_account_id!==source||record.target_account_id!==target||record.merged_by!==ctx.principal.personId
+  if(recovery.length!==1||!record||record.source_account_id!==source||record.target_account_id!==target||record.merged_by!==ctx.principal.personId
    ||record.moved_line_ids_digest!==result.movedLinesDigest||canonicalJson([...record.moved_line_ids].sort())!==canonicalJson(population.lines.map(l=>l.id))
    ||canonicalJson([...record.reparented_account_ids].sort())!==canonicalJson(expectedChildren.map(a=>a.id).sort())
    ||canonicalJson([...record.relevelled_account_ids].sort())!==canonicalJson(delta===0?[]:descendants))throw new Error('Merge recovery evidence was not retained');
@@ -61,7 +61,7 @@ export async function withGlMergeChanges(companyId:string,source:string,target:s
    const after=afterJournals.find(j=>j.header.id===before.header.id)!;
    if(canonicalJson(before.header)!==canonicalJson(after.header)||before.lines.length!==after.lines.length)throw new Error('Merge journal population changed');
    for(let i=0;i<before.lines.length;i++){
-    const {updated_at:ignoredBefore,...line}=before.lines[i],{updated_at:ignoredAfter,...next}=after.lines[i];void ignoredBefore;void ignoredAfter;
+    const {updated_at:ignoredBefore,...line}=before.lines[i]!,{updated_at:ignoredAfter,...next}=after.lines[i]!;void ignoredBefore;void ignoredAfter;
     const expected={...line,gl_account_id:line.gl_account_id===source?target:line.gl_account_id};
     if(canonicalJson(expected)!==canonicalJson(next))throw new Error('Expected GL merge journal mutation was not retained');
    }
