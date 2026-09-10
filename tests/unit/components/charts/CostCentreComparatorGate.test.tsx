@@ -34,6 +34,7 @@ import BalanceSheetPage from '@/../pages/accounting/reports/balance-sheet';
 const mockedApiFetch = vi.mocked(apiFetch);
 
 const COST_CENTRES = { data: [{ id: 'cc-1', code: 'OPS', name: 'Operations' }] };
+const BUSINESS_UNITS = { data: [{ id: 'bu-1', code: 'SALES', name: 'Sales' }] };
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), { status: 200 });
@@ -42,6 +43,7 @@ function jsonResponse(body: unknown) {
 function stubFetches() {
   mockedApiFetch.mockImplementation(async (url: string) => {
     if (url.includes('cost-centres')) return jsonResponse(COST_CENTRES);
+    if (url.includes('business-units')) return jsonResponse(BUSINESS_UNITS);
     if (url.includes('fiscal-periods')) return jsonResponse({ data: null });
     return jsonResponse({ data: {
       periodStart: '2026-08-01', periodEnd: '2026-08-31',
@@ -98,6 +100,26 @@ describe('the income statement with a cost centre selected', () => {
     await waitFor(() =>
       expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(true));
     expect(screen.queryByText(COMPANY_WIDE_UNAVAILABLE)).not.toBeInTheDocument();
+  });
+});
+
+describe('the income statement with a business unit selected', () => {
+  it('switches company-wide comparators off without losing the reader choices', async () => {
+    stubFetches();
+    render(<IncomeStatementPage />);
+
+    fireEvent.click(await screen.findByLabelText('12-month trend'));
+    fireEvent.click(screen.getByLabelText('Budget'));
+    await waitFor(() => expect(comparatorCalls().length).toBe(2));
+
+    fireEvent.change(await screen.findByDisplayValue('All Business Units'), { target: { value: 'bu-1' } });
+    expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
+    expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Budget') as HTMLInputElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByDisplayValue('SALES — Sales'), { target: { value: '' } });
+    await waitFor(() => expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(true));
+    expect((screen.getByLabelText('Budget') as HTMLInputElement).checked).toBe(true);
   });
 });
 

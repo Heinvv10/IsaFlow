@@ -1,0 +1,39 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/loans/loanPeriodClose-k081-reclass-compounds.test.ts (3 tests | 2 failed) 20ms
+     × leaves the current portion at February's figure, not January plus February 6ms
+     × posts only the movement in the second month 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/loans/loanPeriodClose-k081-reclass-compounds.test.ts > closeLoanPeriod — closing a second month > leaves the current portion at February's figure, not January plus February
+AssertionError: expected 238000 to be close to 118000, received difference is 120000, but expected 0.005
+ ❯ tests/unit/services/loans/loanPeriodClose-k081-reclass-compounds.test.ts:105:37
+    103|     await closeLoanPeriod(COMPANY, '202502', USER);
+    104|
+    105|     expect(currentPortionBalance()).toBeCloseTo(FEB_ST, 2);
+       |                                     ^
+    106|   });
+    107|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/services/loans/loanPeriodClose-k081-reclass-compounds.test.ts > closeLoanPeriod — closing a second month > posts only the movement in the second month
+AssertionError: expected 236000 to be close to 4000, received difference is 232000, but expected 0.005
+ ❯ tests/unit/services/loans/loanPeriodClose-k081-reclass-compounds.test.ts:119:22
+    117|     const febGross = febLines.reduce((s, l) => s + l.credit + l.debit,…
+    118|     // The movement is 2,000 across two legs, not another 118,000 acro…
+    119|     expect(febGross).toBeCloseTo(Math.abs(JAN_ST - FEB_ST) * 2, 2);
+       |                      ^
+    120|   });
+    121|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:30:06
+   Duration  1.12s (transform 245ms, setup 0ms, import 332ms, tests 20ms, environment 0ms)
+
