@@ -1,32 +1,27 @@
 /**
  * Deploy gate: fail unless both impersonation reader functions exist on DATABASE_URL and
- * app_user may EXECUTE them. Run by deploy.sh right after migrations. scripts/** is
- * outside tsconfig and no CI step runs this, so tests/unit/scripts covers it.
+ * the roles that call them may EXECUTE them. Run by deploy.sh right after migrations, with
+ * the application's own DATABASE_URL, and deploy.sh also requires the success line. It runs
+ * unconditionally when loaded, so a renamed or wrapped invocation still checks. scripts/**
+ * is outside tsconfig and no CI step runs this; tests/unit/scripts and the integration
+ * suite cover the logic, which lives in src/lib/auth/sessionImpersonation.ts.
  *
  *   DATABASE_URL=... bun scripts/assert-impersonation-reader.ts
  */
 import pg from 'pg';
-import { assertImpersonationReaderDeployed } from '../src/lib/auth/sessionImpersonation';
-
-type Query = Parameters<typeof assertImpersonationReaderDeployed>[0];
-export async function runImpersonationReaderGate(query: Query, out: (line: string) => void): Promise<void> {
-  await assertImpersonationReaderDeployed(query);
-  out('impersonation readers present and executable by app_user\n');
-}
+import { runImpersonationReaderGate } from '../src/lib/auth/sessionImpersonation';
 
 async function main(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL required');
   const pool = new pg.Pool({ connectionString, max: 1 });
   try {
-    await runImpersonationReaderGate(async (text) => (await pool.query(text)).rows as Awaited<ReturnType<Query>>,
+    await runImpersonationReaderGate(async (text) => (await pool.query(text)).rows,
       (line) => process.stdout.write(line));
   } finally { await pool.end(); }
 }
 
-if (process.argv[1]?.includes('assert-impersonation-reader')) {
-  main().catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-  });
-}
+await main().catch((error: unknown) => {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+});

@@ -1,8 +1,9 @@
 -- A delegation proof is honoured only while its stash row lives and no end has been
 -- recorded for the session it names. Both reads live behind one SECURITY DEFINER
 -- function: the request path must not need SELECT on admin_impersonation_stash (which
--- holds the administrator's encrypted tokens), and a missing grant must not be able to
--- masquerade as "the delegation ended".
+-- holds the administrator's encrypted tokens). It is called from verifyToken on the
+-- DATABASE_URL login role, before any app_user transaction; if that role cannot execute
+-- it, the proof is refused and logged (fail closed), which the deploy gate prevents.
 --
 -- The audit lookup is by an expression, so it gets its own partial index: admin_audit_log
 -- grows forever and this runs on every proof-carrying request.

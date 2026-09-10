@@ -46,18 +46,32 @@ export async function resolveImpersonatingActor(client: PoolClient, claims: GoTr
 }
 
 const LIVENESS = 'public.impersonation_delegation_live(uuid,text,text,text)';
-interface ReaderState { reader: boolean; liveness: boolean; reader_exec: boolean | null; liveness_exec: boolean | null }
-/** Existence of both functions and app_user's EXECUTE on each, in one statement. */
+interface ReaderState {
+  reader: boolean; liveness: boolean; reader_exec: boolean | null; liveness_exec: boolean | null;
+  login_role?: string;
+}
+/**
+ * Existence of both functions and EXECUTE for the role that really calls each, in one
+ * statement. The reader runs inside withAuth after SET LOCAL ROLE app_user. The liveness
+ * check runs earlier, from verifyToken, on the DATABASE_URL login role through the pool -
+ * no app_user transaction exists yet - so it is checked for current_user, and the gate must
+ * run with the same DATABASE_URL as the application (deploy.sh does).
+ */
 export const IMPERSONATION_READER_GATE_SQL = `SELECT
   to_regprocedure('${READER}') IS NOT NULL AS reader,
   to_regprocedure('${LIVENESS}') IS NOT NULL AS liveness,
   has_function_privilege('app_user', to_regprocedure('${READER}'), 'EXECUTE') AS reader_exec,
-  has_function_privilege('app_user', to_regprocedure('${LIVENESS}'), 'EXECUTE') AS liveness_exec`;
+  has_function_privilege(current_user, to_regprocedure('${LIVENESS}'), 'EXECUTE') AS liveness_exec,
+  current_user::text AS login_role`;
 
 /**
- * Deploy gate. Without the reader every approval is refused at runtime (the request path
- * fails closed); without EXECUTE for app_user on either function every authenticated
- * request 500s. Both must fail the deploy instead.
+ * Deploy gate. The two failure modes differ and both must stop the deploy:
+ * - the reader missing, or app_user unable to execute it: resolveImpersonatingActor's query
+ *   throws inside withAuth, so every authenticated request 500s (or, when merely missing,
+ *   every review is refused as unverified);
+ * - the liveness function missing or not executable by the login role: every delegation
+ *   proof is silently refused - impersonationActor logs the error and returns null - so the
+ *   MFA bypass for impersonated sessions switches off. Fail closed, but not a working state.
  */
 export async function assertImpersonationReaderDeployed(
   query: (text: string) => Promise<ReaderState[]>): Promise<void> {
@@ -65,5 +79,14 @@ export async function assertImpersonationReaderDeployed(
   if (row?.reader !== true) throw new Error(`${READER} is not deployed: apply migration 675 before serving requests`);
   if (row.liveness !== true) throw new Error(`${LIVENESS} is not deployed: apply migration 677 before serving requests`);
   if (row.reader_exec !== true) throw new Error(`app_user cannot EXECUTE ${READER}`);
-  if (row.liveness_exec !== true) throw new Error(`app_user cannot EXECUTE ${LIVENESS}`);
+  if (row.liveness_exec !== true) {
+    throw new Error(`${row.login_role ?? 'the DATABASE_URL role'} cannot EXECUTE ${LIVENESS}`);
+  }
+}
+
+/** The deploy gate's whole job, separable from the process so it can be tested. */
+export async function runImpersonationReaderGate(
+  query: (text: string) => Promise<ReaderState[]>, out: (line: string) => void): Promise<void> {
+  await assertImpersonationReaderDeployed(query);
+  out('impersonation readers present and executable by app_user\n');
 }

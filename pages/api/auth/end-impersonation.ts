@@ -115,7 +115,9 @@ const handler: NextApiHandler = async (req, res) => {
       'impersonation_end',
       'user',
       ${stash.target_user_id},
-      ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope })}::jsonb
+      ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope,
+        // Written before GoTrue is asked, so it cannot claim the revocation happened.
+        revoked: false })}::jsonb
     )
   `;
 
@@ -130,12 +132,20 @@ const handler: NextApiHandler = async (req, res) => {
     await sql`
       INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
       VALUES (${stash.admin_user_id}, 'impersonation_end_failed', 'user', ${stash.target_user_id},
-        ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId,
+        ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, revoked: false,
           reason: revokeErr instanceof Error ? revokeErr.message : String(revokeErr) })}::jsonb)
     `;
     return res.status(502).json({ success: false,
       error: { code: 'REVOCATION_FAILED', message: 'Could not revoke the impersonated session — please retry' } });
   }
+
+  // Append-only: the revocation GoTrue actually performed is its own record.
+  await sql`
+    INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+    VALUES (${stash.admin_user_id}, 'impersonation_revoked', 'user', ${stash.target_user_id},
+      ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope,
+        revoked: true })}::jsonb)
+  `;
 
   setAuthCookies(res, {
     accessToken: stash.admin_access_token,
