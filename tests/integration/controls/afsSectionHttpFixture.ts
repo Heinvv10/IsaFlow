@@ -20,7 +20,8 @@ const ROUTES:[RegExp,string,string[]][]=[
  [/^\/api\/accounting\/afs\/([^/]+)\/sections\/reorder$/,`${AFS}/sections/reorder`,['documentId']],
  [/^\/api\/accounting\/afs\/([^/]+)\/sections\/([^/]+)\/comments\/([^/]+)\/resolve$/,`${AFS}/sections/[sectionId]/comments/[commentId]/resolve`,['documentId','sectionId','commentId']],
  [/^\/api\/accounting\/afs\/([^/]+)\/sections\/([^/]+)\/(overrides|versions|ai-narrative|regenerate|suppress|comments|review|sign-off)$/,`${AFS}/sections/[sectionId]/$3`,['documentId','sectionId']],
- [/^\/api\/accounting\/afs\/([^/]+)\/(submit-for-review|send-for-signing|sign-off)$/,`${AFS}/$2`,['documentId']],
+ [/^\/api\/accounting\/afs\/([^/]+)\/(submit-for-review|send-for-signing|sign-off|generate)$/,`${AFS}/$2`,['documentId']],
+ [/^\/api\/accounting\/afs\/([^/]+)$/,`${AFS}/index`,['documentId']],
 ];
 type Person='u1'|'u2';
 type Module={default:unknown;config?:unknown};
@@ -100,14 +101,17 @@ export async function afsSectionHttpFixture(){
     JSON.stringify(history),seed.sectionType??`synthetic_${id.slice(0,8)}`,content===null?null:JSON.stringify(content)]);
   return id;
  }
+ /** The firm branding the statements are rendered with. */
+ const brandProfile=async()=>{await pool.query(`INSERT INTO brand_profiles(company_id,primary_colour,secondary_colour,font_family,cover_style)
+  VALUES($1,'#123456','#654321','professional','classic') ON CONFLICT DO NOTHING`,[f.companyA]);};
  const read=async(id:string)=>(await pool.query(`SELECT status,content,overrides,ai_narrative,reviewed_by,reviewed_at,signed_off_by,signed_off_at,version_history,sort_order,data_snapshot
   FROM afs_sections WHERE company_id=$1 AND id=$2`,[f.companyA,id])).rows[0] as Record<string,unknown>;
- const readDocument=async(id:string)=>(await pool.query(`SELECT status,signum_document_id,signing_requested_at,signing_content_fingerprint,signing_refused_reason,signed_pdf_path
+ const readDocument=async(id:string)=>(await pool.query(`SELECT status,signum_document_id,signing_requested_at,signing_content_fingerprint,signing_payload_sha256,signing_refused_reason,signed_pdf_path
   FROM afs_documents WHERE company_id=$1 AND id=$2`,[f.companyA,id])).rows[0] as Record<string,unknown>;
  const audits=async(id:string)=>(await pool.query(`SELECT user_id,action,entity_type,entity_ref,changes FROM audit_log WHERE company_id=$1 AND entity_id=$2 ORDER BY created_at`,[f.companyA,id])).rows as Record<string,unknown>[];
  async function close(){
   try{await new Promise<void>((done,fail)=>{server.close(error=>error?fail(error):done());server.closeAllConnections();});}
   finally{await pool.end();await(await import('@/lib/auth/authPool')).getAuthPool().end();await(await import('@/lib/neon')).getPoolForTests().end();await rm(storage,{recursive:true,force:true});}
  }
- return{pool,f,storage,request,webhook,impersonatedSession,sectionPath,document,section,read,readDocument,audits,close};
+ return{pool,f,storage,request,webhook,brandProfile,impersonatedSession,sectionPath,document,section,read,readDocument,audits,close};
 }
