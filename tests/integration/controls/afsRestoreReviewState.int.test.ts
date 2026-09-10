@@ -85,13 +85,20 @@ describe('AFS version restore and review state: actual PostgreSQL',()=>{
 
  it('updateAfsSection voids the review when it changes content without naming a new reviewer',async()=>{
   const id=await section('reviewed');
-  await as(()=>updateAfsSection(id,document,h.f.companyA,{content:{title:'Changed',blocks:[]}}));
+  await as(()=>updateAfsSection(id,document,h.f.companyA,{content:{title:'Changed',blocks:[]},updatedBy:h.f.u2.id}));
   expect(await read(id)).toMatchObject({status:'pending',reviewed_by:null,signed_off_by:null});
+ });
+
+ it('updateAfsSection refuses to change reviewed content without naming who changed it',async()=>{
+  const id=await section('reviewed');
+  await expect(as(()=>updateAfsSection(id,document,h.f.companyA,{content:{title:'Changed',blocks:[]}}))).rejects.toThrow('requires updatedBy');
+  expect((await read(id)).status).toBe('reviewed');
  });
 
  it('updateAfsSection refuses a section of a signed-off document and one addressed through another document',async()=>{
   const id=await section('signed_off','signed_off'),locked=document;
-  await expect(as(()=>updateAfsSection(id,locked,h.f.companyA,{content:{title:'Changed',blocks:[]}}))).rejects.toThrow('Document is locked');
+  await expect(as(()=>updateAfsSection(id,locked,h.f.companyA,{content:{title:'Changed',blocks:[]},updatedBy:h.f.u2.id}))).rejects.toThrow('Document is locked');
+  await expect(as(()=>updateAfsSection(id,locked,h.f.companyA,{status:'pending'}))).rejects.toThrow('Document is locked');
   const other=(await section('pending'),document);
   await expect(as(()=>updateAfsSection(id,other,h.f.companyA,{content:{title:'Changed',blocks:[]}}))).rejects.toThrow('Section not found');
   expect((await read(id)).status).toBe('signed_off');
