@@ -23,13 +23,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   const { companyId } = req as CompanyAuthedRequest;
-  const fiscalPeriodId = req.query.fiscal_period_id as string;
-  const costCentreId = req.query.cost_centre_id as string | undefined;
+  const fiscalPeriodId = req.query.fiscal_period_id;
+  const costCentreId = req.query.cost_centre_id;
   const businessUnitId = req.query.business_unit_id;
+  if (fiscalPeriodId === undefined) {
+    return apiResponse.badRequest(res, 'fiscal_period_id is required');
+  }
+  if (!isUuidParam(fiscalPeriodId)) {
+    return apiResponse.badRequest(res, 'fiscal_period_id must be a valid UUID');
+  }
+  if (costCentreId !== undefined && !isUuidParam(costCentreId)) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
   if (businessUnitId !== undefined && !isUuidParam(businessUnitId)) {
     return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
   }
-  if (!fiscalPeriodId) return apiResponse.badRequest(res, 'fiscal_period_id is required');
 
   try {
     type CompanyRow = { name: string };

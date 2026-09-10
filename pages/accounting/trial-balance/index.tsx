@@ -48,7 +48,10 @@ export default function TrialBalancePage() {
       .then(json => setCostCentres(json.data?.items || json.data || []))
       .catch(() => { /* reference data load failure — non-critical */ });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to load business units');
+        return r.json();
+      })
       .then(json => {
         const items = json.data?.items || json.data || [];
         setBusinessUnits(Array.isArray(items) ? items : []);
@@ -136,6 +139,9 @@ export default function TrialBalancePage() {
               </select>
               <select value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className={selectClass}>
                 <option value="">All Business Units</option>
+                {businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) && (
+                  <option value={businessUnitId}>Selected Business Unit (unavailable)</option>
+                )}
                 {businessUnits.map(bu => (
                   <option key={bu.id} value={bu.id}>{bu.code} — {bu.name}</option>
                 ))}
