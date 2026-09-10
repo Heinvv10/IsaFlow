@@ -9,9 +9,16 @@ vi.mock('@/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), info: vi.
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('next/dynamic', () => ({ default: () => () => null }));
 
+const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+
 afterEach(() => {
   cleanup();
   vi.mocked(apiFetch).mockReset();
+  if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
+  else Reflect.deleteProperty(URL, 'createObjectURL');
+  if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+  else Reflect.deleteProperty(URL, 'revokeObjectURL');
 });
 
 function comesBefore(first: HTMLElement, second: HTMLElement) {
@@ -20,6 +27,9 @@ function comesBefore(first: HTMLElement, second: HTMLElement) {
 
 describe('balance-sheet presentation order', () => {
   it('renders Equity before Liabilities on the consolidated statement', async () => {
+    const createObjectURL = vi.fn(() => 'blob:balance-sheet');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
     vi.mocked(apiFetch).mockImplementation(async url => {
       if (String(url).includes('company-groups')) {
         return new Response(JSON.stringify({ data: [{ id: 'group-1', name: 'Group' }] }));
@@ -43,6 +53,15 @@ describe('balance-sheet presentation order', () => {
     const liabilities = screen.getByText('Liabilities');
     expect(comesBefore(equity, liabilities)).toBe(true);
     expect(screen.getAllByText('Total Equity and Liabilities')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    const exported = createObjectURL.mock.calls[0]?.[0] as Blob;
+    expect(await exported.text()).toBe([
+      '"Group Account Code","Account Name","Section","Eliminations","Consolidated"',
+      '"1000","Cash","assets",0,300',
+      '"3000","Capital","equity",0,200',
+      '"2000","Payables","liabilities",0,100',
+    ].join('\n'));
   });
 
   it('renders Equity before Liabilities in the three-way forecast', async () => {
