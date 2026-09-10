@@ -482,3 +482,110 @@ inside `withAuth`'s `als.run`, and its statements after the extraction
 already released that client back to the pool, so `routeEvent`'s writes can
 run on a connection serving another request's transaction, under that
 request's GUCs. Not measured or fixed here.
+
+## Round 5 — the first write was unpredicated too, and a "dropped" result wrote half of itself
+
+Blind review of `28bfa9350`: 0 HIGH · 1 MEDIUM · 2 LOW.
+
+### MEDIUM-1 — `routeEvent`'s first write (`'received' → 'extracting'`) — FIXED
+
+Round 4's reason for leaving it unpredicated ("`!extracted_data` always
+refuses before that first write has any data to expose") was **false**.
+`captured_documents.extracted_data` is `JSONB DEFAULT '{}'` (migration 233:8)
+and none of the four ingest INSERTs sets it, so `post-expense.ts:93`'s
+`!extracted_data` refusal never fires on a fresh document — `'{}'` is truthy.
+The reviewer measured, with the real handlers and the real `routeEvent`:
+
+```
+data before {} → post-expense@'received' 200, 'posted', claims 1
+→ routeEvent: 'posted' → 'extracting' (unpredicated) → 'extracted' (predicate matched)
+→ post-expense again 200, 'posted', claims 2
+```
+
+Reachable without a race on the second post. The window is not "immediately
+after the INSERT" as round 4 claimed: `inbound-email.ts` calls `routeEvent`
+only after `ingestPostmarkPayload` has INSERTed and uploaded *every*
+attachment, so event 1 sits committed at `'received'` for the upload time of
+attachments 2..n; WhatsApp runs `attachReplyMedia` (network) between the INSERT
+and the call; `upload.ts` is subject to R-075. The same window also **undid a
+discard** (discard 200 → routeEvent → `'extracted'` → post 200).
+
+The write now carries `AND status = 'received' RETURNING id` and returns (with
+a `log.warn`) on zero rows — a `routeEvent` that loses the claim touches
+nothing else at all.
+
+**Census — every status a legitimate `routeEvent` call can start from.**
+Re-derived from the callers, not from the predicate. All four (`upload.ts:173`,
+`inbound-email.ts:51` via `inboundEmailService`, `imapMirrorService.ts:266`,
+`whatsAppInboundService.ts:234`) INSERT a NEW `capture_events` row at
+`status = 'received'` and pass that id. No retry-of-`'failed'` and no
+re-extraction endpoint exists (`git grep routeEvent` over `pages src scripts`;
+`vlm-extract`, `document-capture` and `document-capture-action` never write
+`captured_documents.extracted_data` for a capture event). So the only
+legitimate entry status is `'received'`, and the predicate makes no legitimate
+route a silent no-op — proved forwards by the pre-existing "legitimate
+routeEvent (no race)" test and the 22 unmodified unit tests, all of which
+transition `received → extracting → extracted|failed`.
+
+### LOW-1 — the `:195` and `:216` predicates had no test — FIXED
+
+Round 4 added three predicates; only the with-data one was pinned. Adapted the
+reviewer's `rev-r058d.discard.int.test.ts` probe: **discard during extraction**
+is the legitimate, non-race way to land the event on a status other than
+`'extracting'` underneath the two remaining writes. The test file's
+`ocrService` mock gained a `mode` (`data` / `null` / `throw`) and a `hold`
+promise so the discard can be issued while `extractFromPdf` is paused.
+
+### LOW-2 — a dropped result had already rewritten `captured_documents` — FIXED
+
+`routeEvent` has **no transaction** — every statement is its own autocommit —
+so ordering is the only tool available. The `captured_documents` UPDATE ran
+*before* the predicated event write, so on a 0-row (dropped) result the
+document had already gone `'matched' → 'pending'` with `routeEvent`'s stale
+`extracted_data`, contradicting the claim the post had just written. The event
+transition is now claimed **first** and the document is written only if that
+claim succeeded, so a dropped result writes nothing.
+
+The residual is a post landing in the microseconds *between* those two
+statements (event `'extracted'`, document still `'{}'`). It is strictly smaller
+than, and entirely inside, the R-077 exposure below — an empty-extraction post
+is possible for the whole duration of OCR, not just that gap — so it is left
+for R-077 rather than answered here with a data-modifying CTE.
+
+### Remaining exposure after this round
+
+**R-077 (out of scope, registered):** posting from an empty `'{}'` extraction.
+`post-expense.ts:93`'s `!extracted_data` guard is dead against the JSONB
+default, so a client can post an event at `'received'` (or at `'extracting'`,
+mid-OCR) and get a claim with no data behind it. This round stops that post
+being *doubled* — `routeEvent` now drops itself instead of reverting the event
+— but it does not stop the empty post itself.
+
+### Round 5 mutations (file copy in `agents/fix-r058e/`, restored — sha256 `9ef67395…7deb7c5d`, `git diff` = the edits only)
+
+| Mutation | Result |
+|---|---|
+| M8 drop `AND status = 'received'` (first write) | 1 failed — the `'received'` post test: event reverted, second post 200, claims 2 |
+| M9 drop `AND status = 'extracting'` (no-data branch) | 1 failed — discard-during-extraction (OCR returns null): event revived to `'extracted'` |
+| M10 drop `AND status = 'extracting'` (`'failed'` branch) | 1 failed — discard-during-extraction (OCR throws): event revived to `'failed'` |
+| M11 move the `captured_documents` write back before the event write | 1 failed — the round-4 race test's LOW-2 assertion (`afterDoc.hasData` true) |
+| restored | 23 passed |
+
+### Round 5 gates (foreground; uptime 16.14 at start)
+
+```
+env -u DATABASE_URL bun run ci
+[ci] build PASS
+[ci] all checks passed
+CI_EXIT=0
+
+source fixture.env && bunx vitest run --config vitest.integration.config.ts --no-file-parallelism \
+  tests/integration/r058-capture-router-post-race.int.test.ts tests/integration/r058-capture-post-double-post.int.test.ts
+Test Files  2 passed (2)
+     Tests  23 passed (23)
+EXIT=0
+```
+
+Unit: `tests/unit/services/capture/captureRouterService.test.ts` — 22/22, updated
+for the new `RETURNING id` row (the `'extracting'` mock now returns a row) and
+the LOW-2 call reorder (event UPDATE is the 4th `sql` call, document the 5th).
