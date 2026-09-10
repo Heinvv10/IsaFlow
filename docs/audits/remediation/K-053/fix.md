@@ -14,22 +14,35 @@ reversal chain dated on or before that date — so it agrees with the control ac
 
 **Files.** 28 production files; see `fix-round7.md` for the census and the per-surface table,
 `fix-round2.md`…`fix-round6.md` for the earlier rounds. Round 8 adds
-`reconciliation/unappliedCashService.ts` and `reports/vatReconciliationService.ts`.
+`reconciliation/unappliedCashService.ts` and `reports/vatReconciliationService.ts`. Round 10
+adds `reports/transactionReportingService.ts`, `pages/api/accounting/reports/sales-by-item.ts`
+and the new `reconciliation/orphanReversalPairs.ts`.
 
-**Tests.** `tests/integration/k053*.int.test.ts` — 17 files / 79 tests, real PostgreSQL.
+**Tests.** `tests/integration/k053*.int.test.ts` — 17 files / 81 tests, real PostgreSQL
+(round 10: +1 in `k053-figure-surfaces-tie-to-gl`, +1 in `k053-unapplied-cash-delete-reversal`,
+which now performs a real delete/undo round trip).
 New in round 8: `k053-unapplied-cash-delete-reversal` (H-1), `k053-afs-notes-tie-to-gl`,
 `k053-group-and-integrity-tie-to-gl`, `k053-statement-recon-variance` (M-2) and
 `k053-aging-route-vs-service-rewind` (LOW), plus four assertions added to
 `k053-figure-surfaces-tie-to-gl`.
-Mutation proof, re-run from scratch this round over EVERY file that carries the predicate
-(34 files, each reverted to the no-predicate form by file copy, whole suite run, file
-restored): **32 RED, 2 GREEN**. The two GREEN are `pages/api/portal/chat.ts` and
-`ar/portalService.ts` — see the per-file table below.
+Mutation proof, re-run from scratch in round 10 over EVERY file that carries a soft-delete
+predicate: the 36 fragment carriers (round 8's 34, plus `transactionReportingService` and
+`sales-by-item`), the two files that carry the `soft_delete_journal_reversals` predicate
+instead (`unappliedCashService`, `vatReconciliationService` — round 8 left both out of its
+figure; the round-9 reviewer mutated them and both went RED), and `orphanReversalPairs`
+(helper made the identity). Each was mutated by file copy, the whole k053 set run, and the
+file restored from the copy: **39 files, 37 RED, 2 GREEN**. The round-8 figure
+on the same basis is **34 RED / 2 GREEN over 36 files**. The two GREEN are still
+`pages/api/portal/chat.ts` and `ar/portalService.ts` (R-055, see the per-file table below).
+The five files this round depends on were each re-run on their own after the sweep, because
+the sweep ran at load ~50: every one fails on an assertion off by exactly the deleted
+document's value (R1,150 / R1,000), not on a timeout. Log:
+`<scratchpad>/agents/fix-k053h/sweep.txt`.
 Full unit suite with `DATABASE_URL` unset, plus tsc, eslint and `bun run ci`: recorded in
 `fix-round8.md`.
 
 **Migration / rollback.** Migration 653 (`soft_delete_journal_reversals`) from round 2;
-nothing new this round. Rollback is a revert of the branch; no data is written by these
+no new migration in round 8 or round 10. Rollback is a revert of the branch; no data is written by these
 changes, which are all read-side predicates.
 
 **Historical data.** No repair is needed and none is possible: the predicate answers
@@ -157,3 +170,77 @@ WHERE ci.deleted_at IS NOT NULL AND ci.gl_journal_entry_id IS NOT NULL
   fixture could see it. That is a pre-existing defect in the two routes, not a soft-delete
   question; it is measured and named here as R-059 rather than silently fixed inside a
   soft-delete branch.
+
+## Disposition of the round-9 review
+
+- **MEDIUM-1 — `reports/transactionReportingService.ts` reported a balance with no
+  soft-delete filter at all.** FIXED. `getCustomerReport` and `getSupplierReport` now carry
+  `documentInLedgerAsAtFragment` at `periodEnd` on the invoice join, exactly as
+  `sales-by-customer` / `purchases-by-supplier` do over the same columns and range. This
+  reaches all four routes (`reports-customer`, `reports-supplier`, `customer-report-export`,
+  `supplier-report-export`) because each calls the service. Asserted in
+  `k053-figure-surfaces-tie-to-gl` ("the transaction reports and sales-by-item…"): the summed
+  `balance` equals the control account at `AS_AT_BEFORE` (document carried) and at `TODAY`
+  (document dropped), on AR and AP.
+
+  **The classification gap, counted.** The round-7 census grep returns 137 files. 36 carry
+  the fragment (after dropping the generated `.claude.md`/`AGENTS.md` mirrors); 21 more are
+  named in round 7's exclusion bullets. That leaves **82 files the census walked and put in
+  neither list.** Every one was re-checked this round, ranked by `SUM(`/`COUNT(` density:
+  - 2 were in fact fixed in round 8 by the `soft_delete_journal_reversals` predicate rather
+    than the fragment (`unappliedCashService`, `vatReconciliationService`) — the census table
+    simply predates them.
+  - 1 was the MEDIUM-1 defect (`transactionReportingService`) and 1 the LOW-1 divergence
+    (`sales-by-item`); both fixed here.
+  - The other 78 report no AR/AP figure that has to tie to a control account. The ones with
+    any aggregation: `admin/analyticsService`, `workbench/monthEndWorkbenchService`,
+    `dashboard/workbenchService`, `setup-guide`, `landing-stats` (row counts / draft counts);
+    `reports/vatExceptionsService` (exception lists; its VAT leg reads the LINKED entry);
+    `core/archiveQueryService`, `ar/customerPaymentService`, `ap/supplierPaymentService`,
+    `ar/creditNoteService`, `ar/customerInvoiceReadService`, `ar/customerInvoiceCancelService`,
+    `core/softDeleteInvoiceGuards` (single-document reads, lists, or guards);
+    `core/masterDeleteGuards` (open-count guard, already `deleted_at IS NULL`);
+    `gl/controlAccountService` (journal-id probe for account discovery);
+    `ar/recurringInvoiceService`, `practice/practiceWipService` (`MAX` for numbering);
+    `customer-duplicates`, `supplier-duplicates` (per-contact counts as a merge hint);
+    `dashboard-todos` (a top-10 overdue to-do list — a workflow queue, which round 7 already
+    rules out; it has no soft-delete filter at all, recorded here, not this item);
+    `reports/vat201Service`, `reports/vatReturnService` (the document-based VAT return,
+    deliberately undated so a deleted invoice stays in the period it was filed in — the
+    same rule `vatReconciliationService`'s invoice leg follows). The remaining files carry
+    no aggregation and act on one document.
+
+- **MEDIUM-2 — the undo defeated the orphan guard.** FIXED in
+  `reconciliation/unappliedCashService.ts` via a new
+  `reconciliation/orphanReversalPairs.ts` (the service was at 291 lines). The undo DELETEs the
+  sdjr row and posts R2 reversing R, so after a round trip neither R nor R2 is claimed by a
+  document or an sdjr row. Rather than change the undo's bookkeeping — which could not repair
+  the round trips that already happened, their rows being gone — mechanism 2 now selects
+  `reversal_of_id` and drops any candidate reversed by ANOTHER candidate for exactly the
+  opposite control movement (to the cent). Both directions are in
+  `k053-unapplied-cash-delete-reversal`, which now performs a real `undoDelete`:
+  - after the undo, the sdjr row is gone and three unclaimed reversals exist (R, R2 and a
+    hand-built pair), yet `withoutPaymentRecord` is exactly `[orphanEntry]`;
+  - a bare journal reversed by hand LATER is still reported at an as-at date that sees only
+    its first leg (`[pairEntry, orphanEntry]`, total R1,200), and drops out only once both
+    legs are dated (`[orphanEntry]`, total R500);
+  - a manual reversal of a LIVE document's journal has no partner among the candidates (the
+    original is claimed by the document), so it is still reported; a pair that does not
+    cancel to the cent is left alone.
+
+  **Not fixed here, registered as R-063.** `reports/vatReconciliationService.ts` reads the
+  same sdjr table and so, after an undo, counts both R and R2 again. Its VAT arms are signed
+  and the pair nets within a month; they fall in different months only if R's period closes
+  between the delete and the undo (reasoned from `resolveReversalDate`, not measured). The
+  revenue arm's `ABS(credit - debit)` makes the pair ADD instead of cancel — that is R-056,
+  which K-091 is replacing in the same file. Applying the pair rule there means restructuring
+  those queries while K-091 edits lines 81-83 and 320-322, so it is left to R-063 rather than
+  turned into a semantic conflict on a money figure.
+
+- **LOW-1 — `sales-by-item` disagreed with `sales-by-customer`.** FIXED: the same fragment at
+  `to`. The fixture now carries `customer_invoice_items` for both AR documents (without them
+  the report returned nothing and its predicate would have been decorative); the item total
+  is `SUB + LEG_SUB` at `AS_AT_BEFORE` and `LEG_SUB` at `TODAY`.
+
+- **The mutation-sweep figure.** Corrected to include the two sdjr-predicate files round 8
+  left out, and re-run from scratch over the round-10 tree — see below.
