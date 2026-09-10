@@ -8,6 +8,7 @@ type View=Awaited<ReturnType<typeof getConnectionPermissions>>;
 function dto(reply:RpcReply):View{expect(reply.result?.isError).not.toBe(true);return JSON.parse(reply.result!.content!.map(row=>row.text).join('\n')) as View;}
 const call=(index=0,args:Record<string,unknown>={})=>f.client.rpc(f.f.u1.tokens[index]!.raw,'tools/call',{name:'connection_permissions',arguments:args});
 it('discovers and reads only the actual authenticated connection without read:access',async()=>{
+ await f.pool.query("UPDATE personal_access_tokens SET scopes=array_remove(scopes,'read:access') WHERE company_id=$1 AND user_id=$2",[f.f.companyA,f.f.u1.id]);
  const manifest=await f.client.rpc(f.f.u1.tokens[0]!.raw,'tools/list');
  expect(manifest.result?.tools?.filter(tool=>tool.name==='connection_permissions')).toHaveLength(1);
  const first=dto(await call()),second=dto(await call(1));
