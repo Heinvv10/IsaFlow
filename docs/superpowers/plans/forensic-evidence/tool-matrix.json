@@ -1,6 +1,7 @@
 {
   "baseline": "f57f71a75aa0c8ff2a0202c4b2c65d20f0de510e",
   "method": "TypeScript AST static extraction from git show of named baseline; all schemas fully resolved; no application modules executed. Service calls trace local MCP helper functions; module_service_imports conservatively includes shared-file alternatives. Tests mentioning a tool are discovery evidence, not coverage proof.",
+  "staleness": "Handler sources are a SNAPSHOT of baseline f57f71a75, not current code. Known drift as of 2026-09-10: year_end_close's no_fiscal_period branch was DELETED (nothing could construct the outcome; a closing date with no period is a race that throws 'Closing fiscal period unavailable'), and several tools' approval-refusal wording changed. Read the tree, not this file, before quoting a handler.",
   "counts": {
     "total": 131,
     "reads": 69,
