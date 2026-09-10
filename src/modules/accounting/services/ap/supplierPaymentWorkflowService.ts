@@ -10,10 +10,21 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
+import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 type Row = DbRow;
+
+/**
+ * Allocation rows in ASCENDING invoice id — the order `fetchBillCandidates`
+ * already takes its `FOR UPDATE OF si` in. Two payments touching the same two
+ * bills in opposite orders hold one row each and deadlock (40P01), and the
+ * order a payment's allocations come back in is the order they were captured.
+ */
+function byInvoiceId<T extends { invoiceId: string }>(allocs: readonly T[]): T[] {
+  return [...allocs].sort((a, b) => (a.invoiceId < b.invoiceId ? -1 : a.invoiceId > b.invoiceId ? 1 : 0));
+}
 
 export async function approveSupplierPayment(
   companyId: string,
@@ -53,6 +64,15 @@ export async function processSupplierPayment(
   opts?: { postingAgent?: string },
 ): Promise<SupplierPayment> {
   try {
+    // (2) THE PAYMENT FIRST — same canonical order as the void below. Without
+    // it this path took `supplier_invoices` (the allocation loop) before
+    // `supplier_payments` (the status flip), the inverse of
+    // `planSupplierPaymentApplication`, which locks the payment and THEN the
+    // bills through `fetchBillCandidates`. Both reach the same payment and the
+    // same bill, from `supplier-payments-action` and `supplier-allocations`.
+    if (!(await lockSupplierPaymentForUpdate(companyId, id))) {
+      throw new Error(`Payment ${id} not found`);
+    }
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
@@ -91,7 +111,7 @@ export async function processSupplierPayment(
     // Run on the ALS-bound connection so the outer request-scoped tx provides
     // atomicity — withTransaction would deadlock against rows already locked
     // by this same request (e.g. the JE we just inserted/posted above).
-    for (const alloc of payment.allocations) {
+    for (const alloc of byInvoiceId(payment.allocations)) {
       const newPaid = alloc.amountAllocated;
       await sql`
         UPDATE supplier_invoices
@@ -146,6 +166,16 @@ async function voidSupplierPaymentInner(
   userId: string,
 ): Promise<SupplierPayment> {
   try {
+    // (2) THE PAYMENT FIRST. This used to open with the unlocked
+    // `getSupplierPaymentById` and take `gl_journal_entries` before
+    // `supplier_invoices` before `supplier_payments` — the exact inverse of the
+    // canonical order in `bank/.claude.md`, and a reachable cycle against
+    // `voidPaymentDocument` (which takes payment → invoices → GL) on the very
+    // same supplier payment. Two agents voiding one payment from its two
+    // entrances held a row each and Postgres killed one with 40P01.
+    if (!(await lockSupplierPaymentForUpdate(companyId, id))) {
+      throw new Error(`Payment ${id} not found`);
+    }
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status === 'reconciled') {
@@ -155,27 +185,15 @@ async function voidSupplierPaymentInner(
       throw new Error(`Only processed payments can be voided (status: ${payment.status})`);
     }
 
-    // Reverse the payment journal (skip if already reversed — reversed_at is
-    // the marker; the original keeps status='posted' under metadata semantics).
-    if (payment.glJournalEntryId) {
-      const jeRows = (await sql`
-        SELECT status, reversed_at FROM gl_journal_entries
-        WHERE id = ${payment.glJournalEntryId}::UUID AND company_id = ${companyId}::UUID
-        FOR UPDATE
-      `) as Row[];
-      if (
-        jeRows.length > 0 &&
-        String(jeRows[0]!.status) === 'posted' &&
-        jeRows[0]!.reversed_at == null
-      ) {
-        await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
-      }
-    }
-
-    // Un-apply allocations: roll amount_paid back and recompute status.
+    // (3) Un-apply allocations: roll amount_paid back and recompute status.
     // A voided payment returns the invoice to its pre-payment state
     // ('approved' when nothing else is paid, 'partially_paid' otherwise).
-    for (const alloc of payment.allocations) {
+    // BY INVOICE ID, for the reason `fetchBillCandidates` orders: two voids
+    // touching the same two bills in opposite orders deadlock on each other.
+    // This also runs BEFORE the journal reversal now, which is the ordering
+    // `bankAllocationUnwind.ts` argues for on its own merits — reversing first
+    // returns the credit to AP control while the bill still reads as settled.
+    for (const alloc of byInvoiceId(payment.allocations)) {
       // Mirrors processSupplierPayment's CASE: compare the REMAINING paid
       // amount against total_amount so an invoice still fully covered by
       // OTHER payments keeps status 'paid' (PR #203 review MEDIUM).
@@ -191,8 +209,29 @@ async function voidSupplierPaymentInner(
       `;
     }
 
-    // Guarded flip: only a still-processed payment can be voided (concurrent
-    // void/reconcile loses the race cleanly).
+    // (4) Reverse the payment journal LAST — the pre-existing entry is the
+    // most-contended row of the four and the canonical order puts it last.
+    // Skip if already reversed: `reversed_at` is the marker; the original keeps
+    // status='posted' under metadata semantics.
+    if (payment.glJournalEntryId) {
+      const jeRows = (await sql`
+        SELECT status, reversed_at FROM gl_journal_entries
+        WHERE id = ${payment.glJournalEntryId}::UUID AND company_id = ${companyId}::UUID
+        FOR UPDATE
+      `) as Row[];
+      if (
+        jeRows.length > 0 &&
+        String(jeRows[0]!.status) === 'posted' &&
+        jeRows[0]!.reversed_at == null
+      ) {
+        await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
+      }
+    }
+
+    // Guarded flip: the status re-assertion is now redundant against a
+    // concurrent void (the row has been locked since the top of this function)
+    // and is KEPT as the row-returning write and as a guard against a future
+    // caller that reaches here without the lock.
     const rows = (await sql`
       UPDATE supplier_payments
       SET status = 'cancelled'

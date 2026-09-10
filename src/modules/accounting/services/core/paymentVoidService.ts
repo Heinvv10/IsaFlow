@@ -4,35 +4,28 @@
  * ── WHY THIS EXISTS ─────────────────────────────────────────────────────────
  *
  * Until now the only way to undo applied cash was `reverse_bank_allocation`,
- * which is addressed by BANK TRANSACTION. A receipt created by
+ * addressed by BANK TRANSACTION. A receipt created by
  * `apply_receipt_to_invoice` against no bank line had no undo at all, and
- * `cancelCustomerPayment` refuses anything that is not `confirmed`
- * (`customerPaymentAllocationService.ts:110`) — which is precisely the status a
- * FULLY applied receipt does not have, because `receiptApplicationService.ts`
- * promotes it to `reconciled`. So the better the application worked, the more
- * certainly it could not be undone.
+ * `cancelCustomerPayment` refuses anything that is not `confirmed` — precisely
+ * the status a FULLY applied receipt does not have, because
+ * `receiptApplicationService.ts` promotes it to `reconciled`. So the better the
+ * application worked, the more certainly it could not be undone.
  *
  * ── THE THREE SHAPES ────────────────────────────────────────────────────────
  *
- * A payment reaches this function in one of three states, and each needs a
- * different amount of work:
- *
  *   1. It settles a BANK line. `reverseReconciledTransaction` already does the
- *      whole job — unwind, contra, and return the bank line to `imported` — and
- *      is the tested path, so this delegates rather than reimplementing it.
- *      Reimplementing it would also leave the bank line `allocated` against a
- *      journal that no longer exists.
+ *      whole job — unwind, contra, and return the bank line to `imported` — so
+ *      this delegates rather than reimplementing it; reimplementing would also
+ *      leave the bank line `allocated` against a journal that no longer exists.
  *   2. It has a journal but no bank line. Unwind, then reverse the journal.
- *   3. It has no journal (never posted). Unwind only; there is nothing to
- *      reverse.
+ *   3. It has no journal (never posted). Unwind only.
  *
  * ── ORDER IS LOAD-BEARING ───────────────────────────────────────────────────
  *
- * The unwind runs BEFORE the journal is reversed, for the reason spelled out in
+ * The unwind runs BEFORE the journal is reversed, for the reason in
  * `bankAllocationUnwind.ts`: reversing first returns the credit to the AR/AP
- * control account while the invoice still reads as settled, which widens the
- * subledger-to-control gap behind an ordinary-looking reversal. If the unwind
- * throws, nothing has been posted.
+ * control account while the invoice still reads as settled, widening the
+ * subledger-to-control gap behind an ordinary-looking reversal.
  *
  * ── SO IS THE LOCK ORDER ────────────────────────────────────────────────────
  *
@@ -42,11 +35,25 @@
  * the inverse, so a `void_receipt` on P racing a `reverse_bank_allocation` on
  * the line P settles would hold one row each and deadlock. The line is
  * therefore locked FIRST, off an UNLOCKED read. Order: `bank/.claude.md`.
+ *
+ * Two consequences of resolving the line before the document, both deliberate.
+ * `not_found` is decided from that unlocked peek — a row that does not exist
+ * for this tenant cannot appear mid-request, and `loadPayment` answers it again
+ * under the lock. And `ambiguous_bank_lines` now outranks `already_cancelled`
+ * and `not_applied`, because it is settled before the status is read; a
+ * cancelled payment on a two-bank-line journal reports the journal, not the
+ * status. Nothing pins that precedence — if a caller comes to depend on the
+ * status answer, move the resolution back below `loadPayment` and re-order the
+ * locks some other way, do not read this as accidental.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from './paymentLock';
+import {
+  PaymentPostedDuringVoidError,
+  lockCustomerPaymentForUpdate,
+  lockSupplierPaymentForUpdate,
+} from './paymentLock';
 import {
   unwindBankAllocationApplication,
   unwindOnePayment,
@@ -87,9 +94,8 @@ export type VoidRefusal =
  * carry allocation ROWS — both create paths insert them up front — but neither
  * has touched `amount_paid`: that happens in `confirmCustomerPayment` and
  * `processSupplierPayment`. Unwinding one would subtract cash the document
- * never applied, taking it out of some OTHER payment's settlement while the GL
- * control account stands still. Production carries 2 customer and 63 supplier
- * drafts, so this is a live shape, not a hypothetical one.
+ * never applied, out of some OTHER payment's settlement, while the GL control
+ * account stands still. Production carries 2 customer and 63 supplier drafts.
  *
  * `voidSupplierPayment` has refused non-`processed` payments for exactly this
  * reason; this path must not be the way around that guard.
@@ -117,9 +123,8 @@ interface PaymentRow {
  * The lock is not decoration. The registry's idempotency lock only serialises
  * calls carrying the SAME key, so two `void_receipt` calls on one receipt with
  * different keys would both read `confirmed`, both read the not-yet-deleted
- * allocation rows, and both subtract from `amount_paid` — landing the deduction
- * twice on an invoice that carries other receipts' cash, which `GREATEST(...,0)`
- * only floors at zero rather than prevents.
+ * allocation rows, and both subtract from `amount_paid` — twice, on an invoice
+ * carrying other receipts' cash, which `GREATEST(...,0)` only floors at zero.
  */
 async function loadPayment(
   companyId: string,
@@ -150,10 +155,9 @@ async function loadPayment(
  * Picking one of several would leave the others `allocated` against a journal
  * that no longer exists — invisible to unreconciled listings and unrecoverable,
  * since a later reversal of that journal throws on `reversedAt`. Ten journals
- * in production already carry two bank lines each (bank transfers: one entry,
- * two bank legs); none of them belongs to a payment document, so this is a
- * refusal for a shape the void path cannot reach today rather than a live
- * defect — but guessing would be the wrong way to be wrong about money.
+ * in production carry two bank lines each (bank transfers: one entry, two bank
+ * legs), none belonging to a payment document — guessing would be the wrong way
+ * to be wrong about money.
  */
 async function findBankTransactions(
   companyId: string,
@@ -218,19 +222,19 @@ export async function voidPaymentDocument(
   if (payment.journalEntryId !== peekedJournalId) {
     // `gl_journal_entry_id` is written once, when the payment posts, and never
     // reassigned — so the row posted between the peek and the lock and the line
-    // locked above is the wrong one. Nothing has been written.
-    throw new Error(
-      `Payment ${paymentId} was posted while this void was being prepared — retry in a moment.`,
-    );
+    // locked above is the wrong one. Nothing has been written, and the retry
+    // succeeds, so this is a TYPED retryable refusal like every other one on
+    // the settlement paths rather than a bare `Error` a REST route would 500.
+    throw new PaymentPostedDuringVoidError(paymentId);
   }
 
   // Shape 1: the bank path already unwinds, posts the contra AND resets the
   // bank line. Doing any of that here as well would double-reverse.
   if (bankTransactionId) {
     // The counts come back from the bank path rather than being reported as
-    // zero. This is the branch that does the MOST work, and an agent told
-    // "0 invoices reopened" after a successful void concludes nothing was
-    // undone and re-applies the receipt. The agent IS the display.
+    // zero: this branch does the MOST work, and an agent told "0 invoices
+    // reopened" after a successful void concludes nothing was undone and
+    // re-applies the receipt. The agent IS the display.
     const unwoundViaBank = await reverseReconciledTransaction(
       companyId, bankTransactionId, userId, opts,
     );

@@ -244,3 +244,118 @@ by that test. The 40P01 mapping is deliberately narrow: only the four settlement
 helpers (`glAccountLock`, `creditNoteLock`, `supplierInvoiceLock`, `recurringInvoiceLock`,
 `reclassification/lineLock`) still classify 55P03 alone — outside this defect's blast radius, and
 changing them would be an adjacent refactor.
+
+---
+
+## Round 9 (blind review `review-k071-r8.md`: 1 HIGH, 2 MEDIUM, 3 LOW — see "Findings not recovered")
+
+### HIGH — a THIRD lock-order inversion, missing from the table this branch itself wrote
+
+**Fixed, and round 8's ruling on it is withdrawn.** `voidSupplierPayment` opened on the unlocked
+`getSupplierPaymentById` and then took `gl_journal_entries` (the `FOR UPDATE` on the posted entry)
+→ `supplier_invoices` (the un-apply loop) → `supplier_payments` (the status flip): the exact
+inverse of the canonical order, and a reachable cycle against `voidPaymentDocument`, which reaches
+the SAME supplier payment through `unwindOnePayment` after locking payment → invoices → GL. Round 8
+declared this pair safe because "no cycle is reachable". It was wrong for the third time on this
+programme. It is now `lockSupplierPaymentForUpdate` first, then the invoices `ORDER BY invoice_id`,
+then the journal reversal last.
+
+Measured, not argued — `tests/integration/k071-void-lock-order.int.test.ts`, two real pool clients:
+a peer holding the payment and then taking the bill and the journal in canonical order leaves the
+void free (200, bill back to `amount_paid` 0); with the old order restored Postgres reports
+`40P01 deadlock detected` with the void as the victim and the route answering 400.
+
+**Its twins, found by the enumeration rather than by the finding.** `cancelCustomerPayment` had the
+identical inversion (GL → invoices → payment); `confirmCustomerPayment` and `processSupplierPayment`
+took their own payment row LAST; and `unwindOnePayment` cancelled the payment AFTER the invoices,
+which is the order `reverseReconciledTransaction` inherits. All five now take the payment first, and
+every multi-invoice loop goes `ORDER BY invoice_id`. Both AR entry points gained a savepoint, because
+their route answers 400 for everything and `withAuth` COMMITs a 4xx — a throw between the invoice
+roll-back and the payment flip would otherwise commit the half-done undo. The retryable
+`PaymentPostedDuringVoidError` (`PAYMENT_POSTED_DURING_VOID`, on the `REFUSAL_CODES` allowlist)
+replaces the bare `Error` on `voidPaymentDocument`'s peek-vs-lock journal-id assertion.
+
+### The table was rebuilt MECHANICALLY, and that is what found the rest
+
+Not by reasoning about which pairs can run together. A script walked every `sql` template in `src/`,
+`pages/` and `scripts/`, stripped comments, tagged each statement by relation family
+(BANK / PAY / INV / GL) counting `FOR UPDATE`, `UPDATE … SET` and `DELETE FROM` alike, and kept
+every file touching more than one: **14 files**. Four were missing from the canonical table and
+**three of those were inverted**:
+
+| Path | Was | Now |
+|---|---|---|
+| `capture/evidenceAttachmentService` + `POST /api/accounting/provisional/[jeId]/attach` | GL → bank | bank → GL |
+| `core/duplicateMergeService` (both arms) | invoices → payments | payments → invoices |
+| `core/archiveExecutionService` step 6 | GL lines → GL entries → bank → invoices | bank → invoices → GL lines → GL entries |
+| `bankRuleAutoPostLine`, `provisionalPostingService`, `sageMigrationCommitService`, `postCustomerInvoiceToGl` | — | **exempt**: the journal is INSERTed by the same tx, so no other tx can lock it |
+
+`UPDATE` and `DELETE` take a row lock exactly as `FOR UPDATE` does. Enumerating only the explicit
+`FOR UPDATE`s is what hid three inversions across rounds 7–9, including `voidSupplierPayment`, which
+was absent from the very table round 8 wrote. The census is described in `bank/.claude.md` so the
+next round re-runs it rather than reading.
+
+### The archive path was an FK bug as well, and could not run at all
+
+Two pre-existing defects in `archiveExecutionService`, both surfaced by the enumeration and both
+**measured**, neither of them a lock-order matter beyond the ordering itself:
+
+1. **The old delete order violated a foreign key.** `bank_transactions.matched_journal_line_id`
+   FKs `gl_journal_lines` with NO ACTION, so deleting a pre-cutoff journal line while a `reconciled`
+   bank line still points at it raises `23503
+   bank_transactions_matched_journal_line_id_fkey` — on exactly the pair the step exists to archive.
+   The canonical lock order is also the FK-safe order (children before parents), so one reorder
+   fixes both.
+2. **`executeArchive` threw `42703` for every company, every run.** Step 4 selected `currency` from
+   `customer_invoices`, which has no such column (`archive_customer_invoices` does). An
+   `INSERT … SELECT` is parsed whether or not it matches a row, so every archive rolled back to its
+   `archive_body` savepoint and was marked failed. Fixed by dropping the column from both lists —
+   the archived column stays NULL, which is all the source can supply. This is outside the lock-order
+   brief and is fixed only because `executeArchive` could not be exercised at all until it was, and
+   an untested reorder is not a proved one.
+
+New `tests/integration/k071-archive-delete-order.int.test.ts` seeds the load-bearing shape (a
+reconciled bank line REFERENCING a pre-cutoff posted journal line — without that FK edge the old
+order archives cleanly and the bug is invisible) and drives the real `executeArchive`. Mutation-
+proved with a file copy: moving the `gl_journal_lines` delete back above the bank delete fails it
+with `23503`, naming the constraint.
+
+### Findings not recovered
+
+The review file was lost with the scratchpad before this round read it. The HIGH was reproduced in
+the task brief and is dispositioned above. **The 2 MEDIUM and 3 LOW were not recovered and are not
+dispositioned here** — their text is gone, and nothing in `green.log`, `red.log` or this file
+identifies them. They are not disputed and not deferred; they are unread. A fresh review will
+re-find them, and that is the only honest way to close them.
+
+**Tests this round.** New `tests/integration/k071-void-lock-order.int.test.ts` (2, real DB),
+`tests/integration/k071-archive-delete-order.int.test.ts` (1, real DB),
+`tests/unit/services/ar/customerPaymentLockOrder.test.ts` (new); `+` cases in
+`supplierPaymentVoid.test.ts`, `supplierPaymentWorkflowService.test.ts`, `paymentVoidService.test.ts`
+and `bank/bankAllocationUnwind.test.ts`. Full unit suite **9,516 passed / 234 skipped / 0 failed**
+with the fixture env UNSET; **37 integration tests passed** over the branch's ten files on the real
+PostgreSQL fixture. `tsc --noEmit` clean; `eslint` 0 errors (11 pre-existing warnings, none in a
+touched file); `agent-docs:check` 74 mirrors match.
+
+**Migration.** None, this round or any other on this branch.
+
+**Historical-data impact.** The lock-order changes correct nothing already written: a deadlock aborts
+its transaction, so no production row is wrong because of the old order — the damage was availability
+and a 500 shown to a user whose only mistake was arriving at the same instant as somebody else. The
+two archive defects are different: `executeArchive` has never completed a run on this schema, so
+there is no partially-archived data to repair, and `archive_runs` is the record of it. Read-only
+detection (production, never run from here):
+
+```sql
+-- Archive runs that failed, and the window each was trying to clear.
+SELECT id, cutoff_date, status, started_at, completed_at
+FROM archive_runs WHERE company_id = $1 AND status <> 'completed' ORDER BY started_at DESC;
+```
+
+**Limits.** Still open and named, not fixed: `archiveExecutionService` deletes `gl_journal_entries`
+but never the `{customer,supplier}_payments` that reference them, and that FK is NO ACTION too — so
+a pre-cutoff journal carrying a payment document still violates whatever the delete order. Widening
+what archive covers is a scope change, not a lock fix. The `evidenceAttachmentService` and
+`duplicateMergeService` reorders are proved by the census and by `tsc`/the unit suite, not by an
+interleaved-client deadlock test of their own; the outcome measurements this round are on the
+supplier void and on the archive path.
