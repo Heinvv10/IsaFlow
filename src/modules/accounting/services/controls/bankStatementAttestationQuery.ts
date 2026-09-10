@@ -22,15 +22,19 @@ export async function queryVerifiedBankStatements(ctx:ControlTx,cutoff:string|nu
    WHERE decision.company_id=i.company_id AND decision.approval_id=a.id AND decision.decision='approved'
     AND decision.person_id<>i.requester_person_id) AS independent_decision
   FROM control_bank_statement_attestation_intents i
-  JOIN control_operation_effects e ON e.company_id=i.company_id AND e.entity_type='bank_statement_attestation_intent'
-   AND lower(e.entity_id)=i.id::text AND e.operation='bank_statement.attest'
+  JOIN LATERAL(SELECT ce.* FROM control_operation_effects ce WHERE ce.company_id=i.company_id
+    AND ce.entity_type='bank_statement_attestation_intent' AND lower(ce.entity_id)=i.id::text AND ce.operation='bank_statement.attest'
+    ORDER BY (EXISTS(SELECT 1 FROM control_operation_approvals ca WHERE ca.company_id=ce.company_id AND ca.consumed_effect_id=ce.id AND ca.status='consumed')) DESC,
+     (ce.entity_id=i.id::text) DESC,ce.committed_at,ce.id LIMIT 1) e ON true
   LEFT JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
    AND a.operation_id=e.operation_id AND a.entity_type=e.entity_type AND lower(a.entity_id)=lower(e.entity_id) AND a.operation=e.operation
    AND a.requester_person_id=i.requester_person_id
   JOIN companies c ON c.id=i.company_id
   LEFT JOIN gl_accounts b ON b.company_id=i.company_id AND b.id=i.bank_account_id
   LEFT JOIN captured_documents d ON d.company_id=i.company_id AND d.id=i.source_document_id
-  LEFT JOIN control_entity_versions v ON v.company_id=i.company_id AND v.entity_type='bank_statement_attestation_intent' AND lower(v.entity_id)=i.id::text
+  LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=i.company_id
+    AND cv.entity_type='bank_statement_attestation_intent' AND lower(cv.entity_id)=i.id::text
+    ORDER BY cv.version DESC,(cv.entity_id=i.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND (${cutoff}::date IS NULL OR i.period_end<=${cutoff}::date)
   ORDER BY i.id,e.id LIMIT 10001` as ReviewRow[];
  const evidence=await scanCapturedEvidence(ctx,rows.length>10000?[]:rows.map(row=>row.document_id),'read:bank-tx');
