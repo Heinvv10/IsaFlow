@@ -24,10 +24,10 @@ import { refusesUnattendedApproval } from '@/modules/accounting/services/core/un
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
-import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
-import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
-import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
-import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
+import {
+  runCapturePostFollowUps,
+  type PublishedDecision,
+} from '@/modules/accounting/services/capture/capturePostFollowUps';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
@@ -237,75 +237,23 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
 
-  // Link document and mark event posted. `status` is not stamped here any more
-  // — the claim above already settled it, and writing it twice was what made
-  // the lifecycle column look like the fence.
-  await sql`
-    UPDATE captured_documents
-    SET matched_invoice_id = ${invoice.id as string}::uuid
-    WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `;
-
-  await sql`
-    UPDATE capture_events
-    SET status = 'posted', posted_by = ${userId}, posted_at = NOW(), updated_at = NOW()
-    WHERE id = ${eventId}::uuid AND company_id = ${companyId}
-  `;
-
   // Record coding for the learning loop (both auto_publish and route_review paths).
   // At this point gateDecision is guaranteed to be auto_publish | route_review
   // (duplicate_blocked returned early above).
-  const publishedDecision = gateDecision as
-    | { outcome: 'auto_publish'; reason: string; rule: import('@/modules/accounting/services/capture/supplierRulesService').SupplierRule }
-    | { outcome: 'route_review'; reasons: string[]; rule: import('@/modules/accounting/services/capture/supplierRulesService').SupplierRule | null };
-  const codingRule = publishedDecision.rule;
-  await recordCoding(companyId, {
-    supplierId: supplierMatch.supplierId,
-    supplierInvoiceId: invoice.id as string,
-    glAccountId: codingRule?.defaultGlAccountId ?? null,
-    vatCode: codingRule?.defaultVatCode ?? extracted.vendorVatNumber ?? null,
-    costCentreId: codingRule?.defaultCostCentreId ?? null,
-    projectId: codingRule?.defaultProjectId ?? null,
-    postedBy: `human:${userId}`,
-  });
-
-  log.info('Capture event posted', {
-    eventId, documentId, invoiceId: invoice.id,
-    supplier: supplierMatch.supplierName,
-    gateOutcome: gateDecision.outcome,
-  }, 'capture-post');
-
-  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking)
-  let provisionalAttach: { attachedJeId: string | null; bankTxId: string | null } = { attachedJeId: null, bankTxId: null };
-  try {
-    provisionalAttach = await attachEvidenceToProvisional(
-      companyId,
-      documentId,
-      supplierMatch.supplierId,
-      invoiceInput.totalAmount,
-      invoiceInput.invoiceDate,
-    );
-  } catch (attachErr) {
-    log.warn('Evidence attach to provisional JE failed — continuing', { eventId, error: attachErr }, 'capture-post');
-  }
-
-  // Best-effort alert resolution — non-blocking
-  resolvePendingAlertForInvoice(
+  const publishedDecision = gateDecision as PublishedDecision;
+  const { provisionalAttach, threeWayMatch } = await runCapturePostFollowUps({
     companyId,
-    supplierMatch.supplierId,
-    invoice.id as string,
-    invoiceInput.invoiceDate,
-  ).catch((err: unknown) => {
-    log.warn('resolvePendingAlertForInvoice failed (non-blocking)', { invoiceId: invoice.id, error: err }, 'capture-post');
+    userId,
+    eventId,
+    documentId,
+    invoiceId: invoice.id as string,
+    supplierId: supplierMatch.supplierId,
+    supplierName: supplierMatch.supplierName,
+    vendorVatNumber: extracted.vendorVatNumber,
+    totalAmount: invoiceInput.totalAmount,
+    invoiceDate: invoiceInput.invoiceDate,
+    decision: publishedDecision,
   });
-
-  // Run 3-way match if the invoice has a linked PO; non-blocking on error
-  let threeWayMatch: Awaited<ReturnType<typeof performThreeWayMatch>> | null = null;
-  try {
-    threeWayMatch = await performThreeWayMatch(companyId, invoice.id as string);
-  } catch (matchErr) {
-    log.error('3-way match failed post-capture-post — continuing', { invoiceId: invoice.id, error: matchErr }, 'capture-post');
-  }
 
   if (publishedDecision.outcome === 'route_review') {
     return apiResponse.success(res, {
