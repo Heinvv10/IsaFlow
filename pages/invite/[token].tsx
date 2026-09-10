@@ -31,6 +31,7 @@ const ROLE_LABELS: Record<string, string> = {
 export default function InvitePage() {
   const router = useRouter();
   const { token } = router.query as { token?: string };
+
   const [pageState, setPageState] = useState<PageState>('loading');
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);

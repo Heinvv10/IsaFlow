@@ -5,8 +5,8 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
-import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
+import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withUserAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
@@ -20,10 +20,6 @@ type Row = Record<string, unknown>;
  * We still parse and reject unexpected keys to prevent prototype-pollution / confusion.
  */
 const PostBody = z.object({}).strict();
-
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
 
 
 function maskEmail(email: string): string {
@@ -41,7 +37,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Token is required');
   }
 
-  const tokenHash = hashToken(token);
+  const tokenHash = hashInviteToken(token);
 
   const rows = (await sql`
     SELECT
@@ -90,7 +86,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Look up the invitation using the hashed token
-  const tokenHash = hashToken(token);
+  const tokenHash = hashInviteToken(token);
   const rows = (await sql`
     SELECT id, company_id, email, role
     FROM company_invitations

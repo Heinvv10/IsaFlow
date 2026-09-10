@@ -125,3 +125,61 @@ FROM company_invitations ci
 JOIN users u ON lower(u.email) = lower(ci.email) AND u.id <> ci.gotrue_user_id::text
 WHERE ci.accepted_at IS NULL AND ci.gotrue_user_id IS NOT NULL;
 ```
+
+**Round-5 dispositions (0 HIGH; 3 MEDIUM, 7 LOW).**
+- *M1 — `profileName()`'s 255 cap split a UTF-16 surrogate pair, so an astral name
+  reached Postgres as `22021 invalid byte sequence` and 500ed AFTER the password was set.*
+  Fixed: the cap counts code points (`[...trimmed].slice(0, 255).join('')`). VARCHAR(255)
+  counts characters, so 255 astral code points still fit.
+- *M2 — the `users`-row discriminator misses an unconfirmed `register.ts` signup: the pending
+  registration's password was overwritten and `signIn` then failed `email_not_confirmed`,
+  answering 500 on every retry.* Fixed: the new-invitee branch patches
+  `email_confirm: true` alongside the password. `adminCreateUser` returns early on a 422 and
+  never applies the flag `POST /api/invitations` passes it, so this is not redundant. Holding
+  the invitation link is the same mailbox proof the verification mail asks for. **The round-3
+  L2 disposition recorded above is wrong on its premise and is withdrawn.**
+- *M3 — 662 collides with `662_forensic_export_delivery.sql` on unmerged branches.* NOT taken,
+  by explicit instruction: K-041 keeps 662 and the forensic branch renames at merge time.
+  Renumbering again would force re-proving the multi-prefix idempotency guard added for
+  round-4 M1, which is the more expensive thing to get wrong. The guard is what makes either
+  order safe.
+- *L1 — 662 was edited in place under a name this branch had already applied.* Real, and NOT
+  cleared by a renumber now that M3 is declined. Remedy for any developer DB that ran
+  `bun run db:migrate` against `98c54f883`, before this branch is applied again:
+  `DELETE FROM schema_migrations WHERE name = '662_invite_token_encoding_retire_stale.sql';`
+  `origin/master` has never carried the file under any number, so production is unaffected.
+- *L2 — the concurrent loser of the `users_email_key` race got an opaque 500.* Fixed: the 409
+  is answered from the 23505 itself (`code === '23505' && constraint === 'users_email_key'`),
+  and the pre-check `SELECT` that could not close the window is deleted. One mechanism, no
+  race, one fewer round-trip on every accept.
+- *L3 — three sha256 helpers in the module that exists to be the single one.* Fixed:
+  `pages/api/invite/[token].ts` and `userInvitationService.ts` import `hashInviteToken`; both
+  local copies deleted.
+- *L4 — whitespace-only edits.* Reverted in `pages/login.tsx` and `pages/invite/[token].tsx`.
+- *L5 — 508-line test file against the 300-line ceiling.* Fixed: fixture and GoTrue stub moved
+  to `tests/integration/k-041-invite-accept.helpers.ts` (254), rounds 1-3 stay in the original
+  file (230), rounds 4-6 in `k-041-invite-accept-adjacent.int.test.ts` (191).
+- *L6 — wrong path in the 663 header.* Fixed: `scripts/apply-migrations.ts`.
+- *L7 — the ten-attempt budget was charged to non-guesses.* Fixed: `refundRateLimit(key, units)`
+  hands the units back on the two verdicts reachable only AFTER `signIn` has succeeded
+  (`IDENTITY_MISMATCH`, `EMAIL_IN_USE`). Nothing an unauthenticated caller can reach is
+  refunded — a wrong password, a GoTrue outage and a 429 all still cost 2 — so the counter
+  cannot be spent down into a free-attempt loop. `GREATEST(count - cost, 0)` floors it and
+  leaves `window_start` alone, so a refund can never extend a window.
+
+**Round-5 tests.** 6 integration files / 34 tests green on the fixture DB. New:
+`tests/integration/k-041-invite-accept-adjacent.int.test.ts` — 6 tests, three of them new
+(astral name cut on a code point with no lone surrogate; `email_confirm: true` in the
+new-invitee admin patch; `IDENTITY_MISMATCH` refunded to zero), plus the `EMAIL_IN_USE`
+case now asserting its refund. Full unit suite with `DATABASE_URL` unset: 9438 passed /
+234 skipped, 792 files. Mutation-proved (green.log): reverting the code-point cap, deleting
+`email_confirm`, letting 23505 escape, and deleting both `refund()` calls each turn the
+matching test RED.
+
+**Round-5 historical impact.** None new; no schema or data change. M1 and M2 could only ever
+have produced 500s — no row was written wrongly by either. L7's population is
+`rate_limit_counters` rows that will expire on their own within the hour.
+
+**Round-5 limits.** `refundRateLimit`'s zero floor is not itself exercised by a test: no
+production path refunds twice, so the only way to reach it is a contrived call. The floor is
+`GREATEST(count - cost, 0)` in one statement and visible in the diff.
