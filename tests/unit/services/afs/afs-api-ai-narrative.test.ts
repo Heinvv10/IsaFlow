@@ -51,9 +51,9 @@ import { ReviewError } from '@/modules/accounting/services/afs/afsReviewService'
 // @ts-ignore — pages/ is outside src/ so relative path required
 import handler from '../../../../pages/api/accounting/afs/[documentId]/sections/[sectionId]/ai-narrative';
 
-const COMPANY_ID  = 'ccc11111-0000-0000-0000-000000000001';
-const DOCUMENT_ID = 'ddd22222-0000-0000-0000-000000000002';
-const SECTION_ID  = 'sss33333-0000-0000-0000-000000000003';
+const COMPANY_ID  = '11111111-1111-4111-9111-111111111111';
+const DOCUMENT_ID = '22222222-2222-4222-9222-222222222222';
+const SECTION_ID  = '33333333-3333-4333-9333-333333333333';
 
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 
@@ -69,7 +69,7 @@ function makeReq(method: 'POST' | 'PUT' = 'POST'): NextApiRequest {
     query:     { documentId: DOCUMENT_ID, sectionId: SECTION_ID },
     body:      {},
     companyId: COMPANY_ID,
-    user:      { id: 'uuu44444-0000-0000-0000-000000000004' },
+    user:      { id: '44444444-4444-4444-9444-444444444444' },
   } as unknown as NextApiRequest;
 }
 
@@ -123,6 +123,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/ai-narrative', () => {
         fiscal_year: 2025,
         ai_prompt_template: 'Write a note about {tables}',
       }] as never)
+      .mockResolvedValueOnce([{ content: MOCK_CONTENT }] as never) // re-read under the lock
       .mockResolvedValueOnce([] as never); // UPDATE
 
     vi.mocked(generateNoteNarrative).mockResolvedValueOnce('AI generated text.');
@@ -150,6 +151,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/ai-narrative', () => {
         fiscal_year: 2023,
         ai_prompt_template: 'template',
       }] as never)
+      .mockResolvedValueOnce([{ content: MOCK_CONTENT }] as never) // re-read under the lock
       .mockResolvedValueOnce([] as never);
 
     vi.mocked(generateNoteNarrative).mockResolvedValueOnce('narrative');
