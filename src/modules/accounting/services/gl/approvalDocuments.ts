@@ -16,7 +16,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ApprovalRequest, ApprovalRule, DocumentType } from './approvalService';
 import { checkApproval as checkApprovalRules, mapRequest } from './approvalMatching';
-import { ApprovalNotRequiredError, ApprovalRuleNotFoundError } from './approvalAuthority';
+import { ApprovalNotRequiredError, ApprovalRuleNotFoundError, requiredRank } from './approvalAuthority';
 
 /** The id names no document of that type in this company. */
 export class ApprovalDocumentNotFoundError extends Error {
@@ -105,14 +105,25 @@ export async function resolveApprovalDocument(
 }
 
 /**
- * Bring a pending request back onto the rule the CURRENT facts choose.
+ * Bring a pending request onto the rule the CURRENT facts choose — but only
+ * ever UPWARDS.
  *
  * Returning the existing row unconditionally let the FIRST request for a
  * document pin its authority permanently: one raised under a laxer rule stayed
  * governed by that rule even when the document's own amount, re-resolved, chose
- * a stricter one. Re-binding is safe because both inputs are now server-derived
- * — the caller cannot move them — and it is the same binding a fresh request for
- * the document would get.
+ * a stricter one. Re-binding in BOTH directions was the inverse of that defect,
+ * and the worse half: the requester does not have to touch the document to
+ * change which rule today's facts choose, because rule authority deliberately
+ * lets them edit any rule at or below their own rank. An admin facing an
+ * admin-only request of their own raised that rule's `condition_value` out of
+ * range (or deactivated it), re-POSTed, and the pending row moved to the
+ * `manager any` rule beside it — a manager then cleared their R500 000 bill.
+ *
+ * So: new facts may make a pending request STRICTER; nothing may make it laxer.
+ * The comparison is against `requiredRole`, the snapshot taken when the request
+ * was raised, not against the bound rule's live role — the live role is itself
+ * editable downwards by the same actor (approvalAuthority takes the higher of
+ * the two for the same reason).
  */
 export async function rebindPendingRequest(
   companyId: string,
@@ -123,13 +134,23 @@ export async function rebindPendingRequest(
   // No active rule governs the document now. The pending request keeps the
   // authority it was raised under rather than being silently freed.
   if (!matched) return existing;
-  if (existing.ruleId === matched.id && Number(existing.amount ?? 0) === document.amount) return existing;
+  // checkApproval fills `requiredRole` from the bound rule for rows raised
+  // before migration 669, so this is never a free pass. It stays NULL only where
+  // no rule of this company is bound at all — and the decide path demands the
+  // 'admin' column default for exactly those, so the floor is the same one.
+  const currentRole = existing.requiredRole ?? 'admin';
+  if (requiredRank(matched.approverRole) < requiredRank(currentRole)) return existing;
+  if (existing.ruleId === matched.id && Number(existing.amount ?? 0) === document.amount
+      && existing.requiredRole === matched.approverRole) {
+    return existing;
+  }
 
   const rows = (await sql`
     UPDATE approval_requests SET
       rule_id = ${matched.id}::UUID,
       amount = ${document.amount}::NUMERIC,
-      document_reference = ${document.reference}::TEXT
+      document_reference = ${document.reference}::TEXT,
+      required_role = ${matched.approverRole}::TEXT
     WHERE id = ${existing.id}::UUID AND company_id = ${companyId} AND status = 'pending'
     RETURNING *
   `) as Row[];
@@ -181,10 +202,10 @@ export async function requestApproval(companyId: string, input: {
   // `is_active` is re-checked because checkApproval only considered active rules:
   // one deactivated in between must not be bound to a new request.
   const insert = async () => (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by)
+    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role)
     SELECT ${companyId}::UUID, rl.id, ${input.documentType}::TEXT, ${input.documentId}::UUID,
            ${document.reference}::TEXT, ${document.amount}::NUMERIC,
-           ${input.requestedBy}::UUID
+           ${input.requestedBy}::UUID, rl.approver_role
     FROM approval_rules rl
     WHERE rl.id = ${matchedRule.id}::UUID AND rl.company_id = ${companyId} AND rl.is_active = true
     RETURNING *

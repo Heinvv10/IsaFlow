@@ -107,6 +107,7 @@ export async function assertMayDecide(
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
            ar.rule_id,
+           ar.required_role,
            rl.id AS resolved_rule_id,
            rl.approver_role,
            cu.role AS decider_role
@@ -146,12 +147,29 @@ export async function assertMayDecide(
     );
   }
 
+  // The demand RATCHETS: the higher of the role the request was raised under
+  // (`required_role`, migration 669) and the bound rule's role today.
+  //
+  // Reading the live rule alone made this guard worth only what the write path
+  // to the rule is worth, and rule authority deliberately lets an actor edit any
+  // rule at or below their own rank. An admin facing an admin-only request of
+  // their OWN therefore had two ways to hand it to a manager: lower the bound
+  // rule's approver_role, or push the rule out of the candidate set and re-POST
+  // so the request rebound to a laxer one. Taking the maximum closes both, and
+  // still lets a policy change apply to everything raised after it.
+  //
+  // A row from before 669 carries no snapshot and is governed by the live rule
+  // exactly as it always was.
   const ruleRole = row.approver_role != null ? String(row.approver_role) : 'admin';
+  const snapshotRole = row.required_role != null ? String(row.required_role) : null;
+  const demandedRole = snapshotRole != null && requiredRank(snapshotRole) > requiredRank(ruleRole)
+    ? snapshotRole
+    : ruleRole;
   const userRole = String(row.decider_role);
-  if (actorRank(userRole) < requiredRank(ruleRole)) {
+  if (actorRank(userRole) < requiredRank(demandedRole)) {
     throw new ApprovalDecisionError(
       'APPROVER_ROLE_REQUIRED',
-      `This approval requires the ${ruleRole} role`
+      `This approval requires the ${demandedRole} role`
     );
   }
 }

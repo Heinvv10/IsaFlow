@@ -12,7 +12,7 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withSavepoint } from '@/lib/neon';
-import { listRules, createRule, updateRule, deleteRule, CONDITION_OPERATORS, ApprovalRoleInvalidError, ApprovalOperatorInvalidError } from '@/modules/accounting/services/gl/approvalService';
+import { listRules, createRule, updateRule, deleteRule, CONDITION_OPERATORS, ApprovalRoleInvalidError, ApprovalOperatorInvalidError, ApprovalFieldInvalidError } from '@/modules/accounting/services/gl/approvalService';
 import { ApprovalRuleNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { ApprovalRuleAuthorityError, type RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 import { isUuidParam } from '@/lib/validation';
@@ -42,11 +42,18 @@ function isForeignKeyViolation(error: unknown): boolean {
 }
 
 /**
- * Every mutation maps the same four outcomes. The service is the one place that
+ * Every mutation maps the same outcomes. The service is the one place that
  * validates, so the route only has to translate.
+ *
+ * `onDelete` gates the foreign-key arm alone: 23503 on a DELETE is the rule
+ * being in use, but the same code on a CREATE or an UPDATE is a different
+ * violation entirely (`company_id`, say), and answering it with "this rule has
+ * approval requests recorded against it and cannot be deleted" told the caller
+ * about an operation they did not perform.
  */
-function respondToRuleWriteError(res: NextApiResponse, error: unknown): boolean {
-  if (error instanceof ApprovalRoleInvalidError || error instanceof ApprovalOperatorInvalidError) {
+function respondToRuleWriteError(res: NextApiResponse, error: unknown, onDelete = false): boolean {
+  if (error instanceof ApprovalRoleInvalidError || error instanceof ApprovalOperatorInvalidError
+      || error instanceof ApprovalFieldInvalidError) {
     apiResponse.badRequest(res, error.message);
     return true;
   }
@@ -58,7 +65,7 @@ function respondToRuleWriteError(res: NextApiResponse, error: unknown): boolean 
     apiResponse.notFound(res, error.message);
     return true;
   }
-  if (isForeignKeyViolation(error)) {
+  if (onDelete && isForeignKeyViolation(error)) {
     apiResponse.badRequest(res, 'This rule has approval requests recorded against it and cannot be deleted. Deactivate it instead.');
     return true;
   }
@@ -125,7 +132,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!deleted) return apiResponse.notFound(res, `Approval rule ${id} not found for this company`);
       return apiResponse.success(res, { deleted: true });
     } catch (error) {
-      if (respondToRuleWriteError(res, error)) return;
+      if (respondToRuleWriteError(res, error, true)) return;
       throw error;
     }
   }
