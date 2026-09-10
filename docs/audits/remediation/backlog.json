@@ -10959,6 +10959,73 @@
       "severity": "low",
       "source": "Reserved by the R-059 fixer, 2026-09-10. A 30-day window was found in the file on origin/master by the orchestrator; the missing upper bound itself is the fixer's finding.",
       "processNotes": "Residual left by R-059, which fixed getWipAging and getRevenuePipeline.totalApproved on the same as-at class. Fix: bound the window above by the as-of date, as the rest of R-059 does."
+    },
+    {
+      "id": "R-073",
+      "claim": "",
+      "area": "accounting/practice",
+      "affectedPaths": [
+        "pages/api/accounting/practice/client-contacts.ts",
+        "src/modules/accounting/services/practice/practiceClientService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Same class as R-067 (a caller-supplied parent id written without checking it belongs to the caller's company), but the parent is practice_clients, not customers, so it is outside R-067's scope. Severity provisional until reachability is measured.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-067"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-067/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Impact SQL belongs in the fix's fix.md.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Practice client-contacts POST writes body.clientId (practice_clients) with no company fence",
+      "severity": "medium",
+      "source": "Found by the R-067 round-3 fixer; confirmed on origin/master by the orchestrating session: createClientContact (practiceClientService.ts:245-260) INSERTs body.clientId into practice_client_contacts with no check that the practice_clients row belongs to companyId.",
+      "processNotes": "R-067 round 3 (a14efbacc) census row: body.clientId in the practice client-contacts POST is written unchecked. Fix: fence practice_clients ownership before the first write, as R-067 does for customers. The inserted row carries the caller's company_id, and listClientContacts is company-scoped, so the observed effect is a contact row pointing at another company's practice client (an integrity breach); disclosure through a join on client_id has not been measured."
+    },
+    {
+      "id": "R-074",
+      "claim": "",
+      "area": "accounting/reporting",
+      "affectedPaths": [
+        "src/modules/accounting/services/shared/agingRewind.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Wrong as-at ageing only for the single day a credit note is cancelled; every service and (after R-059) every route uses this helper, so the error propagates to all as-at ageing on that day.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-059"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-059/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Impact SQL belongs in the fix's fix.md.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "agingRewind treats a credit note cancelled ON the as-at day as still in force",
+      "severity": "medium",
+      "source": "Found and measured by the R-059 round-1 blind reviewer on isaflow_dev: ageing as at the cancellation day reads 2450 against a correct 2650.",
+      "processNotes": "Boundary defect in the cancelled-credit-note condition of the shared rewind (likely a < vs <= on the cancellation timestamp against the as-at day). Outside R-059's diff; registered separately so R-059 does not widen."
     }
   ],
   "sourceInventory": [
