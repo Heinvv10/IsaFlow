@@ -1,0 +1,9 @@
+# Original index conversion service
+
+Owner conversion_service. Exact base `600de7e4b`; isolated branch `feat/mcp-original-index-conversion-20260910`. Own new `auditSnapshotIndexConversion.ts`, its unit and real PostgreSQL tests, and this evidence file. Root owns v2 comparison contract, intent reader integration, publication wiring, row writer and migration 673.
+
+The baseline has no worker capable of retaining a missing original index for an independently authorized comparison requester. Existing companion conversion requires an original index; rebuilding only companion metadata cannot satisfy complete retained evidence. Conversion must run with an issued comparison lease, revalidate current saved source authority, verify the original retained seal plus every exact retained artifact, preserve pinned v1 hashes, build the full index, and retain it under the current builder lineage. Existing indexes must authenticate and have complete item/chunk population; corruption must refuse rather than rebuild.
+
+Tests first: forged lease; valid saved source membership; second same-company requester; missing/corrupt artifact rollback; original protected bytes unchanged; existing complete index reused; corrupt existing index refused; exact unique conflict converted to retryable 40001 only. Real fixture originals must come from the actual snapshot worker before synthetic index removal. Fixed-order source locks and enclosing worker savepoint remain caller responsibilities; conversion does not commit or start foreground work.
+
+2026-09-10: focused baseline unit `bun run test:unit -- tests/unit/services/controls/auditSnapshotIndexConversion.test.ts` terminal 1, one failure: missing implementation module. This establishes the absent API only, not runtime behavior. Awaiting root-frozen v2 authority helper and row-writer dependency before behavior test runs and PostgreSQL resource lease.
