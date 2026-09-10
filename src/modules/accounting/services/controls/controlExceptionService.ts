@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {UUID_RE} from '@/lib/validation';
 import {als} from '@/lib/als';
 import {withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -24,6 +25,7 @@ async function decision(ctx:ControlTx,row:ExceptionRow,action:string,detail:unkn
 export async function captureControlExceptions(ctx:ControlTx,input:unknown){
  const parsed=parseExceptionCheck(input);
  return mutation(ctx,async()=>{
+  await assertEffectivePermission(ctx,'write:approvals');
   const result=await runExceptionCheck(ctx,parsed),ids:string[]=[];
   for(const finding of [...result.findings].sort((a,b)=>a.key<b.key?-1:a.key>b.key?1:0)){
    const inserted=await ctx.sql`INSERT INTO control_exceptions(company_id,id,check_id,finding_key,cutoff,check_version,finding,severity,status,version,reporter_person_id,occurrence_count)
@@ -59,8 +61,12 @@ export async function listControlExceptions(ctx:ControlTx,value:unknown){
   AND (${input.cursor??null}::uuid IS NULL OR id>${input.cursor??null}::uuid) ORDER BY id LIMIT ${limit+1}` as ExceptionRow[];
  return{exceptions:rows.slice(0,limit).map(exceptionView),nextCursor:rows.length>limit?rows[limit-1]!.id:null};
 }
-async function transition(ctx:ControlTx,id:string,version:number){
+export async function authorizeControlExceptionTransition(ctx:ControlTx,id:string):Promise<void>{
+ assertControlTx(ctx);if(typeof id!=='string'||!UUID_RE.test(id))throw new Error('Invalid exception ID');
  const initial=await load(ctx,id);await assertExceptionReadPermission(ctx,exceptionCheckId(initial.check_id));await assertEffectivePermission(ctx,'write:approvals');
+}
+async function transition(ctx:ControlTx,id:string,version:number){
+ await authorizeControlExceptionTransition(ctx,id);
  const row=await load(ctx,id,true);if(row.version!==version)throw new Error('Exception version changed');
  if(row.status==='fixed')throw new Error('Exception already fixed');return row;
 }

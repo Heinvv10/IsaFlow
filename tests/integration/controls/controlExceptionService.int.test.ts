@@ -114,10 +114,12 @@ it('captures every finding through explicit bounded pages and lists without crea
  const tail=await actor(ctx=>listControlExceptions(ctx,{checkId,limit:100,cursor:page.nextCursor!}));expect(tail.exceptions).toHaveLength(1);
  const count=await pool.query('SELECT count(*)::int AS count FROM control_exception_occurrences WHERE company_id=$1',[fixture.companyA]);expect(count.rows[0].count).toBe(101);
 });
-it('captures with report/source read authority without granting the ability to decide',async()=>{
- await seed();await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u1.id]);
- const result=await actor(ctx=>captureControlExceptions(ctx,{checkId}));expect(result.observedCount).toBe(1);
- await expect(actor(ctx=>assignControlException(ctx,{exceptionId:result.exceptionIds[0],expectedVersion:1,ownerPersonId:fixture.u1.id,dueAt:null}))).rejects.toThrow(/permissions/);
+it('retains viewer read access but refuses capture and decision without write authority',async()=>{
+ const id=await observed();await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u1.id]);
+ expect((await actor(ctx=>listControlExceptions(ctx,{checkId}))).exceptions[0]?.id).toBe(id);
+ await expect(actor(ctx=>captureControlExceptions(ctx,{checkId}))).rejects.toThrow(/permissions/);
+ await expect(actor(ctx=>assignControlException(ctx,{exceptionId:id,expectedVersion:1,ownerPersonId:fixture.u1.id,dueAt:null}))).rejects.toThrow(/permissions/);
+ expect((await pool.query('SELECT count(*)::int AS count FROM control_exception_occurrences WHERE company_id=$1',[fixture.companyA])).rows[0].count).toBe(1);
 });
 it('keeps fixed blocked when the observed rule differs from the current server checker',async()=>{
  const data=await seed();const captured=await actor(ctx=>captureControlExceptions(ctx,{checkId}));const id=captured.exceptionIds[0]!;

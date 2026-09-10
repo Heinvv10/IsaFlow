@@ -31,3 +31,8 @@ it('passes independent human and recheck decisions only to the shared resolver',
  await expect(tool('resolve_exception').handler({exception_id:id,expected_version:1,resolution:'fixed',reason:'Synthetic',idempotency_key:'fix'},context)).rejects.toThrow('Independent');
  expect(mock.resolve).toHaveBeenCalledWith(mock.ctx,{exceptionId:id,expectedVersion:1,resolution:'fixed',reason:'Synthetic'});
 });
+it('passes omitted optional list fields through the actual shared strict parser',async()=>{
+ const {parseExceptionList}=await import('@/modules/accounting/services/controls/controlExceptionTypes');
+ mock.list.mockImplementation(async(_ctx,input)=>parseExceptionList(input));
+ await expect(tool('control_exceptions').handler({check_id:'three_way_match_exceptions'},context)).resolves.toHaveProperty('content');
+});
