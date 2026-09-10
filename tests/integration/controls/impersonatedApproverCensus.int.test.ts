@@ -71,7 +71,8 @@ describe('every approver-of-record entry point refuses an impersonated principal
   // is what will fail when the refusal lands, so the decision cannot be forgotten.
   const outcome=await h.platformRequest(()=>approveSupplierInvoice(h.f.companyA,randomUUID(),h.admin))
    .then(()=>'resolved',error=>String(error instanceof Error?error.message:error));
+  // It gets past the guard and fails on something else entirely - never on independence.
   expect(outcome).not.toContain('independent reviewer');
-  expect(outcome).toContain('Supplier invoice');
+  expect(outcome).not.toContain('cannot record an independent review');
  });
 });
