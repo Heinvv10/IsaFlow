@@ -91,7 +91,8 @@ BEGIN
   -- column is the fact that matters, not the tracking row: skip.
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'loan_reclass_postings' AND column_name = 'source'
+     WHERE table_schema = 'public'
+       AND table_name = 'loan_reclass_postings' AND column_name = 'source'
   ) THEN
     RAISE NOTICE 'loan_reclass_postings backfill skipped: migration 659 has already rebuilt this table';
     RETURN;
