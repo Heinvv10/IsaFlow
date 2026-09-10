@@ -22,7 +22,10 @@ beforeAll(async()=>{
 afterAll(async()=>{if(f)await f.close();});
 const args={cutoff:'2026-09-09',checks:['journal_risk_checks'],idempotency_key:key};
 it('enqueues one check run per check, refuses every read before publication and delivers the sealed result',async()=>{
- const [a,b]=await Promise.all([f.call<Enqueued>('run_control_checks',{...args,company_id:f.fixture.companyA}),f.call<Enqueued>('run_control_checks',args)]);
+ // Byte-identical arguments on both calls: the idempotency store hashes the request, so a differing company_id
+ // assertion is a DIFFERENT request under the same key and is refused by design.
+ const repeat={...args,company_id:f.fixture.companyA};
+ const [a,b]=await Promise.all([f.call<Enqueued>('run_control_checks',repeat),f.call<Enqueued>('run_control_checks',repeat)]);
  expect(a.runGroupId).toBe(b.runGroupId);
  expect(a.jobs.map(job=>job.id)).toEqual(b.jobs.map(job=>job.id));
  expect(a.jobs).toHaveLength(1);checkRunId=a.jobs[0]!.id;
@@ -53,10 +56,15 @@ it('enqueues one check run per check, refuses every read before publication and 
 it('refuses a foreign tenant, an oversized page, an unknown property and a forged run id',async()=>{
  // Positive control first: an unregistered tool also answers isError, so without this the refusals below pass vacuously.
  expect(await f.call<Summary>('control_check_run',{check_run_id:checkRunId})).toMatchObject({checkRunId});
- expect((await f.rpc('control_check_run_findings',{check_run_id:checkRunId,limit:100})).result?.isError).toBe(false);
+ expect((await f.call<Page>('control_check_run_findings',{check_run_id:checkRunId,limit:100})).findings.length).toBeGreaterThan(0);
  for(const tool of ['control_check_run','control_check_run_findings'])
   expect((await f.rpc(tool,{check_run_id:checkRunId},'u3')).result?.isError,`${tool} served a foreign tenant`).toBe(true);
- expect((await f.rpc('run_control_checks',{...args,idempotency_key:randomUUID()},'u3')).result?.isError).toBe(true);
+ // A member of another company may run their OWN checks; what they must never do is see this tenant's run. The
+ // job they get back is theirs, and asserting the company on the row is what proves the enqueue did not cross over.
+ const foreign=await f.call<Enqueued>('run_control_checks',{...args,idempotency_key:randomUUID()},'u3');
+ const owner=await f.pool.query('SELECT company_id FROM control_audit_job_intents WHERE id=$1',[foreign.jobs[0]!.id]);
+ expect(owner.rows[0]?.company_id).toBe(f.fixture.companyB);
+ expect((await f.rpc('run_control_checks',{...args,idempotency_key:randomUUID(),company_id:f.fixture.companyA},'u3')).result?.isError).toBe(true);
  expect((await f.rpc('control_check_run_findings',{check_run_id:checkRunId,limit:101})).result?.isError).toBe(true);
  expect((await f.rpc('control_check_run',{check_run_id:checkRunId,permissions:['read:reports']})).result?.isError).toBe(true);
  expect((await f.rpc('run_control_checks',{...args,idempotency_key:randomUUID(),permissions:['read:reports']})).result?.isError).toBe(true);
