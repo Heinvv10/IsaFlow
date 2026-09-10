@@ -10792,6 +10792,71 @@
       "severity": "high",
       "source": "Found by the orchestrating session while assessing R-066, 2026-09-10; confirmed on origin/master by reading every use of clientId.",
       "processNotes": "customer-invoices-create.ts checks only that clientId is present, then passes it to createDraftCustomerInvoice. Every use of clientId there is accounted for: the type (:27), the destructure (:54), a company-scoped PROJECT lookup (:96) whose failure is swallowed, and the INSERT (:134) writing it into both customer_id and client_id. No ownership check exists. client_id has no FK; customer_id's FK is tenant-agnostic; the RLS WITH CHECK on customer_invoices checks only the invoice's own company_id. recurringInvoiceService inserts input.clientId the same way, and its runner re-mints an invoice from that template every period. Fix: on every create/convert path, SELECT 1 FROM customers WHERE id = $clientId AND company_id = $companyId and refuse before any write. Not on any branch."
+    },
+    {
+      "id": "R-069",
+      "claim": "",
+      "area": "accounting/ap",
+      "affectedPaths": [
+        "src/modules/accounting/services/ap/supplierInvoiceService.ts",
+        "pages/api/accounting/purchase-orders.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Attaches another tenant's supplier to this tenant's bill or PO, corrupting payables and AP ageing. It becomes HIGH if any path that renders supplier details runs outside withAuth — that is the shape that made R-066 a live disclosure — which has not been checked.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-067"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-067/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Impact SQL (run as owner — RLS hides cross-tenant rows from app_user): supplier invoices and POs whose supplier row belongs to another company.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Supplier twin of R-067: bills and purchase orders accept a supplier id from any tenant, and supplierBelongsToCompany is only ever called by MCP",
+      "severity": "medium",
+      "source": "Found and reserved by the R-067 fixer, 2026-09-10; not independently verified by the orchestrator.",
+      "processNotes": "`supplierBelongsToCompany` already exists and only the MCP layer calls it — the same shape as R-067, where `customerBelongsToCompany` existed and only MCP used it. Entry points named by the R-067 fixer: `ap/supplierInvoiceService.ts:144` and `pages/api/accounting/purchase-orders.ts:42`. Fix as R-067 did: one shared fence called before the first write, an absent id allowed, the read savepointed. Not fixed — outside R-067's scope."
+    },
+    {
+      "id": "R-070",
+      "claim": "",
+      "area": "accounting/ar",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/quoteService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Under RLS as app_user the read is scoped and nothing leaks. On a path that runs as the connection superuser — the customer-portal routes are the known ones — it would take the maximum across all tenants, revealing another tenant's quote volume in a number and creating gaps in this tenant's sequence.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-067/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None to data. Quote numbers may have gaps if a superuser path ever reached it; production not measured.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "nextQuoteNumber reads customer_quotes with no company_id filter, so a superuser path numbers a quote from another tenant's sequence",
+      "severity": "low",
+      "source": "Noted by the R-067 fixer, 2026-09-10; confirmed on origin/master by the orchestrating session.",
+      "processNotes": "`quoteService.ts` `nextQuoteNumber()` selects from `customer_quotes` without `company_id`. Every other numbering path in the repo scopes by company. Fix: add the predicate. Pre-existing and unrelated to R-067; not fixed there."
     }
   ],
   "sourceInventory": [
