@@ -10284,6 +10284,39 @@
       "severity": "high",
       "source": "Found while investigating why K-015's local CI failed on a PR GitHub reported green; recorded 2026-09-10",
       "processNotes": "scripts/ci/run-ci.sh defines 16 gates. .github/workflows/ci.yml runs only FIVE of them: agent-docs, type-check, lint, user-id-casts, unit-tests (plus the separate Golden Paths job). NEVER run on GitHub: security-guards, is-active-filters, raw-transactions, vat-guard-coverage, self-defining-universe, findings-numbering, migration-rls, component-tests, migration-naming, integration-tests, build. Several of those are financial-integrity guards this very programme wrote -- is-active-filters, vat-guard-coverage, migration-rls, migration-naming. They fire only when a human or agent runs `bun run ci` locally. PROVEN, not theorised: K-015 at 57779e48d fails `is-active-filters` locally (a balance query filtering is_active, which would hide a real opening-balance residual) while GitHub reports 'Type Check, Lint & Test: SUCCESS' and 'Golden Paths E2E: SUCCESS' and the PR shows mergeStateStatus CLEAN. Only the branch being a DRAFT stopped it being mergeable. This is the same family as R-041 (migration warnings printed into a void): a guard exists, is believed to be running, and is not. It also explains how defects of the audited classes reached master in the first place. HEIN: the cheap fix is to make the GitHub job run `bun run ci` (or the gate subset that does not need a database) rather than five hand-listed steps that drift from run-ci.sh every time a gate is added."
+    },
+    {
+      "id": "R-053",
+      "claim": "",
+      "area": "accounting/core",
+      "affectedPaths": [
+        "archiveExecutionService"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A feature believed to run has never run, and its remaining FK gap blocks it even once reordered.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-071"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-071/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Nothing archived, ever. No data lost; no retention obligation met either.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "executeArchive has never completed a run: it selects a currency column customer_invoices does not have, and its delete order violates a live FK",
+      "severity": "high",
+      "source": "Measured by the K-071 fixer while rebuilding the module lock-order table; recorded 2026-09-10",
+      "processNotes": "Two defects in archiveExecutionService, both measured on the fixture, both pre-existing: (1) step 4 selects `currency` from customer_invoices, which has no such column, so executeArchive raises 42703 for EVERY company -- the archive feature has never completed a run on this schema. Third 'never worked' finding of this programme after R-050 (validateMigration) and portalService's 42703. (2) its delete order violated bank_transactions_matched_journal_line_id_fkey on exactly the pair it archives; the canonical lock order turned out to be the FK-safe order too. Reordered. STILL OPEN and NOT fixed: archive deletes gl_journal_entries but never the payments referencing them (NO ACTION), so that FK still violates whatever the order. Widening archive's coverage is a scope change and needs its own item -- this is that item. The K-071 fixer fixed (1) only because the reorder was otherwise untestable, and flagged it as outside its brief. HEIN: nothing has been archived, so no data was lost; but any retention or archiving obligation believed to be met by this feature has not been."
     }
   ],
   "sourceInventory": [
