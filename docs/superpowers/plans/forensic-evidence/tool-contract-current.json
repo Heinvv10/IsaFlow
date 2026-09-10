@@ -3,8 +3,8 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 148,
-    "reads": 80,
+    "total": 152,
+    "reads": 84,
     "writes": 68,
     "requires_post": 32
   },
@@ -912,6 +912,35 @@
         "type": "object",
         "properties": {},
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "bank_statement_completeness",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Finding page size; totals cover the complete supported population. Default 20."
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Cursor from this check. Restart if source facts change."
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive accounting date cutoff, YYYY-MM-DD. Current source values are observed."
+          }
+        }
       }
     },
     {
@@ -3097,6 +3126,35 @@
       }
     },
     {
+      "name": "journal_risk_checks",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Finding page size; totals cover the complete supported population. Default 20."
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Cursor from this check. Restart if source facts change."
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive accounting date cutoff, YYYY-MM-DD. Current source values are observed."
+          }
+        }
+      }
+    },
+    {
       "name": "list_agent_postings",
       "scope": "read:reports",
       "write": false,
@@ -4209,6 +4267,35 @@
     },
     {
       "name": "payment_risk_checks",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Finding page size; totals cover the complete supported population. Default 20."
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Cursor from this check. Restart if source facts change."
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive accounting date cutoff, YYYY-MM-DD. Current source values are observed."
+          }
+        }
+      }
+    },
+    {
+      "name": "payroll_control_checks",
       "scope": "read:reports",
       "write": false,
       "requires_post": false,
@@ -5500,6 +5587,35 @@
           "supplier_id"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "three_way_match_exceptions",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Finding page size; totals cover the complete supported population. Default 20."
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Cursor from this check. Restart if source facts change."
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive accounting date cutoff, YYYY-MM-DD. Current source values are observed."
+          }
+        }
       }
     },
     {

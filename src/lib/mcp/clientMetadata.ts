@@ -39,6 +39,10 @@ export const CLIENT_MCP_TOOL_NAMES = [
 
   'duplicate_invoice_checks',
   'payment_risk_checks',
+  'three_way_match_exceptions',
+  'journal_risk_checks',
+  'bank_statement_completeness',
+  'payroll_control_checks',
   // read
   'company_profile',
   'list_companies',
