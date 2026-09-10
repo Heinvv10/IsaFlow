@@ -1,0 +1,3 @@
+# Current connection self-inspection
+
+Exactbasefd325bc97. Own two newsource files connectionPermissionsService.ts and tools/forensicAccess.ts, one focusedunit file and one actualPG file. Rootregisters. Scope:null, strict emptyinput, self only without read:access. Reuse issuedcontext/currentresolveEffectivePermissions; never accept caller authority or expose token secrets. Sort permissions and denied reason records by codeunit; ENTITY_REQUIRED explicitlyconditional and excluded from executablepermissions. IDs opaque, cookie scope remains actual null policy semantics. Testsfirst missingmoduleRED, mockpolicy preservation and actual twoPAT/currentrole/override/revocation lifecycle. No access-review census or Phase1completion claim.
