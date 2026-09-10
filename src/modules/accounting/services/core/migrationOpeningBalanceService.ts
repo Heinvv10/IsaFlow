@@ -69,11 +69,25 @@ export async function postOpeningBalances(
       notOwned.push(`${acct.sourceCode} ${acct.sourceName}`);
       continue;
     }
+    // SIGN CONVENTION: a positive openingBalance sits on the account's own
+    // normal side and a negative one on the opposite side — the same convention
+    // verifyBalances (migrationExecuteService) reconciles against, where
+    // isaflowBalance = normal_balance === 'debit' ? net_debit : -net_debit.
+    // A source exported debit-signed instead (liabilities carried negative) is
+    // NOT importable: every ordinary credit line would land on the debit side
+    // and the totals check below refuses it, as it did before this fix.
+    //
+    // A balance CONTRARY to the account's normal side — a bank in overdraft, a
+    // supplier sitting in debit, a negative contra — belongs on the OTHER side.
+    // Zeroing it made a source that foots look unbalanced, and the refusal
+    // quoted totals the operator could not reconcile to their own trial balance.
     const isDebitNormal = acct.mappedNormalBalance === 'debit';
+    const onDebitSide = isDebitNormal === (acct.openingBalance > 0);
+    const amount = Math.abs(acct.openingBalance);
     lines.push({
       glAccountId: String(glRows[0]!.id),
-      debit: isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0,
-      credit: !isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0,
+      debit: onDebitSide ? amount : 0,
+      credit: onDebitSide ? 0 : amount,
       description: `Opening balance — ${source}`,
     });
   }

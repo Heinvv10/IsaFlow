@@ -83,7 +83,12 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
     const rows = (await sql`
       SELECT
         COALESCE(ci.client_id, ci.customer_id) AS client_id,
-        c.name AS client_name,
+        -- LEFT JOIN + placeholder: an id naming another company's customer, or no
+        -- customer at all (client_id carries no FK), must not surface that name —
+        -- but the debt is this company's, so the row and its amount stay visible.
+        -- The id fragment keeps two un-nameable debtors apart, in the table and in
+        -- the client-side name search, without disclosing anything about either.
+        COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id, ci.customer_id)::text, 8)) AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         SUM(
           CASE WHEN ci.due_date IS NULL OR ci.due_date >= CURRENT_DATE
@@ -112,8 +117,7 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
         ) AS days90_plus,
         SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) AS total_outstanding
       FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-        AND c.company_id = ci.company_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
@@ -203,7 +207,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
         ci.id,
         ci.invoice_number,
         COALESCE(ci.client_id, ci.customer_id) AS client_id,
-        c.name AS client_name,
+        COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id, ci.customer_id)::text, 8)) AS client_name,
         ci.invoice_date,
         ci.due_date,
         ci.total_amount,
@@ -212,8 +216,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
         (CURRENT_DATE - ci.due_date)::int AS days_overdue,
         ci.status
       FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-        AND c.company_id = ci.company_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.due_date IS NOT NULL
         AND ci.due_date < CURRENT_DATE

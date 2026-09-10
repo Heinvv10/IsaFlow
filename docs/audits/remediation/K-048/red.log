@@ -1,0 +1,66 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T09:15:09.702Z","component":"accounting","data":{"entryId":"af194126-00b9-4a9c-9095-693cfbcabe76","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-09-09T09:15:09.716Z","component":"accounting","data":{"id":"af194126-00b9-4a9c-9095-693cfbcabe76","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Generated journal from recurring","timestamp":"2026-09-09T09:15:09.721Z","component":"accounting","data":{"recurringId":"18045aa1-1346-4891-a1a5-dab90c11f5b4","journalId":"af194126-00b9-4a9c-9095-693cfbcabe76"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T09:15:09.773Z","component":"accounting","data":{"entryId":"5dd05bc9-9f4c-4f7d-81db-f81cdcda8feb","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-09-09T09:15:09.780Z","component":"accounting","data":{"id":"5dd05bc9-9f4c-4f7d-81db-f81cdcda8feb","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Generated journal from recurring","timestamp":"2026-09-09T09:15:09.788Z","component":"accounting","data":{"recurringId":"18045aa1-1346-4891-a1a5-dab90c11f5b4","journalId":"5dd05bc9-9f4c-4f7d-81db-f81cdcda8feb"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T09:15:09.795Z","component":"accounting","data":{"entryId":"9269d0c0-6b89-40d3-8409-1025853b4a97","entryNumber":"JE-2026-00002","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-09-09T09:15:09.803Z","component":"accounting","data":{"id":"9269d0c0-6b89-40d3-8409-1025853b4a97","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Generated journal from recurring","timestamp":"2026-09-09T09:15:09.806Z","component":"accounting","data":{"recurringId":"18045aa1-1346-4891-a1a5-dab90c11f5b4","journalId":"9269d0c0-6b89-40d3-8409-1025853b4a97"}}
+ ❯ tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts (2 tests | 2 failed) 265ms
+   × refuses to generate a recurring journal whose next_run_date has not arrived 59ms
+   × generates at most one journal per scheduled run, however often it is called 77ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts > refuses to generate a recurring journal whose next_run_date has not arrived
+AssertionError: promise resolved "'af194126-00b9-4a9c-9095-693cfbcabe76'" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+"af194126-00b9-4a9c-9095-693cfbcabe76"
+
+ ❯ tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts:65:70
+     63|
+     64| it('refuses to generate a recurring journal whose next_run_date has no…
+     65|   await expect(generateJournalFromRecurring(company, template, user)).…
+       |                                                                      ^
+     66|
+     67|   const posted = await pool.query(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts > generates at most one journal per scheduled run, however often it is called
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts:82:28
+     80|   const posted = await pool.query(
+     81|     "SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_i…
+     82|   expect(posted.rows[0].n).toBe(1);
+       |                            ^
+     83| });
+     84|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:15:09
+   Duration  888ms (transform 312ms, setup 0ms, import 420ms, tests 265ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
