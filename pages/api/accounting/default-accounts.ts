@@ -16,6 +16,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { EffectivePermissionError } from '@/lib/auth/effectivePermissions';
 import { sql } from '@/lib/neon';
 import { requireControlTx } from '@/modules/accounting/services/controls/context';
 import { saveDefaultAccounts } from '@/modules/accounting/services/gl/defaultAccountsControl';
@@ -46,6 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       return apiResponse.success(res, await saveDefaultAccounts(requireControlTx(), req.body));
     } catch (error) {
+      if (error instanceof EffectivePermissionError) return apiResponse.forbidden(res, error.message);
       if (error instanceof DefaultAccountsValidationError) return apiResponse.badRequest(res, error.message);
       throw error;
     }
