@@ -52,22 +52,25 @@ export async function prepareBankTransfer(companyId: string, userId: string, inp
   });
 }
 async function receipt(ctx: ControlTx, intentId: string): Promise<BankTransferResult | null> {
-  const [effect] = await ctx.sql`SELECT e.id,e.result FROM control_operation_effects e
+  const effects = await ctx.sql`SELECT e.id,e.result FROM control_operation_effects e
     WHERE e.company_id=${ctx.principal.companyId}::uuid AND e.entity_type='bank_transfer_intent'
-      AND e.entity_id=${intentId} AND e.operation='bank_transfer.post' ORDER BY e.committed_at DESC LIMIT 1` as { id:string; result: BankTransferResult }[];
-  if (!effect) return null;
-  if (effect.result.intentId !== intentId || !UUID_RE.test(effect.result.journalEntryId)) throw new Error('Invalid transfer receipt');
+      AND lower(e.entity_id)=${intentId} AND e.operation='bank_transfer.post' ORDER BY e.committed_at DESC LIMIT 2` as { id:string; result: BankTransferResult }[];
+  if (!effects.length) return null;
+  if (effects.length !== 1) throw new Error('Ambiguous transfer receipt');
+  const effect=effects[0]!;
+  if (typeof effect.result.intentId !== 'string' || !UUID_RE.test(effect.result.intentId) || effect.result.intentId.toLowerCase() !== intentId || !UUID_RE.test(effect.result.journalEntryId)) throw new Error('Invalid transfer receipt');
   const [journal] = await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${ctx.principal.companyId}::uuid
     AND id=${effect.result.journalEntryId}::uuid AND source_record_id=${intentId}::uuid
     AND source='auto_bank_transfer' AND status='posted' AND reversed_at IS NULL FOR SHARE`;
   if (!journal) throw new Error('Transfer receipt journal has changed; prepare a new intent');
   return replayKnownOperationEffect<BankTransferResult>(ctx,{entityType:'bank_transfer_intent',entityId:intentId,operation:'bank_transfer.post'},effect.id);
 }
-export async function executeBankTransfer(companyId: string, userId: string, intentId: string, options?: { approvalId?: string }): Promise<BankTransferResult> {
+export async function executeBankTransfer(companyId: string, userId: string, inputIntentId: string, options?: { approvalId?: string }): Promise<BankTransferResult> {
   const ctx = actor(companyId, userId);
   await assertEffectivePermission(ctx, 'write:bank-tx');
   await assertEffectivePermission(ctx, 'write:post');
-  if (!UUID_RE.test(intentId)) throw new Error('Invalid transfer intent');
+  if (!UUID_RE.test(inputIntentId)) throw new Error('Invalid transfer intent');
+  const intentId=inputIntentId.toLowerCase();
   const [intent] = await ctx.sql`SELECT requester_person_id FROM control_bank_transfer_intents
     WHERE company_id=${companyId}::uuid AND id=${intentId}::uuid` as Row[];
   if (!intent || intent.requester_person_id !== ctx.principal.personId) throw new Error('Transfer intent does not belong to authenticated requester');
