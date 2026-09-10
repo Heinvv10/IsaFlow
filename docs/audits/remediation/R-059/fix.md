@@ -1277,7 +1277,7 @@ corrected:
 | VAT: tax-point population, its own rule | `vat201Service` (3), `vatExceptionsService` (5), `vatBoxBasisQuery` (2), `vat201NilRatedSupplies` (2), `vatReconciliationService` (1), `drcVatService` (1), `vatReturnService` (2) | a different rule and outside R-059 |
 | Workflow: state transitions, eligibility, recompute, archive, counts of drafts | `bank-match-confirm` (2), `customer-invoices-detail` (2), `supplier-invoices-detail` (1), `supplierInvoiceWorkflowService` (4), `supplierPaymentWorkflowService` (2), `supplierAutoAllocate` (2), `customerAutoAllocate` (2), `customerInvoiceApprovalService` (2), `customerInvoiceCancelService` (1), `customerPaymentAllocationService` (2), `invoiceStatusRecompute` (6), `writeOffService` (1), `disputeService` (1), `archiveExecutionService` (4), `archiveQueryService` (2), `sageMigrationCommitService` (1), `continuousCloseQueryService` (1), `dashboard-todos:99` (1), `bureauWorkAggregatorService` (1) | not a population figure |
 | User-chosen list filters | `customer-invoices-export` (1), `customerInvoiceReadService` (10) | the user picks the status |
-| Match candidates | `supplierStatementReconDb:45` (1) | tabled above; **changed in round 8** — it does reach a figure |
+| Match candidates | `supplierStatementReconDb:45` (1) | it does reach a figure: made NULL-safe in round 8, **ROUTED through `documentInPopulationExpr` in round 9** |
 | **Compared with the control account, on its own rule** (moved here in round 8 from "LIVE open set") | `migrationValidationService` (2) | **R-086**, pre-existing, out of scope. `checkARvsGL`/`checkAPvsGL` sum `status IN ('approved','partially_paid','overdue')` and compare the total with the receivable/payable control. The AR list omits `'sent'`, so it is not even the live set, and there is no soft-delete predicate |
 
 ## The misattribution — CORRECTED
@@ -1370,23 +1370,24 @@ figure". That was false. Every statement line it fails to match counts in
 0, because it comes from the ageing, but the line read "missing in IsaFlow" and
 the statement could not be reconciled.
 
-**The decision, made deliberately:** the candidate rule is
-`COALESCE(si.status, '') <> 'cancelled'`, NOT `documentInPopulationExpr`.
-Match candidates keep DRAFTS: a bill we still hold as a draft is worth matching
-to the supplier's line for it, and the variance, which does come from the
-ageing, still refuses the statement because a draft is not owed. Only NULL
-changes, and it gets the same reading the helper gives it.
+**The decision round 8 made — WRONG, reversed in round 9:** the candidate rule
+was `COALESCE(si.status, '') <> 'cancelled'`, not `documentInPopulationExpr`,
+so that DRAFTS stayed matchable. The reasoning was that the variance, which
+comes from the ageing, would still refuse the statement because a draft is not
+owed. That does not hold. The variance refuses a draft only when nothing offsets
+it (see round 9).
 
 New file `r059-statement-recon-match-candidates` (2 tests) drives the real
 `createReconciliation`. Only the VLM extraction and the PDF bytes are mocked.
 - **N**, a NULL-status bill of 1000 with its line and a closing balance of 1000:
   matched, variance 0, missing 0, amount-diff 0, the page's `canReconcile` true,
   and `markReconciled` lands (`status` 'reconciled').
-- **D**, a DRAFT bill of 300 with its line: MATCHED (missing 0), but
-  `isaflowBalance` 0 and variance 300, so `canReconcile` is false.
+- **D**, a DRAFT bill of 300 with its line: round 8 asserted it MATCHED
+  (missing 0), refused only by the 300 variance. **Flipped in round 9**: it now
+  asserts the draft does not match.
 
-Both halves of the decision are pinned. **C1**, the bare `NOT IN` restored, turns
-N red. **C2**, the ageing's rule used instead (drafts excluded), turns D red.
+Round 8 pinned its decision both ways (C1 and C2 below). C2, the ageing's rule,
+is the rule round 9 adopted.
 
 ## LOW-1: the census missed 12 predicates — CORRECTED, and the parser fixed
 
@@ -1471,4 +1472,67 @@ Before D existed, both mutations stayed green here and in
   component 84 / 537, `[ci] all checks passed`, `CI_EXIT=0`.
 - Fixture integration, `--no-file-parallelism`: every `r059-*` (12 files), every
   `k053-*`, `k091*`, `k093*` — **37 files / 240 tests passed**.
+- `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
+
+---
+
+# Round 9 — drafts are not match candidates
+
+## MEDIUM-1: round 8's "drafts stay matchable" was wrong — REVERSED
+
+Round 8 kept drafts in the statement-line match candidates. It argued that the
+variance, which comes from the ageing, would still refuse a draft because a
+draft is not owed. **The variance refuses a draft only when nothing offsets it.**
+
+The round-8 review's probe, now case **P** in
+`r059-statement-recon-match-candidates`:
+- an owed, `approved` bill A of 300, dated before the statement period, so no
+  line claims it;
+- a DRAFT B of 300, matching the statement's single line;
+- a closing balance of 300.
+
+The balances tie (variance 0), B silenced the line's "missing in IsaFlow", and
+`canReconcile` was true, so `markReconciled` landed. The statement reconciled
+against a bill nobody owes. With a statement period set, no badge showed at all.
+The realistic shape is a duplicate capture: the supplier's invoice posted under a
+mistyped number, then captured again and left in draft. Master refused the same
+case (variance −300), so round 8 had opened a way to reconcile that master did
+not have.
+
+**Fix:** the candidates now use `documentInPopulationExpr('si')`, the ageing's
+own population. A line matches only a bill the variance also counts. NULL status
+is still admitted, which was round 8's actual defect. A draft is not in the
+ledger, so its line IS missing from IsaFlow. The comment at
+`supplierStatementReconDb.ts` and the test header say this, and say that round 8
+was wrong.
+
+**Tests** (3): N unchanged (NULL-status bill matches, reconcilable,
+`markReconciled` lands); **D flipped** (the draft does not match: missing 1,
+`canReconcile` false); **P added** (the offsetting case: variance 0, missing 1,
+`canReconcile` false).
+
+**Mutations** (file copy, restored and `cmp`-verified):
+
+| Candidate rule | Red |
+|---|---|
+| round 8's `COALESCE(si.status,'') <> 'cancelled'` | D and P — 2 of 3 |
+| the original bare `si.status NOT IN ('cancelled')` | N, D and P — 3 of 3 |
+
+## LOW-1: "Mark reconciled" is gated only in the browser — R-087, out of scope
+
+`markReconciled` (`supplierStatementReconService.ts`) is an unconditional
+UPDATE, and the `supplier-statements/[id]/mark-reconciled` route calls it with no
+check. The only gate is `canReconcile` in the page, and it does not consider
+`missingInStatementCount`. The review marked a statement with a 300 variance as
+reconciled through the service. This is pre-existing and outside R-059's class:
+it is an authorisation gate, not an as-at population. Registered as **R-087**,
+not fixed here. The fix above does not depend on it: it makes the page's own
+gate right, and R-087 is about calls that bypass the page.
+
+## Round 9 gates
+
+- `env -u DATABASE_URL bun run ci`: 15/15 PASS, unit 854 files / 10093 tests,
+  component 84 / 537, `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`: every `r059-*` (12 files), every
+  `k053-*`, `k091*`, `k093*` — **37 files / 241 tests passed**.
 - `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
