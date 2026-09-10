@@ -10352,6 +10352,39 @@
       "severity": "high",
       "source": "Measured by the K-072 fixer in round 7 while closing the fourth posting route; recorded 2026-09-10",
       "processNotes": "Two facts, both measured, both correcting earlier assumptions on this programme. (1) ai-invoice-pipeline inserted `company_id` into supplier_invoice_items -- a column that table has NEVER had -- and buildInvoiceFromExtraction always synthesises a line, so every call raised 42703 and rolled back. The route had never created an invoice. This is the FOURTH never-worked feature found (after validateMigration R-050, the portal endpoints, and executeArchive R-053). Note the shape: the R300 duplicate input-tax claim a reviewer measured on this route was LATENT -- one repaired line away from live. K-072 repaired the line and fenced it in the same round, so it is live and guarded now rather than live and unguarded later. (2) The partial unique index uq_gl_je_capture_source_document was believed to be the database backstop behind the application claim. It is on gl_journal_entries; routes 4 and 5 (capture/[id]/post and ai-invoice-pipeline) write supplier_invoices, so the index CANNOT reach them at any `source` value -- the earlier 'a route writing under a different source slips past it' framing was wrong in a more fundamental way than stated. captureRowLock.ts's header asserted the opposite and has been corrected. Those two routes are fenced by the application claim alone. HEIN: a supplier_invoices-side constraint would restore a database backstop for routes 4 and 5; that is a scope change and is why this is an item."
+    },
+    {
+      "id": "R-055",
+      "claim": "",
+      "area": "accounting/portal",
+      "affectedPaths": [
+        "portalService"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A customer-facing feature that has never worked, with no test covering it.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-053"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-053/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None -- nothing was written. Any customer sent a portal link saw an error.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Both customer portal endpoints have never worked: portalService selects four columns that do not exist",
+      "severity": "high",
+      "source": "Verified by the K-053 r7 blind reviewer (42703 measured); first spotted by the K-053 fixer; recorded 2026-09-10",
+      "processNotes": "portalService selects `customer_invoices.total` and `customer_payments.amount` / `.reference` / `.customer_id` -- NONE of those columns exist on this schema. Both portal endpoints raise 42703 in production today. Verified by execution, not inference. This is the FIFTH never-worked feature this programme has found: validateMigration (R-050), the archive (R-053), ai-invoice-pipeline (R-054), and these two endpoints. Distinguishing feature: this one is CUSTOMER-FACING. The other four fail where only staff or a cron would notice; a customer opening a portal link gets an error. No test exercises either endpoint, which is why it survived. Note the correct column for an invoice's outstanding amount is total_amount - COALESCE(amount_paid,0) -- there is no balance_due and no total. Out of K-053's scope (that branch owns dated ledger presence, not the portal) so it gets its own item rather than being folded in. HEIN: worth knowing whether any customer has ever been sent a portal link."
     }
   ],
   "sourceInventory": [
