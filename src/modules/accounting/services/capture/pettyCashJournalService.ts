@@ -23,6 +23,10 @@ import {
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
+  CapturedDocumentAlreadyPostedError,
+  claimCapturedDocumentForPosting,
+} from '@/modules/accounting/services/capture/captureRowLock';
+import {
   INPUT_VAT_DENIED_ADVICE,
   resolveVatCodeForAccount,
   VAT_CODE_STANDARD,
@@ -136,6 +140,16 @@ export async function postReceiptAsPettyCashJournal(
     );
   }
 
+  // Claim the document before the first write, and AFTER the pre-check — every
+  // step above this line is a SELECT or a pure function, so both the refusal
+  // here and `ReceiptDoesNotBalanceError` above it are 4xx answers that commit
+  // nothing. The route read `captured_documents.status` under the row lock; this
+  // status-predicated UPDATE is the write that settles who posts, and it is what
+  // stops the same receipt being posted through `receipt-to-journal` as well.
+  if (!await claimCapturedDocumentForPosting(companyId, documentId, 'expense')) {
+    throw new CapturedDocumentAlreadyPostedError();
+  }
+
   const jeEntry = await createJournalEntry(
     companyId,
     {
@@ -150,7 +164,9 @@ export async function postReceiptAsPettyCashJournal(
 
   // Auto-post when the receipt passes the gate (under R5 000 + high confidence)
   const confidence = typeof extracted.confidence === 'number' ? extracted.confidence : 0;
-  const autoPost = shouldAutoPostReceipt(total, confidence, { maxAmount: 5000, minConfidence: 0.80 });
+  const autoPost = shouldAutoPostReceipt(
+    total, confidence, { maxAmount: 5000, minConfidence: 0.80 }, extracted.warnings,
+  );
 
   let jeStatus = jeEntry.status;
   if (autoPost) {
@@ -180,19 +196,14 @@ export async function postReceiptAsPettyCashJournal(
     }
   }
 
-  // Stamp capture records on the REQUEST connection, not withTransaction.
+  // Stamp the event on the REQUEST connection, not withTransaction.
   // withTransaction (neon.ts) takes a separate pool client with its own
-  // BEGIN/COMMIT, so these two updates used to commit independently of the
-  // request transaction — an event stamped 'posted' and a document stamped
-  // 'matched' could survive a request that rolled back, leaving both pointing
-  // at a journal entry that no longer exists and blocking any retry (the
-  // handler refuses an event already 'posted'). On the request client they
-  // commit or roll back with the journal.
-  await sql`
-    UPDATE captured_documents
-    SET status = 'matched', document_category = 'expense', updated_at = NOW()
-    WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `;
+  // BEGIN/COMMIT, so this update used to commit independently of the request
+  // transaction — an event stamped 'posted' could survive a request that rolled
+  // back, pointing at a journal entry that no longer exists and blocking any
+  // retry (the handler refuses an event already 'posted'). On the request
+  // client it commits or rolls back with the journal, and so does the document
+  // claim taken above.
   await sql`
     UPDATE capture_events
     SET status = 'posted',

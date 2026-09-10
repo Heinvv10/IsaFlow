@@ -128,6 +128,26 @@ const VAT_WORD = String.raw`V\.?A\.?T\.?`;
 const TAX_WORD = String.raw`(?:${VAT_WORD}|Tax)`;
 
 /**
+ * The noun a document prints AFTER the tax word: `VAT Amount`, `VAT Total`,
+ * `Tax Amount`.
+ *
+ * It used to be admitted after `Tax` and nowhere after `VAT`, so the two halves
+ * of one concept disagreed by a single spelling: `Tax Amount 0.00` read zero
+ * and `VAT Amount 0.00` read NOTHING. A null `vatAmount` is not a null result
+ * downstream — `validateReceiptExtraction` only warns, and
+ * `buildExpenseJournalFromReceipt` then discards the printed subtotal and
+ * DERIVES 15% of the total. So a zero-rated till slip that prints its VAT as
+ * zero produced an invented input-tax claim, balanced and inside the auto-post
+ * gate: verbatim the defect the bare-column form below exists to prevent,
+ * reached through a sibling spelling of the same label.
+ *
+ * `Total` is in here rather than only in `NOT_A_SUBTOTAL`: refusing to read
+ * `VAT Total 150.00` as the payable total is half the answer, and reading it as
+ * the tax is the other half.
+ */
+const TAX_NOUN = String.raw`(?:${SEP}(?:Amount|Total|Value))?`;
+
+/**
  * A label that means "this is the VAT-EXCLUSIVE figure", not the amount due.
  *
  * `Nett?` is here because of the second round of exactly this defect: the file
@@ -146,11 +166,14 @@ const NET_PREFIX = String.raw`(?:Total|Amount|Price|Value|Sub${SEP}Total)`;
  *
  * `(?<![A-Za-z])` rejects a letter immediately before the label, covering the
  * joined `Subtotal`. The second lookbehind is the other half and spells the
- * same `Sub`/`Nett`/`S.` vocabulary as `NET_LABEL`. The inner `\b` is what
- * keeps it from eating ordinary words: without it `Sales Total` and
- * `Index VAT` would be refused because they merely END in those letters.
+ * same `Sub`/`Nett`/`S.` vocabulary as `NET_LABEL`, plus the tax word — the
+ * `Total` inside `VAT Total` is no more the payable total than the one inside
+ * `Sub Total`, and while it was read as one, `Sub Total 1000 / VAT Total 150 /
+ * Total Due 1150` came back with a payable of R150 and no tax at all. The inner
+ * `\b` is what keeps it from eating ordinary words: without it `Sales Total`
+ * and `Syntax Total` would be refused because they merely END in those letters.
  */
-const NOT_A_SUBTOTAL = String.raw`(?<![A-Za-z])(?<!\b(?:Sub|Nett?|S[./])${SEP})`;
+const NOT_A_SUBTOTAL = String.raw`(?<![A-Za-z])(?<!\b(?:Sub|Nett?|S[./]|${TAX_WORD})${SEP})`;
 
 /**
  * Not the `VAT`/`Tax` inside a TOTAL or a NET label.
@@ -164,7 +187,11 @@ const NOT_A_TAX_LABEL = String.raw`(?<![A-Za-z])(?<!\b(?:${EXCL}|${INCL})[\s-]*)
 
 /** The payable total. */
 export const TOTAL_PATTERNS: RegExp[] = [
-  new RegExp(String.raw`${NOT_A_SUBTOTAL}(?:Grand|Invoice)?\s*Total\s*(?:Due|Amount|Payable)?\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
+  // The parenthesised qualifier is `TOTAL (VAT INCL) 1150.00`, one of the most
+  // common SA till-slip spellings. Nothing could cross the bracket, so the
+  // document came back with NO total — not a wrong figure, a 400 on an
+  // otherwise readable slip.
+  new RegExp(String.raw`${NOT_A_SUBTOTAL}(?:Grand|Invoice)?\s*Total\s*(?:\([^)]*\))?\s*(?:Due|Amount|Payable)?\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
   new RegExp(String.raw`(?<![A-Za-z])(?<!Accounts[\s-]*)(?:(?:Amount|Balance)\s*(?:Due|Owing|Payable)|Payable)\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
   new RegExp(String.raw`${NOT_A_SUBTOTAL}(?:Total|Amount|Price|Value)\s*${INCL}[\s-]*${TAX_WORD}\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
 ];
@@ -193,11 +220,11 @@ export const TOTAL_PATTERNS: RegExp[] = [
  * tax unclaimed and the VAT201 input box short by the same.
  */
 export const VAT_PATTERNS: RegExp[] = [
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}\s*[:-]\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}\s+(?:ZAR|R)\s*${AMOUNT}`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}\s+${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)\s*)?Tax\s*(?:Amount)?\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*[:-]\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+(?:ZAR|R)\s*${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)\s*)?Tax${TAX_NOUN}\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
 ];
 
 /**
@@ -221,9 +248,13 @@ export const SUBTOTAL_PATTERNS: RegExp[] = [
  * Built from the same vocabulary so that a label `SUBTOTAL_PATTERNS` reads as
  * the net cannot also be collected as an item: while the terminator knew only
  * `Sub[\s-]*Total`, a `Nett Total` summary line was pushed into the item list.
+ * The `NET_PREFIX` in front of the exclusive marker is the last place the two
+ * had drifted apart — `SUBTOTAL_PATTERNS[1]` read `Amount Excl VAT 1000.00` as
+ * the net while this list stopped at the bare `Excl VAT`, so the summary line
+ * was collected as an R1 000 expense item as well.
  */
 export const SUMMARY_LINE_START = new RegExp(
-  String.raw`^(?:${NET_LABEL}|(?:Grand|Invoice)?\s*Total|${TAX_WORD}|(?:Output|Input)\s*Tax|(?:Amount|Balance)\s*(?:Due|Owing|Payable)|Payable|${EXCL}[\s-]*${TAX_WORD})`,
+  String.raw`^(?:${NET_LABEL}|(?:Grand|Invoice)?\s*Total|${TAX_WORD}|(?:Output|Input)\s*Tax|(?:Amount|Balance)\s*(?:Due|Owing|Payable)|Payable|(?:${NET_PREFIX}\s*)?${EXCL}[\s-]*${TAX_WORD})`,
   'i',
 );
 

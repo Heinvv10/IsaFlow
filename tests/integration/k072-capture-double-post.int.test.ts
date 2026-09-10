@@ -35,8 +35,19 @@ const raceDoc = crypto.randomUUID();
 const retryDoc = crypto.randomUUID();
 const eventDoc = crypto.randomUUID();
 const unconfiguredDoc = crypto.randomUUID();
-const documents = [raceDoc, retryDoc, eventDoc, unconfiguredDoc];
+// One document per cross-route order, plus one for the concurrent pair.
+const journalFirstDoc = crypto.randomUUID();
+const inboxFirstDoc = crypto.randomUUID();
+const crossRaceDoc = crypto.randomUUID();
+const documents = [
+  raceDoc, retryDoc, eventDoc, unconfiguredDoc,
+  journalFirstDoc, inboxFirstDoc, crossRaceDoc,
+];
 const raceEvent = crypto.randomUUID();
+const journalFirstEvent = crypto.randomUUID();
+const inboxFirstEvent = crypto.randomUUID();
+const crossRaceEvent = crypto.randomUUID();
+const events = [raceEvent, journalFirstEvent, inboxFirstEvent, crossRaceEvent];
 
 const today = new Date().toISOString().slice(0, 10);
 let token = '';
@@ -100,7 +111,7 @@ async function bankCredit(documentId: string): Promise<number> {
 }
 
 async function purge(): Promise<void> {
-  await pool.query('DELETE FROM capture_events WHERE id=$1', [raceEvent]);
+  await pool.query('DELETE FROM capture_events WHERE id=ANY($1::uuid[])', [events]);
   await pool.query('DELETE FROM captured_documents WHERE id=ANY($1::uuid[])', [documents]);
   await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
@@ -133,12 +144,19 @@ beforeAll(async () => {
   await seedDoc(retryDoc);
   await seedEvent(eventDoc, raceEvent);
   await seedDoc(unconfiguredDoc);
+  await seedEvent(journalFirstDoc, journalFirstEvent);
+  await seedEvent(inboxFirstDoc, inboxFirstEvent);
+  await seedEvent(crossRaceDoc, crossRaceEvent);
 
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 
+// 60s, explicitly: the concurrency cases above burn up to 5s of `lock_timeout`
+// each, and the default 10s hook budget was exceeded on a loaded shared fixture
+// database — the file passed every assertion and still exited 1, leaving its
+// rows behind for the next run to trip over.
 afterAll(async () => {
   try {
     await purge();
@@ -146,7 +164,7 @@ afterAll(async () => {
     clearSystemAccountCache();
     await pool.end();
   }
-});
+}, 60_000);
 
 describe('K-072 a double-click cannot post the same receipt twice', () => {
   it('serialises two concurrent posts of one document into one journal', async () => {
@@ -213,5 +231,50 @@ describe('K-072 a missing system account is still a configuration answer', () =>
         [vatInput, company]);
       clearSystemAccountCache(company);
     }
+  });
+});
+
+describe('K-072 one receipt cannot be posted through BOTH routes', () => {
+  // Not a race. `post-expense` never read `captured_documents.status` at all,
+  // so posting a receipt to a journal and then opening the same document in the
+  // capture inbox — two ordinary steps, in sequence, by one operator — wrote
+  // two `auto_expense_receipt` journals against one `source_document_id`:
+  // double expense, double bank credit, double input-tax claim. A row lock does
+  // not close that; a status check does.
+  it('refuses the capture inbox after receipt-to-journal has posted', async () => {
+    expect((await post(journalFirstDoc)).state.statusCode).toBe(200);
+
+    const second = await postExpense(journalFirstEvent);
+    expect(second.state.statusCode).toBe(400);
+    expect((second.state.body as { error: { message: string } }).error.message)
+      .toContain('already posted');
+
+    expect(await journalCount(journalFirstDoc)).toBe(1);
+    expect(await bankCredit(journalFirstDoc)).toBe(1150);
+    expect((await pool.query('SELECT status FROM capture_events WHERE id=$1', [journalFirstEvent]))
+      .rows[0].status).not.toBe('posted');
+  });
+
+  it('refuses receipt-to-journal after the capture inbox has posted', async () => {
+    expect((await postExpense(inboxFirstEvent)).state.statusCode).toBe(200);
+
+    const second = await post(inboxFirstDoc);
+    expect(second.state.statusCode).toBe(400);
+    expect((second.state.body as { error: { message: string } }).error.message)
+      .toContain('already posted');
+
+    expect(await journalCount(inboxFirstDoc)).toBe(1);
+    expect(await bankCredit(inboxFirstDoc)).toBe(1150);
+  });
+
+  it('serialises the two routes when they run concurrently', async () => {
+    const [a, b] = await Promise.all([post(crossRaceDoc), postExpense(crossRaceEvent)]);
+
+    const codes = [a.state.statusCode, b.state.statusCode].sort();
+    expect(codes).toEqual([200, 400]);
+    expect(await journalCount(crossRaceDoc)).toBe(1);
+    expect(await bankCredit(crossRaceDoc)).toBe(1150);
+    expect((await pool.query('SELECT status FROM captured_documents WHERE id=$1', [crossRaceDoc]))
+      .rows[0].status).toBe('matched');
   });
 });

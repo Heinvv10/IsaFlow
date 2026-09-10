@@ -28,10 +28,16 @@ import type { VatType } from '@/modules/accounting/types/gl.types';
  * `postClaim` pushed its expense legs with no `vatType` at all, so a claim the
  * capture route had DENIED under s17(2)(a) — gross on the line, `vat_amount`
  * zeroed, `vat_code = 'none'` — reached `gl_journal_lines` with
- * `vat_type = NULL`: indistinguishable from a line nobody classified, with the
- * only trace of the decision a description string an exception report cannot
- * read. The petty-cash branch already records `'no_vat'`; this is the same fact
- * arriving through the claim table.
+ * `vat_type = NULL`, which is what an unclassified line and a line carrying no
+ * VAT both looked like. The petty-cash branch already records `'no_vat'`; this
+ * is the same fact arriving through the claim table.
+ *
+ * What the tag asserts is exactly what the predicate can see: this line claims
+ * no input tax. It does NOT identify the s17(2)(a) denial specifically — an
+ * ordinary line a user left uncoded at zero VAT is `'no_vat'` too, and both
+ * statements are true of it. The denial itself is recoverable from the
+ * `gl_accounts.vat_input_denied` join `claimInputVatWarnings` performs, not
+ * from this column.
  *
  * Only the denial is mapped, deliberately. `'none'` is the claim's `vat_code`
  * vocabulary and `'no_vat'` is what `gl_journal_lines.vat_type` spells for the

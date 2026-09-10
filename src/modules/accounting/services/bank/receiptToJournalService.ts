@@ -7,6 +7,7 @@
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import type { VatType } from '@/modules/accounting/types/gl.types';
 import { applyVatDenial, VAT_CODE_STANDARD } from '@/modules/accounting/services/gl/inputVatDenial';
+import { isUnreconciled } from '@/modules/accounting/services/core/ocrAmountReconciliation';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -221,11 +222,27 @@ export function buildExpenseJournalFromReceipt(
   };
 }
 
+/**
+ * May this receipt post with nobody looking at it?
+ *
+ * `warnings` is not decoration. The reader rebases a printed subtotal its own
+ * total and tax contradict whenever the derived split looks standard-rated —
+ * right for a levy printed below the subtotal, and the same band admits a total
+ * mis-read by a percent or two. The printed subtotal was the only checksum on
+ * those three independently-extracted figures, so a document that used to stop
+ * at the callers' balance pre-check now balances at the wrong total. The rebase
+ * stays for the attended path, where `ExtractedDocument.warnings` is rendered;
+ * this gate is the unattended one, and it refuses what the reader could not
+ * settle. Neither `totalAmount` nor `confidence` carries that fact — confidence
+ * is computed from which FIELDS were found, not from whether they agree.
+ */
 export function shouldAutoPostReceipt(
   totalAmount: number,
   confidence: number,
   config: ReceiptAutoPostConfig,
+  warnings?: readonly string[] | null,
 ): boolean {
+  if (isUnreconciled(warnings)) return false;
   return totalAmount < config.maxAmount && confidence >= config.minConfidence;
 }
 

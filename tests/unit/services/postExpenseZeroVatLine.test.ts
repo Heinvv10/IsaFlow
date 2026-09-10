@@ -81,6 +81,8 @@ vi.mock('@/modules/accounting/services/expense/expenseClaimService', () => ({
 // receiptToJournalService stays REAL — the point is that the genuine builder
 // emits the zero leg this route must filter.
 import handler from '../../../pages/api/accounting/capture/[id]/post-expense';
+import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 
@@ -114,6 +116,11 @@ function stubDb(extracted: Record<string, unknown>) {
         extracted_data: extracted,
       }]);
     }
+    // The route CLAIMS the document — a status-predicated UPDATE ... RETURNING
+    // id — before its first ledger write, and refuses with a 400 when the
+    // statement matches no row. A stub that answered [] to everything therefore
+    // made every test here refuse instead of post.
+    if (text.includes('UPDATE captured_documents')) return Promise.resolve([{ id: DOC_ID }]);
     if (text.includes('FROM gl_accounts')) return Promise.resolve([]);
     return Promise.resolve([]);
   }) as never);
@@ -268,5 +275,43 @@ describe('capture post-expense — zero-VAT receipts', () => {
     // it looked up `WHERE id = <userId> AND company_id = <jeId>`, threw, and was
     // swallowed — auto-post never actually posted.
     expect(postMock).toHaveBeenCalledWith(COMPANY_ID, 'je-pe-1', USER_ID);
+  });
+});
+
+describe('capture post-expense — a transient fault is not a configuration answer', () => {
+  // L-1's narrowing, which nothing exercised. `getSystemAccountId` runs a real
+  // query, so the bare `catch` that used to sit here reported a database fault
+  // to the operator as "set it up in Default Accounts" — unlogged, pointing at
+  // the wrong remedy, and hiding an outage behind a 400. Only the MISSING ROLE
+  // is answered; everything else propagates.
+  it('rethrows a database fault raised while resolving the VAT Input role', async () => {
+    stubDb(ZERO_VAT);
+    const original = vi.mocked(getSystemAccountId).getMockImplementation()!;
+    vi.mocked(getSystemAccountId).mockImplementation(async (key: string, companyId: string) => {
+      if (key === 'vat_input') throw Object.assign(new Error('connection terminated'), { code: '57P01' });
+      return original(key, companyId);
+    });
+    try {
+      await expect(handler(req(), res())).rejects.toThrow(/connection terminated/);
+      expect(createMock).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getSystemAccountId).mockImplementation(original);
+    }
+  });
+
+  it('still answers 400 when the role is genuinely unmapped', async () => {
+    stubDb(ZERO_VAT);
+    const original = vi.mocked(getSystemAccountId).getMockImplementation()!;
+    vi.mocked(getSystemAccountId).mockImplementation(async (key: string, companyId: string) => {
+      if (key === 'vat_input') throw new MissingSystemAccountError('vat_input', companyId, 'no_claimant', []);
+      return original(key, companyId);
+    });
+    try {
+      const result = await handler(req(), res());
+      expect(result).toMatchObject({ kind: 'badRequest' });
+      expect(createMock).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getSystemAccountId).mockImplementation(original);
+    }
   });
 });

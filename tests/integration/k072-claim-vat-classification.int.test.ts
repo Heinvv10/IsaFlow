@@ -132,6 +132,9 @@ beforeAll(async () => {
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 
+// 60s, explicitly: the default 10s hook budget was exceeded on a loaded shared
+// fixture database, so the file passed every assertion and still exited 1 with
+// its rows left behind for the next run to trip over.
 afterAll(async () => {
   try {
     await purge();
@@ -139,7 +142,7 @@ afterAll(async () => {
     clearSystemAccountCache();
     await pool.end();
   }
-});
+}, 60_000);
 
 describe('K-072 a denied claim reaches the ledger classified', () => {
   it('posts the expense leg as no_vat with no VAT-input leg at all', async () => {
