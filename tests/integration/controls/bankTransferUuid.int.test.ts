@@ -21,10 +21,10 @@ it('cannot post a transfer twice through an independently approved UUID case var
  const secondApproval=await f.approve({...prepared.operation,entityId:upper});
  let second:Awaited<ReturnType<typeof execute>>|undefined,refusal:unknown;
  try{second=await execute(upper,secondApproval);}catch(error){refusal=error;}
- if(second)expect(second).toEqual(first);else expect(refusal).toBeInstanceOf(Error);
  const saved=await population(prepared.intentId);
- expect(saved.journals).toEqual([{id:first.journalEntryId}]);expect(saved.effects).toHaveLength(1);
  expect(saved.totals).toEqual({debit:'10.00',credit:'10.00'});
+ expect(saved.journals).toEqual([{id:first.journalEntryId}]);expect(saved.effects).toHaveLength(1);
+ if(second)expect(second).toEqual(first);else expect(refusal).toBeInstanceOf(Error);
 });
 it.each([false,true])('replays either UUID case after initial uppercase=%s execution without another approval',async uppercase=>{
  const prepared=await prepare(),approval=await f.approve(prepared.operation),upper=prepared.intentId.toUpperCase();
