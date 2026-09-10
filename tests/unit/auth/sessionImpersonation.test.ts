@@ -46,8 +46,9 @@ it('marks every session unverified when the reader function is not deployed',asy
   .toThrow('Impersonation state is unverified; an independent review cannot be recorded');
 });
 it.each([
- ['reader missing',{reader:false,liveness:true,reader_exec:null,liveness_exec:true},/control_session_impersonator/],
- ['liveness missing',{reader:true,liveness:false,reader_exec:true,liveness_exec:null},/impersonation_delegation_live/],
+ // A missing function and a missing grant need different remediation, so the gate names which.
+ ['reader missing',{reader:false,liveness:true,reader_exec:null,liveness_exec:true},/control_session_impersonator\(\) is not deployed/],
+ ['liveness missing',{reader:true,liveness:false,reader_exec:true,liveness_exec:null},/impersonation_delegation_live\(.*\) is not deployed/],
  ['app_user cannot execute the reader',{reader:true,liveness:true,reader_exec:false,liveness_exec:true},/app_user.*control_session_impersonator/],
  ['app_user cannot execute liveness',{reader:true,liveness:true,reader_exec:true,liveness_exec:false},/app_user.*impersonation_delegation_live/],
 ] as const)('fails the deploy gate when %s',async(_name,row,message)=>{
