@@ -63,21 +63,21 @@ export async function verifyInvoiceMatchEvidence(ctx:ControlTx,invoiceId:string,
 import type {OperationRef} from '../controls/contracts';
 import type {ApMaterial} from '../controls/apOperationMaterializer';
 import {readControlEntityVersion} from '../controls/operationVersions';
+import {canonicalIntentId,loadIntentReceipt} from '../controls/intentIdentity';
 import {riskHash} from '../controls/invoiceRiskQueriesResult';
 interface OverrideIntent {id:string;requester_person_id:string;invoice_id:string;expected_match_fingerprint:string;reason:string;evidence_refs:EvidenceRef[];created_at:Date|string}
-export async function loadInvoiceMatchOverride(ctx:ControlTx,id:string){
+export async function loadInvoiceMatchOverride(ctx:ControlTx,inputId:string){
  assertControlTx(ctx);
+ const id=canonicalIntentId(inputId);
  const [intent]=await ctx.sql`SELECT * FROM control_invoice_match_override_intents
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${id}::uuid` as OverrideIntent[];
  if(!intent)throw new Error('Owned invoice match override intent required');
  const current=await loadInvoiceMatchCurrent(ctx,intent.invoice_id);
  if(current.match.materialFingerprint!==intent.expected_match_fingerprint)throw new Error('Invoice match override material stale');
  const evidence=await verifyInvoiceMatchEvidence(ctx,intent.invoice_id,intent.evidence_refs);
- const effects=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-  AND operation='invoice_match.override' AND entity_type='invoice_match_override_intent' AND entity_id=${id}
-  ORDER BY committed_at LIMIT 2` as {id:string;result:unknown}[];
- if(effects.length>1)throw new Error('Ambiguous invoice match override effects');
- return{intent,current,evidence,effect:effects[0]??null};
+ // A receipt written before entity_id normalization keeps its original spelling.
+ const effect=await loadIntentReceipt<unknown>(ctx,{entityType:'invoice_match_override_intent',entityId:id,operation:'invoice_match.override'});
+ return{intent,current,evidence,effect:effect??null};
 }
 export async function materializeInvoiceMatchOverride(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
  if(ref.operation!=='invoice_match.override'||ref.entityType!=='invoice_match_override_intent')throw new Error('Unsupported invoice match override');

@@ -6,9 +6,12 @@ import {operationBindingHash} from '../controls/canonical';
 import type {ControlTx} from '../controls/contracts';
 import {loadPaymentReleaseIntent} from './paymentReleaseMaterializer';
 import {assertControlTx} from '../controls/context';
+import {canonicalIntentId} from '../controls/intentIdentity';
 /** Revalidate human authority, original expiry, exact current binding and reservations at every delivery boundary. */
-export async function loadAuthorizedPaymentRelease(ctx:ControlTx,intentId:string){
+export async function loadAuthorizedPaymentRelease(ctx:ControlTx,inputIntentId:string){
  assertControlTx(ctx);
+ // The approval binding stores the canonical spelling; compare against that, not the caller's.
+ const intentId=canonicalIntentId(inputIntentId);
  const company=ctx.principal.companyId;
  const [initial]=await ctx.sql`SELECT approval_id FROM control_payment_release_outbox WHERE company_id=${company}::uuid AND intent_id=${intentId}::uuid` as Array<{approval_id:string}>;
  if(!initial)throw new Error('Queued release not found');

@@ -1,4 +1,5 @@
 import {log} from '@/lib/logger';
+import * as Sentry from '@sentry/nextjs';
 import {recordBatchEntity} from './batchPaymentWriteService';
 import {Pool} from 'pg';
 import {UUID_RE} from '@/lib/validation';
@@ -8,6 +9,7 @@ import {assertControlTx,withControlRequest,requireControlTx} from '../controls/c
 import {observeControlTransaction,settleControlTransaction} from '../controls/transactionObservers';
 import type {ControlPrincipal,ControlTx} from '../controls/contracts';
 import {claimPaymentRelease,type ReleaseClaim} from './paymentReleaseClaim';
+import {canonicalIntentId} from '../controls/intentIdentity';
 import {paymentReleaseAmount} from './paymentReleaseValidation';
 import {renderReleasedEft} from './paymentReleaseFile';
 let pool:Pool|undefined;
@@ -55,8 +57,10 @@ async function transmit(claim:ReleaseClaim):Promise<{state:'accepted'|'unknown'|
  finally{clearTimeout(timer);}
 }
 /** Register during the authenticated request; no escaped ctx, body identity, or recoverable fake cookie. */
-export async function schedulePaymentReleaseDispatch(ctx:ControlTx,intentId:string):Promise<void>{
- assertControlTx(ctx);if(!UUID_RE.test(intentId)||(ctx.principal.authMethod==='job'||ctx.principal.authMethod==='platform_import'))throw new Error('Authenticated fixed release required');
+export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId:string):Promise<void>{
+ assertControlTx(ctx);if(!UUID_RE.test(inputIntentId)||(ctx.principal.authMethod==='job'||ctx.principal.authMethod==='platform_import'))throw new Error('Authenticated fixed release required');
+ // The post-commit claim runs outside the caller's error path, so bind it to one spelling here.
+ const intentId=canonicalIntentId(inputIntentId);
  await assertEffectivePermission(ctx,'write:release');
  const [intent]=await ctx.sql`SELECT requester_person_id FROM control_payment_release_intents
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${intentId}::uuid` as Array<{requester_person_id:string}>;
@@ -68,14 +72,88 @@ export async function schedulePaymentReleaseDispatch(ctx:ControlTx,intentId:stri
  let settled=false;
  observeControlTransaction(async outcome=>{
   if(settled)return;settled=true;if(outcome!=='committed')return;
-  const claim=await transaction(identity,current=>claimPaymentRelease(current,intentId));
+  // settleControlTransaction discards an observer error and logs only the outcome, so both
+  // failures below have to record themselves; neither can undo a durable commit.
+  let claim:ReleaseClaim|null;
+  try{claim=await transaction(identity,current=>claimPaymentRelease(current,intentId));}
+  catch(error){await recordFailedDispatch(identity,intentId,'payment_release.dispatch_failed',error);return;}
   if(!claim)return;
   // Only this lexical continuation owns the once-only capability after actual COMMIT.
   const result=await transmit(claim);
-  await transaction(identity,current=>completePaymentRelease(current,claim,result));
+  try{await transaction(identity,current=>completePaymentRelease(current,claim,result));}
+  catch(error){await recordFailedDispatch(identity,intentId,'payment_release.acknowledgement_failed',error,result);}
  });
 }
 
+/**
+ * The two dispatch outcomes with no outbox state of their own, precisely because the transition they
+ * would have written is the one that failed: a claim that never ran leaves 'ready', and an
+ * unacknowledged provider result leaves 'attempting' with the money already gone. The state-transition
+ * trigger refuses any UPDATE that does not advance the state, so the durable trace is a change event
+ * on the outbox — whose version lineage nothing binds (the release binding's sourceVersions are
+ * payment_preparation, supplier and payment_release_intent), unlike the intent's, which the release
+ * approval binding hashes and which a bump would brick.
+ *
+ * The recorded status is the state actually observed under FOR UPDATE, never the one this attempt
+ * expected, which is what keeps the record true when a concurrent dispatcher already advanced the row.
+ * RECONCILIATION MUST KEY OFF status, NOT action: a loser delayed past a winner's transmit and
+ * completion writes action='payment_release.dispatch_failed' with status already at a terminal
+ * 'accepted', 'unknown', 'failed' or 'exported'. That is a true observation of a lost race, not a
+ * failed release; only status='ready' means nothing was dispatched, and status='attempting' means an
+ * attempt is outstanding.
+ */
+async function recordFailedDispatch(identity:Identity,intentId:string,action:string,error:unknown,
+ provider?:{state:string;code:string}):Promise<void>{
+ const detail=error instanceof Error?error.message:'unknown';
+ const reason=provider?`${detail} after provider outcome ${provider.state} (${provider.code})`:detail;
+ try{
+  await transaction(identity,async ctx=>{
+   // NO LONGER BUDGET THAN THE POOL'S, deliberately. recordCommittedChange writes
+   // control_entity_versions, and withInvoiceMatchSourceLocks holds LOCK TABLE control_entity_versions
+   // IN SHARE ROW EXCLUSIVE from the moment it is taken until that transaction COMMITs — its own
+   // lock_timeout bounds acquisition only, and it then runs a full three-way-match materialization
+   // with no upper bound — so the wait here is the holder's whole transaction. The dispatch pool sets
+   // statement_timeout 5s BELOW query_timeout 6s, and that ordering is load-bearing: the server cancels
+   // the statement first, so transaction()'s ROLLBACK runs and the connection returns to the pool
+   // clean. query_timeout is a client-side pg timer that never cancels the server; raising
+   // statement_timeout past it lets the client give up at 6s while the INSERT keeps waiting, the
+   // ROLLBACK queues behind it on its own timer, and a connection still holding this transaction, the
+   // outbox FOR UPDATE lock and this tenant's role and claims goes back to a max:2 pool for the next
+   // borrower. A longer wait is also wrong in itself: this transaction holds the outbox FOR UPDATE, so
+   // it would stall a winner's completePaymentRelease and strand an accepted payment in 'attempting'.
+   // FOR UPDATE, so a concurrent claim cannot advance the row between this read and the record.
+   const [outbox]=await ctx.sql`SELECT *,intent_id AS id FROM control_payment_release_outbox
+    WHERE company_id=${ctx.principal.companyId}::uuid AND intent_id=${intentId}::uuid FOR UPDATE` as Array<Record<string,unknown>>;
+   if(!outbox)throw new Error('Failed release dispatch has no outbox row');
+   await recordBatchEntity(ctx,'payment_release_outbox',outbox,{...outbox,status:String(outbox.state),reason},action);
+  });
+ }catch(recordError){
+  // KNOWN DEGRADATION, deliberately loud. This transaction takes the outbox row lock before the
+  // version table, the same order claimPaymentRelease takes them and an order
+  // withInvoiceMatchSourceLocks cannot invert because it never touches the outbox, so there is no
+  // deadlock cycle — but the version-table wait above can outlast the pool's budget and lose the
+  // record. What an operator greps for depends on which timer fires: the server's 5s
+  // statement_timeout rejects with code 57014 and leaves the connection clean, while the pool's 6s
+  // client query_timeout rejects with Error('Query read timeout') and code null. Never 55P03: the
+  // pool sets no lock_timeout. Closing the window properly needs an append-only release-event table
+  // with no version lineage — a migration this change does not carry, and the recorded follow-up.
+  // Until then the loss is reported, never silent.
+  log.error('Release dispatch failure could not be recorded; queued release requires reconciliation',
+   {intentId,action,reason,error:recordError instanceof Error?recordError.message:'unknown',
+    code:typeof (recordError as {code?:unknown})?.code==='string'?(recordError as {code:string}).code:null},'payment-release');
+  // Money may already have left with no record of it, so this must reach the error tracker rather
+  // than stopping at journald. Same gate and shape as withAuth's finalize failure.
+  if(process.env.SENTRY_ENABLED==='true'&&recordError instanceof Error){
+   Sentry.withScope(scope=>{
+    scope.setTag('company_id',identity.companyId);
+    scope.setTag('payment_release_intent_id',intentId);
+    scope.setTag('payment_release_action',action);
+    scope.setLevel('fatal');
+    Sentry.captureException(recordError);
+   });
+  }
+ }
+}
 /** Only the lexical committed-claim transport continuation may acknowledge a provider result. */
 async function completePaymentRelease(ctx:ControlTx,claim:ReleaseClaim,
  outcome:{state:'accepted'|'unknown'|'failed'|'exported';code:string;providerBatchReference?:string}){

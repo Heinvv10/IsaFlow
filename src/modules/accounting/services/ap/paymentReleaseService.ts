@@ -7,6 +7,7 @@ import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from '../controls/context';
 import {recordCommittedChange} from '../controls/changeEventService';
 import {executeControlledOperation} from '../controls/approvalExecutionService';
+import {canonicalIntentId} from '../controls/intentIdentity';
 import type {ControlTx} from '../controls/contracts';
 import type {EFTPayment} from './eftService';
 import {loadPreparedBatch,loadBatchBankAccount} from './paymentBatchSource';
@@ -60,9 +61,11 @@ export async function createPaymentReleaseIntent(ctx:ControlTx,input:{batchId:st
   });
  }catch(error){poison();throw error;}
 }
-export async function enqueuePaymentRelease(ctx:ControlTx,intentId:string,approvalId:string){
+export async function enqueuePaymentRelease(ctx:ControlTx,inputIntentId:string,approvalId:string){
  try{
-  assertControlTx(ctx);if(!UUID_RE.test(intentId)||!UUID_RE.test(approvalId))throw new Error('A release approval reference is required');
+  assertControlTx(ctx);if(!UUID_RE.test(inputIntentId)||!UUID_RE.test(approvalId))throw new Error('A release approval reference is required');
+  // One spelling for the control ref, the outbox provider reference and the result.
+  const intentId=canonicalIntentId(inputIntentId);
   return await executeControlledOperation(ctx,{operation:'payment_release.dispatch',entityType:'payment_release_intent',entityId:intentId},approvalId,async()=>{
    const [approval]=await ctx.sql`SELECT binding FROM control_operation_approvals WHERE company_id=${ctx.principal.companyId}::uuid AND id=${approvalId}::uuid` as Array<{binding:{policies:Array<{mandatory:boolean}>}}>;
    if(!approval?.binding.policies.some(p=>p.mandatory))throw new Error('Mandatory independent release approval is required');
