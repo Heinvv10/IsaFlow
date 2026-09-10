@@ -13,6 +13,7 @@ import {
   approveBatch,
   processBatch,
   cancelBatch,
+  BatchNotProcessableError,
 } from '@/modules/accounting/services/ap/batchPaymentService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -44,7 +45,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Batch payment action failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequestFromError(res, err, 'Action failed');
+    // Only the two refusals raised BEFORE the first posting may be answered
+    // with a 4xx: withAuth COMMITs anything below 500, so a blanket
+    // badRequestFromError committed a half-processed batch — a posted journal
+    // with the invoices not updated — and reported it to the user as a 400.
+    if (err instanceof BatchNotProcessableError) {
+      return apiResponse.conflict(res, err.message);
+    }
+    if (err instanceof Error && err.message === 'Batch not found') {
+      return apiResponse.notFound(res, 'Batch');
+    }
+    throw err;
   }
 }
 

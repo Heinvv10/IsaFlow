@@ -12,6 +12,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import { isUuidParam, isRealCalendarDate } from '@/lib/validation';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 interface Transaction {
   id: string;
@@ -56,11 +57,15 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
     const invoicesRaw = await sql`
       SELECT id, invoice_number as reference, invoice_date as date,
         total_amount as amount, amount_paid, notes as description
-      FROM supplier_invoices
-      WHERE supplier_id = ${supplier_id} AND company_id = ${companyId}
-        AND status NOT IN ('cancelled', 'draft')
-        AND invoice_date <= ${asAtDate}::DATE
-      ORDER BY invoice_date ASC, id
+      FROM supplier_invoices si
+      WHERE si.supplier_id = ${supplier_id} AND si.company_id = ${companyId}
+        AND si.status NOT IN ('cancelled', 'draft')
+        -- A soft-deleted bill leaves this statement exactly when the delete's
+        -- GL reversal reaches the ledger, and not one day earlier — the same
+        -- dated question the ageing it must tie to now asks.
+        AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
+        AND si.invoice_date <= ${asAtDate}::DATE
+      ORDER BY si.invoice_date ASC, si.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
 
@@ -107,9 +112,10 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
     const [totalsRow] = await sql`
       SELECT
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM supplier_invoices
-          WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
-            AND invoice_date <= ${asAtDate}::DATE
+          SELECT SUM(si.total_amount::numeric) FROM supplier_invoices si
+          WHERE si.supplier_id = ${supplier_id} AND si.company_id = ${companyId} AND si.status NOT IN ('cancelled', 'draft')
+            AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
+            AND si.invoice_date <= ${asAtDate}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM supplier_payments

@@ -9,6 +9,7 @@ import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { marginPct } from './marginPct';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 
 export interface DashboardKPIs {
@@ -31,6 +32,11 @@ export async function getDashboardKPIs(companyId: string,
     const to = new Date(toDate);
     const durationMs = to.getTime() - from.getTime();
     const priorFrom = new Date(from.getTime() - durationMs);
+    // K-053: these AR/AP figures are "as at now", so now is the date they ask
+    // the soft-delete question at. An undated deleted_at IS NULL would drop a
+    // document deleted BEFORE the delete began reversing its journal — the
+    // control account still carries that one. See shared/softDeleteLedgerPresence.
+    const kpiAsAtStr = asAtTodayStr();
     const priorFromStr = priorFrom.toISOString().slice(0, 10);
     const priorToStr = new Date(from.getTime() - 86400000).toISOString().slice(0, 10);
 
@@ -110,19 +116,21 @@ export async function getDashboardKPIs(companyId: string,
           AND bt.transaction_date <= ${priorToStr}
       `,
       sql`
-        SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-        FROM customer_invoices
-        WHERE status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-          AND company_id = ${companyId}::UUID
-          AND (total_amount - COALESCE(amount_paid, 0)) > 0
+        SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
+        FROM customer_invoices ci
+        WHERE ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+          AND ci.company_id = ${companyId}::UUID
+          AND ${documentInLedgerAsAtFragment('ci', kpiAsAtStr, companyId)}
+          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       `,
       sql`
-        SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-        FROM customer_invoices
-        WHERE status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-          AND company_id = ${companyId}::UUID
-          AND (total_amount - COALESCE(amount_paid, 0)) > 0
-          AND due_date < CURRENT_DATE
+        SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
+        FROM customer_invoices ci
+        WHERE ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+          AND ci.company_id = ${companyId}::UUID
+          AND ${documentInLedgerAsAtFragment('ci', kpiAsAtStr, companyId)}
+          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
+          AND ci.due_date < CURRENT_DATE
       `,
       sql`
         SELECT COALESCE(AVG(
@@ -134,19 +142,21 @@ export async function getDashboardKPIs(companyId: string,
           AND invoice_date >= ${fromDate}
       `,
       sql`
-        SELECT COALESCE(SUM(balance), 0) AS total
-        FROM supplier_invoices
-        WHERE status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-          AND company_id = ${companyId}::UUID
-          AND balance > 0
+        SELECT COALESCE(SUM(si.balance), 0) AS total
+        FROM supplier_invoices si
+        WHERE si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
+          AND si.company_id = ${companyId}::UUID
+          AND ${documentInLedgerAsAtFragment('si', kpiAsAtStr, companyId)}
+          AND si.balance > 0
       `,
       sql`
-        SELECT COALESCE(SUM(balance), 0) AS total
-        FROM supplier_invoices
-        WHERE status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-          AND company_id = ${companyId}::UUID
-          AND balance > 0
-          AND due_date < CURRENT_DATE
+        SELECT COALESCE(SUM(si.balance), 0) AS total
+        FROM supplier_invoices si
+        WHERE si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
+          AND si.company_id = ${companyId}::UUID
+          AND ${documentInLedgerAsAtFragment('si', kpiAsAtStr, companyId)}
+          AND si.balance > 0
+          AND si.due_date < CURRENT_DATE
       `,
       sql`
         SELECT COALESCE(AVG(

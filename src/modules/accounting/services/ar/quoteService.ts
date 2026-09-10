@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { insertWithReservedNumber } from '../core/documentNumberRetry';
 
 type Row = DbRow;
 
@@ -82,15 +83,24 @@ function mapLine(r: Row): QuoteLine {
   };
 }
 
-async function nextQuoteNumber(): Promise<string> {
-  const rows = (await sql`
-    SELECT quote_number FROM customer_quotes ORDER BY created_at DESC LIMIT 1
-  `) as Row[];
-  if (rows.length === 0) return 'QUO-00001';
-  const last = String(rows[0]!.quote_number);
-  const num = parseInt(last.replace('QUO-', ''), 10) || 0;
-  return `QUO-${String(num + 1).padStart(5, '0')}`;
-}
+/**
+ * The quote number comes from the company's own `quotation` sequence.
+ *
+ * What it replaced read `SELECT quote_number FROM customer_quotes ORDER BY
+ * created_at DESC LIMIT 1` with NO company_id filter, so company A's next quote
+ * number was derived from whichever quote was created most recently ACROSS THE
+ * PLATFORM. It leaked another tenant's numbering into this tenant's documents,
+ * and it re-issued a number A had already used whenever the global newest
+ * belonged to a tenant on a lower number — silently, because nothing enforced
+ * uniqueness. Migration 666 adds `uq_customer_quotes_company_number`, which is
+ * the constraint the retry below renumbers past.
+ */
+const QUOTE_NUMBER_CONSTRAINTS = [
+  'uq_customer_quotes_company_number',
+  // The name a parallel remediation branch (K-060) gives the same index.
+  // Whichever migration reaches a database first is the one that raises.
+  'uq_customer_quotes_company_quote_number',
+];
 
 /** Thrown for W1 line-validation failures — handlers map it to HTTP 400. */
 export class LineValidationError extends Error {
@@ -179,31 +189,37 @@ export async function getQuote(companyId: string, id: string): Promise<Quote | n
 
 export async function createQuote(companyId: string, input: QuoteInput, userId?: string): Promise<Quote> {
   assertValidLines(input.lines);
-  const quoteNumber = await nextQuoteNumber();
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
   const qd = input.quoteDate || fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
 
-  const rows = (await sql`
-    INSERT INTO customer_quotes (company_id, quote_number, client_id, customer_name, quote_date, expiry_date,
-      subtotal, tax_amount, total, notes, terms, created_by)
-    VALUES (${companyId}, ${quoteNumber}, ${input.clientId || null}, ${input.customerName}, ${qd},
-      ${input.expiryDate || null}, ${subtotal}, ${taxAmount}, ${total},
-      ${input.notes || null}, ${input.terms || null}, ${userId || null})
-    RETURNING *
-  `) as Row[];
-
-  const quote = mapQuote(rows[0]!);
-  for (let i = 0; i < input.lines.length; i++) {
-    const l = input.lines[i];
-    if (!l) continue;
-    const amount = Math.round(l.quantity * l.unitPrice * 100) / 100;
-    await sql`
-      INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id)
-      VALUES (${quote.id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${amount}, ${l.accountId || null})
-    `;
-  }
+  // Header AND lines inside the savepointed attempt: a 23505 on the number must
+  // take the lines with the header, or the retry leaves orphaned lines behind.
+  const { id, quoteNumber } = await insertWithReservedNumber(
+    companyId, 'quotation', 'quote_insert_', QUOTE_NUMBER_CONSTRAINTS,
+    async (number) => {
+      const rows = (await sql`
+        INSERT INTO customer_quotes (company_id, quote_number, client_id, customer_name, quote_date, expiry_date,
+          subtotal, tax_amount, total, notes, terms, created_by)
+        VALUES (${companyId}, ${number}, ${input.clientId || null}, ${input.customerName}, ${qd},
+          ${input.expiryDate || null}, ${subtotal}, ${taxAmount}, ${total},
+          ${input.notes || null}, ${input.terms || null}, ${userId || null})
+        RETURNING id
+      `) as Row[];
+      const quoteId = String(rows[0]!.id);
+      for (let i = 0; i < input.lines.length; i++) {
+        const l = input.lines[i];
+        if (!l) continue;
+        const amount = Math.round(l.quantity * l.unitPrice * 100) / 100;
+        await sql`
+          INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id)
+          VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${amount}, ${l.accountId || null})
+        `;
+      }
+      return { id: quoteId, quoteNumber: number };
+    },
+  );
   log.info('Quote created', { quoteNumber, total });
-  return (await getQuote(companyId, quote.id))!;
+  return (await getQuote(companyId, id))!;
 }
 
 export async function updateQuote(companyId: string, id: string, input: QuoteInput): Promise<Quote | null> {

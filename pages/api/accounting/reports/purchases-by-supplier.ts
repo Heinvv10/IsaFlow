@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -31,6 +32,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}
+        -- Dated to the period end this report is drawn to — see sales-by-customer.
+        AND ${documentInLedgerAsAtFragment('si', to ?? asAtTodayStr(), companyId)}
         AND si.invoice_date >= ${from}
         AND si.invoice_date <= ${to}
         AND si.status != 'cancelled'

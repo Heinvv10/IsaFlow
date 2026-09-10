@@ -19,6 +19,7 @@ import {
  */
 const DEFERRED_TAX_SUBTYPE = 'deferred_tax_expense';
 const CURRENT_TAX_SUBTYPES = TAX_EXPENSE_SUBTYPES.filter((s) => s !== DEFERRED_TAX_SUBTYPE);
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type DbRow = Record<string, unknown>;
 
@@ -49,6 +50,10 @@ export async function generateNote16TradePayables(
       ) AS days_60_plus
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId} AND si.invoice_date <= ${end}
+      -- K-053: dated to the figure's own as-at date, so a soft-deleted
+      -- document leaves this note exactly when its GL reversal does.
+      -- See shared/softDeleteLedgerPresence.
+      AND ${documentInLedgerAsAtFragment('si', end, companyId)}
   `) as DbRow[];
 
   const r = rows[0] ?? {};

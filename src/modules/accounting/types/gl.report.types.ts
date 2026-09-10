@@ -155,6 +155,7 @@ export interface BalanceSheetLineItem {
 export interface BalanceSheetReport {
   asAtDate: string;
   costCentreId?: string;
+  businessUnitId?: string;
   assets: BalanceSheetLineItem[];
   liabilities: BalanceSheetLineItem[];
   equity: BalanceSheetLineItem[];

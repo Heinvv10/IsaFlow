@@ -10,6 +10,8 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest }
 import { sql } from '@/lib/neon';
 import { apiLogger } from '@/lib/logger';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/financialReportingService';
+import { apiResponse } from '@/lib/apiResponse';
+import { isUuidParam } from '@/lib/validation';
 
 type Row = Record<string, unknown>;
 
@@ -97,18 +99,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const companyId = (req as unknown as CompanyAuthedRequest).companyId;
-  const { as_at_date: asAt, cost_centre_id: ccId } = req.query as Record<string, string>;
+  const { as_at_date: asAt, cost_centre_id: ccId, business_unit_id: buId } = req.query;
 
   if (!asAt) {
-    res.status(400).json({ success: false, error: 'as_at_date is required' });
-    return;
+    return apiResponse.badRequest(res, 'as_at_date is required');
+  }
+  if (ccId !== undefined && !isUuidParam(ccId)) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+  if (buId !== undefined && !isUuidParam(buId)) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
   }
 
-  apiLogger.info({ companyId, asAt }, 'Balance sheet xlsx export requested');
+  const asAtDate = String(asAt);
+  apiLogger.info({ companyId, asAt: asAtDate }, 'Balance sheet xlsx export requested');
 
   const [companyRows, report] = await Promise.all([
     sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<Row[]>,
-    getBalanceSheet(companyId, asAt, ccId ?? undefined),
+    getBalanceSheet(companyId, asAtDate, ccId ?? undefined, undefined, buId),
   ]);
 
   const companyName = String(companyRows[0]?.name ?? 'Company');
@@ -125,7 +133,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   ws.getColumn(3).width = 35;
   ws.getColumn(4).width = 16;
 
-  addTitleRows(ws, `${companyName} — Balance Sheet`, `As at: ${asAt}`, today);
+  addTitleRows(ws, `${companyName} — Balance Sheet`, `As at: ${asAtDate}`, today);
   addHeaderRow(ws, 'Balance (R)');
 
   // Assets
@@ -171,7 +179,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     });
   }
 
-  const filename = `balance-sheet-${asAt}.xlsx`;
+  const filename = `balance-sheet-${asAtDate}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
