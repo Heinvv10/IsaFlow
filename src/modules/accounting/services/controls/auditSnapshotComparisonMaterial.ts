@@ -67,7 +67,11 @@ export async function compareSnapshotStreams(inputFirst:ComparisonSource,inputSe
  if(first.companyId!==second.companyId)throw new Error('Comparison source companies differ');
  const counts={} as Record<ComparisonSection,ComparisonCounts>;let consumed=0;
  for(const section of COMPARISON_SECTIONS){
-  const left=first.sections[section],right=second.sections[section],a=left.items[Symbol.asyncIterator](),b=right.items[Symbol.asyncIterator]();
+  const left=first.sections[section],right=second.sections[section],acquired:AsyncIterator<ComparisonItem>[]=[];
+  let failed=false;
+  try{
+  const a=left.items[Symbol.asyncIterator]();acquired.push(a);
+  const b=right.items[Symbol.asyncIterator]();acquired.push(b);
   const stats:ComparisonCounts={first:0,second:0,added:0,removed:0,changed:0,unchanged:0};counts[section]=stats;
   const states=[{input:left,iterator:a,count:0,key:'',seen:new Uint8Array(Math.ceil(left.count/8))},{input:right,iterator:b,count:0,key:'',seen:new Uint8Array(Math.ceil(right.count/8))}];
   async function next(side:number):Promise<ComparisonItem|null>{
@@ -83,8 +87,6 @@ export async function compareSnapshotStreams(inputFirst:ComparisonSource,inputSe
    return{identity,materialHash:row.materialHash,ordinal:row.ordinal};
   }
   const ref=(source:typeof first,item:ComparisonItem):ComparisonReference=>({snapshotId:source.id,canonicalHash:source.canonicalHash,ordinal:item.ordinal,materialHash:item.materialHash});
-  let failed=false;
-  try{
    let old=await next(0),current=await next(1);
    while(old||current){clock.check();const beforeKey=old?canonicalJson(old.identity):null,afterKey=current?canonicalJson(current.identity):null;
     if(old&&(!current||beforeKey!<afterKey!)){
@@ -101,7 +103,7 @@ export async function compareSnapshotStreams(inputFirst:ComparisonSource,inputSe
    if(stats.first!==stats.removed+stats.changed+stats.unchanged||stats.second!==stats.added+stats.changed+stats.unchanged)throw new Error('Comparison counts do not reconcile');
   }catch(error){failed=true;throw error;}
   finally{
-   const closing=Promise.allSettled([Promise.resolve().then(()=>a.return?.()),Promise.resolve().then(()=>b.return?.())]);
+   const closing=Promise.allSettled(acquired.map(iterator=>Promise.resolve().then(()=>iterator.return?.())));
    // A stalled provider cannot extend an expired deadline. Its owner must cancel its underlying I/O.
    if(!clock.expired()){
     const results=await clock.wait(closing),errors=results.filter((row):row is PromiseRejectedResult=>row.status==='rejected');
