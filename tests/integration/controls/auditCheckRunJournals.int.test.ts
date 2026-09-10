@@ -85,6 +85,9 @@ it('refuses a duplicate finding key, a tampered seal, an unpublished generation 
  await pool.query(`UPDATE control_audit_check_findings SET protected_item=jsonb_set(protected_item,'{authentication}',to_jsonb($3::text))
   WHERE company_id=$1 AND job_id=$2 AND ordinal=0`,[fixture.companyA,jobId,'0'.repeat(64)]);
  await expect(actor(()=>getAuditCheckRunPage(requireControlTx(),{checkRunId:jobId,limit:100}))).rejects.toThrow(/authentication failed/i);
+ const truncated=await published(CUTOFF);
+ await pool.query('DELETE FROM control_audit_check_findings WHERE company_id=$1 AND job_id=$2 AND ordinal=0',[fixture.companyA,truncated]);
+ await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),truncated))).rejects.toThrow(/population incomplete/i);
 },180000);
 it('never groups two rows in one threshold group that the SQL slab tuple would separate',async()=>{
  // One-directional (plan A20): same detector group key implies the same SQL tuple. SAST edge instants included.

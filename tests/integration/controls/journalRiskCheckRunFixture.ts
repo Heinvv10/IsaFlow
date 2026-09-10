@@ -70,9 +70,10 @@ export async function seedJournalRiskPopulation(pool:Pool,fixture:ForensicFixtur
  const thresholdId=randomUUID();
  await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
   VALUES($1,$2,'Journal threshold','journal_entry','amount','greater_than',$3,'admin',true)`,[thresholdId,companyId,THRESHOLD_AMOUNT]);
- // A windowed rule is not supported by the detector, so both paths must report unsupported_or_bounded_current_journal_policy.
- await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active,aggregate_window_days)
-  VALUES(gen_random_uuid(),$1,'Windowed','journal_entry','amount','greater_than',5000,'admin',true,30)`,[companyId]);
+ // A day-window supplier rule is an approval policy the detector cannot honour, so both paths must report
+ // unsupported_or_bounded_current_journal_policy. (The row trigger allows only window 1 by supplier.)
+ await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active,aggregate_window_days,aggregate_by)
+  VALUES(gen_random_uuid(),$1,'Windowed','journal_entry','amount','greater_than',5000,'admin',true,1,'supplier')`,[companyId]);
  const foreignParent=randomUUID();
  await journals(pool,fixture.companyB,fixture.u3.id,foreignAccount,[{id:foreignParent,entryDate:'2026-05-04',periodId:foreignPeriod,
   postedAt:at('2026-05-04',10),postedBy:fixture.u3.id,createdAt:at('2026-05-04',10),amount:'500'}]);
