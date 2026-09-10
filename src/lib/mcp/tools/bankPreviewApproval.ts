@@ -39,7 +39,11 @@ export async function partitionBankApprovalBound<TLine extends { index: number; 
   if (lines.length === 0) return partition;
   const states = await findBankTransactionAllocationStates(companyId, lines.map((line) => line.txId));
   for (const line of lines) {
-    const amount = states.get(line.txId)?.amount ?? 0;
+    const state = states.get(line.txId);
+    // Never default: 0 answers "no approval required" against a threshold policy,
+    // which is the one direction a preview must never get wrong.
+    if (!state) throw new Error('Bank allocation preview state unavailable');
+    const amount = state.amount;
     if (await bankAllocationApprovalRequired(amount, 'bank_allocation.post')) {
       partition.skipped.push({ index: line.index, transaction_id: line.txId, reason: BANK_APPROVAL_REQUIRED_REASON });
     } else partition.postable.push(line);
