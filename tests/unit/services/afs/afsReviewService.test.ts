@@ -259,6 +259,7 @@ describe('signOffDocument', () => {
     mockSql.mockResolvedValueOnce([{ n: 0 }]);                          // countUnresolvedCommentsForDocument
     mockSql.mockResolvedValueOnce([{ cnt: 0 }]);                        // countMandatorySectionsBelow
     mockSql.mockResolvedValueOnce([{ id: DOC }]);                        // UPDATE ... RETURNING id
+    mockSql.mockResolvedValueOnce([]);                                   // no delivery hold to release
 
     const result = await signOffDocument(CID, DOC, USER);
     expect(result).toEqual({ documentId: DOC, newStatus: 'signed_off' });
