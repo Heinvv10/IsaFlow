@@ -34,7 +34,11 @@ export async function withPlatformImportRequest<T>(store:RequestContext,handler:
  const cap=Object.freeze({requestId:randomUUID()}),life:RequestLife={active:true,busy:false,store,client:store.client,personId:store.userId};
  requests.set(cap,life);registered.add(store);
  return als.run(store,async()=>{
-  try{const result=await handler(cap);requestCurrent(life);return result;}
+  try{
+   const result=await handler(cap);
+   if(life.busy){store.controlWriteFailed=true;throw new Error('Platform import target still active at request completion');}
+   requestCurrent(life);return result;
+  }
   finally{life.active=false;registered.delete(store);}
  });
 }
