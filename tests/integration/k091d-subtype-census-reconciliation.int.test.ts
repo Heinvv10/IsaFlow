@@ -51,6 +51,7 @@ import { generateNote8FinancialAssets, generateNote9Inventories } from '../../sr
 import { generateNote19OtherIncome, generateNote20OperatingExpenses } from '../../src/modules/accounting/services/afs/noteGenerators/notes16to20';
 import { generateNote21FinanceCosts, generateNote22EmployeeBenefits } from '../../src/modules/accounting/services/afs/noteGenerators/notes21to25';
 import { getVat201Report } from '../../src/modules/accounting/services/reports/vat201ReportService';
+import { getIncomeStatement } from '../../src/modules/accounting/services/reports/incomeStatementService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -72,22 +73,38 @@ const EXPENSE_TOKENS = [
   'insurance_expense', 'payroll_expense', 'finance_cost', 'tax_expense', 'other_expense',
 ] as const;
 
-/** spelling → posted amount, one account per spelling of every expense token. */
-const bandAccounts = new Map<string, number>();
+/**
+ * One entry per expense account seeded on `bandCo`: its printed name, its raw
+ * spelling and its SIGNED period movement (debit - credit).
+ *
+ * Round 8 review, HIGH-1: this was `spelling -> amount` with every account
+ * seeded `{debit: amount, credit: 0}`, so `HAVING SUM(debit - credit) > 0` was
+ * a no-op on the fixture and the footing assertion could not fail. A note that
+ * dropped every credit-balance operating expense — a rebate, a credit note
+ * against an expense, a reversed over-accrual — passed here while overstating
+ * the operating-expense line by the whole credit balance. The fixture now
+ * spans the sign space: debit, credit AND net-nil, plus two distinct accounts
+ * sharing one name (LOW-1).
+ */
+interface BandAccount { name: string; spelling: string; net: number }
+const bandAccounts: BandAccount[] = [];
 
 /** Inside fiscal 2026 for the schema-default March year start (2025-03-01..2026-02-28). */
 const POSTED_ON = '2026-01-15';
 const AS_AT = '2026-12-31';
 const KPI_PERIOD = '2026-01';
 
+/** Note 21's own set: the finance-cost spellings, plus its extra literal. */
+const FINANCE_COST_SPELLINGS = [...rawSubtypesFor('finance_cost'), 'bank_charges'];
+
 let seq = 0;
-async function account(company: string, type: string, subtype: string | null, normal: 'debit' | 'credit'): Promise<string> {
+async function account(company: string, type: string, subtype: string | null, normal: 'debit' | 'credit', name?: string): Promise<string> {
   seq += 1;
   const id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
      VALUES ($1,$2,$3,$4,$5,$6,$7,true)`,
-    [id, company, `K91D${1000 + seq}`, `${subtype ?? 'null'} probe ${seq}`, type, subtype, normal],
+    [id, company, `K91D${1000 + seq}`, name ?? `${subtype ?? 'null'} probe ${seq}`, type, subtype, normal],
   );
   return id;
 }
@@ -204,16 +221,39 @@ beforeAll(async () => {
   // ── band tenant: one expense account per spelling of every expense token ──
   await pool.query('INSERT INTO companies(id,name,is_active) VALUES($1,$2,true)', [bandCo, 'K091d bands']);
   const bEquity = await account(bandCo, 'equity', 'equity', 'credit');
+  /** Seed one account and record what the income statement will band it as. */
+  const bandAccount = async (spelling: string, debit: number, credit: number, name = `${spelling} probe`) => {
+    const id = await account(bandCo, 'expense', spelling, 'debit', name);
+    // `chk_debit_or_credit` forbids both sides on one line, so a net-nil
+    // account is an accrual and its reversal — two journals, as in the books.
+    if (debit > 0) await post(bandCo, [{ account: id, debit, credit: 0 }, { account: bEquity, debit: 0, credit: debit }]);
+    if (credit > 0) await post(bandCo, [{ account: bEquity, debit: credit, credit: 0 }, { account: id, debit: 0, credit }]);
+    bandAccounts.push({ name, spelling, net: debit - credit });
+  };
   let bandAmount = 0;
   for (const token of EXPENSE_TOKENS) {
     for (const spelling of rawSubtypesFor(token)) {
       bandAmount += 13;
-      const id = await account(bandCo, 'expense', spelling, 'debit');
-      await post(bandCo, [{ account: id, debit: bandAmount, credit: 0 }, { account: bEquity, debit: 0, credit: bandAmount }]);
-      bandAccounts.set(spelling, bandAmount);
+      await bandAccount(spelling, bandAmount, 0);
     }
   }
-});
+  // The sign space, so no assertion below can pass because the fixture only
+  // ever produces the shape that passes:
+  //   a supplier rebate — an operating expense with a NET CREDIT balance;
+  //   a nil-movement account, which neither statement prints;
+  //   two DISTINCT accounts sharing one name and subtype, whose movements
+  //   cancel — invisible to a note that groups by account_name.
+  await bandAccount('operating_expense', 0, 5000, 'Rebates received');
+  await bandAccount('admin_expense', 700, 700, 'Nil movement');
+  await bandAccount('insurance_expense', 300, 0, 'Shared name');
+  await bandAccount('insurance_expense', 0, 300, 'Shared name');
+  // Note 21 carried the same one-sided HAVING as note 20. An interest rebate
+  // or a reversed finance charge is a net-credit finance cost, and `foot()`
+  // below takes an absolute value per row, so no existing assertion could see
+  // the difference. Seeded here, asserted SIGNED.
+  await bandAccount(FINANCE_COST_SPELLINGS[0], 0, 450, 'Interest rebate');
+  await bandAccount(FINANCE_COST_SPELLINGS[0], 900, 900, 'Nil finance charge');
+}, 120_000);
 
 afterAll(async () => {
   const ids = [ratioCo, gateCo, noteCo, vatCo, bandCo];
@@ -375,33 +415,90 @@ it('note 20 excludes every finance-cost spelling it must not double-count', asyn
   expect(subtypes).toContain(rawSubtypesFor('payroll_expense')[0]);
 });
 
+/** Every seeded account the income statement bands as an operating expense. */
+function operatingBandAccounts(): BandAccount[] {
+  return bandAccounts.filter((a) => expenseBand(a.spelling) === 'operating_expense');
+}
+
+it('the band fixture spans the sign space, so the note assertions can fail', () => {
+  const operating = operatingBandAccounts();
+  // A fixture that only ever produces the passing shape makes the assertion
+  // below decorative — the same failure as a mutation that stays green.
+  expect(operating.some((a) => a.net > 0)).toBe(true);
+  expect(operating.some((a) => a.net < 0)).toBe(true);
+  expect(operating.some((a) => a.net === 0)).toBe(true);
+  const shared = operating.filter((a) => a.name === 'Shared name');
+  expect(shared).toHaveLength(2);
+  expect(shared.reduce((sum, a) => sum + a.net, 0)).toBe(0);
+});
+
 it('note 20 and expenseBand partition the expense book identically', async () => {
   const note = await generateNote20OperatingExpenses(bandCo, 2026);
   const rows = (note.dataSnapshot.operatingExpenses ?? []) as Array<Record<string, unknown>>;
   const printed = rows.map((r) => String(r.account_subtype ?? '')).sort();
 
-  const operating = [...bandAccounts.keys()]
-    .filter((spelling) => expenseBand(spelling) === 'operating_expense').sort();
-
-  // Both directions. Set equality alone would pass on an empty note if the
-  // fixture were empty, so the count and the money are asserted too.
-  expect(printed).toEqual(operating);
-  expect(operating.length).toBeGreaterThan(5);
-  for (const spelling of bandAccounts.keys()) {
-    if (expenseBand(spelling) === 'operating_expense') continue;
-    expect(printed).not.toContain(spelling);
+  const operating = operatingBandAccounts();
+  // Nil movement is in neither statement: the note's HAVING drops it and the
+  // income statement's `Math.abs(amount) > 0.001` drops it.
+  const moved = operating.filter((a) => a.net !== 0);
+  expect(printed).toEqual(moved.map((a) => a.spelling).sort());
+  expect(moved.length).toBeGreaterThan(5);
+  // Two distinct accounts share one name and subtype; both must print, so a
+  // note grouping by account_name nets them away and fails here.
+  expect(rows.map((r) => String(r.account_name ?? '')).filter((n) => n === 'Shared name')).toHaveLength(2);
+  for (const seeded of bandAccounts) {
+    if (expenseBand(seeded.spelling) === 'operating_expense') continue;
+    expect(printed).not.toContain(seeded.spelling);
   }
   const footed = rows.reduce((sum, r) => sum + Number(r.net_amount ?? 0), 0);
-  expect(footed).toBeCloseTo(operating.reduce((sum, sp) => sum + bandAccounts.get(sp)!, 0), 2);
+  expect(footed).toBeCloseTo(moved.reduce((sum, a) => sum + a.net, 0), 2);
+  // A rebate is R5,000 of credit inside the operating band: a note that keeps
+  // only net-debit accounts overstates the total by exactly that.
+  expect(footed).not.toBeCloseTo(moved.filter((a) => a.net > 0).reduce((sum, a) => sum + a.net, 0), 2);
+});
+
+it("note 20's total IS the income statement's Operating Expenses line", async () => {
+  // The surface `expenseBand` drives, named exactly: the reports-module P&L
+  // (and through it the MCP figures contract), NOT the AFS pack's own
+  // mapping-driven statement, which is decided per account by the editable
+  // `afs_account_mappings` table and cannot agree by construction with
+  // anything. Round 8 review, MEDIUM-1.
+  const note = await generateNote20OperatingExpenses(bandCo, 2026);
+  const rows = (note.dataSnapshot.operatingExpenses ?? []) as Array<Record<string, unknown>>;
+  const footed = rows.reduce((sum, r) => sum + Number(r.net_amount ?? 0), 0);
+
+  const is = await getIncomeStatement(bandCo, '2025-03-01', '2026-02-28');
+  expect(is.totalOperatingExpenses).toBeGreaterThan(0);
+  expect(footed).toBeCloseTo(is.totalOperatingExpenses, 2);
+  expect(rows).toHaveLength(is.operatingExpenses.length);
+});
+
+it('note 21 keeps a net-credit finance cost, as note 22 already did', async () => {
+  const note = await generateNote21FinanceCosts(bandCo, 2026);
+  const rows = (note.dataSnapshot.financeCosts ?? []) as Array<Record<string, unknown>>;
+
+  const seeded = bandAccounts.filter((a) => FINANCE_COST_SPELLINGS.includes(a.spelling));
+  const moved = seeded.filter((a) => a.net !== 0);
+  expect(moved.some((a) => a.net < 0)).toBe(true);
+  expect(seeded.some((a) => a.net === 0)).toBe(true);
+
+  // SIGNED, not `foot()` — `foot()` takes an absolute value per row and would
+  // read the same total whether the rebate were printed as -450 or dropped.
+  const footed = rows.reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
+  expect(rows).toHaveLength(moved.length);
+  expect(footed).toBeCloseTo(moved.reduce((sum, a) => sum + a.net, 0), 2);
+  expect(footed).not.toBeCloseTo(moved.filter((a) => a.net > 0).reduce((sum, a) => sum + a.net, 0), 2);
+  expect(rows.map((r) => String(r.account_name ?? ''))).toContain('Interest rebate');
 });
 
 it('every expense spelling in the vocabulary is under test', () => {
   const covered = new Set(EXPENSE_TOKENS.flatMap((t) => rawSubtypesFor(t)));
-  for (const spelling of bandAccounts.keys()) expect(covered.has(spelling)).toBe(true);
+  const seeded = new Set(bandAccounts.map((a) => a.spelling));
+  for (const spelling of seeded) expect(covered.has(spelling)).toBe(true);
   // Income tax by any spelling is below the operating line, not inside note 20.
   for (const spelling of rawSubtypesFor('tax_expense')) {
     expect(expenseBand(spelling)).toBe('other_expense');
-    expect(bandAccounts.has(spelling)).toBe(true);
+    expect(seeded.has(spelling)).toBe(true);
   }
 });
 

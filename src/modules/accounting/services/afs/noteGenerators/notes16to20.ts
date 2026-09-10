@@ -237,8 +237,16 @@ export async function generateNote20OperatingExpenses(
         ${NON_OPERATING_EXPENSE_SUBTYPES as string[]}::TEXT[]
       )
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_subtype
-    HAVING SUM(gjl.debit - gjl.credit) > 0
+    -- Grouped and thresholded EXACTLY as incomeStatementService bands the same
+    -- lines: per ACCOUNT, keeping any non-nil movement in either direction.
+    -- A one-sided HAVING dropped every net-credit operating expense - a
+    -- supplier rebate, a credit note raised against an expense, a reversed
+    -- over-accrual - so the note overstated the operating-expense line by the
+    -- whole credit balance while still footing to its own visible rows.
+    -- Grouping by name alone netted two distinct accounts that happen to share
+    -- a name into one row, or out of the note entirely when they cancelled.
+    GROUP BY ga.id, ga.account_name, ga.account_subtype
+    HAVING ABS(SUM(gjl.debit - gjl.credit)) > 0.001
     ORDER BY net_amount DESC
   `) as DbRow[];
 

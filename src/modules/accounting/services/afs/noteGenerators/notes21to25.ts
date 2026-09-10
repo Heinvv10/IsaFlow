@@ -32,8 +32,12 @@ export async function generateNote21FinanceCosts(
       ]}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_subtype
-    HAVING SUM(gjl.debit - gjl.credit) > 0
+    -- Same defect as note 20's, one file over: an interest rebate or a
+    -- reversed finance charge is a net-credit finance cost, and a one-sided
+    -- HAVING dropped it while the income statement still reported it. Note 22
+    -- below carries no HAVING at all and was already right.
+    GROUP BY ga.id, ga.account_name, ga.account_subtype
+    HAVING ABS(SUM(gjl.debit - gjl.credit)) > 0.001
     ORDER BY ga.account_subtype
   `) as DbRow[];
 
