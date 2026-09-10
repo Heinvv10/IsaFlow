@@ -46,8 +46,36 @@ export function computeFingerprint(
 ): string {
   const vat = vatNumber ?? 'no-vat';
   const inv = invoiceNumber ?? 'no-inv';
-  const amt = (totalAmount ?? 0).toFixed(2);
+  const amt = toColumnScale(totalAmount ?? 0);
   return `${vat}|${inv}|${amt}`.toLowerCase();
+}
+
+/**
+ * Render an amount exactly as `NUMERIC(15,2)` stores it.
+ *
+ * NOT `toFixed(2)`. The driver sends the number as its shortest decimal text
+ * and PostgreSQL rounds THAT decimal, half away from zero; `toFixed` rounds the
+ * binary double instead. They disagree on any `.xx5`: `(1.005).toFixed(2)` is
+ * `"1.00"` while `'1.005'::numeric(15,2)` is `1.01`. Nothing constrains the
+ * inputs to two decimals — `APInvoiceRowSchema.totalAmount` is a bare
+ * `z.number()` — so a CSV cell of `100.005` would otherwise store a fingerprint
+ * the column's own value can never reproduce, and the row would be permanently
+ * invisible to the exact-match lookup. Rounding the text keeps the two sides
+ * equal for every amount, not merely for the ones that happen to be exact.
+ */
+function toColumnScale(n: number): string {
+  const s = String(n);
+  // Exponential form (|n| < 1e-6 or >= 1e21) is far outside the column's
+  // meaningful range; toFixed agrees with the column on all of it.
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return n.toFixed(2);
+
+  const sign = s.startsWith('-') ? '-' : '';
+  const [whole, frac = ''] = (sign ? s.slice(1) : s).split('.');
+  if (frac.length <= 2) return `${sign}${whole}.${frac.padEnd(2, '0')}`;
+
+  const cents = BigInt(whole + frac.slice(0, 2)) + (frac[2]! >= '5' ? 1n : 0n);
+  const digits = cents.toString().padStart(3, '0');
+  return `${sign}${digits.slice(0, -2)}.${digits.slice(-2)}`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

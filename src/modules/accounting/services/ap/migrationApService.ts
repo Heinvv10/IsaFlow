@@ -185,11 +185,21 @@ export async function importAPInvoices(
           const subject = hasNumber
             ? `Already imported: ${inv.invoiceNumber} for this supplier.`
             : `Already imported: a bill with no number, dated ${inv.invoiceDate}, for ${inv.totalAmount.toFixed(2)} from this supplier.`;
+          // The remedy differs by branch. A NUMBERED bill that is already here is
+          // the operator re-importing a corrected row, and the correction is an
+          // edit. A BLANK-numbered one may instead be a second, genuinely
+          // different slip that this lookup cannot tell from the first — same
+          // supplier, date, total and reference is all the identity it has — so
+          // "edit it" is advice the operator cannot act on. Say what would make
+          // the two distinguishable instead.
+          const remedy = wasDeleted
+            ? 'It was deleted, but its take-on entry is still in the ledger — reverse that entry before bringing the bill back, or importing it again would count the balance twice.'
+            : hasNumber
+              ? 'Correcting an imported bill is an edit, not a re-import.'
+              : 'Two unnumbered bills from one supplier, on one date, for one amount and one reference cannot be told apart. If this is a different bill, give it its own number or reference and import it again.';
           errors.push({
             step: 'ap_invoices', row: fileRow(i), field: 'invoiceNumber',
-            message: wasDeleted
-              ? `${subject} It was deleted, but its take-on entry is still in the ledger — reverse that entry before bringing the bill back, or importing it again would count the balance twice.`
-              : `${subject} Correcting an imported bill is an edit, not a re-import.`,
+            message: `${subject} ${remedy}`,
           });
           return false;
         }

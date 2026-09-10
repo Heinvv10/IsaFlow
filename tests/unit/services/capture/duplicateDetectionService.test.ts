@@ -98,6 +98,22 @@ describe('computeFingerprint', () => {
     expect(computeFingerprint(null, 'a', 99.99)).toBe('no-vat|a|99.99');
   });
 
+  it('rounds a third decimal the way NUMERIC(15,2) does, not the way toFixed does', () => {
+    // `(1.005).toFixed(2)` is "1.00" — it rounds the binary double — while
+    // PostgreSQL rounds the decimal text the driver sends and stores 1.01. A
+    // row whose fingerprint says 1.00 while its total_amount says 1.01 can
+    // never be found by the exact-match lookup, which is this defect one
+    // rounding mode over. Nothing constrains the input to two decimals.
+    expect((1.005).toFixed(2)).toBe('1.00');
+    expect(computeFingerprint(null, 'a', 1.005)).toBe('no-vat|a|1.01');
+    expect(computeFingerprint(null, 'a', 100.005)).toBe('no-vat|a|100.01');
+    expect(computeFingerprint(null, 'a', 0.005)).toBe('no-vat|a|0.01');
+    // Half away from zero, in both directions.
+    expect(computeFingerprint(null, 'a', -1.005)).toBe('no-vat|a|-1.01');
+    // Below the half, still down.
+    expect(computeFingerprint(null, 'a', 1.0049)).toBe('no-vat|a|1.00');
+  });
+
   it('distinguishes different amounts', () => {
     const fp1 = computeFingerprint(VAT_NUMBER, INVOICE_NUM, 1000);
     const fp2 = computeFingerprint(VAT_NUMBER, INVOICE_NUM, 1001);

@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
+import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
@@ -129,6 +130,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Override status to 'approved' when gate permits auto_publish
   const invoiceStatus = gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
 
+  // ONE producer of duplicate_fingerprint, never an inline expression. This
+  // route used to build the string in the INSERT itself, and the total was a JS
+  // number bound as a parameter and cast to text there: it rendered `115`, not
+  // the NUMERIC(15,2) column's `115.00`, so every
+  // bill captured through this route stored a fingerprint that findDuplicate's
+  // exact-match step (which calls computeFingerprint) could never match, and
+  // the same bill posted a second accrual journal against the payable control
+  // account. Migration 670 canonicalises the stored column once; this keeps it
+  // canonical from here on.
+  const captureFingerprint = computeFingerprint(
+    extracted.vendorVatNumber ?? null,
+    invoiceInput.invoiceNumber ?? null,
+    invoiceInput.totalAmount,
+  );
+
   // Create supplier invoice
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
@@ -143,11 +159,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms ?? 'net30'}, ${invoiceInput.reference ?? null},
       ${invoiceStatus}, ${userId},
-      lower(
-        coalesce(${extracted.vendorVatNumber ?? null}, 'no-vat') || '|' ||
-        coalesce(${invoiceInput.invoiceNumber ?? null}, 'no-inv') || '|' ||
-        coalesce(${invoiceInput.totalAmount}::text, '0')
-      ),
+      ${captureFingerprint},
       ${documentId}::uuid
     )
     RETURNING id, invoice_number, status

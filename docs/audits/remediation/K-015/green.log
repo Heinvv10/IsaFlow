@@ -292,3 +292,22 @@ Mutation proofs (production code reverted, test observed RED, then restored):
  3. purge without `AND gl_journal_entry_id IS NULL`          -> "expiry purge does not hard-delete ..." RED (1 failed / 22 passed)
  4. page back to `r.mapped.invoice_number ?? ''`             -> "sends NO invoiceNumber field ..." RED (1 failed / 1 passed)
  5. invoiceNumberColumnUnmapped forced false                 -> "tells an UNMAPPED ... apart" RED (1 failed / 19 passed)
+
+=== Round 6 (2026-09-10) ===
+bun run test:integration -- k015-ap-migration-balance-due-column / k015-sage-import-duplicate-savepoint / k089-ar-migration-balance-due-column
+  Test Files 3 passed | Tests 38 passed
+bunx vitest run tests/unit/services/capturePostFingerprint.test.ts   -> 2 passed (new)
+bunx vitest run tests/unit/services/capture/duplicateDetectionService.test.ts -> 21 passed
+bun run test:components -> 63 files / 420 passed
+FULL unit suite, DATABASE_URL UNSET (env -u DATABASE_URL bunx vitest run):
+  Test Files 793 passed | 36 skipped (829); Tests 9439 passed | 234 skipped (9673)
+bunx tsc --noEmit -> clean
+bunx eslint post.ts captureDeduplicationService.ts softDeleteService.ts migrationApService.ts -> clean
+
+Mutation proof (each production change reverted in turn, then restored):
+  1. post.ts inline-SQL fingerprint restored        -> capturePostFingerprint 2 failed
+  2. toColumnScale -> (n).toFixed(2)                -> duplicateDetectionService 1 failed;
+                                                       int "TS and SQL producers agree" failed
+  3. 670's DO $$ cross-tenant guard removed         -> int "670 refuses…" failed
+  4. purge DELETEs unscoped (company_id removed)    -> int "expiry purge…" failed
+  5. blank-row remedy text reverted                 -> int "blank-numbered bill…" failed

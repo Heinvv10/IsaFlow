@@ -445,3 +445,67 @@ HAVING COUNT(*) > 1;
 **Limits.** Still no browser load of the wizard (component-level proof only). The route's whole-file
 refusal is proved at the helper and the page, not through an HTTP request. The `softDeleteService`
 non-reversal of a take-on remains a register item, not fixed here.
+
+---
+
+## Round 6 — the blind review of `78fa01e21` (5 findings)
+
+**H-1 — a THIRD fingerprint producer, disagreeing with the canonical form. FIXED.**
+`pages/api/accounting/capture/[id]/post.ts` built the value inline in its INSERT, casting the JS
+total bound as a parameter to text: it wrote `…|115` where the column, `computeFingerprint` and
+migration 670 all write `…|115.00`. Every bill captured through that route stored a key
+`findDuplicate`'s exact-match step could never produce, so the same bill could be posted again with
+a second accrual against the payable control account — the defect this branch exists to close, on
+the capture path, re-accumulating from the first capture after 670 ran. The route now calls
+`computeFingerprint` and binds one parameter.
+
+**Why rounds 1–5 missed it.** The census looked for CALLERS of `computeFingerprint`. That can only
+find code already using the helper; it cannot find code that builds the value itself. Enumerated
+from the DATA this round — every write to `duplicate_fingerprint` in `src/`, `pages/`, `scripts/`:
+
+| # | Site | Produces | Verdict |
+|---|------|----------|---------|
+| 1 | `pages/api/accounting/capture/[id]/post.ts:138` | inline SQL concatenating the coalesced parts, with `$n::text` for the total | **WAS WRONG — now `computeFingerprint`** |
+| 2 | `pages/api/accounting/ai-invoice-pipeline.ts:138` | `computeFingerprint` | canonical |
+| 3 | `src/modules/accounting/services/ap/supplierInvoiceService.ts:129` | `computeFingerprint` | canonical (the MCP tools and `writeBulkInvoices` reach the column only through here) |
+| 4 | `src/modules/accounting/services/ap/migrationApService.ts:202` | `computeFingerprint` | canonical |
+| 5 | `src/modules/accounting/services/core/recurringTransactionService.ts:220` | `computeFingerprint` | canonical |
+| 6 | `src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:100` | `computeFingerprint` | canonical |
+| 7 | `scripts/migrations/sql/412_supplier_coding_rules.sql:71` | SQL, `total_amount::text` | historical; 670 rewrites what it wrote |
+| 8 | `scripts/migrations/sql/670_…_canonical_backfill.sql:29` | SQL, `::NUMERIC(15,2)::TEXT` | the canonical rendering |
+Every other `INSERT INTO supplier_invoices` (`bank-match-confirm`, `supplier-merge`, the seed and
+Sage scripts, `sageMigrationCommitService`) omits the column entirely and leaves it NULL; 670's
+predicate is `IS DISTINCT FROM`, so those rows are canonicalised too rather than skipped.
+`bulkInvoiceDuplicateSkip.ts`'s local `fingerprint()` is an in-memory batch key that never reaches
+the column. Rows this third producer wrote BEFORE the backfill are ordinary non-canonical rows and
+670 rewrites them like any other — proved by the test that stamps the old TS format and runs the
+migration.
+
+**M-1 — 670 skipped a cross-tenant row and still reported success. FIXED.** The only FK on
+`supplier_id` is to `suppliers(id)`; nothing enforces `s.company_id = si.company_id`, so a row whose
+supplier is in another tenant was unreachable by the company-scoped UPDATE and kept a stale
+fingerprint silently. A `DO $$ … RAISE EXCEPTION` pre-check now names those ids and refuses; there
+is no correct company to read the VAT number from, so canonicalising them is not the migration's
+call. **Run before deploying 670** (read-only): `SELECT si.id, si.company_id, s.company_id FROM
+supplier_invoices si JOIN suppliers s ON s.id = si.supplier_id WHERE s.company_id <> si.company_id;`
+— if it returns rows, 670 will refuse until they are re-parented.
+
+**L-1 — `toFixed(2)` and `NUMERIC(15,2)` round `.xx5` in opposite directions. FIXED.**
+`(1.005).toFixed(2)` is `"1.00"`; `'1.005'::numeric(15,2)` is `1.01`. `computeFingerprint` now
+rounds the driver's decimal text half away from zero (`toColumnScale`), so the fingerprint matches
+the stored amount for every input, not merely for the exact ones. Proved against the real column.
+
+**L-2 — the refusal message misdescribed the blank-number case. FIXED.** A numbered row keeps
+"Correcting an imported bill is an edit, not a re-import."; a blank-numbered one now says the two
+bills cannot be told apart and that a number or reference imports the second.
+
+**L-3 — `purgeExpiredDeletes` swept every tenant. FIXED.** It takes `companyId` and every one of the
+six DELETEs carries `company_id = ${companyId}::uuid`. It stays UNCALLED in production; the
+signature is what a future scheduled job has to satisfy, one tenant at a time.
+
+**Round-6 tests.** `tests/unit/services/capturePostFingerprint.test.ts` (2, new — pins the route's
+own INSERT, not the helper), `duplicateDetectionService.test.ts` +1 rounding case,
+`k015-ap-migration-balance-due-column.int.test.ts` +1 (670 refuses and names the row) plus the
+cross-tenant purge survivor and the two message assertions. Mutation-proved: restoring the inline
+SQL, `toFixed`, the DO block's removal, the unscoped DELETEs and the old message each turn the
+matching test RED.

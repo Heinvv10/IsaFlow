@@ -24,6 +24,31 @@
 -- The join is scoped on company_id as well as supplier_id: a supplier id is a
 -- UUID and cannot collide across tenants, but a data migration that reads a
 -- second table must say which tenant's row it means.
+--
+-- That scoping is also what makes the pre-check below necessary. The only FK on
+-- supplier_id is to suppliers(id); NOTHING enforces that the supplier belongs
+-- to the invoice's company. A row whose supplier is in another tenant is not
+-- reachable by the UPDATE, so it would keep a stale fingerprint while the
+-- migration reported success — the duplicate lookup for that bill would go on
+-- missing, which is the whole defect. Refuse loudly and name the rows instead;
+-- there is no correct company to read the VAT number from, and guessing one
+-- would write a fingerprint from another tenant's data.
+
+DO $$
+DECLARE
+  bad_ids TEXT;
+BEGIN
+  SELECT string_agg(si.id::TEXT, ', ' ORDER BY si.id) INTO bad_ids
+  FROM supplier_invoices si
+  JOIN suppliers s ON s.id = si.supplier_id
+  WHERE s.company_id <> si.company_id;
+
+  IF bad_ids IS NOT NULL THEN
+    RAISE EXCEPTION
+      'supplier_invoices rows whose supplier belongs to another company cannot be canonicalised: %',
+      bad_ids;
+  END IF;
+END $$;
 
 UPDATE supplier_invoices si
 SET duplicate_fingerprint = lower(
