@@ -151,6 +151,18 @@ describe('financial statement dimensions (Postgres)', async () => {
   });
   it.skipIf(!reachable)('filters every balance-sheet basis by canonical BU and combines centre with AND', async () => {
     await withLedger(async () => {
+      for (const [n, date, amount, type] of [
+        [12, '2026-02-06', 90, 'revenue'],
+        [13, '2026-04-06', 40, 'equity'],
+      ] as const) {
+        const entry = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+        await sql`INSERT INTO gl_journal_entries VALUES (${entry}::uuid, ${company}::uuid, 'posted', ${date}::date)`;
+        for (const side of ['asset', type] as const) {
+          await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${entry}::uuid, ${accountIds[side]}::uuid,
+            ${side === 'asset' ? amount : 0}, ${side === 'asset' ? 0 : amount},
+            ${legacy}::uuid, ${cc1}::uuid, ${cc2}::uuid, ${project}::uuid, ${otherBu}::uuid)`;
+        }
+      }
       const byBu = await getBalanceSheet(company, '2026-04-30', undefined, '2026-02-28', selectedBu);
       expect(byBu).toMatchObject({
         businessUnitId: selectedBu,
@@ -166,7 +178,7 @@ describe('financial statement dimensions (Postgres)', async () => {
       expect(byBoth).toMatchObject({totalAssets:40, totalLiabilities:7, totalEquity:33});
       expect(await getEquityBases(company, '2026-04-30', cc2, selectedBu))
         .toEqual({posted:5, derivedRetainedEarnings:28});
-      expect((await getBalanceSheet(company, '2026-04-30', cc2, undefined, otherBu)).totalAssets).toBe(0);
+      expect((await getBalanceSheet(company, '2026-04-30', foreign, undefined, otherBu)).totalAssets).toBe(0);
     });
   });
   it.skipIf(!reachable)('keeps prior-only BU balance accounts in comparative rows', async () => {
