@@ -29,10 +29,14 @@ it('seals the longest message the detector can produce, and states that bound',(
  expect(built.finding.message.length,'the detector can exceed the declared message bound').toBeLessThanOrEqual(CHECK_RUN_ITEM_BOUNDS.message);
  expect(()=>sealAuditCheckRunItem(identity,0,{amount:built.amount,currency:built.currency,finding:built.finding})).not.toThrow();
 });
-it('seals any company currency and any canonical amount the synchronous path would carry',()=>{
- const built=worstCase();
- // companies.default_currency is unbounded text; canonical money allows 30 integer and 12 fraction digits.
- const currency='X'.repeat(CHECK_RUN_ITEM_BOUNDS.currency),amount=`-${'9'.repeat(30)}.${'9'.repeat(12)}`;
- expect(()=>sealAuditCheckRunItem(identity,0,{amount,currency,finding:built.finding})).not.toThrow();
- expect(CHECK_RUN_ITEM_BOUNDS.currency,'a currency code sync would accept can be refused by the seal').toBeGreaterThanOrEqual(1024);
+it('seals the widest currency and amount the table envelope can hold beside the longest message, and no wider',()=>{
+ // companies.default_currency is unbounded text, so no finite seal bound accepts "any" currency: the real limit is the
+ // table's CHECK octet_length(protected_item::text) <= 65 536, after hex encoding doubles the plaintext. The bound must
+ // sit where the widest item still fits that CHECK, so the seal — not the database, mid-run — is what refuses.
+ const built=worstCase(),currency='X'.repeat(CHECK_RUN_ITEM_BOUNDS.currency),amount='9'.repeat(CHECK_RUN_ITEM_BOUNDS.amount);
+ const envelope=sealAuditCheckRunItem(identity,0,{amount,currency,finding:built.finding});
+ // jsonb::text renders ", " and ": " where JSON.stringify writes "," and ":"; four keys add at most eight octets.
+ expect(Buffer.byteLength(JSON.stringify(envelope))+8,'the widest sealed item would breach the table CHECK').toBeLessThanOrEqual(65536);
+ expect(CHECK_RUN_ITEM_BOUNDS.currency,'the currency bound leaves most of the envelope unused').toBeGreaterThanOrEqual(16384);
+ expect(()=>sealAuditCheckRunItem(identity,0,{amount,currency:`${currency}X`,finding:built.finding})).toThrow();
 });

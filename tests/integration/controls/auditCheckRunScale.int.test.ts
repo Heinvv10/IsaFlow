@@ -1,4 +1,4 @@
-import {afterAll,beforeAll,expect,it} from 'vitest';
+import {afterAll,beforeAll,describe,expect,it} from 'vitest';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {readFile,writeFile} from 'node:fs/promises';
 import {loadavg} from 'node:os';
@@ -13,20 +13,25 @@ import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/audi
 import {getAuditCheckRunSummary} from '@/modules/accounting/services/controls/auditCheckRunReadService';
 import {AUDIT_CHECK_RUN_LIMITS} from '@/modules/accounting/services/controls/auditCheckRunContract';
 import {AUDIT_PROCESS_LIMITS} from '@/modules/accounting/services/controls/auditJobProcessContract';
-import {SCALE_CUTOFF,seedJournalRiskScale,type ScaleCensus} from './journalRiskScaleFixture';
+import {SCALE_CUTOFF,seedJournalRiskScale,seedMaxMessageFindings,type ScaleCensus} from './journalRiskScaleFixture';
+import {getAuditCheckRunPage} from '@/modules/accounting/services/controls/auditCheckRunReadService';
 import {startCheckRunWorker} from './checkRunWorkerChild';
 import {statementCensus} from './checkRunStatementCensus';
 /**
  * T2e (plan §5, v8 A34): 100 000 journals through the REAL worker executable, a real SIGKILL mid-stream, and the
  * runner's `unknown` path at the real slab bound. Opt-in and never against the shared fixture: it seeds a million
  * rows. The worker runs as a direct child, not under systemd-run (see checkRunWorkerChild.ts for what that gives up).
+ * Skipped, not failed, without the opt-in — the repo's `describe.skipIf(!enabled)` convention
+ * (forensic-invocations.int.test.ts); once opted in, a misconfiguration fails loudly.
  */
-const env=process.env,config=fixtureConfigFromEnv(env),target=validateFixtureTarget(config);
+const env=process.env,enabled=env.ISAFLOW_AUDIT_SCALE_OPT_IN==='1';
 const JOURNALS=100000,LIMITS=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks,artifact=env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT??'';
 const container=env.ISAFLOW_CHECK_RUN_SCALE_CONTAINER??'',report=env.ISAFLOW_CHECK_RUN_SCALE_REPORT??'';
-let pool:Pool,scale:ForensicFixture,census:ScaleCensus;
+let pool:Pool,scale:ForensicFixture,census:ScaleCensus,config:ReturnType<typeof fixtureConfigFromEnv>;
 const evidence:Record<string,unknown>={};
+describe.skipIf(!enabled)('check runs at 100 000 journals through the real worker',()=>{
 beforeAll(async()=>{
+ config=fixtureConfigFromEnv(env);const target=validateFixtureTarget(config);
  if(env.ISAFLOW_AUDIT_SCALE_OPT_IN!=='1'||env.ISAFLOW_AUDIT_SCALE_RECORDS!==String(JOURNALS)||env.ISAFLOW_AUDIT_SCALE_LARGE_LEASE!==String(JOURNALS))
   throw new Error('Explicit 100 000-journal check-run scale opt-in and lease required');
  if(target.port===33149)throw new Error('The check-run scale suite never seeds the shared forensic fixture');
@@ -122,3 +127,22 @@ it('the runner publishes unknown one groupable row past the real slab bound, and
  expect(overSummary).toMatchObject({status:'unknown',findingCount:0,populationCount:bound+1,populationCountBasis:'recount_after_limit',missingSources:['resource_limit:slab_rows_exceed_limit']});
  evidence.slabBound={bound,atElapsedMs:atRun.elapsedMs,overElapsedMs:overRun.elapsedMs,atPeakRssBytes:atRun.peakRssBytes,overPeakRssBytes:overRun.peakRssBytes};
 },1800000);
+it('publishes 100 000 worst-case findings at the real worker heap instead of aborting',async()=>{
+ // Every journal carries all six signals and a split under each of 100 rules at bigint-wide versions: the longest
+ // message the detector writes, 100 000 times. Retaining every full finding (twice, during the re-read) exhausted the
+ // 1 536 MiB heap before any bound refused; the run must publish, and its peak is what the evidence records.
+ const worst=await provisionForensicFixture(config),seeded=await seedMaxMessageFindings(pool,worst,JOURNALS);
+ const jobId=await enqueue(worst,'2025-12-31'),load=loadavg();
+ const outcome=await startCheckRunWorker(artifact,{...who(worst),jobId}).result;
+ expect(outcome.reply,`the worst-case findings run did not publish: ${JSON.stringify({reply:outcome.reply,signal:outcome.signal,code:outcome.code})}`)
+  .toMatchObject({state:'succeeded',checkRunId:jobId});
+ const page=await actor(worst,()=>getAuditCheckRunPage(requireControlTx(),{checkRunId:jobId,limit:100}));
+ expect(page).toMatchObject({status:'fail',populationCount:JOURNALS,findingCount:JOURNALS});
+ const lengths=page.findings.map(finding=>finding.message.length);
+ expect(Math.min(...lengths),'the fixture did not produce the longest message').toBeGreaterThan(8600);
+ evidence.worstFindings={jobId,seedMs:seeded.seedMs,elapsedMs:outcome.elapsedMs,peakRssBytes:outcome.peakRssBytes,vmHwmBytes:outcome.hwmBytes,
+  loadBefore:load,loadAfter:loadavg(),findingCount:page.findingCount,messageChars:{min:Math.min(...lengths),max:Math.max(...lengths)}};
+ expect(outcome.hwmBytes,'the worker exceeded the class memory cap').toBeLessThan(AUDIT_PROCESS_LIMITS.check_run.memoryMaxBytes);
+},1800000);
+});
+

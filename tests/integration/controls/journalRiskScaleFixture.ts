@@ -68,3 +68,35 @@ export async function seedJournalRiskScale(pool:Pool,fixture:ForensicFixture,jou
   (SELECT count(*)::int FROM approval_rules WHERE company_id=$1 AND document_type='journal_entry' AND is_active) AS rules`,[company])).rows;
  return{...row,seedMs:Date.now()-started} as ScaleCensus;
 }
+/**
+ * The findings path's worst case (T2e review): every journal is a finding carrying the longest message the detector
+ * can write — all six per-row signals plus a split under each of 100 usable rules whose versions are bigint's widest
+ * (19 digits), about 8.7 KB of message per finding. Replica mode also lets `control_version` hold that width, which the
+ * policy trigger would otherwise reset to 1. Groups of 500 journals per (Saturday, person) keep every slab small.
+ */
+export async function seedMaxMessageFindings(pool:Pool,fixture:ForensicFixture,journals:number):Promise<ScaleCensus>{
+ if(!Number.isSafeInteger(journals)||journals<1||journals>100000)throw new Error('Bounded journal count required');
+ const started=Date.now(),company=fixture.companyA,creator=fixture.u1.id,account=randomUUID(),closed=randomUUID(),evidence=randomUUID();
+ const people=Array.from({length:50},()=>randomUUID()),client=await pool.connect();
+ try{
+  await client.query('BEGIN');await client.query("SET LOCAL session_replication_role='replica'");
+  await client.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance) VALUES($1,$2,'1000','Worst','asset','debit')`,[account,company]);
+  await client.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,'Closed 2025',12,2025,'2025-01-01','2025-12-31','closed')`,[closed,company]);
+  await client.query(`INSERT INTO control_protected_evidence(company_id,id,entity_type,entity_id,key_id,envelope_version,ciphertext) VALUES($1,$2,'journal_entry','worst','current',1,'00')`,[company,evidence]);
+  await client.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active,control_version)
+   SELECT gen_random_uuid(),$1,'Worst '||n,'journal_entry','amount','greater_than',1.5,'admin',true,9223372036854775807 FROM generate_series(1,100) n`,[company]);
+  await client.query(`INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,status,source,posted_at,posted_by,created_at,created_by,reversed_at)
+   SELECT gen_random_uuid(),$1,'W'||g,date '2025-12-15',$2,'posted','manual',p.at,($3::uuid[])[1+g%50],p.at,$4,p.at+interval '1 day'
+   FROM generate_series(1,$5::int) g CROSS JOIN LATERAL(SELECT ((date '2026-02-07'+7*(g%40))::timestamp+interval '20 hours') AT TIME ZONE 'Africa/Johannesburg' AS at) p`,
+   [company,closed,people,creator,journals]);
+  await client.query(`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit) SELECT $1,id,$2,1,0 FROM gl_journal_entries WHERE company_id=$1`,[company,account]);
+  await client.query(`INSERT INTO control_change_events(company_id,id,person_id,request_id,operation_id,provenance,entity_type,entity_id,previous_version,new_version,action,occurred_at,protected_evidence_id)
+   SELECT $1,gen_random_uuid(),$2,gen_random_uuid(),gen_random_uuid(),'human','fiscal_period',$3::text,NULL,1,'fiscal_period.close',timestamptz '2026-01-31 17:00+02',$4`,[company,creator,closed,evidence]);
+  await client.query(`INSERT INTO control_change_events(company_id,id,person_id,request_id,operation_id,provenance,entity_type,entity_id,previous_version,new_version,action,occurred_at,protected_evidence_id)
+   SELECT $1,gen_random_uuid(),$2,gen_random_uuid(),gen_random_uuid(),'human','journal_entry',id::text,NULL,1,'journal.amended',posted_at+interval '1 minute',$3
+   FROM gl_journal_entries WHERE company_id=$1`,[company,creator,evidence]);
+  await client.query('COMMIT');
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+ await pool.query('ANALYZE gl_journal_entries,gl_journal_lines,control_change_events,approval_rules');
+ return{journals,lines:journals,changes:journals+1,versions:0,rules:100,seedMs:Date.now()-started};
+}

@@ -2,6 +2,9 @@ import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {auditCheckRunRestFixture} from './auditCheckRunRestFixture';
 import {openAuditJobRequest} from '@/modules/accounting/services/controls/auditJobProtection';
+import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls/auditWorkerTransaction';
+import {claimAuditJobForWorker,failAuditJobForWorker} from '@/modules/accounting/services/controls/auditJobLease';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 let f:Awaited<ReturnType<typeof auditCheckRunRestFixture>>,checkRunId:string;
 const key=randomUUID();
 beforeAll(async()=>{f=await auditCheckRunRestFixture();},60000);
@@ -81,4 +84,23 @@ it('forbids the page read with 403 once current read:reports is revoked',async()
   expect(after,'a revoked requester committed a check-run intent before being refused').toBe(before);
  }finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='reports'",[f.f.companyA,f.f.u1.id]);}
  expect((await f.request('GET',{checkRunId})).status).toBe(200);
+},60000);
+it('answers a failed run with a terminal status of its own, never the retry-later 409',async()=>{
+ const posted=await f.request('POST',{...body(),idempotencyKey:randomUUID()});
+ const jobId=(posted.body.data as {jobs:Array<{id:string}>}).jobs[0]!.id,who={companyId:f.f.companyA,personId:f.f.u1.id,jobId};
+ const lease=await withAuditWorkerTransaction(f.pool,who,'read committed',Date.now()+5000,undefined,store=>claimAuditJobForWorker(store,jobId,AUDIT_WORKER_CLASS_KINDS.check_run));
+ expect(lease).not.toBeNull();
+ await withAuditWorkerTransaction(f.pool,who,'read committed',Date.now()+5000,undefined,store=>failAuditJobForWorker(store,lease!,'RESOURCE_LIMIT',false));
+ // A polling client keys on the status: 409 means "ask again", so a run that will never publish must not answer it.
+ const read=await f.request('GET',{checkRunId:jobId});
+ expect(read.status,'a failed run answered as if it might still publish').toBe(422);
+ expect(read.body.error).toMatchObject({code:'BUSINESS_RULE_VIOLATION',message:'Check run failed and will not publish (RESOURCE_LIMIT)'});
+},60000);
+it('answers a refused enqueue quota with 429, not a server error',async()=>{
+ await f.pool.query(`WITH seeded AS (INSERT INTO control_audit_job_intents(company_id,id,requester_person_id,kind,idempotency_key,request_hash,protected_request)
+   SELECT $1,gen_random_uuid(),$2,'audit_check_run','seed-'||gen_random_uuid(),repeat('0',64),'{"seed":true}'::jsonb FROM generate_series(1,40) RETURNING company_id,id)
+  INSERT INTO control_audit_jobs(company_id,job_id,generation,state,last_error_code,completed_at) SELECT company_id,id,1,'failed','CANCELLED',clock_timestamp() FROM seeded`,[f.f.companyA,f.f.u1.id]);
+ const refused=await f.request('POST',{...body(),idempotencyKey:randomUUID()});
+ expect(refused.status,'a quota refusal surfaced as a server error').toBe(429);
+ expect(refused.body.error).toMatchObject({code:'RATE_LIMIT'});
 },60000);

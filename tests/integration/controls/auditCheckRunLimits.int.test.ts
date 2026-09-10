@@ -11,24 +11,25 @@ import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls
 import {runAuditCheckRunPhase} from '@/modules/accounting/services/controls/auditCheckRunPhase';
 import {publishAuditCheckRunUnknown} from '@/modules/accounting/services/controls/auditCheckRunUnknown';
 import {CheckRunResourceLimitError} from '@/modules/accounting/services/controls/auditCheckRunBudget';
-import {getAuditCheckRunSummary} from '@/modules/accounting/services/controls/auditCheckRunReadService';
+import {getAuditCheckRunPage,getAuditCheckRunSummary} from '@/modules/accounting/services/controls/auditCheckRunReadService';
 import {runAuditJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {AUDIT_CHECK_RUN_LIMITS} from '@/modules/accounting/services/controls/auditCheckRunContract';
 import {AUDIT_PROCESS_LIMITS} from '@/modules/accounting/services/controls/auditJobProcessContract';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
 const config=fixtureConfigFromEnv(process.env),pool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:4});
 const PRODUCTION=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks,NARROW='2026-06-30',WIDE='2026-07-31',DEV_ROWS=2500;
-let slab:ForensicFixture,dev:ForensicFixture;
+let slab:ForensicFixture,dev:ForensicFixture,pair:ForensicFixture,none:ForensicFixture;
 /**
  * One (Saturday, person, ZAR) slab under one usable rule at 1000. Every row is a weekend finding. Only rows at or
  * below the rule can join its group: amount 100 can, 5000 (above it) and 0 (not positive) never can. G4 carries a later
  * accounting date, so the NARROW cutoff sees 3 groupable of 9 rows and the WIDE one 4 groupable of 10.
  */
-async function seed(fixture:ForensicFixture,rows:Array<[amount:string,entryDate:string]>,postedAt:string,rule:string){
+async function seed(fixture:ForensicFixture,rows:Array<[amount:string,entryDate:string]>,postedAt:string,rule:string|Array<[operator:string,amount:string]>){
  const account=randomUUID(),person=randomUUID(),company=fixture.companyA;
  await pool.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance) VALUES($1,$2,'1000','Limits','asset','debit')`,[account,company]);
- await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
-  VALUES(gen_random_uuid(),$1,'Limit rule','journal_entry','amount','greater_than',$2,'admin',true)`,[company,rule]);
+ for(const [operator,amount] of typeof rule==='string'?[['greater_than',rule]]:rule)
+  await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
+   VALUES(gen_random_uuid(),$1,'Limit rule','journal_entry','amount',$2,$3,'admin',true)`,[company,operator,amount]);
  await pool.query(`WITH src AS (SELECT gen_random_uuid() AS id,r.amount,r.entry FROM jsonb_to_recordset($4::jsonb) AS r(amount numeric,entry date)),
   entries AS (INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,status,source,posted_at,posted_by,created_at,created_by)
    SELECT id,$1,left(id::text,20),entry,'posted','manual',$2::timestamptz,$3::uuid,$2::timestamptz,$5 FROM src RETURNING id)
@@ -36,11 +37,15 @@ async function seed(fixture:ForensicFixture,rows:Array<[amount:string,entryDate:
  [company,postedAt,person,JSON.stringify(rows.map(([amount,entry])=>({amount,entry}))),fixture.u1.id,account]);
 }
 beforeAll(async()=>{
- slab=await provisionForensicFixture(config);dev=await provisionForensicFixture(config);
+ slab=await provisionForensicFixture(config);dev=await provisionForensicFixture(config);pair=await provisionForensicFixture(config);none=await provisionForensicFixture(config);
  const day='2026-06-06',saturday='2026-06-06T10:00:00+02:00';
  await seed(slab,[['100',day],['100',day],['100',day],['5000',day],['5000',day],['5000',day],['5000',day],['5000',day],['0',day],['100','2026-07-15']],saturday,'1000');
  // Dev-shaped: one user's batch day, every journal an ordinary amount that CAN join a threshold group (plan v8 A27).
  await seed(dev,Array.from({length:DEV_ROWS},()=>['100','2026-06-08'] as [string,string]),'2026-06-08T10:00:00+02:00','1000000000');
+ // Two usable rules: 100 can join both groups, 500 only the 1000 group (it is already past 200 on its own).
+ await seed(pair,[['100',day],['100',day],['500',day],['500',day]],saturday,[['greater_than','1000'],['greater_than','200']]);
+ // No usable rule at all ('any' is door 3 of plan A24): nothing can join a group, whatever the slab's size.
+ await seed(none,Array.from({length:5},()=>['100',day] as [string,string]),saturday,[['any','0']]);
 },120000);
 afterAll(()=>pool.end());
 const who=(fixture:ForensicFixture)=>({companyId:fixture.companyA,personId:fixture.u1.id});
@@ -110,3 +115,19 @@ it(`publishes a dev-shaped slab of ${DEV_ROWS} groupable journals by one user on
  expect(summary.missingSources,'one busy posting day made the run unknown').not.toContain('resource_limit:slab_rows_exceed_limit');
  expect(summary).toMatchObject({populationCountBasis:'streamed',populationCount:DEV_ROWS});
 },120000);
+it('holds a row that can join ANY usable rule\'s group, not only one that can join all of them',async()=>{
+ // 500 can join the 1000 group but not the 200 one. Counting only rows eligible under EVERY rule would hold two rows,
+ // analyse the 500s alone and lose the split they share with the 100s under 1000.
+ expect(await refused(await leased(pair,NARROW),{maxSlabRows:3}),'a row eligible under one rule of two was not held').toEqual(refusal('slab_rows_exceed_limit'));
+ const lease=await leased(pair,NARROW);
+ expect(await phase(lease,{maxSlabRows:4})).toMatchObject({checkRunId:lease.jobId});
+ const [rule]=(await pool.query("SELECT id::text AS id FROM approval_rules WHERE company_id=$1 AND condition_value=1000",[pair.companyA])).rows;
+ const page=await actor(pair,()=>getAuditCheckRunPage(requireControlTx(),{checkRunId:lease.jobId,limit:100}));
+ expect(page.findingCount).toBe(4);
+ for(const finding of page.findings)expect(finding.message,'a row lost the split it shares under the 1000 rule').toContain(`possible_threshold_split:${rule.id}:v1`);
+});
+it('holds nothing when no rule is usable, so a slab of any size publishes past a tightened bound',async()=>{
+ const lease=await leased(none,NARROW);
+ expect(await phase(lease,{maxSlabRows:2}),'rows that can join no group were held against the slab bound').toMatchObject({checkRunId:lease.jobId});
+ expect(await actor(none,()=>getAuditCheckRunSummary(requireControlTx(),{checkRunId:lease.jobId}))).toMatchObject({populationCount:5,findingCount:5});
+});

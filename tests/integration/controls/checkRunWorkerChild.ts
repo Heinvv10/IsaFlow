@@ -20,13 +20,14 @@ async function status(pid:number):Promise<{rss:number;hwm:number}|null>{
   return{rss:field('VmRSS'),hwm:field('VmHWM')};
  }catch{return null;/* The process has exited; the last sample stands. */}
 }
-export function startCheckRunWorker(artifact:string,identity:AuditWorkerIdentity):WorkerChild{
- if(!artifact.startsWith('/'))throw new Error('Absolute worker artifact required');
+/** `nodePath` is the Node binary the worker runs on; a harness running under bun must pass one, as production runs Node. */
+export function startCheckRunWorker(artifact:string,identity:AuditWorkerIdentity,nodePath=process.execPath):WorkerChild{
+ if(!artifact.startsWith('/')||!nodePath.startsWith('/'))throw new Error('Absolute worker artifact and node binary required');
  if(!process.env.ISAFLOW_AUDIT_WORKER_DATABASE_URL)throw new Error('Explicit private audit worker database required');
  const env:NodeJS.ProcessEnv={NODE_ENV:'production'};
  for(const name of [...AUDIT_PROCESS_ENV,'HOME','USER','LANG','PATH'])if(process.env[name]!==undefined)env[name]=process.env[name];
  const started=Date.now();env[AUDIT_WORKER_CLASS_ENV]='check_run';env[AUDIT_WORKER_STARTED_AT_ENV]=String(started);
- const child=spawn(process.execPath,[`--max-old-space-size=${AUDIT_PROCESS_LIMITS.check_run.maxOldSpaceMb}`,artifact],{env,stdio:['pipe','pipe','pipe']});
+ const child=spawn(nodePath,[`--max-old-space-size=${AUDIT_PROCESS_LIMITS.check_run.maxOldSpaceMb}`,artifact],{env,stdio:['pipe','pipe','pipe']});
  if(!child.pid)throw new Error('Worker child did not start');
  const pid=child.pid;let output=Buffer.alloc(0),peak=0,hwm=0,sampling=false;
  const sampler=setInterval(()=>{if(sampling)return;sampling=true;
