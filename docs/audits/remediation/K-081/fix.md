@@ -391,3 +391,88 @@ until the underlying journal is repaired and 659 re-run.
 **Limits.** Taint is per current-portion account, so one unattributable journal on an account shared
 by many loans refuses all of them. That is deliberate: the alternative is reconstructing a prior
 that may be missing a movement. The refusals table names the offending journal in every case.
+
+---
+
+## Round 6 review (0 HIGH, 1 MEDIUM, 3 LOW) — dispositions
+
+**Can reconstruction from `reference` be made safe at all? No — so the key stopped being the
+authority.** Three rounds each found a new way for a mutable text key to mis-attribute history
+(shared reference, rename mid-history, now swap/reuse), and round 6's case proves the class is not
+exhaustible by anticipation: a SWAPPED or REUSED reference leaves every journal resolving to exactly
+ONE loan, no key ambiguous, no journal unattributable, and the per-account totals footing
+identically under either attribution — nothing in the journals distinguishes it from the truth. The
+rebuild therefore no longer decides attribution by the key; it decides it by OUTCOME. It
+reconstructs as before and then confirms every figure against an oracle the key never touches.
+
+**M1 — fixed.** `updateLoan` writes `reference = COALESCE(…, reference)` and `loans.reference`
+carries no unique constraint, so a swap (two loans exchange references) and a reuse (a freed
+reference taken by a second loan) are ordinary API operations. Reproduced on the fixture: the swap
+moved a 117 000 prior onto the wrong loan and the reuse split a 192 000 history into 130 000 /
+92 000 — in both cases with `loan_reclass_backfill_refusals` EMPTY and the migration reporting
+success, and in both cases the next close would have journalled the difference as a fabricated
+movement. 659 now holds its reconstruction in `tmp_k081_recon` and records a row only where the
+loan's OWN `loan_schedule_rows.st_liability` for that month agrees to within a cent, over every run
+the loan has (`recordReclass` writes exactly that figure, and the running sum of the movements to a
+month IS that month's `st_liability`; a reprice restates the month in later runs, so agreement with
+ANY of the loan's runs is agreement). One unconfirmed period refuses the loan whole, with the reason
+in the refusals table. The GL was not used as the oracle: on the shared current-portion account that
+makes this defect reachable, the account total is identical under either attribution, so the GL
+cannot see a swap at all.
+
+**M1 — the cost, stated plainly.** A loan whose schedule cache no longer covers a month it was
+closed in is now refused even where its reconstruction was right, and a loan with no schedule run at
+all reconstructs nothing. That is the price of deciding by outcome. The remedy is the same for every
+refusal and is now named in the WARNING and in 659's header: record the true prior by hand in
+`loan_reclass_postings` with `source = 'app'`, which the rebuild never deletes.
+
+**L1 — fixed.** The unattributable-journal taint joined `gl_journal_lines` on the loan's
+current-portion account alone, so a loan whose current-portion account was merely the CONTRA leg of
+a foreign reclass was tainted too. A reclass moves both of a loan's accounts, so the taint now
+requires a line on the loan's `current_portion_account_id` AND one on its `gl_account_id`.
+
+**L2 — fixed.** Both `information_schema.columns` lookups (645 and 659) now qualify
+`table_schema = 'public'`; a same-named table in a `backup_*` or restored snapshot schema silently
+skipped 645's backfill and 659's column add.
+
+**L3 — fixed.** Four test files were over the 300-line cap. `k081-loan-reclass-backfill.int.test.ts`
+(361) split into it (173) plus `k081-loan-reclass-backfill-rerun.int.test.ts` (118), over a shared
+`k081-loan-reclass.helpers.ts`; `k083-loan-period-journal-idempotency.int.test.ts` (311) → 180 over
+a new `k083-loan-period-journal.helpers.ts` (148); `loanComplianceService.test.ts` (315) → 229 plus
+`loanComplianceService.persistence.test.ts` (113); `loanGlPostingService.test.ts` (310) → 156 plus
+`loanGlPostingService.posting.test.ts` (218). Every file in the diff is now under 300.
+
+**Round-6 files.** `scripts/migrations/sql/659_…sql`, `scripts/migrations/sql/645_…sql`, new
+`tests/integration/k081-loan-reclass-key-swap.int.test.ts`, new
+`tests/integration/k081-loan-reclass.helpers.ts`, new
+`tests/integration/k081-loan-reclass-backfill-rerun.int.test.ts`, new
+`tests/integration/k083-loan-period-journal.helpers.ts`, new
+`tests/unit/services/loans/loanComplianceService.persistence.test.ts`, new
+`tests/unit/services/loans/loanGlPostingService.posting.test.ts`, and the four files they were split
+from. No `src/` change this round.
+
+**Round-6 tests.** k081-loan-reclass-key-swap — 6 passed (swap, reuse, mixed company, reprice,
+no-schedule, contra-leg); the four rebuilt K-081 backfill files — 24 passed together; all twelve
+k081/k082/k083 integration files — **55 passed** with `--no-file-parallelism`. Run in parallel these
+suites interfere on the one shared fixture database (the M2 case takes an ACCESS EXCLUSIVE lock via
+`ALTER TABLE loan_reclass_postings DROP COLUMN`, and the rebuild loops over every company in the
+database), and a different two or three fail on each run, including files this round did not touch;
+sequentially they are green. Full unit suite with the fixture env unset: **9476 passed / 234 skipped,
+0 failed** (799 files, 36 skipped). `tsc --noEmit` clean, and clean again with `noUnusedLocals` over
+the changed test files (`tests/**` is outside the repo tsconfig, so eslint cannot parse them; no
+`src` file changed this round).
+
+**Round-6 mutation proof.** Each applied, run, restored byte-identical to the pre-mutation file.
+(1) the schedule-confirmation taint neutered (`WHERE FALSE AND NOT EXISTS …`) → 4 of the 6 key-swap
+cases red, including both money-fabricating ones. (2) the `gl_account_id` half of the L1 taint
+removed → the contra-leg case red.
+
+**Historical impact (unchanged in kind).** `origin/master` still carries no 644/645/659. After
+deploy, read the refusals before trusting any close — the round-6 rule will refuse more loans than
+round 5 did:
+`SELECT company_id, loan_key, yyyymm, reason FROM loan_reclass_backfill_refusals ORDER BY 1,3;`
+
+**Limits.** The oracle is the schedule cache, which the application can restate; agreement with any
+run of the loan is accepted, so a reconstruction that coincidentally equals a stale figure of the
+SAME loan is accepted too. It cannot be corroborated across loans, which is the property that
+matters here. Loans with no cached schedule for a closed month are refused rather than guessed.

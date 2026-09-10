@@ -31,7 +31,9 @@
 --   * Resolves the loan by its own identity: the narrative key is extracted
 --     from the description and matched against COALESCE(reference, id::text)
 --     over every loan in the company. A key matching two loans, or none, is
---     REFUSED — never guessed. A refused loan gets no row, so its next close
+--     REFUSED — never guessed, and a key that names exactly ONE loan is
+--     confirmed against that loan's own schedule before any row is written
+--     (round-6 M1 below). A refused loan gets no row, so its next close
 --     reclassifies the full current portion (an overstatement a human can see
 --     and correct) rather than a fabricated movement nobody can.
 --   * Records every refusal in `loan_reclass_backfill_refusals`, a durable
@@ -58,6 +60,32 @@
 --     foreign journal, so the conservative reading is that the movement was
 --     this loan's. Refusing costs an overstatement at the next close that a
 --     human can see; reconstructing costs a fabricated movement nobody can.
+--   * VALIDATES EVERY RECONSTRUCTED FIGURE AGAINST THE LOAN'S OWN SCHEDULE
+--     (round-6 M1). Resolving a key that names exactly one loan is still a
+--     guess: `loans.reference` is mutable and carries no unique constraint, so
+--     two loans that SWAP references — or a reference REUSED by a second loan
+--     after the first was renamed — each resolve cleanly to the WRONG loan.
+--     Nothing is unattributable and no key is ambiguous, so neither taint rule
+--     above fires, and the per-account totals foot identically under either
+--     attribution, so no balance check can see it either. Reproduced on the
+--     fixture: a swap moved 60 000 of one loan's prior onto the other, which
+--     the next close would have journalled as a fabricated movement.
+--     Three rounds have each found a new way for a mutable text key to
+--     mis-attribute history, so this no longer tries to anticipate the fourth.
+--     `recordReclass` writes the schedule row's `st_liability`, and the running
+--     sum of the movements up to a month IS that month's `st_liability`, so the
+--     schedule is an oracle the narrative key never touches. Every
+--     reconstructed figure is checked against the loan's OWN
+--     `loan_schedule_rows.st_liability` for that month, over every run the loan
+--     has (a reprice restates the month in later runs, so agreement with ANY
+--     run is agreement). A loan with one period the schedule does not confirm —
+--     including a period it has no schedule row for — is refused whole.
+--     Attribution is decided by OUTCOME, not by the key that produced it.
+--     THE COST: a loan whose schedule cache no longer covers a month it was
+--     closed in is refused even though its reconstruction may be right. The
+--     remedy is the same for every refusal — record the true prior by hand in
+--     `loan_reclass_postings` with source = 'app', which this rebuild never
+--     deletes.
 --   * Ignores reversed entries (L4).
 --   * company_id is bound as a plpgsql variable and repeated on EVERY join and
 --     predicate of every statement, DELETE included.
@@ -92,7 +120,8 @@ DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'loan_reclass_postings' AND column_name = 'source'
+     WHERE table_schema = 'public'
+       AND table_name = 'loan_reclass_postings' AND column_name = 'source'
   ) THEN
     ALTER TABLE loan_reclass_postings ADD COLUMN source TEXT NOT NULL DEFAULT 'backfill';
     ALTER TABLE loan_reclass_postings ALTER COLUMN source SET DEFAULT 'app';
@@ -150,6 +179,15 @@ BEGIN
     reason  TEXT NOT NULL
   );
 
+  -- Round-6 M1. What the rebuild WOULD write, held back until the loan's own
+  -- schedule confirms it.
+  CREATE TEMP TABLE tmp_k081_recon (
+    loan_id          UUID,
+    yyyymm           CHAR(6),
+    st_liability     NUMERIC(18,2),
+    journal_entry_id UUID
+  );
+
   CREATE TEMP TABLE tmp_k081_journals (
     je_id       UUID,
     created_at  TIMESTAMPTZ,
@@ -176,6 +214,7 @@ BEGIN
   LOOP
     TRUNCATE tmp_k081_journals;
     TRUNCATE tmp_k081_tainted;
+    TRUNCATE tmp_k081_recon;
 
     -- Candidate journals on the LOOSE pattern, with the loan key read OUT of
     -- the narrative rather than a narrative rebuilt from a loan.
@@ -259,12 +298,59 @@ BEGIN
     SELECT DISTINCT l.id,
            'an unattributable reclass journal moved this loan''s current-portion account, so its reconstructed prior would start mid-history'
       FROM tmp_k081_journals t
-      JOIN gl_journal_lines jl
-        ON jl.journal_entry_id = t.je_id AND jl.company_id = target_company
-      JOIN loans l
-        ON l.company_id = target_company
-       AND l.current_portion_account_id = jl.gl_account_id
-     WHERE NOT t.parsed OR t.n_loans = 0
+      JOIN loans l ON l.company_id = target_company
+     WHERE (NOT t.parsed OR t.n_loans = 0)
+       -- Round-6 L1. A reclass journal moves the loan's current-portion account
+       -- AND its long-term account. Matching the current-portion account alone
+       -- also tainted every loan whose current-portion account happened to be
+       -- the CONTRA leg of the orphan — wider than the documented rule.
+       AND EXISTS (
+         SELECT 1 FROM gl_journal_lines jl
+          WHERE jl.journal_entry_id = t.je_id AND jl.company_id = target_company
+            AND jl.gl_account_id = l.current_portion_account_id)
+       AND EXISTS (
+         SELECT 1 FROM gl_journal_lines jl
+          WHERE jl.journal_entry_id = t.je_id AND jl.company_id = target_company
+            AND jl.gl_account_id = l.gl_account_id)
+    ON CONFLICT (loan_id) DO NOTHING;
+
+    -- ── Round-6 M1: reconstruct first, then confirm against the schedule ────
+    INSERT INTO tmp_k081_recon (loan_id, yyyymm, st_liability, journal_entry_id)
+    SELECT loan_id, yyyymm,
+           SUM(month_credit) OVER (
+             PARTITION BY loan_id ORDER BY yyyymm
+             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+           ),
+           journal_entry_id
+      FROM (
+        SELECT t.loan_id,
+               t.yyyymm,
+               SUM(t.net_credit)                                      AS month_credit,
+               (ARRAY_AGG(t.je_id ORDER BY t.created_at, t.je_id))[1] AS journal_entry_id
+          FROM tmp_k081_journals t
+         WHERE t.parsed AND t.n_loans = 1
+         GROUP BY t.loan_id, t.yyyymm
+      ) per_month;
+
+    -- The oracle: `recordReclass` writes the schedule row's st_liability, and
+    -- the running sum above is exactly that figure. A reprice restates the
+    -- month in every later run, so agreement with ANY of this loan's own runs
+    -- is agreement; a month no run of it confirms means the key that produced
+    -- the figure may name a different loan (a swapped or reused reference),
+    -- which no total will ever disagree with once the row is written.
+    INSERT INTO tmp_k081_tainted (loan_id, reason)
+    SELECT DISTINCT r.loan_id,
+           'no schedule run of this loan confirms the reconstructed current portion for one of its periods, so the narrative key may name a different loan'
+      FROM tmp_k081_recon r
+     WHERE NOT EXISTS (
+       SELECT 1
+         FROM loan_schedule_runs run
+         JOIN loan_schedule_rows lsr ON lsr.run_id = run.id
+        WHERE run.loan_id = r.loan_id
+          AND run.company_id = target_company
+          AND TO_CHAR(lsr.date, 'YYYYMM') = r.yyyymm
+          AND ABS(COALESCE(lsr.st_liability, 0) - r.st_liability) <= 0.01
+     )
     ON CONFLICT (loan_id) DO NOTHING;
 
     -- Durable refusal record, rebuilt for this tenant on every run so it can
@@ -307,7 +393,7 @@ BEGIN
         refused := refused || format(E'\n… and %s more; see loan_reclass_backfill_refusals',
                                      refused_total - 50);
       END IF;
-      RAISE WARNING E'loan_reclass_postings backfill refused to reconstruct these loans; their next close reclassifies the full current portion, so correct them by hand and re-run this migration (see docs/audits/remediation/K-081/fix.md). Every refusal is also a row in loan_reclass_backfill_refusals:\n%', refused;
+      RAISE WARNING E'loan_reclass_postings backfill refused to reconstruct these loans; their next close reclassifies the full current portion, so correct them by hand — record the true prior in loan_reclass_postings with source = ''app'', which this rebuild never deletes — and re-run this migration (see docs/audits/remediation/K-081/fix.md). Every refusal is also a row in loan_reclass_backfill_refusals:\n%', refused;
     END IF;
 
     -- Only this migration's own rows. A row the application wrote survives.
@@ -316,23 +402,9 @@ BEGIN
 
     INSERT INTO loan_reclass_postings
       (company_id, loan_id, yyyymm, st_liability, journal_entry_id, source)
-    SELECT target_company, loan_id, yyyymm,
-           SUM(month_credit) OVER (
-             PARTITION BY loan_id ORDER BY yyyymm
-             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-           ),
-           journal_entry_id, 'backfill'
-      FROM (
-        SELECT t.loan_id,
-               t.yyyymm,
-               SUM(t.net_credit)                                       AS month_credit,
-               (ARRAY_AGG(t.je_id ORDER BY t.created_at, t.je_id))[1]  AS journal_entry_id
-          FROM tmp_k081_journals t
-         WHERE t.parsed
-           AND t.n_loans = 1
-           AND t.loan_id NOT IN (SELECT loan_id FROM tmp_k081_tainted)
-         GROUP BY t.loan_id, t.yyyymm
-      ) per_month
+    SELECT target_company, r.loan_id, r.yyyymm, r.st_liability, r.journal_entry_id, 'backfill'
+      FROM tmp_k081_recon r
+     WHERE r.loan_id NOT IN (SELECT loan_id FROM tmp_k081_tainted)
     ON CONFLICT (company_id, loan_id, yyyymm) DO NOTHING;
 
     GET DIAGNOSTICS inserted_rows = ROW_COUNT;
@@ -341,6 +413,7 @@ BEGIN
 
   DROP TABLE tmp_k081_journals;
   DROP TABLE tmp_k081_tainted;
+  DROP TABLE tmp_k081_recon;
 
   RAISE NOTICE 'loan_reclass_postings rebuilt: % row(s) reconstructed from posted reclass journals', total_rows;
   RAISE NOTICE 'refusals recorded: SELECT * FROM loan_reclass_backfill_refusals ORDER BY company_id, yyyymm;';
