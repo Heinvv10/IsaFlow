@@ -144,10 +144,46 @@ WHERE ci.accepted_at IS NULL AND ci.gotrue_user_id IS NOT NULL;
   round-4 M1, which is the more expensive thing to get wrong. The guard is what makes either
   order safe.
 - *L1 — 662 was edited in place under a name this branch had already applied.* Real, and NOT
-  cleared by a renumber now that M3 is declined. Remedy for any developer DB that ran
-  `bun run db:migrate` against `98c54f883`, before this branch is applied again:
-  `DELETE FROM schema_migrations WHERE name = '662_invite_token_encoding_retire_stale.sql';`
-  `origin/master` has never carried the file under any number, so production is unaffected.
+  cleared by a renumber now that M3 is declined. The edited file has a new checksum, so
+  `bun run db:migrate` refuses the whole run on any developer DB that already applied 662 at
+  `98c54f883`. **Production is unaffected: `origin/master` has never carried this file under
+  any number (643/648/662/663 are all branch-only), so production has no tracking row and the
+  sweep will run correctly exactly once when this branch merges.**
+
+  Remedy — correct the recorded checksum WITHOUT re-running the file:
+  ```sql
+  -- value = sha256 of scripts/migrations/sql/662_invite_token_encoding_retire_stale.sql
+  -- recompute with: sha256sum scripts/migrations/sql/662_invite_token_encoding_retire_stale.sql
+  UPDATE schema_migrations
+     SET checksum = '418dd946be81fc5a36a1ac0c6ce6fc94e4875edd808d9fff14cec7f6bb81ce45'
+   WHERE name = '662_invite_token_encoding_retire_stale.sql';
+  ```
+  Then `bun run db:migrate` proceeds to 663 and beyond. If the tracking row has already been
+  deleted, put it back without executing the SQL — `bun scripts/apply-migrations.ts --backfill`
+  (documented at `scripts/apply-migrations.ts:7` as "mark pending as applied without running
+  SQL"). Note `--backfill` uses `ON CONFLICT (name) DO NOTHING`, so it will NOT repair a
+  mismatched checksum on a row that still exists; that case needs the UPDATE above.
+
+  **Do NOT `DELETE FROM schema_migrations WHERE name = '662_…'` and re-apply.** An earlier
+  version of this document advised exactly that, and it is wrong: the round-4 M1 guard added
+  in this round is `NOT EXISTS (SELECT 1 FROM schema_migrations WHERE name LIKE
+  '%\_invite\_token\_encoding\_retire\_stale.sql')`, and deleting the row is precisely what
+  makes it true again. The sweep then runs a SECOND time and expires every invitation minted
+  between the two runs — those carry the new sha256 encoding, are perfectly valid, have no
+  `email_error` note to exclude them, and match `gotrue_user_id IS NOT NULL AND accepted_at IS
+  NULL AND expires_at > now()`. That is the round-4 M1 defect, re-enabled by the remedy.
+
+  If you already followed the old advice on a developer DB, list what the second sweep hit and
+  resend those invitations from the Users page (read-only; developer DBs only):
+  ```sql
+  SELECT company_id, email, created_at, expires_at, email_error
+  FROM company_invitations
+  WHERE accepted_at IS NULL
+    AND email_error LIKE '%retired by migration 662%'
+  ORDER BY created_at DESC;
+  ```
+  A row whose `created_at` is later than the first `db:migrate` run against `98c54f883` was
+  valid and was wrongly expired. Resending mints a fresh token and clears `email_error`.
 - *L2 — the concurrent loser of the `users_email_key` race got an opaque 500.* Fixed: the 409
   is answered from the 23505 itself (`code === '23505' && constraint === 'users_email_key'`),
   and the pre-check `SELECT` that could not close the window is deleted. One mechanism, no
@@ -183,3 +219,11 @@ have produced 500s — no row was written wrongly by either. L7's population is
 **Round-5 limits.** `refundRateLimit`'s zero floor is not itself exercised by a test: no
 production path refunds twice, so the only way to reach it is a contrived call. The floor is
 `GREATEST(count - cost, 0)` in one statement and visible in the diff.
+
+**Round-6 disposition (0 HIGH, 0 MEDIUM, 1 LOW — reviewer verdict DONE).**
+- *LOW-1 — the documented dev-DB remedy for L1 disarmed the round-4 M1 guard.* Fixed, in this
+  document only: the L1 entry above now corrects the checksum instead of deleting the tracking
+  row, spells out what the old advice would have done, and gives a read-only query for anyone
+  who already followed it. No code, test, migration or schema change in this round — the
+  reviewer's own probes (34 integration tests, `tsc`, eslint, the live-GoTrue `email_confirm`
+  matrix, the `app_user` RLS matrix, the DEFINER ownership/ACL read) all stand unchanged.
