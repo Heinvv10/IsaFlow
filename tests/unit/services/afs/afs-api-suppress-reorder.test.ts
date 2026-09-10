@@ -281,13 +281,18 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
       { id: SECTION_ID, newSortOrder: 2 },
       { id: SECT_A, newSortOrder: 1 },
     ];
+    // Each section is locked through the write guard first, then renumbered.
+    const locked = { id: SECTION_ID, document_id: DOCUMENT_ID, section_type: 'note_1', status: 'auto_generated',
+      reviewed_by: null, signed_off_by: null, document_status: 'draft', signing_requested_at: null };
     vi.mocked(sql)
+      .mockResolvedValueOnce([locked] as never)
+      .mockResolvedValueOnce([{ ...locked, id: SECT_A }] as never)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql).toHaveBeenCalledTimes(4);
     expect(apiResponse.success).toHaveBeenCalledWith(res, { reordered: 2 });
   });
 });
