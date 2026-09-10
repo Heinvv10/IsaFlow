@@ -1,0 +1,7 @@
+# Original snapshot intent metadata foundation
+
+Base912e1dc0b. Own only new auditSnapshotIntentMetadata.ts, dedicated unit/PG tests and this plan. Frozen result contains snapshotId/sourceJobId/sourceRequestHash/permissions, explicitly no verified snapshot-content claim.
+
+Require issued context and current read:reports; select same-company original snapshot and succeeded original job pointer plus protected original intent. SQL CASE limits transferred encrypted intent to65536bytes, otherwise NULL/refusal. Authenticate original kind/request/person/company/job with openAuditJobRequest, derive exact current source/check reads from its saved request. Original delegation expiry does not block current authorized retained readers, who may differ from original requester. Never select full seal/artifacts or create an index.
+
+Tests first: missing module; scoped bounded SQL; exact anchor/current domain checks; invalid/missing/wrong-kind/mismatched/tampered/oversized inputs. ActualPG fixture uses genuine worker snapshot, deletes only synthetic fixture indexes and comparison companion to emulate retained indexless original; second authorized reader succeeds without conversion. Foreign/current revoked/pointer/kind/tamper/oversized refuse; original expiry remains readable; original content corruption does not become an implicit content-verification claim. Restore synthetic mutations and close pools. PG/static await root exclusive lease.
