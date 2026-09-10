@@ -181,3 +181,19 @@ actual PG tests are authored before any old assertion removal. No production
 edits. Fixture uses real withControlRequest, current rights, source material,
 approval request/independent decision and actual GL effects. A transaction-local
 synthetic contra-post trigger will test rollback (DDL itself rolls back).
+
+GL verification: corrected period fixture67958 passed23 actual PG; expanded
+80402 passed24 (includes real imbalance error distinction), pools closed.
+Final additional foreign-account-line ownership case54918 passed1 actual PG;
+source TS56007 and final dedicated test TS/full-rule scoped lint54918 passed.
+Unused legacy helper warning from56007 was removed before final clean lint.
+Corrected unit group passed48 cases in five files. No production/shared contract
+changed. The39 historical failures and three previously vacuous passing writer
+assertions map to actual current behavior in gl39-assertion-map.md. Original33
+CRUD/validation test bodies are byte-identical (SHA256 of retained blocks
+3387023adcf86ec9d4428c26c641ac94211ef0663214074047e12fbc16579ca0).
+Two obsolete reversal-spy files were removed only after their persisted-state
+assertions passed real PG; pure date checks now call the real date helper.
+PG commands used explicit synthetic env and vitest.integration.config.ts;
+these required checks were run even though the historical CI had DB dispatch
+unset. Final full integrated CI and other79 historical failures remain root work.

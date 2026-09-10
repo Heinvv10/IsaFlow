@@ -16,7 +16,7 @@ export async function gl39Fixture(){
  const periods={original:randomUUID(),target:randomUUID(),today:randomUUID()},today=fmtDate(new Date());
  try{
   await pool.query("UPDATE companies SET default_currency='ZAR',lockdown_enabled=false WHERE id=$1",[f.companyA]);
-  for(const [id,start,end,name] of [[periods.original,'2026-03-01','2026-03-31','Original'],[periods.target,'2026-04-01','2026-04-30','Target'],[periods.today,today,today,'Today']])await pool.query("INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,$3,1,2026,$4,$5,'open')",[id,f.companyA,name,start,end]);
+  for(const [index,[id,start,end,name]] of [[periods.original,'2026-03-01','2026-03-31','Original'],[periods.target,'2026-04-01','2026-04-30','Target'],[periods.today,today,today,'Today']].entries())await pool.query("INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,$3,$6,2026,$4,$5,'open')",[id,f.companyA,name,start,end,index+1]);
  }catch(error){await pool.end();throw error;}
  async function actor<T>(fn:(ctx:ControlTx)=>Promise<T>,who:'u1'|'u2'|'u3'='u1',pat=false,rejectContraPost=false):Promise<T>{
   const user=f[who],client=await pool.connect();let begun=false;

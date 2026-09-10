@@ -1,4 +1,5 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
+import {randomUUID} from 'node:crypto';
 import {gl39Fixture} from './gl39Fixture';
 import {reverseJournalEntry} from '@/modules/accounting/services/gl/journalEntryPostingService';
 let f:Awaited<ReturnType<typeof gl39Fixture>>;
@@ -50,4 +51,15 @@ it.each([false,true])('approved inverse preserves actual %s PAT versus human pos
  expect(row.posting_agent).toBe(pat?'mcp:reverse_journal:v1':`human:${f.f.u1.id}`);
  if(pat){expect(row.actor_type).toBe('agent');expect(row.actor_token_jti).toBe(f.f.u1.tokens[0]!.id);}
  else expect(row.actor_token_jti).toBeNull();
+});
+
+it.each([false,true])('inverse preserves per-line business unit dimensions (populated=%s)',async populated=>{
+ const j=await f.journal(),units=populated?[randomUUID(),randomUUID()]:[null,null];
+ for(const [index,id] of units.entries())if(id){
+  await f.pool.query("INSERT INTO business_units(id,company_id,code,name,is_active) VALUES($1,$2,left($1::uuid::text,20),'GL39 business unit',true)",[id,f.f.companyA]);
+  await f.pool.query('UPDATE gl_journal_lines SET bu_id=$1 WHERE company_id=$2 AND journal_entry_id=$3 AND gl_account_id=$4',[id,f.f.companyA,j.id,j.accounts[index]]);
+ }
+ await f.post(j.id);const inverse=await f.reverse(j.id,'2026-04-10');
+ const rows=(await f.pool.query('SELECT gl_account_id,bu_id,debit::text,credit::text FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[f.f.companyA,inverse.id])).rows;
+ for(const [index,id] of j.accounts.entries()){const row=rows.find(row=>row.gl_account_id===id);expect(row?.bu_id).toBe(units[index]);expect(row).toMatchObject(index?{debit:'1000.23',credit:'0.00'}:{debit:'0.00',credit:'1000.23'});}
 });
