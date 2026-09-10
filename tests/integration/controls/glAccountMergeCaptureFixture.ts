@@ -1,6 +1,7 @@
 import {beforeAll} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {actor,glFixture,pool,legacy} from './glAccountChangeFixture';
+import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 import {mergeAccounts} from '@/modules/accounting/services/gl/accountMergeService';
 import {openProtectedChange} from '@/modules/accounting/services/controls/changeProtection';
 export {actor,glFixture,pool,legacy};
@@ -21,4 +22,14 @@ export async function journalRows(id:string){
 export async function evidence(type:string,id:string){
  const rows=(await pool.query("SELECT e.action,e.binding_hash,e.accounting_date::text,e.previous_version,e.new_version,p.ciphertext,p.key_id,p.envelope_version FROM control_change_events e JOIN control_protected_evidence p ON p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND p.entity_id=e.entity_id WHERE e.company_id=$1 AND e.entity_type=$2 AND e.entity_id=$3 ORDER BY e.new_version",[glFixture().companyA,type,id])).rows;
  return rows.map(row=>({...row,values:openProtectedChange({version:row.envelope_version,keyId:row.key_id,ciphertext:row.ciphertext})}));
+}
+
+export async function patMerge(source:string,target:string){
+ const f=glFixture(),user=f.u1,token=user.tokens[0]!,client=await pool.connect();
+ try{await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
+  const claims={sub:user.id,company_id:f.companyA,role:'authenticated'};
+  await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),f.companyA]);
+  const result=await withControlRequest({client,userId:user.id,companyId:f.companyA,claims},{personId:user.id,companyId:f.companyA,authMethod:'pat',connectionId:token.id,grantId:token.id,grantedScopes:['read:reports','write:accounts','write:post']},()=>mergeAccounts(f.companyA,source,target,requireControlTx().principal.personId));
+  await client.query('COMMIT');return result;
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }

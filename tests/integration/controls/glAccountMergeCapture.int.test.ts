@@ -2,7 +2,7 @@ import {expect,it} from 'vitest';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
 import {mergeAccounts} from '@/modules/accounting/services/gl/accountMergeService';
-import {actor,evidence,glFixture,journalRows,legacy,merge,mergeFixture,pool} from './glAccountMergeCaptureFixture';
+import {evidence,glFixture,journalRows,legacy,merge,mergeFixture,patMerge,pool} from './glAccountMergeCaptureFixture';
 it('captures the actual merge with complete journal images and exact recovery identity',async()=>{
  const f=glFixture(),m=await mergeFixture(),before=await journalRows(m.journal);
  const result=await merge(m.source,m.target),after=await journalRows(m.journal);
@@ -33,8 +33,9 @@ it('refuses no context, foreign account and revoked shared post authority before
  const f=glFixture(),m=await mergeFixture(),foreign=await legacy(null,1,f.companyB),before=await journalRows(m.journal);
  await expect(mergeAccounts(f.companyA,m.source,m.target,f.u1.id)).rejects.toThrow();
  await expect(merge(m.source,foreign)).rejects.toThrow();
- await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write,can_approve) VALUES($1,$2,'accounts',true,false)",[f.companyA,f.u1.id]);
- try{await expect(merge(m.source,m.target)).rejects.toThrow();}finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='accounts'",[f.companyA,f.u1.id]);}
+ const token=f.u1.tokens[0]!,scopes=(await pool.query('SELECT scopes FROM personal_access_tokens WHERE company_id=$1 AND id=$2',[f.companyA,token.id])).rows[0].scopes;
+ await pool.query("UPDATE personal_access_tokens SET scopes=array_remove(scopes,'write:post') WHERE company_id=$1 AND id=$2",[f.companyA,token.id]);
+ try{await expect(patMerge(m.source,m.target)).rejects.toThrow();}finally{await pool.query('UPDATE personal_access_tokens SET scopes=$3 WHERE company_id=$1 AND id=$2',[f.companyA,token.id,scopes]);}
  expect(await journalRows(m.journal)).toEqual(before);expect(await evidence('journal_entry',m.journal)).toEqual([]);
 });
 it('refuses posted closed periods without creating capture or recovery records',async()=>{
