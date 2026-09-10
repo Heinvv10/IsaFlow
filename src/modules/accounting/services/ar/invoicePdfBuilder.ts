@@ -215,8 +215,14 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
     doc.setTextColor(...COLORS.DANGER);
+    // Branch on the SIGN. `fmtZAR` renders a negative as "R -9.00", so the
+    // single "includes R -9.00" sentence read backwards in the case where the
+    // header VAT is BELOW the sum of the lines: nothing is included, the lines
+    // account for R9.00 more than the total states.
     doc.text(
-      `The VAT total includes ${fmtZAR(unattributed)} that no line item accounts for.`,
+      unattributed > 0
+        ? `The VAT total includes ${fmtZAR(unattributed)} that no line item accounts for.`
+        : `The line items above account for ${fmtZAR(-unattributed)} more VAT than the total states.`,
       MARGIN, y,
     );
     doc.setTextColor(...COLORS.TEXT_PRIMARY);

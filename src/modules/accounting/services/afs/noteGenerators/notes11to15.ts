@@ -7,6 +7,7 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type DbRow = Record<string, unknown>;
 
@@ -29,7 +30,11 @@ export async function generateNote11CashAndCashEquivalents(
       ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('bank', 'cash', 'petty_cash')
+      -- CASH_SUBTYPES, not the literal triple: this note prints in the same
+      -- AFS export as the cash KPI tiles, which resolve cash the same way.
+      -- The literal missed bank_account and cash_on_hand, so the note and the
+      -- tile above it could disagree.
+      AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
     GROUP BY ga.account_name, ga.account_code
     ORDER BY ga.account_code
   `) as DbRow[];

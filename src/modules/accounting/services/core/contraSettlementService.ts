@@ -39,6 +39,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
+import { isBankSubtype } from '../gl/accountSubtypes';
 
 export type Subledger = 'ar' | 'ap';
 
@@ -78,7 +79,7 @@ export async function assertContraAccountUsable(
 
   assertBalanceSheetAccount(account, code, name);
 
-  if (String(account.account_subtype ?? '') === 'bank') {
+  if (isBankSubtype(account.account_subtype == null ? null : String(account.account_subtype))) {
     throw new Error(
       `${code} ${name} is a BANK account. A contra settlement exists precisely because no cash `
       + 'moved — settling against a bank account records a payment that never happened, which is '

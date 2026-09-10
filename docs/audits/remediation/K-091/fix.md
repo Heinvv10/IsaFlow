@@ -254,3 +254,163 @@ FROM   gl_accounts
 WHERE  account_subtype = 'bank_account'
 ORDER  BY company_id, account_code;
 ```
+
+---
+
+## Round 6 — the five findings of review-k091-r5
+
+`allocateVatToLines` is untouched: the reviewer's 200,000-case property harness found zero
+violations, reproduced both worked examples and turned all 8 mutations red. That work is closed.
+
+### MEDIUM-1 (fixed) — the census, completed
+
+Round 5 converted the sites that answer "is this a bank account". It did not convert the sites
+that answer "which subtype is this", and four of those printed money. Every literal subtype
+comparison in `src/**` and `pages/**` was enumerated (`git grep` on `account_subtype` /
+`accountSubtype` against a comparison operator, then read one by one) and given a disposition.
+
+**Converted — the four the review named:**
+
+| Site | Was | Now |
+|---|---|---|
+| `reports/vatBoxBasis.ts` `classifyVatJournalLine` | raw subtype vs `['bank','cash','receivable','payable']` and vs `VAT_TAX_SUBTYPES` | `canonicalSubtype()` first, then the same canonical token lists |
+| `reports/cashFlowForecastDataService.ts` ×5 | `IN ('bank','cash')` | `= ANY(CASH_SUBTYPES)` |
+| `afs/noteGenerators/notes11to15.ts` (note 11) · `reports/disclosureNoteGenerators.ts` (`noteCash`) | `IN ('bank','cash','petty_cash')` | `= ANY(CASH_SUBTYPES)` |
+| `afs/noteGenerators/notes26to30.ts` ×3 (notes 27, 29) | `IN ('bank','cash','trade_receivable','inventory')`, `= 'trade_receivable'`, `IN ('trade_payable',…)` | `CASH/RECEIVABLE/INVENTORY/PAYABLE_SUBTYPES`; `vat_payable`, `overdraft`, `bank_loan`, `current_tax_liability` stay literals — they are not in the canonical vocabulary at all |
+
+**Converted — the guards and pickers (the review's group d), all onto `isBankSubtype`:**
+`bank/bankAllocationService.ts:203` (the ledger-write transfer guard — it would have refused a
+legitimate `bank_account` counterparty), `core/contraSettlementService.ts:81`,
+`gl/bankContraVat.ts` (the `BANK_SUBTYPE` constant deleted; both call sites),
+`gl/accountMergeGuards.ts:209`, `gl/chartOfAccountsService.ts:447`,
+`lib/mcp/tools/writeOpeningBalance.ts:110`, `components/accounting/bank-rules/BankRuleForm.tsx:74`,
+`pages/accounting/bank-transactions/new.tsx:79`,
+`components/accounting/bank-transactions/useBankTxRefData.ts:79`.
+
+**Converted — the remaining SQL literals:** `gl/integrityChecks/accountChecks.ts:228`
+(`<> ALL(ARRAY['bank','cash',…])` → `CASH_SUBTYPES` + the two VAT literals),
+`reports/vatAllocationMismatchService.ts:110,114,118` (`<> 'bank'` → `<> ALL(BANK_SUBTYPES)`),
+`afs/afsKpiService.ts:202-204` (`inventory` / `receivable` / `payable` → the shared constants),
+`reports/casewareExportService.ts` (the `type:subtype` suggestion map now tries the canonical key
+second, so `bank_account` reaches B10 instead of "Other assets"; raw-only keys `retained`,
+`tax_payable`, `loan` still resolve, which is why the canonical key is second and not first).
+
+**Deliberately left, with reasons:**
+
+| Site(s) | Why |
+|---|---|
+| `chartOfAccountsImportService`, `migrationParserService`, `migrationCoaService`, `pages/accounting/bank-accounts/index.tsx`, `default-accounts.ts`, `writeGlAccounts.ts` | WRITE side. They SET `'bank'`; that is what makes it canonical. Widening them lets an importer invent a second spelling instead of normalising onto the first. |
+| `systemAccountKeys.ts`, `controlAccountService.ts`, `farDisposalService.ts`, `getSystemAccount('bank', …)`, `glCrossModuleHooks`, `CreateRuleModal.tsx`, `migration/chart-of-accounts.tsx` | `'bank'` is a system-account ROLE or a UI allocation type, not a subtype. Same word, different question. |
+| `gl.types.ts`, `glAccountSubtypes.ts`, `accountSubtypes.ts` | The vocabulary definitions themselves. |
+| every `vat_input` / `vat_output` / `retained_earnings` / `opening_balance_equity` / `accumulated_depreciation` literal (≈30 sites in `vatReconciliationService`, `vatExceptionsService`, `vatControlMovement`, `workbenchService`, `bankTxQueryFragments`, `_helpers.ts`, …) | Each of these canonical tokens has exactly ONE raw spelling in `SUBTYPE_ALIASES`. The literal and the constant are the same set, so there is no gap to close and the swap would be churn. |
+| `cost_of_sales`, `depreciation_expense` literals (`afsKpiService:167,173`, `managementPackGeneratorService:88`, `consolidatedStatementsService:99`) | Genuinely multi-spelling (`cogs`, `direct_cost`, `amortisation`), so the same gap exists — but it is an income-statement classification gap, not the bank/cash one K-091 is about. Raised as a separate item rather than widened here without its own fixture. |
+| `ASSET_COST_SUBTYPE = 'fixed_assets'` (`fixedAssetReconciliationQueries` + 3 consumers) | Already defined in one place and read identically by its SQL and its TS partition, so the two cannot disagree. Widening it means rewriting a two-way partition; same separate item as above. |
+| `bank_loan`, `overdraft`, `vat_payable`, `current_tax_liability`, `equity_loan`, `salaries`, `uif`, `provision`, `goodwill`, … | Not in `SUBTYPE_ALIASES` at all. `rawSubtypesFor` cannot express them; extending the vocabulary is a separate change. |
+| `classificationCoverageService:73` (`'default_expense'` / `'default_revenue'`) | Asks whether a subtype is a PLACEHOLDER, not which concept it names. Canonicalising would defeat it. |
+| `chartOfAccountsService:220`, `chart-of-accounts.ts:37`, `consolidatedReportingService:78`, `accountMergeFigures:220` | The subtype is a caller-supplied filter parameter, not a literal. |
+
+### LOW-1 (fixed)
+`invoicePdfBuilder` branches the disclosure on the SIGN of `unattributed`. A header BELOW the
+lines now reads "The line items above account for R 9.00 more VAT than the total states." instead
+of "includes R -9.00", which said the opposite of what it meant.
+
+### LOW-2 (fixed)
+`quotePdfBuilder`'s tolerance is a flat half-cent, not `lines.length / 100`. That table prints a
+rate per line and never a VAT amount, so nothing rounds per line; the line-scaled tolerance only
+silenced up to R0.20 of real header/line disagreement on a 20-line quote, without a `log.warn`.
+
+### LOW-3 — no change
+Upheld in the author's favour by the reviewer: `customer_invoices.customer_id` is NOT NULL, the
+branch is unreachable, no test is owed. Not revisited.
+
+### LOW-4 (fixed for the files this branch pushed over)
+`quotePdfBuilder.ts` (304→300) and `disclosureNoteGenerators.ts` (303→300) are back under the cap;
+the excess was comment lines this round added, and they were trimmed. The three files the review
+named — `bank-transactions-bulk-commit.ts` 339, `bankReconciliationService.ts` 356,
+`bankRulesMatchingService.ts` 335 — were over on `origin/master` and gained one import line each.
+Not split: a split to absorb one import is a larger change than the defect.
+
+Disclosed rather than fixed: `reports/vatBoxBasis.ts` is 386 lines, up from 374 on `origin/master`.
+Twelve of the fourteen added lines are the comment stating why the classifier canonicalises before
+it compares — the reasoning a future reader needs in order not to put the raw literal back. The
+file was 74 lines over the cap before this branch touched it; trimming that comment to recover six
+of them would not bring it under and would delete the explanation this round exists to record.
+Splitting it is a separate change with its own risk to a filed-return code path.
+
+**Files (round 6).** 20 changed, listed in the tables above.
+
+**Tests (round 6).**
+- New `tests/integration/k091c-subtype-vocabulary-agreement.int.test.ts`, 10 tests on real
+  Postgres. Seeds ONE asset account per `CASH_SUBTYPES` spelling and asserts `cash.balance.v1`,
+  the cash-flow forecast's opening cash and history, AFS note 11, the IFRS disclosure cash note
+  and bank coverage all see the same accounts at the same balances — coverage carrying exactly the
+  `BANK_SUBTYPES` subset, differing from cash by exactly the petty-cash balances. Seeds one
+  settlement leg per settlement spelling on a VAT tenant and asserts the VAT201 base box excludes
+  every one of them and that SARS's 15% check ties. Seeds one control account per receivable and
+  payable spelling and asserts note 27's current ratio and the AFS KPI debtor/creditor days count
+  all of them.
+- New `tests/unit/services/bankCashSubtypeCensus.test.ts`, 1 test. A LINT, labelled as one: it
+  greps `src`/`pages` for a subtype compared against a bank/cash literal and fails on any new one.
+  It proves nothing about behaviour; it stops the census from decaying.
+- `tests/unit/services/vatBoxBasis.test.ts` +4: every settlement spelling classifies as
+  `settlement`, the cancelled-source branch uses the same widened vocabulary, case and spacing
+  canonicalise on the tax leg, and the generic `tax` subtype is still `unmapped` rather than VAT.
+- `k126` +1 (header below lines), `k126b` +1 (a 20-line quote's 15c disagreement is stated).
+- `tests/unit/services/isActiveNeverFiltersBalances.test.ts` updated: it asserted the literal
+  `IN ('bank','cash')` as its query fingerprint.
+
+**Mutation proof (round 6).** Ten mutations, each applied to the working tree, run, then restored;
+the baseline below was green before each, and `git diff --stat` was identical afterwards.
+
+| # | mutation | result |
+|---|---|---|
+| M9 | `vatBoxBasis` settlement branch back to the raw `subtype` | k091c 1 failed / 9 passed; vatBoxBasis unit 1 failed / 22 passed |
+| M10 | forecast, all five sites back to `IN ('bank','cash')` | k091c 2 failed / 8 passed; census lint 1 failed |
+| M11 | note 11 back to `IN ('bank','cash','petty_cash')` | k091c 1 failed / 9 passed |
+| M12 | `noteCash` back to the same literal triple | k091c 1 failed / 9 passed |
+| M13 | quote tolerance back to `lines.length / 100` | k126b 1 failed / 10 passed |
+| M14 | invoice disclosure back to the single unsigned sentence | k126 1 failed / 10 passed |
+| M15 | note 27 current assets back to the literal list | k091c 1 failed / 9 passed |
+| M16 | `afsKpiService` trade receivables back to `= 'receivable'` | k091c 1 failed / 9 passed |
+| M17 | `accountChecks` back to `ARRAY['bank','cash','vat_input','vat_output']` | census lint 1 failed |
+| M18 | `bankContraVat` back to `String(...) === 'bank'` | census lint 1 failed |
+
+M10 is the one that proves the two layers are independent: the same edit turns two behavioural
+assertions red AND trips the lint, so neither is standing in for the other.
+
+**Gates (round 6).** Full unit suite with `DATABASE_URL` unset: 9588 passed / 243 skipped, 0 failed.
+Integration, the seven files of this branch on the fixture DB: 56 passed. `bunx tsc --noEmit` exit 0.
+`bunx eslint` on every changed `src`/`pages` file: clean.
+
+**Migration / rollback (round 6).** None. Revert the commit.
+
+**Historical-data impact (round 6).** No stored row changes. Every conversion WIDENS a read, so
+figures move only for a company that uses a non-canonical spelling. The consequential one is the
+VAT201: a company whose debtors or creditors control carries any spelling other than `receivable` /
+`payable` had its gross settlement leg counted as taxable base, over-stating boxes 1 and 15.
+Read-only sizing, not run against production:
+```sql
+SELECT ga.company_id, ga.account_code, ga.account_name, ga.account_subtype,
+       SUM(ABS(jl.debit - jl.credit)) AS gross_on_vat_journals
+FROM   gl_accounts ga
+JOIN   gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ga.company_id
+JOIN   gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
+WHERE  je.status = 'posted'
+  AND  ga.account_subtype IN ('receivables','accounts_receivable','trade_receivable',
+                              'trade_receivables','debtor','debtors','payables',
+                              'accounts_payable','trade_payable','trade_payables',
+                              'creditor','creditors','bank_account','cash_on_hand','petty_cash')
+  AND  EXISTS (SELECT 1 FROM gl_journal_lines v
+               JOIN gl_accounts va ON va.id = v.gl_account_id AND va.company_id = v.company_id
+               WHERE v.journal_entry_id = je.id
+                 AND va.account_subtype IN ('vat_input','vat_output'))
+GROUP  BY ga.company_id, ga.account_code, ga.account_name, ga.account_subtype
+ORDER  BY gross_on_vat_journals DESC;
+```
+Every rand this returns was being reported as the value of a supply. Any period already FILED on
+the old figure has to be reconciled against the corrected one before the next return.
+
+**Limits (round 6).** The census covers the K-091 vocabulary only. Two named gaps are left open and
+recorded above: the multi-spelling `cost_of_sales` / `depreciation_expense` tokens, and the
+fixed-asset reconciliation's `'fixed_assets'` constant. Both are the same defect shape on the income
+statement and the FAR, and both need their own fixture. Neither is a regression from this round.
