@@ -209,5 +209,28 @@ GROUP BY 1, 2, 3 ORDER BY 4 DESC;
 
 **Limits (round 9, added).**
 - **A reversal does not take a foreign project bucket to zero.** Only the contra drops the tag; the original keeps it. `getProjectProfitability` therefore still shows the original's amount in an unnamed bucket after the entry is reversed, with no offsetting line in that report. Trial balance, balance sheet and income statement are unaffected — none reads a dimension unless the user supplies a filter, and a filter can never name an id this company does not own. The remedy is a data fix on the posted line (repoint or clear `project_id`), not a ledger correction: no debit or credit is wrong.
-- **An entry whose line names another company's GL ACCOUNT is still un-reversible.** The account cannot be dropped (a line needs one) and 664's composite FK would refuse the mirrored row anyway. Remedy: repoint that line to an account this company owns first — the census SQL above finds them — and the reversal then succeeds.
+- **An entry whose line names another company's GL ACCOUNT is still un-reversible.** The account cannot be dropped (a line needs one) and 664's composite FK would refuse the mirrored row anyway. Remedy: repoint that line to an account this company owns first — the cross-tenant census under **Historical-data impact of 664** finds them, and it is the ONLY census on this page that does; the dimension census above it has no `gl_account_id` predicate and returns nothing for this population — and the reversal then succeeds.
 
+## Round-10 dispositions (blind re-review `8932d303b`, 0 HIGH / 1 MEDIUM / 2 LOW)
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 — the round-9 Limits bullet points an operator at a census that cannot find the population it names | **Fixed, and every census on this branch was then RUN.** The dimension census filters `project_id` / `cost_center_id` / `bu_id` only; it has no `gl_account_id` predicate, so an operator hunting un-reversible foreign-GL-ACCOUNT lines with it reads zero rows and concludes the database is clean. The bullet now names the cross-tenant census under **Historical-data impact of 664** — which does find them — and says explicitly that the dimension census does not. |
+| LOW-1, LOW-2 (round 9) | **Not reconstructed.** The round-9 report was lost with `/tmp` on the host reboot and only the MEDIUM survived verbatim. Nothing in `fix.md` or `green.log` is left open by them, and no finding is invented here to fill the gap; a fresh blind review will re-find whatever remains. |
+
+**Census claims, verified by execution (round 10).** Every claim on this page and in K-052 that a
+query *finds* a population was run against the fixture DB with that population seeded, inside a
+rolled-back transaction (`session_replication_role='replica'` for the pre-664 row). A census that
+returns nothing is indistinguishable from a clean database, so none of these is asserted any more —
+each was executed:
+
+| Census | Population seeded | Rows returned |
+|---|---|---|
+| Merges into a level<3 asset header with children (**Historical-data impact**, and `validation.md`) | one `gl_account_merges` row, target level 2 asset with a child | **1** |
+| Cross-tenant `gl_account_id` lines (**Historical-data impact of 664**) | one `gl_journal_lines` row whose account belongs to the other company | **1** |
+| Posted entries carrying a foreign dimension (**Historical-data impact**, round 8) | one posted line with a `project_id` no `projects` row matches | **1** |
+| Reclassifications into a level<3 asset header (K-052 `fix.md` / `validation.md`) | one `reclassification_batches` + `reclassification_batch_lines` pair onto that header | **1** |
+
+Negative control for the MEDIUM: with the foreign-GL-ACCOUNT line seeded and **no** foreign
+dimension anywhere, the dimension census returns **0** rows and the 664 census returns **1** — which
+is the defect the reviewer named, reproduced.
