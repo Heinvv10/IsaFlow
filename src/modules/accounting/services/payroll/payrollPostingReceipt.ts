@@ -1,5 +1,6 @@
 import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
 import type { ControlTx } from '../controls/contracts';
+import { replayKnownOperationEffect } from '../controls/operationReceiptReplay';
 import type { PayrollPostResult } from './payrollControlService';
 /** Reading an existing financial receipt is authorized afresh and never claims another posting effect. */
 export async function readPayrollPostingReceipt(ctx:ControlTx,runId:string):Promise<PayrollPostResult|null> {
@@ -14,11 +15,12 @@ export async function readPayrollPostingReceipt(ctx:ControlTx,runId:string):Prom
   const [journal]=await ctx.sql`SELECT status,reversed_at FROM gl_journal_entries
     WHERE company_id=${company}::uuid AND id=${run.journal_entry_id}::uuid FOR SHARE` as {status:string;reversed_at:unknown}[];
   if(!journal || journal.status!=='posted' || journal.reversed_at)throw new Error('Payroll posting receipt state is inconsistent');
-  const [effect]=await ctx.sql`SELECT result FROM control_operation_effects WHERE company_id=${company}::uuid
+  const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${company}::uuid
     AND entity_type='payroll_run' AND entity_id=${runId} AND operation='payroll_run.post'
-    AND result->>'journalEntryId'=${run.journal_entry_id} ORDER BY committed_at DESC LIMIT 1` as {result:PayrollPostResult}[];
+    AND result->>'journalEntryId'=${run.journal_entry_id} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:PayrollPostResult}[];
   if(!effect || effect.result?.journalEntryId!==run.journal_entry_id || effect.result.run?.id!==runId) {
     throw new Error('Existing payroll journal has no verified posting receipt');
   }
-  return effect.result;
+  // Replay rechecks the linked approval's requester and reviewer authority, not just the caller's permissions.
+  return replayKnownOperationEffect<PayrollPostResult>(ctx,{entityType:'payroll_run',entityId:runId,operation:'payroll_run.post'},effect.id);
 }
