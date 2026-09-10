@@ -2,11 +2,11 @@ import {expect,it} from 'vitest';
 import {recordCommittedChange} from '@/modules/accounting/services/controls/changeEventService';
 import {actor,changes,glFixture,legacy,pool} from './glAccountChangeFixture';
 
-for(const table of ['control_protected_evidence','control_change_events'] as const){
- it(`refuses a suppressed ${table} INSERT even when the caller catches the error`,async()=>{
+for(const {table,raise} of [{table:'control_protected_evidence',raise:false},{table:'control_change_events',raise:false},{table:'control_change_events',raise:true}]){
+ it(`refuses a ${raise?'raised':'suppressed'} ${table} INSERT even when the caller catches the error`,async()=>{
   const f=glFixture(),id=await legacy(),errors:string[]=[];
-  const message=table==='control_protected_evidence'?'Mandatory protected evidence INSERT was not retained':'Mandatory change event INSERT was not retained';
-  await pool.query(`CREATE FUNCTION public.synthetic_change_insert_suppression() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.companyA}'::uuid AND NEW.entity_type='gl_account' AND NEW.entity_id='${id}' THEN RETURN NULL; END IF; RETURN NEW; END $$`);
+  const message=raise?'Synthetic mandatory change insert failure':table==='control_protected_evidence'?'Mandatory protected evidence INSERT was not retained':'Mandatory change event INSERT was not retained';
+  await pool.query(`CREATE FUNCTION public.synthetic_change_insert_suppression() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.companyA}'::uuid AND NEW.entity_type='gl_account' AND NEW.entity_id='${id}' THEN ${raise?"RAISE EXCEPTION 'Synthetic mandatory change insert failure';":'RETURN NULL;'} END IF; RETURN NEW; END $$`);
   await pool.query(`CREATE TRIGGER synthetic_change_insert_suppression BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION public.synthetic_change_insert_suppression()`);
   try{
    await expect(actor(async ctx=>{
