@@ -43,6 +43,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'journal_risk_checks',
   'bank_statement_completeness',
   'payroll_control_checks',
+  'connection_permissions',
   'entity_change_history',
   'mcp_call_history',
   'transaction_evidence_chain',

@@ -3,8 +3,8 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 155,
-    "reads": 87,
+    "total": 156,
+    "reads": 88,
     "writes": 68,
     "requires_post": 32
   },
@@ -1521,6 +1521,19 @@
         "type": "object",
         "properties": {},
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "connection_permissions",
+      "scope": null,
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
       }
     },
     {

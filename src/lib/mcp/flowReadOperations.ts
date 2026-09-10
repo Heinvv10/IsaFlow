@@ -7,6 +7,7 @@ export const FLOW_READ_OPERATIONS: Record<string, FlowOperationCode | null> = {
   journal_risk_checks: null,
   bank_statement_completeness: null,
   payroll_control_checks: null,
+  connection_permissions: null,
   entity_change_history: null,
   mcp_call_history: null,
   transaction_evidence_chain: null,
