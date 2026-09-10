@@ -51,7 +51,9 @@ export async function getAuditJob(ctx:ControlTx,id:string):Promise<AuditJobStatu
  * Starting forensic work takes the opt-in write:audit on every transport, before any source read, and is rate-bounded.
  */
 export async function enqueueAuditSnapshot(ctx:ControlTx,input:unknown):Promise<AuditJobStatus>{
- assertControlTx(ctx);const request=parseAuditSnapshotRequest(input);
+ assertControlTx(ctx);
+ if(ctx.principal.authMethod==='job')throw new Error('An authenticated request is required to delegate snapshot work');
+ const request=parseAuditSnapshotRequest(input);
  await assertEffectivePermission(ctx,'write:audit');await authorize(ctx,request);
  return withSavepoint('audit_snapshot_enqueue',async()=>{
   const principal=ctx.principal,hash=auditRequestHash(request);
