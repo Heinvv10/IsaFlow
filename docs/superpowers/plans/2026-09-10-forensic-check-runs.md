@@ -1,192 +1,305 @@
-# Plan: page-complete forensic check runs — 2026-09-10
+# Plan v2: page-complete forensic check runs — 2026-09-10
 
-Status: DRAFT, pending adversarial plan review. Authored by a read-only planning agent against
-integration commit `6ec30a9cd`. Closes programme requirement 3 (complete large-data detective and
-history jobs) of `2026-09-09-mcp-forensic-controls.md`.
+Status: revised after an adversarial review returned REJECT on v1 (c47c7e246). Pending re-review.
+Verified against integration commit `c47c7e246` (no source drift from 6ec30a9cd in the reviewed paths).
+Spec: `c76b9706:docs/superpowers/plans/2026-09-09-mcp-forensic-controls.md`.
 
-## Verified baseline at 6ec30a9cd
+Correction to the review's item 1 that changes the fence design: the claim transaction commits before
+work starts (`auditJobRunner.ts:53`, `:56`), so the claim's `FOR UPDATE SKIP LOCKED` lock
+(`auditJobLease.ts:49-50`) is released at claim commit. The lock that persists during work is the
+`FOR SHARE OF j` taken by `loadStoredAuditJobDelegation` (`auditJobDelegation.ts:16`). It does block a
+competing claim (row skipped, `not_claimed`), but the poller still lists the job after 90 s
+(`auditJobPoller.ts:38`) and spawns a unit per poll (`auditJobProcess.ts:23`); a hung worker holds the
+share lock indefinitely. The review's conclusion — spawn storm, indefinite hold, renewal ineffective —
+is confirmed; only the lock type differs. No `idle_in_transaction_session_timeout` exists anywhere in
+`src` or `scripts`. `calculateCumulativeThreeWayMatch` reduces invoiced/accepted arrays to sums
+(`threeWayMatchMath.ts:12`), but `evaluateThreeWayMatchRow` inspects each receipt's status/quality
+(`threeWayMatchQueryService.ts:17-22`), so receipts must stream per line rather than be pre-summed.
 
-- The whole audit job runs in one REPEATABLE READ transaction with a hard 60 s wall deadline and a
-  90 s lease that is never renewed (`auditJobRunner.ts:49-56`, `auditJobContract.ts:5`,
-  `auditWorkerTransaction.ts:23-27`). Publication is lease-fenced (`auditComparisonPublication.ts:68-72`,
-  `auditSnapshotPublication.ts:37-41`); RLS insert policies require a live lease of the exact
-  generation (`668_forensic_snapshot_comparison.sql:56-63`, `673_snapshot_index_build_lineage.sql:16-25`).
-- All six detectors truncate: `RISK_SOURCE_LIMIT=10000` (`invoiceRiskQueriesResult.ts:8`); child caps
-  `LIMIT 101` (`invoiceRiskQueriesPayments.ts:18,25`; `threeWayMatchSources.ts:29,35,38`;
-  `journalRiskQueries.ts:23,35,47`); `LIMIT 10001` fingerprints (`bankStatementCompletenessQueries.ts:54,61,68`);
-  payroll `LIMIT 10000` on nine CTEs plus a single jsonb blob (`payrollControlQueries.ts:13-46,57-64`);
-  document verification capped at 100 docs / 100 MiB (`capturedEvidenceScan.ts:13,21`). Finding pages
-  are offset slices over an in-memory array (`invoiceRiskQueriesResult.ts:20-31`). History over 2 MiB
-  returns `RESOURCE_LIMIT`/`requiredDelivery:'async'` with no async path (`controlChangeHistoryService.ts:41-45`).
-- Snapshot check capture walks those pages and inherits the caps (`auditSnapshotCheckCapture.ts:40`).
+## Review response
 
-## 0. Freezing the population
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | Lease renewal inside the RR txn is invisible; second-connection renewal breaks RLS under the snapshot; hung workers hold locks; poller re-spawns | Accepted. Fence = `FOR UPDATE NOWAIT` on the job row as phase A's first statement (upgrading the existing `FOR SHARE`), `lease_expires_at` set once at claim to `clock_timestamp() + maxRuntimeMs(kind) + grace`, `idle_in_transaction_session_timeout` per session, no in-txn renewal. §4.1 |
+| 2 | Option A rejected for reasons C shares | Accepted. Reviewer design 18 is the default; population copy is spike-gated only. §0 |
+| 3 | Plaintext payroll/bank `material`, member-readable, failed generations kept | Accepted. No population copy, so no `material` table. Findings stored as protected envelopes; failed generations leave no rows. §2.3 |
+| 4 | No retention/purge/quota | Accepted. Migration 677: SECURITY DEFINER purge, per-company quota, enqueue refusal. §2.2 |
+| 5 | Census authenticates nothing; trust claim imprecise | Accepted. Sealed at commit; precise claim in §2.4 |
+| 6 | Second SQL implementation of detector logic (spec l.87) | Accepted. SQL only orders/groups by raw tuples; existing pure functions evaluate; differential randomised tests. §3 |
+| 7 | Evidence budget uncapped; silent downgrade | Accepted. Total byte cap, sha256/size/version recorded at capture, overflow ⇒ coverage incomplete, never a clean pass. §4.3 |
+| 8 | Unmeasured limits; all-or-nothing publish | Accepted. One job per check; limits from the T3b spike; resource limit publishes `unknown`. §4.4 |
+| 9 | Per-check snapshot fallback weakens consistency silently | Accepted. One job per check, each header carries its own `snapshot_xid`, no cross-check consistency claim. §2.1 |
+| 10 | T13 targets the wrong problem and contradicts §2 | Accepted. Replaced by synchronous chunked pagination of one oversized event. §3.7 |
+| 11 | Check runs starve existing audit jobs | Accepted. Kind-aware queue slot, poller `kinds` filter, separate unit template. §4.5 |
+| 12 | Highest risk measured last | Accepted. T3b spike right after T3 is the go/no-go; T12 covers all six checks. §5 |
+| 13 | Deploy interaction with a long RR txn | Accepted. Drain, migration `lock_timeout`, xmin-age alert. §4.6 |
+| 14 | RLS WITH CHECK/FK read through the RR snapshot; job-row UPDATE can raise 40001 | Accepted, noted. Lease values were committed at claim, before the snapshot. §4.1 |
+| 15 | Split migrations; split runner per phase | Accepted. 676 schema, 677 retention; runner split into fence/cursor/publication/evidence/orchestrator. §1 |
+| 16 | Justify `write:bank-tx` for a read job | Accepted with justification. §4.7 |
+| 17 | "Requirement 3" does not exist in the spec | Accepted. Requirement→test matrix by spec line. §6 |
+| 18 | Simpler default design | Adopted as default. §0.1 |
 
-| Option | Survives worker kill | 100k feasibility | Verdict |
-|---|---|---|---|
-| A. One RR txn for capture+analysis+publish | No (restart from zero) | Must fit one lease/statement window; long xmin hold; JS heap analysis | Rejected as sole mechanism |
-| B. `pg_export_snapshot()` across worker txns | No (dies with exporting backend) | Parallel readers only | Rejected |
-| **C. Run-owned population pages captured in one short RR txn, analysed from immutable copies in later txns** | Yes | Set-based keyset `INSERT … SELECT`; SQL aggregates over the copy | **Chosen** |
+## 0. Design
 
-Trade-offs accepted: storage per run (~50–150 MB at 100k parents with children; retention needed) and a
-second implementation of each detector's grouping (SQL over pages vs existing JS over ≤10k arrays),
-controlled by a mandatory equivalence suite and shared SQL predicate fragments. RR affects reads only;
-phase-1 INSERTs commit atomically with the census. Phase 1 holds xmin: bound with lease renewal every
-≤30 s, a phase budget (~10 min at 100k), `lock_timeout` 5 s, no row locks on source tables.
+### 0.1 Default (adopted)
 
-## 1. Module shape (`src/modules/accounting/services/controls/`, each ≤300 lines)
+One `audit_check_run` job = one check.
 
-Reused: queue/lease/generation (`auditJobLease.ts:30-64,76-87`), delegated worker principal and
-permission recheck (`context.ts:103-120`, `auditJobDelegation.ts:8-22`), `withAuditWorkerTransaction`,
-`createIsolatedAuditJobRunner`, poller, protected request/idempotency (`auditComparisonJobService.ts:15-44`
-pattern), batched writer (512 rows / 2 MiB, RETURNING verification, `auditSnapshotIndexRows.ts:11-37`),
-`indexBudget`, HMAC sealing, bounded page readers with current-permission checks, tool/REST adapters.
+1. **Claim** (RC txn, existing `claimAuditJobForWorker`, `auditJobLease.ts:30-43`) with the lease set to
+   the kind's full deadline plus grace.
+2. **Phase A, one REPEATABLE READ txn**: `FOR UPDATE NOWAIT` on the job row; delegation and permissions
+   reloaded (`withControlJobRequest`, `context.ts:103-120`); record `txid_current_snapshot()`;
+   `DECLARE c NO SCROLL CURSOR FOR <existing detector predicate, LIMIT removed> ORDER BY <group tuple>, id`;
+   `FETCH 1000` loop; slabs of equal group tuple go to the existing pure functions; each parent's children
+   come from a bounded keyset loop; findings are sealed and inserted in 512-row / 2 MiB batches
+   (`auditSnapshotIndexRows.ts:11-37` pattern); evidence document references recorded; sealed result header
+   inserted; lease-fenced `UPDATE control_audit_jobs … state='succeeded'` last; COMMIT.
+3. **Phase B, RC txn(s)**: verify captured-document bytes against recorded sha256 within the evidence
+   budget; insert a sealed evidence summary. Idempotent, keyed by job+generation; tracked by `result_phase`.
 
-Does not fit: `executeAuditJob` single-RR body (add a dispatch branch to a three-phase orchestrator);
-`AUDIT_JOB_LIMITS` 60 s / 90 s with no renewal (add per-kind `AUDIT_CHECK_RUN_LIMITS` and kind-aware
-process timeout); `collectSnapshotCheckPages` (left untouched; snapshots may later reference a check run);
-offset cursor in `riskResult` (replaced by ordinal keyset over stored findings).
+A kill in phase A leaves nothing and restarts that check from zero; T3b quantifies the restart cost.
 
-New modules:
-- `auditCheckRunContract.ts` — kind `audit_check_run`, limits (capturePageRows 1000, maxPopulationRows
-  2,000,000, maxFindings 1,000,000, capture 600 s / analysis 900 s / publish 120 s wall, lease renew 30 s,
-  finding page 100, evidence 100 MiB/doc, 20,000 docs/run, 600 s), `CHECK_POPULATIONS`, request parser,
-  `auditCheckRunPermissions`, `PopulationCensus {population,rowCount,excludedCount,pageCount,chainHash}`,
-  `CheckRunHeader` (company, run, generation, lease, cutoff, capturedAt, snapshotXid, checks, census,
-  checkResults, permissions, canonicalHash).
-- `auditCheckRunJobService.ts` — `enqueueAuditCheckRun(ctx,input)`; `getAuditJob` gains
-  `resultCheckRunId`.
-- `auditJobLease.ts` — `renewAuditJobLease(query,lease)`: lease-fenced UPDATE, throws on 0 rows.
-- `auditCheckRunRunner.ts` — `runAuditCheckRun(pool,identity,lease,signal)`: phase 1 RR capture, phase 2
-  RC analysis (one txn per check allowed), phase 3 RC publish. Retry adopts a committed phase-1 header
-  only after `verifyCensus` recomputes the hash chain; phase-2 rows are keyed by `analysis_generation`.
-- `auditCheckPopulationCapture.ts` — generic `PopulationSource {count, insertPage}`; keyset pages with
-  strict key advance, cumulative ≤ count, final == count, SQL page hash, lease renewal per page.
-- Six population sources (`auditCheckPopulation{Invoices,Payments,ThreeWay,Journals,Bank,Payroll}.ts`)
-  using existing predicates with `LIMIT`s removed, children as own populations; shared `…Sql.ts`
-  predicate fragments used by both sync detector and run.
-- Six `auditCheckAnalysis<Check>.ts` — read only the run's population, SQL aggregates/windows for
-  cross-row logic, existing pure functions for row-local logic, keyset streaming, never the whole
-  population in JS.
-- `auditCheckFindingsWriter.ts` — batched, unique `(check, finding_key)`, per-currency Decimal totals
-  verified against SQL `SUM(amount::numeric)` before the result row is written.
-- `auditCheckRunPublication.ts` — savepoint; reload delegation and assert permissions; `verifyCensus`;
-  one result per requested check for the current analysis generation; counts/totals match; seal header;
-  insert result pointer; lease-fenced job success. Anything short of that publishes nothing.
-- `auditCheckRunReadService.ts` — header, findings (keyset on ordinal, published generation only, HMAC
-  verified, current per-check permissions; shared-bank findings withheld without `write:bank-tx`), census.
-- Transport: `src/lib/mcp/tools/forensicCheckRuns.ts` (`run_control_checks`, `control_check_run_status`,
-  `control_check_run_findings`, `control_check_run_census`); `pages/api/accounting/audit-check-runs.ts`.
-- Sync detectors keep their contract; `async_scan_required:*` gains `:use_run_control_checks`.
-- History >2 MiB: separate kind `audit_history_delivery` reusing run tables and 256 KiB chunks (T13).
+### 0.2 Alternative (spike-gated)
 
-## 2. Data model — migration `676_forensic_check_runs.sql` (PROVISIONAL; rescan all refs/worktrees)
+The v1 population-copy design is kept only if T3b shows analysis time dominates capture time by a wide
+margin and restart-from-zero is the observed failure mode. If adopted it must satisfy review items 3, 4
+and 5 verbatim (minimal columns, protected envelopes for sensitive fields, HMAC-sealed census at capture
+commit, retention in T1) and gets its own review.
 
-- Extend `control_audit_job_intents` kind check with `audit_check_run`; add
-  `control_audit_jobs.result_check_run_id uuid` (= job_id), extend result check to four columns.
-- `control_audit_check_runs` (PK company, run; capture_generation, capture_lease_id, cutoff, captured_at,
-  snapshot_xid, checks, population_row_count, protected_capture ≤64 KiB; FK to jobs).
-- `control_audit_check_population` (PK company, run, capture_generation, check, population, ordinal;
-  entity_id text, parent_entity_id, group_key, material jsonb ≤64 KiB; indexes on group_key and parent).
-- `control_audit_check_population_pages` (census: page ordinal, first ordinal, row_count 1..1000,
-  sha256 page_hash).
-- `control_audit_check_derived` (phase-2 derived keys, e.g. beneficiary HMACs, per analysis generation).
-- `control_audit_check_findings` (PK … check, ordinal; UNIQUE finding_key; amount/currency text;
-  protected_item ≤64 KiB).
-- `control_audit_check_results` (per check per analysis generation: status, population/excluded/finding
-  counts, amount_totals, coverage, missing_sources, protected_summary).
-- `control_audit_check_run_results` (publication pointer; jobs FK `(company,result_check_run_id,generation)`).
-- RLS on all: tenant read; INSERT only for a running job of kind `audit_check_run`, exact generation
-  and lease, unexpired, requester = `auth.uid()` (copy of `668:56-63`). No UPDATE/DELETE for app_user.
-  Retention purge later via root-owned SECURITY DEFINER function.
-- Separate capture and analysis generations so a phase-2 retry adopts a verified population and
-  readers only ever see the FK-pointed published generation.
+### 0.3 Why the default meets the requirements
 
-## 3. Per-detector conversion
+Immutable population = the RR snapshot, recorded by `snapshot_xid`. Cursor streaming has no LIMIT and no
+`LIMIT 101` child caps. Counts, totals, coverage and the success pointer share one COMMIT. Readers page
+stored findings by ordinal. Failure rolls back rather than partially publishing. Kill survival comes from
+lease=deadline plus the `FOR UPDATE` fence plus the idle timeout; retry uses a new generation and nothing
+committed by a failed generation exists. Permissions are rechecked per phase and again at read time.
 
-Common: cutoff and ownership joins lifted verbatim; `LIMIT`s removed; children as populations with
-`parent_entity_id`; JS grouping becomes SQL `group_key` with the same hash inputs as `riskHash`
-(unit-proven equal; SQL `canonical_money` proven equal to `canonicalMoney`).
+## 1. Module shape
 
-1. duplicate_invoice_checks — populations `supplier_invoice`, `sage_import`; evidence verification as a
-   phase-2 sub-step writing verified hashes to `derived`; windows `first_value … PARTITION BY group_key`
-   (and by verified hash) reproduce lines 19-26; evidence budget overflow recorded in missingSources and
-   downgrades `reused_invoice_source` to candidate (the one intentional bound).
-2. payment_risk_checks — `supplier_payment`, `payment_allocation`, `release_attempt`,
-   `supplier_beneficiary` (only with current `write:bank-tx`; envelopes stay encrypted). SQL per-payment
-   aggregates reproduce `paymentRiskCurrency`; allocation-set group key via ordered `string_agg`;
-   repeated prepared release via `GROUP BY … HAVING count(DISTINCT intent)>1`; repeated candidate via
-   `lag()` 7-day test; beneficiary HMAC to `derived` then `GROUP BY … HAVING count>1`; `write:bank-tx`
-   asserted at capture and analysis.
-3. three_way_match_exceptions — `invoice_line`, `po_bill_line`, `grn_line`, `supplier_coding_rule`;
-   per-parent keyset children into `evaluateThreeWayMatchRow`. Gate: read `threeWayMatchMath.ts` first;
-   if only sums are consumed, pass SQL sums.
-4. journal_risk_checks — `journal_entry`, `journal_change` (no 101 cap), `approval_threshold` (real
-   count); threshold split via SQL `GROUP BY (sast_day, person, currency)` into `derived`; row-local
-   signals via `analyseJournalRisks(page,[])`.
-5. bank_statement_completeness — `statement_root` (existing UNION), `uncovered_transaction`,
-   `imported_transaction`; counts/net/fingerprints by SQL over frozen rows (exact).
-6. payroll_control_checks — replace jsonb blob with `payroll_run`, `payroll_line`, `employee`,
-   `gl_account`, `cost_allocation`, `cost_centre_mapping`, `uif_declaration`, `payroll_journal_line`,
-   `shared_bank_group` (employee ids only, never account numbers), `component_change`; per-run keyset
-   into unchanged `buildExactPayrollPlan`; UIF expected via SQL sum.
+All under `src/modules/accounting/services/controls/` unless noted; each ≤300 lines.
 
-Rule: every array-derived quantity is either a SQL aggregate/window over the immutable population or a
-per-parent keyset walk; at most one page of parents or one parent's children in memory.
-
-## 4. Failure semantics
-
-| Event | Behaviour |
+| File | Responsibility |
 |---|---|
-| Kill in phase 1 | RR rollback; nothing exists; reclaim at generation+1 restarts phase 1 |
-| Kill in phase 2 | Committed population verified by `verifyCensus` and adopted; new analysis generation; old partial rows unreachable |
-| Kill in phase 3 | Publication rolls back; retry re-verifies and republishes |
-| Lease replaced | Renew fails → throw; failure recorded only if own lease current; RLS refuses stale-lease writes |
-| Partial page | Assertions on page size, key advance, cumulative count; any violation rolls back phase 1 |
-| Stale population | Header reports capturedAt/cutoff/snapshot_xid; optional reader `maxAgeSeconds`; no silent rerun |
-| Permission revoked | Every phase rechecks delegated permissions → `AUTHORITY_REVOKED`; readers recheck per check |
-| Tenant isolation | company_id-leading keys, RLS, company-scoped copies; foreign references as `*_unavailable` booleans |
-| Resource bound | Population/findings/wall bounds → `RESOURCE_LIMIT`, nothing published; evidence budget → explicit missingSources |
+| `auditCheckRunContract.ts` | kind `audit_check_run`; per-check `AUDIT_CHECK_RUN_LIMITS {maxRuntimeMs, leaseGraceMs, idleMs, fetchRows:1000, maxSlabRows, maxChildrenPerParent, maxReferenceRows, maxFindings, evidenceDocumentsPerRun, evidenceBytesPerRun, evidenceWallMs}` — placeholders marked `UNMEASURED` fail a unit test until T3b fills them; `parseAuditCheckRunRequest({cutoff, check, idempotencyKey})`; `auditCheckRunPermissions(check)` = the sync detector's set (`auditJobContract.ts:13-16,23-29`, plus optional `write:bank-tx`) |
+| `auditCheckRunJobService.ts` | `enqueueAuditCheckRuns(ctx,{cutoff,checks[],idempotencyKey})` → one intent per check (`idempotencyKey:check`), quota check, advisory lock (`auditComparisonJobService.ts:15-44` pattern); `getAuditJob` gains `resultCheckRunId` and `evidencePhase` |
+| `auditCheckRunFence.ts` | `fenceAuditCheckRun(ctx,lease)`: `FOR UPDATE NOWAIT` on the job row bound to state/lease/generation; throws on 0 rows or expiry; returns `{snapshotXid}` |
+| `auditWorkerTransaction.ts` (+3 lines) | `idle_in_transaction_session_timeout` beside `statement_timeout`/`lock_timeout` (`:26-27`) |
+| `auditJobLease.ts` | `claimPendingJob` sets `lease_expires_at` from a kind→limits table (legacy kinds keep `AUDIT_JOB_LIMITS.leaseSeconds`); kind is already read at `:35` |
+| `auditCheckRunCursor.ts` | `openCheckCursor`; `fetchSlabs` (FETCH loop yielding rows sharing the group tuple, carry-over across fetches, `ResourceLimitError('slab_rows')` above `maxSlabRows`); `fetchChildren` keyset loop with `maxChildrenPerParent`; budget/abort via `indexBudget` (`auditSnapshotIndexValidation.ts:31-44`) |
+| `auditCheckRunSeal.ts` | `sealCheckResultHeader`, `sealCheckFindingItem`, `sealCheckEvidenceSummary`, verifiers; domain `audit-check-run-v1` |
+| `auditCheckRunPublication.ts` | batched findings writer (RETURNING identity check, Decimal(80) totals cross-checked against SQL `SUM(amount::numeric) GROUP BY currency`), `publishCheckResult` with the fenced job UPDATE (`auditComparisonPublication.ts:68-72`) |
+| `auditCheckRunEvidence.ts` | phase B verification and sealed summary |
+| `auditCheckRunUnknown.ts` | `publishUnknownCheckResult` for resource-limit outcomes |
+| `auditCheckRunRunner.ts` | orchestrator; new dispatch branch in `auditJobRunner.ts` |
+| `auditCheckStream{Duplicates,Payments,ThreeWay,Journals,Bank,Payroll}.ts` | per check: cursor SQL, slab→pure-function adapter, child loops, evidence refs, coverage/missing assembly using the sync detector's own string constants |
+| `auditCheckRunReadService.ts` | header, findings (keyset, seal-verified, current per-check permissions), evidence summary |
+| `controlChangeHistoryChunks.ts` | oversized single-event chunked reads; `controlChangeHistoryService.ts:45` gains `requiredDelivery:'chunked'` and the first cursor |
+| `src/lib/mcp/tools/forensicCheckRuns.ts` | `run_control_checks`, `control_check_run_status`, `control_check_run_findings`, `control_check_run_evidence`, `entity_change_history_chunk` |
+| `pages/api/accounting/audit-check-runs.ts` | POST enqueue, GET status/findings (`audit-comparisons.ts:17-34` pattern) |
+| `scripts/forensic/run-audit-worker.ts`, `auditJobProcessContract.ts` | kind-class limits (`audit` 65 s, `check-run` measured) and a separate unit template |
 
-## 5. Task DAG and gates (serialize PG; RED → GREEN → named commit → independent review)
+## 2. Data model
 
-- T1 Contract + migration + `renewAuditJobLease` + job kind/result. Gate: PG schema test (fresh replay,
-  RLS refuses without live lease / stale lease, result FK); typecheck; migration naming; prefix rescan.
-- T2 Enqueue/status/dispatch + kind-aware process limits (T1). Gate: idempotency conflict refused;
-  status never triggers work; poller picks kind.
-- T3 Phase-1 engine with one synthetic source (T1). Gate: RR isolation under concurrent insert (two
-  connections); reproducible hash chain; non-advancing key throws; renewal observed; abort leaves zero rows.
-- T4 Findings writer, results, publication, reader (T3). Gate: duplicate key fails run; SQL vs Decimal
-  mismatch fails; expired-lease publish refused and invisible; unpublished generation unreadable;
-  current-permission recheck; HMAC tamper detected.
-- T5–T10 Detector conversions (T3+T4; ≤3 parallel by ownership). Gate each: (a) equivalence with sync
-  detector on ≤10k fixtures (keys, counts, totals, coverage, missingSources); (b) over-cap 10,001 parents
-  / 102 children / 101 docs complete in run while sync returns `async_scan_required`; (c) group straddling
-  a page boundary equals contiguous; (d) no foreign-company material.
-- T11 Transport (T4). Gate: MCP HTTP acceptance extended; enqueue → poll → findings with synthetic
-  bearer; cross-tenant not found; revoked scope forbidden.
-- T12 Scale + hard-kill (T5–T10). 100,000-parent invoice+payment and journal populations under the
-  isolated runner; record elapsed/RSS/DB samples to `forensic-evidence/check-run-scale-100k.json`;
-  SIGKILL in phase 2 → population retained, no pointer, reclaim, census adoption, exactly one result.
-- T13 History async delivery (T4). Gate: >2 MiB entity delivered completely by hashed chunks; sync path
-  still `RESOURCE_LIMIT` with job hint.
-- T14 Integration: `bun run ci` on the named integrated commit; independent reviewers on migration, RLS,
-  sensitive material, bypass routes; adversarial pass (forged lease copies, other-generation reads,
-  snapshot-kind inserts, permission downgrade between enqueue and read).
+### 2.1 Migration 676 (PROVISIONAL — 674 and 675 are held on other branches; root must rescan all refs and worktree SQL dirs and reserve, spec l.20)
 
-## 6. Counter-argument, highest risk, what would change this
+- `control_audit_job_intents.kind` CHECK extended with `audit_check_run` (`668:2-3` pattern).
+- `control_audit_jobs`: `result_check_run_id uuid` (= job_id), `result_phase text CHECK IN
+  ('analysis','evidence_pending','evidence_complete','evidence_incomplete')`, result-check rewritten over
+  four result columns, `GRANT UPDATE(result_check_run_id,result_phase)`. Comment records that this kind's
+  lease is set once at claim with no renewal.
+- `control_audit_check_results(company_id, job_id, generation, lease_id, check_id, snapshot_xid, status
+  CHECK IN('pass','fail','unknown'), population_count, excluded_count, finding_count, amount_totals jsonb,
+  coverage jsonb, missing_sources jsonb, protected_header jsonb ≤64 KiB, PK(company_id,job_id,generation),
+  FK→control_audit_jobs)`; guarded job FK on `(company_id,result_check_run_id,generation)` (`668:44-49`).
+- `control_audit_check_findings(… ordinal 0..999999, finding_key hex64, amount text, currency text,
+  protected_item jsonb ≤64 KiB, PK(company_id,job_id,generation,ordinal),
+  UNIQUE(company_id,job_id,generation,finding_key))`.
+- `control_audit_check_evidence(… ordinal, document_id, entity_type, entity_id, recorded_sha256,
+  recorded_byte_length, recorded_version, verified boolean, verified_at, PK(…,ordinal),
+  UNIQUE(…,document_id))`; `GRANT UPDATE(verified,verified_at)` under the worker policy only.
+- `control_audit_check_evidence_summary(… verified_count, unverified_count, bytes_read, state
+  CHECK IN('complete','incomplete'), protected_summary jsonb, PK(company_id,job_id,generation))`.
+- RLS on all: tenant read (`668:53-55`); INSERT/UPDATE only for a running job with matching generation,
+  lease and unexpired lease, joined to an intent of this kind with `requester_person_id=auth.uid()`
+  (`668:56-63`). No other UPDATE/DELETE grants. These WITH CHECK subqueries read the job row through the
+  RR snapshot; its lease values were committed at claim, before the snapshot, so they are visible.
+- Indexes: PKs serve ordinal paging; add a kind-filtered claim index only if T2's `EXPLAIN` needs it.
 
-Against: a second implementation of grouping logic risks divergent findings (spec forbids parallel
-sources of truth). Cheaper alternative: option A with lease renewal and keyset streaming, accepting
-kill = restart. Rebuttal: A cannot survive kill beyond restart, holds long xmin on shared tables, and
-still needs streaming rewrites. The equivalence gate is mandatory; a detector that cannot pass it stays
-on per-parent JS streaming over frozen children.
+### 2.2 Migration 677 — retention and quota
 
-Highest risk: phase-1 wall time and DB pressure at 100k parents with unbounded children under
-`lock_timeout` 5 s and one worker connection; unmeasured. Second: captured-document byte verification
-at scale (IO outside the snapshot), hence the explicit evidence budget.
+`control_audit_check_run_quota(max_published_runs default 200, max_active_runs default 2, retention_days
+default 400)`; SECURITY DEFINER `control_audit_purge_check_runs(p_company)` deleting findings/evidence/
+results past retention while keeping sealed headers and job history, `REVOKE EXECUTE FROM PUBLIC`, granted
+to app_user with an internal `app.current_company_id()` guard; runner calls it after publication; enqueue
+refuses over quota with `quota_exceeded`.
 
-Would change the recommendation: phase 1 at 100k well under 20 s plus unacceptable storage → switch to
-id+row-hash freeze with `EVIDENCE_CHANGED` on drift; phase 1 over budget → `pg_export_snapshot()`
-fan-out inside phase 1 or per-check RR captures with explicit per-check snapshot ids; irreducible SQL/JS
-divergence → keep that detector on per-parent JS streaming.
+### 2.3 What is stored where
+
+Plain columns: identifiers, counts, totals, hashes, coverage/missing strings, document sha256/size/version.
+Protected envelopes: every finding item, result header, evidence summary. Payroll findings reference
+`payroll_run`/`employee` ids only (`payrollControlAnalysis.ts:24-26`); reads require current `read:payroll`.
+Beneficiary account values never leave the transaction (`paymentRiskChecksBeneficiaries.ts:5`).
+
+### 2.4 Trust claim for seals (spec l.107)
+
+The HMAC (domain `audit-check-run-v1`, key `CONTROL_SNAPSHOT_SIGNING_KEY`) over the canonical header
+(company, job, generation, lease, check, snapshot_xid, cutoff, capturedAt, population/excluded/finding
+counts, totals, coverage, missingSources, evidence-ref digest, findings digest) and over each item proves
+(a) the result was produced by a key holder holding an unexpired lease of that generation, and (b) it has
+not been altered since sealing. It does not prove the sources were complete or correct at capture, and it
+is not independent of an operator holding both DB write access and the key.
+
+## 3. Per-detector conversion (SQL orders, JS evaluates)
+
+Common: cursor SQL is the existing detector SELECT with `LIMIT` removed; `count(*) OVER()` becomes a
+preceding `count(*)` under the same snapshot; `ORDER BY` the raw grouping tuple then `id`; children come
+from `fetchChildren`; exceeding `maxChildrenPerParent` records `missingSources:
+'child_material_exceeds_limit:<population>'` with coverage incomplete (status cannot be `pass`); totals use
+`Decimal.clone({precision:80})` (`invoiceRiskQueriesResult.ts:26-27`) cross-checked by SQL before sealing.
+
+1. **duplicate_invoice_checks** — cursor `invoiceRiskQueries.ts:7-15` ordered by supplier, date, currency,
+   subtotal, tax, total, id; slab → `detectInvoiceDuplicates`; imports streamed for population/mapped
+   counts; evidence refs recorded; byte-reuse findings stay `candidate` until phase B verifies both docs.
+2. **payment_risk_checks** — cursor over `supplier_payments` (`invoiceRiskQueriesPayments.ts:9-29` without
+   the two `LIMIT 101` LATERALs) ordered by supplier, amount, id; allocations and attempts per payment via
+   `fetchChildren`; slab → `detectPaymentPatterns`. Beneficiaries (only with current `write:bank-tx`):
+   phase A computes `beneficiaryFingerprint` per row and writes `(fingerprint, supplier_id)` to a session
+   TEMP table dropped at commit, then reads it back ordered as slabs into `detectSharedRiskBeneficiaries`.
+3. **three_way_match_exceptions** — cursor over invoice lines (`threeWayMatchSources.ts:10-41` without the
+   three LATERALs) ordered by invoice, item; bills, receipts and rules per line via `fetchChildren`;
+   `evaluateThreeWayMatchRow` unchanged (receipts must be rows, not sums).
+4. **journal_risk_checks** — cursor over `journalRiskQueries.ts:9-44` without the caps, ordered by
+   `(actual_at AT TIME ZONE 'Africa/Johannesburg')::date`, person, currency, id (a unit test proves SQL
+   equality with `parts()` at `journalRiskAnalysis.ts:9-13`); changes and lines per journal via
+   `fetchChildren`; slab → `analyseJournalRisks(slab, thresholds)`; thresholds loaded fully under
+   `maxReferenceRows` with the existing `missingPolicy` semantics (`journalRiskQueries.ts:48-50`).
+5. **bank_statement_completeness** — cursor over roots (`bankStatementCompletenessQueries.ts:11-41`);
+   per-root counts, nets and fingerprints lose `LIMIT 10001` and stay set-based in PG; uncovered counts and
+   fingerprints computed without LIMIT; row → `analyseBankStatementCompleteness` unchanged.
+6. **payroll_control_checks** — reference sets loaded under `maxReferenceRows`; runs cursor; lines and
+   journal lines per run and declarations via `fetchChildren`; shared banks and component changes from the
+   existing SQL (`payrollControlQueries.ts:33-46`) without LIMIT; `analysePayrollControls` refactored into
+   pure `analysePayrollRun` and `analysePayrollCrossRun`, with a differential test proving the composition
+   is identical on existing fixtures.
+7. **History >2 MiB** — `controlChangeHistoryChunks.ts` serves one oversized event's redacted
+   `{before, after}` canonical JSON in 256 KiB chunks under a signed cursor
+   `{eventId, chunkIndex, valueSha256, permissionsHash}`; a cursor whose hash or permissions no longer
+   match is rejected. Synchronous, bounded, no job kind.
+
+Differential testing: per check, randomised fixtures (≤10k parents, up to 150 children, deliberate group
+collisions across FETCH boundaries) assert equality of finding keys, counts, totals, coverage (minus the
+`synchronous_population_limit_10000` marker) and missingSources between sync detector and run.
+
+## 4. Failure semantics and operations
+
+### 4.1 Fence
+
+Claim sets `lease_expires_at = clock_timestamp() + maxRuntimeMs(kind) + leaseGraceMs`, committed, so the
+poller predicate (`auditJobPoller.ts:38`) stays false for the run. Phase A's first statement is
+`FOR UPDATE NOWAIT` on the job row, so any competing claim skips it. `idle_in_transaction_session_timeout`
+(proposed 60 s) plus the existing `statement_timeout` terminate a hung backend, rolling back and releasing
+the lock; the lease then admits a new generation. The systemd hard kill uses the kind's `maxRuntimeMs`
+(`auditJobProcess.ts:38-39`). No renewal exists for this kind. The only in-RR job-row UPDATE is the final
+success pointer; 40001 remains retryable (`auditJobRunner.ts:79`).
+Gate (T2): with injected limits (`maxRuntimeMs` 6 s, legacy lease 2 s) a check running 3× the legacy lease
+yields exactly one generation, zero extra units spawned, and success.
+
+### 4.2 Kill, retry, idempotency
+
+Phase A kill: rollback, nothing visible, reclaim at generation+1, restart. Phase B kill: analysis already
+succeeded with `result_phase='evidence_pending'`; retry re-enters phase B only, idempotent per document.
+Three attempts then `failed/RETRY_EXHAUSTED` (`auditJobLease.ts:51-56`).
+
+### 4.3 Evidence
+
+Phase A records each referenced document's `recorded_sha256`, byte length and version. Phase B verifies via
+`loadOwnedCapturedEvidence` under `evidenceDocumentsPerRun`, `evidenceBytesPerRun` (proposed 2 GiB, pending
+T3b) and `evidenceWallMs`. Overflow ⇒ summary `incomplete`, `coverage: evidence_verification:incomplete`,
+`missingSources: captured_evidence_verification_incomplete:<n>`, status `unknown` unless findings make it
+`fail`; unverified documents never yield `confirmed` byte-reuse.
+
+### 4.4 Resource limits
+
+`ResourceLimitError` in phase A aborts the txn; the runner then writes, in a fresh RC txn under the same
+lease, a sealed `status:'unknown'` result with `missingSources:['resource_limit:<reason>']` and marks the
+job succeeded. The fan-out tool reports each check separately and the aggregate is `unknown` if any check
+is `unknown` (spec l.97).
+
+### 4.5 Queue isolation
+
+`running` becomes per-kind-class; the poller takes a `kinds` filter; check-run units use their own template
+and limits. Gate (T2): a snapshot job completes while a 20 s check run is in progress.
+
+### 4.6 Deploy interaction
+
+Drain the check-run poller before migrations (SIGTERM, wait for no running check-run jobs, else kill after
+the kind deadline); migrations run with `SET lock_timeout='5s'` and retry; alert on
+`age(backend_xmin)` for `application_name LIKE 'isaflow-audit:%'`. Legacy kinds keep the 65 s limit.
+
+### 4.7 `write:bank-tx` for beneficiary comparison
+
+Decrypting supplier bank envelopes is gated by the same authority the writer path uses
+(`invoiceRiskQueriesBeneficiaries.ts:8-10`, `paymentRiskChecks.ts:67`); no narrower `read:beneficiary`
+permission exists in the effective-permission model at this commit, and adding one is a shared-contract
+change owned by root. Without current `write:bank-tx` the check publishes
+`missingSources:['beneficiary_comparison_authority']` and no shared-account findings; page reads re-assert
+the permission and withhold otherwise. T14 covers both branches and revocation between enqueue and read.
+
+### 4.8 Tenant isolation
+
+Every table keyed by `company_id` with RLS; cursor SQL is the existing company-scoped predicate; foreign
+parents stay masked booleans; cross-tenant job ids read as not found.
+
+## 5. Task DAG and gates (RED first; real PG; serialised DB lease)
+
+- **T1** Contracts + migrations 676/677 (root). Gate: fresh replay; RLS refuses insert without a live lease
+  of the right kind/generation; purge refuses a foreign company; quota refusal; typecheck; naming gate;
+  recorded prefix rescan.
+- **T2** Fence, kind-aware lease, idle timeout, queue isolation, dispatch, enqueue/status. Gates: §4.1
+  (3× lease, no spawn storm), §4.5 (snapshot completes during a check run), idempotent enqueue, status
+  never triggers work.
+- **T3** Cursor/slab engine, publication/seal, reader on a synthetic check. Gates: slab split across a
+  FETCH boundary preserved; duplicate finding key fails; totals mismatch fails; seal tamper detected;
+  unpublished generation unreadable; abort mid-stream leaves zero rows.
+- **T3b Spike (go/no-go)** 100k supplier invoices with 0–150 allocations/attempts and 100k journals with
+  3–10 lines plus change events. Measure per check: phase A wall time, WAL bytes, RLS WITH CHECK cost,
+  `age(backend_xmin)`, storage; plus a population-copy prototype for one check to settle §0.2. Output
+  `forensic-evidence/check-run-spike-100k.json` and the filled limits; decision recorded in the ledger
+  before T5–T10 start.
+- **T5–T10** Six stream adapters (≤3 parallel). Gates each: differential randomised test vs sync detector;
+  over-cap test (10,001 parents, 150 children, 101 documents) complete; cross-FETCH group test; tenant leak
+  test; sensitive-field absence in stored envelopes.
+- **T11** Transport and history chunking: MCP/REST with synthetic bearer; revoked scope forbidden; >2 MiB
+  event delivered by chunks with a stable cursor rejected after change.
+- **T12** Scale and hard-kill, all six checks: 100k fixtures under `createIsolatedAuditJobRunner`; SIGKILL
+  in phase A ⇒ zero rows, reclaim, success; SIGKILL in phase B ⇒ `evidence_pending` then completion.
+- **T13** Retention/quota runtime: purge after publish; quota refusal; sealed headers survive retention.
+- **T14** Permissions: both `write:bank-tx` branches; payroll page read refused without `read:payroll`;
+  revocation between phases records `AUTHORITY_REVOKED`.
+- **T15** Integration: `bun run ci` on the named commit; independent review of migrations, RLS, seals,
+  sensitive-data absence and bypass routes; adversarial pass (forged lease, other generation, snapshot-kind
+  job inserting check rows, downgrade between enqueue and read).
+
+## 6. Requirement → test matrix (spec lines at c76b9706)
+
+| Spec line | Requirement | Tests |
+|---|---|---|
+| 18 | Company-scoped access; payroll/beneficiary narrowly scoped and redacted | T1 RLS; T5–T10 tenant-leak and sensitive-field absence; T14 |
+| 83 | No unnecessary bank/payroll secrets; cross-tenant ids disclose nothing | T5–T10 envelope inspection; T14; T15 adversarial |
+| 87 | Reuse verified detectors; no parallel sources of truth | T5–T10 differential tests; review rule: adapters may not compute finding keys or classifications |
+| 92 | Three-way match across complete populations | T7 over-cap test |
+| 97 | Totals cover all findings beyond pagination; a failed check cannot make the run pass; payroll restricted | T3 totals cross-check; T8 unknown aggregate; T14 |
+| 107 | Define and test the trust boundary of hashes | T3 seal tamper tests; §2.4 reproduced in tool descriptions |
+| 109 | Bounded async jobs/status/pagination; reads never trigger unbounded processing | T2 status test; T11 page bounds; O(chunk) history reads |
+| 120 | Large datasets with explicit latency, pagination, recovery and resource bounds | T3b spike; T12 scale and hard-kill; measured limits |
+
+## 7. Strongest argument against, highest-risk unknown, decisive evidence
+
+Against: one RR transaction per check at 100k parents with per-parent child loops issues 10^5–10^6
+statements over one connection under one xmin; if T3b shows phase A for payments or three-way match exceeds
+a tolerable window (proposed ceiling 10 min) or vacuum pressure is unacceptable, the design fails
+operationally even though it is correct. Highest-risk unknown: exactly that measurement, plus evidence-byte
+verification throughput. Decisive evidence: analysis ≥3× capture with restart cost dominating ⇒ adopt §0.2
+under the item 3/4/5 constraints; per-parent child loops dominating ⇒ replace them with a second ordered
+cursor over children merged by parent id, still without copying. If T3b passes, no population tables are
+ever created.
