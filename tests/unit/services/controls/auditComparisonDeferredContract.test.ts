@@ -26,3 +26,10 @@ it('keeps original hash-pinned stored requests and public requests unchanged',()
  const original={...publicRequest,firstCanonicalHash:'a'.repeat(64),secondCanonicalHash:'b'.repeat(64),permissions:['read:reports'],comparisonRuleVersion:1};
  expect(parseStoredAuditComparisonRequest(original)).toEqual(original);
 });
+it('treats UUID case variants as one database identity before comparing source anchors',()=>{
+ const lower='abcdefab-1234-4123-8123-abcdefabcdef',upper=lower.toUpperCase();
+ const same={...saved,firstSnapshotId:lower,secondSnapshotId:upper,
+  firstSource:{...saved.firstSource,snapshotId:lower,sourceJobId:lower},secondSource:{...saved.firstSource,snapshotId:upper,sourceJobId:upper}};
+ expect(()=>parseDeferredAuditComparisonRequest({...same,secondSource:{...same.secondSource,sourceRequestHash:'c'.repeat(64)}})).toThrow();
+ expect(parseDeferredAuditComparisonRequest(same)).toMatchObject({firstSnapshotId:lower,secondSnapshotId:lower,secondSource:{snapshotId:lower,sourceJobId:lower}});
+});
