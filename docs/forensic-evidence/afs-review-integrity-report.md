@@ -8,7 +8,7 @@ The rule the branch enforces: a section's review or sign-off is an attestation a
 
 | Suite | Files | Result |
 |---|---|---|
-| AFS integration (real routes, real PostgreSQL) | `tests/integration/controls/afs{SectionReviewIntegrityHttp,SectionWritesHttp,SigningHttp,DocumentTransitionRace,ManagementPackGate,RestoreReviewState}.int.test.ts` | 78 passed |
+| AFS integration (real routes, real PostgreSQL) | `tests/integration/controls/afs{SectionReviewIntegrityHttp,SectionWritesHttp,SigningHttp,DocumentTransitionRace,ManagementPackGate,RestoreReviewState}.int.test.ts` | 79 passed |
 | Unit | `bun run test:unit` | 10,949 passed; the 5 failures in `directPostBypassGuards` and `creditNoteService` fail identically at the base commit |
 
 Integration runs use the shared synthetic instance and `--no-file-parallelism`. The HTTP fixture clears the per-IP rate-limit counters at start: every run arrives from 127.0.0.1, and without that the second run of the day is answered 429 by the real limiter.
@@ -65,6 +65,29 @@ Each mutant was applied to the working tree, the AFS integration suites were run
 | N16 | `updateAfsSection` voids on content only | killed (1) | voids the review on a status change alone |
 | N17 | `updateAfsSection` skips the void when a reviewer is named | killed (1) | never carries an old sign-off onto new content |
 | N18 | signature refusal ignores section status | **survived** | — |
+
+### Round 3 — what is signed, guarded generation, held-back packs
+
+| # | Mutation | Result | First failing test |
+|---|---|---|---|
+| P1 | send posts bytes read from the stored artifact again | killed (2) | signs the statements rendered from the current rows |
+| P2 | send records no payload hash | killed (1) | signs the statements rendered from the current rows |
+| P3 | send falls back to unrendered bytes instead of refusing | killed (1) | refuses to send when the statements cannot be derived |
+| P4 | `POST /generate` ignores `signing_requested_at` | killed (1) | refuses a document-level generate while out for signature |
+| P5 | `generateSection` skips lock and void | killed (5) | regenerates a reviewed section from the ledger and voids its review |
+| P6 | AI re-check compares `content` only | killed (1) | refuses when an accepted narrative changed the rendered overrides |
+| P7 | AI voids only when the narrative is displayed | killed (1) | voids the review of a reviewed section when it has content blocks |
+| P8 | AI refuses only after the model call | killed (1) | refuses a document out for signature before it spends anything on the model |
+| P9 | reorder accepts a partial payload | killed (1) | refuses a payload that does not renumber every section |
+| P10 | reorder never voids a renumbered section | killed (1) | voids the review of every section whose note number changes |
+| P11 | reorder names the document as the missing section | killed (1) | names that section, not the document |
+| P12 | mandatory count joins every framework's template row | killed (1) | counts one mandatory section per type |
+| P13 | unreviewed pack is delivered after all | killed (2) | generates an unreviewed pack as a draft, delivers nothing |
+| P14 | refused signature is not quarantined | killed (2) | refuses to sign off when content changed since it was sent |
+| P15 | comments blocked again while signatures are pending | killed (1) | no section of the document takes a write |
+
+P8 initially survived — the mutant still answered 409, from the lock after the model call —
+so the assertion that the model is never called was added to the test, and the mutant then died.
 
 ### Why the three survivors are not gaps
 

@@ -76,6 +76,14 @@ describe('AI narrative generation',()=>{
   expect((await h.read(id)).ai_narrative).toBeNull();
  });
 
+ it('refuses a document out for signature before it spends anything on the model',async()=>{
+  const doc=await h.document('partner_review'),id=await h.section(doc,{status:'signed_off',sectionType:aiType,content:table});
+  await h.pool.query("UPDATE afs_documents SET signing_requested_at=now(),signum_document_id='signum-synthetic' WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]);
+  const res=await h.request('POST',h.sectionPath(doc,id,'ai-narrative'));
+  expect(res.status,JSON.stringify(res.body)).toBe(409);
+  expect(vi.mocked(generateNoteNarrative),'the model was called for a document that cannot take the answer').not.toHaveBeenCalled();
+ });
+
  it.each(['POST','PUT'])('answers a malformed id with 400 on %s, not a database error',async method=>{
   const res=await h.request(method,h.sectionPath('not-a-uuid',randomUUID(),'ai-narrative'));
   expect(res.status,JSON.stringify(res.body)).toBe(400);
