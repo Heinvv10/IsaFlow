@@ -1,0 +1,12 @@
+     72| });
+     73|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  11:37:30
+   Duration  2.73s (transform 777ms, setup 0ms, import 1.12s, tests 356ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
