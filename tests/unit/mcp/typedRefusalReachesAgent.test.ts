@@ -155,9 +155,19 @@ describe('safeErrorText', () => {
 describe('the safeErrorText allowlist covers every refusal class in the repo', () => {
   it('surfaces the message of every `readonly code` this codebase declares', async () => {
     const { execFileSync } = await import('node:child_process');
-    const out = execFileSync('git', ['grep', '-h', "readonly code = '", '--', 'src/'], {
-      encoding: 'utf8',
-    });
+    // `--untracked`: plain `git grep` searches the INDEX, so a brand-new
+    // refusal class in an unstaged file is invisible and the census passes
+    // green on the author's machine and fails in CI after the checkout.
+    const out = execFileSync(
+      'git', ['grep', '-h', '--untracked', "readonly code = '", '--', 'src/'],
+      { encoding: 'utf8' },
+    );
+    // Every code declared under `src/` must be SURFACED, which is correct while
+    // all of them are genuine refusals. A future coded error that must stay
+    // hidden (an internal invariant marker) turns this red: the answer then is
+    // to split the census into REFUSAL_CODES plus an explicit not-a-refusal
+    // set, so the default for a new code stays a decision rather than
+    // disclosure. Do not silence it by adding the code to REFUSAL_CODES.
     const codes = [...out.matchAll(/readonly code = '([A-Z0-9_]+)'/g)].map((m) => m[1]!);
     expect(codes.length).toBeGreaterThanOrEqual(14);
     for (const code of codes) {

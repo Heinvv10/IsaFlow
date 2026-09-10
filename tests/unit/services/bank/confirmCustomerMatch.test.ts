@@ -11,6 +11,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
+// `lockBankTransactionForUpdate` refuses to run outside a request transaction —
+// its `FOR UPDATE` would be released at the end of its own statement and
+// protect nothing. Stand in for the withAuth-bound client so the real lock
+// helper runs and its 5s `SET LOCAL lock_timeout` is observable.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: {
+    queries: [] as string[],
+    present: true,
+    client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
+  },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return {
+    ...actual,
+    als: { ...actual.als, getStore: () => (mockTx.present ? { client: mockTx.client } : undefined) },
+  };
+});
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -33,8 +51,18 @@ const TX = 'tx-1';
 const INVOICE = 'inv-1';
 const USER = 'user-1';
 
-/** One invoice, `total` owed, `paid` already settled. */
+/**
+ * The bank line's own `FOR UPDATE` read, now the arm's FIRST statement — see
+ * the lock-order note in `confirmCustomerMatch.ts`. Every fixture enqueues it
+ * before the invoice, or the queue hands each row to the wrong read.
+ */
+function bankLine() {
+  sqlMock.mockResolvedValueOnce([{ id: TX, status: 'imported' }]);
+}
+
+/** One invoice, `total` owed, `paid` already settled, behind its bank line. */
 function invoice(total: number, paid = 0) {
+  bankLine();
   sqlMock.mockResolvedValueOnce([{
     id: INVOICE, total_amount: String(total), amount_paid: String(paid),
   }]);
@@ -62,7 +90,8 @@ describe('confirmCustomerInvoiceMatch', () => {
       bankTxId: TX, userId: USER, allocations: [{ invoiceId: INVOICE, amount: 600 }],
     });
     // One UPDATE on customer_invoices here would be the defect coming back.
-    expect(sqlMock).toHaveBeenCalledTimes(1);
+    // Two reads: the bank line's lock, then the invoice. Nothing else.
+    expect(sqlMock).toHaveBeenCalledTimes(2);
   });
 
   it('allocates exactly the line on a partial receipt', async () => {
@@ -91,7 +120,40 @@ describe('confirmCustomerInvoiceMatch', () => {
     expect(confirmReceiptMatch).not.toHaveBeenCalled();
   });
 
+  // MEDIUM-1 (round 7). The invoice lock (`FOR UPDATE OF ci`, inside
+  // `fetchInvoiceCandidates`) used to be this arm's first row lock, so the
+  // order was customer_invoices → bank_transactions while
+  // `allocateTransaction`, `splitAllocateTransaction` and
+  // `reverseReconciledTransaction` all take bank_transactions first. Two
+  // requests naming the same (line, invoice) pair from the two directions hold
+  // one row each and deadlock — 40P01, which `withAuth` answers 500.
+  it('locks the bank line BEFORE it reads the invoice — the canonical order', async () => {
+    invoice(600);
+    await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600);
+
+    const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
+    expect(texts[0]).toMatch(/FROM bank_transactions[\s\S]*FOR UPDATE/);
+    expect(texts[1]).toMatch(/FROM customer_invoices/);
+    expect(mockTx.queries).toContain("SET LOCAL lock_timeout = '5s'");
+  });
+
+  // The lock is taken for its ORDER, not for the decision: a vanished line is
+  // still refused by the validator's own not-found wording, never turned into
+  // an early not_found naming the invoice.
+  it('leaves a vanished bank line to the validator rather than reporting the invoice missing', async () => {
+    sqlMock.mockResolvedValueOnce([]);                 // bank line gone
+    sqlMock.mockResolvedValueOnce([{ id: INVOICE, total_amount: '600', amount_paid: '0' }]);
+    validateBankReceiptApplication.mockRejectedValueOnce(
+      new ReceiptRefusal(`Bank transaction ${TX} not found`) as never,
+    );
+    const outcome = await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600);
+    expect(outcome).toMatchObject({ kind: 'refused' });
+    expect((outcome as { message: string }).message).toMatch(/Bank transaction .* not found/);
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
+  });
+
   it('reports a missing invoice as not_found, distinct from a refusal', async () => {
+    bankLine();
     sqlMock.mockResolvedValueOnce([]);
     const outcome = await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600);
     expect(outcome).toEqual({ ok: false, kind: 'not_found' });

@@ -19,6 +19,7 @@ import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { ReceiptRefusal } from './receiptRefusal';
 import { sql } from '@/lib/neon';
 import { requireRequestTransaction } from '../core/requestTransaction';
+import { isLockContention } from '../core/lockContention';
 import type { DbRow } from '@/lib/neon';
 
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
@@ -128,9 +129,6 @@ export async function planAllocationLines(
   return { customerId, lines };
 }
 
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
-
 /**
  * Read the invoices this allocation names, holding a row lock on each until the
  * end of the surrounding transaction.
@@ -159,7 +157,9 @@ const LOCK_NOT_AVAILABLE = '55P03';
  * raised before anything on this path has been written, and retrying unchanged
  * is the right move. (55P03 aborts the transaction, so the 400 the caller
  * answers with is COMMITted over an already-rolled-back transaction — which
- * writes nothing, the same as every other pre-write refusal here.)
+ * writes nothing, the same as every other pre-write refusal here.) A DEADLOCK
+ * (40P01) is answered the same way, via `isLockContention` — see the canonical
+ * lock order in `bank/.claude.md` for why one should not arise here at all.
  */
 async function fetchInvoiceCandidates(
   companyId: string,
@@ -173,7 +173,7 @@ async function fetchInvoiceCandidates(
   try {
     return await lockInvoiceCandidates(companyId, paymentId, invoiceIds, client);
   } catch (err) {
-    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) {
+    if (isLockContention(err)) {
       throw new ReceiptRefusal(
         'Another request is applying cash to one of these invoices — retry in a moment.',
       );

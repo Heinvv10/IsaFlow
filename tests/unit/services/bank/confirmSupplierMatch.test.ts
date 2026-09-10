@@ -62,8 +62,19 @@ const TX = 'tx-1';
 const BILL = 'bill-1';
 const USER = 'user-1';
 
-/** One bill, `total` owed, `paid` already settled. */
+/**
+ * The bank line's own `FOR UPDATE` read, which is now the arm's FIRST statement
+ * — see the lock-order note in `confirmSupplierMatch.ts`. Every fixture below
+ * enqueues it before the bill, because a queue that starts at the bill would
+ * hand the bill row to the lock and the lock's row to the bill.
+ */
+function bankLine() {
+  sqlMock.mockResolvedValueOnce([{ id: TX, status: 'imported' }]);
+}
+
+/** One bill, `total` owed, `paid` already settled, behind its bank line. */
 function bill(total: number, paid = 0) {
+  bankLine();
   sqlMock.mockResolvedValueOnce([{ id: BILL, total_amount: String(total), amount_paid: String(paid) }]);
 }
 
@@ -113,6 +124,7 @@ describe('confirmSupplierInvoiceMatch', () => {
   });
 
   it('reports a missing bill as not_found, distinct from a refusal', async () => {
+    bankLine();
     sqlMock.mockResolvedValueOnce([]);
     const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
     expect(outcome).toEqual({ ok: false, kind: 'not_found' });
@@ -180,5 +192,44 @@ describe('confirmSupplierInvoiceMatch', () => {
     const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
     expect(outcome).toMatchObject({ kind: 'refused' });
     expect((outcome as { message: string }).message).toMatch(/already fully paid/i);
+  });
+
+  // MEDIUM-1 (round 7). The bill lock (`FOR UPDATE OF si`, inside
+  // `fetchBillCandidates`) used to be this arm's first row lock, so the order
+  // was supplier_invoices → bank_transactions while `allocateTransaction`,
+  // `splitAllocateTransaction` and `reverseReconciledTransaction` all take
+  // bank_transactions first. Two requests naming the same (line, bill) pair
+  // from the two directions hold one row each and deadlock — 40P01, which
+  // `withAuth` answers 500.
+  //
+  // Asserted on the SQL the arm issues, in order, because that is what the
+  // canonical order in `bank/.claude.md` is a rule about. A mock of the lock
+  // helper would have passed with the call left where it was.
+  it('locks the bank line BEFORE it reads the bill — the canonical order', async () => {
+    bill(600);
+    await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
+
+    const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
+    expect(texts[0]).toMatch(/FROM bank_transactions[\s\S]*FOR UPDATE/);
+    expect(texts[1]).toMatch(/FROM supplier_invoices/);
+    // And the 5s budget the lock helper sets, on the request client.
+    expect(mockTx.queries).toContain("SET LOCAL lock_timeout = '5s'");
+  });
+
+  // The lock is taken for its ORDER, not for the decision. A line that has
+  // vanished (or belongs to another tenant) is still refused by the
+  // validator's own not-found wording, which the route and the MCP tools
+  // depend on — so a null from the lock must NOT become an early not_found
+  // naming the bill.
+  it('leaves a vanished bank line to the validator rather than reporting the bill missing', async () => {
+    sqlMock.mockResolvedValueOnce([]);                 // bank line gone
+    sqlMock.mockResolvedValueOnce([{ id: BILL, total_amount: '600', amount_paid: '0' }]);
+    validateBankSupplierPayment.mockRejectedValueOnce(
+      new SupplierPaymentRefusal(`Bank transaction ${TX} not found`),
+    );
+    const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
+    expect(outcome).toMatchObject({ kind: 'refused' });
+    expect((outcome as { message: string }).message).toMatch(/Bank transaction .* not found/);
+    expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
   });
 });

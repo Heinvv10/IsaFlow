@@ -25,6 +25,7 @@ import {
 } from '../ap/supplierBankPaymentService';
 import { EPS, round2 } from '../ap/supplierAllocationLines';
 import { isSupplierPaymentRefusal } from '../ap/supplierPaymentRefusal';
+import { lockBankTransactionForUpdate } from './bankTxLock';
 
 export type ConfirmSupplierMatchOutcome =
   | { ok: false; kind: 'not_found' }
@@ -43,6 +44,28 @@ export async function confirmSupplierInvoiceMatch(
   userId: string,
   paymentAmount: number,
 ): Promise<ConfirmSupplierMatchOutcome> {
+  // BANK LINE FIRST — THE CANONICAL LOCK ORDER (`bank/.claude.md`).
+  //
+  // Every other write path takes `bank_transactions` before the document it
+  // settles: `allocateTransaction`, `splitAllocateTransaction` and
+  // `reverseReconciledTransaction` all lock the line and only then move
+  // `supplier_invoices`. This arm reads the bill below and locks it
+  // inside `fetchBillCandidates` — so without this call the order
+  // here is document → bank line, the exact inverse. Request A confirming
+  // (L, I) would hold I and want L while request B allocating L auto-resolved
+  // to I holds L and wants I: Postgres breaks the cycle with 40P01, which
+  // `withAuth` answers as a 500 over a money path where the honest answer is
+  // "retry". `isLockContention` now maps that to a retryable refusal, but the
+  // order is what stops it arising.
+  //
+  // The row is deliberately discarded. The lock is taken for its ORDER and for
+  // the bonus that it makes the `status = 'imported'` read in
+  // `validateBankSupplierPayment` race-free; a line that has vanished (or
+  // belongs to another tenant) is still refused by that validator's own
+  // not-found wording, which callers already depend on. Contention here throws
+  // `BankTransactionLockTimeoutError`, which the route answers 409, pre-write.
+  await lockBankTransactionForUpdate(companyId, bankTransactionId);
+
   const invRows = (await sql`
     SELECT id, total_amount, amount_paid
     FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID

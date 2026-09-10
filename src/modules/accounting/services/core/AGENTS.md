@@ -37,6 +37,8 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 - `importLedgerTransactions(companyId, userId) / importSupplierInvoices(companyId, userId)` — Sage Phase 6 importers.
 
 ## Business rules
+- **Lock order**: the canonical sequence for every settlement path (bank line → payment → invoices → GL) lives in `bank/.claude.md`. Read it before adding a lock here; a path that takes two of these rows out of sequence deadlocks against one that does not (40P01 → 500).
+
 - **User identity is a STRING, never a uuid.** `users.id` is `character varying`; `company_users.user_id` is `text`. NEVER write `user_id = ${x}::UUID` or `users.id = ${x}::UUID` — Postgres has no `text = uuid` operator, so it throws at RUNTIME (500), and neither `tsc` nor eslint can see inside a SQL template string. When joining a uuid column onto `users.id`, cast the **uuid** side: `ON u.id = t.approved_by::TEXT`. `company_id` IS a uuid and keeps its cast. Guarded by `scripts/ci/audit-user-id-casts.ts` (static) + `tests/integration/user-id-join-compat.int.test.ts` (schema probe).
 - **Tenant-membership guards live in `companyAccessService`** — `userBelongsToCompany` / `userBelongsToGroup`. Do not re-inline them into API routes; four routes each kept their own broken copy before this was extracted.
 - `listCompanies` and other admin-only calls must NOT appear in tenant-scoped API paths — enforce via route selection.
