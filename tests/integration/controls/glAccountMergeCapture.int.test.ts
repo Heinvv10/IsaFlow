@@ -43,3 +43,14 @@ it('refuses posted closed periods without creating capture or recovery records',
  try{await expect(merge(m.source,m.target)).rejects.toThrow();expect(await evidence('gl_account',m.source)).toEqual([]);expect(await evidence('journal_entry',m.journal)).toEqual([]);}
  finally{await pool.query("UPDATE fiscal_periods SET status='open' WHERE company_id=$1 AND id=$2",[f.companyA,m.period]);}
 });
+it('rolls back lines, tree, versions and recovery when mandatory journal evidence fails',async()=>{
+ const f=glFixture(),m=await mergeFixture(),before=await journalRows(m.journal);
+ await pool.query(`CREATE FUNCTION public.synthetic_merge_evidence_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.companyA}'::uuid AND NEW.entity_type='journal_entry' AND NEW.entity_id='${m.journal}' THEN RAISE EXCEPTION 'Synthetic mandatory merge evidence failure'; END IF; RETURN NEW; END $$`);
+ await pool.query('CREATE TRIGGER synthetic_merge_evidence_failure BEFORE INSERT ON control_change_events FOR EACH ROW EXECUTE FUNCTION public.synthetic_merge_evidence_failure()');
+ try{
+  await expect(merge(m.source,m.target)).rejects.toThrow();expect(await journalRows(m.journal)).toEqual(before);
+  expect((await pool.query('SELECT is_active FROM gl_accounts WHERE company_id=$1 AND id=$2',[f.companyA,m.source])).rows[0].is_active).toBe(true);
+  expect((await pool.query('SELECT id FROM gl_account_merges WHERE company_id=$1 AND source_account_id=$2',[f.companyA,m.source])).rows).toEqual([]);
+  expect(await evidence('gl_account',m.source)).toEqual([]);expect(await evidence('journal_entry',m.journal)).toEqual([]);
+ }finally{await pool.query('DROP TRIGGER IF EXISTS synthetic_merge_evidence_failure ON control_change_events');await pool.query('DROP FUNCTION IF EXISTS public.synthetic_merge_evidence_failure()');}
+});
