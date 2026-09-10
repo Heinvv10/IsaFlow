@@ -263,7 +263,13 @@ export async function updateSalesOrder(
   if (!existing || existing.status !== 'draft') return null;
   const { subtotal, taxAmount, totalAmount } = calcTotals(input.items);
 
-  await sql`
+  // The row count decides whether the lines may be rewritten. The header UPDATE
+  // has always been predicated on 'draft', but its count was discarded and the
+  // DELETE + re-INSERT of the items below ran regardless: a request that read
+  // 'draft' and was then beaten by a confirm or an invoice-conversion left the
+  // header untouched and replaced the lines of an order that had already been
+  // billed. Zero rows now means the order moved, and this returns null.
+  const claimed = (await sql`
     UPDATE customer_sales_orders SET
       customer_id = ${input.customer_id || existing.customerId},
       order_date = ${input.order_date || existing.orderDate},
@@ -273,7 +279,9 @@ export async function updateSalesOrder(
       notes = ${input.notes || null}, internal_notes = ${input.internal_notes || null},
       updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
-  `;
+    RETURNING id
+  `) as Row[];
+  if (claimed.length === 0) return null;
 
   // Parent-verified: getSalesOrder(companyId, id) at the top of this function early-returns null for cross-tenant ids, so this sales_order_id is tenant-owned.
   await sql`DELETE FROM customer_sales_order_items WHERE sales_order_id = ${id}::UUID`;

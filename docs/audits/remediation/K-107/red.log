@@ -1,0 +1,65 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k107-recurring-invoice-number-collision.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Recurring template executed","timestamp":"2026-09-09T09:37:05.616Z","component":"recurring","data":{"templateId":"fec296e8-88d1-4a51-8b27-8efb8c447b95","entityId":"ea0e04e3-632a-43fa-8f1b-096bd10b71d7","entityType":"customer_invoice"}}
+{"level":"info","message":"Recurring template executed","timestamp":"2026-09-09T09:37:05.699Z","component":"recurring","data":{"templateId":"a2a4f95b-cc51-4de2-851b-54a1d2fd2aa8","entityId":"735e1a0e-02af-43dc-b91d-ef405629c5a6","entityType":"supplier_invoice"}}
+{"level":"info","message":"Recurring template executed","timestamp":"2026-09-09T09:37:05.733Z","component":"recurring","data":{"templateId":"a2a4f95b-cc51-4de2-851b-54a1d2fd2aa8","entityId":"9dcf54bf-ad82-4615-ac96-565408bad745","entityType":"supplier_invoice"}}
+ ❯ tests/integration/k107-recurring-invoice-number-collision.int.test.ts (2 tests | 2 failed) 616ms
+   × a daily customer template runs twice in one month without a number collision 91ms
+   × a daily supplier template runs twice in one month without duplicating the bill number 143ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k107-recurring-invoice-number-collision.int.test.ts > a daily customer template runs twice in one month without a number collision
+AssertionError: expected { second: '23505', distinct: 1 } to deeply equal { second: 'ok', distinct: 2 }
+
+- Expected
++ Received
+
+  {
+-   "distinct": 2,
+-   "second": "ok",
++   "distinct": 1,
++   "second": "23505",
+  }
+
+ ❯ tests/integration/k107-recurring-invoice-number-collision.int.test.ts:59:6
+     57|   // RED: today the second run raises 23505 on uq_customer_invoices_co…
+     58|   expect({ second, distinct: new Set(numbers.rows.map(r => r.invoice_n…
+     59|     .toEqual({ second: 'ok', distinct: 2 });
+       |      ^
+     60| });
+     61|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k107-recurring-invoice-number-collision.int.test.ts > a daily supplier template runs twice in one month without duplicating the bill number
+AssertionError: expected { rows: 2, distinctNumbers: 1 } to deeply equal { rows: 2, distinctNumbers: 2 }
+
+- Expected
++ Received
+
+  {
+-   "distinctNumbers": 2,
++   "distinctNumbers": 1,
+    "rows": 2,
+  }
+
+ ❯ tests/integration/k107-recurring-invoice-number-collision.int.test.ts:71:6
+     69|     rows: rows.rows.length,
+     70|     distinctNumbers: new Set(rows.rows.map(r => r.invoice_number)).siz…
+     71|   }).toEqual({ rows: 2, distinctNumbers: 2 });
+       |      ^
+     72| });
+     73|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:37:01
+   Duration  4.06s (transform 1.22s, setup 0ms, import 1.98s, tests 616ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
