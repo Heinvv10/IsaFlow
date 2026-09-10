@@ -1,5 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({ctx:{issued:'fixture'},permission:vi.fn(async()=>undefined),snapshot:vi.fn(async()=>({id:'job',state:'queued'})),export:vi.fn(async()=>({id:'export',state:'queued'})),
+const mocks=vi.hoisted(()=>({ctx:{issued:'fixture'},permission:vi.fn(async(_ctx:unknown,_permission:string)=>undefined),snapshot:vi.fn(async()=>({id:'job',state:'queued'})),export:vi.fn(async()=>({id:'export',state:'queued'})),
  status:vi.fn(async()=>({state:'queued'})),header:vi.fn(),page:vi.fn(),snapshotChunk:vi.fn(async()=>({item:{ordinal:0},chunkOrdinal:0,bytes:new Uint8Array([0,255])})),files:vi.fn(),exportChunk:vi.fn(async()=>({file:{ordinal:0},chunkOrdinal:0,bytes:new Uint8Array([1,2])}))}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>mocks.ctx}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:mocks.permission}));

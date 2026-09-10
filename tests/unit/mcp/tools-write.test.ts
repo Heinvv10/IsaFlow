@@ -315,7 +315,7 @@ describe('post_journal / finalize_invoice (post tools)', () => {
     vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null, evidenceDocumentId: null });
     vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' } } as never);
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({invoicesReopened:0,amountUnapplied:0,paymentsCancelled:0});
 
     await tool('create_draft_journal').handler({
       date: '2026-06-30',
@@ -539,9 +539,9 @@ describe('write-tool manifest invariants', () => {
     vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
     vi.mocked(bulkCategorize).mockResolvedValue({ categorized: 0 } as never);
     vi.mocked(postJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
-    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null });
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null, evidenceDocumentId: null });
     vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' } } as never);
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({invoicesReopened:0,amountUnapplied:0,paymentsCancelled:0});
 
     const argsByTool: Record<string, Record<string, unknown>> = {
       // Actual authority is covered by exceptionTools.int.test.ts; scan strict input refusals here.
