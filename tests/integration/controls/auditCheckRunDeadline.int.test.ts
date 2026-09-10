@@ -14,14 +14,15 @@ import {seedJournalRiskScale,type ScaleCensus} from './journalRiskScaleFixture';
 import {startCheckRunWorker,type WorkerOutcome} from './checkRunWorkerChild';
 /**
  * Plan v8 A34: a run that passes its 300 s work deadline is `failed`, never `unknown`, so there is a largest population
- * that can publish at all. This measures it on a quiet 1 400 000-journal population (same per-row streaming cost as the
- * mixed fixture, few findings, so the findings bound cannot end a run first). One probe run measures throughput on
+ * that can publish at all. This measures it on a quiet 3 200 000-journal population (same per-row streaming cost as the
+ * mixed fixture, few findings, so the findings bound cannot end a run first). One probe of 1 400 000 (measured earlier
+ * to fit) gives throughput on
  * this machine at this moment; the next two bracket the extrapolated boundary at 0.85x and 1.15x, so the largest
  * population that published and the smallest that overran are both measured, not inferred. The overrun is also the
  * only real evidence of what the lease's grace window is for (plan §4 G2).
  */
 const env=process.env,config=fixtureConfigFromEnv(env),target=validateFixtureTarget(config);
-const SEEDED=1400000,PROBE=300000,LIMITS=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks;
+const SEEDED=3200000,PROBE=1400000,LIMITS=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks;
 const artifact=env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT??'',report=env.ISAFLOW_CHECK_RUN_DEADLINE_REPORT??'';
 let pool:Pool,fixture:ForensicFixture,census:ScaleCensus;
 interface Attempt {target:number;cutoff:string;population:number;jobId:string;outcome:WorkerOutcome;loadBefore:number[];
