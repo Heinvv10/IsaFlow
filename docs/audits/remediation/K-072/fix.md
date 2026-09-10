@@ -2415,3 +2415,42 @@ at the correct R1 150 — the approval route never corroborates the VAT, by desi
 C1 no `Plus`/`Add` adjustment (1 — GREEN until the "printed again" probe was added) · C2 block-only tax lines
 explain themselves below the total (1) · C3 no below-total tax-once check (1) · C4 any line naming a tax may carry
 its value (1) · C5 no recap nouns on a tax line (1) · C6 the `Copy` siblings gone (1).
+
+---
+
+## Round 28 — the VAT must fit inside the total; approval needs a printed VAT
+
+Review: `review-k072-r27.md` (1H/0M/3L, every round-27 claim reproduced). Harness as in round 27 plus the reviewer's
+`ab27`, `ab27b`, `abord` (348 probes): **3 318 rows**, stored and nulled.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 `Total (excl. VAT) 1000.00 / VAT 15% 150.00`, no grand total, posted and approved R1 000 against R1 150 (42 rows) — round 27 called its own `Total 1000 / VAT 150.00` row ambiguous; it is not | FIXED, by arithmetic, on BOTH routes: refuse when `vat > total × 15/115 + 0.05` (`vatExceedsInclusiveTotal`, `unattendedPostingGate.ts`). The tax inside an inclusive total T is at most T × 15/115, and zero-rated lines only lower it, so a larger VAT means the total read is pre-tax (or the document contradicts itself). It needs no text, so it covers the image-only approval path too. The rate is a local `SA_VAT_RATE = 0.15`, not imported from `reports/vatBoxBasis` (that module reaches the DB client); holding a rate put the gate in scope of the `vat-guard-coverage` CI check (first CI run RED), and it is allowlisted there under NO CLAIM DECIDED with the reason — the rate only bounds a refusal, it computes, picks and forwards no claim. ab-xlbl 28 → 0, ab-h1 12 → 0, ab-incl 2 → 0. **Cost: 1** — r16 `O7 mixed basket VAT analysis`, whose own VAT (25.60 on R190.96) is inconsistent with its analysis (18.00 at the standard rate). Tolerance pinned: 130.48 on 1 000 passes, 130.49 refuses. |
+| DECISION (lead): the approval-only rows that claim a VAT the document never prints | BUILT: unattended APPROVAL refuses when the document has text and its VAT is not printed AS the tax — the regex re-read the posting gate already uses must find the same VAT (`vatNotPrinted`). A 150.00 printed as `Total Delivery 150.00` is printed, but not as VAT, so "any printed figure" was rejected as the test. A zero VAT and a document with no text are not judged. aa-onlytax 2 → 0. **Cost: 3** — approval-only rows `BTW 150.00`, `Belasting 150.00` and `BTW @ 15% 150.00` (z-taxrow): the regex reader reads no VAT from `BTW`/`Belasting` (round 26 left `BTW` out for the same reason), so they now go to a person. Their auto-post route already refused them. |
+| LOW-1 `Print: 05/09/2026 14:32` and `Print 05/09/26` refused (new in round 27) | FIXED: `N of M` / `N/M` / `N-M` may not run on into another digit or a separator and a digit, so a date is not a copy count. `Copy 2 of 2 14:32` still refuses (pinned). The reviewer's copy-shop item `Copies 2/3 A4` still refuses — fail closed, and indistinguishable from `Copies: 2 of 2`. |
+| LOW-2 `Copy [2/2]`, `Copy 2-2` posted | FIXED: a `[` opens the form, `-` separates N and M. ab-copy wrong 2 → 0. |
+| LOW-3 `Total Freight 1000.00` / `1150.00` under `TOTAL 1150.00` explained by value | FIXED: below the total, a summary figure equal to the total or the net is explained only on a line that IS a summary label (`isSummaryOnlyLine`: the summary vocabulary plus `Due/Amount/Payable/Incl/Excl/of/VAT/Tax/ZAR` qualifiers, or the round-27 tax line) — the role, not the value. Cost 0. Note: a reprint of the TOTAL is itself the last print of the total, so it never reaches rule 3; the net reprints (`Sub Total Excl VAT 1000.00`) are what exercise the qualifiers, and they are pinned. |
+| `SET` / `LIQ` read as currency codes | FIXED narrowly: added to `NOT_A_CURRENCY` (neither is an ISO code). The reviewer's Builders `DRILL BIT SET` and Kwikspar `DISHWASHING LIQ` slips now pass (ab-ord 8 → 10 of 14). |
+
+### Re-measured — head vs `edbcffb46`, 3 318 rows (stored ≡ subtotal-null, row for row)
+
+| | `edbcffb46` | **head** |
+|---|---|---|
+| unattended / WRONG, all rows | 479 / 99 | **426 / 46** |
+| pre-tax totals (ab-xlbl, ab-h1, ab-incl; 169) | 44 / 42 | **2 / 0** |
+| approval-only derived VAT (aa-onlytax; 15) | 2 / 2 | **0 / 0** |
+| rev-k072aa's ordinary documents (aa-ord; 14) | 8 / 0 | **8 / 0** |
+| rev-k072ab's ordinary documents (ab-ord; 14) | 8 / 0 | **10 / 0** |
+
+**Newly wrong: 0. Newly refused: 4** — the inconsistent O7 probe and the three `BTW`/`Belasting` approvals, as
+stated above. 53 wrong rows close. The 46 left are the accepted classes (24 number-word references, 6 glued hours,
+8 six-figure branch rows, 3 artefacts, 2 correct w-cnt posts) and the reviewer's 3 `Freight` / next-line `VAT
+150.00` rows, which it scored unrealistic.
+
+### Mutations — 10, all RED
+
+E1 no VAT-capacity check on posting (1) · E2 … on approval (1) · E3 no 5-cent tolerance (2) · E4 no VAT-printed
+check on approval (1) · E5 the VAT counted printed as any figure (1) · E6 a print date is a copy count (1) · E7 no
+bracket or dash (1) · E8 a below-total summary explained by value alone (1) · E9 no qualifiers on a summary-only
+line (1 — GREEN until the net-reprint probes were added; the total-reprint probes cannot reach rule 3) · E10
+`SET`/`LIQ` currencies again (1).

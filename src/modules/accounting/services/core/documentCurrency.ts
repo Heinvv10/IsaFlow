@@ -38,6 +38,8 @@ const NOT_A_CURRENCY = new Set([
   'LESS', 'PLUS', 'BAL', 'SLIP', 'LINE', 'ONLY', 'BY', 'OF', 'TO', 'AT', 'ON', 'IN', 'OR', 'AND',
   'FOR', 'THE', 'VIA', 'OFF', 'NOW', 'IS', 'WAS', 'ARE', 'BE', 'IT',
   'EN', 'VIR', 'OP', 'TE', 'DIE', 'VAN', 'MET', 'OM', 'TOT', 'BTW', 'KAS', 'KAART', 'BETAAL',
+  // Round 28: item words before a price (`DRILL BIT SET 449.00`, `DISHWASHING LIQ 34.99`); no ISO code.
+  'SET', 'LIQ',
 ]);
 
 const SYMBOL = /(?:[A-Z]{0,2}\$|[€£¥₹₦₵₺₽฿₩₫₱]|zł|Kč)/;

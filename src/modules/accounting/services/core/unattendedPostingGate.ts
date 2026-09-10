@@ -35,6 +35,36 @@ import { hasCreditIndicator } from './creditIndicators';
 import { namesForeignCurrency } from './documentCurrency';
 import { identifiesAsPurchase } from './purchaseTitle';
 
+/** The SA standard rate (`reports/vatBoxBasis.SA_VAT_RATE`, not imported: that module reaches the DB client). */
+const SA_VAT_RATE = 0.15;
+
+/**
+ * Can this total CONTAIN this VAT? At 15% the tax inside an inclusive total T
+ * is at most T × 15/115 — zero-rated lines only lower it. `Total (excl. VAT)
+ * 1000.00 / VAT 15% 150.00` with no grand total printed reads 1 000 and 150:
+ * 15% OF the total, so the total read is the pre-tax figure (round 28). The
+ * 0.05 clears per-line rounding. Pure arithmetic, so it holds with no text.
+ */
+function vatExceedsInclusiveTotal(vat: number | null | undefined, total: number | null | undefined): boolean {
+  return vat != null && total != null && total > 0 && vat > (total * SA_VAT_RATE) / (1 + SA_VAT_RATE) + 0.05;
+}
+
+/**
+ * Is the VAT the model extracted a figure the document's text actually
+ * prints as its tax? Input tax needs a tax invoice that SHOWS it (round 28): a model that
+ * stores VAT = total − net on a document with no VAT line would claim R150 of
+ * input tax the document never states. A document with no text is not judged.
+ */
+function vatNotPrinted(doc: Pick<ExtractedDocument, 'rawText'> & Partial<Pick<ExtractedDocument, 'vatAmount'>>): boolean {
+  const text = doc.rawText ?? '';
+  const vat = doc.vatAmount;
+  if (text.trim().length === 0 || vat == null || vat === 0) return false;
+  // Printed AS the tax: the same re-read the posting gate uses. A 150.00 that
+  // is `Total Delivery 150.00` is printed, but not as VAT.
+  const reread = extractAmounts(text).vatAmount;
+  return reread === null || Math.abs(reread - vat) > 0.01;
+}
+
 export type UnattendedPostingInput = Pick<
   ExtractedDocument,
   'documentType' | 'rawText' | 'subtotal' | 'vatAmount' | 'totalAmount' | 'warnings' | 'extractionMethod'
@@ -86,9 +116,10 @@ export function isCreditNote(
  */
 export function refusesUnattendedApproval(
   doc: Pick<ExtractedDocument, 'documentType' | 'rawText' | 'totalAmount' | 'warnings' | 'extractionMethod'>
-    & Partial<Pick<ExtractedDocument, 'vendorName' | 'vendorAddress'>>,
+    & Partial<Pick<ExtractedDocument, 'vendorName' | 'vendorAddress' | 'vatAmount'>>,
 ): boolean {
-  return isCreditNote(doc) || isFallbackExtraction(doc) || !identifiesAsPurchase(doc) || isAmbiguousTotal(doc);
+  return isCreditNote(doc) || isFallbackExtraction(doc) || !identifiesAsPurchase(doc)
+    || vatExceedsInclusiveTotal(doc.vatAmount, doc.totalAmount) || vatNotPrinted(doc) || isAmbiguousTotal(doc);
 }
 
 /** The refusal a failed reconciliation is reported as. */
@@ -114,6 +145,7 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   const vat = doc.vatAmount;
   if (vat === null || vat === undefined) return 'no VAT figure was read';
   if (vat < 0) return 'the VAT figure read is negative';
+  if (vatExceedsInclusiveTotal(vat, total)) return 'the VAT read is more than a VAT-inclusive total can carry';
   if (doc.subtotal !== null && doc.subtotal !== undefined
     && Math.round((doc.subtotal + vat) * 100) / 100 !== total) {
     return 'the subtotal and VAT do not add up to the total';
