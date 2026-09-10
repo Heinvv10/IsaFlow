@@ -19,3 +19,11 @@ it('refuses a payment_id preview with the reason the live call gives',async()=>{
   expect(text(reply),tool).toMatch(/prepared cash application intent and independent approval are required/i);
  }
 },60000);
+it('refuses the live payment_id call up front with the same reason, before any lock or plan read',async()=>{
+ const token=await f.scopedToken(['write:invoices','write:post','write:bank-tx']);
+ for(const tool of ['apply_receipt_to_invoice','apply_payment_to_supplier_invoice']){
+  const reply=await f.rpcToken(token,tool,{payment_id:randomUUID(),allocations:[{invoice_id:randomUUID(),amount:10}],idempotency_key:randomUUID()});
+  expect(reply.result?.isError,`${tool}: ${text(reply)}`).toBe(true);
+  expect(text(reply),tool).toMatch(/prepared cash application intent and independent approval are required/i);
+ }
+},60000);

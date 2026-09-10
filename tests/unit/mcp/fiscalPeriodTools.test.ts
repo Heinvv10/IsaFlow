@@ -402,6 +402,14 @@ describe('year_end_close', () => {
       .rejects.toThrow('boom');
   });
 
+  it('names request_operation_approval when the close needs an approval', async () => {
+    vi.mocked(closeFiscalYear).mockResolvedValue({ error: 'approval_required' } as never);
+    const res = await yearEndCloseTool.handler({ fiscal_year: 2027, dry_run: true, ...KEY }, ctx);
+    expect(res.isError).toBe(true);
+    expect(res.content[0]?.text).toMatch(/request_operation_approval/);
+    expect(res.content[0]?.text).not.toMatch(/has no periods/);
+  });
+
   it('refuses a non-integer fiscal_year before any service call', async () => {
     const res = await yearEndCloseTool.handler({ fiscal_year: 'twenty-seven', ...KEY }, ctx);
     expect(res.isError).toBe(true);

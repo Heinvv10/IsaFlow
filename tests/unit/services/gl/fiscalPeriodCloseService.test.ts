@@ -30,6 +30,11 @@ vi.mock('@/modules/accounting/services/gl/periodCloseReadinessService', () => ({
 vi.mock('@/modules/accounting/services/controls/periodControl', () => ({
   assertPeriodControlAuthority: vi.fn(),
 }));
+const approval = vi.hoisted(() => ({ preview: vi.fn() }));
+vi.mock('@/modules/accounting/services/controls/approvalExecutionService', () => ({
+  controlledOperationApprovalRequiredForPreview: approval.preview,
+}));
+vi.mock('@/modules/accounting/services/controls/context', () => ({ requireControlTx: () => ({ principal: {} }) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { closePeriod, getFiscalPeriodById } from '@/modules/accounting/services/gl/fiscalPeriodService';
@@ -76,6 +81,7 @@ beforeEach(() => {
   vi.mocked(getFiscalPeriodById).mockResolvedValue(period());
   vi.mocked(getCloseReadiness).mockResolvedValue(readiness([item('tb_balanced', 'pass')]));
   vi.mocked(closePeriod).mockResolvedValue(period({ status: 'closed' }));
+  approval.preview.mockResolvedValue({ kind: 'answered', required: false });
 });
 
 describe('closePeriodWithReadiness', () => {
@@ -181,5 +187,27 @@ describe('closePeriodWithReadiness', () => {
     await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {}))
       .rejects.toBeInstanceOf(PeriodNotCloseableError);
     expect(closePeriod).not.toHaveBeenCalled();
+  });
+});
+
+describe('closePeriodWithReadiness — the approval question on a preview', () => {
+  beforeEach(() => {
+    vi.mocked(getFiscalPeriodById).mockResolvedValue(period());
+    vi.mocked(getCloseReadiness).mockResolvedValue(readiness([item('tb_balanced', 'pass')]));
+  });
+  it('refuses a preview the live close would refuse for want of an approval', async () => {
+    approval.preview.mockResolvedValue({ kind: 'answered', required: true });
+    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, { dryRun: true }))
+      .rejects.toThrow(/request_operation_approval/);
+    expect(closePeriod).not.toHaveBeenCalled();
+  });
+  it('says a preview could not be answered rather than blaming an approval', async () => {
+    approval.preview.mockResolvedValue({ kind: 'unavailable', policiesExist: true });
+    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, { dryRun: true }))
+      .rejects.toThrow(/could not be previewed/);
+  });
+  it('previews as before when no approval binds the close', async () => {
+    approval.preview.mockResolvedValue({ kind: 'answered', required: false });
+    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, { dryRun: true })).resolves.toMatchObject({ dryRun: true });
   });
 });
