@@ -6,6 +6,7 @@ const reply=z.object({version:z.literal(1),result:z.union([
  z.object({state:z.enum(['busy','not_claimed'])}).strict(),
  z.object({state:z.literal('succeeded'),snapshotId:id,canonicalHash:hash}).strict(),
  z.object({state:z.literal('succeeded'),exportId:id,canonicalHash:hash}).strict(),
+ z.object({state:z.literal('succeeded'),comparisonId:id,canonicalHash:hash}).strict(),
  z.object({state:z.literal('failed'),code:z.enum(['SOURCE_UNAVAILABLE','AUTHORITY_REVOKED','EVIDENCE_CHANGED','RESOURCE_LIMIT','WORKER_ERROR','RETRY_EXHAUSTED','CANCELLED']),failureRecorded:z.boolean()}).strict(),
 ])}).strict();
 function boundedJson(bytes:Uint8Array,max:number):unknown{
