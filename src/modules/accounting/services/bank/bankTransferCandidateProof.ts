@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import {fmtDate} from '@/lib/fmtDate';
 import {canonicalJson} from '../controls/canonical';
+import {sameIntentId} from '../controls/intentIdentity';
 const D=Decimal.clone({precision:80});
 type Row=Record<string,unknown>;
 export interface TransferCandidateFacts {bank:Row;counterpartyAccountId:string;journal:Row;lines:Row[];originalBank:Row|null;intent:Row|null;effect:Row|null;events:Row[];occupied:boolean}
@@ -13,7 +14,7 @@ export function proveBankTransferCandidate(f:TransferCandidateFacts){
  if(!result||!p||p.version!==1||p.kind!=='transfer'||transfer?.mode!=='post'||transfer.oppositeBankTransactionId!==null
   ||p.bankTransactionId!==original.id||p.counterpartyAccountId!==bank.bank_account_id||intent.bank_transaction_id!==original.id
   ||intent.currency!=='ZAR'||effect.entity_type!=='bank_allocation_intent'||effect.entity_id!==intent.id||effect.operation!=='bank_allocation.post'
-  ||result.intentId!==intent.id||result.bankTransactionId!==original.id||result.journalEntryId!==journal.id||result.paymentId!==null
+  ||!sameIntentId(result.intentId,String(intent.id))||result.bankTransactionId!==original.id||result.journalEntryId!==journal.id||result.paymentId!==null
   ||result.oppositeBankTransactionId!==null||result.status!=='allocated')return fail();
  if(journal.source!=='auto_bank_transfer'||journal.source_record_id!==original.id||journal.status!=='posted'||journal.reversed_at
   ||original.bank_account_id!==f.counterpartyAccountId||original.counterparty_account_id!==bank.bank_account_id

@@ -24,7 +24,7 @@ export async function matchOperationPolicies(ctx: ControlTx, rules: readonly App
         WHERE e.company_id=${ctx.principal.companyId}::uuid AND e.policy_id=${rule.id}
           AND e.beneficiary_key=${bucket.beneficiaryKey} AND e.currency=${bucket.currency}
           AND e.window_start=${day}::date
-          AND NOT(e.operation=${material.binding.operation} AND e.entity_id=${material.binding.entityId})
+          AND NOT(e.operation=${material.binding.operation} AND lower(e.entity_id)=lower(${material.binding.entityId}))
           AND (e.state='committed' OR (e.state='reserved' AND a.status IN ('pending','approved') AND a.expires_at>clock_timestamp()))
       ` as { total: string }[];
       const policies = matchApprovalRules([rule], bucket.amount, new Map([[rule.id, row?.total ?? '0']]));
