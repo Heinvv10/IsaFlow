@@ -47,6 +47,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'capture_control_exceptions',
   'assign_exception',
   'resolve_exception',
+  'access_control_review',
   'connection_permissions',
   'entity_change_history',
   'mcp_call_history',
