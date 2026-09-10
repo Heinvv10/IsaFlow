@@ -1,5 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({ctx:{issued:'fixture'},permission:vi.fn(async()=>undefined),snapshot:vi.fn(async()=>({id:'job',state:'queued'})),export:vi.fn(async()=>({id:'export',state:'queued'})),
+const mocks=vi.hoisted(()=>({ctx:{issued:'fixture'},permission:vi.fn(async(_ctx:unknown,_permission:string)=>undefined),snapshot:vi.fn(async()=>({id:'job',state:'queued'})),export:vi.fn(async()=>({id:'export',state:'queued'})),
  status:vi.fn(async()=>({state:'queued'})),header:vi.fn(),page:vi.fn(),snapshotChunk:vi.fn(async()=>({item:{ordinal:0},chunkOrdinal:0,bytes:new Uint8Array([0,255])})),files:vi.fn(),exportChunk:vi.fn(async()=>({file:{ordinal:0},chunkOrdinal:0,bytes:new Uint8Array([1,2])}))}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>mocks.ctx}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:mocks.permission}));
@@ -15,7 +15,8 @@ const id='11111111-1111-4111-8111-111111111111',ctx={userId:'user',companyId:'co
 async function call(name:string,args:Record<string,unknown>){return auditDeliveryTools.find(tool=>tool.name===name)!.handler(args,ctx);}
 const valid=[{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotency_key:'retry'},
  {snapshot_id:id,idempotency_key:'retry'},{job_id:id},{snapshot_id:id},{snapshot_id:id,section:'records'},
- {snapshot_id:id,section:'records',ordinal:0,chunk_ordinal:0},{job_id:id},{job_id:id,file_ordinal:0,chunk_ordinal:0}];
+ {snapshot_id:id,section:'records',ordinal:0,chunk_ordinal:0},{job_id:id},{job_id:id,file_ordinal:0,chunk_ordinal:0},
+ {first_snapshot_id:id,second_snapshot_id:id,idempotency_key:'compare'},{comparison_id:id,section:'records'}];
 it('admits every actual tool contract through the registry input gate',()=>{
  auditDeliveryTools.forEach((tool,index)=>expect(validateToolArguments(tool,valid[index])).toMatchObject({ok:true}));
 });
@@ -35,9 +36,9 @@ it('accepts only a matching registry company assertion without forwarding it as 
  }
 });
 it('declares bounded explicit contracts for enqueue and retained delivery',()=>{
- expect(auditDeliveryTools.map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence','audit_job_status','audit_snapshot_manifest','audit_snapshot_items','audit_snapshot_chunk','audit_export_files','audit_export_chunk']);
+ expect(auditDeliveryTools.map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence','audit_job_status','audit_snapshot_manifest','audit_snapshot_items','audit_snapshot_chunk','audit_export_files','audit_export_chunk','compare_audit_snapshots','audit_comparison_items']);
  for(const tool of auditDeliveryTools){expect(tool.scope).toBe('read:reports');expect(tool.inputSchema.additionalProperties).toBe(false);expect(tool.requiresPost).not.toBe(true);}
- expect(auditDeliveryTools.filter(tool=>tool.write).map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence']);
+ expect(auditDeliveryTools.filter(tool=>tool.write).map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence','compare_audit_snapshots']);
  for(const tool of auditDeliveryTools.filter(tool=>tool.write)){expect(tool.perUserIdempotency).toBe(true);expect(tool.authorize).toBeTypeOf('function');}
 });
 it('derives all current source permissions again before replay and authenticates export source metadata',async()=>{
@@ -61,4 +62,17 @@ it('returns exact bounded byte payloads as base64 with authenticated descriptors
  expect(JSON.parse(snapshot.content[0]!.text!)).toEqual({item:{ordinal:0},chunkOrdinal:0,bytesBase64:'AP8='});
  const exported=await call('audit_export_chunk',{job_id:id,file_ordinal:0,chunk_ordinal:0});
  expect(JSON.parse(exported.content[0]!.text!)).toEqual({file:{ordinal:0},chunkOrdinal:0,bytesBase64:'AQI='});
+});
+
+it('requires both ordered sources and bounded result pages at the comparison transport gate',()=>{
+ const compare=auditDeliveryTools.find(tool=>tool.name==='compare_audit_snapshots');
+ const results=auditDeliveryTools.find(tool=>tool.name==='audit_comparison_items');
+ expect(compare).toBeDefined();expect(results).toBeDefined();
+ for(const args of [{first_snapshot_id:id,idempotency_key:'retry'},
+  {first_snapshot_id:id,second_snapshot_id:id,idempotency_key:'retry',permissions:['read:reports']},
+  {first_snapshot_id:id,second_snapshot_id:id,idempotency_key:'retry',firstCanonicalHash:'a'.repeat(64)}])
+  expect(validateToolArguments(compare!,args).ok).toBe(false);
+ for(const args of [{comparison_id:id,section:'records',limit:101},{comparison_id:id,section:'records',cursor:'01'},
+  {comparison_id:id,section:'unknown'},{comparison_id:id,section:'records',company_id:id}])
+  expect(validateToolArguments(results!,args).ok).toBe(false);
 });
