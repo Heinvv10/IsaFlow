@@ -52,6 +52,10 @@ describe('every approver-of-record entry point refuses an impersonated principal
   ['AFS section signatory supplied by the caller',()=>updateAfsSection(randomUUID(),randomUUID(),h.f.companyA,{signedOffBy:h.f.u2.id})],
   ['tax directive approval',()=>updateTaxDirectiveStatus(h.f.companyA,randomUUID(),'approved',h.f.u2.id)],
   ['tax directive report approval',()=>updateTaxDirectiveReportStatus(h.f.companyA,randomUUID(),'approved',h.f.u2.id)],
+  // Keyed on the transition, not on whether the caller happened to name an approver.
+  ['tax directive approval with no approver named',()=>updateTaxDirectiveStatus(h.f.companyA,randomUUID(),'approved')],
+  ['AFS section signed off by status alone',()=>updateAfsSection(randomUUID(),randomUUID(),h.f.companyA,{status:'signed_off'})],
+  ['AFS section reviewed by status alone',()=>updateAfsSection(randomUUID(),randomUUID(),h.f.companyA,{status:'reviewed'})],
  ];
  it.each(cases)('refuses %s approval under an impersonated session',async(_name,call)=>{
   await expect(impersonated(call)).rejects.toThrow(REFUSAL);
@@ -63,16 +67,12 @@ describe('every approver-of-record entry point refuses an impersonated principal
   const outcome=await ordinary(call).then(()=>'resolved',error=>String(error instanceof Error?error.message:error));
   expect(outcome).not.toContain(REFUSAL);
  });
- it('does not yet refuse a platform-admin request context, and says so loudly',async()=>{
-  // Refusing here breaks the Sage migration commit, whose only route today is
-  // withPlatformAdmin; withPlatformImportTarget cannot carry it (its ceiling grants no
-  // write:invoices and its confinement admits only historical_import.post). Until that
-  // path is confined the request is allowed and recorded at error level, and this test
-  // is what will fail when the refusal lands, so the decision cannot be forgotten.
-  const outcome=await h.platformRequest(()=>approveSupplierInvoice(h.f.companyA,randomUUID(),h.admin))
-   .then(()=>'resolved',error=>String(error instanceof Error?error.message:error));
-  // It gets past the guard and fails on something else entirely - never on independence.
-  expect(outcome).not.toContain('independent reviewer');
-  expect(outcome).not.toContain('cannot record an independent review');
+ it.each([
+  ['supplier invoice',()=>approveSupplierInvoice(h.f.companyA,randomUUID(),h.admin)],
+  // Plain-SQL approver writes: nothing downstream would stop a platform admin here.
+  ['AFS document sign-off',()=>signOffDocument(h.f.companyA,randomUUID(),h.admin)],
+  ['AFS document lock',()=>lockAfsDocument(randomUUID(),h.f.companyA,h.admin)],
+ ] as Array<[string,()=>Promise<unknown>]>)('refuses a %s approval taken directly in a platform-admin request context',async(_name,call)=>{
+  await expect(h.platformRequest(call)).rejects.toThrow('A platform administrator is not an independent reviewer');
  });
 });

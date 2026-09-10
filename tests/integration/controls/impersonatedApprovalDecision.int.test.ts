@@ -188,8 +188,9 @@ describe('control approval decisions under actual impersonated sessions: actual 
    [IMPERSONATION_PROOF_COOKIE]:await mintImpersonationProof({actorUserId:h.admin,targetUserId:target,
     targetSessionId:sessionId,stashId,actorExpiresAt:now+3600,stashExpiresAt:now+3600})}};
  }
- async function endImpersonation(cookies:Record<string,string>,stashId:string,gotrue:number){
-  vi.stubGlobal('fetch',vi.fn(async()=>new Response(null,{status:gotrue})));
+ async function endImpersonation(cookies:Record<string,string>,stashId:string,gotrue:number,
+  fetchMock=vi.fn(async()=>new Response(null,{status:gotrue}))){
+  vi.stubGlobal('fetch',fetchMock);
   try{
    const jar={...cookies,[ADMIN_STASH_COOKIE]:stashId,isaflow_csrf:csrf};
    const req={method:'POST',url:'/api/auth/end-impersonation',query:{},cookies:jar,body:{},
@@ -228,6 +229,37 @@ describe('control approval decisions under actual impersonated sessions: actual 
   // stop the copied cookies - otherwise the 502 path is the hole all over again.
   expect((await h.pool.query('SELECT stash_id FROM admin_impersonation_stash WHERE stash_id=$1',[stashId])).rowCount).toBe(1);
   expect((await list(cookies)).status).toBe(401);
+ });
+
+ it('records a failed end for the impersonated session when the admin exits and GoTrue refuses',async()=>{
+  const {sessionId,stashId,cookies}=await liveImpersonation();
+  expect((await list(cookies)).status).toBe(200);
+  // The admin already holds their own restored session: the caller's claims are NOT the
+  // impersonated session, which is exactly what the old code recorded.
+  const adminCookies={[ACCESS_COOKIE]:await session(h.admin,`admin-${randomUUID()}`,'aal2'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA};
+  const failed=await endImpersonation(adminCookies,stashId,503);
+  expect(failed.status).toBe(502);
+  expect(await endRow('impersonation_end_failed',sessionId)).toBe(1);
+  expect((await list(cookies)).status).toBe(401);
+ });
+
+ it('never revokes the impersonated session before the end is on record',async()=>{
+  const {sessionId,stashId,cookies}=await liveImpersonation();
+  const name=`pi_end_${randomUUID().replaceAll('-','')}`;
+  // Identifiers come from a hexadecimal UUID only; the predicate binds this one session.
+  await h.pool.query(`CREATE FUNCTION public.${name}() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN IF NEW.action='impersonation_end' AND NEW.details->>'target_session_id'='${sessionId}'
+    THEN RAISE EXCEPTION 'Synthetic impersonation_end INSERT failure'; END IF; RETURN NEW; END $$`);
+  await h.pool.query(`CREATE TRIGGER ${name} BEFORE INSERT ON admin_audit_log FOR EACH ROW EXECUTE FUNCTION public.${name}()`);
+  const fetchMock=vi.fn(async()=>new Response(null,{status:204}));
+  try{
+   await expect(endImpersonation(cookies,stashId,204,fetchMock)).rejects.toThrow('Synthetic impersonation_end INSERT failure');
+  }finally{
+   await h.pool.query(`DROP TRIGGER IF EXISTS ${name} ON admin_audit_log`);await h.pool.query(`DROP FUNCTION IF EXISTS public.${name}()`);
+  }
+  // GoTrue was never asked: a session is not revoked while nothing records that it ended,
+  // so no still-valid access token can outlive its revocation unmarked.
+  expect(fetchMock).not.toHaveBeenCalled();
  });
 
  it('still lets the same tenant administrator approve and the maker post from an unimpersonated session',async()=>{
