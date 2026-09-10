@@ -80,6 +80,17 @@ it('rolls back if a mandatory journal change INSERT is silently suppressed',asyn
  }finally{await pool.query('DROP TRIGGER IF EXISTS synthetic_merge_event_suppression ON control_change_events');await pool.query('DROP FUNCTION IF EXISTS public.synthetic_merge_event_suppression()');}
 });
 
+it('rolls back when the recovery INSERT is suppressed',async()=>{
+ const f=glFixture(),m=await mergeFixture(),before=await journalRows(m.journal);
+ await pool.query(`CREATE FUNCTION public.synthetic_merge_recovery_suppression() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.companyA}'::uuid AND NEW.source_account_id='${m.source}'::uuid THEN RETURN NULL; END IF; RETURN NEW; END $$`);
+ await pool.query('CREATE TRIGGER synthetic_merge_recovery_suppression BEFORE INSERT ON gl_account_merges FOR EACH ROW EXECUTE FUNCTION public.synthetic_merge_recovery_suppression()');
+ try{
+  await expect(merge(m.source,m.target)).rejects.toThrow();expect(await journalRows(m.journal)).toEqual(before);
+  expect((await pool.query('SELECT is_active FROM gl_accounts WHERE company_id=$1 AND id=$2',[f.companyA,m.source])).rows[0].is_active).toBe(true);
+  expect(await evidence('gl_account',m.source)).toEqual([]);expect(await evidence('journal_entry',m.journal)).toEqual([]);
+ }finally{await pool.query('DROP TRIGGER IF EXISTS synthetic_merge_recovery_suppression ON gl_account_merges');await pool.query('DROP FUNCTION IF EXISTS public.synthetic_merge_recovery_suppression()');}
+});
+
 it('keeps concurrent ordinary posting and merge atomic with safe retry after lock refusal',async()=>{
  const f=glFixture(),m=await mergeFixture('draft');
  const post=()=>actor(ctx=>postJournalEntry(f.companyA,m.journal,ctx.principal.personId));
