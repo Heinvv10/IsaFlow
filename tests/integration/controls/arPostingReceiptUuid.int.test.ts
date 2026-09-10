@@ -71,3 +71,23 @@ it('replays a genuine fad0f57f7 uppercase invoice posting receipt through either
   expectOnePosting(await population(seed.invoice,company),seed.result.glJournalEntryId);
  }finally{process.env.ENCRYPTION_KEY=prior.encryption;process.env.CONTROL_FINGERPRINT_KEY=prior.fingerprint;}
 });
+/**
+ * Nothing in the schema stops one intent holding a receipt under two spellings — the unique index
+ * keys on the literal entity_id — so the case-insensitive read must refuse rather than pick one.
+ */
+it('refuses an invoice posting receipt that exists under two UUID spellings',async()=>{
+ const id=await invoice(),first=await approve(id);
+ const duplicated=await f.pool.query(`INSERT INTO control_operation_effects
+  SELECT (jsonb_populate_record(NULL::control_operation_effects,
+   to_jsonb(e)||jsonb_build_object('id',gen_random_uuid(),'entity_id',upper(e.entity_id)))).*
+  FROM control_operation_effects e WHERE e.company_id=$1 AND e.entity_type='customer_invoice'
+   AND e.operation='customer_invoice.post' AND lower(e.entity_id)=$2 RETURNING entity_id`,[f.f.companyA,id]);
+ expect(duplicated.rows).toEqual([{entity_id:upper(id)}]);
+ for(const addressed of [id,upper(id)]){
+  const refused=await f.attempt(()=>approve(addressed));
+  expect(refused.error instanceof Error?refused.error.message:null).toBe('Ambiguous operation receipt');
+ }
+ await f.pool.query("DELETE FROM control_operation_effects WHERE company_id=$1 AND entity_type='customer_invoice' AND entity_id=$2",[f.f.companyA,upper(id)]);
+ expectOnePosting(await population(id),first.glJournalEntryId);
+ await expect(approve(upper(id))).resolves.toEqual(first);
+});
