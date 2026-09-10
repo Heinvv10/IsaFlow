@@ -13,6 +13,7 @@ import {prepareHistoricalImport} from '@/modules/accounting/services/controls/hi
 import {requestOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 import {executeHistoricalImport} from '@/modules/accounting/services/controls/historicalImportExecution';
 import approvalsRoute from '../../../pages/api/accounting/control-approvals';
+import exceptionsRoute from '../../../pages/api/accounting/control-exceptions';
 import type {OperationRef} from '@/modules/accounting/services/controls/contracts';
 
 const csrf='impersonation-decision-csrf-0123456789012345';
@@ -26,16 +27,18 @@ function response(){
   end(){this.headersSent=true;this.finished=true;return this;}};
 }
 type Decision={status:number;body:{success?:boolean;message?:string;data?:{status?:string}}};
-async function decide(cookies:Record<string,string>,approvalId:string):Promise<Decision>{
+type Route=(req:NextApiRequest,res:NextApiResponse)=>Promise<unknown>;
+async function post(route:Route,url:string,body:unknown,cookies:Record<string,string>):Promise<Decision>{
  const jar={...cookies,isaflow_csrf:csrf};
- const req={method:'POST',url:'/api/accounting/control-approvals',query:{},cookies:jar,
-  body:{action:'decide',approvalId,decision:'approved'},
+ const req={method:'POST',url,query:{},cookies:jar,body,
   headers:{cookie:Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; '),'x-csrf-token':csrf},
   socket:{remoteAddress:'127.0.0.91'}} as unknown as NextApiRequest;
  const res=response();
- await approvalsRoute(req,res as unknown as NextApiResponse);
+ await route(req,res as unknown as NextApiResponse);
  return {status:res.statusCode,body:res.body as Decision['body']};
 }
+const decide=(cookies:Record<string,string>,approvalId:string)=>
+ post(approvalsRoute as Route,'/api/accounting/control-approvals',{action:'decide',approvalId,decision:'approved'},cookies);
 
 describe('control approval decisions under actual impersonated sessions: actual PostgreSQL and withAuth',()=>{
  let h:Awaited<ReturnType<typeof platformImportApprovalFixture>>;
@@ -119,6 +122,22 @@ describe('control approval decisions under actual impersonated sessions: actual 
    expect(result.body.message).toBe('Self approval is not permitted');
   }finally{await h.pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[h.f.companyA,h.admin]);}
   expect(await status(approval.id)).toBe('pending');expect(await decisions(approval.id)).toBe(0);
+ });
+ it('refuses a high risk control exception resolved through an impersonated session',async()=>{
+  const exceptionId=randomUUID();
+  await h.pool.query(`INSERT INTO control_exceptions(company_id,id,check_id,finding_key,check_version,finding,severity,reporter_person_id)
+   VALUES($1,$2,'three_way_match_exceptions',$3,1,'{}'::jsonb,'high',$4)`,[h.f.companyA,exceptionId,`impersonation-${exceptionId}`,h.f.u1.id]);
+  const body={action:'resolve',exceptionId,expectedVersion:1,resolution:'accepted_risk',
+   reason:'Reviewed under an impersonated session',expiresAt:'2099-01-01T00:00:00.000Z'};
+  const refused=await post(exceptionsRoute as Route,'/api/accounting/control-exceptions',body,await impersonated(`impersonation-${randomUUID()}`));
+  expect(refused.status).toBe(500);
+  expect(refused.body.message).toBe('An impersonated session cannot record an independent review');
+  const row=(await h.pool.query('SELECT status,reviewer_person_id,version FROM control_exceptions WHERE company_id=$1 AND id=$2',[h.f.companyA,exceptionId])).rows[0];
+  expect(row).toMatchObject({status:'open',reviewer_person_id:null,version:1});
+  const allowed=await post(exceptionsRoute as Route,'/api/accounting/control-exceptions',body,await ordinary(`ordinary-${randomUUID()}`));
+  expect(allowed.status).toBe(200);
+  expect((await h.pool.query('SELECT status,reviewer_person_id FROM control_exceptions WHERE company_id=$1 AND id=$2',[h.f.companyA,exceptionId])).rows[0])
+   .toEqual({status:'accepted_risk',reviewer_person_id:target});
  });
  it('still lets the same tenant administrator approve and the maker post from an unimpersonated session',async()=>{
   const p=await h.prepared(),approval=await h.request(p.ref);

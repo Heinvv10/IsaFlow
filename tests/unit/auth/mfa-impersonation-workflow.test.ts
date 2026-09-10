@@ -114,7 +114,10 @@ it('starts an authorized MFA-target impersonation, uses the emitted cookies on w
   expect(decodeJwt(proof).exp).toBeLessThanOrEqual(Math.floor(stash.expires_at.getTime() / 1000));
   const rotatedToken = await new SignJWT({ ...decodeJwt(targetToken), rotation: 1 })
     .setProtectedHeader({ alg: 'HS256' }).sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const calls: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push(String(url));
+    if (String(url).includes('/logout')) return new Response(null, { status: 204 });
     expect(String(url)).toContain('/token?grant_type=refresh_token');
     expect(JSON.parse(String(init?.body))).toEqual({ refresh_token: 'target-refresh' });
     return Response.json({ access_token: rotatedToken, refresh_token: 'rotated-refresh',
@@ -137,6 +140,9 @@ it('starts an authorized MFA-target impersonation, uses the emitted cookies on w
   expect(jar['sb-access-token']).toBe(adminToken);
   expect(jar['sb-impersonation-proof']).toBeUndefined();
   expect(fixture.deleteStash).toHaveBeenCalledWith('synthetic-stash');
+  // The impersonated GoTrue session must not outlive the impersonation: its refresh
+  // token would otherwise keep working, unflagged, for as long as the member is enrolled.
+  expect(calls.some(url => url.includes('/logout?scope=local'))).toBe(true);
   const restored = response();
   await withAuth(async (req: PlatformAdminRequest, res: NextApiResponse) => {
     expect(req.user.id).toBe(adminId);

@@ -195,6 +195,13 @@ describe('platform historical import persisted maker and independent tenant appr
    const after=await client.query(grantShape);
    expect(after.rows).toHaveLength(1);
    expect(after.rows[0].def).toContain('platform_import');
+   // The auth-method check is dropped by its deterministic column-level name; assert the
+   // replacement actually admits a platform requester rather than trusting the drop.
+   const authMethod=await client.query(`SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+    WHERE conrelid='public.control_historical_imports'::regclass AND contype='c'
+      AND pg_get_constraintdef(oid) LIKE '%requester_auth_method%' AND pg_get_constraintdef(oid) NOT LIKE '%requester_grant_id%'`);
+   expect(authMethod.rows).toHaveLength(1);
+   expect(authMethod.rows[0].def).toContain('platform_import');
   }finally{await client.query('ROLLBACK');client.release();}
  });
  it('refuses an ordinary journal approval through the target-bound import context',async()=>{
