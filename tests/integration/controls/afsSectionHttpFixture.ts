@@ -29,7 +29,7 @@ const ROUTES:[RegExp,string,string[]][]=[
 type Person='u1'|'u2';
 type Module={default:unknown;config?:unknown};
 export interface SeedSection{status?:string;reviewedBy?:Person|null;signedOffBy?:Person|null;overrides?:unknown;aiNarrative?:string|null;history?:boolean;
- content?:unknown;sectionType?:string}
+ content?:unknown;sectionType?:string;id?:string;sortOrder?:number}
 export async function afsSectionHttpFixture(){
  const target=validateFixtureTarget(fixtureConfigFromEnv(process.env));
  const storage=await mkdtemp(join(tmpdir(),'afs-http-fixture-'));
@@ -94,15 +94,15 @@ export async function afsSectionHttpFixture(){
  }
  async function section(documentId:string,seed:SeedSection={}){
   // One section per type per document (uq_afs_sections_document_type), so the type is unique.
-  const id=randomUUID(),status=seed.status??'reviewed';
+  const id=seed.id??randomUUID(),status=seed.status??'reviewed';
   const reviewer=seed.reviewedBy===undefined?(['reviewed','signed_off'].includes(status)?'u2':null):seed.reviewedBy;
   const signer=seed.signedOffBy===undefined?(status==='signed_off'?'u2':null):seed.signedOffBy;
   const history=seed.history?[{version:1,savedAt:'2024-03-01T00:00:00.000Z',savedBy:f.u1.id,content:{title:'Earlier',blocks:[]}}]:[];
   const content=seed.content===undefined?{title:'Reviewed',blocks:[]}:seed.content;
-  await pool.query(`INSERT INTO afs_sections(id,document_id,company_id,section_type,status,content,overrides,ai_narrative,reviewed_by,reviewed_at,signed_off_by,signed_off_at,version_history)
-   VALUES($1,$2,$3,$10,$4,$11::jsonb,$5::jsonb,$6,$7,CASE WHEN $7::text IS NULL THEN NULL ELSE now() END,$8,CASE WHEN $8::text IS NULL THEN NULL ELSE now() END,$9::jsonb)`,
+  await pool.query(`INSERT INTO afs_sections(id,document_id,company_id,section_type,status,content,overrides,ai_narrative,reviewed_by,reviewed_at,signed_off_by,signed_off_at,version_history,sort_order)
+   VALUES($1,$2,$3,$10,$4,$11::jsonb,$5::jsonb,$6,$7,CASE WHEN $7::text IS NULL THEN NULL ELSE now() END,$8,CASE WHEN $8::text IS NULL THEN NULL ELSE now() END,$9::jsonb,$12)`,
    [id,documentId,f.companyA,status,seed.overrides===undefined?null:JSON.stringify(seed.overrides),seed.aiNarrative??null,reviewer?f[reviewer].id:null,signer?f[signer].id:null,
-    JSON.stringify(history),seed.sectionType??`synthetic_${id.slice(0,8)}`,content===null?null:JSON.stringify(content)]);
+    JSON.stringify(history),seed.sectionType??`synthetic_${id.slice(0,8)}`,content===null?null:JSON.stringify(content),seed.sortOrder??0]);
   return id;
  }
  /** The firm branding the statements are rendered with. */

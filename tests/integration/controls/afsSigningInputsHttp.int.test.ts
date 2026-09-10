@@ -36,7 +36,6 @@ describe('the fingerprint covers every input the statements are rendered from',(
   ['the registration number',()=>["UPDATE companies SET registration_number='2099/123456/07' WHERE id=$1",[h.f.companyA]],/registered company/i],
   ['the period on the cover',({doc})=>["UPDATE afs_documents SET period='2099-02' WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]],/document settings/i],
   ['the fiscal year',({doc})=>["UPDATE afs_documents SET fiscal_year=2099 WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]],/document settings/i],
-  ['the reporting framework',({doc})=>["UPDATE afs_documents SET reporting_framework='full_ifrs' WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]],/document settings/i],
   ['the primary colour',()=>["UPDATE brand_profiles SET primary_colour='#abcdef' WHERE company_id=$1",[h.f.companyA]],/branding/i],
   ['the secondary colour',()=>["UPDATE brand_profiles SET secondary_colour='#111111' WHERE company_id=$1",[h.f.companyA]],/branding/i],
   ['the logo',()=>["UPDATE brand_profiles SET logo_url='https://cdn.example.com/new-logo.png' WHERE company_id=$1",[h.f.companyA]],/branding/i],
@@ -58,6 +57,44 @@ describe('the fingerprint covers every input the statements are rendered from',(
    expect(row.status,'the document was signed off over a render nobody saw').toBe('partner_review');
    expect(String(row.signing_refused_reason),'the refusal sends the operator to the wrong input').toMatch(named);
   }finally{await restore(before);}
+ });
+
+ it.each([
+  ['the report footer, which the statements never print',()=>["UPDATE brand_profiles SET report_footer_text='Footer changed after the send' WHERE company_id=$1",[h.f.companyA]]],
+  ['a draft AI narrative behind the content blocks',({section})=>["UPDATE afs_sections SET ai_narrative='A narrative nobody prints' WHERE company_id=$1 AND id=$2",[h.f.companyA,section]]],
+  ['the reporting framework, which the statements do not print',({doc})=>["UPDATE afs_documents SET reporting_framework='full_ifrs' WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]]],
+ ] as [string,Change][])('does not void the signature when %s changes: the signed bytes are the same',async(_what,change)=>{
+  const before=await company();
+  const {doc,sections:[a],contact}=await s.readyToSign();
+  const signum=await s.send(doc,contact);
+  try{
+   const [statement,params]=change({doc,section:a});
+   await h.pool.query(statement,params);
+   const row=await s.signed(signum,doc);
+   expect(row.status,`a change to nothing the statements show refused the signature: ${String(row.signing_refused_reason)}`).toBe('signed_off');
+  }finally{await restore(before);}
+ });
+
+ it('renders sections with the same note number in one order, by id',async()=>{
+  // Nothing makes sort_order unique. With no tiebreak, two sections sharing a number come out in
+  // whatever order the scan returns them — one fingerprint, two byte orders.
+  await h.brandProfile();
+  const doc=await h.document('partner_review');
+  const low='00000000-0000-4000-8000-'+Date.now().toString(16).padStart(12,'0');
+  const high='ffffffff-ffff-4fff-bfff-'+Date.now().toString(16).padStart(12,'0');
+  // Every order the scan might use disagrees with id order: the HIGHER id is written first and
+  // carries the alphabetically FIRST section type (the (document_id, section_type) index is what
+  // the planner walks).
+  await h.section(doc,{id:high,sortOrder:5,status:'signed_off',sectionType:`aaa_tied_${Date.now()}`,content:{title:'High',blocks:[{type:'paragraph',text:'Tied note HIGH'}]}});
+  await h.section(doc,{id:low,sortOrder:5,status:'signed_off',sectionType:`zzz_tied_${Date.now()}`,content:{title:'Low',blocks:[{type:'paragraph',text:'Tied note LOW'}]}});
+  for(let attempt=0;attempt<2;attempt++){
+   const html=await realRenderDocumentHtml(doc,h.f.companyA,{skipChecks:true,allowDefaultBrandProfile:true});
+   const [lowAt,highAt]=[html.indexOf('Tied note LOW'),html.indexOf('Tied note HIGH')];
+   expect(Math.min(lowAt,highAt),'a tied note was not rendered at all').toBeGreaterThan(-1);
+   expect(lowAt,'tied notes were printed in storage order, not by id').toBeLessThan(highAt);
+   // A no-op update moves a row version; the order must not follow it.
+   await h.pool.query('UPDATE afs_sections SET sort_order=sort_order WHERE company_id=$1 AND id=$2',[h.f.companyA,attempt===0?high:low]);
+  }
  });
 
  it.each([
@@ -154,6 +191,7 @@ describe('an edit that lands while the send is rendering',()=>{
    const signum=await s.send(doc,contact);
    expect(landed.waited).toBe(false);
    expect(s.posted.at(-1)!,'the render picked up a profile the fingerprint never saw').not.toContain('#123456');
+   expect(s.posted.at(-1)!,'the render used no branding at all rather than the documented default').toContain('#1e293b');
    const row=await s.signed(signum,doc);
    expect(row.status).toBe('partner_review');
    expect(String(row.signing_refused_reason)).toMatch(/branding/i);
