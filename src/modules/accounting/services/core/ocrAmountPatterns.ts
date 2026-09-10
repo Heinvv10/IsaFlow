@@ -102,16 +102,7 @@ const INCL = String.raw`In(?:${ABBREV_TAIL})?\.?`;
  */
 const EXCL_LONG = String.raw`Ex${ABBREV_TAIL}\.?`;
 
-/**
- * `Total`, and its Afrikaans spelling.
- *
- * SA till slips and invoices print `TOTAAL` and `SUB TOTAAL` as routinely as the
- * English pair, and while the vocabulary knew only `Total` a slip printing
- * `Total 230.00 / Gratuity 23.00 / TOTAAL 253.00` yielded ONE candidate and
- * posted R230.00 against a payable of R253.00. It is spelled once here so that
- * every guard, every pattern and the summary-line terminator learn it together
- * — the failure this file keeps having is a spelling one half of a pair knows.
- */
+/** `Total` and the Afrikaans `Totaal`, spelled once so every guard and pattern learns both. */
 const TOTAL_WORD = String.raw`Totaa?l`;
 
 /** The tax word, with or without the full stops of `V.A.T.`. */
@@ -200,27 +191,13 @@ const NOT_A_SUBTOTAL = String.raw`(?<![A-Za-z])(?<!\b(?:Sub|Nett?|S|${TAX_WORD})
 const NOT_A_TAX_LABEL = String.raw`(?<![A-Za-z])(?<!\b(?:${EXCL}|${INCL})${SEP})`;
 
 /**
- * A label that names the AMOUNT PAYABLE without using the word `Total`.
- *
- * `Amount Due` and `Balance Due` were already here, and the loop in
- * `extractTotalCandidates` never reached them: while it returned on the first
- * productive pattern, any slip printing a plain `Total` above its payable made
- * this whole pattern unreachable. With the loop fixed, the vocabulary is what
- * decides — so the remaining measured spellings are in it: a BARE `Balance`,
- * the Afrikaans `TE BETAAL`, its English `TO PAY`, and the till abbreviation
- * `TTL`. Each was measured posting R230.00 against a payable of R253.00.
- *
- * Two spellings are deliberately NOT here, because admitting them costs more
- * than it buys and the cost falls on honest documents:
- *   - `Amount Paid` is a paid-TO-DATE figure, not a payable, and an ordinary
- *     invoice printing `Amount Paid 0.00` above `Balance Due 1150.00` would
- *     gain a second candidate and stop posting.
- *   - a bare `ZAR 253.00` has no label at all; every currency-marked line item
- *     on the document would become a candidate.
- * Both remain a disclosed limit: a slip printing its payable under one of them
- * and a plain `Total` above still posts the `Total`.
+ * A label that names the amount payable without the word `Total`. It only
+ * improves the GUESS the capture screen offers: a payable under a label missing
+ * from here is still a figure larger than the total, which `ocrLargerFigure`
+ * refuses on. Never grow it to close a posting defect — that race was lost six
+ * times. A bare `Balance` read `Smart Shopper Balance 45.00` as the payable.
  */
-const PAYABLE_LABEL = String.raw`(?:(?:Amount|Balance)${SEP}(?:Due|Owing|Payable)|Payable|Balance|T[eo]${SEP}(?:Betaal|Pay)|TTL)`;
+const PAYABLE_LABEL = String.raw`(?:(?:Amount|Balance)${SEP}(?:Due|Owing|Payable)|Payable|T[eo]${SEP}(?:Betaal|Pay)|TTL)`;
 
 /** The payable total. */
 export const TOTAL_PATTERNS: RegExp[] = [

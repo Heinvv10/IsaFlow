@@ -113,6 +113,13 @@ export function reconcileNetAgainstTotal(
  * whole time; the loop is what dropped them. Hits are ordered by MATCH POSITION
  * so `selectTotalAmount`'s "the bottom one" still means the figure printed
  * lowest on the document, whichever pattern read it.
+ *
+ * A figure of zero or less beside a positive one is not a payable, and is
+ * dropped. Consulting every pattern made `Balance Due 0.00` on a PAID invoice
+ * the bottom candidate, so the reader offered R0.00 where it used to read the
+ * invoice total — and an attended post built a R0.00 entry. A document whose
+ * figures are ALL negative keeps them: that is a credit note, and its sign is
+ * what `isCreditNote` and the gate's positive-total check refuse on.
  */
 export function extractTotalCandidates(text: string): number[] {
   const hits: Array<{ at: number; value: number }> = [];
@@ -121,7 +128,11 @@ export function extractTotalCandidates(text: string): number[] {
       if (match[1]) hits.push({ at: match.index, value: parseAmount(match[1]) });
     }
   }
-  return hits.sort((a, b) => a.at - b.at).map((h) => h.value);
+  const values = hits.sort((a, b) => a.at - b.at).map((h) => h.value);
+  const positive = values.filter((v) => v > 0);
+  if (positive.length > 0) return positive;
+  const nonZero = values.filter((v) => v !== 0);
+  return nonZero.length > 0 ? nonZero : values;
 }
 
 /** `TOTAL_PATTERNS` are single-match; `matchAll` requires the global flag. */

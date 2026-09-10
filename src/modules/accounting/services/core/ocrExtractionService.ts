@@ -16,6 +16,7 @@ import {
   reconcileNetAgainstTotal,
   selectTotalAmount,
 } from './ocrAmountReconciliation';
+import { largerFigureWarning } from './ocrLargerFigure';
 
 export interface ExtractedAmounts {
   subtotal: number | null;
@@ -184,6 +185,8 @@ export function extractAmounts(text: string): ExtractedAmounts {
   const selectedTotal = selectTotalAmount(totalCandidates);
   result.totalAmount = selectedTotal.totalAmount;
   if (selectedTotal.warning) result.warnings.push(selectedTotal.warning);
+  const larger = largerFigureWarning(text, result.totalAmount);
+  if (larger) result.warnings.push(larger);
 
   if (result.totalAmount !== null && result.vatAmount !== null && result.subtotal === null) {
     const derived = Math.round((result.totalAmount - result.vatAmount) * 100) / 100;

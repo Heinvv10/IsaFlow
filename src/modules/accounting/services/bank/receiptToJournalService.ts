@@ -101,6 +101,11 @@ export function validateReceiptExtraction(extracted: ExtractedDocument): Receipt
 
   if (extracted.totalAmount === null || extracted.totalAmount === undefined) {
     errors.push('totalAmount is required');
+  } else if (extracted.totalAmount <= 0) {
+    // Every caller books a PURCHASE: a zero total is an empty entry, and a
+    // negative one reverses it. The unattended gate already refused both; an
+    // attended post of a paid invoice's `Balance Due 0.00` built a R0.00 entry.
+    errors.push('totalAmount must be positive');
   }
   if (!extracted.date) {
     errors.push('date is required');

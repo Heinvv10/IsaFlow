@@ -54,11 +54,22 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 
 ## Recent changes
 
+- 2026-09-10 (round 13): **the gate measures AMOUNTS, not labels** (`ocrLargerFigure`). "One printed
+  total" was measured over candidates defined by LABELS, so a payable under any label the vocabulary
+  lacked (`AMT DUE`, `Please Pay`, `SALE`, `Amount Paid`, `Tip 23.00 / CARD 253.00`) was not a
+  candidate and R230.00 posted of R253.00 — six rounds of adding labels never closed it.
+  `unattendedPostingRefusal` and `isAmbiguousTotal` now also refuse when ANY printed figure (a
+  decimal part required; space-grouped only at line end) is larger than the total, unless it is a
+  tender whose NEXT figure is a change line and tender − change = total. The reader warns the same
+  finding under `UNRECONCILED_WARNING`. **Do not close a posting defect by adding a label to
+  `PAYABLE_LABEL`/`TOTAL_PATTERNS`** — that list now only improves the guess. Bare `Balance` removed
+  (it read `Balance Due 0.00` and `Smart Shopper Balance 45.00` as the payable); a zero/negative
+  candidate beside a positive one is dropped; `validateReceiptExtraction` refuses total <= 0.
 - 2026-09-10 (round 11): **`extractTotalCandidates` collects across EVERY `TOTAL_PATTERNS` entry,
   ordered by match position.** It returned on the first productive pattern, so a plain `Total` above
   the payable made `Amount Due` / `Balance Due` / `Payable` / `Amount Incl VAT` unreachable — one
   candidate, no warning, R230.00 posted against a payable of R253.00. `TOTAL_WORD` (`Totaa?l`) and
-  `PAYABLE_LABEL` (`… |Balance|TO PAY|TE BETAAL|TTL`) are the single alternations every guard,
+  `PAYABLE_LABEL` (`… |TO PAY|TE BETAAL|TTL`) are the single alternations every guard,
   pattern and `SUMMARY_LINE_START` share. `unattendedPostingRefusal` now re-reads the VAT from
   `rawText` with `extractAmounts` and refuses a stored net/VAT the text does not print — a VLM's own
   15% split of a zero-rated slip claimed R13.04 of input tax the document denies. New
