@@ -36,17 +36,32 @@
 
 DO $$
 DECLARE
-  bad_ids TEXT;
+  bad_count BIGINT;
+  bad_ids   TEXT;
 BEGIN
-  SELECT string_agg(si.id::TEXT, ', ' ORDER BY si.id) INTO bad_ids
+  SELECT count(*) INTO bad_count
   FROM supplier_invoices si
   JOIN suppliers s ON s.id = si.supplier_id
   WHERE s.company_id <> si.company_id;
 
-  IF bad_ids IS NOT NULL THEN
+  IF bad_count > 0 THEN
+    -- The sample is capped at 20. A tenant re-parenting accident can produce
+    -- thousands of these rows, and a RAISE holding every UUID is a wall of text
+    -- the operator cannot act on: the count says how big the problem is, the
+    -- first ids make it findable, and the query in fix.md lists the rest.
+    SELECT string_agg(id::TEXT, ', ' ORDER BY id) INTO bad_ids
+    FROM (
+      SELECT si.id
+      FROM supplier_invoices si
+      JOIN suppliers s ON s.id = si.supplier_id
+      WHERE s.company_id <> si.company_id
+      ORDER BY si.id
+      LIMIT 20
+    ) sample;
+
     RAISE EXCEPTION
-      'supplier_invoices rows whose supplier belongs to another company cannot be canonicalised: %',
-      bad_ids;
+      'supplier_invoices rows whose supplier belongs to another company cannot be canonicalised: % row(s), first up to 20: %',
+      bad_count, bad_ids;
   END IF;
 END $$;
 

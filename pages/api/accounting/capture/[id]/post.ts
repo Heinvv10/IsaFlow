@@ -84,7 +84,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Match supplier
   const suppliers = await sql`
-    SELECT id, name FROM suppliers WHERE company_id = ${companyId} AND is_active = true
+    SELECT id, name, vat_number FROM suppliers WHERE company_id = ${companyId} AND is_active = true
   ` as Row[];
 
   const supplierMatch = matchSupplierFromExtraction(
@@ -104,6 +104,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const invoiceInput = buildInvoiceFromExtraction(extracted, supplierMatch.supplierId);
   const pipelineConfidence = computePipelineConfidence(extracted, supplierMatch);
 
+  // The VAT segment comes from the SUPPLIER RECORD, never from the OCR'd
+  // `extracted.vendorVatNumber`. Every other producer of duplicate_fingerprint
+  // — ai-invoice-pipeline, supplierInvoiceService, migrationApService,
+  // recurringTransactionService, sageSupplierInvoiceImportService, and
+  // migrations 412 and 670 — reads `suppliers.vat_number`. Calling the same
+  // helper with a different argument produces a different string, so this route
+  // stored fingerprints the lookup could not match and 670 would rewrite away
+  // from what the next capture of the same bill computes: the exact-match step
+  // missed and the bill was accrued twice. The supplier row is also the
+  // stronger identity — it is what the invoice is booked against, whereas the
+  // document's VAT number is a per-scan extraction that varies with OCR quality
+  // and is absent on documents that do not print one.
+  const supplierVatNumber =
+    (suppliers.find((s) => s.id === supplierMatch.supplierId)?.vat_number as string | null | undefined) ?? null;
+
   // Auto-publish gate: duplicate check + rule evaluation
   const gateDecision = await decide({
     companyId,
@@ -111,7 +126,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceNumber: invoiceInput.invoiceNumber ?? null,
     totalAmount: invoiceInput.totalAmount,
     invoiceDate: invoiceInput.invoiceDate,
-    vatNumber: extracted.vendorVatNumber ?? null,
+    vatNumber: supplierVatNumber,
     extractionConfidence: pipelineConfidence,
   });
 
@@ -140,7 +155,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // account. Migration 670 canonicalises the stored column once; this keeps it
   // canonical from here on.
   const captureFingerprint = computeFingerprint(
-    extracted.vendorVatNumber ?? null,
+    supplierVatNumber,
     invoiceInput.invoiceNumber ?? null,
     invoiceInput.totalAmount,
   );

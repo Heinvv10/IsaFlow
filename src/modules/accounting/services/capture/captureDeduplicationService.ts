@@ -66,16 +66,27 @@ export function computeFingerprint(
 function toColumnScale(n: number): string {
   const s = String(n);
   // Exponential form (|n| < 1e-6 or >= 1e21) is far outside the column's
-  // meaningful range; toFixed agrees with the column on all of it.
-  if (!/^-?\d+(\.\d+)?$/.test(s)) return n.toFixed(2);
+  // meaningful range; toFixed agrees with the column on all of it, except that
+  // it keeps the sign on a negative that rounds to zero (see below).
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return unsignZero(n.toFixed(2));
 
   const sign = s.startsWith('-') ? '-' : '';
   const [whole, frac = ''] = (sign ? s.slice(1) : s).split('.');
   if (frac.length <= 2) return `${sign}${whole}.${frac.padEnd(2, '0')}`;
 
   const cents = BigInt(whole + frac.slice(0, 2)) + (frac[2]! >= '5' ? 1n : 0n);
+  // NUMERIC has no signed zero: `-0.001::numeric(15,2)` is `0.00`, so a
+  // negative amount whose magnitude rounds away must drop the sign or the
+  // fingerprint is one the column's own value can never reproduce — exactly the
+  // failure this function exists to close. `total_amount` carries no
+  // non-negative CHECK, so negative bills (supplier credits) are storable.
+  if (cents === 0n) return '0.00';
   const digits = cents.toString().padStart(3, '0');
   return `${sign}${digits.slice(0, -2)}.${digits.slice(-2)}`;
+}
+
+function unsignZero(s: string): string {
+  return s === '-0.00' ? '0.00' : s;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
