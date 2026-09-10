@@ -34,13 +34,13 @@ export async function platformImportApprovalFixture(){
    if((await client.query('COMMIT')).command!=='COMMIT')throw new Error('Synthetic maker transaction failed');return result;
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
  }
- async function member<T>(person:string,fn:(ctx:ControlTx)=>Promise<T>,bearer=false){
+ async function member<T>(person:string,fn:(ctx:ControlTx)=>Promise<T>,bearer=false,impersonatorPersonId:string|null=null){
   const client=await pool.connect(),claims={sub:person,company_id:f.companyA,role:'authenticated'};
   try{
    await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
    await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),f.companyA]);
    const token=f.u1.tokens[1]!;
-   const result=await withControlRequest({client,userId:person,companyId:f.companyA,claims},{personId:person,companyId:f.companyA,authMethod:bearer?'pat':'cookie',
+   const result=await withControlRequest({client,userId:person,companyId:f.companyA,claims},{personId:person,companyId:f.companyA,authMethod:bearer?'pat':'cookie',impersonatorPersonId,
     ...(bearer?{grantId:token.id,connectionId:token.id,grantedScopes:['write:approvals','read:imports','write:imports','write:post','read:invoices','write:invoices','write:journals','read:reports']}:{})},()=>fn(requireControlTx()));
    if((await client.query('COMMIT')).command!=='COMMIT')throw new Error('Synthetic reviewer transaction failed');return result;
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
@@ -59,6 +59,16 @@ export async function platformImportApprovalFixture(){
   const ref:OperationRef={entityType:'historical_import',entityId:result.importId,operation:'historical_import.post'};
   return{ref,retained,bytes};
  }
+ /** A platform-admin request context with no tenant principal at all: what withPlatformAdmin gives a handler. */
+ async function platformRequest<T>(fn:()=>Promise<T>){
+  const client=await pool.connect(),claims={sub:admin,role:'authenticated'};
+  try{
+   await client.query('BEGIN');await client.query('SET LOCAL ROLE platform_admin');
+   await client.query("SELECT set_config('request.jwt.claims',$1,true)",[JSON.stringify(claims)]);
+   const result=await withPlatformImportRequest({client,userId:admin,claims},()=>fn());
+   await client.query('ROLLBACK');return result;
+  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+ }
  const request=(ref:OperationRef)=>maker({action:'request',importId:ref.entityId},ctx=>requestOperationApproval(ctx,ref));
  const review=(id:string)=>member(f.u2.id,ctx=>decideOperationApproval(ctx,id,'approved'));
  const execute=(ref:OperationRef,id?:string)=>maker({action:'execute',importId:ref.entityId},ctx=>executeHistoricalImport(ctx,ref,id));
@@ -66,5 +76,5 @@ export async function platformImportApprovalFixture(){
   return{journals:(await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[f.companyA,ref.entityId])).rowCount,
    effects:(await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[f.companyA,ref.entityId])).rowCount};
  }
- return{pool,f,admin,revenue,supplier,maker,member,body,prepared,request,review,execute,noEffects,close:()=>pool.end()};
+ return{pool,f,admin,revenue,supplier,customer,maker,member,platformRequest,body,prepared,request,review,execute,noEffects,close:()=>pool.end()};
 }

@@ -32,13 +32,17 @@ it('leaves an ordinary session unflagged',async()=>{
  expect(await resolveImpersonatingActor(client,claims,undefined)).toBeNull();
  expect(assertIndependentHumanReview(principal(null),'someone')).toBeUndefined();
 });
-it('refuses reviews rather than every request when the reader function is not deployed',async()=>{
+it('leaves an unimplicated session alone when the reader function is not deployed',async()=>{
  reader(false,undefined);
- expect(await resolveImpersonatingActor(client,claims,undefined)).toBe(IMPERSONATION_UNVERIFIED);
- // Ordinary requests keep working; only a recorded human review fails closed.
+ // A database lagging migration 675 must not stop every tenant approving anything:
+ // no proof cookie is no impersonation signal at all.
+ expect(await resolveImpersonatingActor(client,claims,undefined)).toBeNull();
+});
+it('marks a session the proof implicates but cannot resolve as unverified',async()=>{
+ reader(false,undefined);
+ expect(await resolveImpersonatingActor(client,claims,'not-a-usable-proof')).toBe(IMPERSONATION_UNVERIFIED);
  expect(()=>assertIndependentHumanReview(principal(IMPERSONATION_UNVERIFIED),'requester'))
   .toThrow('Impersonation state is unverified; an independent review cannot be recorded');
- expect(query.mock.calls.every(call=>String(call[0]).includes('to_regprocedure'))).toBe(true);
 });
 it('stops re-checking the reader function once it is present',async()=>{
  reader(true,{actor:null});
