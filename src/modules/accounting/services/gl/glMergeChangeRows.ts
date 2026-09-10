@@ -29,7 +29,7 @@ export async function readMergeJournals(ctx:ControlTx,ids:string[]):Promise<Merg
   const page=await ctx.sql`SELECT (to_jsonb(l)-'debit'-'credit')||jsonb_build_object('debit',l.debit::text,'credit',l.credit::text) AS material
    FROM gl_journal_lines l WHERE l.company_id=${c}::uuid AND l.journal_entry_id=ANY(${ids}::uuid[])
    AND (${cursor}::uuid IS NULL OR l.id>${cursor}::uuid) ORDER BY l.id LIMIT 2000 FOR UPDATE OF l` as {material:Record<string,unknown>}[];
-  rows.push(...page);if(page.length<2000)break;cursor=String(page[page.length-1].material.id);
+  rows.push(...page);if(page.length<2000)break;cursor=String(page[page.length-1]!.material.id);
  }
  const byJournal=new Map<string,Record<string,unknown>[]>();
  for(const {material} of rows){const id=String(material.journal_entry_id);const list=byJournal.get(id)??[];list.push(material);byJournal.set(id,list);}
