@@ -44,7 +44,7 @@ async function withLedger(run: () => Promise<void>) {
         entry_number text, description text, reference text, source text, created_at timestamp,
         posting_agent text, extraction_confidence numeric, source_document_id uuid) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid,
-        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, business_unit_id uuid) ON COMMIT DROP`;
+        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, bu_id uuid) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS captured_documents (id uuid, company_id uuid, vendor_name text,
         reference_number text, document_date date) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS customer_invoices (id uuid, company_id uuid, gl_journal_entry_id uuid,
