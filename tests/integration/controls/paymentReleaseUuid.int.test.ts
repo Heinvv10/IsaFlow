@@ -154,11 +154,13 @@ it('loads a payment settlement whose retained receipt kept a legacy uppercase en
  expect({error:again.error instanceof Error?again.error.message:null,status:again.value?.status}).toEqual({error:null,status:'prepared'});
 });
 /**
- * A row another attempt already advanced is that attempt's story. Reaching 'attempting' through a
- * forced acknowledgement failure, then breaking the reservation population so the next claim throws,
- * is the deterministic stand-in for the concurrent dispatcher the FOR UPDATE re-read guards against.
+ * A failure against a row another attempt already advanced still has to leave a trace, and the trace
+ * has to say which it was: the recorded status is the state observed under FOR UPDATE, so 'attempting'
+ * reads as an attempt that lost the race rather than as a release nobody dispatched. Reaching
+ * 'attempting' through a forced acknowledgement failure, then breaking the reservation population so
+ * the next claim throws, is the deterministic stand-in for that concurrent dispatcher.
  */
-it('does not report a dispatch failure against a release another attempt already advanced',async()=>{
+it('records a dispatch failure against an advanced release under the state it actually observed',async()=>{
  const p=await prepared();
  await enqueue(p.intentId,await f.approve(p.operation));
  await f.pool.query(`CREATE FUNCTION public.synthetic_release_advance_only() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -171,8 +173,8 @@ it('does not report a dispatch failure against a release another attempt already
   await f.pool.query('DROP FUNCTION public.synthetic_release_advance_only()');
  }
  expect((await state(p.intentId)).outbox[0]?.state).toBe('attempting');
- await f.pool.query('DELETE FROM control_payment_release_reservations WHERE company_id=$1 AND intent_id=$2::uuid',[f.f.companyA,p.intentId]);
+ expect((await f.pool.query('DELETE FROM control_payment_release_reservations WHERE company_id=$1 AND intent_id=$2::uuid',[f.f.companyA,p.intentId])).rowCount).toBe(1);
  await f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId));
  expect((await state(p.intentId)).outbox[0]?.state).toBe('attempting');
- expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([]);
+ expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([{reason:'Release reservation population changed',status:'attempting'}]);
 });
