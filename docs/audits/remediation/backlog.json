@@ -11265,6 +11265,73 @@
       "severity": "low",
       "source": "Found by the K-071 round-23 blind reviewer: fails alone and on every run against a clean origin/master archive. PR #418 (e5d6d1f6e, \"Prioritize canonical dimension validation\") changed journalLineOwnership.ts only.",
       "processNotes": "First confirm the cross-company line is still REFUSED (the outcome), not merely refused with another message. Then assert the outcome (status and no row written) rather than the message text, so validation order cannot break it again."
+    },
+    {
+      "id": "R-082",
+      "claim": "",
+      "area": "accounting/ar",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar",
+        "src/modules/accounting/services/ap"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A customer can receive a statement showing an unissued draft invoice as owed, and the statement disagrees with the ageing the business reconciles to. Customer-facing, so the fix changes what customers receive: that is Hein's decision, not an engineering one.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-059"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-059/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Count statements sent while the customer had draft invoices.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Customer and supplier statements claim the ageing's document population but still count draft invoices; the customer statement is emailed to customers",
+      "severity": "medium",
+      "source": "Found by the R-059 round-6 fixer during a census by claim; left unrouted deliberately.",
+      "processNotes": "R-059 round 6 (9f0ee2d3f) centralised the population rule in shared/documentPopulation.documentInPopulationExpr(alias) and corrected these statements' comments to say what they share and what they do not. Fix, once decided: route both statements through that expression. DECISION FOR HEIN: should statements show drafts?"
+    },
+    {
+      "id": "R-083",
+      "claim": "",
+      "area": "accounting/ar",
+      "affectedPaths": [
+        "src/modules/accounting/services"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A payment or credit note with a NULL status is silently dropped by `status NOT IN (...)`, so it is neither applied nor shown. isaflow_dev has none; production not measured.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-059"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-059/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; count payments and credit notes with NULL status per company.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Payment and credit-note status predicates carry the same NULL-unsafe NOT IN trap R-059 fixed for invoices",
+      "severity": "low",
+      "source": "Found by the R-059 round-6 fixer; not fixed there because payments and credit notes follow a separate funds rule.",
+      "processNotes": "Mirror R-059's approach: a single shared expression for the funds population, a census by claim and consumer, and a mixed-set reconciliation test."
     }
   ],
   "sourceInventory": [
