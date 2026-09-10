@@ -6,6 +6,7 @@ import {assertControlTx} from '../controls/context';
 import {matchesBankAllocationJournalLines} from '../controls/bankAllocationJournalShape';
 import {canonicalJson} from '../controls/canonical';
 import type {ControlTx} from '../controls/contracts';
+import {loadIntentReceipt,sameIntentId} from '../controls/intentIdentity';
 import {parseBankAllocationPlan,isBankAllocationRefund} from './bankAllocationPlan';
 import {loadBankAllocationSources} from './bankAllocationSources';
 type Row=Record<string,unknown>;
@@ -15,9 +16,8 @@ export async function loadBankAllocationOriginal(ctx:ControlTx,originalIntentId:
  const [intent]=await ctx.sql`SELECT *,accounting_date::text,amount::text FROM control_bank_allocation_intents WHERE company_id=${company}::uuid AND id=${originalIntentId}::uuid` as Row[];
  if(!intent)throw new Error('Original controlled allocation intent required');
  const plan=parseBankAllocationPlan(intent.payload),sources=await loadBankAllocationSources(ctx,plan,{postExecution:true});
- const [receipt]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${company}::uuid AND operation='bank_allocation.post'
-  AND entity_type='bank_allocation_intent' AND entity_id=${originalIntentId} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{intentId:string;journalEntryId:string;paymentId:string|null}}[];
- if(!receipt||receipt.result.intentId!==originalIntentId||plan.bankTransactionId!==intent.bank_transaction_id)throw new Error('Original bank allocation receipt required');
+ const receipt=await loadIntentReceipt<{intentId:string;journalEntryId:string;paymentId:string|null}>(ctx,{entityType:'bank_allocation_intent',entityId:originalIntentId,operation:'bank_allocation.post'});
+ if(!receipt||!sameIntentId(receipt.result.intentId,originalIntentId)||plan.bankTransactionId!==intent.bank_transaction_id)throw new Error('Original bank allocation receipt required');
  const [journal]=await ctx.sql`SELECT * FROM gl_journal_entries WHERE company_id=${company}::uuid AND id=${receipt.result.journalEntryId}::uuid FOR SHARE` as Row[];
  const lines=await ctx.sql`SELECT id,gl_account_id,debit::text,credit::text,vat_type,cost_center_id,cc1_id,cc2_id,bu_id FROM gl_journal_lines
   WHERE company_id=${company}::uuid AND journal_entry_id=${receipt.result.journalEntryId}::uuid ORDER BY id FOR SHARE` as (Row&Parameters<typeof matchesBankAllocationJournalLines>[1][number])[];

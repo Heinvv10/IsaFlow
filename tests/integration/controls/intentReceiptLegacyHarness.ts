@@ -38,7 +38,7 @@ export async function runLegacySeed(kind:Baseline):Promise<LegacySeed>{
   return seedSchema.parse(JSON.parse(await readFile(artifact,'utf8')));
  }finally{await rm(directory,{recursive:true,force:true});}
 }
-export function useSeedKeys(seed:LegacySeed){process.env.ENCRYPTION_KEY=seed.keys.encryption;process.env.CONTROL_FINGERPRINT_KEY=seed.keys.fingerprint;}
+export function applySeedKeys(seed:LegacySeed){process.env.ENCRYPTION_KEY=seed.keys.encryption;process.env.CONTROL_FINGERPRINT_KEY=seed.keys.fingerprint;}
 export function committed(seed:LegacySeed,op:LegacyOp){
  const outcome=seed.ops[op];
  if(!outcome.ok)throw new Error(`${op} produced no baseline receipt: ${outcome.error}`);

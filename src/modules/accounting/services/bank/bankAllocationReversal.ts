@@ -2,7 +2,8 @@ import {resolveBankTransferOriginal} from './bankAllocationTransferOriginal';
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
-import {UUID_RE,isRealCalendarDate} from '@/lib/validation';
+import {isRealCalendarDate} from '@/lib/validation';
+import {canonicalIntentId} from '../controls/intentIdentity';
 import {withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from '../controls/context';
@@ -19,7 +20,7 @@ async function authority(ctx:ControlTx){assertControlTx(ctx);await assertEffecti
 export async function prepareBankAllocationReversal(ctx:ControlTx,input:unknown){
  assertControlTx(ctx);const plan=schema.parse(input);
  return withSavepoint('bank_reversal_prepare',async()=>{
-  await authority(ctx);const originalIntentId=await resolveBankTransferOriginal(ctx,plan.originalIntentId);
+  await authority(ctx);const originalIntentId=await resolveBankTransferOriginal(ctx,canonicalIntentId(plan.originalIntentId));
   const original=await assertOriginalAllocationReversible(ctx,originalIntentId),id=randomUUID();
   await ctx.sql`INSERT INTO control_bank_allocation_reversal_intents(company_id,id,requester_person_id,original_intent_id,bank_transaction_id,reversal_date,reason)
    VALUES(${ctx.principal.companyId}::uuid,${id}::uuid,${ctx.principal.personId},${originalIntentId}::uuid,${original.plan.bankTransactionId}::uuid,${plan.reversalDate}::date,${plan.reason})`;
@@ -31,7 +32,7 @@ export async function prepareBankAllocationReversal(ctx:ControlTx,input:unknown)
  });
 }
 export async function executeBankAllocationReversal(ctx:ControlTx,intentId:string,options?:PostingActorOpts&{approvalId?:string}){
- assertControlTx(ctx);if(!UUID_RE.test(intentId))throw new Error('Invalid controlled intent UUID');intentId=intentId.toLowerCase();
+ intentId=canonicalIntentId(intentId);
  return withSavepoint('bank_reversal_execute',async()=>{
   await authority(ctx);const state=await loadBankAllocationReversal(ctx,intentId);
   if(state.intent.requester_person_id!==ctx.principal.personId)throw new Error('Bank reversal requester required');

@@ -2,6 +2,7 @@ import {materializeBankAllocationReversal} from './bankAllocationReversalMateria
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
 import {readControlEntityVersion} from '../controls/operationVersions';
+import {loadIntentReceipt,sameIntentId} from '../controls/intentIdentity';
 import type {ControlTx,OperationRef} from '../controls/contracts';
 import type {ApMaterial} from '../controls/apOperationMaterializer';
 import {parseBankAllocationPlan} from './bankAllocationPlan';
@@ -12,12 +13,11 @@ export async function loadBankAllocationIntent(ctx:ControlTx,id:string){
  if(!intent)throw new Error('Bank allocation intent not found');
  const plan=parseBankAllocationPlan(intent.payload);
  if(plan.bankTransactionId!==intent.bank_transaction_id)throw new Error('Allocation intent association changed');
- const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-  AND operation='bank_allocation.post' AND entity_type='bank_allocation_intent' AND entity_id=${id} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{intentId:string;journalEntryId:string;afterFingerprint:string}}[];
+ const effect=await loadIntentReceipt<{intentId:string;journalEntryId:string;afterFingerprint:string}>(ctx,{entityType:'bank_allocation_intent',entityId:id,operation:'bank_allocation.post'});
  const sources=await loadBankAllocationSources(ctx,plan,{postExecution:Boolean(effect)});
  if(effect){
   const journalSource=plan.kind==='transfer'&&plan.transfer.mode==='link'?sources.transfer?.original?.originalBank.id:intent.bank_transaction_id;
-  if(effect.result.intentId!==id||effect.result.afterFingerprint!==sources.fingerprint||sources.bank.status!=='allocated')throw new Error('Allocation receipt source changed');
+  if(!sameIntentId(effect.result.intentId,id)||effect.result.afterFingerprint!==sources.fingerprint||sources.bank.status!=='allocated')throw new Error('Allocation receipt source changed');
   const [journal]=await ctx.sql`SELECT je.id FROM gl_journal_entries je JOIN gl_journal_lines jl ON jl.company_id=je.company_id AND jl.journal_entry_id=je.id
    WHERE je.company_id=${ctx.principal.companyId}::uuid AND je.id=${effect.result.journalEntryId}::uuid AND je.status='posted' AND je.reversed_at IS NULL
     AND je.source_record_id=${journalSource}::uuid AND jl.id=${sources.bank.matched_journal_line_id}::uuid`;
