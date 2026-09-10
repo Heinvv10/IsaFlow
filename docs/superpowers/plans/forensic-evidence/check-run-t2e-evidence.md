@@ -191,8 +191,9 @@ wording: a success after the deadline remains unreachable, so the success-inside
 
 ## Residuals, stated
 
-- A `default_currency` longer than 16 384 characters is refused by the stream's seal while the sync path would accept
-  it: the table's 64 KiB envelope CHECK cannot hold a longer one beside the longest message.
+- A company whose `default_currency` costs more than 1 024 bytes as the seal encodes it gets `unknown`
+  (`resource_limit:currency_exceeds_limit`) from every run, published before streaming, where sync would accept it.
+  The bound is in bytes because the table's 64 KiB CHECK is (plan A43, A48).
 - No systemd unit: the runtime and memory walls, and the unit readback, remain unproven for check runs.
 - A single (day, person, currency) with more than 25 000 journals that can join a threshold group still makes that
   run `unknown`, and so does every later run whose cutoff includes that day.
