@@ -32,6 +32,11 @@ it.each([
       : reports[kind];
     return new Response(JSON.stringify({data}));
   });
+  // A dangling call from a PRIOR iteration/test can still resolve and land in
+  // this shared mock's `.mock.calls` after `afterEach`'s reset runs — reading
+  // only calls made from this point on makes that leakage impossible rather
+  // than merely unlikely, matching R-085's per-test isolation fix.
+  const startCallIndex = vi.mocked(apiFetch).mock.calls.length;
   render(<Page />);
   await screen.findByRole('option', {name:'PROJECT — Project'});
   fireEvent.change(screen.getByDisplayValue('All Cost Centres'), {target:{value:'centre-a'}});
@@ -42,11 +47,11 @@ it.each([
     if (kind === 'tb') fireEvent.click(link.closest('tr')!);
     else fireEvent.click(screen.getByRole('button', {name:'Expand'}));
   }
-  const request = (fragment: string) => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
+  const request = (fragment: string) => vi.mocked(apiFetch).mock.calls.slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
   await waitFor(() => expect(String(request('reports-account-transactions'))).toContain('cost_centre_id=centre-a'));
   fireEvent.click(await screen.findByRole('button', {name:'Evidence'}));
   await screen.findByText('No journal entries found for this period');
-  expect(String(request('/evidence/'))).toContain('cost_centre_id=centre-a');
+  await waitFor(() => expect(String(request('/evidence/'))).toContain('cost_centre_id=centre-a'));
 });
 
 it('income statement carries a selected business unit through report, exports, transactions and evidence', async () => {
@@ -62,10 +67,11 @@ it('income statement carries a selected business unit through report, exports, t
     return new Response(JSON.stringify({data}));
   });
 
+  const startCallIndex = vi.mocked(apiFetch).mock.calls.length;
   render(<IncomeStatementPage />);
   fireEvent.change(await screen.findByDisplayValue('All Business Units'), {target:{value:'business-a'}});
   const request = (fragment: string) => vi.mocked(apiFetch).mock.calls
-    .filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
+    .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
   await waitFor(() => expect(String(request('reports-income-statement'))).toContain('business_unit_id=business-a'));
 
   fireEvent.click(screen.getByRole('button', {name:'Export CSV'}));
@@ -80,7 +86,7 @@ it('income statement carries a selected business unit through report, exports, t
   await waitFor(() => expect(String(request('reports-account-transactions'))).toContain('business_unit_id=business-a'));
   fireEvent.click(await screen.findByRole('button', {name:'Evidence'}));
   await screen.findByText('No journal entries found for this period');
-  expect(String(request('/evidence/'))).toContain('business_unit_id=business-a');
+  await waitFor(() => expect(String(request('/evidence/'))).toContain('business_unit_id=business-a'));
 });
 
 it('balance sheet carries a selected business unit through report, exports, links, transactions and evidence', async () => {
@@ -96,10 +102,11 @@ it('balance sheet carries a selected business unit through report, exports, link
     return new Response(JSON.stringify({data}));
   });
 
+  const startCallIndex = vi.mocked(apiFetch).mock.calls.length;
   render(<BalanceSheetPage />);
   fireEvent.change(await screen.findByDisplayValue('All Business Units'), {target:{value:'business-a'}});
   const request = (fragment: string) => vi.mocked(apiFetch).mock.calls
-    .filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
+    .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
   await waitFor(() => expect(String(request('reports-balance-sheet'))).toContain('business_unit_id=business-a'));
 
   fireEvent.click(screen.getByRole('button', {name:'Export CSV'}));
@@ -115,5 +122,5 @@ it('balance sheet carries a selected business unit through report, exports, link
   await waitFor(() => expect(String(request('reports-account-transactions'))).toContain('business_unit_id=business-a'));
   fireEvent.click(await screen.findByRole('button', {name:'Evidence'}));
   await screen.findByText('No journal entries found for this period');
-  expect(String(request('/evidence/'))).toContain('business_unit_id=business-a');
+  await waitFor(() => expect(String(request('/evidence/'))).toContain('business_unit_id=business-a'));
 });
