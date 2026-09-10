@@ -116,7 +116,14 @@ describe('balance-sheet download presentation', () => {
     await csvHandler({ method: 'GET', companyId, query: { as_at_date: '2026-04-30' } } as unknown as NextApiRequest, res);
 
     const csv = String(vi.mocked(res.send).mock.calls[0]?.[0]);
-    expect(csv.indexOf('Capital')).toBeLessThan(csv.indexOf('Payables'));
+    expect(csv.split('\n').slice(6)).toEqual([
+      '"Assets","1000","Cash",300.00',
+      '"Assets","","Total Assets",300.00',
+      '"Equity","3000","Capital",200.00',
+      '"Equity","","Total Equity",200.00',
+      '"Liabilities","2000","Payables",100.00',
+      '"Liabilities","","Total Liabilities",100.00',
+    ]);
   });
 
   it('writes Equity before Liabilities and names the combined total in XLSX', async () => {
@@ -126,8 +133,17 @@ describe('balance-sheet download presentation', () => {
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(Buffer.concat(res.chunks) as unknown as ExcelJS.Buffer);
-    const labels = workbook.getWorksheet('Balance Sheet')!.getColumn(1).values.map(String);
-    expect(labels.indexOf('Equity')).toBeLessThan(labels.indexOf('Liabilities'));
-    expect(labels).toContain('Total Equity and Liabilities');
+    const wanted = new Set([
+      'Assets', 'Total Assets', 'Equity', 'Total Equity',
+      'Liabilities', 'Total Liabilities', 'Total Equity and Liabilities',
+    ]);
+    const labels = workbook.getWorksheet('Balance Sheet')!.getColumn(1).values
+      .filter((value): value is string => typeof value === 'string' && wanted.has(value));
+    expect(labels).toEqual([
+      'Assets', 'Assets', 'Total Assets',
+      'Equity', 'Equity', 'Total Equity',
+      'Liabilities', 'Liabilities', 'Total Liabilities',
+      'Total Equity and Liabilities',
+    ]);
   });
 });
