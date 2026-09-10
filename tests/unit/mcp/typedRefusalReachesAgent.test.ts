@@ -121,6 +121,52 @@ describe('safeErrorText', () => {
     expect(safeErrorText('a string', FALLBACK)).toBe(FALLBACK);
     expect(safeErrorText(null, FALLBACK)).toBe(FALLBACK);
   });
+
+  // The hole a SHAPE test left. Node's own error codes are SCREAMING_SNAKE by
+  // construction, so "contains an underscore" admitted every one of them —
+  // and each carries an internal message naming argument names, received
+  // values or a path. So would any `code` an attacker could influence.
+  // Identity, not shape, is what closes a disclosure boundary.
+  it('hides Node and library error codes, which are SCREAMING_SNAKE too', () => {
+    for (const code of [
+      'ERR_INVALID_ARG_TYPE', 'ERR_OUT_OF_RANGE', 'ERR_ASSERTION',
+      'ERR_STREAM_PREMATURE_CLOSE', 'ABORT_ERR', 'UND_ERR_SOCKET',
+    ]) {
+      expect(safeErrorText(Object.assign(new Error('internal detail'), { code }), FALLBACK))
+        .toBe(FALLBACK);
+    }
+  });
+
+  it('hides an attacker-shaped code that merely looks like one of ours', () => {
+    expect(safeErrorText(
+      Object.assign(new Error('secret'), { code: 'RECEIPT_REFUSED_' }), FALLBACK,
+    )).toBe(FALLBACK);
+    expect(safeErrorText(
+      Object.assign(new Error('secret'), { code: 'TOTALLY_LEGITIMATE_REFUSAL' }), FALLBACK,
+    )).toBe(FALLBACK);
+  });
+});
+
+/**
+ * A census, not an assertion about behaviour: the allowlist fails CLOSED, so a
+ * refusal class added later without listing its code silently loses its wording
+ * at the MCP boundary. This is the thing that tells the author to add it.
+ */
+describe('the safeErrorText allowlist covers every refusal class in the repo', () => {
+  it('surfaces the message of every `readonly code` this codebase declares', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const out = execFileSync('git', ['grep', '-h', "readonly code = '", '--', 'src/'], {
+      encoding: 'utf8',
+    });
+    const codes = [...out.matchAll(/readonly code = '([A-Z0-9_]+)'/g)].map((m) => m[1]!);
+    expect(codes.length).toBeGreaterThanOrEqual(14);
+    for (const code of codes) {
+      expect(
+        safeErrorText(Object.assign(new Error(REMEDY), { code }), FALLBACK),
+        `${code} is declared in src/ but missing from REFUSAL_CODES in toolHelpers.ts`,
+      ).toBe(REMEDY);
+    }
+  });
 });
 
 describe('apply_payment_to_supplier_invoice — both refusing paths reach the agent', () => {

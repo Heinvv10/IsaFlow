@@ -18,7 +18,7 @@
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { ReceiptRefusal } from './receiptRefusal';
 import { sql } from '@/lib/neon';
-import { als, assertTxUsable } from '@/lib/als';
+import { requireRequestTransaction } from '../core/requestTransaction';
 import type { DbRow } from '@/lib/neon';
 
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
@@ -166,11 +166,10 @@ async function fetchInvoiceCandidates(
   paymentId: string | null,
   invoiceIds: readonly string[],
 ): Promise<Map<string, InvoiceCandidate>> {
-  const client = als.getStore()?.client as { query: (t: string) => Promise<unknown> } | undefined;
-  if (client) {
-    assertTxUsable();
-    await client.query("SET LOCAL lock_timeout = '5s'");
-  }
+  // Refused, not skipped: without a request transaction the lock below is
+  // released at the end of its own statement and protects nothing, silently.
+  const client = requireRequestTransaction('fetchInvoiceCandidates');
+  await client.query("SET LOCAL lock_timeout = '5s'");
   try {
     return await lockInvoiceCandidates(companyId, paymentId, invoiceIds, client);
   } catch (err) {
@@ -187,7 +186,7 @@ async function lockInvoiceCandidates(
   companyId: string,
   paymentId: string | null,
   invoiceIds: readonly string[],
-  client: { query: (t: string) => Promise<unknown> } | undefined,
+  client: { query: (t: string) => Promise<unknown> },
 ): Promise<Map<string, InvoiceCandidate>> {
   const rows = (await sql`
     SELECT ci.id,
@@ -213,7 +212,7 @@ async function lockInvoiceCandidates(
   // lock taken afterwards in the same request. Deliberately NOT in a `finally`:
   // after a timeout the transaction is aborted and this statement would itself
   // throw 25P02, replacing the typed refusal with an opaque error.
-  if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
+  await client.query('SET LOCAL lock_timeout = DEFAULT');
   return new Map(rows.map((r) => [String(r.id), r]));
 }
 

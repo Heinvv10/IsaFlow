@@ -16,6 +16,7 @@ import {
   planReceiptApplication,
 } from '@/modules/accounting/services/ar/receiptApplicationService';
 import { isReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
+import { isPaymentLockTimeout } from '@/modules/accounting/services/core/paymentLock';
 
 interface AllocationItem {
   invoiceId: string;
@@ -100,6 +101,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       plan = await planReceiptApplication(companyId, paymentId, allocations);
     } catch (err) {
+      // A contended payment row is the other pre-write 4xx on this route: the
+      // lock is taken as `planReceiptApplication`'s first act, so nothing has
+      // been written, and the wording is a remedy the caller can act on. 409,
+      // the way `bank-match-confirm` answers the parallel bank-line timeout —
+      // re-throwing it turned a retryable "retry in a moment" into a 500 whose
+      // text `internalError` replaces with "An internal error occurred".
+      if (isPaymentLockTimeout(err)) {
+        log.info('Customer allocation hit a contended payment', { paymentId });
+        return apiResponse.conflict(res, err.message);
+      }
       // Only a typed refusal may be answered with a 400. Catching everything
       // put a driver error's raw text (schema names included) in front of the
       // user on a status `withAuth` COMMITs, and monitored a genuine fault as
@@ -108,7 +119,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         log.error('Customer allocation failed', { paymentId, error: err });
         throw err;
       }
-      log.error('Customer allocation refused', { paymentId, error: err });
+      // `info`, not `error`: this branch is the user's own mistake, answered
+      // with the remedy. Logging it at the same level as the fault two lines
+      // above makes the two indistinguishable in Bugsink.
+      log.info('Customer allocation refused', { paymentId, reason: err.message });
       return apiResponse.badRequest(res, err.message);
     }
 

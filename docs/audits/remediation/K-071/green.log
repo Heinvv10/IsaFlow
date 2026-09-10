@@ -321,3 +321,45 @@ TEST FIXED, NOT SILENCED
   bare /UPDATE/, so the guard would have failed on a LOCK. Re-anchored on the
   write forms (/INSERT INTO|UPDATE \w+ SET|DELETE FROM/), which still catch the
   real write it exists to catch.
+
+================================ ROUND 7 ================================
+Reviewer: review-k071-r6.md (0 HIGH, 3 MEDIUM, 4 LOW). All open findings fixed
+except LOW-4 (pre-existing file length, dispositioned in fix.md).
+
+--- GATES (worktree .worktrees/fix-K-071) ---
+bunx tsc --noEmit                                            → clean
+bunx eslint <6 changed src/pages files>                      → clean
+bun run agent-docs:check                                     → OK: 74 mirrors match
+bunx vitest run   (DATABASE_URL UNSET, full suite)
+  Test Files  797 passed | 36 skipped (833)
+  Tests       9488 passed | 234 skipped (9722)
+bun run test:integration -- <7 branch integration files>     (real PostgreSQL fixture)
+  Test Files  7 passed (7)
+  Tests       31 passed (31)
+
+--- MUTATION PROOFS (production code reverted, test observed RED, then restored) ---
+A. MEDIUM-1 — added `UPDATE customer_invoices SET updated_at = NOW()` to the PLAN path.
+   receiptApplicationService.test.ts "writes nothing…"          → 1 failed  (was passing
+   blind: node check of the real statement text gives old regex FALSE, new regex TRUE,
+   and the new regex FALSE against the `FOR UPDATE OF ci` read).
+B. MEDIUM-2 — removed the `isPaymentLockTimeout` → 409 branch from customer-allocations.ts.
+   customerAllocationsRefusalStatus.test.ts "answers a contended payment with 409" → RED.
+C. LOW-3 — restored `log.error` on the refusal branch.
+   "logs a refusal below error level" → RED.
+D. LOW-1 — restored the NAMED_CODE_RE shape test in place of REFUSAL_CODES.
+   typedRefusalReachesAgent.test.ts "hides Node and library error codes" + "hides an
+   attacker-shaped code" → both RED.
+E. LOW-2 — dropped requireRequestTransaction back to a silent no-op client.
+   "refuses to run at all outside a request transaction" → RED in BOTH the AR and AP suites.
+F. MEDIUM-3 — removed `ORDER BY si.id` + `FOR UPDATE OF si` from fetchBillCandidates.
+   k071-bill-lock-concurrency.int.test.ts → 2 failed:
+     "two payments racing one bill"  AssertionError: expected [200, 500] to equal [200, 400]
+       (exactly the uq_gl_je_company_entry_number collision the reviewer predicted)
+     "a held bill lock times out"    timed out at 20s — with no bounded lock on the bill the
+       path blocks indefinitely further down instead of refusing in 5s.
+   With the lock restored: 2 passed, bill amount_paid = 600, one payment_allocations row.
+
+NOTE ON FLAKES: the fixture PostgreSQL is shared with other remediation agents. Two early
+runs of the new AP file failed with `deadlock detected` / timeouts while pg_stat_activity
+showed unrelated `gl_journal_entries … FOR UPDATE` sessions from another branch. Re-run
+clean; the mutation proof above was taken on a quiet database and is deterministic.

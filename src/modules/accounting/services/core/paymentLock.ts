@@ -42,6 +42,18 @@ export class PaymentLockTimeoutError extends Error {
   }
 }
 
+/**
+ * Structural, not `instanceof`: a route deciding a status code on this must not
+ * be defeated by module mocking or by two bundled copies of this file. Mirrors
+ * `isBankTransactionLockTimeout`. The condition is RETRYABLE and nothing has
+ * been written — the row was never acquired — so a caller may answer it with a
+ * 409 and keep the wording above.
+ */
+export function isPaymentLockTimeout(err: unknown): err is PaymentLockTimeoutError {
+  return err instanceof Error
+    && (err as { code?: unknown }).code === 'PAYMENT_LOCK_TIMEOUT';
+}
+
 function isLockTimeout(err: unknown): boolean {
   return typeof err === 'object' && err !== null
     && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
