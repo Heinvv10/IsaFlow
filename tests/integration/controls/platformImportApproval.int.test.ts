@@ -1,5 +1,6 @@
 import {afterAll,beforeAll,describe,expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 import {platformImportApprovalFixture} from './platformImportApprovalFixture';
 import {historicalHash,readHistoricalImportSource,storeHistoricalImportSource} from '@/modules/accounting/services/controls/historicalImportSourceService';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
@@ -41,7 +42,10 @@ describe('platform historical import persisted maker and independent tenant appr
   try{
    await expect(h.member(h.admin,ctx=>decideOperationApproval(ctx,approval.id,'approved'))).rejects.toThrow(/Self/i);
    await h.pool.query('UPDATE personal_access_tokens SET user_id=$3 WHERE company_id=$1 AND id=$2',[h.f.companyA,token.id,h.admin]);
-   await expect(h.member(h.admin,ctx=>decideOperationApproval(ctx,approval.id,'approved'),true)).rejects.toThrow(/human|Self/i);
+   // A bearer grant is refused as a non-human decision before self-approval is even considered;
+   // the maker's own authenticated cookie session is the case that must fail on self approval,
+   // and impersonatedApprovalDecision.int.test.ts drives that through actual withAuth.
+   await expect(h.member(h.admin,ctx=>decideOperationApproval(ctx,approval.id,'approved'),true)).rejects.toThrow('An authenticated human decision is required');
    expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});
   }finally{
    await h.pool.query('UPDATE personal_access_tokens SET user_id=$3 WHERE company_id=$1 AND id=$2',[h.f.companyA,token.id,h.f.u1.id]);
@@ -142,6 +146,56 @@ describe('platform historical import persisted maker and independent tenant appr
   await expect(h.maker(selection,ctx=>loadJournalRiskPopulation(ctx,null))).rejects.toThrow(/Current permissions do not allow/);
   await expect(h.maker(selection,ctx=>queryThreeWayMatch(ctx,{}))).rejects.toThrow(/Current permissions do not allow/);
   await expect(h.maker(selection,ctx=>readSupplierBankChangeStatus(ctx,{supplierId:h.supplier}))).rejects.toThrow(/Current permissions do not allow/);
+ });
+ it.each([true,false])('refuses a maker demoted after the request, tenant member: %s',async member=>{
+  const p=await h.prepared(),approval=await h.request(p.ref);
+  const {approvalAuthorities}=await import('@/modules/accounting/services/controls/approvalQueries');
+  if(member)await h.pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')",[h.f.companyA,h.admin]);
+  try{
+   await h.pool.query("UPDATE users SET role='viewer' WHERE id=$1",[h.admin]);
+   const authorities=await h.member(h.f.u2.id,ctx=>approvalAuthorities(ctx,approval.id));
+   const requester=authorities.find(row=>row.person_id===h.admin);
+   // A demoted maker either disappears from the bound authorities or comes back with no valid grant.
+   if(member){expect(requester?.platform_role).toBe('viewer');expect(requester?.grant_valid).toBe(false);}
+   else expect(requester).toBeUndefined();
+   await expect(h.member(h.f.u2.id,ctx=>decideOperationApproval(ctx,approval.id,'approved'))).rejects.toThrow('Platform requester authority is no longer valid');
+  }finally{
+   await h.pool.query("UPDATE users SET role='super_admin' WHERE id=$1",[h.admin]);
+   if(member)await h.pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[h.f.companyA,h.admin]);
+  }
+  expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});
+ });
+ it('refuses a platform requester authority whose global role is not super_admin',async()=>{
+  const p=await h.prepared(),approval=await h.request(p.ref);
+  const {approvalAuthorities,lockApproval}=await import('@/modules/accounting/services/controls/approvalQueries');
+  const {assertPlatformImportRequester}=await import('@/modules/accounting/services/controls/platformImportRequesterAuthority');
+  await h.member(h.f.u2.id,async ctx=>{
+   const row=await lockApproval(ctx,approval.id),authorities=await approvalAuthorities(ctx,approval.id);
+   const requester=authorities.find(person=>person.person_id===h.admin);
+   expect(requester?.platform_role).toBe('super_admin');
+   await expect(assertPlatformImportRequester(ctx,row,requester)).resolves.toBeUndefined();
+   await expect(assertPlatformImportRequester(ctx,row,{...requester!,platform_role:'admin'})).rejects.toThrow('Platform requester authority is no longer valid');
+  });
+ });
+ it('drops any legacy grant-shape constraint when migration 675 is re-run',async()=>{
+  const migration=await readFile('scripts/migrations/sql/675_platform_import_approval_authority.sql','utf8');
+  const grantShape=`SELECT conname,pg_get_constraintdef(oid) AS def FROM pg_constraint
+   WHERE conrelid='public.control_historical_imports'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%requester_grant_id%'`;
+  const client=await h.pool.connect();
+  try{
+   await client.query('BEGIN');
+   // The 639 constraint was unnamed, so its generated name depends on the table's history:
+   // rebuild it under a different generated name and re-run the migration over it.
+   const existing=await client.query(grantShape);
+   for(const row of existing.rows)await client.query(`ALTER TABLE public.control_historical_imports DROP CONSTRAINT ${row.conname}`);
+   await client.query(`ALTER TABLE public.control_historical_imports ADD CONSTRAINT control_historical_imports_check2
+    CHECK((requester_auth_method='cookie' AND requester_grant_id IS NULL AND requester_granted_scopes IS NULL)
+     OR (requester_auth_method IN('pat','oauth') AND requester_grant_id IS NOT NULL AND requester_granted_scopes IS NOT NULL)) NOT VALID`);
+   await client.query(migration);
+   const after=await client.query(grantShape);
+   expect(after.rows).toHaveLength(1);
+   expect(after.rows[0].def).toContain('platform_import');
+  }finally{await client.query('ROLLBACK');client.release();}
  });
  it('refuses an ordinary journal approval through the target-bound import context',async()=>{
   const journal=randomUUID();
