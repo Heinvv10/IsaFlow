@@ -60,6 +60,7 @@ const CREDIT_STEMS = [
   'EXCHANG', 'KORREKSIE', 'STORNO', 'GUTSCHRIFT', 'AVOIR', 'RÜCKGABE', 'RUCKGABE', 'OMKER',
   'RESCIND', 'NULLIF', 'CHARGEBACK', 'DEVOLU', 'DEVOLUÇ', 'REEMBOLS', 'ESTORN', 'RECLAIM', 'REPAID',
   'REPAYMENT', 'MISRING', 'OVERRING', 'GOODWILL', 'COMPENSAT',
+  'REMBOURS', 'RIMBORS', 'RÜCKERSTATT', 'RUCKERSTATT', 'ANULA', 'ABONO', 'REKLAMASIE',
 ];
 
 /**
@@ -121,6 +122,7 @@ const CREDIT_MARKINGS = [
   'GOEDERE ONTVANG TERUG',
   'ADJUSTMENT NOTE', 'DEBIT NOTE', 'ALLOWANCE NOTE', 'REBATE NOTE', 'REBATE',
   'CLAIM NOTE', 'CORRECTION SLIP', 'NEGATIVE SALE', 'MINUS SALE', 'NO SALE',
+  'REFND', 'RETRN', 'EXCH', 'XCHG', 'REV SALE', 'RUIL', 'NEG', 'R/N',
 ];
 
 const SEPARATOR = String.raw`[\s./'-]`;
@@ -213,7 +215,8 @@ const BENIGN_PHRASES: RegExp[] = [
   /cancellation\s+fee/gi,
   /credit\s+guarantee/gi,
   /(?:returned|exchanged)\s+(?:with)?in\s+\d+\s+days[^\n]*/gi,
-  /exchange\s+rate[^\n]*/gi,
+  /exch(?:ange)?\.?\s+rate[^\n]*/gi,
+  /(?:om|uit)?ruil\w*\s+(?:binne|slegs|met|word|kan|moet)[^\n]*/gi,
   /less\s+credit\s+note[^\n]*/gi,
   /money[\s-]*back\s+(?:guarantee|if|when|policy|offer)[^\n]*/gi,
   /\d+\s*%\s*money[\s-]*back[^\n]*/gi,
@@ -256,7 +259,7 @@ function totalPrintedSigned(text: string, total: number): boolean {
  * are looked for, so a credit word inside it says nothing about the document,
  * while a `CREDIT NOTE` header printed by that same supplier still refuses.
  */
-function scrubVendorIdentity(text: string, identity: readonly (string | null | undefined)[]): string {
+export function scrubVendorIdentity(text: string, identity: readonly (string | null | undefined)[]): string {
   return identity.reduce<string>((acc, part) => {
     const trimmed = (part ?? '').trim();
     if (trimmed.length < 3) return acc;

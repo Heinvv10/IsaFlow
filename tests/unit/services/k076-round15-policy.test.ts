@@ -72,7 +72,10 @@ describe('K-076 r15 — a charge after the total, found by arithmetic not by nam
   });
 
   it('a supplier invoice printing no payment at all is not refused', () => {
-    expect(unreconciledFigure(`${OCEAN}${BLOCK}Banking: FNB Acc 62012345678 Branch 250655`, 230)).toBeNull();
+    expect(unreconciledFigure(`${OCEAN}${BLOCK}Banking: FNB Acc 62012345678`, 230)).toBeNull();
+    // Round 22: a bare number beside a count noun is money on an unpaid
+    // document, and a branch code is one (the cost is stated in fix.md).
+    expect(unreconciledFigure(`${OCEAN}${BLOCK}Banking: FNB Acc 62012345678 Branch 250655`, 230)).not.toBeNull();
   });
 
   it('a cent of rounding is allowed, ten cents is not', () => {

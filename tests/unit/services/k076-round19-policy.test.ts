@@ -30,11 +30,13 @@ describe('K-076 r19 HIGH-2 — a tip on the printed blank is money, not a count'
 
   // Round 21 removed `Address` (`Delivery Address 35` is a charge), so the
   // `Delivery address 12 Main Road` row moved to the round-21 refusals.
-  it.each(['Items 3', 'Till 3 Op 12', 'Pieces 2', '12 Main Road',
-    'Batch 123'])('"%s" is a count or an address, and a settled slip passes', (footer) => {
-    const text = `${HDR('SPAR')}Bread 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00\n${footer}`;
-    expect(unreconciledFigure(text, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
-  });
+  // Round 22: `Till 3 Op 12` (12 is over a tenth of R115) and `Batch 123`
+  // (three digits) are no longer counts — see the round-22 policy file.
+  it.each(['Items 3', 'Till 3 Op 11', 'Pieces 2', '12 Main Road'])(
+    '"%s" is a count or an address, and a settled slip passes', (footer) => {
+      const text = `${HDR('SPAR')}Bread 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00\n${footer}`;
+      expect(unreconciledFigure(text, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
+    });
 });
 
 describe('K-076 r19 HIGH-1 — a trailing word does not hide a number from its label', () => {

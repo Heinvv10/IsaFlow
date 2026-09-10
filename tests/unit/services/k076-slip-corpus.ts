@@ -97,9 +97,10 @@ export const SLIPS: Slip[] = [
   { name: 'E4 retail zero-rated, VAT: 0.00', text: `${CHECKERS}Maize Meal 1 100.00 100.00\nSub Total 100.00\nVAT: 0.00\nTotal 100.00`, payable: 100, outcome: 'post' },
 
   // Round 10 — constructed against this gate, in both directions.
-  // Round 20 refused this row for want of a purchase title; round 21 lets a
-  // title line carry its document number (`Invoice No: 55123`), and it posts.
-  { name: 'X1 registration number glued to a dash', text: `Waltons Stationery\nVAT-4123456789\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'post' },
+  // Round 20 refused this row for want of a purchase title; round 21 let the
+  // field `Invoice No: 55123` stand as one, which passed every credit note and
+  // reprint citing an invoice. Round 22: a number line is never a title.
+  { name: 'X1 registration number glued to a dash', text: `Waltons Stationery\nVAT-4123456789\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'refuse' },
   { name: 'X2 no VAT line at all (the builder would invent 15%)', text: `${WALTONS}Total 1150.00`, payable: 1150, outcome: 'refuse' },
   { name: 'X3 a TOTAL column header (honest slip, refused)', text: 'Spar Rivonia\nDate: 2026-09-01\nReceipt No: 88001\nQTY ITEM TOTAL\n1 Bread 23.00\nSub Total 20.00\nVAT 3.00\nTotal 23.00', payable: 23, outcome: 'refuse' },
 
@@ -193,7 +194,8 @@ export const SLIPS: Slip[] = [
   { name: 'R9 Incredible, space-grouped thousands', text: `${RECEIPT('Incredible Connection', '100209')}Mouse 1 1 499.00\nSub Total 1 303.48\nVAT 195.52\nTotal Due 1 499.00\nCARD 1 499.00`, payable: 1499, outcome: 'post' },
   { name: 'R10 Telkom invoice, Amount Due only', text: 'Telkom SA\nTAX INVOICE\nVAT No 4010105461\nDate: 2026-09-01\nInvoice No: TK88123\nFibre 100Mbps 1 999.00 999.00\nSub Total 868.70\nVAT 130.30\nAmount Due 999.00', payable: 999, outcome: 'post' },
   { name: 'R11 Office National, remittance slip', text: 'Office National\nTAX INVOICE\nVAT No 4020304050\nDate: 2026-09-01\nInvoice No: ON5512\nStaples 10 12.50 125.00\nSub Total 108.70\nVAT 16.30\nTotal 125.00\nREMITTANCE ADVICE\nAmount Due 125.00', payable: 125, outcome: 'post' },
-  { name: 'R12 Pick n Pay, Smart Shopper points', text: `${RECEIPT('Pick n Pay Norwood', '100212')}Eggs 18s 1 64.99 64.99\nSub Total 56.51\nVAT 8.48\nTOTAL 64.99\nCARD 64.99\nSmart Shopper Points 64`, payable: 64.99, outcome: 'post' },
+  // Round 22: a count must be under a tenth of the total; 64 points on R64.99 is not.
+  { name: 'R12 Pick n Pay, Smart Shopper points', text: `${RECEIPT('Pick n Pay Norwood', '100212')}Eggs 18s 1 64.99 64.99\nSub Total 56.51\nVAT 8.48\nTOTAL 64.99\nCARD 64.99\nSmart Shopper Points 64`, payable: 64.99, outcome: 'refuse' },
   { name: 'R13 Spar zero-rated, cash and change', text: `${RECEIPT('Spar Parkhurst', '100213')}Brown Bread 1 18.99 18.99\nSub Total 18.99\nVAT 0.00\nTOTAL 18.99\nCASH 20.00\nCHANGE 1.01`, payable: 18.99, outcome: 'post' },
   { name: 'R14 Uber Eats', text: 'Uber Eats\nTAX INVOICE\nDate: 2026-09-01\nInvoice No: UE77123\nBurger 1 95.00 95.00\nSub Total 82.61\nVAT 12.39\nTotal 95.00', payable: 95, outcome: 'post' },
   { name: 'R15 Bolt trip', text: 'Bolt\nTAX INVOICE\nDate: 2026-09-01\nInvoice No: BT55123\nTrip 1 86.00 86.00\nSub Total 74.78\nVAT 11.22\nTotal 86.00', payable: 86, outcome: 'post' },
@@ -208,7 +210,9 @@ export const SLIPS: Slip[] = [
   { name: 'R24 parking, cash and change', text: `${RECEIPT('Sandton City Parking', '100224')}Parking 3h 1 30.00 30.00\nSub Total 26.09\nVAT 3.91\nTotal 30.00\nCASH 50.00\nCHANGE 20.00`, payable: 30, outcome: 'post' },
   { name: 'R25 Takealot with a delivery line', text: `${INVOICE('Takealot', 'TA771')}Headphones 1 499.00 499.00\nDelivery 1 60.00 60.00\nSub Total 486.09\nVAT 72.91\nTotal 559.00`, payable: 559, outcome: 'post' },
   { name: 'R26 Vodacom invoice with a due date', text: `${INVOICE('Vodacom', 'VC5512')}Contract 1 449.00 449.00\nSub Total 390.43\nVAT 58.57\nTotal Due 449.00\nPayment due by 2026-09-15`, payable: 449, outcome: 'post' },
-  { name: 'R27 supplier invoice with bank details', text: `${INVOICE('Acme Supplies', 'AC9001')}Widgets 10 100.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nBank: FNB Acc 62123456789 Branch 250655`, payable: 1150, outcome: 'post' },
+  // Round 22: on an unpaid invoice a bare number beside a count noun is money,
+  // and `Branch 250655` is one — the stated cost of the counter decision.
+  { name: 'R27 supplier invoice with bank details', text: `${INVOICE('Acme Supplies', 'AC9001')}Widgets 10 100.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nBank: FNB Acc 62123456789 Branch 250655`, payable: 1150, outcome: 'refuse' },
   // Refuses on the pre-existing reconciliation rule (net + VAT is 38.00 of
   // 43.00), not on round 13: a tip inside the total is not in the net.
   { name: 'R28 coffee, tip included in the total', text: `${RECEIPT('Seattle Coffee', '100228')}Latte 1 38.00 38.00\nSub Total 33.04\nVAT 4.96\nTip 5.00\nTotal 43.00\nCARD 43.00`, payable: 43, outcome: 'refuse' },

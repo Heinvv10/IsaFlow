@@ -57,7 +57,8 @@ describe('K-076 r17 HIGH-1 — a charge printed WITHOUT cents', () => {
     const cases = [
       `${HDR('SPAR')}Milk 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00\nGoods may be returned in 7 days`,
       `${HDR('WALTONS')}Copy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nDelivery Note No: DN4471`,
-      `${HDR('ACME')}Widget 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nBanking: FNB Acc 62012345678 Branch 250655`,
+      // Round 22: `Branch 250655` dropped — on an unpaid invoice it is money.
+      `${HDR('ACME')}Widget 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nBanking: FNB Acc 62012345678`,
       `${HDR('SHELL')}Diesel 1 140.47\nTOTAL 1 140.47\nVAT 0.00\nFleet card R 1 140.47`,
       `${HDR('SPAR')}Milk 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nVISA CREDIT 115.00`,
     ];

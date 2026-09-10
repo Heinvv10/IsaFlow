@@ -21,7 +21,8 @@
  * beside an amount — so they remain a list, and **a name missing from it is the
  * one remaining open direction in this file: it fails OPEN.** A code printed
  * away from any figure is caught two ways: a currency DECLARATION (`Currency:
- * MUR`) refuses unless it names the rand, and a broad ISO list refuses anywhere.
+ * MUR`) refuses unless it names the rand, and a broad ISO list refuses anywhere
+ * — except a code that is also a word (`GEL`), which must sit beside a number.
  */
 
 /**
@@ -51,12 +52,24 @@ const SYMBOL_BESIDE = new RegExp(String.raw`${SYMBOL.source}[ \t]*\d|\d[ \t]*${S
 /**
  * A currency DECLARED anywhere refuses unless it is the rand: a currency label
  * (`Currency: MUR`, `CCY - USD`) or an "amounts in" statement (`All amounts in
- * MVR`, `Payable in US funds`, `Prices in Kwacha`).
+ * MVR`, `Payable in US funds`, `Prices in ZiG`, `All amounts shown in ZiG`).
+ * The word after "in" refuses unless it is the rand or one of the ordinary
+ * words `NOT_DECLARED` lists (`Payable in full`, `Amount in words`) — a closed
+ * list that FAILS CLOSED: a missing word costs a refusal, never a post.
  */
-const DECLARED = /(?<![A-Za-z])(?:(?:Currency|Curr|CCY|Valuta|Geldeenheid)(?:\s*code)?\s*[:=.-]?|(?:amounts?|payable|bedrae)(?:\s+are)?\s+in(?=\s))\s*([A-Za-z]+)/gi;
+const DECLARED = /(?<![A-Za-z])(?:(?:Currency|Curr|CCY|Valuta|Geldeenheid)(?![A-Za-z])(?:\s*code)?\s*[:=.-]?|(?:amounts?|payable|bedrae|prices?|pryse|figures?|values?|rates?)(?:\s+(?:are|is|shown|stated|quoted|given|expressed|reflected|displayed))*\s+in(?=\s))\s*([A-Za-z]+)/gi;
+const NOT_DECLARED = /^(?:ZAR|R|Rands?|SA|South|full|advance|arrears|words|writing|instalments?|terms|accordance|respect|total|store|stock|brackets|this|these|the|our|your|all|each|one|two|three|cash|person|part)$/i;
 /** Mixed-case codes printed BEFORE a figure, where uppercase-only misses them (`TOTAL Rs 115.00`). */
 const MIXED_CODE_BEFORE = new RegExp(String.raw`(?<![A-Za-z])(?:Rs|Rp|Kr|Ksh|Tsh|Ush|Kz|Le|Ft|Kč)\.?[ \t]*(?=${CENTS})`);
-const ISO_ANYWHERE = /(?<![A-Za-z])(?:USD|EUR|GBP|AUD|CAD|NZD|CHF|JPY|CNY|HKD|SGD|INR|PKR|LKR|BDT|NGN|GHS|KES|TZS|UGX|RWF|BIF|ETB|CDF|AOA|BWP|NAD|SZL|LSL|MZN|ZMW|MWK|ZWL|ZWG|MGA|MUR|SCR|KMF|XOF|XAF|EGP|MAD|TND|AED|SAR|QAR|KWD|BHD|OMR|DKK|SEK|NOK|PLN|CZK|HUF|TRY|RUB|BRL|MXN|ARS|KRW|KZT|KGS|THB|MYR|IDR|MVR|VND|ILS|RON|BGN|UAH|GEL|AMD|AZN|PHP|SGD|TWD|LKR|NPR|MMK|KHR|LAK)(?![A-Za-z])/;
+/**
+ * ISO codes that are ALSO words a till prints (`SHOWER GEL`, `AMD RYZEN`, `TRY
+ * OUR…`, `BBQ RUB`, `LAK` — Afrikaans lacquer) refuse only BESIDE a number:
+ * elsewhere they are words, and anywhere they refused ordinary slips. A code
+ * that is no word refuses wherever it is printed.
+ */
+const WORD_CODES = 'GEL|AMD|TRY|MAD|RON|RUB|CAD|PHP|KGS|LAK';
+const WORD_CODE_BESIDE = new RegExp(String.raw`(?<![A-Za-z])(?:${WORD_CODES})[ \t]*:?[ \t]*\d[\d \u00A0.,]*(?![\dA-Za-z])|\d[ \t]*(?:${WORD_CODES})(?![A-Za-z])`);
+const ISO_ANYWHERE = /(?<![A-Za-z])(?:USD|EUR|GBP|AUD|NZD|CHF|JPY|CNY|HKD|SGD|INR|PKR|LKR|BDT|NGN|GHS|KES|TZS|UGX|RWF|BIF|ETB|CDF|AOA|BWP|NAD|SZL|LSL|MZN|ZMW|MWK|ZWL|ZWG|MGA|MUR|SCR|KMF|XOF|XAF|EGP|TND|AED|SAR|QAR|KWD|BHD|OMR|DKK|SEK|NOK|PLN|CZK|HUF|BRL|MXN|ARS|KRW|KZT|THB|MYR|IDR|MVR|VND|ILS|BGN|UAH|AZN|SGD|TWD|LKR|NPR|MMK|KHR)(?![A-Za-z])/;
 const SPELLED = /(?<![A-Za-z])(?:(?:US|American|Australian|Canadian)\s+)?(?:Dollars?|Euros?|Pounds?\s+Sterling|Sterling|Yen|Yuan|Renminbi|Naira|Pula|Kwacha|Metical|Meticais|Rupees?|Dirhams?|Shillings?|Cedis?|Birr|Kwanza|Emalangeni|Lilangeni|Maloti|Loti|Riyals?|Ringgit|Baht|Francs?|Kroner|Kronor|Krone|Pesos?|Ariary|Dinars?|Rials?|Lira|Zloty|Reais|Rufiyaa|Leones?|Rupiah|Tenge|Forint|Nakfa|Dalasi|Hryvnia|Shekels?|Quetzal|Manat|Denar|Afghani|Gourde|Ouguiya|Dobra|Escudos?|Bitcoin|BTC|Zimbabwe\s+Gold|US\s+funds)(?![A-Za-z])/i;
 /**
  * Names that are also ordinary words count only AFTER a figure: `won` is
@@ -66,10 +79,10 @@ const SPELLED = /(?<![A-Za-z])(?:(?:US|American|Australian|Canadian)\s+)?(?:Doll
 const SPELLED_BESIDE = new RegExp(String.raw`${CENTS}[ \t]*(?:Won|Som)(?![A-Za-z])`);
 
 export function namesForeignCurrency(text: string): boolean {
-  if (ISO_ANYWHERE.test(text) || SYMBOL_BESIDE.test(text) || SPELLED.test(text)) return true;
+  if (ISO_ANYWHERE.test(text) || WORD_CODE_BESIDE.test(text) || SYMBOL_BESIDE.test(text) || SPELLED.test(text)) return true;
   if (SPELLED_BESIDE.test(text) || PULA.test(text) || MIXED_CODE_BEFORE.test(text)) return true;
   for (const match of text.matchAll(DECLARED)) {
-    if (!/^(?:ZAR|R|Rands?|SA|South)$/i.test(match[1]!)) return true;
+    if (!NOT_DECLARED.test(match[1]!)) return true;
   }
   for (const pattern of [CODE_BEFORE, CODE_AFTER]) {
     for (const match of text.matchAll(pattern)) {

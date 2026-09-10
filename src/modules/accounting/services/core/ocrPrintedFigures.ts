@@ -9,8 +9,7 @@
  */
 import { parseAmount } from './ocrAmountParsing';
 import { SUMMARY_LINE_START } from './ocrAmountPatterns';
-import { blankFillers, isCounterLabel, wholeTokens } from './ocrWholeFigures';
-import { titleNumberIsDocument } from './purchaseTitle';
+import { blankFillers, counterLabel, wholeTokens } from './ocrWholeFigures';
 
 /**
  * A printed money figure: it carries a decimal part, which is what keeps
@@ -126,21 +125,25 @@ export interface PrintedFigure {
 }
 
 /**
+ * Which bare COUNT candidates (`Items 3`, `Table 12`) are counts rather than
+ * money. The default keeps none: a count noun alone exempts nothing, and only
+ * the reader that knows the total and what was paid may pass a predicate
+ * (`unreconciledFigure`).
+ */
+export type CountIsCounter = (value: number) => boolean;
+const NO_COUNTS: CountIsCounter = () => false;
+
+/**
  * Every figure the document prints, cents and whole, in reading order, each
  * with the role its own line gives it. ONE reader for all three rules of the
- * whitelist. A whole number named by a counter label is not a figure at all;
- * the counter list is closed and FAILS CLOSED — a label missing from it leaves
+ * whitelist. A whole number a REFERENCE label names (`Order No 45`) is not a
+ * figure at all; one a bare COUNT label names is a figure unless `isCounter`
+ * says otherwise. Both lists FAIL CLOSED — a label missing from them leaves
  * the number read as money nobody explained (`ocrWholeFigures`).
  */
-export function printedFigures(text: string): PrintedFigure[] {
+export function printedFigures(text: string, isCounter: CountIsCounter = NO_COUNTS): PrintedFigure[] {
   const figures: PrintedFigure[] = [];
-  let inHeader = true;
   for (const printed of text.split(/\r?\n/)) {
-    // A purchase TITLE line's number is the document's (`TAX INVOICE No
-    // 88123`) — in the header only: below the first amount it may be money.
-    if (inHeader && titleNumberIsDocument(printed)) continue;
-    if (FIGURE.test(printed)) inHeader = false;
-    FIGURE.lastIndex = 0;
     const line = blankFillers(printed);
     const cents = [...line.matchAll(FIGURE)].map((m) => ({
       value: parseAmount(m[1]!), index: m.index, end: m.index + m[0].length, whole: false, moneyMark: true,
@@ -161,6 +164,7 @@ export function printedFigures(text: string): PrintedFigure[] {
       const isChange = CHANGE_LABEL.test(segment);
       const isSummary = f.whole ? summaryAdjacent(line, f.index) : SUMMARY_LINE_START.test(line.trimStart());
       const roled = f.moneyMark || isTender || isChange || isSummary;
+      const label = f.whole && !roled ? counterLabel(segment, f.value) : null;
       onLine.push({
         value: f.value,
         isChange,
@@ -169,11 +173,11 @@ export function printedFigures(text: string): PrintedFigure[] {
         isSummary,
         isUnroled: f.whole && !roled,
         end: f.end,
-        // A COUNT: the whole label is a counter's, or a quantity unit follows a
-        // number no role claims on a line that prices it in cents. A role
-        // always wins — `Paid 253 x` is money.
-        counter: f.whole && !roled
-          && (isCounterLabel(segment, f.value) || f.timeAfter || (f.unitAfter && cents.length > 0)),
+        // NOT MONEY: a reference, a count the caller accepts, a term, or a
+        // quantity unit after a number no role claims on a line that prices it
+        // in cents. A role always wins — `Paid 253 x` is money.
+        counter: f.whole && !roled && (label === 'reference' || (label === 'count' && isCounter(f.value))
+          || f.timeAfter || (f.unitAfter && cents.length > 0)),
       });
       labelFrom = f.end;
     }

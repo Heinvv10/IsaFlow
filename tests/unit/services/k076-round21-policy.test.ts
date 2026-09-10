@@ -50,7 +50,9 @@ describe('K-076 r21 HIGH-1 — the twelve nouns round 20 added are money again',
     expect(unreconciledFigure(`${LABOUR}${PBLOCK}EFT 1150.00\n${noun}: 350`, 1150, PK)).not.toBeNull();
   });
 
-  it.each(['Receipt 1500', 'Account 1500', 'Acc: 1500', 'Room 350', 'Order 35', 'Server 23', 'Covers 50',
+  // `Covers` went back to the COUNT nouns in round 22, where a count needs a
+  // document paid in full and a small number (the round-22 policy file).
+  it.each(['Receipt 1500', 'Account 1500', 'Acc: 1500', 'Room 350', 'Order 35', 'Server 23',
     'Code 23', 'Customer Copy 23', 'Delivery Address 35', 'Loyalty Points 23', 'Points 23'])(
     'a noun that can name money is money without a number word: "%s"', (line) => {
       expect(unreconciledFigure(`${LABOUR}${PBLOCK}EFT 1150.00\n${line}`, 1150, PK)).not.toBeNull();
@@ -109,10 +111,11 @@ describe('K-076 r21 LOW-1/LOW-2 — a title may carry its number, a second langu
   const doc = (title: string, above = 'SPAR Rivonia') =>
     ({ rawText: `${above}\n${title}\nBread 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00`, documentType: 'unknown' as const });
 
-  it.each(['TAX INVOICE No 88123', 'Tax Invoice No: 12345', 'TAX INVOICE #12345', 'TAX INVOICE: 12345',
-    'TAX INVOICE / BELASTINGFAKTUUR', 'BELASTINGFAKTUUR / TAX INVOICE', 'Tax Invoice Original', 'TILL RECEIPT',
+  // Round 22: a line carrying a number is a field, never a title, and a
+  // STATEMENT anywhere in the header refuses — see the round-22 policy file.
+  it.each(['TAX INVOICE / BELASTINGFAKTUUR', 'BELASTINGFAKTUUR / TAX INVOICE', 'Tax Invoice Original', 'TILL RECEIPT',
     'CUSTOMER RECEIPT', 'SALES INVOICE', 'Retail Invoice', 'CASH SLIP', 'INVOICE / RECEIPT',
-    'TAX INVOICE / STATEMENT', 'TAX INVOICE Page 1 of 1', 'PARKING RECEIPT', 'Invoice No: 55123'])(
+    'TAX INVOICE Page 1 of 1', 'PARKING RECEIPT'])(
     '"%s" names a purchase', (title) => {
       expect(identifiesAsPurchase(doc(title))).toBe(true);
     });
@@ -128,17 +131,18 @@ describe('K-076 r21 LOW-1/LOW-2 — a title may carry its number, a second langu
       expect(identifiesAsPurchase(doc(title))).toBe(false);
     });
 
-  it('a RECEIPT beside a goods-received voucher is the buyer\'s own document', () => {
+  it('a goods-received voucher in the header refuses, beside a RECEIPT or a TAX INVOICE (round 22)', () => {
     expect(identifiesAsPurchase(doc('RECEIPT', "Bob's Hardware\nGRV No: 0012345"))).toBe(false);
-    expect(identifiesAsPurchase(doc('TAX INVOICE', 'Metro\nGRV No: 0012345'))).toBe(true);
+    expect(identifiesAsPurchase(doc('TAX INVOICE', 'Metro\nGRV No: 0012345'))).toBe(false);
   });
 
-  it('the number on a header title line is the document\'s; below the first amount it is read', () => {
+  it('a number beside a title word is read as money unless a number word says it is an id (round 22)', () => {
     const body = 'Bread 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00';
     const SK = { subtotal: 100, vatAmount: 15 };
-    // `TAX INVOICE: 12345` is no counter label (no number word): only the
-    // title-line rule claims its number.
-    expect(unreconciledFigure(`SPAR\nTAX INVOICE: 12345\n${body}`, 115, SK)).toBeNull();
+    // Round 21 made a title line's number the document's; round 22 removed the
+    // rule with the numbered title, so `TAX INVOICE: 12345` is money again.
+    expect(unreconciledFigure(`SPAR\nTAX INVOICE: 12345\n${body}`, 115, SK)).not.toBeNull();
+    expect(unreconciledFigure(`SPAR\nTAX INVOICE No 12345\n${body}`, 115, SK)).toBeNull();
     expect(unreconciledFigure(`SPAR\nTAX INVOICE\n${body}\nTAX INVOICE: 1500`, 115, SK)).not.toBeNull();
     expect(unreconciledFigure(`SPAR\nTAX INVOICE\n${body}\nRECEIPT 1500`, 115, SK)).not.toBeNull();
   });
