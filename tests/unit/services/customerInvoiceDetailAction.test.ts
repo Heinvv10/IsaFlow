@@ -16,6 +16,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 // Isolate route and invoice lifecycle guards; actual auth is exercised in forensic integration.
 vi.mock('@/modules/accounting/services/ar/arControlBoundary',async()=>({
  ...await vi.importActual<typeof import('@/modules/accounting/services/ar/arControlBoundary')>('@/modules/accounting/services/ar/arControlBoundary'),
+ requireArControl:vi.fn(),
  runArControlled:async(_company:string,_person:string,_ref:unknown,_opts:unknown,effect:(permit:unknown)=>Promise<unknown>)=>effect({accountingDate:'2026-09-09'}),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
