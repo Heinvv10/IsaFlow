@@ -4,7 +4,7 @@ import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture,type FixtureUser} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
-import {getAuditJob} from '@/modules/accounting/services/controls/auditJobService';
+import {enqueueAuditSnapshot,getAuditJob} from '@/modules/accounting/services/controls/auditJobService';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
 import {auditCheckRunGroupId} from '@/modules/accounting/services/controls/auditCheckRunContract';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -41,6 +41,24 @@ it('returns the same jobs for concurrent and later repeats and refuses a differe
   [fixture.companyA,`${input.idempotencyKey}:%`])).rows[0].count).toBe(1);
  const other=await enqueue(fixture.u2,input);expect(other.jobs[0]!.id).not.toBe(first.jobs[0]!.id);
 });
+it('a repeat waiting on an uncommitted first enqueue returns its jobs instead of colliding',async()=>{
+ const input=request();let release:()=>void=()=>undefined;const held=new Promise<void>(resolve=>{release=resolve;});
+ const first=actor(fixture.u1,async()=>{const run=await enqueueAuditCheckRuns(requireControlTx(),input);await held;return run;});
+ await new Promise(resolve=>setTimeout(resolve,300));
+ const second=enqueue(fixture.u1,input);
+ await new Promise(resolve=>setTimeout(resolve,300));release();
+ const [a,b]=await Promise.all([first,second]);expect(b).toEqual(a);
+});
+it('serialises the quota across different members so an uncommitted enqueue counts',async()=>{
+ const fresh=await provisionForensicFixture(config);
+ for(let n=0;n<5;n++)await enqueue(fresh.u1,request());
+ let release:()=>void=()=>undefined;const held=new Promise<void>(resolve=>{release=resolve;});
+ const sixth=actor(fresh.u1,async()=>{const run=await enqueueAuditCheckRuns(requireControlTx(),request());await held;return run;});
+ await new Promise(resolve=>setTimeout(resolve,300));
+ const seventh=enqueue(fresh.u2,request()).then(()=>'enqueued',(error:Error)=>error.message);
+ await new Promise(resolve=>setTimeout(resolve,300));release();
+ expect((await sixth).jobs).toHaveLength(1);expect(await seventh).toMatch(/Audit check-run quota exceeded/);
+});
 it('rolls back intents and queue rows together',async()=>{
  const run=await actor(fixture.u1,()=>enqueueAuditCheckRuns(requireControlTx(),request()),true);
  expect((await pool.query('SELECT id FROM control_audit_job_intents WHERE company_id=$1 AND id=$2',[fixture.companyA,run.jobs[0]!.id])).rows).toEqual([]);
@@ -57,6 +75,10 @@ it('refuses a seventh active check-run job per company while a repeat still retu
  const keys=Array.from({length:6},()=>randomUUID()),runs=[];
  for(const key of keys)runs.push(await enqueue(fixture.u3,request(key)));
  await expect(enqueue(fixture.u3,request())).rejects.toThrow(/Audit check-run quota exceeded/);
+ // Authority is decided before the quota is consulted, so a revoked member learns nothing about company usage.
+ await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'reports',false)",[fixture.companyB,fixture.u3.id]);
+ try{await expect(enqueue(fixture.u3,request())).rejects.toThrow(/permissions/);}
+ finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='reports'",[fixture.companyB,fixture.u3.id]);}
  expect(await enqueue(fixture.u3,request(keys[0]))).toEqual(runs[0]);
  await pool.query("UPDATE control_audit_jobs SET state='failed',last_error_code='CANCELLED',completed_at=clock_timestamp() WHERE company_id=$1 AND job_id=$2",[fixture.companyB,runs[0]!.jobs[0]!.id]);
  expect((await enqueue(fixture.u3,request())).jobs[0]!.state).toBe('queued');
@@ -77,4 +99,11 @@ it('refuses new check-run work once a company has 100 published check-run jobs',
  await expect(enqueue(fresh.u1,request())).rejects.toThrow(/Audit check-run quota exceeded/);
  await pool.query("UPDATE control_audit_jobs SET state='failed',result_check_run_id=NULL,last_error_code='CANCELLED' WHERE company_id=$1 AND job_id=(SELECT job_id FROM control_audit_jobs WHERE company_id=$1 LIMIT 1)",[company]);
  expect((await enqueue(fresh.u1,request())).jobs[0]!.state).toBe('queued');
+});
+it('status refuses a job whose published result column belongs to another kind',async()=>{
+ const snapshot=await actor(fixture.u1,()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
+ await pool.query(`INSERT INTO control_audit_check_results(company_id,job_id,generation,lease_id,check_id,status,population_count,excluded_count,finding_count,snapshot_text,capture_xid,captured_at,protected_header)
+  VALUES($1,$2,1,gen_random_uuid(),'journal_risk_checks','pass',0,0,0,pg_current_snapshot()::text,pg_current_xact_id()::text,clock_timestamp(),'{"seed":true}'::jsonb)`,[fixture.companyA,snapshot.id]);
+ await pool.query("UPDATE control_audit_jobs SET state='succeeded',generation=1,result_check_run_id=job_id,completed_at=clock_timestamp() WHERE company_id=$1 AND job_id=$2",[fixture.companyA,snapshot.id]);
+ await expect(actor(fixture.u1,()=>getAuditJob(requireControlTx(),snapshot.id))).rejects.toThrow(/Audit job result kind changed/);
 });
