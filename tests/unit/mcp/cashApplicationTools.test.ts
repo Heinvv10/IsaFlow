@@ -187,6 +187,12 @@ beforeEach(() => {
 });
 
 describe('apply_payment_to_supplier_invoice', () => {
+  it('does not describe payment_id as a path that applies anything', async () => {
+    const r = await applyPaymentToSupplierInvoiceTool.handler({ ...AP_ALLOC, ...KEY }, ctx());
+    expect(errText(r)).not.toMatch(/applies a (receipt|payment) already in the ledger/);
+    expect(errText(r)).toMatch(/refused/i);
+  });
+
   it('refuses when neither source is named', async () => {
     expect(errText(await applyPaymentToSupplierInvoiceTool.handler({ ...AP_ALLOC, ...KEY }, ctx())))
       .toMatch(/exactly one of payment_id or bank_transaction_id/i);

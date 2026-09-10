@@ -17,3 +17,11 @@ it('forwards an explicit approval reference and preview flag to the shared finan
  expect(close).toHaveBeenCalledWith('company','2025','person',{approvalId,dryRun:true});
  expect(metered).not.toHaveBeenCalled();
 });
+it('answers an approval-bound close with a non-2xx status, not 200 with an error body',async()=>{
+ close.mockResolvedValueOnce({error:'approval_required'} as never);
+ const req={method:'POST',companyId:'company',user:{id:'person'},body:{action:'close',yearLabel:'2025',dryRun:true}} as unknown as NextApiRequest;
+ const res={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};res.status.mockReturnValue(res);
+ await handler(req,res as unknown as NextApiResponse);
+ expect(res.status).toHaveBeenCalledWith(409);
+ expect(res.status).not.toHaveBeenCalledWith(200);
+});
