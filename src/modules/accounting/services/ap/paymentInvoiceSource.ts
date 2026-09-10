@@ -3,6 +3,7 @@ import {fmtDate} from '@/lib/fmtDate';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
 import {readControlEntityVersion} from '../controls/operationVersions';
+import {loadIntentReceipt} from '../controls/intentIdentity';
 import type {ControlTx} from '../controls/contracts';
 import type {PaymentSourceRow} from './paymentReleaseSource';
 import {normalizePaymentInvoiceState} from './paymentInvoiceBinding';
@@ -32,10 +33,9 @@ async function ownSettlement(ctx:ControlTx,payment:PaymentSourceRow){
  const entityId=payment.batch_id??payment.id,operation=payment.batch_id?'supplier_payment_batch.process':'supplier_payment.process';
  if(journal.status!=='posted'||journal.reversed_at||journal.source_record_id!==entityId||fmtDate(journal.entry_date as string|Date)!==payment.payment_date
   ||journal.source!==(payment.batch_id?'auto_batch_payment':'auto_supplier_payment'))throw new Error('Payment settlement journal changed');
- const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-  AND entity_type=${entityType} AND entity_id=${entityId} AND operation=${operation}
-  AND COALESCE(result->>'journalEntryId',result->>'glJournalEntryId')=${payment.gl_journal_entry_id} ORDER BY committed_at DESC LIMIT 1` as Row[];
- if(!effect)throw new Error('Payment settlement has no committed control receipt');
+ // A receipt written before entity_id normalization keeps its original spelling.
+ const effect=await loadIntentReceipt<Record<string,unknown>>(ctx,{entityType,entityId,operation});
+ if(!effect||(effect.result.journalEntryId??effect.result.glJournalEntryId)!==payment.gl_journal_entry_id)throw new Error('Payment settlement has no committed control receipt');
  let settlementAmount=payment.total_amount,bankId=payment.bank_account_id;
  if(payment.batch_id){
   const [batch]=await ctx.sql`SELECT status,gl_journal_entry_id,total_amount,bank_account_id,payment_count FROM supplier_payment_batches WHERE company_id=${ctx.principal.companyId}::uuid AND id=${payment.batch_id}::uuid FOR UPDATE` as Row[];
