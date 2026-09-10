@@ -16,9 +16,14 @@ type Row=DbRow;
 export type AllocationType='account'|'supplier'|'customer'|'transfer';
 export interface SplitLine {contraAccountId:string;amount:number;description?:string;vatCode?:string}
 export type BankAllocationOptions=PostingActorOpts&{autoApply?:boolean;intentId?:string;approvalId?:string;applications?:{invoiceId:string;amount:string}[]};
-async function actor(companyId:string,userId:string){
+/** The authority every bank allocation asserts, callable by a preview that skips only the write. */
+export async function assertBankAllocationAuthority(companyId:string,userId:string){
  const ctx=requireControlTx();if(ctx.principal.companyId!==companyId||ctx.principal.personId!==userId)throw new Error('Bank allocation actor mismatch');
  await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ return ctx;
+}
+async function actor(companyId:string,userId:string){
+ const ctx=await assertBankAllocationAuthority(companyId,userId);
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${companyId}`},0))`;return ctx;
 }
 async function runPlan(companyId:string,bankTxId:string,userId:string,input:unknown,opts?:BankAllocationOptions){

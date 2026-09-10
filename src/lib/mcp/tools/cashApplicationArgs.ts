@@ -16,6 +16,17 @@ import type { McpToolResult } from '../types';
 import { UUID_RE } from '@/lib/validation';
 import { hasWholeCents, toolError } from './toolHelpers';
 
+/**
+ * The payment_id branch executes only against a prepared, independently
+ * approved cash application intent (cashApplicationLegacyAdapter.ts, d41ebe848),
+ * and this connector cannot prepare one yet. A preview must say so rather than
+ * report balances the live call can never move.
+ */
+export const CASH_APPLICATION_INTENT_REQUIRED_TEXT =
+  'A prepared cash application intent and independent approval are required to apply an '
+  + 'existing payment, and this connector cannot prepare one yet. Nothing was previewed. '
+  + 'Use the bank_transaction_id source for an imported bank line.';
+
 /** More lines than this in one application is a mistake, not a batch. */
 const MAX_ALLOCATION_LINES = 200;
 

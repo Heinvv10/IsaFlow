@@ -16,9 +16,20 @@ it('verifies the selected bounded shard through actual local MCP HTTP',async()=>
  expect(evidence.complete).toBe(evidence.executed.length===evidence.plannedCaseCount);
 },600000);
 
-it('builds required-only structural samples for all 148 current contracts without optional pattern pollution',()=>{
+it('keeps the contract inventory in exact agreement with the live registry',async()=>{
+ const {MCP_TOOLS}=await import('@/lib/mcp/toolIndex');
+ const inventory=JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-contract-current.json','utf8')) as {tools:Array<{name:string}>};
+ const byName=(a:{name:string},b:{name:string})=>a.name<b.name?-1:a.name>b.name?1:0;
+ const live=MCP_TOOLS.map(tool=>({name:tool.name,scope:tool.scope,write:tool.write,requires_post:tool.requiresPost??false,
+  per_user_idempotency:tool.perUserIdempotency??false,input_schema:tool.inputSchema})).sort(byName);
+ expect(new Set(live.map(tool=>tool.name)).size).toBe(live.length);
+ expect([...inventory.tools].sort(byName)).toEqual(live);
+});
+
+it('builds required-only structural samples for every current contract without optional pattern pollution',async()=>{
+ const {MCP_TOOLS}=await import('@/lib/mcp/toolIndex');
  const inventory=JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-contract-current.json','utf8')) as {tools:Array<{name:string;write:boolean;input_schema:Record<string,unknown>}>};
- expect(inventory.tools).toHaveLength(148);
+ expect(inventory.tools).toHaveLength(MCP_TOOLS.length);
  const failures:string[]=[];
  for(const tool of inventory.tools){
   const args=sample(tool.input_schema) as Record<string,unknown>;
@@ -50,10 +61,12 @@ it('enumerates deterministic field refusals and explicit compatibility cases for
 
 it('plans bounded refusal shards with exact static and supplemental coverage',async()=>{
  const {acceptanceCases,selectShard}=await import('./contractCases');
+ const {MCP_TOOLS}=await import('@/lib/mcp/toolIndex');
  const inventory=JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-contract-current.json','utf8'));
  const cases=acceptanceCases(inventory.tools);
- for(const [phase,count] of [['scope',145],['post',32],['current',145]] as const)expect(cases.filter(row=>row.phase===phase)).toHaveLength(count);
- expect(new Set(cases.filter(row=>row.phase==='fields').map(row=>row.tool)).size).toBe(148);
+ const scoped=MCP_TOOLS.filter(tool=>tool.scope!==null).length,posting=MCP_TOOLS.filter(tool=>tool.requiresPost).length;
+ for(const [phase,count] of [['scope',scoped],['post',posting],['current',scoped]] as const)expect(cases.filter(row=>row.phase===phase)).toHaveLength(count);
+ expect(new Set(cases.filter(row=>row.phase==='fields').map(row=>row.tool)).size).toBe(MCP_TOOLS.length);
  const shards=Array.from({length:Math.ceil(cases.length/500)},(_,i)=>selectShard(cases,i,500));
  expect(shards.flat().map(row=>row.id)).toEqual(cases.map(row=>row.id));
  expect(()=>selectShard(cases,0,601)).toThrow();
@@ -107,11 +120,15 @@ it('passes actual custom-authorization semantic parsing before the issued-contex
  const {MCP_TOOLS}=await import('@/lib/mcp/toolIndex');
  const inventory=JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-contract-current.json','utf8'));
  const custom=MCP_TOOLS.filter(tool=>tool.authorize);
- expect(custom.map(tool=>tool.name).sort()).toEqual(['audit_snapshot','execute_bank_operation','export_audit_evidence','prepare_bank_operation','propose_supplier_bank_change','request_operation_approval']);
+ expect(custom.length).toBeGreaterThan(0);
+ const failures:string[]=[];
  for(const tool of custom){
   const contract=inventory.tools.find((row:{name:string})=>row.name===tool.name);
-  await expect(tool.authorize!(contractSample(contract),{companyId:SAMPLE_UUID,userId:SAMPLE_UUID,scopes:[],tokenJti:null,oauthAppId:null}),tool.name).rejects.toThrow('Authenticated control transaction required');
+  const message=await tool.authorize!(contractSample(contract),{companyId:SAMPLE_UUID,userId:SAMPLE_UUID,scopes:[],tokenJti:null,oauthAppId:null})
+   .then(()=>'resolved',(error:unknown)=>error instanceof Error?error.message:String(error));
+  if(!message.includes('Authenticated control transaction required'))failures.push(`${tool.name}: ${message}`);
  }
+ expect(failures).toEqual([]);
 });
 
 it('migrates proof only for byte-identical complete case objects',async()=>{

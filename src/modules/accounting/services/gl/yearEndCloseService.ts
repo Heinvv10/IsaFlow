@@ -37,9 +37,9 @@ export interface CloseYearDryRunResult {
 export type CloseYearError =
   | { error: 'open_periods'; count: number; openPeriods: Array<{ id: string; periodName: string; periodNumber: number }> }
   | { error: 'year_not_found' }
+  | { error: 'approval_required' }
   | { error: 'no_retained_earnings' }
   | { error: 'ambiguous_retained_earnings'; accountCodes: string[] }
-  | { error: 'no_fiscal_period'; entryDate: string }
   | {
       error: 'period_range_mismatch';
       expected: { startDate: string; endDate: string };

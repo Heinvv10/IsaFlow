@@ -2,7 +2,7 @@ import type {NextApiRequest,NextApiResponse} from 'next';
 import {z,ZodError} from 'zod';
 import {withAuth} from '@/lib/auth';
 import {withCsrf} from '@/lib/auth/withCsrf';
-import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
+import {assertEffectivePermission,EffectivePermissionError} from '@/lib/auth/effectivePermissions';
 import {withErrorHandler} from '@/lib/api-error-handler';
 import {apiResponse} from '@/lib/apiResponse';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
@@ -18,6 +18,10 @@ export async function auditComparisonsHandler(req:NextApiRequest,res:NextApiResp
  try{
   if(req.method==='POST'){
    const request=parseAuditComparisonRequest(req.body);
+   // Creating an audit job is a write. The shared enqueue also serves saved
+   // worker delegation, which carries only the source read permissions, so the
+   // entry point is where this belongs — the MCP tool gates it by scope.
+   await assertEffectivePermission(requireControlTx(),'write:audit');
    return apiResponse.success(res,await enqueueAuditComparison(requireControlTx(),request));
   }
   if(req.method==='GET'){

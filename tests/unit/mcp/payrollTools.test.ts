@@ -1,4 +1,7 @@
 // Durable invocation lifecycle is exercised separately by registryInvocation and PostgreSQL suites.
+vi.mock('@/lib/mcp/tools/payrollPreviewApproval', () => ({
+  payrollPreviewRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/mcp/invocationBoundary', () => ({ withMcpInvocation: async (_name: string, _args: unknown, run: (mark: () => void) => Promise<unknown>) => run(() => undefined) }));
 // Tool argument contracts are independently covered for every registered schema.
 vi.mock('@/lib/mcp/inputValidation', () => ({ validateToolArguments: (_tool: unknown, args: unknown) => ({ ok: true, args }) }));

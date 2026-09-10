@@ -14,7 +14,7 @@
  * words the person granting it will recognise from the consent screen.
  */
 import { describe, it, expect } from 'vitest';
-import { insufficientScopeMessage, SCOPE_REMEDIATION } from '@/lib/mcp/scopeRemediation';
+import { insufficientScopeMessage, SCOPE_REMEDIATION, permissionRefusalMessage } from '@/lib/mcp/scopeRemediation';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { PAT_SCOPES } from '@/lib/auth/patScopes';
 
@@ -25,6 +25,51 @@ describe('insufficientScopeMessage', () => {
     expect(message).toMatch(/contact/i);
     // Still names the scope, so an operator can match it to the grant screen.
     expect(message).toContain('write:contacts');
+  });
+
+  it('TELLS A write:locks CALLER it is opt-in, who may grant it, and what a manager needs', () => {
+    const message = insufficientScopeMessage('write:locks');
+    expect(message).toContain('write:locks');
+    expect(message).toMatch(/re-?authoris/i);
+    expect(message).toMatch(/opt-in/i);
+    expect(message).toMatch(/owner/i);
+    expect(message).toMatch(/admin/i);
+    expect(message).toMatch(/manager/i);
+    expect(message).toMatch(/locks module/i);
+    // An owner or admin whose own locks override is denied cannot use it either.
+    expect(message).toMatch(/override (that )?denies|denied/i);
+  });
+
+  it('TELLS A write:bank-tx CALLER TO RE-AUTHORISE with the bank transaction grant', () => {
+    const message = insufficientScopeMessage('write:bank-tx');
+    expect(message).toContain('write:bank-tx');
+    expect(message).toMatch(/re-?authoris/i);
+    expect(message).toMatch(/bank/i);
+    // An AP contra also approves the supplier payment, which needs write:invoices.
+    expect(message).toContain('write:invoices');
+  });
+
+  it('an account-range or restriction refusal asks for the constraint to be removed, not widened', () => {
+    const message = permissionRefusalMessage('write:bank-tx', 'ENTITY_REQUIRED');
+    expect(message).toMatch(/remove/i);
+    expect(message).not.toMatch(/widen/i);
+    expect(message).toMatch(/restriction/i);
+  });
+
+  it('a module refusal does not claim a restriction that may never have existed', () => {
+    const message = permissionRefusalMessage('write:bank-tx', 'MODULE_DENIED');
+    expect(message).not.toMatch(/has restricted/i);
+    expect(message).toMatch(/not been granted|never been granted|not granted/i);
+  });
+
+  it('uses the re-authorise reply ONLY when the token lacks the scope', () => {
+    expect(permissionRefusalMessage('write:bank-tx', 'MISSING_SCOPE')).toBe(insufficientScopeMessage('write:bank-tx'));
+    for (const reason of ['ROLE_CEILING', 'MODULE_DENIED', 'ENTITY_REQUIRED'] as const) {
+      const message = permissionRefusalMessage('write:bank-tx', reason);
+      expect(message, reason).toContain('write:bank-tx');
+      expect(message, reason).not.toMatch(/re-?authoris/i);
+      expect(message, reason).toMatch(/owner or admin/i);
+    }
   });
 
   it('never answers a scope failure as a missing record', () => {

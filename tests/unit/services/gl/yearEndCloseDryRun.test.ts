@@ -2,12 +2,12 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 import type {YearClosingSources} from '@/modules/accounting/services/controls/yearEndFinancialMaterial';
-const m=vi.hoisted(()=>({sql:vi.fn(),load:vi.fn(),permission:vi.fn(),execute:vi.fn(),register:vi.fn(),post:vi.fn(),event:vi.fn()}));
+const m=vi.hoisted(()=>({supplied:vi.fn(),sql:vi.fn(),load:vi.fn(),permission:vi.fn(),execute:vi.fn(),register:vi.fn(),post:vi.fn(),event:vi.fn()}));
 const COMPANY='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',USER='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>ctx,assertControlTx:vi.fn()}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:m.permission}));
 vi.mock('@/modules/accounting/services/controls/operationMaterializer',()=>({loadOperationMaterial:m.load}));
-vi.mock('@/modules/accounting/services/controls/approvalExecutionService',()=>({executeControlledOperation:m.execute}));
+vi.mock('@/modules/accounting/services/controls/approvalExecutionService',()=>({executeControlledOperation:m.execute,assertSuppliedApprovalExecutable:m.supplied}));
 vi.mock('@/modules/accounting/services/controls/generatedJournalPermit',()=>({registerGeneratedJournal:m.register}));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService',()=>({postJournalEntry:m.post}));
 vi.mock('@/modules/accounting/services/controls/operationVersions',()=>({readControlEntityVersion:vi.fn(async()=>null)}));
@@ -15,9 +15,10 @@ vi.mock('@/modules/accounting/services/controls/changeEventService',()=>({record
 import {buildYearEndFinancialMaterial} from '@/modules/accounting/services/controls/yearEndFinancialMaterial';
 import {closeFiscalYear} from '@/modules/accounting/services/gl/yearEndService';
 const ctx={principal:{companyId:COMPANY,personId:USER},sql:m.sql} as unknown as ControlTx;
-let source:YearClosingSources,retained:Record<string,unknown>[],entry:Record<string,unknown>;
+let source:YearClosingSources,retained:Record<string,unknown>[],entry:Record<string,unknown>,bound=false;
+const policies=()=>bound?[{policyId:'policy',requiredRole:'admin'}]:[];
 beforeEach(()=>{
- vi.resetAllMocks();entry={};
+ vi.resetAllMocks();entry={};bound=false;
  source={company:{default_currency:'ZAR',financial_year_start:3},periods:[{id:'period',period_name:'March 2026',period_number:1,start_date:'2026-03-01',end_date:'2027-02-28',status:'closed'}],
   journals:[{id:'posted',status:'posted'}],accounts:[{id:'rev',account_code:'4000',account_name:'Sales',account_type:'revenue'},{id:'exp',account_code:'5000',account_name:'Wages',account_type:'expense'}],
   lines:[{journal_entry_id:'posted',gl_account_id:'rev',debit:'0',credit:'1000000'},{journal_entry_id:'posted',gl_account_id:'exp',debit:'400000',credit:'0'}]};
@@ -31,13 +32,26 @@ beforeEach(()=>{
   if(text.includes('UPDATE fiscal_periods'))return[{...source.periods[0],status:'locked'}];
   return [];
  });
- m.load.mockImplementation(async(_ctx:ControlTx,ref:{entityId:string})=>({bindingHash:'binding',observedSources:[{facts:{...source,closing:await buildYearEndFinancialMaterial(ctx,ref.entityId,source)}}]}));
+ m.load.mockImplementation(async(_ctx:ControlTx,ref:{entityId:string})=>({bindingHash:'binding',binding:{policies:policies()},observedSources:[{facts:{...source,closing:await buildYearEndFinancialMaterial(ctx,ref.entityId,source)}}]}));
  m.execute.mockImplementation(async(_ctx:unknown,_ref:unknown,_approval:unknown,callback:(p:unknown)=>unknown)=>callback({accountingDate:'2027-02-28',operationId:'operation'}));
  m.post.mockImplementation(async()=>{entry={...entry,status:'posted',posted_by:USER,posted_at:'2027-03-01'};});
 });
 const close=(dryRun=true,year='2027')=>closeFiscalYear(COMPANY,year,USER,{dryRun});
 const writes=()=>m.sql.mock.calls.map(([parts])=>(parts as string[]).join('?')).filter(text=>/INSERT|UPDATE|DELETE/.test(text));
 describe('financial-year exact preview',()=>{
+ it('refuses a preview the kernel would refuse for want of an independent approval, writing nothing',async()=>{
+  bound=true;
+  expect(await close()).toEqual({error:'approval_required'});
+  expect(writes()).toEqual([]);expect(m.execute).not.toHaveBeenCalled();
+ });
+ it('honours a supplied approval the way the live close does, and refuses one it would reject',async()=>{
+  bound=true;m.supplied.mockResolvedValueOnce(undefined);
+  expect(await closeFiscalYear(COMPANY,'2027',USER,{dryRun:true,approvalId:'approval'})).toMatchObject({dryRun:true});
+  expect(m.supplied).toHaveBeenCalledWith(ctx,{entityType:'fiscal_year',entityId:'2027',operation:'year.close'},'approval');
+  m.supplied.mockRejectedValueOnce(new Error('Approval is not executable'));
+  await expect(closeFiscalYear(COMPANY,'2027',USER,{dryRun:true,approvalId:'approval'})).rejects.toThrow(/not executable/);
+  expect(writes()).toEqual([]);
+ });
  it('shows every exact balanced closing line and writes nothing',async()=>{
   const result=await close();expect(result).toMatchObject({dryRun:true,netIncome:600000,netIncomeExact:'600000'});
   if(!('preview'in result))throw new Error('Expected preview');

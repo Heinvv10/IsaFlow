@@ -97,7 +97,10 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
       if (handlerError || responded4xxOr5xx) {
         try {
           await refundFlows(companyId, flowCost, operationCode, null);
-          res.setHeader('X-Flow-Refunded', 'true');
+          // A refusal has already flushed its body, and setting a header then
+          // throws ERR_HTTP_HEADERS_SENT into this catch — logging a refund
+          // failure that did not happen. The refund itself is what matters.
+          if (!res.headersSent) res.setHeader('X-Flow-Refunded', 'true');
         } catch (refundErr) {
           log.error(
             'flow refund failed after handler error',

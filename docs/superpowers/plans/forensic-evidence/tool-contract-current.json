@@ -697,7 +697,7 @@
     },
     {
       "name": "audit_snapshot",
-      "scope": "read:reports",
+      "scope": "write:audit",
       "write": true,
       "requires_post": false,
       "per_user_idempotency": true,
@@ -2938,7 +2938,7 @@
     },
     {
       "name": "export_audit_evidence",
-      "scope": "read:reports",
+      "scope": "write:audit",
       "write": true,
       "requires_post": false,
       "per_user_idempotency": true,
@@ -4405,7 +4405,7 @@
     },
     {
       "name": "lock_vat_period",
-      "scope": "read:vat",
+      "scope": "write:locks",
       "write": true,
       "requires_post": true,
       "per_user_idempotency": false,
@@ -6787,7 +6787,7 @@
     },
     {
       "name": "compare_audit_snapshots",
-      "scope": "read:reports",
+      "scope": "write:audit",
       "write": true,
       "requires_post": false,
       "per_user_idempotency": true,
