@@ -1,6 +1,6 @@
 /**
  * Trial Balance Report API
- * GET /api/accounting/reports-trial-balance?fiscal_period_id=...
+ * GET /api/accounting/reports-trial-balance?fiscal_period_id=...&business_unit_id=...
  *
  * Response shape: `TrialBalanceReport` plus `comparePeriodId` —
  *   { fiscalPeriodId, periodStart, periodEnd, fiscalYearStart, rows,
@@ -26,6 +26,7 @@ import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { getTrialBalance, getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
+import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -33,6 +34,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  const businessUnitId = req.query.business_unit_id;
+  if (businessUnitId !== undefined && !isUuidParam(businessUnitId)) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
+  }
 
   try {
     const fiscalPeriodId = req.query.fiscal_period_id as string;
@@ -45,11 +50,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const includeZeroBalances = req.query.include_zero_balances === 'true';
     const report = await getTrialBalanceReport(companyId, fiscalPeriodId, {
       costCentreId: costCentreId || undefined,
+      businessUnitId,
       includeZeroBalances,
     });
 
     if (comparePeriodId) {
       const priorRows = await getTrialBalance(companyId, comparePeriodId, costCentreId || undefined, {
+        businessUnitId,
         includeZeroBalances,
       });
       const priorMap = new Map(priorRows.map(r => [r.accountCode, r]));

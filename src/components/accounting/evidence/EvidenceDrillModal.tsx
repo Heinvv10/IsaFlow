@@ -16,6 +16,7 @@ interface Props {
   periodStart: string;
   periodEnd: string;
   costCentreId?: string;
+  businessUnitId?: string;
   onClose: () => void;
 }
 
@@ -101,7 +102,7 @@ function JEDetailPanel({ jeId, onBack }: { jeId: string; onBack: () => void }) {
   );
 }
 
-export function EvidenceDrillModal({ accountId, accountName, periodStart, periodEnd, costCentreId, onClose }: Props) {
+export function EvidenceDrillModal({ accountId, accountName, periodStart, periodEnd, costCentreId, businessUnitId, onClose }: Props) {
   const [rows, setRows] = useState<AccountEvidenceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -111,12 +112,13 @@ export function EvidenceDrillModal({ accountId, accountName, periodStart, period
     setLoading(true); setErr('');
     const params = new URLSearchParams({ from: periodStart, to: periodEnd, limit: '200' });
     if (costCentreId) params.set('cost_centre_id', costCentreId);
+    if (businessUnitId) params.set('business_unit_id', businessUnitId);
     apiFetch(`/api/accounting/evidence/trial-balance/${accountId}?${params}`)
       .then(r => r.json())
       .then(json => { setRows(json.data?.rows ?? []); })
       .catch(() => setErr('Failed to load evidence'))
       .finally(() => setLoading(false));
-  }, [accountId, periodStart, periodEnd, costCentreId]);
+  }, [accountId, periodStart, periodEnd, costCentreId, businessUnitId]);
 
   useEffect(() => { void load(); }, [load]);
 
