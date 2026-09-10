@@ -1,7 +1,9 @@
 # Check runs: scale, hard-kill and deadline evidence (T2e), with the corrections from the T2c+T2d review
 
-Plan: `docs/superpowers/plans/2026-09-10-forensic-check-runs.md` v8 (A26–A34). Raw measurements beside this file:
-`check-run-journals-100k.json` (scale, hard-kill, slab bound) and `check-run-deadline.json` (A34).
+Plan: `docs/superpowers/plans/2026-09-10-forensic-check-runs.md` v8–v10 (A26–A47). Raw measurements beside this file:
+`check-run-journals-100k.json` (scale, hard-kill, slab bound, worst-case findings — final head `9ddd49eb7`),
+`check-run-storage.json` (bytes per finding, per run and per day) and `check-run-deadline.json` (A34, measured on the
+`2b851aa7b` worker; the harness is now `scripts/forensic/measure-check-run-deadline.ts`).
 
 ## How these were run, and what that leaves out
 
@@ -9,13 +11,18 @@ Plan: `docs/superpowers/plans/2026-09-10-forensic-check-runs.md` v8 (A26–A34).
   `shared_buffers=1GB`, `max_wal_size=8GB`, `log_statement=all`, `log_line_prefix='%m|%a|%p|'`, bind parameters not
   logged), schema cloned read-only from the shared forensic fixture with `pg_dump -s`. Never the shared fixture, never
   production. Seeding used `session_replication_role=replica` on its own connection only.
-- **Worker.** The real worker executable (`scripts/forensic/build-audit-job.ts` output, SHA-256 `82a7ab23…d572`,
-  built from `0201f87b1`), run as a **direct child process** with the class heap (`--max-old-space-size=1536`), the
+- **Worker.** The real worker executable (`scripts/forensic/build-audit-job.ts` output; the final-head build is
+  SHA-256 `342376ed…`, from `9ddd49eb7`), run as a **direct child process** with the class heap (`--max-old-space-size=1536`), the
   literal class and spawn-time variables and the production environment allow-list.
 - **Not done, because systemd units were ruled out for this session:** the plan's "under
   `createIsolatedAuditJobRunner`" and "under the real check-run unit with `RuntimeMaxUSec` read back". No
   `RuntimeMaxSec` or `MemoryMax` wall was in force, and no unit readback was performed. Memory figures below are the
   child's own VmHWM, not a cgroup peak. This caveat from the T1 spike therefore remains open.
+- **Opt-in.** The scale suite follows the repo's `describe.skipIf(!enabled)` convention
+  (`forensic-invocations.int.test.ts`): without `ISAFLOW_AUDIT_SCALE_OPT_IN=1` it is skipped, never red; once opted in,
+  a misconfiguration throws. Measurements that answer "how much" rather than "does it hold" are not tests at all:
+  `scripts/forensic/measure-check-run-deadline.ts` and `measure-check-run-storage.ts` record observations and refuse
+  only on a broken product contract.
 - **Machine.** velo-server, 32 vCPU, shared with other sessions; the 1-minute load average is recorded beside every
   timing in the JSON (6–34 across these runs). Timings are this machine at that moment, not a benchmark.
 
@@ -73,29 +80,43 @@ statements per 512), not with rows; there is no per-row statement. A mutant that
 compiled into the real worker produced 100 546 statements, 100 001 of them on `control_change_events`, and the gate
 failed with "change events were queried outside the cursor: expected 100001 to be 1".
 
-## Scale — 100 000 journals through the real worker
+## Scale — 100 000 journals through the real worker (final head)
 
-Mixed fixture (plan §3 fixture (a)): 100 000 posted journals, 649 440 lines, 999 873 amendment events, 90 238 entity
-versions, 10 active rules, seeded in 30 s.
+Mixed fixture (plan §3 fixture (a)): 100 000 posted journals, ~650 000 lines, ~1 000 000 amendment events, 10 active
+rules.
 
-- Published once, `status: fail`, population 100 000, **33.1 s** end to end (≈3 000 journals/s), child VmHWM
-  **673 MiB** against a 1 536 MiB heap (the 2 GiB class cap was not in force in this harness).
+- Published once, `status: fail`, population 100 000, **26.0 s** end to end, child VmHWM **287 MiB** against a
+  1 536 MiB heap (the 2 GiB class cap was not in force in this harness). The T2e figure of 673 MiB was measured
+  before the findings-memory fix and is superseded.
 - **Every journal was a finding: 100 000, exactly `maxFindings`.** This is a property of the fixture, not the
   detector: the seeder assigns day `g % 240` and person `g % 50`, which cycle together every 1 200 journals, so ~83
   journals share each (day, person) and split every threshold. So this run is the worst case for findings — it sat
   exactly on the bound and published — not a realistic mix.
-- The T1 spike measured ~102–116 s for 100 000 journals at load 12–52. This run was 3.5× faster at load 7–14; the
+- The T1 spike measured ~102–116 s for 100 000 journals at load 12–52. These runs took 26–33 s at load 7–14; the
   difference is not explained here beyond the load, and is not claimed as an improvement.
+
+## Worst-case findings — 100 000 of the longest message, at the real heap (plan A39)
+
+Every journal carries all six per-row signals and a split under each of 100 usable rules at bigint-wide versions:
+100 000 findings of **8 663 characters** each (verified on the published page).
+
+- **Before the fix** (worker built from `2b851aa7b`): the worker died by **SIGABRT** — V8 out of memory — after 79 s,
+  with no reply and its lease held, so it would have been reclaimed and aborted again until RETRY_EXHAUSTED, never
+  `unknown`. The phase retained every full finding, and a second decrypted copy during the re-read.
+- **After** (final head): published in **77.6 s**, child VmHWM **280 MiB**. The phase keeps only
+  `{key, itemHash, amount, currency}` per finding and verifies the re-read page by page.
+- The slab figure of 15.2 KiB per held row (101 change facts) is a slab-only measure and still stands; the peak
+  figures that bound a run are the two above.
 
 ## Hard kill — a real SIGKILL mid-stream, proven by outcome
 
-At 100 000 journals the worker was killed with `SIGKILL` 8.8 s after spawn, at a moment the test observed its backend
+At 100 000 journals the worker was killed with `SIGKILL` 8.5 s after spawn (final head; 8.8 s in T2e), at a moment the test observed its backend
 FETCHing **and** holding the row lock of at least one sealed-finding INSERT. Then, by outcome:
 
 - the dead backend ended; **zero** result rows and **zero** finding rows for the job;
 - the job stayed `running`, attempts 1, generation 1, lease live — and a fresh worker **before expiry** returned
   `not_claimed`;
-- the test then waited for the **real** lease expiry (357 s; no synthetic update), after which a fresh worker claimed
+- the test then waited for the **real** lease expiry (349.7 s; no synthetic update), after which a fresh worker claimed
   generation 2 and published once: attempts 2, one result row, 100 000 findings all at generation 2;
 - a further worker returned `not_claimed`.
 
@@ -106,12 +127,38 @@ the killed transaction, observed through its lock, and none surviving).
 ## Slab bound at production limits (plan A27)
 
 One user, one day, 25 001 journals that can all join a threshold group: at cutoff 2026-06-30 (exactly 25 000) the
-real worker published a normal result (0.9 s, 139 MiB); at 2026-07-31 (25 001) it published `unknown`,
-`resource_limit:slab_rows_exceed_limit`, population recounted to 25 001, zero findings (0.8 s, 122 MiB). The exact
-edges of both bounds are also gated in the regular suite through the tighten-only limits parameter; `>` → `>=` on the
-slab bound and `>=` → `>` on the findings bound both fail there.
+real worker published a normal result (0.85 s, 139 MiB); at 2026-07-31 (25 001) it published `unknown`,
+`resource_limit:slab_rows_exceed_limit`, population recounted to 25 001, zero findings (0.75 s). The exact edges of
+both bounds are also gated in the regular suite through the tighten-only limits parameter; `>` → `>=` on the slab bound
+and `>=` → `>` on the findings bound both fail there.
+
+**How the eligibility extraction was proven (P3-6).** Until the second review round, that the adapter holds exactly
+the rows `analyseJournalRisks` could group rested on reading the diff: one function, shared by the detector and the
+adapter over the same snapshot's thresholds. It is now gated. A slab under two usable rules, where 500 can join the
+1 000 group but not the 200 one, and a slab under no usable rule at all, past a tightened bound: the mutant that asks
+for eligibility under EVERY rule instead of ANY fails both ("a row eligible under one rule of two was not held").
+
+## Storage — measured bytes per finding, per run and per day (plan A40)
+
+`scripts/forensic/measure-check-run-storage.ts`: `pg_relation_size`, `pg_indexes_size` and `pg_total_relation_size`
+deltas on `control_audit_check_findings` (heap, both indexes, TOAST) after `CHECKPOINT`, around one real worker run per
+shape, nothing else writing. Per run and per day are derived at `maxFindings` (100 000) and at the enqueue caps.
+
+| shape | message | bytes / finding | per 100 000-finding run | per day, company cap (100) | per day, member share (40) |
+|---|---|---|---|---|---|
+| typical (one signal) | 122 chars | **2 359** (heap 2 048, indexes 310) | 0.24 GB | **23.6 GB** | 9.4 GB |
+| mixed (short splits) | 132 chars mean | 2 356 | 0.24 GB | 23.6 GB | 9.4 GB |
+| worst (106 reasons) | 8 663 chars | **21 018** (TOAST 20 707, indexes 310) | 2.1 GB | **210 GB** | 84 GB |
+
+At 26–78 s per 100 000-finding run, a company's whole daily budget is spendable in well under two hours of worker
+time. **The cap is unchanged** (100 per company, 40 per member, per 24 h): whether to tighten it is Hein's decision with
+these numbers in front of him, and until retention exists nothing else bounds growth.
 
 ## A34 — the largest population that publishes inside 300 s
+
+Measured on the `2b851aa7b` worker, before the findings-memory fix. The quiet population produces few findings, so
+the fix does not bear on these streaming times; the measurement now lives in
+`scripts/forensic/measure-check-run-deadline.ts` and was not repeated.
 
 A quiet population keeps the mixed fixture's per-row streaming cost (the same lines and amendments) but produces few
 findings, so the findings bound cannot end a run first. Each attempt is a fresh job on the real worker; cutoffs select
@@ -144,6 +191,8 @@ wording: a success after the deadline remains unreachable, so the success-inside
 
 ## Residuals, stated
 
+- A `default_currency` longer than 16 384 characters is refused by the stream's seal while the sync path would accept
+  it: the table's 64 KiB envelope CHECK cannot hold a longer one beside the longest message.
 - No systemd unit: the runtime and memory walls, and the unit readback, remain unproven for check runs.
 - A single (day, person, currency) with more than 25 000 journals that can join a threshold group still makes that
   run `unknown`, and so does every later run whose cutoff includes that day.

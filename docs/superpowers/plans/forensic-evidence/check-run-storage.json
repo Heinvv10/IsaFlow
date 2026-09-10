@@ -1,0 +1,74 @@
+{
+ "measuredAt": "2026-09-10T17:59:16.905Z",
+ "method": "pg_relation_size/pg_indexes_size/pg_total_relation_size deltas after CHECKPOINT around one real worker run per shape",
+ "shapes": [
+  {
+   "shape": "typical",
+   "journals": 20000,
+   "findingCount": 20000,
+   "elapsedMs": 3379,
+   "messageChars": {
+    "mean": 122,
+    "min": 122,
+    "max": 122
+   },
+   "bytes": {
+    "heap": 40960000,
+    "indexes": 6209536,
+    "toast": 8192,
+    "findings": 47177728,
+    "results": 0
+   },
+   "bytesPerFinding": 2359,
+   "bytesPerRunAtMaxFindings": 235888640,
+   "bytesPerDayAtCompanyCap": 23588864000,
+   "bytesPerDayAtMemberShare": 9435545600
+  },
+  {
+   "shape": "mixed",
+   "journals": 20000,
+   "findingCount": 10077,
+   "elapsedMs": 4578,
+   "messageChars": {
+    "mean": 132,
+    "min": 125,
+    "max": 168
+   },
+   "bytes": {
+    "heap": 20635648,
+    "indexes": 3096576,
+    "toast": 8192,
+    "findings": 23740416,
+    "results": 8192
+   },
+   "bytesPerFinding": 2356,
+   "bytesPerRunAtMaxFindings": 235598308,
+   "bytesPerDayAtCompanyCap": 23559830811,
+   "bytesPerDayAtMemberShare": 9423932324
+  },
+  {
+   "shape": "worst",
+   "journals": 20000,
+   "findingCount": 20000,
+   "elapsedMs": 17533,
+   "messageChars": {
+    "mean": 8663,
+    "min": 8663,
+    "max": 8663
+   },
+   "bytes": {
+    "heap": 8192,
+    "indexes": 6201344,
+    "toast": 414146560,
+    "findings": 420356096,
+    "results": 0
+   },
+   "bytesPerFinding": 21018,
+   "bytesPerRunAtMaxFindings": 2101780480,
+   "bytesPerDayAtCompanyCap": 210178048000,
+   "bytesPerDayAtMemberShare": 84071219200
+  }
+ ],
+ "head": "76f3c89c0 (storage is database-side bytes; the later 9ddd49eb7 change is JS-only and does not touch what is written)",
+ "decision": "Not taken here. The 100/24 h company cap and 40/24 h member share are unchanged; whether to tighten them is for Hein with these numbers."
+}

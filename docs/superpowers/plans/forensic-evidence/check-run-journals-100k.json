@@ -1,7 +1,7 @@
 {
  "environment": {
-  "head": "0201f87b18aac6871bebce022e046625feed308a",
-  "artifactSha256": "82a7ab2388d40f0b6d3e8fbc68840a1614c12552102defc8cb9a22e99d38d572",
+  "head": "9ddd49eb7158afa82d7990fec901b75928728609",
+  "artifactSha256": "342376ed68c88b608ff276cbeef2599d5b34004fb992106c80d94ece35b0bee8",
   "node": "v22.23.1",
   "container": "isaflow-t2e-scale-pg-20260910",
   "server": "PostgreSQL 16.11 (Debian 16.11-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
@@ -10,32 +10,32 @@
  },
  "fixture": {
   "journals": 100000,
-  "lines": 649440,
-  "changes": 999873,
-  "versions": 90238,
+  "lines": 649266,
+  "changes": 1001106,
+  "versions": 90023,
   "rules": 10,
-  "seedMs": 30092,
+  "seedMs": 21720,
   "profile": "mixed",
   "loadAfterSeed": [
-   6.87,
-   11.42,
-   13.89
+   7.21,
+   7.3,
+   7.26
   ]
  },
  "scaleRun": {
-  "jobId": "f8164fa9-66fe-4e60-a432-28ac7ba68b49",
-  "elapsedMs": 33076,
-  "peakRssBytes": 705961984,
-  "vmHwmBytes": 705961984,
+  "jobId": "c5bba932-8772-47a4-9bac-8e0ab694f09a",
+  "elapsedMs": 26012,
+  "peakRssBytes": 300716032,
+  "vmHwmBytes": 300716032,
   "loadBefore": [
-   6.87,
-   11.42,
-   13.89
+   7.21,
+   7.3,
+   7.26
   ],
   "loadAfter": [
-   11.37,
-   12.01,
-   13.99
+   5.97,
+   7.01,
+   7.16
   ],
   "populationCount": 100000,
   "findingCount": 100000,
@@ -63,19 +63,41 @@
   }
  },
  "hardKill": {
-  "jobId": "cbf1f089-2a6b-4f0f-8989-09820385e053",
-  "killedAfterMs": 8765,
-  "leaseWaitMs": 356799,
-  "rerunElapsedMs": 35377,
+  "jobId": "368b9398-de35-4e6c-ab70-3f8eb82299ee",
+  "killedAfterMs": 8535,
+  "leaseWaitMs": 349697,
+  "rerunElapsedMs": 28033,
   "generation": 2,
   "attempts": 2,
   "findingCount": 100000
  },
  "slabBound": {
   "bound": 25000,
-  "atElapsedMs": 871,
-  "overElapsedMs": 786,
-  "atPeakRssBytes": 145379328,
-  "overPeakRssBytes": 127479808
+  "atElapsedMs": 851,
+  "overElapsedMs": 748,
+  "atPeakRssBytes": 145682432,
+  "overPeakRssBytes": 131313664
+ },
+ "worstFindings": {
+  "jobId": "e0b261b3-e43b-444f-b65e-5fbe4e6ae4bf",
+  "seedMs": 3847,
+  "elapsedMs": 77592,
+  "peakRssBytes": 294084608,
+  "vmHwmBytes": 294084608,
+  "loadBefore": [
+   8.98,
+   7.96,
+   7.44
+  ],
+  "loadAfter": [
+   6.73,
+   7.45,
+   7.3
+  ],
+  "findingCount": 100000,
+  "messageChars": {
+   "min": 8663,
+   "max": 8663
+  }
  }
 }
