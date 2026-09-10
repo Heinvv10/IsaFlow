@@ -10,6 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseReconciledTransaction } from './bankAllocationService';
 import { reverseJournalEntry } from '../gl/journalEntryService';
+import { isRetryableContention } from '../core/retryableContention';
 
 type Row = DbRow;
 
@@ -66,6 +67,15 @@ export async function undoRun(companyId: string, runId: string, userId: string):
       `;
       reversed += 1;
     } catch (err) {
+      // Contention ends the undo instead of being logged as a failure. The one
+      // member this loop can raise is `reverseReconciledTransaction`'s bank-line
+      // lock, taken on the REQUEST transaction rather than in a savepoint, so its
+      // 55P03/40P01 has already aborted it: swallowing it here turned the next
+      // statement into a 25P02 and the route's answer into 400 "Undo failed".
+      // Re-thrown, the route answers 409, withAuth's COMMIT degrades to a
+      // rollback, the lines reversed before this one go with it, and the run
+      // stays open to retry.
+      if (isRetryableContention(err)) throw err;
       log.error(
         'Auto-post undo failed for transaction — run will still be marked undone; manual reversal required for this tx',
         { companyId, runId, txId, error: err instanceof Error ? err.message : String(err) },

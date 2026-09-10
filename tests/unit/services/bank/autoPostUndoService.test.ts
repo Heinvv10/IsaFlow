@@ -16,6 +16,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 }));
 
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
+import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
 
 function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
   sqlMock.mockImplementation((strings: TemplateStringsArray) => {
@@ -62,5 +63,45 @@ describe('undoRun', () => {
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /SET status = 'imported', provisional_je_id = NULL/.test(t))).toBe(true);
     expect(joined.some((t) => /SET auto_post_run_id = NULL/.test(t))).toBe(true);
+  });
+
+  // K-071 r15. The bank-line lock `reverseReconciledTransaction` takes runs on
+  // the REQUEST transaction, so contention has aborted it: swallowed, the next
+  // statement raised 25P02 and the route answered 400 "Undo failed". It must
+  // end the undo — and must not mark the run undone, or it can never be retried.
+  it('re-throws contention and does not mark the run undone', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
+      { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [
+        { id: 't1', status: 'allocated', matched_journal_line_id: 'jl-1', provisional_je_id: null },
+        { id: 't2', status: 'allocated', matched_journal_line_id: 'jl-2', provisional_je_id: null },
+      ] },
+    ]);
+    const contended = new BankTransactionLockTimeoutError('t2');
+    reverseReconciledTransaction.mockResolvedValueOnce({}).mockRejectedValueOnce(contended);
+
+    await expect(undoRun('co-1', 'run-1', 'u-1')).rejects.toBe(contended);
+
+    const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
+  });
+
+  // The other direction: a non-contention failure keeps the documented
+  // behaviour — logged, counted as skipped, and the run is still marked undone.
+  it('still skips a non-contention failure and marks the run undone', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
+      { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [
+        { id: 't1', status: 'allocated', matched_journal_line_id: 'jl-1', provisional_je_id: null },
+        { id: 't2', status: 'allocated', matched_journal_line_id: 'jl-2', provisional_je_id: null },
+      ] },
+    ]);
+    reverseReconciledTransaction.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('Cannot reverse: period closed'));
+
+    const r = await undoRun('co-1', 'run-1', 'u-1');
+
+    expect(r).toEqual({ reversed: 1, skipped: 1 });
+    const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(true);
   });
 });

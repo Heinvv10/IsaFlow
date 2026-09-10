@@ -655,3 +655,257 @@ Against `tests/unit/api/actionRouteContentionStatus.test.ts` (12 passing).
 
 Ten of ten red; M9 is the both-directions proof — sweeping everything into 409 kills the five cases
 that pin 400/500.
+
+## Round 15 — review of `726b8ed12` (0 HIGH · 1 MEDIUM · 1 LOW)
+
+### MEDIUM-1 — a ninth route committed a partial sweep behind a 400, and falsified the safety argument (code + doc)
+
+`bank-rules-action` (`apply`) → `applyRules` → `withSavepoint('rule_autopost_line', autoPostRuleLine)`
+→ `recordSupplierBankPayment` → `planSupplierPaymentApplication` → `fetchBillCandidates` →
+`SupplierPaymentRefusal{retryable:true}`. The sweep's per-line catch skipped ONLY
+`BankTransactionLockTimeoutError`. The other three union members arrive through a savepoint whose
+`ROLLBACK TO` succeeded, so the request transaction was live: the re-throw reached the route's
+blanket 400 and `withAuth` COMMITted every line the sweep had already posted (reviewer's probe:
+400 "Action failed", line A posted and committed, line B still imported).
+
+**1. The sweep skips the union** — `bankRulesMatchingService.ts`: `if (!isRetryableContention(lineErr)) throw lineErr;`,
+counted in `autoPostSkippedLocked` exactly as the bank-line arm already was. Measured on real SQL
+(`tests/integration/k071-rule-sweep-undo-contention.int.test.ts`, first case): every bill held →
+**200**, `autoPostSkippedLocked: 1`, line A `allocated`, line B `imported`; control with no holder →
+200, line B `allocated`. Both directions in `tests/unit/services/bank/bankRulesSweepContention.test.ts`:
+each of the four members is skipped and the next candidate still posts; a books refusal (the same
+`SupplierPaymentRefusal` class WITHOUT the flag) and a plain `Error` still end the run.
+
+**2. The invariant is restated, because it was false.** `core/retryableContention.ts` said "every
+member is pre-write by construction … there is nothing committed behind it", and `bank/.claude.md`
+said contention is safe "because 55P03/40P01 abort the transaction". Both were written as
+properties of the UNION. They are properties of the *call that raised it*. The header now names
+the two shapes in which a member surfaces — ABORTED (raised on the request transaction; COMMIT
+degrades to a rollback) and CONFINED (raised inside a savepoint that rolled back cleanly; the
+request is live and earlier writes COMMIT behind the 4xx) — states the rule as **"pre-write, OR
+confined to a savepoint that rolled back"**, and says a caller MUST establish which before
+answering 409. A loop over savepointed items does not re-throw at all; it skips and counts.
+
+**3. The two other routes on the path.**
+- `bank-rules.ts` POST (create + auto-apply) → `applyRules`: after (1) the sweep no longer throws
+  any member — the checker-resolved graph shows `applyRules`'s ONLY raiser-reaching callee is
+  `autoPostRuleLine`, called only inside the per-line savepoint — so it answers 200 with the count.
+  No route change.
+- `bank-auto-post.ts` undo → `undoRun` → `reverseReconciledTransaction` → `lockBankTransactionForUpdate`,
+  taken on the REQUEST transaction (`bankAllocationService.ts:691`, before the function's own
+  savepoint). `undoRun`'s per-row catch swallowed the typed error on the aborted transaction, so
+  the next statement raised 25P02 and the route answered 400 "Undo failed". Worse, had the swallow
+  succeeded the run would have been marked undone and could never be retried. Now `undoRun`
+  re-throws the union (before the log-and-skip) and the route answers `apiResponse.conflict` with
+  the service's wording. ABORTED shape, so it is safe: measured (second integration case) with the
+  line undoRun's own SELECT returns LAST held, so one line IS reversed before the contention →
+  **409** "retry in a moment", BOTH lines still `allocated`, `undone_at` NULL (the log shows the
+  first reversal's `JE-2026-00005` number re-used by the control run — the reversal was rolled
+  back, not committed). Control, no holder → 200 `{reversed: 2, skipped: 0}`. Other direction in
+  `autoPostUndoService.test.ts`: a non-contention failure is still logged, counted as skipped, and
+  the run still marked undone; in `bankAutoPostUndoContention.test.ts` a plain `Error` still 400s.
+
+### LOW-1 — the census boundary is recorded (doc)
+
+The census is no longer walked by hand. `<scratchpad>/agents/fix-k071n/callgraph-ts.cjs` (reproduced
+below so the next round can re-run it) builds a reverse call graph with the **TypeScript checker**,
+so every identifier is resolved to its declaration through imports, re-exports
+(`bankRulesService` → `applyRules`), namespace imports, `{ fn }` shorthand and
+`const { f } = await import(...)`. That removes the reviewer's `callgraph2.py` limitation: names
+defined in more than one file are distinct nodes, not dropped. Seeds are the CONSTRUCTION sites
+of the events, found by the script (`new BankTransactionLockTimeoutError`, `new PaymentLockTimeoutError`,
+`retryable: true`), not a list of helper names — it found exactly the five the reviewer seeded.
+Walked: every `.ts`/`.tsx` in `src/**` and `pages/**` that `tsconfig.json` includes (so NOT
+`tests/**` or `scripts/**`); 118 symbols to fixpoint. Entry = any file under `pages/api/**` or
+`src/lib/mcp/**`; any reached symbol nobody references is printed as a root to classify by hand.
+
+Known limits: only STATIC references are followed — a computed call (`obj[verb]()`), a
+string-keyed registry, or an untyped `any` receiver is invisible. The MCP registry is the one
+string-keyed dispatch here and every tool file is itself an entry. One root: `importBankStatement`
+(`bankImportService.ts:39`) — re-exported by `bankReconciliationService.ts:340` and imported by
+nothing (dead; mentioned, not deleted). The reviewer's `provisional/outstanding` row is NOT reached:
+`postProvisional` calls no raiser. `provisional/[jeId]/attach` is not reached either (comment only).
+
+**Every entry reached, and how it answers (after this round):**
+
+| Entry | Reaches via | Answer to contention |
+|---|---|---|
+| `bank-match-confirm` | `confirm{Supplier,Customer}InvoiceMatch`, `allocateTransaction`, `matchTransaction` (transfer + journal-line arms) | 409 (narrow; `matchTransaction` locks on the request tx before any write in its arm) |
+| `ar/receipt-match/confirm` | `validateBankReceiptApplication`, `confirmReceiptMatch` | 409 (narrow) |
+| `customer-allocations` | `planReceiptApplication` | 409 (narrow) |
+| `supplier-allocations` | `planSupplierPaymentApplication` | 409 (narrow) |
+| `bank-transactions-action` | `match`/`unmatch`/`exclude`/`autoMatch`/`allocate`/`split`/`reverse` | 409 (union, r13) |
+| `bank-transactions-manual` | `allocateTransaction` | 409 (union, r13) |
+| `supplier-payments-action` | `processSupplierPayment`, `voidSupplierPayment` | 409 (union, r13) |
+| `customer-payments-action` | `confirm`/`cancelCustomerPayment` | 409 (union, r13) |
+| **`bank-auto-post`** (undo) | `undoRun` → `reverseReconciledTransaction` | **409 (union, r15)** — ABORTED shape, measured |
+| **`bank-rules-action`** (apply) | `applyRules` → `autoPostRuleLine` | **200, counted skip (r15)** — measured |
+| **`bank-rules`** (POST) | `applyRules` → `autoPostRuleLine` | **200, counted skip (r15)** — same service |
+| `smart-categorize` | `sweep` → `allocateTransaction` | swallowed in-service, 25P02 — **R-065** |
+| `bank-transactions-bulk-commit` | `importParsedTransactions` → `sweep` | swallowed; import's own savepoint discards the sweep as "non-fatal" — **R-065** |
+| `bank-feeds/[id]/extension-ingest` | `importParsedTransactions` → `sweep` | same — **R-065** |
+| 11 MCP tools (`allocationApplyRoute`, `allocationLine`, `writeApplyReceipt`, `writeApplySupplierPayment`, `writeBankAllocate`, `writeBankImport`, `writeBankReconciliation`, `writeBankReverseBatch`, `writeBankReverseRange`, `writeSettleByContra`, `writeVoidPayments`) | as named | registry savepoint per tool + `safeErrorText` (`REFUSAL_CODES` carries all four codes); no HTTP status |
+
+**The second hop, recorded** (raiser-reaching callees, from the script's `KIDS=` output):
+`applyRules → autoPostRuleLine → {lockBankTransactionForUpdate, recordSupplierBankPayment}`;
+`undoRun → reverseReconciledTransaction → lockBankTransactionForUpdate`;
+`importParsedTransactions → sweep → allocateTransaction`. Re-run after this change: the entry set
+is identical to the run on `726b8ed12` (only line numbers moved), so the fix added no path.
+
+### Registered, not fixed — R-065 (reserved with `reserve-r-id.sh`)
+
+`autoPostGateService.sweep` catches every per-row failure with NO savepoint. A contended
+`allocateTransaction` raises its 55P03 on the request transaction, the catch logs it as a skip,
+and the next statement is a 25P02: `smart-categorize` calls `sweep` directly; the two import routes
+reach it through `importParsedTransactions`, whose savepoint then throws the whole sweep away as
+"non-fatal". The caught-error-poisons-the-transaction hazard, pre-existing and outside this round
+(the blanket-catch hazard in general stays R-060).
+
+### Mutation proof (file copies in `<scratchpad>/agents/fix-k071n/bak/`, restored; `git diff` hash identical after)
+
+| # | Mutation | Unit (3 files, 13 tests) | Integration (2 tests) |
+|---|---|---|---|
+| M1 | sweep catch back to the bank-line lock only | 3 failed | 1 failed — `expected 400 to be 200` |
+| M4 | sweep catch swallows everything (both-directions check) | 2 failed | — |
+| M2 | drop `undoRun`'s re-throw | 1 failed | 1 failed — `expected 400 to be 409` |
+| M3 | drop the route's 409 arm | 1 failed | 1 failed — `expected 400 to be 409` |
+
+M1's integration failure is the reviewer's defect reproduced (400 with line A committed); M2's is
+the 25P02 path (400 "Undo failed").
+
+### The census script
+
+```js
+// Reverse call graph with the TypeScript CHECKER (not name matching): every
+// identifier is resolved to its declaration through imports, re-exports and
+// dynamic `await import()` destructuring, so same-named symbols in different
+// files are distinct nodes and none has to be dropped. Seeds are derived from
+// the CONSTRUCTION sites of the contention events, not from helper names.
+// Usage: node callgraph-ts.cjs <worktree>
+const path = require('path');
+const W = process.argv[2];
+const ts = require(path.join(W, 'node_modules/typescript'));
+const cfgPath = path.join(W, 'tsconfig.json');
+const cfg = ts.parseJsonConfigFileContent(ts.readConfigFile(cfgPath, ts.sys.readFile).config, ts.sys, W);
+const program = ts.createProgram(cfg.fileNames, cfg.options);
+const checker = program.getTypeChecker();
+const rel = (f) => path.relative(W, f);
+const files = program.getSourceFiles().filter((sf) => !sf.isDeclarationFile
+  && !sf.fileName.includes('node_modules') && /^(src|pages)\//.test(rel(sf.fileName)));
+const isEntry = (f) => /^pages\/api\//.test(f) || /^src\/lib\/mcp\//.test(f);
+
+function resolve(sym) {
+  if (!sym) return undefined;
+  if (sym.flags & ts.SymbolFlags.Alias) { try { sym = checker.getAliasedSymbol(sym); } catch { /* keep */ } }
+  const d = sym.declarations && sym.declarations[0];
+  // const { f } = await import('./x')  →  x's export f
+  if (d && ts.isBindingElement(d) && ts.isObjectBindingPattern(d.parent)) {
+    const vd = d.parent.parent;
+    if (ts.isVariableDeclaration(vd) && vd.initializer) {
+      const prop = checker.getPropertyOfType(checker.getTypeAtLocation(vd.initializer),
+        (d.propertyName || d.name).getText());
+      if (prop) return resolve(prop);
+    }
+  }
+  return sym;
+}
+function ownerOf(node) {
+  for (let n = node.parent; n; n = n.parent) {
+    if ((ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isClassDeclaration(n)
+      || ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n)) && n.name && ts.isIdentifier(n.name)) {
+      return resolve(checker.getSymbolAtLocation(n.name));
+    }
+  }
+  return null; // module scope
+}
+const label = (sym) => {
+  const d = sym.declarations && sym.declarations[0];
+  const sf = d && d.getSourceFile();
+  return sf ? `${sym.name}@${path.basename(sf.fileName)}:${sf.getLineAndCharacterOfPosition(d.getStart()).line + 1}` : sym.name;
+};
+// Index every identifier reference by text once; resolve lazily per frontier symbol.
+const byText = new Map();
+for (const sf of files) {
+  (function walk(n) {
+    if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) return;
+    if (ts.isIdentifier(n)) {
+      const p = n.parent;
+      const isDeclName = p && p.name === n && (ts.isFunctionDeclaration(p) || ts.isVariableDeclaration(p)
+        || ts.isMethodDeclaration(p) || ts.isClassDeclaration(p) || ts.isParameter(p) || ts.isPropertyDeclaration(p));
+      if (!isDeclName) { if (!byText.has(n.text)) byText.set(n.text, []); byText.get(n.text).push(n); }
+    }
+    ts.forEachChild(n, walk);
+  })(sf);
+}
+// Seeds: the functions that CONSTRUCT a contention event.
+const seeds = new Map();
+for (const sf of files) {
+  (function walk(n) {
+    const hit = (ts.isNewExpression(n) && /^(BankTransactionLockTimeoutError|PaymentLockTimeoutError)$/.test(n.expression.getText()))
+      || (ts.isPropertyAssignment(n) && n.name.getText() === 'retryable' && n.initializer.kind === ts.SyntaxKind.TrueKeyword);
+    if (hit) { const o = ownerOf(n); if (o) seeds.set(o, `${rel(sf.fileName)}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`); }
+    ts.forEachChild(n, walk);
+  })(sf);
+}
+const parent = new Map(); const q = [];
+for (const s of seeds.keys()) { parent.set(s, null); q.push(s); }
+const entries = new Map(); const roots = new Map(); const kids = new Map();
+while (q.length) {
+  const sym = q.shift(); let referenced = false;
+  for (const id of byText.get(sym.name) || []) {
+    // `{ fn }` shorthand: getSymbolAtLocation answers the PROPERTY, not the value.
+    const at = ts.isShorthandPropertyAssignment(id.parent) && id.parent.name === id
+      ? checker.getShorthandAssignmentValueSymbol(id.parent) : checker.getSymbolAtLocation(id);
+    if (resolve(at) !== sym) continue;
+    referenced = true;
+    const sf = id.getSourceFile(); const f = rel(sf.fileName);
+    const where = `${f}:${sf.getLineAndCharacterOfPosition(id.getStart()).line + 1}`;
+    if (isEntry(f)) {
+      if (!entries.has(f)) entries.set(f, new Set());
+      const chain = []; for (let s = sym; s; s = parent.get(s)) chain.push(label(s));
+      entries.get(f).add(`${where}  ${chain.join(' -> ')}`);
+      continue;
+    }
+    const o = ownerOf(id);
+    if (!o) { roots.set(`${where} (module scope, refs ${sym.name})`, true); continue; }
+    if (!kids.has(o)) kids.set(o, new Set()); kids.get(o).add(label(sym));
+    if (!parent.has(o)) { parent.set(o, sym); q.push(o); }
+  }
+  if (!referenced) roots.set(`${label(sym)} (no references outside entries)`, true);
+}
+console.log('# seeds (construction sites)'); for (const [s, w] of seeds) console.log(`  ${label(s)}  <- ${w}`);
+console.log(`\n# entry files reached: ${entries.size}`);
+for (const f of [...entries.keys()].sort()) { console.log(f); for (const p of [...entries.get(f)].sort()) console.log('    ' + p); }
+console.log(`\n# non-entry roots (reached symbols nobody references, or module-scope refs) — classify by hand`);
+for (const r of [...roots.keys()].sort()) console.log('  ' + r);
+// Every raiser-reaching callee of the named symbols — one BFS parent per node
+// hides a second path, so classify an entry by ALL of what it references.
+const want = (process.env.KIDS || '').split(',').filter(Boolean);
+if (want.length) console.log('\n# raiser-reaching callees of: ' + want.join(', '));
+for (const [o, set] of kids) if (want.includes(o.name)) console.log(`  ${label(o)} -> ${[...set].sort().join(', ')}`);
+console.log(`\n# symbols walked: ${parent.size}`);
+console.log([...parent.keys()].map(label).sort().join('\n'));
+```
+
+### Gates (this round, on the working tree that is committed below)
+
+`env -u DATABASE_URL bun run ci` (load average ~28–32):
+
+    [ci] unit-tests PASS    — Test Files 803 passed | 36 skipped (839); Tests 9557 passed | 234 skipped (9791)
+    [ci] component-tests PASS — Test Files 61 passed (61); Tests 416 passed (416)
+    [ci] build PASS
+    [ci] all checks passed
+    EXIT=0
+
+Integration, whole suite, `source fixture.env && bunx vitest run --config vitest.integration.config.ts --no-file-parallelism`
+(load average ~50):
+
+    Test Files  32 failed | 78 passed (110)
+    Tests  12 failed | 428 passed | 167 skipped (607)
+    EXIT=1
+
+The environment baseline is 32 files / 12 tests failed / 426 passed. The counts are identical, no
+k071/k074 file is among the 32 failing (auth/2FA, AFS, aging, CSP and similar environment files),
+and 428 = 426 + the two new cases in `k071-rule-sweep-undo-contention.int.test.ts` — absent from
+the FAIL list, and both scenarios' own log lines (`autoPostSkippedLocked: 1`, "Auto-post undo hit a
+contended line") appear in the run.
