@@ -75,12 +75,12 @@ export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId
   // failures below have to record themselves; neither can undo a durable commit.
   let claim:ReleaseClaim|null;
   try{claim=await transaction(identity,current=>claimPaymentRelease(current,intentId));}
-  catch(error){await recordUnadvancedRelease(identity,intentId,'ready','payment_release.dispatch_failed',error);return;}
+  catch(error){await recordFailedDispatch(identity,intentId,'payment_release.dispatch_failed',error);return;}
   if(!claim)return;
   // Only this lexical continuation owns the once-only capability after actual COMMIT.
   const result=await transmit(claim);
   try{await transaction(identity,current=>completePaymentRelease(current,claim,result));}
-  catch(error){await recordUnadvancedRelease(identity,intentId,'attempting','payment_release.acknowledgement_failed',error,result);}
+  catch(error){await recordFailedDispatch(identity,intentId,'payment_release.acknowledgement_failed',error,result);}
  });
 }
 
@@ -91,24 +91,35 @@ export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId
  * trigger refuses any UPDATE that does not advance the state, so the durable trace is a change event
  * on the outbox — whose version lineage nothing binds, unlike the intent's, which the release approval
  * binding hashes and which a bump would brick.
+ *
+ * The recorded status is the state actually observed under FOR UPDATE, never the one this attempt
+ * expected. That is what keeps the record true when a concurrent dispatcher already advanced the row:
+ * a failure reported against 'attempting' says an attempt lost the race, not that the release was
+ * never dispatched. Reporting nothing at all would leave that one outcome with no trace whatsoever.
  */
-async function recordUnadvancedRelease(identity:Identity,intentId:string,expected:'ready'|'attempting',
- action:string,error:unknown,provider?:{state:string;code:string}):Promise<void>{
+async function recordFailedDispatch(identity:Identity,intentId:string,action:string,error:unknown,
+ provider?:{state:string;code:string}):Promise<void>{
  const detail=error instanceof Error?error.message:'unknown';
  const reason=provider?`${detail} after provider outcome ${provider.state} (${provider.code})`:detail;
  try{
   await transaction(identity,async ctx=>{
-   // FOR UPDATE, so a concurrent claim cannot advance the row and make this record a lie.
+   // FOR UPDATE, so a concurrent claim cannot advance the row between this read and the record.
    const [outbox]=await ctx.sql`SELECT *,intent_id AS id FROM control_payment_release_outbox
     WHERE company_id=${ctx.principal.companyId}::uuid AND intent_id=${intentId}::uuid FOR UPDATE` as Array<Record<string,unknown>>;
-   if(!outbox)throw new Error('Unadvanced release has no outbox row');
-   // Another attempt already moved it on: that dispatch is its own story, not this one's failure.
-   if(outbox.state!==expected)return;
+   if(!outbox)throw new Error('Failed release dispatch has no outbox row');
    await recordBatchEntity(ctx,'payment_release_outbox',outbox,{...outbox,status:String(outbox.state),reason},action);
   });
  }catch(recordError){
+  // KNOWN DEGRADATION, deliberately loud. recordCommittedChange writes control_entity_versions, and
+  // withInvoiceMatchSourceLocks holds LOCK TABLE control_entity_versions IN SHARE ROW EXCLUSIVE for
+  // its transaction, which conflicts with this independent transaction's ROW EXCLUSIVE. No deadlock
+  // cycle exists — this transaction takes no other lock — but the dispatch pool's 5s
+  // statement_timeout can elapse first and lose the record exactly when a release needs it. Closing
+  // it properly needs an append-only release-event table with no version lineage, which is a
+  // migration this change does not carry; until then the loss is reported, never silent.
   log.error('Release dispatch failure could not be recorded; queued release requires reconciliation',
-   {intentId,action,reason,error:recordError instanceof Error?recordError.message:'unknown'},'payment-release');
+   {intentId,action,reason,error:recordError instanceof Error?recordError.message:'unknown',
+    code:typeof (recordError as {code?:unknown})?.code==='string'?(recordError as {code:string}).code:null},'payment-release');
  }
 }
 /** Only the lexical committed-claim transport continuation may acknowledge a provider result. */
