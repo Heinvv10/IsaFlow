@@ -8,6 +8,16 @@ import type {SnapshotIndexEnvelope} from './auditSnapshotIndexContract';
 import {openAuditJobRequest} from './auditJobProtection';
 import {auditCheckRunPermissions} from './auditCheckRunContract';
 import {openAuditCheckRunHeader,openAuditCheckRunItem,type CheckRunHeader} from './auditCheckRunProtection';
+/**
+ * A run the caller cannot read yet or at all. `not_ready` is told only to the person who enqueued it — the same
+ * audience `getAuditJob` shows a job's status to; everyone else, and every other tenant, gets `not_found`, so a read
+ * never discloses that someone else's run exists.
+ */
+export class CheckRunUnavailableError extends Error {
+ constructor(readonly reason:'not_found'|'not_ready'){
+  super(reason==='not_ready'?'Check run is not published yet':'Check run not found');this.name='CheckRunUnavailableError';
+ }
+}
 interface HeaderRow {id:string;company_id:string;requester_person_id:string;kind:string;request_hash:string;protected_request:ProtectedChange;
  generation:number|string;lease_id:string;protected_header:SnapshotIndexEnvelope;finding_total:string}
 /**
@@ -26,7 +36,15 @@ export async function readAuditCheckRunHeader(ctx:ControlTx,checkRunId:string):P
   JOIN control_audit_check_results r ON r.company_id=j.company_id AND r.job_id=j.job_id AND r.generation=j.generation
   WHERE j.company_id=${ctx.principal.companyId}::uuid AND j.job_id=${jobId}::uuid
    AND j.state='succeeded' AND j.result_check_run_id=j.job_id` as HeaderRow[];
- const row=rows[0];if(rows.length!==1||!row)throw new Error('Completed check run unavailable');
+ const row=rows[0];
+ if(rows.length!==1||!row){
+  const pending=await ctx.sql`SELECT j.state FROM control_audit_jobs j JOIN control_audit_job_intents i ON i.company_id=j.company_id AND i.id=j.job_id
+   WHERE j.company_id=${ctx.principal.companyId}::uuid AND j.job_id=${jobId}::uuid AND i.kind='audit_check_run'
+    AND i.requester_person_id=${ctx.principal.personId}` as {state:string}[];
+  // A succeeded job with no result at its generation is not "not ready": it is a broken publication and stays a fault.
+  if(pending.length===1&&pending[0]!.state==='succeeded')throw new Error('Completed check run result missing');
+  throw new CheckRunUnavailableError(pending.length===1?'not_ready':'not_found');
+ }
  const saved=openAuditJobRequest(row);if(saved.kind!=='audit_check_run')throw new Error('Check run retained request kind changed');
  // The caller's CURRENT permissions, derived from the retained check id rather than trusted from the stored list.
  for(const permission of auditCheckRunPermissions(saved.request.checkId))await assertEffectivePermission(ctx,permission);

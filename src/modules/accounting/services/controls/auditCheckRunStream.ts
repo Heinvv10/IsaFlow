@@ -10,16 +10,24 @@ import {journalRiskPopulationSql} from './journalRiskPopulationSql';
 import type {AUDIT_CHECK_RUN_LIMITS} from './auditCheckRunContract';
 export type CheckRunLimits=typeof AUDIT_CHECK_RUN_LIMITS.journal_risk_checks;
 const CURSOR='audit_check_run_journals';
-interface CursorRow extends JournalRiskSourceRow {slab_day:string|null;slab_person:string|null;slab_currency:string|null}
+interface CursorRow extends JournalRiskSourceRow {slab_day:string|null;slab_person:string|null;slab_currency:string|null;lines?:unknown}
 export interface CheckRunPopulation {populationCount:number;missing:string[];populationDigest:string;populationTotals:Record<string,string>;sourceVersionCount:number}
-export interface CheckRunStreamInput {cutoff:string;limits:CheckRunLimits;check:()=>void;onSlab:(rows:readonly JournalRiskSourceRow[])=>Promise<void>}
+export interface CheckRunStreamInput {
+ cutoff:string;limits:CheckRunLimits;check:()=>void;onSlab:(rows:readonly JournalRiskSourceRow[])=>Promise<void>;
+ /** Whether this row can join ANY threshold group; the shared detector's own eligibility, never a copy of it. */
+ groupable:(row:JournalRiskSourceRow)=>boolean;
+}
 /**
  * One NO SCROLL cursor over the complete population inside the caller's repeatable-read transaction. Slabs are cut on
  * the SQL-computed (day, person, currency) tuple and carried across FETCH pages, so a threshold group that straddles a
  * page is still analysed whole. Both LATERALs travel with the cursor row: there is no per-parent child query.
+ *
+ * Only rows that can join a threshold group are held in the slab and counted against `maxSlabRows`. A row that can
+ * join none has a result that depends on no other row, so it is analysed at once, alone, by the same detector — one
+ * busy posting day of ungroupable journals can no longer make a tenant's every run `unknown`.
  */
 export async function streamJournalRiskSlabs(ctx:ControlTx,input:CheckRunStreamInput):Promise<CheckRunPopulation>{
- const {limits,check,onSlab}=input;
+ const {limits,check,onSlab,groupable}=input;
  if(!/^\d{1,4}MB$/.test(limits.workMem))throw new Error('Invalid check-run work memory bound');
  if(!Number.isSafeInteger(limits.fetchRows)||limits.fetchRows<1||limits.fetchRows>100000)throw new Error('Invalid check-run fetch size');
  await ctx.sql`${sql.unsafe(`SET LOCAL work_mem='${limits.workMem}'`)}`;
@@ -35,7 +43,8 @@ export async function streamJournalRiskSlabs(ctx:ControlTx,input:CheckRunStreamI
    const page=await ctx.sql`${fetchPage}` as CursorRow[];
    if(!page.length)break;
    for(const row of page){
-    const {slab_day:day,slab_person:person,slab_currency:currency,...source}=row;
+    // Line facts travel with the cursor for the sync row shape; the detector never reads them, so none are held.
+    const {slab_day:day,slab_person:person,slab_currency:currency,lines:_lines,...source}=row;
     populationCount++;if(source.version!==null&&source.version!==undefined)sourceVersionCount++;
     for(const reason of journalRiskMissingReasons(source))missing.add(reason);
     digest.update(`${source.id}\n${source.version??''}\n${source.accountingDate}\n${source.actualAt}\n${source.amount}\n${source.currency}\n`);
@@ -45,6 +54,7 @@ export async function streamJournalRiskSlabs(ctx:ControlTx,input:CheckRunStreamI
     }
     const key=JSON.stringify([day,person,currency]);
     if(key!==slabKey){await flush();slabKey=key;}
+    if(!groupable(source)){check();await onSlab([source]);continue;}
     slab.push(source);
     if(slab.length>limits.maxSlabRows)throw new CheckRunResourceLimitError('slab_rows_exceed_limit');
    }

@@ -7,16 +7,36 @@ import {canonicalJson} from './canonical';
 import {assertAuditJobLease,type AuditJobLease} from './auditJobLease';
 import {loadStoredAuditJobDelegation} from './auditJobDelegation';
 import {AUDIT_CHECK_RUN_LIMITS} from './auditCheckRunContract';
-import {auditCheckRunBudget,CheckRunResourceLimitError} from './auditCheckRunBudget';
-import {analyseJournalRisks} from './journalRiskAnalysis';
+import {auditCheckRunBudget,CheckRunPublicationFenceError,CheckRunResourceLimitError} from './auditCheckRunBudget';
+import {analyseJournalRisks,journalRiskThresholdGroup} from './journalRiskAnalysis';
 import {buildJournalRiskFinding,JOURNAL_RISK_COVERAGE} from './journalRiskShared';
 import {journalRiskPolicySql,journalRiskThresholds,type JournalRiskPolicyRow} from './journalRiskPopulationSql';
 import {checkStatus,riskAmountTotals,type RiskFinding} from './invoiceRiskQueriesResult';
 import {openRetainedAuditCheckRunItem,sealAuditCheckRunHeader,sealAuditCheckRunItem,type CheckRunHeader,type CheckRunIdentity} from './auditCheckRunProtection';
-import {streamJournalRiskSlabs} from './auditCheckRunStream';
+import {streamJournalRiskSlabs,type CheckRunLimits} from './auditCheckRunStream';
 import {writeAuditCheckRunFindings,type StagedCheckRunFinding} from './auditCheckRunWriter';
 export interface CheckRunPhaseOptions {signal?:AbortSignal;deadlineAt:number}
 const itemHash=(value:unknown)=>createHash('sha256').update(canonicalJson(value)).digest('hex');
+/**
+ * Limits a caller may pass only to TIGHTEN the production bounds, so each bound's exact edge can be exercised with a
+ * population of ten rows rather than a hundred thousand. The runner never passes any; nothing may widen one.
+ */
+function tightenedLimits(production:CheckRunLimits,requested:CheckRunLimits|undefined):CheckRunLimits{
+ if(requested===undefined)return production;
+ for(const key of Object.keys(production) as (keyof CheckRunLimits)[]){
+  const base=production[key],value=requested[key];
+  if(typeof base==='number'?!(Number.isSafeInteger(value)&&(value as number)>0&&(value as number)<=base):value!==base)
+   throw new Error(`Check-run limits may only tighten the production bounds (${key})`);
+ }
+ return Object.freeze({...requested});
+}
+/** The job row as the publisher sees it now: its lease still live, expired, or taken by another generation. */
+async function publicationLease(ctx:ControlTx,lease:AuditJobLease):Promise<'live'|'expired'|'replaced'>{
+ const rows=await ctx.sql`SELECT lease_expires_at>clock_timestamp() AS live FROM control_audit_jobs
+  WHERE company_id=${lease.companyId}::uuid AND job_id=${lease.jobId}::uuid AND state='running'
+   AND lease_id=${lease.leaseId}::uuid AND generation=${lease.generation}` as {live:boolean}[];
+ return rows.length!==1?'replaced':rows[0]!.live?'live':'expired';
+}
 /** The publishing worker must still hold the delegation this job was enqueued under, at this generation and lease. */
 function assertWorkerAuthority(ctx:ControlTx,lease:AuditJobLease):void{
  assertAuditJobLease(ctx,lease);
@@ -28,14 +48,16 @@ function assertWorkerAuthority(ctx:ControlTx,lease:AuditJobLease):void{
  * shared detector functions, writes every sealed finding, re-reads them, seals the header and takes the lease-fenced
  * success pointer — all in the caller's single COMMIT. A resource limit leaves nothing behind for the unknown path.
  */
-export async function runAuditCheckRunPhase(ctx:ControlTx,lease:AuditJobLease,options:CheckRunPhaseOptions):Promise<{checkRunId:string;canonicalHash:string}>{
+export async function runAuditCheckRunPhase(ctx:ControlTx,lease:AuditJobLease,options:CheckRunPhaseOptions,requestedLimits?:CheckRunLimits):Promise<{checkRunId:string;canonicalHash:string}>{
  assertWorkerAuthority(ctx,lease);
  const check=auditCheckRunBudget(options);check();
  return withSavepoint('audit_check_run_phase',async()=>{
   const saved=await loadStoredAuditJobDelegation(ctx.sql,lease.companyId,lease.personId,lease);
   if(saved.kind!=='audit_check_run')throw new Error('Check run publication requires check-run job kind');
-  const checkId=saved.request.checkId,limits=AUDIT_CHECK_RUN_LIMITS[checkId],cutoff=saved.request.cutoff;
-  // Asserted once, before DECLARE: a per-row assertion reloads and decrypts the delegation on every journal (spike M5).
+  const checkId=saved.request.checkId,limits=tightenedLimits(AUDIT_CHECK_RUN_LIMITS[checkId],requestedLimits),cutoff=saved.request.cutoff;
+  // Asserted once, before DECLARE, and accepted as such: a per-row assertion reloads and decrypts the delegation on every
+  // journal (spike M5), and a re-check inside this repeatable-read snapshot could not see a revocation anyway. Readers
+  // re-authorise against their own current permissions on every read.
   await assertEffectivePermission(ctx,'read:reports');check();
   const [snapshot]=await ctx.sql`SELECT pg_current_snapshot()::text AS snapshot_text,pg_current_xact_id()::text AS capture_xid,
    clock_timestamp() AS captured_at` as {snapshot_text:string;capture_xid:string;captured_at:Date}[];
@@ -45,7 +67,8 @@ export async function runAuditCheckRunPhase(ctx:ControlTx,lease:AuditJobLease,op
   const identity:CheckRunIdentity={companyId:lease.companyId,checkRunId:lease.jobId,generation:lease.generation,leaseId:lease.leaseId};
   const staged:RiskFinding[]=[],findingsDigest=createHash('sha256');
   const writer=writeAuditCheckRunFindings(ctx,lease,check);
-  const population=await streamJournalRiskSlabs(ctx,{cutoff,limits,check,onSlab:async rows=>{
+  const groupable=(row:Parameters<typeof journalRiskThresholdGroup>[0])=>thresholds.some(threshold=>journalRiskThresholdGroup(row,threshold)!==null);
+  const population=await streamJournalRiskSlabs(ctx,{cutoff,limits,check,groupable,onSlab:async rows=>{
    for(const result of analyseJournalRisks(rows,thresholds)){
     const built=buildJournalRiskFinding(result),ordinal=staged.length;
     if(ordinal>=limits.maxFindings)throw new CheckRunResourceLimitError('findings_exceed_limit');
@@ -67,7 +90,10 @@ export async function runAuditCheckRunPhase(ctx:ControlTx,lease:AuditJobLease,op
    findingsDigest:findingsDigest.digest('hex'),sourceVersionCount:population.sourceVersionCount,
    permissions:saved.permissions as CheckRunHeader['permissions'],canonicalHash:'0'.repeat(64)};
   header.canonicalHash=itemHash(header);
-  // Success requires the original delegation and the current unexpired lease after the whole stream, not only before it.
+  // The publication fence: success requires the current unexpired lease after the whole stream, not only before it,
+  // checked here with its own error so a refusal names the fence that made it. Then the original delegation.
+  const fenced=await publicationLease(ctx,lease);
+  if(fenced!=='live')throw new CheckRunPublicationFenceError('recheck',fenced);
   await loadStoredAuditJobDelegation(ctx.sql,lease.companyId,lease.personId,lease);check();
   const rows=await ctx.sql`INSERT INTO control_audit_check_results(company_id,job_id,generation,lease_id,check_id,status,
    population_count,excluded_count,finding_count,snapshot_text,capture_xid,captured_at,protected_header)
@@ -80,7 +106,7 @@ export async function runAuditCheckRunPhase(ctx:ControlTx,lease:AuditJobLease,op
    lease_id=NULL,lease_expires_at=NULL,last_error_code=NULL,completed_at=clock_timestamp(),updated_at=clock_timestamp()
    WHERE company_id=${lease.companyId}::uuid AND job_id=${lease.jobId}::uuid AND state='running'
     AND lease_id=${lease.leaseId}::uuid AND generation=${lease.generation} AND lease_expires_at>clock_timestamp() RETURNING job_id`;
-  if(updated.length!==1)throw new Error('Check run publication lease expired or was replaced');
+  if(updated.length!==1){const now=await publicationLease(ctx,lease);throw new CheckRunPublicationFenceError('success_pointer',now==='live'?'replaced':now);}
   check();return{checkRunId:lease.jobId,canonicalHash:header.canonicalHash};
  });
 }

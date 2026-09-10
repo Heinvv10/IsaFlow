@@ -7,7 +7,7 @@ import {withErrorHandler} from '@/lib/api-error-handler';
 import {apiResponse} from '@/lib/apiResponse';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
-import {getAuditCheckRunPage} from '@/modules/accounting/services/controls/auditCheckRunReadService';
+import {CheckRunUnavailableError,getAuditCheckRunPage} from '@/modules/accounting/services/controls/auditCheckRunReadService';
 const querySchema=z.object({checkRunId:z.string().uuid(),
  limit:z.string().regex(/^[1-9][0-9]{0,2}$/).transform(Number).pipe(z.number().max(100)).optional(),
  cursor:z.string().regex(/^(0|[1-9][0-9]{0,5})$/).optional()}).strict();
@@ -26,6 +26,7 @@ export async function auditCheckRunsHandler(req:NextApiRequest,res:NextApiRespon
  }catch(error){
   if(error instanceof ZodError)return apiResponse.badRequest(res,'Invalid audit check run input');
   if(error instanceof EffectivePermissionError)return apiResponse.forbidden(res,'Current report permission denied');
+  if(error instanceof CheckRunUnavailableError)return error.reason==='not_ready'?apiResponse.conflict(res,error.message):apiResponse.notFound(res,'Check run');
   throw error;
  }
 }

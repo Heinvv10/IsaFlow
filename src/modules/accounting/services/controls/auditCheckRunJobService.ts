@@ -19,12 +19,17 @@ function sameFanOut(existing:IntentRow[],intents:StoredAuditCheckRunRequest[]):s
  return intents.map(intent=>{const row=byKey.get(intent.idempotencyKey);
   if(!row||row.request_hash!==auditRequestHash(intent))throw new Error(DIFFERENT);return row.id;});
 }
-/** Metadata-only enqueue of one job per check; workers alone scan sources. Authority is the issued principal. */
+/**
+ * Metadata-only enqueue of one job per check; workers alone scan sources. Authority is the issued principal.
+ * Enqueueing is a write: it takes the opt-in `write:audit` on every transport, on top of each check's own read
+ * permission, and both are decided before the quota is consulted.
+ */
 export async function enqueueAuditCheckRuns(ctx:ControlTx,input:unknown):Promise<AuditCheckRunEnqueueResult>{
  assertControlTx(ctx);
  if(ctx.principal.authMethod==='job')throw new Error('An authenticated request is required to delegate check-run work');
  const request=parseAuditCheckRunRequest(input),principal=ctx.principal;
  const intents=auditCheckRunIntents(principal.companyId,principal.personId,request);
+ await assertEffectivePermission(ctx,'write:audit');
  for(const permission of new Set(intents.flatMap(intent=>intent.permissions)))await assertEffectivePermission(ctx,permission);
  const runGroupId=intents[0]!.runGroupId;
  return withSavepoint('audit_check_run_enqueue',async()=>{
@@ -39,10 +44,12 @@ export async function enqueueAuditCheckRuns(ctx:ControlTx,input:unknown):Promise
    for(const id of ids)jobs.push(await getAuditJob(ctx,id));
    return{runGroupId,jobs};
   }
-  const [usage]=await ctx.sql`SELECT count(*) FILTER(WHERE j.state IN('queued','running'))::int AS active,count(*) FILTER(WHERE j.state='succeeded')::int AS published
+  // A rate over a trailing window, on the database clock: an old run stops counting, so no tenant is locked out for good.
+  const [usage]=await ctx.sql`SELECT count(*) FILTER(WHERE j.state IN('queued','running'))::int AS active,
+    count(*) FILTER(WHERE i.created_at>clock_timestamp()-make_interval(hours=>${AUDIT_CHECK_RUN_QUOTA.windowHours}::int))::int AS recent
    FROM control_audit_jobs j JOIN control_audit_job_intents i ON i.company_id=j.company_id AND i.id=j.job_id
-   WHERE j.company_id=${principal.companyId}::uuid AND i.kind='audit_check_run'` as {active:number;published:number}[];
-  if(!usage||usage.active+intents.length>AUDIT_CHECK_RUN_QUOTA.maxActiveJobs||usage.published>=AUDIT_CHECK_RUN_QUOTA.maxPublishedJobs)
+   WHERE j.company_id=${principal.companyId}::uuid AND i.kind='audit_check_run'` as {active:number;recent:number}[];
+  if(!usage||usage.active+intents.length>AUDIT_CHECK_RUN_QUOTA.maxActiveJobs||usage.recent+intents.length>AUDIT_CHECK_RUN_QUOTA.maxJobsPerWindow)
    throw new Error('Audit check-run quota exceeded');
   const jobs:AuditJobStatus[]=[];
   for(const stored of intents){
