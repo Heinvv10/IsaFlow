@@ -18,7 +18,7 @@ it('cancels an unposted bill without creating any journal',async()=>{
 });
 it.each(['paid','partially_paid'])('refuses cancelling a current %s bill without any effect',async status=>{
  const id=await f.invoice();await f.pool.query('UPDATE supplier_invoices SET status=$3,amount_paid=1 WHERE company_id=$1 AND id=$2',[f.f.companyA,id,status]);
- const before=await f.state();await expect(f.cancel(id)).rejects.toThrow();expect(await f.state()).toEqual(before);
+ const approvalId=await f.approve(f.ref('supplier_invoice.cancel',id)),before=await f.state();await expect(f.cancel(id,approvalId)).rejects.toThrow('with payments');expect(await f.state()).toEqual(before);
 });
 it('refuses cancelled and foreign invoice posting before any journal',async()=>{
  const id=await f.invoice();await f.pool.query("UPDATE supplier_invoices SET status='cancelled' WHERE company_id=$1 AND id=$2",[f.f.companyA,id]);const before=await f.state();
