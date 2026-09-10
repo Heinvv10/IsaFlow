@@ -41,12 +41,44 @@ export interface MigrationError {
   row?: number;
   field?: string;
   message: string;
+  /**
+   * `warning` is a row that DID import, with something the operator should look
+   * at. Absent means an error, so every entry written before this field existed
+   * reads as one.
+   */
+  severity?: 'error' | 'warning';
+}
+
+/**
+ * Where the rows the service was handed came from, and what was rejected before
+ * it saw them.
+ *
+ * The routes validate the body ROW BY ROW, so the array a service receives is
+ * the file with its bad lines removed and its indexes closed up. Reporting a
+ * failure against the position in that shortened array names the wrong line in
+ * the operator's spreadsheet, so the route passes the mapping back and every
+ * `row` the service writes is a position in the FILE.
+ */
+export interface ImportRowContext {
+  /** `sourceRows[i]` is the request-body position of the service's row `i`. */
+  sourceRows?: number[];
+  /** Rows the route's schema rejected; merged into this step's errors. */
+  priorErrors?: MigrationError[];
 }
 
 export interface ImportResult {
   imported: number;
   skipped: number;
   errors: MigrationError[];
+  /**
+   * Rows that imported, but with something the operator should look at — a
+   * source file whose subtotal, tax and total disagree by a few cents. Separate
+   * from `errors` because those rows did NOT import.
+   *
+   * Optional so the wizard's other steps, which raise none, stay unchanged.
+   * Read it as `warnings ?? []`.
+   */
+  warnings?: MigrationError[];
 }
 
 // ── DbRow mapper ───────────────────────────────────────────────────────────────
@@ -124,14 +156,39 @@ export async function updateSession(
     UPDATE migration_sessions SET
       source_system        = COALESCE(${updates.sourceSystem ?? null}, source_system),
       status               = COALESCE(${updates.status ?? null}, status),
-      steps_completed      = COALESCE(${updates.stepsCompleted ? JSON.stringify(updates.stepsCompleted) : null}::JSONB, steps_completed),
+      -- MERGE, never replace: each wizard step sends only its own flag, and a
+      -- whole-value assignment erased every step completed before it.
+      steps_completed      = COALESCE(steps_completed, '{}'::JSONB)
+                             || COALESCE(${updates.stepsCompleted ? JSON.stringify(updates.stepsCompleted) : null}::JSONB, '{}'::JSONB),
       coa_records_imported = COALESCE(${updates.coaRecordsImported ?? null}, coa_records_imported),
       customers_imported   = COALESCE(${updates.customersImported ?? null}, customers_imported),
       suppliers_imported   = COALESCE(${updates.suppliersImported ?? null}, suppliers_imported),
       opening_balances_set = COALESCE(${updates.openingBalancesSet ?? null}, opening_balances_set),
       ar_invoices_imported = COALESCE(${updates.arInvoicesImported ?? null}, ar_invoices_imported),
       ap_invoices_imported = COALESCE(${updates.apInvoicesImported ?? null}, ap_invoices_imported),
-      errors               = COALESCE(${updates.errors ? JSON.stringify(updates.errors) : null}::JSONB, errors),
+      -- Keep the OTHER steps' errors and replace this step's own. A whole-value
+      -- assignment erased every other step (an empty array is truthy in JS, so
+      -- even a clean run wrote '[]' over them); a plain append made a re-run
+      -- report the same row again and grew the column without bound. The step
+      -- being superseded is named by steps_completed, so a clean re-run clears
+      -- the errors its previous attempt left behind.
+      --
+      -- NOT EXISTS rather than a negated IN: an incoming error with no step
+      -- key puts a NULL in the IN-list, which makes the predicate NULL for
+      -- every non-matching row and silently deletes every other step's errors.
+      errors               = (
+                               SELECT COALESCE(jsonb_agg(e), '[]'::JSONB)
+                                 FROM jsonb_array_elements(COALESCE(errors, '[]'::JSONB)) e
+                                WHERE NOT EXISTS (
+                                        SELECT 1 FROM jsonb_object_keys(
+                                          COALESCE(${updates.stepsCompleted ? JSON.stringify(updates.stepsCompleted) : null}::JSONB, '{}'::JSONB)) k
+                                         WHERE k = e->>'step'
+                                        UNION ALL
+                                        SELECT 1 FROM jsonb_array_elements(
+                                          COALESCE(${updates.errors?.length ? JSON.stringify(updates.errors) : null}::JSONB, '[]'::JSONB)) n
+                                         WHERE n->>'step' = e->>'step'
+                                      )
+                             ) || COALESCE(${updates.errors?.length ? JSON.stringify(updates.errors) : null}::JSONB, '[]'::JSONB),
       notes                = COALESCE(${updates.notes ?? null}, notes),
       completed_at         = COALESCE(${updates.completedAt ?? null}::TIMESTAMPTZ, completed_at)
     WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
@@ -140,10 +197,72 @@ export async function updateSession(
   return mapSessionRow(rows[0]!);
 }
 
+/**
+ * R-020. Opening balance equity is the wizard's clearing account. The procedure
+ * the wizard prescribes is: take the source system's trial balance, REMOVE its
+ * AR and AP control lines, and let opening balance equity absorb the difference
+ * that removal leaves. The document steps then post the other side of exactly
+ * that difference, one line per outstanding document, and the account nets to
+ * zero.
+ *
+ * ASSUMPTION, and it is not enforceable from here: opening balance equity
+ * carries nothing but that difference. An operator who instead balances the
+ * WHOLE trial balance on opening balance equity — the other common convention —
+ * ends with a residual equal to the rest of the trial balance, and that is not
+ * an error. The message says so rather than accusing them of a double count.
+ *
+ * Scoped to this session: the query counts only entries posted since the session
+ * started, so a company that runs the wizard a second time is not handed the
+ * first run's contras.
+ *
+ * Recorded, not enforced. The wizard is finished at this point and refusing to
+ * mark it complete would strand the operator with imported data and no way
+ * forward.
+ */
+async function recordClearingResidual(sessionId: string, companyId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT COALESCE(SUM(l.debit - l.credit), 0) AS residual
+    FROM gl_journal_lines l
+    JOIN gl_accounts a ON a.id = l.gl_account_id AND a.company_id = ${companyId}::UUID
+    JOIN gl_journal_entries e ON e.id = l.journal_entry_id AND e.company_id = ${companyId}::UUID
+    JOIN migration_sessions s ON s.id = ${sessionId}::UUID AND s.company_id = ${companyId}::UUID
+    WHERE l.company_id = ${companyId}::UUID
+      AND a.account_subtype = 'opening_balance_equity'
+      -- is_system_account IDENTIFIES the clearing account: a chart with a
+      -- second, non-system OBE account otherwise pulls lines the take-on never
+      -- posted to into the residual. Its only mutation path, the COA re-import's
+      -- demotion, clears account_subtype in the same statement, so a demoted row
+      -- leaves this query by subtype and the flag hides nothing on its own.
+      --
+      -- is_active is NOT here, deliberately. It is a picker flag: it decides
+      -- what a dropdown offers, not what an account holds. Deactivating the
+      -- clearing account after the take-on posted would have dropped every one
+      -- of its lines and reported a zero residual over a real one.
+      AND a.is_system_account = true
+      AND e.status = 'posted'
+      AND e.source = 'auto_migration'
+      AND e.created_at >= s.started_at
+  `) as DbRow[];
+  const residual = Number(rows[0]?.residual ?? 0);
+  if (Math.abs(residual) <= 0.005) return;
+
+  log.warn('Migration left a non-zero opening balance equity residual', {
+    sessionId, companyId, residual,
+  }, 'migration');
+  await updateSession(sessionId, companyId, {
+    errors: [{
+      step: 'complete',
+      severity: 'warning',
+      message: `Opening Balance Equity holds ${residual.toFixed(2)} after take-on. That is expected if you balanced the opening trial balance on Opening Balance Equity, and the amount should then equal the rest of that trial balance. If you did not, the trial balance and the imported documents disagree — usually a receivable or payable control total left in the trial balance, or an invoice list that does not match it.`,
+    }],
+  });
+}
+
 export async function completeSession(
   sessionId: string,
   companyId: string,
 ): Promise<MigrationSession> {
+  await recordClearingResidual(sessionId, companyId);
   const rows = (await sql`
     UPDATE migration_sessions
     SET status = 'completed', completed_at = NOW()
