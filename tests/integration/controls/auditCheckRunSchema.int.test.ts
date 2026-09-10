@@ -4,7 +4,7 @@ import {Pool,type PoolClient} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
-import {AUDIT_JOB_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
+import {AUDIT_JOB_KINDS,AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {enqueueAuditSnapshot} from '@/modules/accounting/services/controls/auditJobService';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
 import {claimAuditJob,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
@@ -25,7 +25,7 @@ const actor=<T>(work:()=>Promise<T>)=>asMember('u1',client=>withControlRequest({
  {personId:fixture.u1.id,companyId:fixture.companyA,authMethod:'cookie'},work),true);
 async function claimedCheckRun():Promise<AuditJobLease>{
  const run=await actor(()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff:'2026-09-09',checks:['journal_risk_checks'],idempotencyKey:randomUUID()}));
- const lease=await actor(()=>claimAuditJob(requireControlTx(),run.jobs[0]!.id));if(!lease)throw new Error('Synthetic check-run claim failed');return lease;
+ const lease=await actor(()=>claimAuditJob(requireControlTx(),run.jobs[0]!.id,AUDIT_WORKER_CLASS_KINDS.check_run));if(!lease)throw new Error('Synthetic check-run claim failed');return lease;
 }
 const header=JSON.stringify({sealed:'synthetic'});
 function insertResult(client:PoolClient,lease:Pick<AuditJobLease,'companyId'|'jobId'|'generation'|'leaseId'>,status='pass',findingCount=0){
@@ -66,7 +66,7 @@ it('accepts result and finding rows only from the live lease of a running check-
 });
 it('refuses check-run rows written under the lease of a snapshot-kind job',async()=>{
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
- const lease=await actor(()=>claimAuditJob(requireControlTx(),job.id));expect(lease).not.toBeNull();
+ const lease=await actor(()=>claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit));expect(lease).not.toBeNull();
  for(const insert of [insertResult,insertFinding])await expect(asMember('u1',client=>insert(client,lease!))).rejects.toMatchObject({code:'42501'});
 });
 it('an unknown result carries no findings and success needs the matching generation-bound result row',async()=>{

@@ -38,7 +38,8 @@ it('sets the lease from the claimed kind: maxRuntime plus grace for a check run,
  const [checkLease,snapLease]=[await remainingSeconds(check),await remainingSeconds(snap)];
  expect(checkLease).toBeGreaterThan(325);expect(checkLease).toBeLessThanOrEqual(330);
  expect(snapLease).toBeGreaterThan(85);expect(snapLease).toBeLessThanOrEqual(90);
- const viaStatus=await checkRun();expect(await actor(()=>claimAuditJob(requireControlTx(),viaStatus))).not.toBeNull();
+ const viaStatus=await checkRun();expect(await actor(()=>claimAuditJob(requireControlTx(),viaStatus,AUDIT_WORKER_CLASS_KINDS.audit))).toBeNull();
+ expect(await actor(()=>claimAuditJob(requireControlTx(),viaStatus,AUDIT_WORKER_CLASS_KINDS.check_run))).not.toBeNull();
  expect(await remainingSeconds(viaStatus)).toBeGreaterThan(325);
  // A running check run inside its lease is invisible to every poller class: no second unit is started.
  const seen:string[]=[];
@@ -67,8 +68,15 @@ function observing(target:Pool,seen:Seen[]):Pool{
 it('observes a <=5 s claim timeout, the class work timeout and the per-class idle timeout in PostgreSQL',async()=>{
  const check=await checkRun(),checkSeen:Seen[]=[];
  const result=await runAuditJob(identity(check),{pool:observing(pool,checkSeen),workerClass:'check_run'});
- expect(result).toMatchObject({state:'failed',failureRecorded:true});
+ expect(result).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
  expect(checkSeen).toHaveLength(3);
+ // Until the T2c phase exists a claimed check run fails closed, once, and is never reclaimed.
+ expect((await pool.query('SELECT state,last_error_code,attempts,lease_id FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,check])).rows[0])
+  .toEqual({state:'failed',last_error_code:'WORKER_ERROR',attempts:1,lease_id:null});
+ const again=vi.fn(async()=>({state:'not_claimed' as const})),poller=createAuditJobPoller({companyIds:[fixture.companyA],kinds:['audit_check_run'],batchSize:10},{pool,executeJob:again});
+ while((await poller.pollOnce()).attempted>0);
+ expect(again.mock.calls.map(call=>(call as unknown as [{jobId:string}])[0].jobId)).not.toContain(check);
+ expect(await runAuditJob(identity(check),{pool,workerClass:'check_run'})).toEqual({state:'not_claimed'});
  expect(checkSeen[0]!.statement).toBeLessThanOrEqual(5000);expect(checkSeen[0]!.statement).toBeGreaterThan(0);
  expect(checkSeen[1]!.statement).toBeGreaterThan(295000);expect(checkSeen[1]!.statement).toBeLessThanOrEqual(300000);
  for(const seen of checkSeen)expect(seen.idle).toBe(15000);

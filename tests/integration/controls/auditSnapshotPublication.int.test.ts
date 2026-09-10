@@ -1,4 +1,5 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
@@ -25,7 +26,7 @@ async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u3'='u1',rollback=false,l
 }
 async function prepared(){
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
- const lease=(await actor(()=>claimAuditJob(requireControlTx(),job.id)))!;
+ const lease=(await actor(()=>claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit)))!;
  const bytes=Buffer.from('synthetic retained source bytes'),id=randomUUID();
  const data={version:1 as const,companyId:fixture.companyA,snapshotId:job.id,cutoff:'2026-09-09',capturedAt:new Date().toISOString(),
   records:[{source:'journal_entry',id,version:1,data:{amount:'123.00'}}],

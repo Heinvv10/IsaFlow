@@ -1,4 +1,5 @@
 import {beforeAll,afterAll,it,expect} from 'vitest';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
@@ -55,7 +56,7 @@ it('rolls back enqueue and denies revoked source reads before retry/status',asyn
 });
 it('retains original PAT delegation and refuses a revoked token at actual worker context bootstrap',async()=>{
  const job=await actor(()=>enqueueAuditExport(requireControlTx(),{snapshotId,idempotencyKey:randomUUID()}),'u1',true);
- const lease=await actor(()=>claimAuditJob(requireControlTx(),job.id));expect(lease).not.toBeNull();
+ const lease=await actor(()=>claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit));expect(lease).not.toBeNull();
  await work(lease!,async()=>{expect(requireControlTx().principal.authMethod).toBe('job');await assertEffectivePermission(requireControlTx(),'read:payroll');});
  await pool.query('UPDATE personal_access_tokens SET revoked_at=clock_timestamp() WHERE company_id=$1 AND id=$2',[fixture.companyA,fixture.u1.tokens[0]!.id]);
  let called=false;

@@ -1,8 +1,8 @@
 import {afterEach,expect,it,vi} from 'vitest';
-import {AUDIT_JOB_KINDS,AUDIT_WORKER_CLASSES,AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
+import {AUDIT_JOB_KINDS,AUDIT_JOB_LIMITS,AUDIT_WORKER_CLASSES,AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {AUDIT_CHECK_RUN_IDS,AUDIT_CHECK_RUN_LIMITS} from '@/modules/accounting/services/controls/auditCheckRunContract';
 import {AUDIT_PROCESS_LIMITS} from '@/modules/accounting/services/controls/auditJobProcessContract';
-import {AUDIT_PROCESS_ENV,AUDIT_WORKER_CLASS_ENV,auditProcessArguments,auditResultPermittedForClass,decodeAuditProcessReply,encodeAuditProcessReply}
+import {AUDIT_PROCESS_ENV,AUDIT_WORKER_CLASS_ENV,AUDIT_WORKER_STARTED_AT_ENV,auditProcessArguments,auditResultPermittedForClass,decodeAuditProcessReply,encodeAuditProcessReply}
  from '@/modules/accounting/services/controls/auditJobProcessProtocol';
 import {auditUnitCapsMatch,auditUnitObjectPath,parseBusctlUint64,parseSystemdTimeSpan} from '@/modules/accounting/services/controls/auditJobSystemd';
 afterEach(()=>vi.unstubAllEnvs());
@@ -14,14 +14,20 @@ it('partitions every job kind into exactly one worker class',()=>{
  expect([...AUDIT_WORKER_CLASS_KINDS.audit,...AUDIT_WORKER_CLASS_KINDS.check_run].sort()).toEqual([...AUDIT_JOB_KINDS].sort());
 });
 it('keeps the legacy class unchanged and orders the check-run timers inside the unit and the lease',()=>{
+ expect(AUDIT_PROCESS_LIMITS.audit.workDeadlineMs).toBe(AUDIT_JOB_LIMITS.maxRunSeconds*1000);
  expect(AUDIT_PROCESS_LIMITS.audit).toEqual({workDeadlineMs:60000,claimDeadlineMs:5000,unknownPublicationMs:0,failureRecordMs:5000,maxRuntimeMs:65000,killGraceMs:2000,
   runtimeMaxSec:65,memoryMaxBytes:8*1024**3,maxOldSpaceMb:4096,idleInTransactionMs:null});
  const c=AUDIT_PROCESS_LIMITS.check_run;
  expect(c).toEqual({workDeadlineMs:300000,claimDeadlineMs:5000,unknownPublicationMs:10000,failureRecordMs:5000,maxRuntimeMs:325000,killGraceMs:2000,
   runtimeMaxSec:340,memoryMaxBytes:2*1024**3,maxOldSpaceMb:1536,idleInTransactionMs:15000});
- const inner=c.claimDeadlineMs+c.workDeadlineMs+c.unknownPublicationMs+c.failureRecordMs;
- expect(inner).toBe(320000);expect(inner).toBeLessThan(c.maxRuntimeMs);
+ // Every child budget is anchored at the parent's spawn timestamp: readiness, Node start-up and the claim all spend the work
+ // budget (the claim is bounded inside it), then the unknown publication and the failure record follow. Raising any of them
+ // (T2c uses unknownPublicationMs) past the parent's SIGTERM breaks this inequality.
+ expect(c.claimDeadlineMs).toBeLessThan(c.workDeadlineMs);
+ const inner=c.workDeadlineMs+c.unknownPublicationMs+c.failureRecordMs;
+ expect(inner).toBe(315000);expect(inner).toBeLessThan(c.maxRuntimeMs);
  expect(c.maxRuntimeMs).toBeLessThanOrEqual(c.runtimeMaxSec*1000-c.killGraceMs);
+ const a=AUDIT_PROCESS_LIMITS.audit;expect(a.workDeadlineMs+a.unknownPublicationMs+a.failureRecordMs).toBeLessThanOrEqual(a.maxRuntimeMs);
  for(const check of AUDIT_CHECK_RUN_IDS){const l=AUDIT_CHECK_RUN_LIMITS[check];
   expect(l.maxRuntimeMs).toBeLessThanOrEqual(c.workDeadlineMs);expect(l.maxRuntimeMs+l.graceMs).toBeGreaterThanOrEqual(inner);
   expect(l.idleMs).toBe(c.idleInTransactionMs);}
@@ -29,13 +35,17 @@ it('keeps the legacy class unchanged and orders the check-run timers inside the 
 });
 it('derives unit caps and heap from the class and pins the class as a literal the parent environment cannot supply',()=>{
  vi.stubEnv(AUDIT_WORKER_CLASS_ENV,'check_run');
- const audit=auditProcessArguments({...config,workerClass:'audit'},unit),check=auditProcessArguments({...config,workerClass:'check_run'},unit);
+ vi.stubEnv(AUDIT_WORKER_STARTED_AT_ENV,'1');
+ const spawnAt=1_789_000_000_000,audit=auditProcessArguments({...config,workerClass:'audit'},unit,spawnAt),check=auditProcessArguments({...config,workerClass:'check_run'},unit,spawnAt);
+ for(const args of [audit,check])expect(args.filter(arg=>arg.includes(AUDIT_WORKER_STARTED_AT_ENV))).toEqual([`--setenv=ISAFLOW_AUDIT_WORKER_STARTED_AT=${spawnAt}`]);
+ expect(AUDIT_PROCESS_ENV).not.toContain(AUDIT_WORKER_STARTED_AT_ENV);
+ for(const bad of [Number.NaN,1.5,-1])expect(()=>auditProcessArguments({...config,workerClass:'audit'},unit,bad)).toThrow();
  for(const value of ['--property=MemoryMax=8589934592','--property=RuntimeMaxSec=65s','--max-old-space-size=4096','--setenv=ISAFLOW_AUDIT_WORKER_CLASS=audit'])expect(audit).toContain(value);
  for(const value of ['--property=MemoryMax=2147483648','--property=RuntimeMaxSec=340s','--max-old-space-size=1536','--setenv=ISAFLOW_AUDIT_WORKER_CLASS=check_run'])expect(check).toContain(value);
  expect(audit.filter(arg=>arg.includes(AUDIT_WORKER_CLASS_ENV))).toEqual(['--setenv=ISAFLOW_AUDIT_WORKER_CLASS=audit']);
  expect(AUDIT_PROCESS_ENV).not.toContain(AUDIT_WORKER_CLASS_ENV);
- expect(()=>auditProcessArguments({...config,workerClass:'admin'} as never,unit)).toThrow();
- expect(()=>auditProcessArguments(config as never,unit)).toThrow();
+ expect(()=>auditProcessArguments({...config,workerClass:'admin'} as never,unit,spawnAt)).toThrow();
+ expect(()=>auditProcessArguments(config as never,unit,spawnAt)).toThrow();
 });
 it('round-trips the check-run reply variant and rejects malformed replies',()=>{
  const reply={version:1 as const,result:{state:'succeeded' as const,checkRunId:id,canonicalHash:hash}};
