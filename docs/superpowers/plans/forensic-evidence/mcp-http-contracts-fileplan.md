@@ -21,3 +21,14 @@ Base: c4b2c9859. Owner: snapshot_capture. Isolated branch feat/mcp-http-contract
 ## Resource and evidence boundary
 
 No PG, build or heavy TS without root lease. Reuse built c4b2 artifact in mcp-forensic-ci-20260910. Synthetic fixture only; never seed financial effects as successful workflow proof. Root will remove bankPrepared test-local registration fallback. Financial valid execution, final integrated CI and production verification remain separate.
+
+## Checkpoints
+
+- c06832584: genuine old sampler RED, four production-validator refusals: optional export/snapshot numeric cursor, optional bank amount, required beneficiary account digits. Pure test only; no database connection.
+- Required-only sampler now validates all148. Deterministic mutation implementation first failed for missing module, then one expected-message correction for write idempotency gate; five light tests now pass. Matrix:1612 field refusals,145 scope,32 post,145 current-rights =1934 actual HTTP cases planned.209 documented compatibility mutations are retained as separate pure cases and never sent to successful financial handlers.
+- Shards capped600; CLI checkpoints each completed call atomically with selected/executed/remaining IDs and plan hash. A shard is not complete programme coverage.
+- Actual HTTP/PG and dedicated/source TS still pending root resource lease. No runtime acceptance claim yet.
+
+Supplemental read contract source verification: c4b2 reports.ts:114–191 declares list_gl_accounts default200/max500, active_only defaulttrue and keyset cursor/total; company.ts list_companies returns exactly the one token-bound company even with a second current membership. New read fixture seeds202 owned GL accounts (201 active) plus a foreign current-member account, a balanced draft journal and fiscal period; no approved/posted state is seeded. It checks exact populations/default200, continuation, numeric-string limit3, include-inactive202, owned requirements success → reports deny → same-ref refusal → restored identical success, and zero approvals/effects with unchanged broad PAT scopes. Supplemental missing-function RED observed; real runtime proof remains pending.
+
+Six pure tests passed after current source edits (Vitest filtered contracts.int.test.ts; actual HTTP tests excluded). Root resource queue: invoice PG/heavy, exception authority projection regression, then this worker TS/HTTP. No worker process is held while waiting. Built c4b2 artifact must be reused, not rebuilt.

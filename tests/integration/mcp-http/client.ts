@@ -7,16 +7,21 @@ export function validateMcpHttpOrigin(value:string|undefined):string{
 }
 export interface RpcResult {content?:Array<{type:string;text:string}>;isError?:boolean;tools?:Array<{name:string;description:string;inputSchema:Record<string,unknown>}>;serverInfo?:{name:string}}
 export interface RpcReply {jsonrpc:string;id:number;result?:RpcResult;error?:{code:number;message:string}}
+export function assertRpcReply(reply:RpcReply,id:number,expectedError?:number):void{
+ if(reply.jsonrpc!=='2.0'||reply.id!==id)throw new Error('MCP response correlation mismatch');
+ if(expectedError!==undefined){if(reply.error?.code!==expectedError||reply.result!==undefined)throw new Error('Expected exact MCP protocol error');}
+ else if(reply.error||reply.result===undefined)throw new Error('Unexpected MCP protocol error or absent result');
+}
 /** Real HTTP only. Pace below both the per-company and per-IP production limit. */
 export function mcpHttpClient(origin:string){
  const base=validateMcpHttpOrigin(origin);let sequence=0,nextRequestAt=0;
- async function request(path:string,token?:string,body?:unknown){
+ async function request(path:string,token?:string,body?:unknown,expectedStatus=200){
   const wait=nextRequestAt-Date.now();if(wait>0)await new Promise(resolve=>setTimeout(resolve,wait));
   nextRequestAt=Date.now()+650;
   const response=await fetch(`${base}${path}`,{method:body===undefined?'GET':'POST',redirect:'error',signal:AbortSignal.timeout(30000),
    headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...(body===undefined?{}:{'Content-Type':'application/json'})},
    ...(body===undefined?{}:{body:JSON.stringify(body)})});
-  if(response.status!==200)throw new Error(`Unexpected MCP HTTP status ${response.status}`);
+  if(response.status!==expectedStatus)throw new Error(`Unexpected MCP HTTP status ${response.status}`);
   const reader=response.body?.getReader();if(!reader)throw new Error('Missing MCP response body');
   let length=0;const chunks:Uint8Array[]=[];
   try{for(;;){const row=await reader.read();if(row.done)break;length+=row.value.byteLength;
@@ -25,11 +30,11 @@ export function mcpHttpClient(origin:string){
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
  }
  return{
+  expectedHttp:(status:number,token:string,body:unknown)=>request('/api/mcp',token,body,status),
   get:()=>request('/api/mcp') as Promise<{tools:string[]}>,
-  async rpc(token:string,method:string,params?:Record<string,unknown>):Promise<RpcReply>{
+  async rpc(token:string,method:string,params?:Record<string,unknown>,expectedError?:number):Promise<RpcReply>{
    const id=++sequence,reply=await request('/api/mcp',token,{jsonrpc:'2.0',id,method,...params?{params}:{}}) as RpcReply;
-   if(reply.jsonrpc!=='2.0'||reply.id!==id)throw new Error('MCP response correlation mismatch');
-   if(reply.error)throw new Error(`Unexpected RPC error ${reply.error.code}: ${reply.error.message}`);
+   assertRpcReply(reply,id,expectedError);
    return reply;
   },
  };
