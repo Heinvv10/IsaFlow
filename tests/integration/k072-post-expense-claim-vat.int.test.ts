@@ -146,6 +146,9 @@ beforeAll(async () => {
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 
+// 60s, explicitly: the default 10s hook budget was exceeded on a loaded shared
+// fixture database, so the file passed every assertion and still exited 1 with
+// its rows left behind for the next run to trip over.
 afterAll(async () => {
   try {
     await purge();
@@ -153,7 +156,7 @@ afterAll(async () => {
     clearSystemAccountCache();
     await pool.end();
   }
-});
+}, 60_000);
 
 describe('K-072 the employee claim branch obeys s17(2)(a) too', () => {
   it('puts the gross on the line and claims no VAT on a flagged account', async () => {

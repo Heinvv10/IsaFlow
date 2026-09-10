@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractAmounts } from '@/modules/accounting/services/core/ocrExtractionService';
+import { buildExpenseJournalFromReceipt } from '@/modules/accounting/services/bank/receiptToJournalService';
+import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 /**
  * THE LABEL VOCABULARY, as a table.
@@ -115,6 +117,13 @@ describe('K-076 every PAYABLE label is read as the total', () => {
     ['Total Including VAT', 'Total Including VAT 1150.00'],
     ['Amount Including V.A.T.', 'Amount Including V.A.T. 1150.00'],
     ['Total Incl Tax', 'Total Incl Tax 1150.00'],
+    // The parenthesised qualifier. Nothing could cross the bracket, so one of
+    // the commonest SA till-slip spellings produced NO total at all and the
+    // whole document was refused.
+    ['TOTAL (VAT INCL)', 'TOTAL (VAT INCL) 1150.00'],
+    ['Total (Incl. VAT)', 'Total (Incl. VAT) 1150.00'],
+    ['Grand Total (VAT Inclusive)', 'Grand Total (VAT Inclusive) 1150.00'],
+    ['Total (15% VAT)', 'Total (15% VAT) 1150.00'],
   ])('%s', (_name, text) => {
     expect(extractAmounts(text).totalAmount).toBe(1150);
   });
@@ -127,6 +136,19 @@ describe('K-076 every PAYABLE label is read as the total', () => {
     ['Items Total', 'Items Total 1150.00'],
   ])('%s is still a total — the guard reads words, not letters', (_name, text) => {
     expect(extractAmounts(text).totalAmount).toBe(1150);
+  });
+
+  it.each([
+    ['VAT Total', 'Sub Total 1000.00\nVAT Total 150.00\nTotal Due 1150.00'],
+    ['Tax Total', 'Sub Total 1000.00\nTax Total 150.00\nTotal Due 1150.00'],
+  ])('%s is the tax, not the payable total', (_name, text) => {
+    // The mirror of the `Sub Total` guard, and the same shape: `NOT_A_SUBTOTAL`
+    // refused a `Total` preceded by a NET word but not one preceded by a TAX
+    // word, so the payable came back as R150 and the tax was lost entirely.
+    const result = extractAmounts(text);
+    expect(result.totalAmount).toBe(1150);
+    expect(result.vatAmount).toBe(150);
+    expect(result.subtotal).toBe(1000);
   });
 
   it('does not read an Accounts Payable heading as the amount payable', () => {
@@ -144,6 +166,17 @@ describe('K-076 every TAX label is read as the tax', () => {
     ['VAT 15%', 'VAT 15% 150.00'],
     ['Tax', 'Tax 150.00'],
     ['Tax Amount', 'Tax Amount 150.00'],
+    // The noun after the tax word. `Tax Amount` was admitted and `VAT Amount`
+    // was not, so a zero-rated slip printing `VAT Amount 0.00` came back with
+    // vatAmount NULL — and null makes the builder DERIVE 15% of the total,
+    // which is an input-tax claim the document itself denies.
+    ['VAT Amount', 'VAT Amount 150.00'],
+    ['VAT Total', 'VAT Total 150.00'],
+    ['VAT Value', 'VAT Value 150.00'],
+    ['V.A.T. Amount', 'V.A.T. Amount 150.00'],
+    ['VAT Amount:', 'VAT Amount: 150.00'],
+    ['Tax Total', 'Tax Total 150.00'],
+    ['Total VAT', 'Total VAT 150.00'],
     ['Output Tax', 'Output Tax 150.00'],
     ['Input Tax', 'Input Tax 150.00'],
     ['VAT R', 'VAT R 150.00'],
@@ -182,6 +215,31 @@ describe('K-076 realistic South African layouts foot', () => {
     expect(result.vatAmount).toBe(0);
     expect(result.subtotal).toBe(1000);
     expect(result.totalAmount).toBe(1000);
+  });
+
+  it.each([
+    ['VAT Amount', 'VAT Amount 0.00'],
+    ['VAT Total', 'VAT Total 0.00'],
+    ['Tax Amount', 'Tax Amount 0.00'],
+    ['VAT', 'VAT 0.00'],
+  ])('a zero-rated slip printing "%s" claims no input tax', (_name, vatLine) => {
+    // The money outcome, not the extraction: with vatAmount null the builder
+    // discards the printed subtotal and derives 15% of the total, so a slip
+    // that PRINTS its VAT as zero produced R130.43 of input tax claimed
+    // against SARS — balanced, unwarned, and inside the auto-post gate.
+    const result = extractAmounts(`Sub Total 1000.00\n${vatLine}\nTotal Due 1000.00`);
+    expect(result.vatAmount).toBe(0);
+    expect(result.subtotal).toBe(1000);
+    expect(result.totalAmount).toBe(1000);
+
+    const journal = buildExpenseJournalFromReceipt(
+      { ...result, vendorName: 'Pick n Pay', date: '2026-09-01' } as unknown as ExtractedDocument,
+      { expenseAccountId: 'exp', vatInputAccountId: 'vat', bankAccountId: 'bank' },
+    );
+    const vatLeg = journal.lines.find((l) => l.accountId === 'vat');
+    expect(vatLeg?.debit ?? 0).toBe(0);
+    expect(journal.lines.find((l) => l.accountId === 'exp')?.debit).toBe(1000);
+    expect(journal.lines.find((l) => l.accountId === 'bank')?.credit).toBe(1000);
   });
 
   it('a hotel bill carrying both a Tax column and a VAT column', () => {

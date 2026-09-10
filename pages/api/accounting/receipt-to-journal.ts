@@ -24,6 +24,7 @@ import {
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
   CaptureRowLockTimeoutError,
+  claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
@@ -139,7 +140,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     { accountVatDenied: accountDenial.denied },
   );
   const receiptType = parseReceiptType(extracted);
-  const autoPost = shouldAutoPostReceipt(extracted.totalAmount || 0, extracted.confidence, { maxAmount: 5000, minConfidence: 0.85 });
+  const autoPost = shouldAutoPostReceipt(
+    extracted.totalAmount || 0, extracted.confidence,
+    { maxAmount: 5000, minConfidence: 0.85 }, extracted.warnings,
+  );
 
   // Create the entry through the validated posting service.
   //
@@ -192,6 +196,22 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     );
   }
 
+  // Claim the document BEFORE the first ledger write, not after it.
+  //
+  // The stamp used to be the last statement in the handler, which made the
+  // status read above a check-then-act — and the OTHER posting route
+  // (`capture/[id]/post-expense`) never read this column at all, so posting a
+  // receipt here and then posting the same document from the capture inbox
+  // wrote two VAT-bearing journals against one receipt with no concurrency
+  // involved. Claiming here settles both: the status-predicated UPDATE is the
+  // one write that decides who posts, and it happens while the row is held.
+  //
+  // This is the last point at which a 4xx is safe — `withAuth` COMMITs on 4xx,
+  // and a refusal here has written nothing because the UPDATE matched no row.
+  if (!await claimCapturedDocumentForPosting(companyId, documentId)) {
+    return apiResponse.badRequest(res, 'Document already posted to a journal');
+  }
+
   const entry = await createJournalEntry(companyId, {
     entryDate: journalInput.entryDate,
     description: journalInput.description,
@@ -203,10 +223,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (autoPost) {
     await postJournalEntry(companyId, entry.id, userId);
   }
-
-  await sql`
-    UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `;
 
   const je = { id: entry.id, status: autoPost ? 'posted' : 'draft' };
 

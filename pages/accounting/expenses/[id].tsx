@@ -68,6 +68,11 @@ export default function ExpenseClaimDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  // The s17(2)(a) advice the approve/reject endpoint returns. It was computed
+  // and thrown away here — `json.data.claim` was destructured and the rest
+  // dropped — so the person the module doc calls "the last person who sees the
+  // claim before postClaim debits VAT Input" was never actually warned.
+  const [vatAdvice, setVatAdvice] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [addMode, setAddMode] = useState<'none' | 'receipt' | 'mileage'>('none');
   const [postMode, setPostMode] = useState(false);
@@ -181,11 +186,12 @@ export default function ExpenseClaimDetail() {
       const res = await apiFetch(`/api/accounting/expense-claims/${id}/${endpoint}`, {
         method: 'POST', body: JSON.stringify(body),
       });
-      const json = await res.json() as { data?: { claim?: Claim }; error?: { message?: string } | string };
+      const json = await res.json() as { data?: { claim?: Claim; warnings?: string[] }; error?: { message?: string } | string };
       if (!res.ok || !json.data?.claim) {
         const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed';
         showToast(msg, false); return;
       }
+      setVatAdvice(json.data.warnings ?? []);
       setClaim(json.data.claim);
       showToast(`Claim ${json.data.claim.status}`, true);
       if (endpoint === 'post') setPostMode(false);
@@ -256,6 +262,13 @@ export default function ExpenseClaimDetail() {
         )}
 
         <div className="px-6 py-6 space-y-4">
+          {vatAdvice.map((advice) => (
+            <div key={advice} className="px-4 py-3 rounded-lg bg-amber-900/30 text-amber-200 text-sm flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{advice}</span>
+            </div>
+          ))}
+
           {claim.rejectionReason && (
             <div className="px-4 py-3 rounded-lg bg-red-900/30 text-red-300 text-sm">
               <strong>Rejected:</strong> {claim.rejectionReason}

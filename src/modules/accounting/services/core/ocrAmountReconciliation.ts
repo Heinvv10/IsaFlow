@@ -19,6 +19,28 @@
 const STANDARD_RATE_MIN = 0.13;
 const STANDARD_RATE_MAX = 0.17;
 
+/**
+ * The opening words of BOTH outcomes, so the auto-post gate can recognise one
+ * without re-spelling it.
+ *
+ * The printed subtotal was a CHECKSUM: while the reader kept it, a document
+ * whose three figures disagreed reached the callers' balance pre-check and came
+ * back a 400 that a person had to look at. Inside the band the reader now
+ * rebases the net instead, which is right for the levy case and silently
+ * discards that checksum for every other reason the figures might disagree — a
+ * total mis-read by ~1.5% lands in the band too. `shouldAutoPostReceipt`
+ * consults neither the warnings nor the confidence's provenance, so the rebased
+ * document would post unattended where it used to stop. One shared prefix, one
+ * predicate, and the gate reads it: rebase for the attended path, never for the
+ * unattended one.
+ */
+export const UNRECONCILED_WARNING = 'The extracted amounts do not reconcile';
+
+/** Did the reader fail to settle this document's own arithmetic on its own? */
+export function isUnreconciled(warnings: readonly string[] | null | undefined): boolean {
+  return (warnings ?? []).some((w) => w.startsWith(UNRECONCILED_WARNING));
+}
+
 export interface ReconciledNet {
   /** The net to use — the printed one, or the derived one where it is safe. */
   subtotal: number | null;
@@ -42,12 +64,12 @@ export function reconcileNetAgainstTotal(
   if (rate >= STANDARD_RATE_MIN && rate <= STANDARD_RATE_MAX) {
     return {
       subtotal: derived,
-      warning: `The printed subtotal does not reconcile (${figures}) — read the net as ${derived.toFixed(2)}, `
+      warning: `${UNRECONCILED_WARNING} (${figures}) — read the net as ${derived.toFixed(2)}, `
         + 'which includes any levy or service charge printed below the subtotal.',
     };
   }
   return {
     subtotal,
-    warning: `The extracted amounts do not reconcile (${figures}) — check them before posting.`,
+    warning: `${UNRECONCILED_WARNING} (${figures}) — check them before posting.`,
   };
 }

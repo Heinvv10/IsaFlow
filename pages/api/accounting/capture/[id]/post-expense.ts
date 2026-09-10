@@ -22,7 +22,9 @@ import {
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
   CaptureRowLockTimeoutError,
-  lockCaptureEventForUpdate,
+  CapturedDocumentAlreadyPostedError,
+  claimCapturedDocumentForPosting,
+  lockCaptureEventForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -61,46 +63,42 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!eventId) return apiResponse.badRequest(res, 'eventId is required');
 
   // ------------------------------------------------------------------
-  // 1. Load event + extracted document (same query shape as post.ts)
+  // 1. Lock and load the event + its document
   // ------------------------------------------------------------------
-  // Hold the event row first. The `event_status === 'posted'` refusal below is
-  // a check-then-act — the stamp that settles it is written at the end of the
-  // handler — so without the lock a double-click posts the same receipt twice.
-  // Nothing is written before this point, so a lock timeout is a safe 4xx.
+  // The DOCUMENT is the row every posting route has to agree on, so it is
+  // locked first on every path — document-then-event, never the reverse, so
+  // there is no cycle to deadlock on. The refusals below are check-then-act;
+  // under the locks they read settled values. Nothing is written yet, so a lock
+  // timeout is a safe 4xx.
+  let event;
   try {
-    await lockCaptureEventForUpdate(companyId, eventId);
+    event = await lockCaptureEventForPosting(companyId, eventId);
   } catch (err) {
     if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
     throw err;
   }
 
-  const eventRows = await sql`
-    SELECT ce.id AS event_id, ce.status AS event_status,
-           ce.captured_document_id, cd.extracted_data
-    FROM capture_events ce
-    JOIN captured_documents cd ON cd.id = ce.captured_document_id
-    WHERE ce.id = ${eventId}::uuid
-      AND ce.company_id = ${companyId}
-      AND cd.company_id = ${companyId}
-    LIMIT 1
-  ` as Row[];
+  if (!event) return apiResponse.notFound(res, 'Capture event', eventId);
 
-  if (eventRows.length === 0) {
-    return apiResponse.notFound(res, 'Capture event', eventId);
-  }
-
-  const event = eventRows[0]!;
-
-  if (event.event_status === 'posted') {
+  if (event.eventStatus === 'posted') {
     return apiResponse.badRequest(res, 'Event already posted');
   }
 
-  if (!event.extracted_data) {
+  // The document's own status, which this route never read. `receipt-to-journal`
+  // refuses on it and stamps it; this route stamped it and refused on the EVENT
+  // instead, so posting a receipt there and then opening the same document in
+  // the capture inbox wrote a SECOND VAT-bearing journal against one receipt —
+  // an ordinary two-step operator workflow, no concurrency in it anywhere.
+  if (event.documentStatus === 'matched') {
+    return apiResponse.badRequest(res, 'Document already posted to a journal');
+  }
+
+  if (!event.extractedData) {
     return apiResponse.badRequest(res, 'Document has no extracted data — extraction may still be in progress');
   }
 
-  const documentId = event.captured_document_id as string;
-  const extracted = event.extracted_data as ExtractedDocument;
+  const documentId = event.documentId;
+  const extracted = event.extractedData as ExtractedDocument;
 
   const { employeeId, costCentreId, glAccountId: bodyGlAccountId } = req.body as PostExpenseBody;
 
@@ -199,6 +197,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       mileageTo: null,
     };
 
+    // Claim the document before the first write: the status read above is a
+    // check-then-act, and this status-predicated UPDATE is what settles it. Last
+    // point at which a 4xx is safe — a refusal matched no row, so
+    // `withAuth`'s commit-on-4xx commits nothing.
+    if (!await claimCapturedDocumentForPosting(companyId, documentId, 'expense')) {
+      return apiResponse.badRequest(res, 'Document already posted to a journal');
+    }
+
     const claim = await createClaim({
       companyId,
       employeeId,
@@ -213,14 +219,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     // Request connection, not withTransaction — the claim above was created on
     // the request transaction, but withTransaction takes a SEPARATE pool client
-    // with its own COMMIT, so these stamps used to persist even when the request
+    // with its own COMMIT, so this stamp used to persist even when the request
     // rolled back, marking the event 'posted' (and therefore un-retryable)
     // against a claim that no longer existed.
-    await sql`
-      UPDATE captured_documents
-      SET status = 'matched', document_category = 'expense', updated_at = NOW()
-      WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-    `;
     await sql`
       UPDATE capture_events
       SET status = 'posted',
@@ -267,6 +268,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     });
   } catch (err) {
     if (err instanceof ReceiptDoesNotBalanceError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    // The service claims the document after its last SELECT, so this is a 4xx
+    // that commits nothing either.
+    if (err instanceof CapturedDocumentAlreadyPostedError) {
       return apiResponse.badRequest(res, err.message);
     }
     // The service resolves the Bank role as its first statement, before any

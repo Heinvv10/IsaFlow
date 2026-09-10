@@ -140,6 +140,9 @@ beforeAll(async () => {
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 
+// 60s, explicitly: the default 10s hook budget was exceeded on a loaded shared
+// fixture database, so the file passed every assertion and still exited 1 with
+// its rows left behind for the next run to trip over.
 afterAll(async () => {
   try {
     await purge();
@@ -147,7 +150,7 @@ afterAll(async () => {
     clearSystemAccountCache();
     await pool.end();
   }
-});
+}, 60_000);
 
 describe('K-072 entertainment input VAT reaches the ledger denied', () => {
   it('posts a restaurant receipt with no VAT-input leg and the gross on the expense', async () => {

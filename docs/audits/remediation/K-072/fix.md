@@ -170,9 +170,101 @@ GROUP BY source_document_id HAVING COUNT(*) > 1;
 ```
 
 **Limits.** Still a regex over OCR text, not a parser. A document printing ONLY a non-VAT levy
-under a `Tax` label is still read as VAT. The two routes lock different rows, so a receipt posted
-concurrently through BOTH routes is not serialised — no unique constraint backs
-`source_document_id`; the query above detects it. `VAT INCLUDED @ 15% 150.00` (words between the
-label and the rate) still yields no VAT figure and falls back to the derived 15%, which is
-correct for a VAT-inclusive slip; admitting `VAT Inclusive` as a tax label would mis-read
+under a `Tax` label is still read as VAT. `VAT INCLUDED @ 15% 150.00` (words between the label and
+the rate) still yields no VAT figure and falls back to the derived 15%, which is correct for a
+VAT-inclusive slip; admitting `VAT Inclusive` as a tax label would mis-read
 `TOTAL (VAT INCL) 1150.00` as R1 150 of tax, so it stays out.
+(Superseded in round 5: the cross-route double post is closed, and `TOTAL (VAT INCL) 1150.00`
+now yields its total. See below.)
+
+---
+
+## Round 5 — the ten findings of `review-k072-r4.md`
+
+**HIGH-1 `VAT Amount 0.00` invented an input-tax claim — FIXED.** `Tax` admitted an optional
+noun after it and `VAT` did not, so `VAT Amount 0.00` returned `vatAmount: null`, which makes
+`buildExpenseJournalFromReceipt` discard the printed subtotal and derive 15% of the total —
+R130.43 claimed against SARS on a slip that prints the VAT as zero. One vocabulary entry,
+`TAX_NOUN` (`Amount|Total|Value`), now feeds every VAT form and the `Tax` form.
+
+**HIGH-2 the cross-route double post — FIXED, and the reviewer is right on both counts.**
+It was not a race: `post-expense` never read `captured_documents.status`, so
+receipt-to-journal → capture inbox wrote two VAT-bearing journals in sequence. And there was no
+lock-order cycle to justify not locking the document on both routes — nothing took the event
+first. Every posting route now (a) locks the document, then the event
+(`lockCaptureEventForPosting`), (b) refuses on `captured_documents.status = 'matched'`, and
+(c) CLAIMS the document with a status-predicated `UPDATE … WHERE status <> 'matched' RETURNING id`
+placed after its last read-only step and before its first ledger write, answering 400 when it
+matches no row. Proved by outcome on the real database in both orders and concurrently. The
+mutation is the interesting one: deleting BOTH read guards leaves the tests green — the claim is
+what closes it — and deleting the claim's predicate as well brings the double post back (5 of 7
+RED).
+
+**MEDIUM-1 `VAT Total 150.00` read as the payable total — FIXED.** `NOT_A_SUBTOTAL` refused a
+`Total` preceded by a net word but not one preceded by a tax word; it now spells both.
+
+**MEDIUM-2 the rebase discarded a checksum on unattended paths — FIXED.** Both reconciliation
+wordings are now built from one exported prefix, `UNRECONCILED_WARNING`, and
+`shouldAutoPostReceipt` takes the warnings and returns false when any of them starts with it.
+The rebase stays for the attended path, where the warning is rendered; the unattended path
+refuses what the reader could not settle. Both call sites pass `extracted.warnings`.
+
+**MEDIUM-3 the approver advice reached no screen — FIXED.** `pages/accounting/expenses/[id].tsx`
+now keeps `json.data.warnings` from the approve/reject transition and renders it as a banner.
+There is no UI consumer of `PATCH …/lines/[lineId]` anywhere in the app, so that half of the
+finding has no screen to fix. The advisory-by-design point stands: an approver may still restore
+the VAT, and now they are told first.
+
+**MEDIUM-4 `TOTAL (VAT INCL) 1150.00` yielded no total — FIXED.** `TOTAL_PATTERNS[0]` admits an
+optional parenthesised qualifier after the total word.
+
+**LOW-1 the line-item terminator — FIXED.** `SUMMARY_LINE_START` now carries `NET_PREFIX` in
+front of the exclusive marker, so `Amount Excl VAT 1000.00` is no longer collected as an item.
+
+**LOW-2 teardown exceeded the hook budget — FIXED.** All four K-072 integration files carry an
+explicit `afterAll(fn, 60_000)`. Measured: the `K072%` company count is unchanged across a full
+run, so the teardown completes.
+
+**LOW-3 `deniedVatTypeForLine`'s doc-comment overclaimed — FIXED (comment).** The tag asserts what
+the predicate can see — this line claims no input tax — and the comment now says so; the denial
+itself is recoverable only from the `gl_accounts.vat_input_denied` join. The classification is
+unchanged.
+
+**LOW-4 the L-1 rethrow was untested — COVERED.** Two unit tests per route: a fault raised while
+resolving the VAT Input role propagates (no journal created), and a genuinely unmapped role still
+answers 400. Mutation-proved.
+
+**Round-5 files.** `ocrAmountPatterns.ts`, `ocrAmountReconciliation.ts`, `receiptToJournalService.ts`,
+`captureRowLock.ts`, `pettyCashJournalService.ts`, `claimVatAdvice.ts`,
+`capture/[id]/post-expense.ts` (293 lines), `receipt-to-journal.ts`, `expenses/[id].tsx`
+(444 lines — 431 before this round), `services/capture/.claude.md` (+ mirror).
+
+**Round-5 tests.** Unit: `k076-ocr-label-vocabulary.test.ts` (95), `k076-ocr-subtotal-reconciliation.test.ts`
+(25), `postExpenseZeroVatLine.test.ts` (9), `receiptZeroVatLine.test.ts` (9),
+`expenseClaimVatAdvice.test.tsx` (new, 2). Real DB: `k072-capture-double-post.int.test.ts` (7,
+three of them the cross-route cases). Full unit suite 9637 passed with the fixture env unset;
+component suite 418 passed. Nine mutations RED — `green-round5.log`.
+
+**Round-5 migration.** None.
+
+**Round-5 historical data.** The double-post query above is unchanged and is still the detection
+for receipts posted twice. Documents mis-read by the label defects carry no marker; the closest
+read-only probe is the rawText the extraction stored:
+
+```sql
+SELECT cd.id, cd.company_id, cd.extracted_data->>'vatAmount' AS vat_read
+FROM captured_documents cd
+WHERE cd.company_id = $1
+  AND cd.extracted_data->>'rawText' ~* '(VAT|V\.A\.T\.)[ ._/-]*(Amount|Total|Value)'
+  AND cd.extracted_data->>'vatAmount' IS NULL;
+```
+
+Rows it returns had their VAT derived at 15% of the total rather than read; where the document
+printed zero, the derived figure is an input-tax claim that must be reversed.
+
+**Round-5 limits.** `captured_documents.status = 'matched'` is also what
+`captureBankTxAttachService` and `evidenceAttachmentService` stamp, so a document already attached
+to a bank transaction as evidence is now refused by both posting routes. That is deliberate — it
+has been accounted for — but it is a behaviour change beyond the double-post itself. The claim
+predicate keys on that one status value; a future status that also means "settled" has to be added
+to it.
