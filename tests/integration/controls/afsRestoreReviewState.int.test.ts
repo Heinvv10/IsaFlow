@@ -31,7 +31,11 @@ describe('AFS version restore and review state: actual PostgreSQL',()=>{
 
  it.each(['reviewed','signed_off'])('drops a %s section back to pending and records that the restore invalidated the review',async status=>{
   const id=await section(status);
-  await as(()=>saveVersion(h.f.companyA,id,h.f.u2.id));
+  // Seed the history directly: saveVersion itself demotes signed_off to reviewed (a
+  // separate, pre-existing behaviour), which would hide the signed_off case.
+  await h.pool.query(`UPDATE afs_sections SET version_history=jsonb_build_array(jsonb_build_object('version',1,
+   'savedAt','2024-03-01T00:00:00.000Z','savedBy',$3::text,'content','{"title":"Notes","blocks":[]}'::jsonb))
+   WHERE company_id=$1 AND id=$2`,[h.f.companyA,id,h.f.u1.id]);
   await as(()=>restoreVersion(h.f.companyA,id,1,h.f.u2.id));
   const row=await read(id);
   expect(row.status).toBe('pending');
