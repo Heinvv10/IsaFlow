@@ -143,7 +143,7 @@
           },
           "bank_reference": {
             "type": "string",
-            "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction \u2014 the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement \u2014 no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
+            "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction — the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement — no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
           },
           "bank_account_id": {
             "type": "string",
@@ -233,7 +233,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -291,7 +291,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -419,7 +419,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -599,7 +599,7 @@
           },
           "content": {
             "type": "string",
-            "description": "Base64 file bytes, or a data:<mime>;base64,\u2026 URL."
+            "description": "Base64 file bytes, or a data:<mime>;base64,… URL."
           },
           "idempotency_key": {
             "type": "string"
@@ -885,7 +885,7 @@
           },
           "token_jti": {
             "type": "string",
-            "description": "Only postings made by one MCP token \u2014 the first question after a credential is withdrawn. Recorded postings only."
+            "description": "Only postings made by one MCP token — the first question after a credential is withdrawn. Recorded postings only."
           },
           "acting_company_id": {
             "type": "string",
@@ -893,7 +893,7 @@
           },
           "posted_from_outside_this_company": {
             "type": "boolean",
-            "description": "Only postings whose recorded acting company DIFFERS from the company whose books these are. Rows with no recorded firm are excluded \u2014 they cannot answer the question either way."
+            "description": "Only postings whose recorded acting company DIFFERS from the company whose books these are. Rows with no recorded firm are excluded — they cannot answer the question either way."
           },
           "user_id": {
             "type": "string",
@@ -1110,7 +1110,7 @@
             "type": "array",
             "minItems": 1,
             "maxItems": 500,
-            "description": "The lines to allocate \u2014 at most 500. Each names one transaction and how to book it.",
+            "description": "The lines to allocate — at most 500. Each names one transaction and how to book it.",
             "items": {
               "type": "object",
               "properties": {
@@ -1120,7 +1120,7 @@
                 },
                 "bank_reference": {
                   "type": "string",
-                  "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction \u2014 the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement \u2014 no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
+                  "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction — the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement — no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
                 },
                 "bank_account_id": {
                   "type": "string",
@@ -1192,7 +1192,7 @@
               "type": "string",
               "description": "Credit note UUID"
             },
-            "description": "The notes to approve \u2014 at most 100, each named once."
+            "description": "The notes to approve — at most 100, each named once."
           },
           "dry_run": {
             "type": "boolean",
@@ -1226,7 +1226,7 @@
               "type": "string",
               "description": "Supplier invoice UUID"
             },
-            "description": "The bills to approve \u2014 at most 100, each named once."
+            "description": "The bills to approve — at most 100, each named once."
           },
           "dry_run": {
             "type": "boolean",
@@ -1443,7 +1443,7 @@
               "type": "string",
               "description": "Customer invoice UUID"
             },
-            "description": "The invoices to approve \u2014 at most 100, each named once."
+            "description": "The invoices to approve — at most 100, each named once."
           },
           "dry_run": {
             "type": "boolean",
@@ -1475,7 +1475,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -1626,7 +1626,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -1804,11 +1804,11 @@
           },
           "client_id": {
             "type": "string",
-            "description": "Customer UUID \u2014 required when type is \"customer\""
+            "description": "Customer UUID — required when type is \"customer\""
           },
           "supplier_id": {
             "type": "string",
-            "description": "Supplier UUID \u2014 required when type is \"supplier\""
+            "description": "Supplier UUID — required when type is \"supplier\""
           },
           "customer_invoice_id": {
             "type": "string",
@@ -1862,7 +1862,7 @@
           "name": {
             "type": "string",
             "maxLength": 255,
-            "description": "Trading name. Rejected over 255 characters \u2014 it identifies the record."
+            "description": "Trading name. Rejected over 255 characters — it identifies the record."
           },
           "email": {
             "type": "string"
@@ -1921,7 +1921,7 @@
           },
           "auto_allocate_receipts": {
             "type": "boolean",
-            "description": "DEPRECATED \u2014 use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
+            "description": "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
           },
           "idempotency_key": {
             "type": "string"
@@ -2250,7 +2250,7 @@
               "admin_expense",
               "depreciation_expense"
             ],
-            "description": "Required for revenue and expense accounts (the income statement bands on it: cost_of_sales sits above gross profit). Must be valid for the account_type. Subtypes reserved for system accounts (vat_input, receivable, payable, \u2026) are refused."
+            "description": "Required for revenue and expense accounts (the income statement bands on it: cost_of_sales sits above gross profit). Must be valid for the account_type. Subtypes reserved for system accounts (vat_input, receivable, payable, …) are refused."
           },
           "parent_account_id": {
             "type": "string",
@@ -2332,7 +2332,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -2359,7 +2359,7 @@
           "name": {
             "type": "string",
             "maxLength": 255,
-            "description": "Trading name. Rejected over 255 characters \u2014 it identifies the record."
+            "description": "Trading name. Rejected over 255 characters — it identifies the record."
           },
           "registered_name": {
             "type": "string",
@@ -2420,7 +2420,7 @@
           },
           "auto_allocate_payments": {
             "type": "boolean",
-            "description": "DEPRECATED \u2014 use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
+            "description": "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
           },
           "idempotency_key": {
             "type": "string"
@@ -3281,7 +3281,7 @@
           },
           "statement_date": {
             "type": "string",
-            "description": "YYYY-MM-DD \u2014 the statement closing date."
+            "description": "YYYY-MM-DD — the statement closing date."
           },
           "bank_format": {
             "type": "string",
@@ -3335,7 +3335,7 @@
           },
           "reveal_identity_numbers": {
             "type": "boolean",
-            "description": "Return full SA ID and tax numbers instead of the last four digits. Personal information \u2014 ask only when you need it."
+            "description": "Return full SA ID and tax numbers instead of the last four digits. Personal information — ask only when you need it."
           },
           "detail": {
             "type": "string",
@@ -3497,7 +3497,7 @@
           },
           "active_only": {
             "type": "boolean",
-            "description": "Default false \u2014 inactive rules are returned too, because a disabled rule is still a thing an agent needs to see."
+            "description": "Default false — inactive rules are returned too, because a disabled rule is still a thing an agent needs to see."
           },
           "search": {
             "type": "string",
@@ -3717,7 +3717,7 @@
           },
           "reveal_identity_numbers": {
             "type": "boolean",
-            "description": "Return full SA ID and tax numbers instead of the last four digits. Personal information \u2014 ask only when you need it."
+            "description": "Return full SA ID and tax numbers instead of the last four digits. Personal information — ask only when you need it."
           },
           "detail": {
             "type": "string",
@@ -4000,7 +4000,7 @@
           },
           "account_id": {
             "type": "string",
-            "description": "gl_accounts.id \u2014 only journals touching this account."
+            "description": "gl_accounts.id — only journals touching this account."
           },
           "include_lines": {
             "type": "boolean"
@@ -4293,7 +4293,7 @@
               "summary",
               "standard"
             ],
-            "description": "\"summary\" returns the totals and completeness only, with no rows \u2014 use it to see how much unapplied cash there is before deciding to page through it. Default \"standard\"."
+            "description": "\"summary\" returns the totals and completeness only, with no rows — use it to see how much unapplied cash there is before deciding to page through it. Default \"standard\"."
           },
           "limit": {
             "type": "number",
@@ -4328,7 +4328,7 @@
               "summary",
               "standard"
             ],
-            "description": "\"summary\" returns the totals and completeness only, with no rows \u2014 use it to see how much unapplied cash there is before deciding to page through it. Default \"standard\"."
+            "description": "\"summary\" returns the totals and completeness only, with no rows — use it to see how much unapplied cash there is before deciding to page through it. Default \"standard\"."
           },
           "limit": {
             "type": "number",
@@ -4363,7 +4363,7 @@
           "min_amount": {
             "type": "number",
             "minimum": 0,
-            "description": "Materiality threshold on ABS(amount). Default 0 \u2014 everything."
+            "description": "Materiality threshold on ABS(amount). Default 0 — everything."
           },
           "limit": {
             "type": "integer",
@@ -4425,7 +4425,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -4544,7 +4544,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -4649,7 +4649,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -4723,7 +4723,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -4767,11 +4767,11 @@
           "posting_date": {
             "type": "string",
             "format": "date",
-            "description": "Date EVERY reclassification journal on this one day instead of on its own source line's date. This is how a closed month is corrected from an open one \u2014 and it MOVES THE CHARGE BETWEEN PERIODS: the closed month keeps the original classification and this period carries the correction. Omit it and each journal is dated at its source line, which is period-neutral but skips every line whose own period is closed."
+            "description": "Date EVERY reclassification journal on this one day instead of on its own source line's date. This is how a closed month is corrected from an open one — and it MOVES THE CHARGE BETWEEN PERIODS: the closed month keeps the original classification and this period carries the correction. Omit it and each journal is dated at its source line, which is period-neutral but skips every line whose own period is closed."
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -5087,7 +5087,7 @@
           "posting_date": {
             "type": "string",
             "format": "date",
-            "description": "Date EVERY reclassification journal on this one day instead of on its own source line's date. This is how a closed month is corrected from an open one \u2014 and it MOVES THE CHARGE BETWEEN PERIODS: the closed month keeps the original classification and this period carries the correction. Omit it and each journal is dated at its source line, which is period-neutral but skips every line whose own period is closed."
+            "description": "Date EVERY reclassification journal on this one day instead of on its own source line's date. This is how a closed month is corrected from an open one — and it MOVES THE CHARGE BETWEEN PERIODS: the closed month keeps the original classification and this period carries the correction. Omit it and each journal is dated at its source line, which is period-neutral but skips every line whose own period is closed."
           },
           "detail": {
             "type": "string",
@@ -5317,7 +5317,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -5491,7 +5491,7 @@
           },
           "reversal_date": {
             "type": "string",
-            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed \u2014 which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open \u2014 a date in a year with no fiscal periods is refused, not posted."
+            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed — which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open — a date in a year with no fiscal periods is refused, not posted."
           },
           "idempotency_key": {
             "type": "string"
@@ -5521,7 +5521,7 @@
           },
           "bank_reference": {
             "type": "string",
-            "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction \u2014 the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement \u2014 no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
+            "description": "The reference printed on the bank statement, matched exactly (after trimming) against either reference column on the transaction — the same value list_bank_transactions returns as bank_reference. Use it instead of transaction_id when working from a statement — no id lookup needed. Must resolve to exactly one transaction; if it does not, the tool lists the candidates."
           },
           "bank_account_id": {
             "type": "string",
@@ -5529,7 +5529,7 @@
           },
           "reversal_date": {
             "type": "string",
-            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed \u2014 which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open \u2014 a date in a year with no fiscal periods is refused, not posted."
+            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed — which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open — a date in a year with no fiscal periods is refused, not posted."
           },
           "idempotency_key": {
             "type": "string"
@@ -5556,7 +5556,7 @@
           },
           "reversal_date": {
             "type": "string",
-            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed \u2014 which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open \u2014 a date in a year with no fiscal periods is refused, not posted."
+            "description": "Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the ORIGINAL entry's date when that period is still open, falling back to today when it is closed — which keeps the correction in the period it corrects. Give a date to override that, typically to correct a closed month from the current open one. It may not be earlier than the entry being reversed, and its fiscal period must already exist and be open — a date in a year with no fiscal periods is refused, not posted."
           },
           "idempotency_key": {
             "type": "string"
@@ -5589,7 +5589,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -5619,7 +5619,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -5688,7 +5688,7 @@
           },
           "amount": {
             "type": "number",
-            "description": "The balance as at that date. Negative for an overdrawn account. Zero is refused \u2014 it would post nothing and tell you it succeeded."
+            "description": "The balance as at that date. Negative for an overdrawn account. Zero is refused — it would post nothing and tell you it succeeded."
           },
           "contra_account_id": {
             "type": "string",
@@ -5733,7 +5733,7 @@
           },
           "contra_account_id": {
             "type": "string",
-            "description": "The BALANCE-SHEET account the debt is netted against (asset, liability or equity) \u2014 from list_gl_accounts. An expense or revenue account is refused: that is a write-off."
+            "description": "The BALANCE-SHEET account the debt is netted against (asset, liability or equity) — from list_gl_accounts. An expense or revenue account is refused: that is a write-off."
           },
           "amount": {
             "type": "number",
@@ -5751,7 +5751,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
@@ -6176,7 +6176,7 @@
           "name": {
             "type": "string",
             "maxLength": 255,
-            "description": "Trading name. Rejected over 255 characters \u2014 it identifies the record."
+            "description": "Trading name. Rejected over 255 characters — it identifies the record."
           },
           "email": {
             "type": "string"
@@ -6235,7 +6235,7 @@
           },
           "auto_allocate_receipts": {
             "type": "boolean",
-            "description": "DEPRECATED \u2014 use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
+            "description": "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
           },
           "idempotency_key": {
             "type": "string"
@@ -6411,7 +6411,7 @@
           "name": {
             "type": "string",
             "maxLength": 255,
-            "description": "Trading name. Rejected over 255 characters \u2014 it identifies the record."
+            "description": "Trading name. Rejected over 255 characters — it identifies the record."
           },
           "registered_name": {
             "type": "string",
@@ -6472,7 +6472,7 @@
           },
           "auto_allocate_payments": {
             "type": "boolean",
-            "description": "DEPRECATED \u2014 use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
+            "description": "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; ignored when auto_allocate_strategy is also given."
           },
           "idempotency_key": {
             "type": "string"
@@ -6727,7 +6727,7 @@
           },
           "dry_run": {
             "type": "boolean",
-            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped \u2014 and writes nothing. Run this first on any batch."
+            "description": "Preview only. Returns the journals that would post, the documents whose balances would change, and the rows that would be skipped — and writes nothing. Run this first on any batch."
           },
           "idempotency_key": {
             "type": "string",
