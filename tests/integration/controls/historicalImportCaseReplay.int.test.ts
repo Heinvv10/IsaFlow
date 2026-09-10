@@ -102,7 +102,7 @@ it('serializes concurrently executed independently approved lower and uppercase 
  expect(population.totals).toEqual({debit:'10.00',credit:'10.00'});
 });
 
-it('preserves one effect when fixed execution encounters a genuine baseline uppercase-first import',async()=>{
+it.each([false,true])('handles genuine baseline uppercase-first receipts; ambiguous=%s',async ambiguous=>{
  const baseline=process.env.ISAFLOW_HISTORICAL_CASE_BASELINE;
  if(!baseline)throw new Error('Set ISAFLOW_HISTORICAL_CASE_BASELINE to the isolated fad0f57f7 worktree containing the legacy fixture runner');
  const run=promisify(execFile),directory=await mkdtemp(path.join(tmpdir(),'isaflow-case-legacy-')),artifact=path.join(directory,'seed.json');
@@ -110,7 +110,7 @@ it('preserves one effect when fixed execution encounters a genuine baseline uppe
  try{
   const head=await run('git',['rev-parse','--short=9','HEAD'],{cwd:baseline});expect(head.stdout.trim()).toBe('fad0f57f7');
   await run('git',['diff','--exit-code','fad0f57f7','--','src','scripts/migrations/sql'],{cwd:baseline});
-  await run('bun',['tests/integration/controls/historicalImportLegacyCaseFixture.ts',artifact],{cwd:baseline,timeout:30000,maxBuffer:1024*1024});
+  await run('bun',['tests/integration/controls/historicalImportLegacyCaseFixture.ts',artifact,...ambiguous?['ambiguous']:[]],{cwd:baseline,timeout:30000,maxBuffer:1024*1024});
   const identity=z.object({id:z.string().uuid(),companyId:z.string().uuid()});
   const seed=z.object({fixture:z.object({companyA:z.string().uuid(),u1:identity,u2:identity}),
    ref:z.object({entityType:z.literal('historical_import'),entityId:z.string().uuid(),operation:z.literal('historical_import.post')}),
@@ -118,8 +118,18 @@ it('preserves one effect when fixed execution encounters a genuine baseline uppe
    keys:z.object({encryption:z.string(),fingerprint:z.string()})}).parse(JSON.parse(await readFile(artifact,'utf8')));
   process.env.ENCRYPTION_KEY=seed.keys.encryption;process.env.CONTROL_FINGERPRINT_KEY=seed.keys.fingerprint;
   const original=await exactPopulation(seed.ref.entityId,seed.fixture.companyA);
+  if(ambiguous){
+   expect(original.journals).toHaveLength(2);expect(original.effects).toHaveLength(2);
+   await expect(actor('u1',ctx=>executeHistoricalImport(ctx,seed.ref),seed.fixture.u1)).rejects.toThrow();
+   await expect(actor('u1',ctx=>executeHistoricalImport(ctx,seed.ref,seed.approval),seed.fixture.u1)).rejects.toThrow();
+   expect(await exactPopulation(seed.ref.entityId,seed.fixture.companyA)).toEqual(original);
+   return;
+  }
   expect(original.journals).toHaveLength(1);expect(original.effects).toHaveLength(1);
   expect(original.effects[0].entity_id).toBe(seed.ref.entityId.toUpperCase());
+  await expect(actor('u1',ctx=>executeHistoricalImport(ctx,seed.ref),seed.fixture.u1)).resolves.toEqual(seed.result);
+  await expect(actor('u1',ctx=>executeHistoricalImport(ctx,seed.ref,seed.approval),seed.fixture.u1)).resolves.toEqual(seed.result);
+  expect((await exactPopulation(seed.ref.entityId,seed.fixture.companyA)).effects).toEqual(original.effects);
   const approval=await actor('u1',ctx=>requestOperationApproval(ctx,seed.ref),seed.fixture.u1);
   await actor('u2',ctx=>decideOperationApproval(ctx,approval.id,'approved'),seed.fixture.u2);
   let result:HistoricalImportEffect|undefined,refusal:unknown;
