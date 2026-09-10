@@ -17,6 +17,15 @@ export function auditCheckRunBudget(options:AuditCheckRunBudgetOptions){
   if(Date.now()>deadlineAt)throw new Error('Audit check run deadline exceeded');
  };
 }
+/**
+ * The publisher lost its lease between streaming and publishing. A distinct error, so a caller — and a gate — can tell
+ * which fence refused: `recheck` is the post-stream lease check, `success_pointer` the lease-fenced success UPDATE.
+ */
+export class CheckRunPublicationFenceError extends Error {
+ constructor(readonly stage:'recheck'|'success_pointer',readonly reason:'expired'|'replaced'){
+  super(`Check run publication fence (${stage}): lease ${reason}`);this.name='CheckRunPublicationFenceError';
+ }
+}
 /** A bound the run cannot stream past. Publishing `unknown` under the same lease is the only outcome. */
 export class CheckRunResourceLimitError extends Error {
  constructor(readonly reason:string){super(`Audit check run resource limit: ${reason}`);this.name='CheckRunResourceLimitError';}

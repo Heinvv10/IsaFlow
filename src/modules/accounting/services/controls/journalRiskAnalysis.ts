@@ -19,6 +19,17 @@ export function journalRiskThresholdGroupKey(row:Pick<JournalRiskRow,'actualAt'|
  const actual=parts(row.actualAt);
  return actual&&row.personId?JSON.stringify([actual.day,row.personId,row.currency]):null;
 }
+/**
+ * The group this row joins under this threshold, or null when it can never join one: no actual time or person, a
+ * non-positive or unparseable amount, an amount already beyond the bound on its own, or an unusable bound. The ONE
+ * statement of eligibility: the check-run adapter uses it to hold only rows that can affect another row's result.
+ */
+export function journalRiskThresholdGroup(row:Pick<JournalRiskRow,'actualAt'|'personId'|'currency'|'amount'>,threshold:JournalThreshold):string|null{
+ const bound=new Money(threshold.amount);if(!bound.isFinite()||bound.lte(0))return null;
+ const key=journalRiskThresholdGroupKey(row),amount=new Money(row.amount);
+ if(key===null||!amount.isFinite()||amount.lte(0)||(threshold.operator==='greater_than'?amount.gt(bound):amount.gte(bound)))return null;
+ return key;
+}
 /** Statistical/chronological context is a lead, never a fraud or historical policy violation conclusion. */
 export function analyseJournalRisks<T extends JournalRiskRow>(rows:readonly T[],thresholds:readonly JournalThreshold[]){
  const reasons=new Map(rows.map(row=>[row.id,[] as string[]]));
@@ -37,9 +48,9 @@ export function analyseJournalRisks<T extends JournalRiskRow>(rows:readonly T[],
   const bound=new Money(threshold.amount);if(!bound.isFinite()||bound.lte(0))continue;
   const groups=new Map<string,T[]>();
   for(const row of rows){
-   const key=journalRiskThresholdGroupKey(row),amount=new Money(row.amount);
-   if(key===null||!amount.isFinite()||amount.lte(0)||(threshold.operator==='greater_than'?amount.gt(bound):amount.gte(bound)))continue;
-   groups.set(key,[...(groups.get(key)??[]),row]);
+   const key=journalRiskThresholdGroup(row,threshold);if(key===null)continue;
+   // Append in place: copying the group on every row made one busy (day, person) group quadratic.
+   const group=groups.get(key);if(group)group.push(row);else groups.set(key,[row]);
   }
   for(const group of groups.values()){
    const total=group.reduce((sum,row)=>sum.add(row.amount),new Money(0));

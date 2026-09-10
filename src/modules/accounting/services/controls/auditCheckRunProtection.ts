@@ -5,6 +5,13 @@ import type {SnapshotIndexEnvelope} from './auditSnapshotIndexContract';
 import {AUDIT_CHECK_RUN_IDS,AUDIT_CHECK_RUN_LIMITS} from './auditCheckRunContract';
 const hash=z.string().regex(/^[a-f0-9]{64}$/),reason=z.string().min(1).max(256);
 const maxFindings=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks.maxFindings;
+/**
+ * The seal must never refuse a finding the synchronous detector accepts. `message` is the detector's proven maximum
+ * (6 fixed signals plus at most 100 threshold reasons of uuid id and bigint version — 8 663 characters, measured) rounded up;
+ * currency and amount are unbounded text on the synchronous path, so they get room far past any real value while the
+ * whole envelope still fits the table's 64 KiB CHECK after hex encoding.
+ */
+export const CHECK_RUN_ITEM_BOUNDS=Object.freeze({message:9216,currency:1024,amount:1024});
 const identitySchema=z.object({companyId:z.string().uuid(),checkRunId:z.string().uuid(),generation:z.number().int().positive(),leaseId:z.string().uuid()}).strict();
 const money=z.record(z.string().regex(/^[A-Z]{3}$/),z.string().regex(/^-?\d+(\.\d+)?$/));
 const headerSchema=identitySchema.extend({version:z.literal(1),checkId:z.enum(AUDIT_CHECK_RUN_IDS),checkVersion:z.literal(1),
@@ -17,10 +24,10 @@ const headerSchema=identitySchema.extend({version:z.literal(1),checkId:z.enum(AU
  .refine(row=>canonicalJson(row.missingSources)===canonicalJson([...new Set(row.missingSources)].sort()),'Missing sources are a sorted set');
 const entity=z.object({entityType:z.string().min(1).max(64),entityId:z.string().min(1).max(256)}).strict();
 const findingSchema=z.object({key:hash,kind:z.string().min(1).max(128),severity:z.enum(['low','medium','high']),
- classification:z.enum(['candidate','confirmed']),entities:z.array(entity).max(8),message:z.string().min(1).max(4096),
+ classification:z.enum(['candidate','confirmed']),entities:z.array(entity).max(8),message:z.string().min(1).max(CHECK_RUN_ITEM_BOUNDS.message),
  evidence:z.tuple([])}).strict();
 const itemSchema=identitySchema.extend({version:z.literal(1),ordinal:z.number().int().min(0).max(maxFindings-1),
- amount:z.string().max(64),currency:z.string().max(16),finding:findingSchema}).strict();
+ amount:z.string().max(CHECK_RUN_ITEM_BOUNDS.amount),currency:z.string().max(CHECK_RUN_ITEM_BOUNDS.currency),finding:findingSchema}).strict();
 export type CheckRunIdentity=z.infer<typeof identitySchema>;
 export type CheckRunHeader=z.infer<typeof headerSchema>;
 export type CheckRunItem=z.infer<typeof itemSchema>;
