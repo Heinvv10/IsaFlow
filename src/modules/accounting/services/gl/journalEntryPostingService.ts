@@ -17,6 +17,7 @@ import {
 } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
 import { getPeriodStatusForDate } from './periodStatusService';
+import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 
 type Row = DbRow;
 
@@ -335,7 +336,17 @@ export async function reverseJournalEntry(
       WHERE id = ${reversalEntry.id} AND company_id = ${companyId}
     `;
 
-    log.info('Reversed journal entry', { originalId: id, reversalId: reversalEntry.id }, 'accounting');
+    // A reversed capture posting journal releases the document's posting claim,
+    // so `document-capture-action`'s "Reverse the journal or invoice first" is
+    // an instruction that works. Nothing happens unless this entry came from a
+    // captured document, and the helper still refuses while any other live
+    // journal or uncancelled supplier invoice references it.
+    const claimReleased = entry.sourceDocumentId
+      ? await releaseCapturedDocumentPostingClaim(companyId, entry.sourceDocumentId)
+      : false;
+
+    log.info('Reversed journal entry',
+      { originalId: id, reversalId: reversalEntry.id, claimReleased }, 'accounting');
     return reversalEntry;
   } catch (err) {
     log.error('Failed to reverse journal entry', { id, error: err }, 'accounting');

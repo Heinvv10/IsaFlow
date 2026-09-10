@@ -26,6 +26,13 @@ import {
   findDuplicate,
 } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
+import {
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CaptureRowLockTimeoutError,
+  claimCapturedDocumentForPosting,
+  lockCapturedDocumentForUpdate,
+  refusalForPosting,
+} from '@/modules/accounting/services/capture/captureRowLock';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
 import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
@@ -54,13 +61,34 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
 
-  // Fetch captured document
-  const [doc] = (await sql`
-    SELECT extracted_data, status FROM captured_documents
-    WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `) as Row[];
+  // Fetch captured document, HELD for the rest of the request.
+  //
+  // This is the fourth posting route, and until the lock and the claim below it
+  // was the only one with neither. `capture/[id]/post` and this endpoint both
+  // turn one captured document into a supplier invoice carrying its `tax_amount`
+  // as input VAT; each merely stamped `status = 'matched'` at the end, which is
+  // not a fence — `receipt-to-journal` then `ai-invoice-pipeline` on one R1 150
+  // receipt produced a posted GL journal AND an auto-approved supplier invoice,
+  // R150 of VAT claimed twice, R300 in the VAT201, no concurrency in it.
+  //
+  // The `uq_gl_je_capture_source_document` index behind the application claim
+  // does NOT reach here: it is a unique index on `gl_journal_entries`, and this
+  // route writes `supplier_invoices`. On this path the claim IS the whole fence.
+  let doc;
+  try {
+    doc = await lockCapturedDocumentForUpdate(companyId, documentId);
+  } catch (err) {
+    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
+
+  const readRefusal = refusalForPosting(doc);
+  if (readRefusal) {
+    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[readRefusal]);
+  }
+
   if (!doc.extracted_data) return apiResponse.badRequest(res, 'Document has no extracted data');
 
   const extracted = doc.extracted_data as ExtractedDocument;
@@ -128,6 +156,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const fingerprint = computeFingerprint(supplierVatNumber, invoiceInput.invoiceNumber, invoiceInput.totalAmount);
 
+  // Claim the document BEFORE the first ledger write, and AFTER the
+  // duplicate-blocked branch above — that branch answers 409 having already
+  // written `status`/`matched_invoice_id`, and `withAuth` COMMITs on a 4xx, so
+  // claiming any earlier would leave a document that produced NO invoice marked
+  // posted and unrecoverable.
+  //
+  // This is the last point at which a 4xx is safe here: everything between the
+  // duplicate branch and this line is a SELECT or a pure function, and a refusal
+  // matched no row.
+  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  if (claimRefusal) {
+    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+  }
+
   // Create supplier invoice (evidence columns stamped; hash backfilled by worker)
   const [invoice] = (await sql`
     INSERT INTO supplier_invoices (
@@ -161,14 +203,23 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     const lineTotal = round2(item.quantity * item.unitPrice);
     const taxAmount = round2(lineTotal * item.taxRate / 100);
+    // No `company_id`: the column has never existed on this table. Tenancy
+    // rides on `supplier_invoice_id`, whose invoice is company-scoped — exactly
+    // the column list `supplierInvoiceService` writes.
+    //
+    // While it was in the list every call to this route raised 42703 on the
+    // FIRST line item, and `buildInvoiceFromExtraction` synthesises an "As per
+    // invoice" line when the document has none, so there was always one: the
+    // route 500'd, `withAuth` rolled the request back and no invoice was ever
+    // created. That is why the double-claim this branch fences was latent rather
+    // than live — one repaired line away from posting, which is what it is now.
     await sql`
       INSERT INTO supplier_invoice_items (
         supplier_invoice_id, description, quantity, unit_price,
-        tax_rate, tax_amount, line_total, company_id
+        tax_rate, tax_amount, line_total
       ) VALUES (
         ${invoice.id}::uuid, ${item.description}, ${item.quantity},
-        ${item.unitPrice}, ${item.taxRate}, ${taxAmount}, ${lineTotal},
-        ${companyId}
+        ${item.unitPrice}, ${item.taxRate}, ${taxAmount}, ${lineTotal}
       )
     `;
   }

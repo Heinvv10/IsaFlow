@@ -15,6 +15,7 @@ import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
+import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 
 type Row = DbRow;
 
@@ -337,6 +338,16 @@ async function cancelSupplierInvoiceInner(
     if (rows.length !== 1) {
       throw new Error('Supplier invoice state changed concurrently — cancel aborted');
     }
+
+    // The other half of the capture posting claim's undo. A cancelled invoice
+    // is not a live claim on the receipt behind it, and until this line the
+    // document stayed refused by every posting route with no way back — which
+    // is what made "Reverse the journal or invoice first" a dead end.
+    const cancelledSourceDoc = rows[0]!.source_document_id;
+    if (cancelledSourceDoc) {
+      await releaseCapturedDocumentPostingClaim(companyId, String(cancelledSourceDoc));
+    }
+
     return mapInvoiceRow(rows[0]!);
   } catch (err) {
     log.error('Failed to cancel supplier invoice', { id, error: err }, 'accounting');
