@@ -1,24 +1,26 @@
 /**
- * R-059 round 8 (MEDIUM-1) — a supplier statement line matches its bill when
- * the bill's status is NULL, so a statement that ties can be marked reconciled.
+ * R-059 rounds 8-9 — statement-line match candidates are the AGEING's
+ * population: a NULL-status bill matches its line, a draft does not.
  *
  * The page gates "Mark reconciled" on three figures from the header
  * (`pages/accounting/ap/supplier-statements/[id].tsx`, `canReconcile`):
  * |variance| <= 0.01, missingInIsaflowCount 0 and amountDiffCount 0. The
- * variance comes from the AP ageing, which counts a NULL-status bill (round 4).
- * The line matching came from `loadSupplierInvoices`, whose bare NOT IN was
- * NULL for that bill, so the bill's line read "missing in IsaFlow" and the
- * page refused a statement that tied to the cent.
+ * variance comes from the AP ageing. The line matching comes from
+ * `loadSupplierInvoices`, which now uses the same shared/documentPopulation.
  *
- * Match candidates keep DRAFTS on purpose — a bill held as a draft is worth
- * matching to the supplier's line for it — so the candidate rule is
- * COALESCE(status,'') <> 'cancelled', NOT the ageing's documentPopulation.
- * Both halves of that decision are pinned:
+ * Round 8 kept DRAFTS matchable and claimed the variance would still refuse a
+ * draft, because a draft is not owed. That was wrong. The variance refuses a
+ * draft only when nothing offsets it (the round-8 review's probe, case P here).
+ * Cases:
  *   N  a NULL-status bill of 1000, its line, closing 1000: matched, variance 0,
  *      reconcilable, and markReconciled lands.
- *   D  a DRAFT bill of 300, its line, closing 300: MATCHED (so drafts are
- *      candidates), but the variance is 300 because a draft is not owed — the
- *      ageing still stops it being reconciled.
+ *   D  a DRAFT bill of 300 and its line, closing 300: NOT matched — its line is
+ *      missing from IsaFlow — and the page refuses.
+ *   P  the offsetting case. An owed, approved bill A of 300 dated before the
+ *      statement period (so no line claims it), plus a DRAFT B of 300 matching
+ *      the statement's single line, closing 300. Balances tie (variance 0). Under
+ *      round 8's rule B silenced the line and the statement reconciled against a
+ *      bill nobody owes. Now B's line is missing from IsaFlow and it is refused.
  * Only the VLM extraction and the stored PDF bytes are mocked.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -35,15 +37,17 @@ function shift(days: number): string {
 const STMT = shift(-10);
 
 /** What the mocked VLM returns for the next createReconciliation call. */
-let nextExtraction: { closingBalance: number; lines: { date: string; reference: string; debit: number }[] } =
-  { closingBalance: 0, lines: [] };
+let nextExtraction: {
+  closingBalance: number; periodStart?: string; periodEnd?: string;
+  lines: { date: string; reference: string; debit: number }[];
+} = { closingBalance: 0, lines: [] };
 
 vi.mock('@/lib/documentStorage', () => ({
   fetchRawBytes: vi.fn(async () => ({ buffer: Buffer.from('%PDF-1.4 r059'), fileType: 'pdf' })),
 }));
 vi.mock('@/modules/accounting/services/bank/vlmSupplierStatementService', () => ({
   extractSupplierStatementWithVlm: vi.fn(async () => ({
-    statementDate: STMT, periodStart: null, periodEnd: null,
+    statementDate: STMT, periodStart: nextExtraction.periodStart ?? null, periodEnd: nextExtraction.periodEnd ?? null,
     closingBalance: nextExtraction.closingBalance, lines: nextExtraction.lines, warnings: [],
   })),
 }));
@@ -56,15 +60,15 @@ const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 const COMPANY = randomUUID();
 const USER = randomUUID();
 const TAG = `R59C${Math.floor(Math.random() * 1e8)}`;
-const docs = { N: randomUUID(), D: randomUUID() };
-const suppliers = { N: '', D: '' };
+const docs = { N: randomUUID(), D: randomUUID(), P: randomUUID() };
+const suppliers = { N: '', D: '', P: '' };
 
 /** The page's own gate, verbatim in meaning. */
 function canReconcile(r: { variance: number; missingInIsaflowCount: number; amountDiffCount: number }): boolean {
   return Math.abs(r.variance) <= 0.01 && r.missingInIsaflowCount === 0 && r.amountDiffCount === 0;
 }
 
-describeIfDb('R-059 statement lines match NULL-status and draft bills', () => {
+describeIfDb('R-059 statement lines match the ageing\'s population: NULL in, drafts out', () => {
   beforeAll(async () => {
     assertDisposable();
     await sql`INSERT INTO companies (id, name, registration_number) VALUES (${COMPANY}::UUID, ${'R059C ' + TAG}, ${TAG})`;
@@ -81,6 +85,20 @@ describeIfDb('R-059 statement lines match NULL-status and draft bills', () => {
       await sql`INSERT INTO captured_documents (id, company_id, file_name, file_type, document_type, uploaded_by)
                 VALUES (${docs[key]}::UUID, ${COMPANY}::UUID, ${TAG + key + '.pdf'}, 'pdf', 'supplier_statement', ${USER}::UUID)`;
     }
+
+    // P: an owed bill A outside the statement period, and a draft B the line names.
+    suppliers.P = ((await sql`
+      INSERT INTO suppliers (company_id, name) VALUES (${COMPANY}::UUID, ${'P ' + TAG}) RETURNING id
+    `) as { id: string }[])[0]!.id;
+    for (const [n, status, raised] of [['-PA', 'approved', shift(-60)], ['-PB', 'draft', shift(-20)]] as const) {
+      await sql`
+        INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
+          status, subtotal, tax_amount, total_amount, amount_paid, created_by)
+        VALUES (${COMPANY}::UUID, ${suppliers.P}::UUID, ${TAG + n}, ${raised}::date,
+          ${raised}::date, ${status}, 300, 0, 300, 0, ${USER}::UUID)`;
+    }
+    await sql`INSERT INTO captured_documents (id, company_id, file_name, file_type, document_type, uploaded_by)
+              VALUES (${docs.P}::UUID, ${COMPANY}::UUID, ${TAG + 'P.pdf'}, 'pdf', 'supplier_statement', ${USER}::UUID)`;
   }, 120000);
 
   afterAll(async () => {
@@ -107,15 +125,29 @@ describeIfDb('R-059 statement lines match NULL-status and draft bills', () => {
     expect((await getReconciliation(COMPANY, recon.id))!.status).toBe('reconciled');
   });
 
-  it('D: a DRAFT bill is still a match candidate, and the ageing still refuses it', async () => {
+  it('D: a DRAFT bill is not a match candidate — its line is missing from IsaFlow', async () => {
     nextExtraction = { closingBalance: 300, lines: [{ date: shift(-50), reference: TAG + '-D', debit: 300 }] };
     const recon = await createReconciliation(COMPANY, suppliers.D, docs.D, USER);
-    // Matched — drafts are deliberately candidates — but the draft is not
-    // owed, so the ageing reads 0 and the 300 is a variance.
     expect({
       missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber),
       isaflow: recon.isaflowBalance, variance: recon.variance,
-    }).toEqual({ missing: 0, matched: [TAG + '-D'], isaflow: 0, variance: 300 });
+    }).toEqual({ missing: 1, matched: [null], isaflow: 0, variance: 300 });
+    expect(canReconcile(recon)).toBe(false);
+  });
+
+  it('P: an owed bill offsetting a draft cannot reconcile the statement against the draft', async () => {
+    // Round 8's rule: B matched the line (missing 0) and A made the balances
+    // tie (variance 0), so canReconcile was TRUE and markReconciled landed on a
+    // statement whose only invoice we have never approved.
+    nextExtraction = {
+      closingBalance: 300, periodStart: shift(-30), periodEnd: STMT,
+      lines: [{ date: shift(-20), reference: TAG + '-PB', debit: 300 }],
+    };
+    const recon = await createReconciliation(COMPANY, suppliers.P, docs.P, USER);
+    expect({
+      isaflow: recon.isaflowBalance, variance: recon.variance,
+      missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber),
+    }).toEqual({ isaflow: 300, variance: 0, missing: 1, matched: [null] });
     expect(canReconcile(recon)).toBe(false);
   });
 });
