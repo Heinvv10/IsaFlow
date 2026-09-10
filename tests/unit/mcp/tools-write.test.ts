@@ -544,6 +544,10 @@ describe('write-tool manifest invariants', () => {
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
     const argsByTool: Record<string, Record<string, unknown>> = {
+      // Actual authority is covered by exceptionTools.int.test.ts; scan strict input refusals here.
+      capture_control_exceptions: { ...KEY },
+      assign_exception: { ...KEY },
+      resolve_exception: { ...KEY },
       // Scan real validation refusals; successful jobs require issued authority and actual storage.
       // Issued control services have dedicated successful DTO and actual HTTP tests;
       // this suite scans their strict argument-refusal envelopes, as with other controls below.

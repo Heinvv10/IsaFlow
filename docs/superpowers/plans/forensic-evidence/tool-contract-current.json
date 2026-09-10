@@ -3,9 +3,9 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 156,
-    "reads": 88,
-    "writes": 68,
+    "total": 160,
+    "reads": 89,
+    "writes": 71,
     "requires_post": 32
   },
   "tools": [
@@ -480,6 +480,50 @@
           "idempotency_key"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "assign_exception",
+      "scope": "write:approvals",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "exception_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "owner_person_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "due_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "exception_id",
+          "expected_version",
+          "owner_person_id",
+          "due_at",
+          "idempotency_key"
+        ]
       }
     },
     {
@@ -1461,6 +1505,52 @@
       }
     },
     {
+      "name": "capture_control_exceptions",
+      "scope": "write:approvals",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "check_id": {
+            "type": "string",
+            "enum": [
+              "duplicate_invoice_checks",
+              "payment_risk_checks",
+              "three_way_match_exceptions",
+              "journal_risk_checks",
+              "bank_statement_completeness",
+              "payroll_control_checks"
+            ]
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "check_id",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
       "name": "chart_of_accounts_health",
       "scope": "read:reports",
       "write": false,
@@ -1534,6 +1624,50 @@
         "additionalProperties": false,
         "properties": {},
         "required": []
+      }
+    },
+    {
+      "name": "control_exceptions",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "check_id": {
+            "type": "string",
+            "enum": [
+              "duplicate_invoice_checks",
+              "payment_risk_checks",
+              "three_way_match_exceptions",
+              "journal_risk_checks",
+              "bank_statement_completeness",
+              "payroll_control_checks"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "fixed",
+              "accepted_risk"
+            ]
+          },
+          "cursor": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "check_id"
+        ]
       }
     },
     {
@@ -5236,6 +5370,54 @@
           "operation",
           "entity_type",
           "entity_id",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
+      "name": "resolve_exception",
+      "scope": "write:approvals",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "exception_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "accepted_risk"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "exception_id",
+          "expected_version",
+          "resolution",
+          "reason",
           "idempotency_key"
         ]
       }
