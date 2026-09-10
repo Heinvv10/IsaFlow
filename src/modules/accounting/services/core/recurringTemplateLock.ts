@@ -24,8 +24,11 @@ const LOCK_NOT_AVAILABLE = '55P03';
 
 /**
  * Raised when another request holds the template row longer than the 5s
- * `lock_timeout`. Raised BEFORE the first write, so the route may answer it with
- * a 4xx (see recurringTransactionErrors for why that distinction matters).
+ * `lock_timeout`. Nothing has been written yet, but the 55P03 leaves the
+ * transaction ABORTED, so this is answered 503 + `Retry-After` by
+ * `apiDocumentLock` — the same as its three sibling lock-timeout classes, and
+ * for the reason stated there: a 4xx would ask `withAuth` to COMMIT a
+ * transaction that cannot commit, and a client retrying on 503 would not retry.
  */
 export class RecurringTemplateLockTimeoutError extends Error {
   readonly code = 'RECURRING_TEMPLATE_LOCK_TIMEOUT';

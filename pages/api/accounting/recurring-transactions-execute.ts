@@ -11,7 +11,6 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
 import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
-import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -35,14 +34,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof RecurringTemplateNotFoundError) {
       return apiResponse.notFound(res, 'Active recurring template', templateId);
     }
-    // Both of these are raised by the row lock, before the first INSERT, so the
-    // 4xx COMMIT is a commit of nothing. NOT_DUE is the double-click / retry /
-    // re-POST answer: the previous run already advanced the schedule.
+    // Raised by the row lock, before the first INSERT, so the 4xx COMMIT is a
+    // commit of nothing. NOT_DUE is the double-click / retry / re-POST answer:
+    // the previous run already advanced the schedule.
+    //
+    // The lock TIMEOUT is deliberately NOT answered here: it is raised from
+    // Postgres 55P03 like its three sibling classes, and `apiDocumentLock`
+    // owns that class — rethrowing lets `withErrorHandler` answer the 503 +
+    // `Retry-After: 2` a contended write path is documented to give, so a
+    // client that retries on 503 retries this route too.
     if (err instanceof RecurringTemplateNotDueError) {
       return apiResponse.conflict(res, err.message, { nextRunDate: err.nextRunDate });
-    }
-    if (err instanceof RecurringTemplateLockTimeoutError) {
-      return apiResponse.conflict(res, err.message);
     }
     // Also pre-write: the mint functions assert the template's aggregate
     // against its lines before they touch anything. 400 rather than a 500,

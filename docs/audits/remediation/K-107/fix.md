@@ -547,6 +547,8 @@ applied to an error message). Four hits, one of them the defect:
 | `supplier-payments-action.ts:68` `startsWith('Cannot approve payment with status')` | Start-anchored, and `approveSupplierPayment` raises it before its UPDATE. Left. |
 | `adjustments-action.ts:50` `/^Adjustment not found/` | Start-anchored. Left. |
 | `write-offs-action.ts:58` `/^Write-off not found/` | Start-anchored. Left. |
+| `batch-payments-action.ts:55` `err.message === 'Batch not found'` | **Row added in round 9** — the round-8 sweep read it and left it, but did not record it. Exact equality, so immune to the substring class by construction, and `processBatch` throws it before its first write. Left. |
+| `customer-sales-orders-action.ts:51` `err.message === 'Sales order not found'` | **Row added in round 9**, same reason: exact equality, and `convertSalesOrderToInvoice:57` throws it pre-write. Left. |
 | `documentNumberRetry.ts:56` | Matches an exact `constraint` NAME against an allowlist, not a message. Not this class. |
 | `apiDocumentLock.ts`, `api-error-handler.ts` | Already `instanceof` on the three typed lock classes. Not this class. |
 
@@ -667,3 +669,178 @@ reserved.
 - **Supplier payments stranded by HIGH-1:** a payment reading `'processed'` with
   a NULL `gl_journal_entry_id` is the signature. **Not queried on production
   here.** That census belongs with whoever runs the fix in prod.
+
+# Round 9 (R-060) — the recovery that ate the error, the 409 that should be a 503, and the census RECORD
+
+The round-8 blind review scored `2e0ae4f36` at **3 LOW, no HIGH, no MEDIUM**, and
+re-derived every round-8 claim independently (8/8 mutations red, both round-8
+corrections upheld on evidence). These three close the branch.
+
+## LOW-1 — `claimUnderLockTimeout`'s recovery destroyed the error it was recovering from
+
+`src/modules/accounting/services/core/documentClaimLock.ts`
+
+The catch block's comment asserted that "any OTHER failure out of the claim — a
+23505, a CHECK violation — leaves the transaction usable". **It does not.** In
+Postgres *every* SQL error aborts the transaction, not only 55P03. So on a
+23505 / 23514 / 23503 / 22P02 out of a claim the recovery
+`SET LOCAL lock_timeout = DEFAULT` raised **25P02** itself, and *that* rejection
+— not `err` — left the catch block. The operator and Sentry saw
+`current transaction is aborted` instead of the constraint that actually fired,
+on all seven claiming write paths (supplier payment, sales order, quote ×2,
+write-off, adjustment, UIF, tax directive).
+
+Not a ledger risk — the outcome is still ≥500, so `withAuth` ROLLBACKs — but it
+is this codebase's known class: *a caught SQL error still poisons the
+transaction; best-effort SQL after a failure needs its own guard, and catching
+alone lies.*
+
+**Fix.** The restore is now attempted inside its own `try`, and a failure of the
+restore is swallowed in favour of `err`. It is still attempted, because `claim`
+can also fail as a plain JS throw on a still-usable transaction — and there the
+restore is the thing that stops the 5s ceiling leaking onto the rest of the
+request. The comment is corrected to say which case is which.
+
+`reserveNextDocumentNumber` (`companySettingsService.ts:185-196`) does **not**
+carry this bug — its throw is a JS throw on a usable transaction and its catch
+issues no query — and `recurringTemplateLock.ts:81-86` does not either: its
+catch issues no recovery statement at all.
+
+**And the unit test could not have caught it.** The old case mocked
+`client.query` with `vi.fn().mockResolvedValue(undefined)` — a client that never
+rejects — so `.rejects.toBe(boom)` was the only outcome it could produce. A test
+that converts "we did not check" into "we verified". It is replaced by two: one
+where the claim fails as a JS throw and the restore succeeds, and one where the
+restore itself rejects with 25P02, asserting the 23505 is what surfaces. Plus a
+**real-connection** proof in `k107-claim-lock-timeout.int.test.ts` that drives a
+genuine FK violation through `claimUnderLockTimeout` on a live pool client and
+asserts `code === '23503'` and no `current transaction is aborted` in the
+message.
+
+## LOW-2 — a 55P03 answered 409 on one route where its three siblings answer 503
+
+`pages/api/accounting/recurring-transactions-execute.ts`
+
+`RecurringTemplateLockTimeoutError` is raised from Postgres 55P03
+(`recurringTemplateLock.ts:82-85`) exactly like `DocumentNumberLockTimeoutError`,
+`TimeEntryLockTimeoutError` and `DocumentClaimLockTimeoutError` — and
+`src/lib/apiDocumentLock.ts` states the rule for that class in its own header:
+503, never a 4xx, because a 4xx asks `withAuth` to COMMIT a transaction that
+cannot commit. This route answered `apiResponse.conflict`.
+
+No corruption: `lockRecurringTransactionTemplate` is the first statement in
+`executeRecurring`, nothing is written, and `COMMIT` on an aborted transaction
+returns `ROLLBACK` without error. What was lost is `Retry-After: 2` and
+consistency — a client that retries every other contended write path on a 503
+would not retry this one.
+
+**Fix, in the direction the contract already documents** (one way, not both):
+the class is registered in `respondIfLockTimeout`, the route's 409 branch and
+its now-orphaned import are gone, and the rethrow reaches `withErrorHandler`,
+which answers 503 + `Retry-After`. The class's own doc comment said "the route
+may answer it with a 4xx" — corrected to match. `apiDocumentLock`'s header now
+says four classes, not three.
+
+## LOW-3 — the census SET was right; its RECORD was not
+
+The round-8 blind review walked all of `src/` and `pages/` independently and
+confirmed the set: nothing the round-8 enumeration missed. What was wrong is
+what fix.md wrote down. Two defects in the record, both corrected here.
+
+**(a) 39 was the count of CALLERS, recorded as if it were the count of posters.**
+Measured at `2e0ae4f36` (`git grep -l`, `src/**` + `pages/**`, `.ts`/`.tsx`):
+
+| Set | Count | What it is |
+|---|---|---|
+| `postJournalEntry(` | **39** | files that CALL it (incl. the one that defines it, `journalEntryPostingService.ts`) — the round-8 number |
+| `postJournalEntry` | **58** | files that MENTION it; the extra 19 name it only in prose/comments |
+| direct `gl_journal_*` writers that never mention it | **+2** | `pages/api/accounting/bank-transfers.ts`, `gl/assetDepreciationPosting.ts` |
+| **ledger-writing universe** | **60** | the set the next census must start from |
+
+Enumerations at `<scratchpad>/agents/fix-k107m/{callers39,mentions58}.txt`.
+
+**(b) 21 of those 60 appeared nowhere in this file.** The next census could not
+tell whether they had been read and cleared or never read — the exact failure
+that cost rounds 6 and 8. Each is read and dispositioned here.
+
+Mention-only, and cleared — no status check-then-act ahead of a ledger write:
+
+| File | Why not open |
+|---|---|
+| `pages/api/accounting/run-depreciation.ts` | Route shell; delegates to `depreciationRunService`, whose already-posted guard refuses before writing. |
+| `pages/api/accounting/bank-transfers.ts` | Direct `gl_journal_*` INSERT, but it creates a NEW transfer from validated input — there is no prior status to read. |
+| `gl/assetDepreciationPosting.ts` | Direct INSERT; called only through `postDualDepreciationToLedger`, guarded by `depreciationRunQueries.alreadyPosted` + `resolvePeriod`'s `status !== 'open'` refusal. |
+| `src/lib/mcp/tools/bulkApprovePeriods.ts` | Read-only verdicts (`SELECT` at :99); writes nothing. |
+| `afs/changesInEquityService.ts` | Reporting; the mention is a comment. No `INSERT`/`UPDATE` in the file. |
+| `ap/supplierBankPaymentService.ts` | Posts through `allocateTransaction`, which holds the bank-tx row lock (`bankTxLock.ts`); its `status !== 'imported'` read is inside that lock. |
+| `ar/receiptMatchConfirmService.ts` | Same path, same lock, same shape. |
+| `ar/creditNoteCancelService.ts` | Both rows read `FOR UPDATE` (:170) before the write. |
+| `gl/closeRun/closeRunProposalBuilder.ts` | Pure builder; writes nothing (its `proposal.status` read feeds a return value). |
+| `gl/fiscalPeriodAutoCreate.ts` | Creates periods, posts nothing. |
+| `gl/journalEntryCrudService.ts` | The canonical `createJournalEntry`; INSERTs at `draft`, so the status gate is `postJournalEntry`'s, downstream. |
+| `gl/journalEntryReversalDate.ts` | Pure date resolution. |
+| `gl/journalEntryService.ts` | 26-line re-export barrel. |
+| `gl/periodStatusService.ts` | Read-only `SELECT status FROM fiscal_periods`. |
+| `gl/recurringJournalGuards.ts` | The guards themselves — `readTemplateForUpdate` is `FOR UPDATE` (:98). |
+| `gl/yearEndJournalPoster.ts` | Direct INSERT, but the entry number carries `uq_gl_je_company_entry_number` and the run refuses on 23505 (`isClosingNumberConflict`); `lockYear` reads its own row count back rather than assuming it. |
+| `items/depreciationRunQueries.ts` | The guard queries (`alreadyPosted`, `alreadyInSubledger`, `resolvePeriod`). Read-only. |
+| `items/depreciationRunService.ts` | Refuses before writing on a closed period and on an already-posted number; both from `depreciationRunQueries`. |
+| `shared/journalPeriodVisibility.ts` | Read-only. |
+| `admin/services/sageMigrationCommitService.ts` | Operator-run migration commit; `UPDATE … SET status='posted'` is keyed on the id it just INSERTed in the same call — nothing else can be racing that row. |
+| `onboarding/services/tenantProvisioningService.ts` | Provisioning; posts no journal. |
+
+### New to the register, NOT fixed here
+
+Two of the 21 are **not** clean, and are registered rather than marked cleared —
+the same grade and the same shape as `loanPaymentService.recordLoanPayment`
+already carries:
+
+| File :: symbol | Risk |
+|---|---|
+| `reports/vatSubmissionService.ts` :: `submitVATReturn` | **MEDIUM.** Reads `vat_returns` for a `status='submitted'` row (:219), then posts the VAT201 journal, then INSERTs the `vat_returns` row LAST (:325). `vat_returns_company_id_period_start_period_end_key` (UNIQUE on `company_id, period_start, period_end`, confirmed on the fixture schema) makes the OUTCOME safe — the loser's 23505 aborts its transaction and unwinds its own journal — so the read is decorative under concurrency, and the caller gets an opaque 500 instead of a refusal raised before the first posting. |
+| `loans/loanPeriodCloseService.ts` :: `closeLoanPeriod` | **MEDIUM.** `isPeriodLocked(companyId, yyyymm)` read first, then a loop posting one reclassification journal per active loan, then `INSERT INTO loan_period_locks` LAST. `loan_period_locks_pkey` on `(company_id, yyyymm)` makes the outcome safe the same way, and the loser's reclass journals unwind with its transaction — but it does N postings before it discovers it lost. |
+
+Both belong to the same class the round-8 fix applied to `applyTaxDirective`:
+take the claim FIRST, then post. Registered for a later round, not fixed here —
+this round is the closing round for the LOWs the r9 review raised, and neither
+of these is one of them.
+
+## Round 9 files
+
+- `src/modules/accounting/services/core/documentClaimLock.ts` — guarded recovery, corrected comment.
+- `src/lib/apiDocumentLock.ts` — `RecurringTemplateLockTimeoutError` registered; header says four.
+- `src/modules/accounting/services/core/recurringTemplateLock.ts` — the class's doc comment corrected to 503.
+- `pages/api/accounting/recurring-transactions-execute.ts` — 409 branch and orphaned import removed.
+- `docs/audits/remediation/K-107/fix.md` — the two classifier rows, and this section.
+
+## Round 9 tests
+
+- `tests/unit/services/core/documentClaimLock.test.ts` — the un-failable case replaced by two: a JS throw where the restore succeeds, and a 25P02 rejection of the restore where the 23505 must survive.
+- `tests/integration/k107-claim-lock-timeout.int.test.ts` (+1) — the same, on a REAL connection, driving a genuine FK violation.
+- `tests/unit/lib/apiDocumentLock.test.ts` (+1 case) — `RecurringTemplateLockTimeoutError` → 503 + `Retry-After: 2`.
+- `tests/unit/api/recurringExecuteNo4xxAfterWrite.test.ts` — the 409 assertion replaced by "rethrows, answers nothing".
+
+## Round 9 mutation proof (file copies in `<scratchpad>/agents/fix-k107m`, restored; `git diff --stat -- src pages` clean after)
+
+| # | Production line reverted | Went RED |
+|---|---|---|
+| M1 | the `try`/`catch` around the recovery removed | `documentClaimLock.test.ts` — `Expected "23505" / Received "25P02"` (1 failed / 4 passed) |
+| M2 | the 409 branch re-added to the execute route | `recurringExecuteNo4xxAfterWrite` — the rethrow assertion (1 failed / 5 passed) |
+| M3 | `RecurringTemplateLockTimeoutError` unregistered from `respondIfLockTimeout` | `apiDocumentLock.test.ts` — returned false, no 503 (1 failed / 4 passed) |
+| M4 | M1 again, against the integration test | `k107-claim-lock-timeout.int.test.ts` — `Received "25P02"`, and the message matched `/current transaction is aborted/` |
+
+## Round 9 migration
+
+**None.** No schema change; the two newly registered sites lean on indexes that
+already exist (`vat_returns_company_id_period_start_period_end_key`,
+`loan_period_locks_pkey`).
+
+## Round 9 historical impact
+
+**None to correct.** LOW-1 changed which error text an operator sees on a failed
+claim — no row was ever written differently. LOW-2 changed a status code on a
+path that had written nothing when it fired. The two newly registered MEDIUMs
+are index-protected, so no duplicate VAT201 journal and no duplicate loan
+reclassification can exist from them; the pre-existing rule holds that whether
+any tenant has one from some OTHER cause is a data question this branch does not
+answer.

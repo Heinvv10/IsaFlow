@@ -20,7 +20,10 @@ import { Pool, type PoolClient } from 'pg';
 import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { convertToInvoice } from '../../src/modules/accounting/services/ar/quoteConvertService';
-import { DocumentClaimLockTimeoutError } from '../../src/modules/accounting/services/core/documentClaimLock';
+import {
+  DocumentClaimLockTimeoutError,
+  claimUnderLockTimeout,
+} from '../../src/modules/accounting/services/core/documentClaimLock';
 import {
   ensureDocumentNumbers,
   reserveNextDocumentNumber,
@@ -103,6 +106,30 @@ it('restores the default timeout when the document type has no config, not only 
     // ceiling must not survive onto the request's later statements.
     const shown = await client.query('SHOW lock_timeout');
     expect(shown.rows[0].lock_timeout).toBe('0');
+    await client.query('ROLLBACK');
+  } finally {
+    client.release();
+  }
+});
+
+it('surfaces the constraint that fired, not the 25P02 the recovery raises on the aborted tx', async () => {
+  // Blind review r9, LOW-1, measured on a REAL connection. A SQL failure out of
+  // the claim ABORTS the transaction just as a 55P03 does, so the recovery
+  // `SET LOCAL lock_timeout = DEFAULT` cannot run — it raises 25P02, and that
+  // rejection used to replace the error the operator actually needs.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const err = await als
+      .run(ctxFor(client), () => claimUnderLockTimeout('quote', () =>
+        // A real constraint failure: quote_id has no such row to reference.
+        client.query(
+          `INSERT INTO customer_quote_lines(quote_id,description,quantity,unit_price,tax_rate,amount,sort_order)
+           VALUES($1,'orphan',1,1,0,1,1)`,
+          ['00000000-0000-0000-0000-000000000001'])))
+      .then(() => null, (e: unknown) => e);
+    expect.soft((err as { code?: string } | null)?.code).toBe('23503');
+    expect((err as Error).message).not.toMatch(/current transaction is aborted/);
     await client.query('ROLLBACK');
   } finally {
     client.release();
