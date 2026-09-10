@@ -227,3 +227,37 @@ MUTATION PROOF (round 8)
 | M31 | extended-ratios tax back to IN ('income_tax_expense','deferred_tax_expense') AND VAT_LEGITIMATE list back to the hand-list | lint FAILED with 6 offenders (2 pass-1, 4 pass-3) |
 | M32 | extended-ratios tax to a spelling outside the vocabulary, 'prior_year_tax_expense' | lint FAILED: "compares a subtype against 'prior_year_tax_expense', which names 'tax_expense'" — pass 2 alone |
 All three restored; the suite above is the restored tree.
+
+════════════════════════════ ROUND 9 ════════════════════════════
+2026-09-10, worktree .worktrees/fix-K-091, branch fix/audit-k091-k093-k126-report-figures
+
+bunx vitest run --config vitest.integration.config.ts --no-file-parallelism \
+  tests/integration/k091{,b,c,d}-*.int.test.ts
+  Test Files  4 passed (4)
+  Tests      40 passed (40)          (k091d alone: 16, was 13)
+
+bun run type-check                          clean
+bun run lint                                0 errors, 11 pre-existing warnings
+                                            (none in a file this round touched)
+env -u DATABASE_URL bun run test:unit       (FULL unit suite, no fixture env)
+  Test Files  806 passed | 40 skipped (846)
+  Tests      9590 passed | 243 skipped (9833)
+
+env -u DATABASE_URL bun run ci              [ci] all checks passed
+  type-check · lint · agent-docs · security-guards · unit · migration-naming · build
+
+MUTATION PROOF (round 9) — reader mutations, via file copies in the agent scratch dir
+| M1  | note 20 HAVING back to SUM(debit-credit) > 0                    | 2 red: note 20 partition; note 20 = income statement |
+| M2  | note 20 GROUP BY back to (account_name, account_subtype)        | 2 red: same two |
+| M3  | note 21 HAVING back to SUM(debit-credit) > 0                    | 1 red: note 21 keeps a net-credit finance cost |
+| M4  | the four bandCo sign-space seeds deleted (the round-8 fixture)  | 2 red: fixture spans the sign space; note 20 partition |
+| M5  | NON_CURRENT_SUBTYPES truncated to 1 spelling, afsKpiService     | 2 red: current ratio both arms; denominator |
+| M6  | cost_of_sales + depreciation_expense truncated, KPI query       | 1 red: gross profit and EBITDA |
+| M7  | RECEIVABLE_/PAYABLE_SUBTYPES truncated, ar/apSubLedgerCheck     | 1 red: AR and AP close gates |
+| M8  | RECEIVABLE_/PAYABLE_SUBTYPES truncated, migrationValidation     | 1 red: post-migration validation |
+| M9  | note 27 asset arm loses its account_type = 'asset' guard        | 1 red: note 27 paycard |
+| M10 | credit_card/other_current_liability out of VAT_SETTLEMENT_...   | 1 red: VAT201 settlement leg |
+| M11 | notes 5/8/9/19/21/22 token sets truncated to 1 spelling         | 2 red: AFS notes list every spelling; note 21 |
+| M12 | COALESCE(account_subtype,'') removed so <> ALL is NULL          | 1 red: an asset with NO subtype |
+All twelve restored from file copies; `git status` then showed exactly the three
+intended files. The suite above is the restored tree.

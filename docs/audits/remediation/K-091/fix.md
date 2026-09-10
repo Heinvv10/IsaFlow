@@ -721,3 +721,169 @@ in the vocabulary records which account type a token belongs to, so a new
 expense alias added to `SUBTYPE_ALIASES` outside those nine tokens is seeded by
 no fixture. The lint's three "NO" rows above are real gaps, not theoretical
 ones. `k091d` is 417 lines, over the 300-line cap, as it was at 348.
+
+---
+
+## Round 9 — the note did NOT foot "by construction", and the fixture said it did
+
+**H1. `HAVING SUM(debit - credit) > 0` dropped every credit-balance operating
+expense (notes16to20.ts, note 20).** Round 8 claimed note 20 "foots to the
+income statement's Operating Expenses line by construction". It did not. The
+income statement keeps any account whose movement is non-nil in EITHER
+direction (`Math.abs(amount) > 0.001`, `incomeStatementService.ts:93`); note 20
+kept only net-DEBIT ones. A supplier rebate, a credit note raised against an
+expense, or a reversed over-accrual is a net-credit operating expense, and the
+note omitted it while the income statement reported it — so the note's own
+total exceeded the line it is a note to, by the whole credit balance. The
+reviewer measured R5,000 on a rebate account.
+
+Two further disagreements in the same clause, found while fixing it:
+
+* Note 20 grouped by `(account_name, account_subtype)`; the income statement
+  groups by `ga.id`. Two distinct accounts sharing a name were netted into one
+  row — or, when their movements cancelled, out of the note entirely.
+* The threshold was an exact `> 0` against the income statement's `> 0.001`.
+
+Note 20 now reads
+`GROUP BY ga.id, ga.account_name, ga.account_subtype` /
+`HAVING ABS(SUM(gjl.debit - gjl.credit)) > 0.001` — the income statement's
+grouping and threshold, character for character in effect.
+
+**H1b. The same clause, one file over: note 21 (notes21to25.ts).** Fixing the
+named site alone would have left the twin alive (programme lesson 4). Note 21
+Finance Costs carried the identical `HAVING SUM(debit - credit) > 0`, so an
+interest rebate or a reversed finance charge was dropped from it too. Fixed the
+same way. Note 22 Employee Benefits, in the same file, carries **no** `HAVING`
+at all and was already correct — which is why the shape was invisible: the
+notes disagreed with each other, not with a spec.
+
+*Not changed, and why.* Five other one-sided `HAVING`s exist —
+`notes11to15.ts:234` (provisions), `notes26to30.ts:197,212` (financial-
+instruments risk), `notes1to5.ts`/`notes6to10.ts` already use `<> 0`, and
+`kpiChartsService.ts:213`. Those are balance-sheet disclosures with their own
+sign convention, not notes that must foot to an income-statement line, and no
+finding in this programme has been raised against them. They are recorded here
+so the next reviewer does not have to re-find them; they are NOT dispositioned
+as correct.
+
+**H2 (the one that matters). The reconciliation could not have caught H1.**
+`bandCo` seeded every expense account as `{debit: n, credit: 0}`. Every account
+in the fixture therefore had a net-debit balance, `HAVING ... > 0` was a no-op
+on it, and the footing assertion was structurally incapable of failing — the
+same failure mode as a mutation that stays green. Third time on this branch the
+gap was in the FIXTURE rather than the assertion.
+
+`bandCo` now spans the sign space rather than one side of it:
+
+| Seeded | Shape | What it makes fail |
+|---|---|---|
+| `Rebates received`, `operating_expense` | net **credit** R5,000 | a one-sided `HAVING` |
+| `Nil movement`, `admin_expense` | debit 700 + credit 700, **net nil** | a `<> 0` written as `> 0.001` on the wrong side, or a note that prints nil rows the income statement drops |
+| `Shared name` ×2, `insurance_expense` | +300 and −300, **two accounts, one name** | grouping by `account_name` |
+| `Interest rebate`, finance-cost spelling | net **credit** R450 | note 21's one-sided `HAVING` |
+| `Nil finance charge` | net nil | note 21 printing nil rows |
+
+and a new assertion, `the band fixture spans the sign space, so the note
+assertions can fail`, asserts the fixture itself contains a positive, a
+negative and a nil operating-expense account plus the name collision. Deleting
+the four `bandAccount` seeds turns that test red (mutation M4 below), so the
+guard is not itself decorative.
+
+Note 21's assertion is deliberately **signed**. The shared `foot()` helper takes
+`Math.abs` per row and would read the same total whether the rebate printed as
+−450 or was dropped; that abs is why no existing note assertion could see the
+sign at all.
+
+### Every assertion in k091d, and the reader mutation that reddens it
+
+The reviewer asked for this to be answered per assertion rather than in
+aggregate: what data shape would make it fail, and does the fixture produce
+that shape? Answered by executing a mutation against the READER — the historical
+defect shape, a partial hand-list or a missing guard — not against the
+vocabulary. (Mutating `rawSubtypesFor` itself is **not** a valid mutation for
+this file: the fixture seeds from it and asserts against it, so both sides move
+together. That is a real limit of the file, recorded under Limits below.)
+
+| # | Assertion | Reader mutation | Result |
+|---|---|---|---|
+| M1 | note 20 partition; note 20 = income statement | note 20 `HAVING` back to `> 0` | 2 red |
+| M2 | note 20 partition; note 20 = income statement | note 20 `GROUP BY` back to name-only | 2 red |
+| M3 | note 21 keeps a net-credit finance cost | note 21 `HAVING` back to `> 0` | 1 red |
+| M4 | the band fixture spans the sign space | the four sign-space seeds deleted | 2 red |
+| M5 | KPI current ratio, both arms; denominator excludes long-term debt | `NON_CURRENT_SUBTYPES` truncated to 1 spelling in `afsKpiService` | 2 red |
+| M6 | gross profit and EBITDA | `cost_of_sales` / `depreciation_expense` truncated in the KPI query | 1 red |
+| M7 | AR and AP close gates | `RECEIVABLE_/PAYABLE_SUBTYPES` truncated in ar/apSubLedgerCheck | 1 red |
+| M8 | post-migration validation | same, in `migrationValidationService` | 1 red |
+| M9 | note 27 paycard | note 27's `account_type = 'asset'` guard removed | 1 red |
+| M10 | VAT201 settlement leg | `credit_card`/`other_current_liability` removed from `VAT_SETTLEMENT_SUBTYPES` | 1 red |
+| M11 | the AFS notes list every spelling | notes 5/8/9/19/21/22 token sets truncated to 1 spelling | 2 red |
+| M12 | an asset with NO subtype | `COALESCE(account_subtype,'')` removed, so `<> ALL` is NULL | 1 red |
+
+Three assertions have no reader mutation because they have no reader: `every
+token under test has more than one spelling`, `every expense spelling in the
+vocabulary is under test`, and the sign-space guard (M4) are guards on the
+FIXTURE, which is the point of them.
+
+**A note on the ones that discriminate only by total.** The `cost_of_sales` and
+`depreciation_expense` loops seed every spelling at the SAME amount
+(`COGS_EACH`, `DEPR_EACH`), unlike every other loop in the file, which uses
+`100 * n`. Identical amounts still discriminate against a reader that DROPS a
+spelling (the total shrinks — M6 is red), and fail to discriminate only against
+a reader that PERMUTES two spellings, which no reader can do: a spelling is
+either recognised or not. Left as is rather than churned.
+
+**Round-9 defect worth recording: a backtick inside a SQL comment.** The first
+draft of the note-20 comment wrote ``` `> 0` ``` inside the `sql` tagged
+template. The backticks terminated the template literal, `tsc` and `eslint`
+both passed, and the query reached Postgres with the `GROUP BY` gone —
+`column "ga.account_name" must appear in the GROUP BY clause`, position 13.
+Only the integration test caught it. No backtick belongs inside a `sql` template.
+
+**Migration / rollback (round 9).** None. Revert the commit.
+
+**Historical-data impact (round 9).** Read-only; no stored row changes. Figures
+that move: AFS note 20 gains a row per net-credit operating-expense account and
+its total FALLS by their credit balance; note 21 gains a row per net-credit
+finance-cost account and its total falls likewise; both notes gain a row
+wherever two accounts shared a name and were previously netted. Nil-movement
+accounts are printed by neither note before or after. Sizing, not run against
+production:
+
+```sql
+SELECT ga.company_id, ga.account_subtype, COUNT(*) AS accounts,
+       SUM(t.net) AS net_credit_total
+FROM   gl_accounts ga
+JOIN  (SELECT gjl.gl_account_id, SUM(gjl.debit - gjl.credit) AS net
+       FROM gl_journal_lines gjl
+       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
+       WHERE gje.status = 'posted'
+       GROUP BY gjl.gl_account_id) t ON t.gl_account_id = ga.id
+WHERE  ga.account_type = 'expense' AND t.net < 0
+GROUP  BY ga.company_id, ga.account_subtype
+ORDER  BY accounts DESC;
+```
+
+**Limits (round 9).** k091d seeds from `rawSubtypesFor` and asserts against
+`rawSubtypesFor`, so it proves READER-vs-vocabulary agreement and cannot prove
+the vocabulary itself is right — a spelling missing from `SUBTYPE_ALIASES`
+entirely is invisible here, and that is what the census lint in
+`bankCashSubtypeCensus.test.ts` is for. `k091d` is now 487 lines, over the
+300-line cap, as it was at 417 and at 348. The five one-sided `HAVING`s listed
+under H1b are un-dispositioned.
+
+**Round-8 findings whose text was lost.** The round-8 review file was lost with
+its scratchpad; only the HIGH was reproduced for round 9. Two are recoverable
+from the comments the round-8 fixer left in the working tree and are addressed:
+
+* **MEDIUM-1** — "foots to the income statement" never named WHICH income
+  statement. Answered by the new test `note 20's total IS the income
+  statement's Operating Expenses line`, which pins it to
+  `reports/incomeStatementService` (the surface `expenseBand` drives, and
+  through it the MCP figures contract), NOT the AFS pack's own
+  mapping-driven statement, which is decided per account by the editable
+  `afs_account_mappings` table and cannot agree with anything by construction.
+* **LOW-1** — note 20 grouped by `account_name`, netting two distinct accounts
+  that share a name. Fixed under H1 and covered by mutation M2.
+
+The remaining two MEDIUMs are **not recovered**. I am not going to invent them;
+a fresh review will re-find them.
