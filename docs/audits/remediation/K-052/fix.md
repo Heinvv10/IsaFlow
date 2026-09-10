@@ -132,3 +132,12 @@ with `current transaction is aborted`.
   historically impacted when nothing was lost. Filter added; it now matches K-051's.
 - **LOW-4 — a comment in `tests/unit/mcp/reclassificationTools.test.ts` named a file that does not
   exist.** Corrected to `k052-reclassification-lock-savepoint.int.test.ts`.
+
+## Round-10
+
+- **The census was RUN, not asserted.** The reclassification census in this file and in
+  `validation.md` was executed against the fixture DB with the population seeded in a rolled-back
+  transaction — one `reclassification_batches` + `reclassification_batch_lines` pair whose target is
+  a level-2 asset account with a child — and returned **1 row**. Recorded with the other three
+  branch censuses in `docs/audits/remediation/K-051/fix.md` under **Census claims, verified by
+  execution (round 10)**. No code change.

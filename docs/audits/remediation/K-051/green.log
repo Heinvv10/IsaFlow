@@ -241,3 +241,21 @@ $ env -u DATABASE_URL bunx vitest run          # FULL unit suite, no fixture env
 $ bunx tsc --noEmit                            clean
 $ bunx eslint <7 changed src files>            clean
 $ bun run agent-docs:check                     OK: 74 mirrors match
+
+ROUND 10 (docs-only: the Limits bullet named a census that cannot find the population)
+$ psql "$DATABASE_URL" -f census-proof.sql        # 4 censuses, populations seeded, tx ROLLBACK
+  CENSUS A merges into a level<3 asset header with children ......... 1 row
+  CENSUS B cross-tenant gl_account_id lines (664) ................... 1 row
+  CENSUS C posted entries carrying a foreign dimension .............. 1 row
+  CENSUS D reclassifications into a level<3 asset header (K-052) .... 1 row
+$ psql "$DATABASE_URL" -f census-negative.sql     # foreign ACCOUNT line only, no foreign dimension
+  dimension census .... 0 rows   <- the reviewer's MEDIUM, reproduced
+  664 census .......... 1 row    <- the query the bullet now names
+$ bunx vitest run --config vitest.integration.config.ts --no-file-parallelism <7 K-051/K-052 files>
+  Test Files 7 passed (7) / Tests 43 passed (43)
+$ env -u DATABASE_URL bunx vitest run          # FULL unit suite, no fixture env
+  Test Files 793 passed | 36 skipped (829) / Tests 9442 passed | 234 skipped (9676)
+$ bunx tsc --noEmit                            clean
+$ bunx eslint <branch src files>               0 errors (14 pre-existing warnings, all "file ignored")
+$ bun run agent-docs:check                     OK: 74 mirrors match
+No production code changed this round, so the round-9 mutation proofs above still stand unmodified.
