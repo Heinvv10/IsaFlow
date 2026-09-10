@@ -90,7 +90,15 @@ it('serializes concurrently enqueued independently approved lower and uppercase 
  * A refused post-commit claim used to leave no trace at all: settleControlTransaction only logs the
  * observer error, and 'ready' is indistinguishable from a release nobody has dispatched yet.
  */
-it('records a durable refusal when the post-commit release claim cannot run',async()=>{
+async function events(intentId:string,action:string){
+ return(await f.pool.query(`SELECT after_values->>'reason' AS reason,after_values->>'status' AS status FROM control_change_events
+  WHERE company_id=$1 AND entity_type='payment_release_outbox' AND lower(entity_id)=lower($2) AND action=$3`,[f.f.companyA,intentId,action])).rows;
+}
+/**
+ * A refused claim used to leave no trace at all: settleControlTransaction discards the observer error
+ * and logs only the outcome, and 'ready' is indistinguishable from a release nobody has dispatched yet.
+ */
+it('records a durable failure when the post-commit release claim cannot run',async()=>{
  const company=f.f.companyA;
  await f.pool.query("UPDATE companies SET netcash_enabled=true,netcash_service_key='synthetic-service',netcash_payouts_key='synthetic-payouts' WHERE id=$1",[company]);
  const p=await prepared('netcash');
@@ -99,9 +107,33 @@ it('records a durable refusal when the post-commit release claim cannot run',asy
  const dispatch=await f.attempt(()=>f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId)));
  const saved=await state(p.intentId);
  expect({error:dispatch.error instanceof Error?dispatch.error.message:null,state:saved.outbox[0]?.state}).toEqual({error:null,state:'ready'});
- const refusals=(await f.pool.query(`SELECT after_values->>'reason' AS reason FROM control_change_events
-  WHERE company_id=$1 AND lower(entity_id)=lower($2) AND action='payment_release.claim_refused'`,[company,p.intentId])).rows;
- expect(refusals).toEqual([{reason:'Release provider configuration changed'}]);
+ expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([{reason:'Release provider configuration changed',status:'ready'}]);
+ expect(await events(p.intentId,'payment_release.acknowledgement_failed')).toEqual([]);
+});
+/**
+ * Worse than a refused claim: transmit returned, so for a real provider the money is gone, and the
+ * acknowledgement is what failed. The outbox is left 'attempting', which alone does not say the
+ * provider accepted it. A synthetic trigger forces exactly that acknowledgement failure.
+ */
+it('records a durable failure when the provider result cannot be acknowledged after transmit',async()=>{
+ const p=await prepared();
+ await enqueue(p.intentId,await f.approve(p.operation));
+ await f.pool.query(`CREATE FUNCTION public.synthetic_release_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.intent_id='${p.intentId}'::uuid AND NEW.state='exported' THEN RAISE EXCEPTION 'Synthetic release acknowledgement failure'; END IF; RETURN NEW; END $$`);
+ try{
+  await f.pool.query('CREATE TRIGGER synthetic_release_ack_failure BEFORE UPDATE ON control_payment_release_outbox FOR EACH ROW EXECUTE FUNCTION public.synthetic_release_ack_failure()');
+  const dispatch=await f.attempt(()=>f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId)));
+  const saved=await state(p.intentId);
+  expect({error:dispatch.error instanceof Error?dispatch.error.message:null,state:saved.outbox[0]?.state}).toEqual({error:null,state:'attempting'});
+ }finally{
+  await f.pool.query('DROP TRIGGER IF EXISTS synthetic_release_ack_failure ON control_payment_release_outbox');
+  await f.pool.query('DROP FUNCTION public.synthetic_release_ack_failure()');
+ }
+ const recorded=await events(p.intentId,'payment_release.acknowledgement_failed');
+ expect(recorded).toHaveLength(1);
+ expect(recorded[0].status).toBe('attempting');
+ expect(recorded[0].reason).toContain('after provider outcome exported (FILE_GENERATED)');
+ expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([]);
 });
 /**
  * paymentInvoiceSource reads the settlement receipt by an id the database owns, so the only reachable
@@ -118,4 +150,27 @@ it('loads a payment settlement whose retained receipt kept a legacy uppercase en
  expect(rewritten.rows.every(r=>r.entity_id===r.entity_id.toUpperCase())).toBe(true);
  const again=await f.attempt(()=>f.actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:p.batchId,channel:'eft',bankFormat:'fnb'})));
  expect({error:again.error instanceof Error?again.error.message:null,status:again.value?.status}).toEqual({error:null,status:'prepared'});
+});
+/**
+ * A row another attempt already advanced is that attempt's story. Reaching 'attempting' through a
+ * forced acknowledgement failure, then breaking the reservation population so the next claim throws,
+ * is the deterministic stand-in for the concurrent dispatcher the FOR UPDATE re-read guards against.
+ */
+it('does not report a dispatch failure against a release another attempt already advanced',async()=>{
+ const p=await prepared();
+ await enqueue(p.intentId,await f.approve(p.operation));
+ await f.pool.query(`CREATE FUNCTION public.synthetic_release_advance_only() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.intent_id='${p.intentId}'::uuid AND NEW.state='exported' THEN RAISE EXCEPTION 'Synthetic release acknowledgement failure'; END IF; RETURN NEW; END $$`);
+ try{
+  await f.pool.query('CREATE TRIGGER synthetic_release_advance_only BEFORE UPDATE ON control_payment_release_outbox FOR EACH ROW EXECUTE FUNCTION public.synthetic_release_advance_only()');
+  await f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId));
+ }finally{
+  await f.pool.query('DROP TRIGGER IF EXISTS synthetic_release_advance_only ON control_payment_release_outbox');
+  await f.pool.query('DROP FUNCTION public.synthetic_release_advance_only()');
+ }
+ expect((await state(p.intentId)).outbox[0]?.state).toBe('attempting');
+ await f.pool.query('DELETE FROM control_payment_release_reservations WHERE company_id=$1 AND intent_id=$2::uuid',[f.f.companyA,p.intentId]);
+ await f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId));
+ expect((await state(p.intentId)).outbox[0]?.state).toBe('attempting');
+ expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([]);
 });
