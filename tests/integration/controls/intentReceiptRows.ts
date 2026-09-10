@@ -3,19 +3,19 @@ import {withControlRequest,requireControlTx} from '@/modules/accounting/services
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 export interface Identity {id:string;companyId:string}
 function claims(user:Identity){return{sub:user.id,company_id:user.companyId,role:'authenticated'};}
-async function asAppUser<T>(pool:Pool,user:Identity,fn:(client:import('pg').PoolClient)=>Promise<T>):Promise<T>{
+async function asAppUser<T>(pool:Pool,user:Identity,fn:(client:import('pg').PoolClient)=>Promise<T>,isolation?:'repeatable read'):Promise<T>{
  const client=await pool.connect();
  try{
-  await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
+  await client.query(isolation?'BEGIN ISOLATION LEVEL REPEATABLE READ':'BEGIN');await client.query('SET LOCAL ROLE app_user');
   await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims(user)),user.companyId]);
   const result=await fn(client);
   if((await client.query('COMMIT')).command!=='COMMIT')throw new Error('Synthetic request did not commit');
   return result;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
-export function actorAs<T>(pool:Pool,user:Identity,fn:(ctx:ControlTx)=>Promise<T>):Promise<T>{
+export function actorAs<T>(pool:Pool,user:Identity,fn:(ctx:ControlTx)=>Promise<T>,isolation?:'repeatable read'):Promise<T>{
  return asAppUser(pool,user,client=>withControlRequest({client,userId:user.id,companyId:user.companyId,claims:claims(user)},
-  {personId:user.id,companyId:user.companyId,authMethod:'cookie'},()=>fn(requireControlTx())));
+  {personId:user.id,companyId:user.companyId,authMethod:'cookie'},()=>fn(requireControlTx())),isolation);
 }
 /** Appends a twin of one committed receipt spelled in the opposite case; the original row is never touched. */
 export async function insertCaseVariantReceipt(pool:Pool,user:Identity,effectId:string){

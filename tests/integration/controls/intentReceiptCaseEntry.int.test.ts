@@ -12,6 +12,10 @@ import {preparePayrollCompensation} from '@/modules/accounting/services/controls
 import {executeCompensationCaller} from '@/modules/accounting/services/controls/payrollCompensationLegacyAdapter';
 import {recordBankRuleChange} from '@/modules/accounting/services/bank/bankRuleChangeControl';
 import {readControlEntityHistory} from '@/modules/accounting/services/controls/controlChangeHistoryService';
+import {openHistoryCursor,sealHistoryCursor} from '@/modules/accounting/services/controls/controlChangeHistoryCursor';
+import {recordPaymentStatusApproval} from '@/modules/accounting/services/ap/supplierPaymentStatusControl';
+import {invoiceSnapshotSources} from '@/modules/accounting/services/controls/auditSnapshotInvoiceQueries';
+import {inspectTransactionEvidence} from '@/modules/accounting/services/controls/transactionEvidenceService';
 import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
 import {appendEntityVersion,effectRows,entityVersions,eventSpellings,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
 async function approved(ref:OperationRef){const approval=await actor(()=>requestOperationApproval(requireControlTx(),ref));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');return approval.id;}
@@ -103,6 +107,42 @@ it('a forked history is two named lineages, never a merge, and each pages withou
    seen.push(...page.items.map(item=>item.eventId));cursor=page.nextCursor;}while(cursor);
   expect(seen).toEqual(await retained(lineage));
  }
+ // A second canonical event gives that lineage a real cursor to misuse.
+ const again=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ const againApproval=await approved(again.operation);
+ await actor(()=>executeBankAllocation(requireControlTx(),again.intentId,{approvalId:againApproval}));
+ const first=await history(tx,{lineage:tx,limit:1});
+ expect(first.nextCursor).not.toBeNull();
+ await expect(history(tx,{lineage:tx.toUpperCase(),limit:1,cursor:first.nextCursor})).rejects.toThrow('History cursor no longer matches authorized query');
+ const {lineage:_bound,...unbound}=openHistoryCursor(first.nextCursor!);
+ await expect(history(tx,{lineage:tx,limit:1,cursor:sealHistoryCursor(unbound)})).rejects.toThrow('History cursor predates lineage selection');
+});
+it('an explicit lineage on an entity with no retained history reads as untracked, not refused',async()=>{
+ const tx=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',1,'Synthetic untracked history bank','imported')",[tx,fixture.companyA,bank]);
+ const page=await history(tx,{lineage:tx}) as HistoryPage&{coverage:{historical:string}};
+ expect(page.available).toBe(true);expect(page.items).toEqual([]);expect(page.coverage.historical).toBe('untracked');
+});
+it('a raw uppercase id extends the lineage the projections report, not a sibling',async()=>{
+ const supplier=randomUUID(),payment=randomUUID(),ident={id:fixture.u1.id,companyId:fixture.companyA};
+ await pool.query("INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,'Synthetic lineage supplier')",[supplier,fixture.companyA]);
+ await pool.query("INSERT INTO supplier_payments(id,company_id,supplier_id,payment_date,total_amount,created_by) VALUES($1,$2,$3,'2026-09-09',10,$4)",[payment,fixture.companyA,supplier,fixture.u1.id]);
+ await appendEntityVersion(pool,ident,'supplier_payment',payment,1);
+ await appendEntityVersion(pool,ident,'supplier_payment',payment.toUpperCase(),7);
+ await actor(()=>recordPaymentStatusApproval(fixture.companyA,payment.toUpperCase(),fixture.u1.id,async()=>undefined));
+ const versions=Object.fromEntries((await entityVersions(pool,fixture.companyA,'supplier_payment',payment)).map(row=>[row.entity_id,row.version]));
+ expect(versions).toEqual({[payment]:2,[payment.toUpperCase()]:7});
+ const source=invoiceSnapshotSources.find(row=>row.source==='supplier_payment')!;
+ const rows=await actor(()=>source.page(requireControlTx(),'2026-12-31',null));
+ expect(Number(rows.find(row=>row.id===payment)!.version)).toBe(2);
+});
+it('evidence records a lineage it cannot choose as a gap instead of failing the traversal',async()=>{
+ const tx=randomUUID(),ident={id:fixture.u1.id,companyId:fixture.companyA};
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',1,'Synthetic ambiguous evidence bank','imported')",[tx,fixture.companyA,bank]);
+ for(const spelling of [tx.toUpperCase(),`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`])await appendEntityVersion(pool,ident,'bank_transaction',spelling);
+ const evidence=await actor(()=>inspectTransactionEvidence(requireControlTx(),{entityType:'bank_transaction',entityId:tx}));
+ const root=evidence.nodes.find(node=>node.entityType==='bank_transaction'&&node.entityId===tx)!;
+ expect(root.version).toBeNull();expect(root.flags).toContain('ambiguous');
 });
 it('two retained spellings and no canonical lineage fail closed instead of forking a third',async()=>{
  const tx=randomUUID(),mixed=`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`;
