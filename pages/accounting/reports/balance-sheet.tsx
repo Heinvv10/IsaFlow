@@ -24,17 +24,21 @@ import { useBalanceSheetFilters } from '@/components/reports/useBalanceSheetFilt
 import { reportHref } from '@/components/reports/reportReturnState';
 
 interface CostCentre { id: string; code: string; name: string }
+interface BusinessUnit { id: string; code: string; name: string }
 
 export default function BalanceSheetPage() {
-  const { asAtDate, setAsAtDate, costCentreId, setCostCentreId, queryKey, periodResolved } = useBalanceSheetFilters();
+  const { asAtDate, setAsAtDate, costCentreId, setCostCentreId,
+    businessUnitId, setBusinessUnitId, queryKey, periodResolved } = useBalanceSheetFilters();
   const restoredColumns = useRef('');
   const [columnsReadyKey, setColumnsReadyKey] = useState('');
+  const reportRequestRef = useRef(0);
 
   const [report, setReport] = useState<BalanceSheetReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
+  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // No Budget checkbox here: a budget is a P&L figure, and its account codes
   // match nothing on a balance sheet. The trend series is `balance`, not
@@ -42,7 +46,7 @@ export default function BalanceSheetPage() {
   // about a different number.
   const { columns, setColumns, companyWideUnavailable, apply, budgetState, trendFailed } =
     useStatementComparatorState({
-      dimensionSelected: costCentreId !== '',
+      dimensionSelected: costCentreId !== '' || businessUnitId !== '',
       asOf: asAtDate, basis: 'balance', offersBudget: false,
     });
   useEffect(() => {
@@ -57,6 +61,7 @@ export default function BalanceSheetPage() {
   }, [periodResolved, queryKey, columns, setColumns]);
   const filtersReady = periodResolved && columnsReadyKey === queryKey;
   const returnTo = reportHref('bs', { as_at_date: asAtDate, cost_centre_id: costCentreId,
+    business_unit_id: businessUnitId,
     prior: String(columns.prior), variance: String(columns.variance), trend: String(columns.trend) });
   const showComparative = columns.prior;
   const anyColumn = columns.prior || columns.trend;
@@ -66,14 +71,24 @@ export default function BalanceSheetPage() {
       .then(r => r.json())
       .then(json => setCostCentres(json.data?.items || json.data || []))
       .catch(() => { /* reference data load failure — non-critical */ });
+    apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load business units')))
+      .then(json => {
+        const items = json.data?.items || json.data || [];
+        setBusinessUnits(Array.isArray(items) ? items : []);
+      })
+      .catch(() => { /* selected BU remains visible as unavailable */ });
   }, []);
 
   const loadReport = useCallback(async () => {
-    if (!asAtDate || !filtersReady) return;
+    if (!asAtDate || !filtersReady) { reportRequestRef.current += 1; return; }
+    const requestId = ++reportRequestRef.current;
+    setReport(null);
     setIsLoading(true); setError('');
     try {
       const params = new URLSearchParams({ as_at_date: asAtDate });
       if (costCentreId) params.set('cost_centre_id', costCentreId);
+      if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (showComparative) {
         const d = new Date(asAtDate); d.setFullYear(d.getFullYear() - 1);
         params.set('compare_date', d.toISOString().slice(0, 10));
@@ -81,17 +96,21 @@ export default function BalanceSheetPage() {
       const res = await apiFetch(`/api/accounting/reports-balance-sheet?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load');
-      setReport(json.data || json);
+      if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load balance sheet');
-    } finally { setIsLoading(false); }
-  }, [asAtDate, costCentreId, showComparative, filtersReady]);
+      if (requestId === reportRequestRef.current)
+        setError(err instanceof Error ? err.message : 'Failed to load balance sheet');
+    } finally {
+      if (requestId === reportRequestRef.current) setIsLoading(false);
+    }
+  }, [asAtDate, costCentreId, businessUnitId, showComparative, filtersReady]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
   function makeExportParams() {
     const p = new URLSearchParams({ as_at_date: asAtDate });
     if (costCentreId) p.set('cost_centre_id', costCentreId);
+    if (businessUnitId) p.set('business_unit_id', businessUnitId);
     return p;
   }
   function handleExport() { if (asAtDate) window.open(`/api/accounting/balance-sheet-export?${makeExportParams()}`, '_blank'); }
@@ -159,6 +178,19 @@ export default function BalanceSheetPage() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Business Unit</label>
+              <select value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)}
+                className="ff-input text-sm min-w-[160px]">
+                <option value="">All Business Units</option>
+                {businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) && (
+                  <option value={businessUnitId}>Selected Business Unit (unavailable)</option>
+                )}
+                {businessUnits.map(bu => (
+                  <option key={bu.id} value={bu.id}>{bu.code} — {bu.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="pb-2">
               <ComparatorControls value={columns} onChange={setColumns} comparators={['prior']}
                 companyWideUnavailable={companyWideUnavailable} />
@@ -181,7 +213,8 @@ export default function BalanceSheetPage() {
           ) : report ? (
             <BalanceSheetBody
               returnTo={returnTo}
-                costCentreId={costCentreId}
+              costCentreId={costCentreId}
+              businessUnitId={businessUnitId}
               report={report}
               showComparative={showComparative}
               columns={columns}
@@ -198,6 +231,7 @@ export default function BalanceSheetPage() {
       {evidenceTarget && (
         <EvidenceDrillModal
           costCentreId={costCentreId}
+          businessUnitId={businessUnitId}
           accountId={evidenceTarget.accountId}
           accountName={evidenceTarget.accountName}
           periodStart={drillDownStart}

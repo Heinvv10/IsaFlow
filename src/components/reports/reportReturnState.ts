@@ -5,7 +5,7 @@ export const queryText = (query: Query, key: string): string =>
 
 const fields = {
   tb: ['fiscal_period_id', 'compare_period_id', 'cost_centre_id', 'business_unit_id', 'show_movement', 'from', 'to'],
-  bs: ['as_at_date', 'cost_centre_id', 'prior', 'variance', 'trend'],
+  bs: ['as_at_date', 'cost_centre_id', 'business_unit_id', 'prior', 'variance', 'trend'],
   is: ['period_start', 'period_end', 'cost_centre_id', 'business_unit_id'],
 };
 export function reportHref(source: 'tb' | 'bs' | 'is', query: Query): string {
