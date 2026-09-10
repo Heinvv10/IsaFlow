@@ -17,6 +17,15 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/noteEngineService', () => ({
   generateSection: vi.fn(),
 }));
+// The section write guard (document binding, lock check, review invalidation) is proven
+// against real PostgreSQL in tests/integration/controls/afsSectionReviewIntegrityHttp.int.test.ts.
+vi.mock('@/modules/accounting/services/afs/afsSectionAttestation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/afs/afsSectionAttestation')>()),
+  lockSectionForWrite: vi.fn().mockResolvedValue({
+    id: 'section', documentId: 'document', sectionType: 'note', status: 'pending', reviewedBy: null, signedOffBy: null,
+  }),
+  voidSectionAttestation: vi.fn().mockResolvedValue(false),
+}));
 vi.mock('@/lib/apiResponse', () => {
   const validationError = vi.fn();
   // Mirror real helper: zodValidationError extracts fieldErrors and forwards
@@ -55,6 +64,7 @@ function makeReq(overrides: Partial<NextApiRequest> = {}): NextApiRequest {
     query:     { documentId: DOCUMENT_ID, sectionId: SECTION_ID },
     body:      { fiscalYear: 2025, framework: 'full_ifrs' },
     companyId: COMPANY_ID,
+    user:      { id: '44444444-4444-4444-9444-444444444444' },
     ...overrides,
   } as unknown as NextApiRequest;
 }

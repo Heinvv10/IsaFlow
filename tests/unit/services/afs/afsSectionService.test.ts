@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// The section write guard (document binding, lock check, review invalidation) is proven
+// against real PostgreSQL in tests/integration/controls/afsSectionReviewIntegrityHttp.int.test.ts.
+vi.mock('@/modules/accounting/services/afs/afsSectionAttestation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/afs/afsSectionAttestation')>()),
+  lockSectionForWrite: vi.fn().mockResolvedValue({
+    id: 'section', documentId: 'document', sectionType: 'note', status: 'pending', reviewedBy: null, signedOffBy: null,
+  }),
+  voidSectionAttestation: vi.fn().mockResolvedValue(false),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

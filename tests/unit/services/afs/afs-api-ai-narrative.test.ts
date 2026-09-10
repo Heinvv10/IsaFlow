@@ -23,6 +23,15 @@ vi.mock('@/lib/rateLimit', () => ({
 vi.mock('@/modules/accounting/services/afs/noteAiService', () => ({
   generateNoteNarrative: vi.fn(),
 }));
+// The section write guard (document binding, lock check, review invalidation) is proven
+// against real PostgreSQL in tests/integration/controls/afsSectionReviewIntegrityHttp.int.test.ts.
+vi.mock('@/modules/accounting/services/afs/afsSectionAttestation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/afs/afsSectionAttestation')>()),
+  lockSectionForWrite: vi.fn().mockResolvedValue({
+    id: 'section', documentId: 'document', sectionType: 'note', status: 'pending', reviewedBy: null, signedOffBy: null,
+  }),
+  voidSectionAttestation: vi.fn().mockResolvedValue(false),
+}));
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
     success:          vi.fn(),
@@ -36,6 +45,8 @@ vi.mock('@/lib/apiResponse', () => ({
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { generateNoteNarrative } from '@/modules/accounting/services/afs/noteAiService';
+import { lockSectionForWrite } from '@/modules/accounting/services/afs/afsSectionAttestation';
+import { ReviewError } from '@/modules/accounting/services/afs/afsReviewService';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/ so relative path required
 import handler from '../../../../pages/api/accounting/afs/[documentId]/sections/[sectionId]/ai-narrative';
@@ -58,6 +69,7 @@ function makeReq(method: 'POST' | 'PUT' = 'POST'): NextApiRequest {
     query:     { documentId: DOCUMENT_ID, sectionId: SECTION_ID },
     body:      {},
     companyId: COMPANY_ID,
+    user:      { id: 'uuu44444-0000-0000-0000-000000000004' },
   } as unknown as NextApiRequest;
 }
 
@@ -159,7 +171,7 @@ describe('PUT /afs/[documentId]/sections/[sectionId]/ai-narrative', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns 404 when section not found', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    vi.mocked(lockSectionForWrite).mockRejectedValueOnce(new ReviewError('Section not found', 'NOT_FOUND'));
     const req = makeReq('PUT');
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);

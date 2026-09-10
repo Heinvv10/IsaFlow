@@ -66,6 +66,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/suppress', () => {
       query:     { documentId: DOCUMENT_ID, sectionId: SECTION_ID },
       body,
       companyId: COMPANY_ID,
+      user:      { id: '44444444-4444-4444-9444-444444444444' },
     } as unknown as NextApiRequest;
   }
 
