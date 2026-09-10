@@ -20,14 +20,12 @@
  */
 
 import pg from 'pg';
-import { createSql, closeSql } from './_pg';
+import { closeSql } from './_pg';
 import { randomUUID } from 'crypto';
 import { als } from '../src/lib/als';
 
 // Real services — via relative paths. tsx resolves the @/ aliases
 // inside these files via the root tsconfig paths.
-import { closeLoanPeriod, isPeriodLocked } from '../src/modules/accounting/services/loans/loanPeriodCloseService';
-import { recordLoanPayment } from '../src/modules/accounting/services/loans/loanPaymentService';
 import { generateWipInvoice } from '../src/modules/accounting/services/practice/practiceWipService';
 import { approvePayrollRun } from '../src/modules/accounting/services/payroll/payrollApprovalService';
 import {
@@ -40,10 +38,9 @@ import {
   markUifDeclarationPaid,
 } from '../src/modules/accounting/services/payroll/uifDeclarationService';
 import { submitVATReturn } from '../src/modules/accounting/services/reports/vatSubmissionService';
-
-const DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL;
-if (!DATABASE_URL) { console.error('ERROR: MIGRATION_ADMIN_DATABASE_URL or DATABASE_URL not set'); process.exit(1); }
-const sql = createSql(DATABASE_URL);
+import { closeLoansPool, runLoanPayments, runLoansClose } from './simulate-fy2026-loans';
+import type { Err } from './simulate-fy2026-context';
+import { ADMIN_ID, COMPANY_ID, DATABASE_URL, errText, firstDay, lastDay, pad, sql, yyyymm } from './simulate-fy2026-context';
 
 /**
  * generateWipInvoice locks the entries it is about to bill with FOR UPDATE, so
@@ -72,19 +69,8 @@ async function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
     client.release();
   }
 }
-
-const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
-const ADMIN_ID   = 'a0000000-0000-0000-0000-000000000001';
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const VAT_MONTHS  = new Set([2, 4, 6, 8, 10, 12]);
-
-interface Err { month: number; module: string; message: string; }
-
-const pad = (n: number) => String(n).padStart(2, '0');
-const yyyymm = (y: number, m: number) => `${y}${pad(m)}`;
-const firstDay = (y: number, m: number) => `${y}-${pad(m)}-01`;
-const lastDay  = (y: number, m: number) => new Date(y, m, 0).toISOString().slice(0, 10);
-const errText  = (e: unknown) => e instanceof Error ? e.message : String(e);
 
 // ── PREREQ: link each practice_client to a customer ─────────────────────────
 
@@ -109,64 +95,6 @@ async function linkPracticeClients(): Promise<void> {
 }
 
 // ── MODULES ──────────────────────────────────────────────────────────────────
-
-async function runLoansClose(month: number, year: number, errors: Err[]): Promise<number> {
-  const period = yyyymm(year, month);
-  try {
-    if (await isPeriodLocked(COMPANY_ID, period)) {
-      console.log(`  [loans-close] ${period} already locked — skip`);
-      return 0;
-    }
-    const result = await closeLoanPeriod(COMPANY_ID, period, ADMIN_ID);
-    console.log(`  [loans-close] ${period}: processed ${result.loansProcessed}, posted ${result.reclassEntries.length}${result.skippedLoans ? `, skipped ${result.skippedLoans.length}` : ''}`);
-    return result.reclassEntries.length;
-  } catch (err) {
-    errors.push({ month, module: 'loans-close', message: errText(err) });
-    console.error(`  [loans-close] ERROR ${period}: ${errText(err)}`);
-    return 0;
-  }
-}
-
-async function runLoanPayments(month: number, year: number, errors: Err[]): Promise<number> {
-  let done = 0;
-  try {
-    const loans = await sql.query<{id:string;reference:string}>(
-      `SELECT id,reference FROM loans WHERE company_id=$1 AND status='active'`,
-      [COMPANY_ID],
-    );
-    for (const loan of loans) {
-      const rows = await sql.query<{period:number;date:Date}>(
-        `SELECT lsr.period, lsr.date FROM loan_schedule_rows lsr
-         JOIN loan_schedule_runs lsrun ON lsrun.id = lsr.run_id
-         WHERE lsrun.loan_id = $1 AND lsrun.company_id = $2
-           AND TO_CHAR(lsr.date, 'YYYYMM') = $3
-         ORDER BY lsrun.computed_at DESC NULLS LAST LIMIT 1`,
-        [loan.id, COMPANY_ID, yyyymm(year, month)],
-      );
-      if (!rows[0]) continue;
-      const row = rows[0];
-      const paymentDate = row.date instanceof Date
-        ? `${row.date.getFullYear()}-${pad(row.date.getMonth() + 1)}-${pad(row.date.getDate())}`
-        : String(row.date).slice(0, 10);
-      try {
-        const result = await recordLoanPayment(COMPANY_ID, loan.id, {
-          paymentDate,
-          periodNumber: row.period,
-        }, ADMIN_ID);
-        console.log(`  [loan-pay] ${loan.reference} period=${row.period}: principal R${result.principal.toFixed(2)} + interest R${result.interest.toFixed(2)} = R${result.totalPaid.toFixed(2)} → outstanding R${result.newOutstanding.toFixed(2)}`);
-        done++;
-      } catch (err) {
-        const msg = errText(err);
-        if (/already recorded|already exists/i.test(msg)) continue; // idempotent skip
-        errors.push({ month, module: 'loan-pay', message: `${loan.reference}: ${msg}` });
-        console.error(`  [loan-pay] ERROR ${loan.reference}: ${msg}`);
-      }
-    }
-  } catch (err) {
-    errors.push({ month, module: 'loan-pay', message: errText(err) });
-  }
-  return done;
-}
 
 async function runPracticeWip(month: number, year: number, errors: Err[]): Promise<number> {
   let created = 0;
@@ -353,8 +281,9 @@ async function main(): Promise<void> {
   console.log('='.repeat(60));
 
   await closeSql();
+  await closeLoansPool();
   await requestPool?.end();
   process.exit(errors.length === 0 ? 0 : 1);
 }
 
-main().catch(err => { console.error('[FATAL]', errText(err)); closeSql().finally(() => process.exit(2)); });
+main().catch(err => { console.error('[FATAL]', errText(err)); Promise.all([closeSql(), closeLoansPool()]).finally(() => process.exit(2)); });
