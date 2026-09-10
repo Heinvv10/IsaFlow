@@ -25,6 +25,11 @@
  * with no due date and a supplier bill of 250, both unpaid and null-status,
  * are counted at BOTH dates, which is what the COALESCE buys.
  *
+ * ROUND 7 gives the null-status AR invoice a posted journal that moves the
+ * debtor and NO revenue account, for invoicesWithoutRevenueLine — the fourth
+ * site of the census, whose <> ALL(...) was NULL for a null-status invoice, so
+ * an issued invoice that recognised no revenue went unreported.
+ *
  * ROUND 3 (LOW-3) adds the soft-delete leg, which nothing pinned: deleting
  * either `documentInLedgerAsAtFragment` line from testRecordsInProduction left
  * the file green. A soft-deleted AR invoice of 500 and AP bill of 300 are
@@ -37,7 +42,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { invoicesNullDueDate } from '@/modules/accounting/services/gl/integrityChecks/documentChecks';
+import { invoicesNullDueDate, invoicesWithoutRevenueLine } from '@/modules/accounting/services/gl/integrityChecks/documentChecks';
 import { testRecordsInProduction } from '@/modules/accounting/services/gl/integrityChecks/vatChecks';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
@@ -99,11 +104,25 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
 
     // The null-status pair. Not drafts, not cancelled — real debt, and the
     // only thing that kept it out of both checks was NULL-propagation.
+    // Its journal debits the debtor and credits a liability: no revenue leg.
+    const [debtor] = (await sql`
+      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+      VALUES (${COMPANY}::UUID, '1120', 'Debtors', 'asset', 'debit', 3, true) RETURNING id`) as { id: string }[];
+    const [suspense] = (await sql`
+      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+      VALUES (${COMPANY}::UUID, '2999', 'Suspense', 'liability', 'credit', 3, true) RETURNING id`) as { id: string }[];
+    const noRevenue = randomUUID();
+    await sql`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, created_by)
+              VALUES (${noRevenue}::UUID, ${COMPANY}::UUID, ${'JE-' + TAG + 'NR'}, ${shift(-100)}::date,
+                ${'no revenue leg ' + TAG}, 'posted', ${USER}::UUID)`;
+    await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+              VALUES (${COMPANY}::UUID, ${noRevenue}::UUID, ${debtor!.id}::UUID, 700, 0, 'debtor'),
+                     (${COMPANY}::UUID, ${noRevenue}::UUID, ${suspense!.id}::UUID, 0, 700, 'suspense')`;
     await sql`
       INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
-        due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
+        due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by, gl_journal_entry_id)
       VALUES (${COMPANY}::UUID, ${cu!.id}::UUID, ${cu!.id}::UUID, ${TAG + '-NULLST'}, ${shift(-100)}::date,
-        NULL, NULL, 700, 0, 0, 700, 0, ${USER}::UUID)`;
+        NULL, NULL, 700, 0, 0, 700, 0, ${USER}::UUID, ${noRevenue}::UUID)`;
     await sql`
       INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
         status, subtotal, tax_amount, total_amount, amount_paid, created_by)
@@ -153,8 +172,10 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
     await sql`DELETE FROM supplier_payments WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM gl_journal_lines WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM gl_journal_entries WHERE company_id = ${COMPANY}::UUID AND reversal_of_id IS NOT NULL`;
     await sql`DELETE FROM gl_journal_entries WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM gl_accounts WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM customers WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
@@ -187,6 +208,16 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
     const r = await testRecordsInProduction(ctx(TODAY));
     expect(r.count).toBe(2);
     expect(r.amount).toBeCloseTo(950, 2);
+  });
+
+  it('an issued null-status invoice whose journal moves no revenue account is reported', async () => {
+    // The only posted, live invoice here whose journal has no revenue leg.
+    // The soft-deleted one's chain is even, so it is out of the ledger.
+    for (const asAt of [PAST, TODAY]) {
+      const r = await invoicesWithoutRevenueLine(ctx(asAt));
+      expect({ count: r.count, amount: r.amount, labels: r.sample.map(x => x.label) })
+        .toEqual({ count: 1, amount: 700, labels: [TAG + '-NULLST'] });
+    }
   });
 
   // The soft-deleted pair is unpaid and raised before both dates, so the ONLY

@@ -1065,7 +1065,11 @@ leg on AP but not the credit note. Fixed:
 
 A write-off can only be cancelled in draft, before it has a journal, so no
 write-off reversal can exist to orphan. A cancelled supplier credit note's
-reversal is R-074's territory and behaves exactly as the existing AR leg does.
+reversal behaves exactly as the existing AR leg does — on both sides it leaves
+two false items of ±230. **Corrected in round 7:** this line used to call that
+"R-074's territory". It is not: R-074 is the timestamptz as-at comparison in
+`agingRewind.creditsCancelled`, a different defect. The false pair belongs to
+**R-084**, the bridge's missing journal types (round 7, below).
 
 ## MEDIUM-2 — FIXED
 
@@ -1109,7 +1113,7 @@ back to the bare `<alias>.status NOT IN (...)`), every consumer's test file:
 | `r059-integrity-checks-as-at` | 5 of 5 |
 | `r059-subledger-population-equals-ageing` | 5 of 6 |
 | `r059-reconciliation-mixed-population` | 5 of 6 |
-| `r059-supplier-statement-balances-population` | 1 of 3 (the null case; the control and the premise stay green, as they should) |
+| `r059-supplier-statement-balances-population` | **2 of 4** — corrected in round 7, it said "1 of 3". The file gained its fourth test (the credit-note row) for P4 before this mutation was run, and both null-status cases go red; the control and the premise stay green |
 
 **Per-site bypasses** (one consumer re-typing the bare rule instead of calling the helper):
 
@@ -1175,3 +1179,154 @@ files above, each of which creates, reconciles and deletes its own books.
   a separate rule, registered (R-id TBA).
 - `practiceReportsService.ts` is still 351 lines; R-074, R-078, K-050 untouched;
   the browser check remains not done.
+
+---
+
+# Round 7 — the sibling the census missed, and why it missed it
+
+## MEDIUM-1: `supplier-statement-detail` — FIXED
+
+`pages/api/accounting/supplier-statement-detail.ts` had the bare rule twice: in the
+row query and in the headline `total_invoiced` aggregate. Its own comment says it
+asks "the same dated question the ageing it must tie to now asks", and K-053 pins
+its balance to the payable control. For a posted null-status bill of 1150 with
+400 paid, it gave invoiced 0, paid 400, balance −400, while the ageing and the
+control both said 750. Round 4 moved the ageing, and this route stayed behind.
+It is an internal AP page. It already excluded drafts, so routing it changes only
+the NULL half, and it is not R-082's emailed-statement case.
+
+Both sites now call `documentInPopulationExpr('si')`. New route-level file
+`r059-supplier-statement-detail-population` (3 tests) calls the REAL handler and
+builds the books with `postSupplierInvoiceToGL` and `processSupplierPayment`.
+Before the payment, statement balance = ageing = control = 1150; today all three
+are 750. The bill appears in the headline and in the row list.
+
+## LOW: the three census gaps
+
+| Site | Disposition |
+|---|---|
+| `gl/integrityChecks/documentChecks.ts:154` (`invoicesWithoutRevenueLine`) | **ROUTED.** It reads the issued population, which is the ageing's. The old list also named `'void'`/`'voided'`, but `customer_invoices_status_check` forbids both (verified on isaflow_dev), so the change reaches only NULL. Pinned: the null-status invoice in `r059-integrity-checks-as-at` now carries a posted journal with no revenue leg, and it is reported (count 1, 700) at both dates. |
+| `pages/api/accounting/dashboard-stats.ts:75-91` | **TABLED, comment corrected.** This is a live figure on the LIVE open set (`AP_OPEN_STATUSES`/`AR_OPEN_STATUSES`), and `invoiceStatuses.ts` names dashboards as consumers of that set by design. Routing it would change the dashboard's population. What was wrong is the claim "same set as apAgingService so dashboard == aging report". It now says it is not the ageing's set. |
+| `capture/supplierStatementReconDb.ts:45` | **TABLED, comment added.** This reads MATCH candidates for the supplier's statement lines. It keeps drafts on purpose, because a bill we hold as a draft is worth matching to the supplier's line for it. The variance comes from `getAPAgingDetail`, so this rule never reaches a figure. It does drop a NULL-status bill that the variance counts but no line can match. Recorded, not changed. |
+
+## Why the census missed four sites a second time
+
+Round 6 said its census was "not by predicate". It was not a predicate census, but
+each of its three methods had a blind spot, and together they hit the same four
+sites:
+
+1. **"By consumer" was a census of CALLERS.** It walked everything that calls
+   the ageing or subledger services. `supplier-statement-detail` and
+   `dashboard-stats` never call them. They re-implement the population in their
+   own SQL and claim equality in a comment. A caller census cannot see a site
+   that never calls the service.
+2. **"By claim" used a fixed phrase list.** "same as (ap|ar)AgingService" does not
+   match "same **set** as apAgingService", and "must tie to" was not on the list.
+3. **By file, not by call graph.** The table said "no" for
+   `supplierStatementReconService` after reading only that file. The predicate is
+   in `supplierStatementReconDb.loadSupplierInvoices`, which that file calls. This is
+   the brief's own lesson 3, again.
+4. **A site in a routed file, with no claim.** `documentChecks:154` sits beside a
+   routed check and reads the same population. Nothing in it says so, so a
+   claim census cannot find it.
+
+**The method this round: census BY TABLE, then by consumer.** A script
+(`<scratchpad>/agents/fix-r059c/census.py`) parses every `sql` template in `src/`
+and `pages/`, binds the aliases given to `customer_invoices` and
+`supplier_invoices`, and reports every predicate on `<alias>.status` (or on bare
+`status` for an unaliased read), in any spelling: `NOT IN`, `IN`, `<>`, `!=`,
+`= ANY`, `<> ALL`, `=`, `IS NULL`. That gave **128 predicates in 58 files**, and it
+finds all four sites above. Sites already routed no longer spell `.status`, so
+they drop out. A separate grep for status predicates built as strings outside a
+template found none. Every predicate was then classified by what its figure is
+compared with, and a claim filter over ±8 lines around each one (ageing,
+subledger, control account, "tie", "same set/population/rule", "agree",
+"reconcil") was read by hand. **That filter found three MORE false claims**, now
+corrected:
+
+- `consolidatedReportingService.ts` said "the open-status allowlists are the shared constants the aging reports use";
+- `bureauClientMetricsService.ts` said "same allowlist as arAgingService / apAgingService";
+- `src/lib/constants/invoiceStatuses.ts` said "at an as-at of TODAY the two agree". They agree only where there is no `pending_approval` document, `disputed` bill (AP only; AR's CHECK has no such status), `paid` document still carrying a balance, or NULL-status row.
+
+### The 128, by what they feed
+
+| Category | Files (sites) | Disposition |
+|---|---|---|
+| **Claims the ageing's population** | `supplier-statement-detail` (2), `documentChecks:154` (1) | **ROUTED this round** |
+| Statement and portal surfaces quoted to a customer or mirroring one: keep drafts, `!=` drops NULL | `customer-statement-detail` (2), `customer-statement` (2), `customer-statements` (1), `statementEmailService` (1), `supplierStatementService` (1), `customerLedgerService` (2), `portalService` (2), `portal/chat` (3), `portal/invoice/[token]` (2), `portal/invoice/generate` (1), `portalTokenService` (3) | **R-082** — they change what customers see; Hein's decision |
+| LIVE open set, today only, by design (`invoiceStatuses.ts` consumers and literal equivalents) | `dashboard-stats` (2), `consolidatedReportingService` (2), `bureauClientMetricsService` (2), `kpiDashboardService` (4), `kpiChartsService` (2), `debtorsManagerService` (4), `dashboard-todos` (2), `cashFlowForecastDataService` (4), `receiptMatchService` (1), `bankMatchDbQueries` (2), `migrationValidationService` (2), `workbenchService` (1), `dunningCronService` (1), `smart-reminder` (1), `masterDeleteGuards` (2) | not the ageing's population; three false claims corrected above; the close checks (`ar/apSubLedgerCheck`, 2) are K-050's |
+| Activity totals with the bare `NOT IN ('draft','cancelled')` and no ageing claim | `kpiChartsService:187`, `kpiDashboardService:140,166,175`, `debtorsManagerService:285` | NULL-unsafe under this branch's convention, but they claim nothing about the ageing. Left for the NULL-convention decision (round 5, LOW-1), which Hein makes once and which then applies here |
+| VAT: tax-point population, its own rule | `vat201Service` (3), `vatExceptionsService` (5), `vatBoxBasisQuery` (2), `vat201NilRatedSupplies` (2), `vatReconciliationService` (1), `drcVatService` (1), `vatReturnService` (2) | a different rule and outside R-059 |
+| Workflow: state transitions, eligibility, recompute, archive, counts of drafts | `bank-match-confirm` (2), `customer-invoices-detail` (2), `supplier-invoices-detail` (1), `supplierInvoiceWorkflowService` (4), `supplierPaymentWorkflowService` (2), `supplierAutoAllocate` (2), `customerAutoAllocate` (2), `customerInvoiceApprovalService` (2), `customerInvoiceCancelService` (1), `customerPaymentAllocationService` (2), `invoiceStatusRecompute` (6), `writeOffService` (1), `disputeService` (1), `archiveExecutionService` (4), `archiveQueryService` (2), `sageMigrationCommitService` (1), `continuousCloseQueryService` (1), `dashboard-todos:99` (1), `bureauWorkAggregatorService` (1) | not a population figure |
+| User-chosen list filters | `customer-invoices-export` (1), `customerInvoiceReadService` (10) | the user picks the status |
+| Match candidates | `supplierStatementReconDb:45` (1) | tabled above |
+
+## The misattribution — CORRECTED
+
+fix.md said the cancelled-linked supplier credit note's reversal "is R-074's
+territory". That was wrong. R-074 is the timestamptz-versus-midnight-UTC
+comparison in `agingRewind.creditsCancelled`. The false ±230 pair that a
+cancelled linked credit note leaves in the reconciliation is the bridge's missing
+journal type, which is **R-084**. The line is corrected in place.
+
+## The miscounts — CORRECTED
+
+- The helper mutation on `r059-supplier-statement-balances-population` turns
+  **2 of 4** tests red, not "1 of 3". The file had gained its fourth test before
+  that run. Corrected in place.
+- Round 6's COMMIT MESSAGE says the two new legs "each produced a false item
+  and an equal residual". That is true of the AP credit note only. The AR
+  write-off produced **two false items and a residual of 0**. fix.md's own
+  table had this right. The commit is not rewritten, because shared history is
+  not amended, so the correction is recorded here.
+
+## Registered as R-084, NOT fixed here — pre-existing on master, out of scope
+
+The round-6 review measured each of these identically on a clean master
+archive, so none is a regression. Each is a JOURNAL TYPE that
+`reconcileSubledger`'s two partitions do not both account for. That is a
+different defect from R-059's, which is the as-at population, and each needs
+its own design:
+
+- **A voided payment** (AR direct, AP direct, the AR bank path) leaves
+  `posting_with_no_document −400` plus `unexplained_difference +400` on books
+  that tie. `voidPaymentDocument` keeps `gl_journal_entry_id` on the cancelled
+  payment, so the original journal is "claimed" and nothing counts it, while its
+  reversal is an orphan.
+- **An AP batch payment** is named twice, `posting_with_no_document +400` and
+  `document_not_on_control_account −400`, because `batchPaymentService` links
+  the journal only to `supplier_payment_batches`.
+- **A cancelled linked credit note** (AR and AP) leaves a false ±230 pair. **An
+  unlinked supplier credit note** leaves `unexplained 230` with nothing named,
+  because `apSubledgerService` carries no credit-note rows.
+- **The −1150 residual** on the leftover `K053ID` fixture companies (round 6
+  addendum).
+
+Why not here: each fix changes which partition owns a journal type. The two
+round-6 legs were fixed because the round's own mixed-set test demanded them.
+These are further journal types the reviewer found by probing, and R-084 is
+where they get their own tests and design.
+
+## Round 7 mutations (file copies, each restored and `cmp`-verified)
+
+| # | Mutation | Red |
+|---|---|---|
+| Q1 | `supplier-statement-detail` row query bare | detail 2 of 3 |
+| Q2 | `supplier-statement-detail` headline aggregate bare | detail 2 of 3 |
+| Q3 | `invoicesWithoutRevenueLine` back to `<> ALL(...)` | integrity 1 of 6 |
+| M-SHARED | the helper bare, run against the new route test | detail 2 of 3 |
+
+## Round 7 gates
+
+- `env -u DATABASE_URL bun run ci`: 15/15 PASS, unit 854 files / 10093 tests,
+  component 84 / 537, `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`: every `r059-*` (11 files), every
+  `k053-*`, `k091*`, `k093*` — **36 files / 238 tests passed**.
+- `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
+
+## Round 7 — not done, stated
+
+- R-082 (statements and portal), R-084 (bridge journal types), K-050, R-074 and
+  R-078 are untouched.
+- The activity-total and VAT sites keep the bare spelling, pending the NULL
+  convention decision.

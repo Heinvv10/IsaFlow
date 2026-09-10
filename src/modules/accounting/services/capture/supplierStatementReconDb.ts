@@ -42,6 +42,13 @@ export async function loadSupplierInvoices(
       -- still matches the supplier's statement lines for it.
       -- See shared/softDeleteLedgerPresence.
       AND ${documentInLedgerAsAtFragment('si', periodEnd ?? asAtTodayStr(), companyId)}
+      -- NOT the ageing's status rule (shared/documentPopulation), on purpose:
+      -- these are MATCH candidates for the supplier's statement lines, and a
+      -- bill we still hold as a draft is worth matching to the line the
+      -- supplier sent for it. The variance itself comes from the ageing
+      -- (getAPAgingDetail), so this rule never reaches a figure. It does drop a
+      -- NULL-status bill — one the variance counts but no line can match.
+      -- Registered with the R-059 round 7 census, not changed here.
       AND si.status NOT IN ('cancelled')
       AND (${periodStart}::date IS NULL OR si.invoice_date >= ${periodStart}::date)
       AND (${periodEnd}::date IS NULL OR si.invoice_date <= ${periodEnd}::date)
