@@ -10857,6 +10857,73 @@
       "severity": "low",
       "source": "Noted by the R-067 fixer against its base `ec669170e`, 2026-09-10. CLOSED on evidence read from origin/master, not inference: `ar/quoteService.ts` states 'The quote number comes from the company's own quotation sequence' and describes the replaced code as the unscoped `SELECT quote_number FROM customer_quotes ORDER BY created_at DESC LIMIT 1`. Fixed by K-107's numbering work plus migration 666 (`uq_customer_quotes_company_number`).",
       "processNotes": "`quoteService.ts` `nextQuoteNumber()` selects from `customer_quotes` without `company_id`. Every other numbering path in the repo scopes by company. Fix: add the predicate. Pre-existing and unrelated to R-067; not fixed there.\n\nCLOSED 2026-09-10 on evidence. Note for whoever owns K-060: master's quoteService accepts TWO constraint names — `uq_customer_quotes_company_number` (K-107, now on master) and `uq_customer_quotes_company_quote_number` (K-060's name for the same index). If both migrations reach a database, it gets two unique indexes on the same columns."
+    },
+    {
+      "id": "R-070",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "pages/api/accounting/ai-invoice-pipeline.ts",
+        "pages/api/accounting/receipt-to-journal.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Worse than R-058, which at least had a check to race: here there is no guard, so a repeat call duplicates the document and its journal with no concurrency involved.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-058"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-058/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Any document posted twice through these routes has duplicate output. Impact SQL belongs in the fix's fix.md.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Two capture posting routes select captured_documents.status and never read it — no already-posted guard at all, so a second call simply posts again",
+      "severity": "high",
+      "source": "Found by the R-058 fixer; confirmed on origin/master by the orchestrating session — zero comparisons against 'posted' in either file.",
+      "processNotes": "`ai-invoice-pipeline.ts:59` and `receipt-to-journal.ts:43` both `SELECT extracted_data, status FROM captured_documents`, then never compare `status`. Measured on master: 0 occurrences of a comparison against 'posted' in either file; the only refusals are documentId presence, extracted_data presence, validation and default accounts. R-058 fixed the two routes that DO guard (`capture/[id]/post-expense.ts` and `capture/[id]/post.ts`) by locking the row; these two need a refusal first, on a marker to be decided — `captured_documents.status` is a different table from the `capture_events.status` R-058 locks. Not fixed: that decision is a scope change."
+    },
+    {
+      "id": "R-071",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "src/modules/accounting/services/capture/captureRouterService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "It reopens the very defect R-058 closes: route a posted event, its status becomes 'extracting', and the already-posted refusal and the new row lock both pass on the next post. A duplicate expense claim or supplier bill follows.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-058"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-058/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Any event routed after it was posted could have been posted twice.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "routeEvent moves a POSTED capture event back to 'extracting' with no status predicate, defeating the posted guard",
+      "severity": "high",
+      "source": "Noted by the R-058 fixer; confirmed on origin/master by the orchestrating session — the UPDATE carries no status predicate.",
+      "processNotes": "`captureRouterService.routeEvent` runs `UPDATE capture_events SET status = 'extracting', updated_at = NOW() WHERE id = $1 AND company_id = $2` — no `AND status <> 'posted'`. The documented flow is received → extracting → extracted | failed, so 'posted' is outside it and should be refused. Fix: predicate the UPDATE and refuse when it matches no row. R-058's reviewer has been asked to judge whether this belongs inside R-058, since it defeats that branch's own guard."
     }
   ],
   "sourceInventory": [
