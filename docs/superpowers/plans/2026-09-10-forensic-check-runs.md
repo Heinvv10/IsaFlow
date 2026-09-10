@@ -753,12 +753,14 @@ refused by a rate is REST 429 on both enqueue routes, and on MCP a tool error ca
 the registry's generic "operation failed" — both added here, beyond the review's ask, because the new quotas made a
 refusal reachable on every enqueue and a generic failure invites the retry loop the rate exists to stop.
 
-## A43 A31's currency bound is 16 384 characters, and still a bound
+## A43 A31's currency bound is 1 024 sealed bytes, checked up front (text corrected in v11, A48)
 
-The seal's currency allowance rose from 1 024 to 16 384 characters, the most that fits beside the longest message and
-amount inside the table's 64 KiB envelope CHECK (unit-proved with one more character throwing). `default_currency` is
-unbounded TEXT, so a longer one is still refused by the stream where sync would accept it. The comment and test no
-longer claim "any currency"; the residual is stated in the evidence.
+As first written, this entry said the bound rose to 16 384 characters and that this was the most that fits the
+table's 64 KiB envelope CHECK. That was wrong: the bound counted UTF-16 code units while the CHECK counts bytes, so
+16 384 'é' sealed to 66 531 bytes, '中' to 99 299 and U+0001 to 197 603 — past the CHECK, as a retried mid-run
+fault. The bound is now **1 024 bytes of the currency as the seal encodes it** (canonical JSON, then UTF-8), and a run
+whose company currency exceeds it publishes `unknown` (`resource_limit:currency_exceeds_limit`) before streaming.
+`default_currency` is unbounded TEXT, so sync still accepts a currency the stream refuses; that residual is stated.
 
 ## A44 Measurements are scripts; opt-in suites skip
 
@@ -790,3 +792,41 @@ already compared with `staged[ordinal]`, from which the published totals are com
 values could never disagree: removing it survived every gate (mutant M13). It was deleted rather than kept as an
 untestable check. A corrupted retained amount is still caught — by the per-item comparison, and with that removed too,
 by A20's differential.
+
+
+---
+
+# v11 amendments (final review of `2b851aa7b..5f6dcc6bf`: may merge, no P1; four P3)
+
+## A48 The currency is bounded in sealed bytes, and an over-long one publishes `unknown` up front
+
+The probes were two-, three- and six-byte characters, never 'X'. The seal refines the currency by
+`checkRunCurrencyFits` — its canonical-JSON UTF-8 length, at most 1 024 bytes — and the phase checks the company's
+`default_currency` with the same measure right after its permission check, throwing
+`CheckRunResourceLimitError('currency_exceeds_limit')`, which the runner publishes as `unknown` with zero findings.
+Unfixed, the runner answered all three 16 384-character probes with WORKER_ERROR. 1 024 bytes also bounds what
+`staged` can hold for currency: 100 000 × 1 KiB ≈ 98 MiB at the absolute worst, where the old code-unit bound allowed
+16 KiB a finding, which is what reopened A39. The storage figures in A40 assume a three-letter currency; an absurd one
+adds at most 2 048 ciphertext bytes a finding.
+
+## A49 A job principal is refused every audit enqueue by name
+
+`enqueueAuditSnapshot` refused a job principal only because the saved delegation lacked `write:audit`. It now refuses
+first, by name, like the other three, and one gate pins the named refusal for all four.
+
+## A50 The enqueue quota's advisory lock is depth; the lock doing the work is upstream
+
+Every enqueue asserts `write:audit` before counting, and `assertEffectivePermission` calls
+`control_lock_permission_principal` (migration 626), which takes `pg_advisory_xact_lock('control-authority:' ||
+company)` until the transaction ends. So two enqueues in one company are serialised before either counts, and removing
+the quota's own `audit-enqueue:<kind>:<company>` lock leaves every gate green. The local lock stays so the quota does
+not depend on a permission helper's locking. **Watch for this:** a change that narrows that helper's lock (per person,
+or released before commit) is the change that exposes the last-slot race between concurrent members, and it needs a
+concurrency gate on the quota at that point.
+
+## A51 A 403 names the missing permission
+
+`EffectivePermissionError` carries the one permission a refusal was about, set only by `assertEffectivePermission`'s
+two permission refusals; membership and grant refusals carry none and keep the general wording. The check-run and
+comparison routes answer "Current permission denied: <permission> is required". The MCP copy that still called the
+check-run tools "all `read:reports`" is corrected.
