@@ -55,6 +55,10 @@ async function seed(){
  await setup();const ref=await prepared(),upper={...ref,entityId:ref.entityId.toUpperCase()};
  const approval=await approved(upper),result=await actor('u1',ctx=>executeHistoricalImport(ctx,upper,approval));
  if(result.importId!==upper.entityId)throw new Error('Baseline did not preserve uppercase identity');
+ if(process.argv[3]==='ambiguous'){
+  const otherApproval=await approved(ref);
+  await actor('u1',ctx=>executeHistoricalImport(ctx,ref,otherApproval));
+ }
  const identities={companyA:fixture.companyA,u1:{id:fixture.u1.id,companyId:fixture.u1.companyId},u2:{id:fixture.u2.id,companyId:fixture.u2.companyId}};
  await writeFile(output,JSON.stringify({fixture:identities,ref,result,approval,keys:{encryption:process.env.ENCRYPTION_KEY,fingerprint:process.env.CONTROL_FINGERPRINT_KEY}}),{mode:0o600});
 }
