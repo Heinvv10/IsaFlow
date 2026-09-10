@@ -251,6 +251,15 @@ export async function updateSubscription(
       discount_percent = COALESCE(${discount_percent ?? null}, discount_percent),
       status           = COALESCE(${status ?? null}, status),
       notes            = COALESCE(${notes ?? null}, notes),
+      -- A real transition back into active/trial clears the scheduled
+      -- cancellation, or the cron would cancel the subscription again at the
+      -- end of the period. An edit that merely restates the current status
+      -- must not silently un-cancel it.
+      cancel_at_period_end = CASE
+        WHEN ${status ?? null}::text IN ('active','trial')
+             AND status NOT IN ('active','trial') THEN false
+        ELSE cancel_at_period_end
+      END,
       updated_at       = NOW()
     WHERE id = ${subscriptionId}
   `;

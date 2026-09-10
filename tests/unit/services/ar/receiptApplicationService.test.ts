@@ -53,6 +53,13 @@ import {
   planReceiptApplication,
   applyReceiptPlan,
 } from '@/modules/accounting/services/ar/receiptApplicationService';
+import { enterFakeRequestCtx } from '../../helpers/requestCtx';
+
+// `planAllocationLines` now takes a `FOR UPDATE` lock on every candidate
+// invoice, which refuses to run outside a request transaction. These tests
+// mock `sql`, so the ALS client is never actually used — it only has to be
+// present.
+beforeEach(() => enterFakeRequestCtx());
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const CUSTOMER = '22222222-2222-4222-8222-222222222222';
@@ -316,7 +323,9 @@ describe('applyReceiptPlan', () => {
     invoiceRows([invoiceRow(INV_A)]);
     await planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]);
 
+    // Matched on the STATEMENT forms, not the bare words: the plan's candidate
+    // read now ends in `FOR UPDATE`, which is a lock, not a write.
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    expect(texts.some((t) => /INSERT|UPDATE|DELETE/.test(t))).toBe(false);
+    expect(texts.some((t) => /INSERT INTO|DELETE FROM|UPDATE\s+\w+\s+SET/.test(t))).toBe(false);
   });
 });

@@ -3,7 +3,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { sqlMock } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn() }),
 }));
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), transaction: vi.fn() }));
+// `withSavepoint` runs its callback straight through here: with no ALS client
+// in a unit test the real one does the same, so the mock keeps the sweep's
+// per-row rollback boundary out of the way of these assertions. The rollback
+// itself is proved against a real database in
+// tests/integration/k140-autopost-sweep-no-savepoint.int.test.ts.
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  withTransaction: vi.fn(),
+  transaction: vi.fn(),
+  withSavepoint: vi.fn(<T,>(_name: string, fn: () => Promise<T>) => fn()),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(),
