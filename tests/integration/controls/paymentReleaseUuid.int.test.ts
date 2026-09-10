@@ -1,4 +1,5 @@
 import {capturedStorage} from './capturedEvidenceTestStorage';
+import {log} from '@/lib/logger';
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {uuidBoundaryFixture,upper} from './uuidBoundaryFixture';
@@ -177,4 +178,39 @@ it('records a dispatch failure against an advanced release under the state it ac
  await f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId));
  expect((await state(p.intentId)).outbox[0]?.state).toBe('attempting');
  expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([{reason:'Release reservation population changed',status:'attempting'}]);
+});
+/**
+ * The catch in recordFailedDispatch is the whole mitigation for a record that cannot be written, and
+ * it is the only path where an escaping error would reach settleControlTransaction, which discards it.
+ * A trigger that refuses the change-event INSERT forces exactly that, with no spy involved: the
+ * dispatch still resolves, no event exists, and the outbox is untouched.
+ */
+it('swallows a failure to record a failed dispatch rather than escaping the observer',async()=>{
+ const company=f.f.companyA;
+ await f.pool.query("UPDATE companies SET netcash_enabled=true,netcash_service_key='synthetic-service',netcash_payouts_key='synthetic-payouts' WHERE id=$1",[company]);
+ const p=await prepared('netcash');
+ await enqueue(p.intentId,await f.approve(p.operation));
+ await f.pool.query('UPDATE companies SET netcash_service_key=NULL,netcash_payouts_key=NULL WHERE id=$1',[company]);
+ const before=(await state(p.intentId)).outbox;
+ // Read the calls BEFORE mockRestore: in Vitest mockRestore also resets the mock, so reading
+ // mock.calls afterwards always yields [] no matter what was captured.
+ const errors=vi.spyOn(log,'error').mockImplementation(()=>{});
+ let reported:Array<[unknown,unknown]>=[];
+ await f.pool.query(`CREATE FUNCTION public.synthetic_change_event_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.company_id='${company}'::uuid AND NEW.entity_type='payment_release_outbox' THEN RAISE EXCEPTION 'Synthetic change event failure'; END IF; RETURN NEW; END $$`);
+ try{
+  await f.pool.query('CREATE TRIGGER synthetic_change_event_failure BEFORE INSERT ON control_change_events FOR EACH ROW EXECUTE FUNCTION public.synthetic_change_event_failure()');
+  const dispatch=await f.attempt(()=>f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId)));
+  reported=errors.mock.calls.map(call=>[call[0],(call[1] as {reason?:string}|undefined)?.reason]);
+  expect(dispatch.error).toBeUndefined();
+ }finally{
+  errors.mockRestore();
+  await f.pool.query('DROP TRIGGER IF EXISTS synthetic_change_event_failure ON control_change_events');
+  await f.pool.query('DROP FUNCTION public.synthetic_change_event_failure()');
+ }
+ expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([]);
+ expect((await state(p.intentId)).outbox).toEqual(before);
+ // The log line is the whole mitigation once the record cannot be written.
+ expect(reported).toEqual([['Release dispatch failure could not be recorded; queued release requires reconciliation',
+  'Release provider configuration changed']]);
 });
