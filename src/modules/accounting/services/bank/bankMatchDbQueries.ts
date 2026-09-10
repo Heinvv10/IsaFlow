@@ -50,12 +50,13 @@ export async function fetchSupplierInvoiceCandidates(
 ): Promise<MatchCandidate[]> {
   const allRows = (await sql`
     SELECT si.id, si.invoice_number, COALESCE(s.company_name, s.name) AS supplier_name,
-           si.total_amount, si.invoice_date
+           si.total_amount, si.invoice_date, si.amount_paid
     FROM supplier_invoices si
     JOIN suppliers s ON s.id = si.supplier_id
     WHERE si.status IN ('approved', 'partially_paid')
+      AND si.deleted_at IS NULL
       AND si.company_id = ${companyId}
-    ORDER BY ABS(si.total_amount - ${absAmount}::NUMERIC) ASC
+    ORDER BY ABS(si.total_amount - COALESCE(si.amount_paid, 0) - ${absAmount}::NUMERIC) ASC
     LIMIT 50
   `) as DbRow[];
 
@@ -71,17 +72,22 @@ export async function fetchSupplierInvoiceCandidates(
   for (const row of rows.slice(0, 20)) {
     const invNum = String(row.invoice_number);
     const label = `${String(row.supplier_name)} — Inv ${invNum}`;
-    const candAmount = Number(row.total_amount);
+    // What is still OWED, not the gross — `status IN (…'partially_paid')` above
+    // deliberately admits part-paid bills, and a payment settles the remainder.
+    // The customer arm below has always done this; the supplier arm had not, so
+    // a R300 settlement of a R1,000 bill already R700 paid was offered at
+    // R1,000 and an unrelated R1,000 bill outranked it.
+    const balance = Number(row.total_amount) - Number(row.amount_paid || 0);
     const candDate = fmtDate(row.invoice_date);
 
-    let score = scoreAmount(txAmount, candAmount) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
+    let score = scoreAmount(txAmount, balance) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
     let matchReason: string | undefined;
 
     if (invoiceRefMatches(invNum, invoiceRefs)) { score += 30; matchReason = `Reference ${invNum} found in description`; }
-    if (Math.abs(candAmount - absAmount) < 0.01) { matchReason = matchReason ? `${matchReason} + exact amount` : 'Exact amount match'; }
+    if (Math.abs(balance - absAmount) < 0.01) { matchReason = matchReason ? `${matchReason} + exact amount` : 'Exact amount match'; }
 
-    candidates.push({ type: 'supplier_invoice', id: String(row.id), label, amount: candAmount, date: candDate, score, matchReason });
-    comboPool.push({ id: String(row.id), invoiceNumber: invNum, entityName: String(row.supplier_name), balance: candAmount, date: candDate, type: 'supplier_invoice' });
+    candidates.push({ type: 'supplier_invoice', id: String(row.id), label, amount: balance, date: candDate, score, matchReason });
+    comboPool.push({ id: String(row.id), invoiceNumber: invNum, entityName: String(row.supplier_name), balance, date: candDate, type: 'supplier_invoice' });
   }
 
   for (const combo of findInvoiceCombos(comboPool, absAmount)) {
@@ -107,8 +113,9 @@ export async function fetchCustomerInvoiceCandidates(
     FROM customer_invoices ci
     JOIN customers c ON c.id = ci.customer_id
     WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+      AND ci.deleted_at IS NULL
       AND ci.company_id = ${companyId}
-    ORDER BY ABS(ci.total_amount - ci.amount_paid - ${absAmount}::NUMERIC) ASC
+    ORDER BY ABS(ci.total_amount - COALESCE(ci.amount_paid, 0) - ${absAmount}::NUMERIC) ASC
     LIMIT 50
   `) as DbRow[];
 
@@ -154,12 +161,16 @@ export async function fetchPurchaseOrderCandidates(
   extractedEntity: string,
   invoiceRefs: string[],
 ): Promise<MatchCandidate[]> {
+  // purchase_orders_status_check allows draft/submitted/approved/
+  // partially_received/received/cancelled. 'partially_paid' was a dead literal
+  // no row can carry, and 'partially_received' — the status a part-delivered PO
+  // actually holds — was never offered as a candidate.
   const allRows = (await sql`
     SELECT po.id, po.po_number, COALESCE(s.company_name, s.name) AS supplier_name,
            po.total, po.created_at
     FROM purchase_orders po
     JOIN suppliers s ON s.id = po.supplier_id
-    WHERE po.status IN ('approved', 'partially_paid')
+    WHERE po.status IN ('approved', 'partially_received')
       AND po.company_id = ${companyId}
     ORDER BY ABS(po.total - ${absAmount}::NUMERIC) ASC
     LIMIT 50

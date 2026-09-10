@@ -42,7 +42,7 @@ export default function BalanceSheetPage() {
   // about a different number.
   const { columns, setColumns, companyWideUnavailable, apply, budgetState, trendFailed } =
     useStatementComparatorState({
-      costCentreSelected: costCentreId !== '',
+      dimensionSelected: costCentreId !== '',
       asOf: asAtDate, basis: 'balance', offersBudget: false,
     });
   useEffect(() => {

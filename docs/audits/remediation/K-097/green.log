@@ -1,0 +1,48 @@
+K-097 GREEN — fix/audit-k095-k096-k097-billing-admin (merged with origin/master @46da1253)
+
+Integration (real fixture DB, bun run test:integration):
+  tests/integration/k097-audit-log-failure-poisons-admin-tx.int.test.ts  1 passed
+  tests/integration/k097-audit-savepoint-adjacent.int.test.ts            3 passed
+
+Unit:
+  tests/unit/services/adminCriticalActions.test.ts   2 passed  (adjacent: dead entries)
+  tests/unit/services/admin/auditService.test.ts     6 passed  (pre-existing, updated)
+
+Mutation proof — `git show origin/master:src/modules/admin/services/auditService.ts`
+restored:
+  integration  Test Files 2 failed (2) / Tests 3 failed | 1 passed (4)
+  unit adminCriticalActions  Test Files 1 failed (1) / Tests 2 failed (2)
+Production file restored; all green again.
+
+Full unit suite, DATABASE_URL unset (bunx vitest run):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9547 passed | 243 skipped (9790)
+(Before the neon mock in tests/unit/services/admin/auditService.test.ts was given a
+withSavepoint stub, that file was 2 failed — the only suite the change broke.)
+
+bunx tsc --noEmit                                              exit 0, no output
+bunx eslint src/modules/admin/services/auditService.ts         exit 0, no output
+
+--- Round 2 (blind review findings MEDIUM-2, LOW-3) ---
+
+  tests/integration/k097-audit-savepoint-adjacent.int.test.ts  10 passed
+    (was 3; +7 it.each cases, one per newly critical action)
+  tests/unit/services/adminCriticalActions.test.ts              3 passed
+    (was 2; +1 asserting the new balanced-argument scan finds the action when the first
+     argument contains a comma, which the old regex could not)
+
+Mutation proof: 'flow.adjust' removed from CRITICAL_ACTIONS
+  -> k097-audit-savepoint-adjacent   Tests 1 failed | 9 passed
+  -> adminCriticalActions            Tests 1 failed | 2 passed
+  Restored; both green again.
+
+bunx tsc --noEmit  exit 0, no output
+bunx eslint src/modules/admin/services/auditService.ts  exit 0, no output
+
+Full unit suite, round 2, DATABASE_URL unset (bunx vitest run --maxWorkers=4):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9548 passed | 243 skipped (9791)
+At the default worker count this box was at load average 150-160 from other agents and a
+SHIFTING set of 4-5 unrelated suites (bank allocation, cash flow, tracker exclusion) timed out
+— a different set each run, all passing in isolation, none importing anything changed here.
+--maxWorkers=4 removes the contention and the suite is clean.

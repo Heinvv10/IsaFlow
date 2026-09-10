@@ -108,6 +108,31 @@ export async function checkRateLimit(key: string, opts: RateLimitOptions): Promi
   return row.count <= max;
 }
 
+/**
+ * Give `units` back to `key`'s current window.
+ *
+ * Only for a caller that has charged up front and then reached an outcome the
+ * cap was never meant to bound — e.g. the invite-accept endpoint charges before
+ * it touches GoTrue so that password guesses are counted even when the request
+ * dies, then refunds the deterministic non-guess verdicts it can only discover
+ * AFTER a successful sign-in. Never refund an outcome a caller could reach
+ * without authenticating: that turns the counter into a free-attempt loop.
+ *
+ * Floors at zero and leaves `window_start` alone, so a refund can never extend
+ * a window or drive the shared counter negative. Absent keys are a no-op.
+ */
+export async function refundRateLimit(key: string, units: number): Promise<void> {
+  const cost = clampCost(units);
+  await sql`
+    UPDATE rate_limit_counters
+    SET count = GREATEST(count - ${cost}, 0)
+    WHERE key = ${key}
+  `;
+  // The LRU copy is now stale in the permissive direction; drop it rather than
+  // patch it, so the next call re-reads the authoritative row.
+  lru.delete(key);
+}
+
 // ---------------------------------------------------------------------------
 // IP extraction (BL-20 — do NOT remove; used by register, forgot-password, etc.)
 // ---------------------------------------------------------------------------

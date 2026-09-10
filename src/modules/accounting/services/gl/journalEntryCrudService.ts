@@ -7,10 +7,9 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, VatType } from '../../types/gl.types';
-import { defaultHumanMeta } from './journalEntryMeta';
+import { assertJournalLinesOwned } from './journalLineOwnership';
+import { defaultHumanMeta, type JournalEntryMeta } from './journalEntryMeta';
 import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
-import type { JournalEntryMeta } from './journalEntryMeta';
-import { assertJournalCostCentres } from './journalCostCentreValidation';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -208,7 +207,7 @@ export async function createJournalEntry(
   try {
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
-    await assertJournalCostCentres(companyId, input.lines);
+    await assertJournalLinesOwned(companyId, input.lines); // journalLineOwnership.ts
 
     let fiscalPeriodId = input.fiscalPeriodId;
     if (!fiscalPeriodId) {

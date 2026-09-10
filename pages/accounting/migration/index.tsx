@@ -6,6 +6,7 @@ import {
   BookOpen, Users, Truck, Scale, FileText, ClipboardList, ShieldCheck,
   Building2,
 } from 'lucide-react';
+import SessionIssues, { type SessionIssue } from '@/components/accounting/migration/SessionIssues';
 import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { log } from '@/lib/logger';
@@ -31,6 +32,13 @@ interface MigrationSession {
   openingBalancesSet: boolean;
   arInvoicesImported: number;
   apInvoicesImported: number;
+  /**
+   * Everything the wizard's steps recorded against this session — per-row
+   * failures and, marked `severity: 'warning'`, the rows that DID import with
+   * something to look at (R-002 rounding drift). Written for durability across
+   * a page reload, so this hub is where it is read back.
+   */
+  errors?: SessionIssue[];
   startedAt: string;
 }
 
@@ -144,6 +152,7 @@ export default function MigrationHubPage() {
           ) : (
             <div className="space-y-6">
               <SessionSummary session={session} onReset={() => setSession(null)} />
+              <SessionIssues issues={session.errors ?? []} />
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
                 <div className="px-5 py-4 border-b border-[var(--ff-border-light)]">
                   <h2 className="font-semibold text-[var(--ff-text-primary)]">Migration Steps</h2>

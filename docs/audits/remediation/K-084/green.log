@@ -1,0 +1,43 @@
+K-084 GREEN evidence — round 2, after the blind review of 8488ef09
+Branch fix/audit-k081-k084-loans, base origin/master 31fc2f10.
+
+Targeted tests (2026-09-09):
+  unit    tests/unit/services/loans/ + tests/unit/lib/amortisation/ — 12 files, 167 passed
+  real DB tests/integration/k08{1,2,3}-*.int.test.ts — 3 files, 18 passed
+  Fixture PostgreSQL with migrations 644 and 645 applied. No production query was run.
+
+Full unit suite, DATABASE_URL unset:
+  832 files (36 skipped) — 9462 passed, 234 skipped, 7 failed.
+  Failures: bankAllocationUnwind, trackerExclusion, bankAllocationDateShift, cashFlowReport,
+  bankAllocationService. All 5 files pass when re-run together on their own (27 passed).
+  Load average was 153 during the full run and every failure is a 10s+ timeout. None touch
+  loans, amortisation or GL posting. An earlier run at load 110 failed a different subset of
+  the same group, which is the signature of the saturation, not of this branch.
+
+Mutation proofs (change reverted, test re-run, restored):
+  H1 loan_gl_postings fallback reinstated as settlement   unit 1 failed; DB 2 failed
+  H2 prior read off any earlier period lock               DB 2 failed
+  H3 engine cap returned to 5x the term                   unit 2 failed
+  M3 prior read off the latest schedule run               DB 7 failed
+  L4 journal_entry_id IS NOT NULL dropped from the guard  DB 1 failed
+  K-081 movement -> full stLiability                      unit 4 failed
+  K-083 already-posted lookup removed                     DB 1 failed
+  K-084 both validation guards removed                    unit 3 failed
+  M1 is covered by a test that posts a period, marks its rows reversed, proves the re-post is
+  still refused, then proves it succeeds once the rows are deleted.
+
+Engine equivalence (H3): pre-fix vs post-fix engine over 144 combinations
+  (terms 6/12/24/60/120/360 x EXTEND_TERM|MAINTAIN_TERM x k=0..11) — 0 differences.
+  Basis for leaving ENGINE_VERSION at 1.0.0.
+
+Migration 645 backfill probed on the fixture inside a rolled-back transaction:
+  two legacy closes of 100 000 and 92 000 leave a GL current-portion balance of 192 000, and the
+  backfill reconstructs exactly 202602=100 000, 202603=192 000;
+  a second run inserts 0 rows (idempotent);
+  a row written by the application is not overwritten by a further run;
+  no row lands under any other company_id (the INSERT is a per-company loop with company_id bound
+  as a parameter and repeated on every join).
+
+Gates: bunx tsc --noEmit clean. bunx eslint on src/modules/accounting/services/loans/ and
+       src/lib/amortisation/engine.ts clean. check-migration-rls.ts OK. agent-docs:check OK.
+File sizes: every file in the loans module is under the 300-line limit.

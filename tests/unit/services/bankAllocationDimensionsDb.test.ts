@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { als } from '@/lib/als';
-import { getPoolForTests, sql } from '@/lib/neon';
+import { getPoolForTests, sql, withSavepoint } from '@/lib/neon';
 import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
@@ -69,15 +69,23 @@ describe('bank allocation dimension workflow (Postgres)', async () => {
             VALUES (${foreignId}::UUID, ${String(other.id)}::UUID, ${foreignId.slice(0, 12)},
               'Foreign bank dimension fixture', 'cc2')`;
           for (const field of ['cc1', 'cc2']) {
-            for (const invalidId of [foreignId, randomUUID(), 'not-a-uuid']) {
+            for (const invalidId of [foreignId, randomUUID()]) {
               await expect(allocateTransaction(companyId, String(tx!.id), String(f.account_id), userId,
                 undefined, 'account', undefined, 'none',
                 field === 'cc1' ? invalidId : undefined, field === 'cc2' ? invalidId : undefined))
-                .rejects.toThrow('Cost centre must belong to this company');
+                .rejects.toThrow(/Cost centre must belong to this company|journal lines name a cost centre outside this company/);
               const [unchanged] = await sql`SELECT status, matched_journal_line_id FROM bank_transactions
                 WHERE company_id = ${companyId}::UUID AND id = ${String(tx!.id)}::UUID`;
               expect(unchanged).toMatchObject({ status: 'imported', matched_journal_line_id: null });
             }
+            await expect(withSavepoint('malformed_bank_dimension', () =>
+              allocateTransaction(companyId, String(tx!.id), String(f.account_id), userId,
+                undefined, 'account', undefined, 'none',
+                field === 'cc1' ? 'not-a-uuid' : undefined,
+                field === 'cc2' ? 'not-a-uuid' : undefined)))
+              .rejects.toThrow(field === 'cc1'
+                ? 'invalid input syntax for type uuid'
+                : 'Cost centre must belong to this company');
           }
         });
       });

@@ -20,6 +20,7 @@
 import { sql } from '@/lib/neon';
 import { reportingClassFor } from './accountReportingClass';
 import { isBankSubtype } from './accountSubtypes';
+import { hasChildAccounts, isSubjectToLeafRule } from './isReportVisibleLeaf';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
   findConfigurationReferences,
@@ -113,6 +114,7 @@ export type MergeRefusalCode =
   | 'account_type_mismatch'
   | 'account_subtype_reporting_class'
   | 'target_is_inactive'
+  | 'target_becomes_header'
   | 'target_is_descendant_of_source'
   | 'source_is_system_account'
   | 'source_bank_subtype_referenced'
@@ -126,6 +128,54 @@ async function countBankTransactions(companyId: string, accountId: string): Prom
      WHERE bank_account_id = ${accountId}::UUID AND company_id = ${companyId}::UUID
   `) as { cnt: number }[];
   return Number(rows[0]?.cnt ?? 0);
+}
+
+async function hasJournalLines(companyId: string, accountId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM gl_journal_lines
+     WHERE gl_account_id = ${accountId}::UUID AND company_id = ${companyId}::UUID
+     LIMIT 1
+  `) as unknown[];
+  return rows.length > 0;
+}
+
+/**
+ * The same failure as `target_is_inactive`, reached through the chart rather
+ * than the flag: `balanceSheetService` and `trendRowsService` select an account
+ * only when `level >= 3 OR it has no children`, so a level 1 or 2 target that
+ * carries children is off both reports with its balance. `mergeAccounts`
+ * reparents every direct child of the source onto the target, so a source WITH
+ * children creates that state; a target already in it swallows whatever the
+ * source brings. The trial balance is identical either way.
+ *
+ * Scoped the way the reports are. Only asset, liability and equity targets are
+ * subject to the rule — the income statement applies no level filter, so a
+ * level-2 expense header shows its own balance and refusing that merge would
+ * cost an accountant an ordinary chart tidy for nothing. And a source with
+ * neither children nor journal lines contributes nothing to move, so merging it
+ * into an already-header target changes nothing that was visible before; that
+ * is the same refinement `accountParentRules.assertParentUsable` makes, for the
+ * same reason.
+ */
+export async function assertTargetStaysOnTheReports(
+  companyId: string, source: MergeAccount, target: MergeAccount,
+): Promise<void> {
+  if (!isSubjectToLeafRule(target.level, target.accountType)) return;
+
+  const sourceHasChildren = await hasChildAccounts(companyId, source.id);
+  const targetHasChildren = await hasChildAccounts(companyId, target.id);
+  if (!sourceHasChildren && !targetHasChildren) return;
+  if (!sourceHasChildren && !(await hasJournalLines(companyId, source.id))) return;
+
+  throw new AccountMergeError(
+    `${target.accountCode} sits at level ${target.level} and `
+    + `${targetHasChildren ? 'already carries children' : 'would carry children after this merge'}`
+    + '. The balance sheet and the trend report select an account only when its level is 3 or '
+    + 'higher or it has no children, so the merged balance would be absent from both while the '
+    + 'trial balance still foots. Merge into a leaf account, or give the chart a leaf child '
+    + `under ${target.accountCode} and merge into that.`,
+    'target_becomes_header',
+  );
 }
 
 /** True when `targetId` sits at or below `sourceId` in the account tree. */
@@ -207,6 +257,7 @@ export async function assertMergeable(
       'target_is_descendant_of_source',
     );
   }
+  await assertTargetStaysOnTheReports(companyId, source, target);
   if (isBankSubtype(source.accountSubtype)) {
     const count = await countBankTransactions(companyId, source.id);
     if (count > 0) {
