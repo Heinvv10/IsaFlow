@@ -349,7 +349,12 @@ BEGIN
         WHERE run.loan_id = r.loan_id
           AND run.company_id = target_company
           AND TO_CHAR(lsr.date, 'YYYYMM') = r.yyyymm
-          AND ABS(COALESCE(lsr.st_liability, 0) - r.st_liability) <= 0.01
+          -- Round-8 L1. Exact, not a tolerance: both columns are numeric(18,2)
+          -- and the running sum of 2-dp GL lines is exact, so 0.01 is the
+          -- smallest real difference there is — a tolerance of 0.01 would
+          -- accept a swap between two loans whose current portions differ by
+          -- exactly one cent and record each figure against the wrong loan.
+          AND COALESCE(lsr.st_liability, 0) = r.st_liability
      )
     ON CONFLICT (loan_id) DO NOTHING;
 

@@ -167,3 +167,25 @@ it('does not refuse a loan an orphan journal touched only as its contra leg (L1)
   });
 });
 
+
+it('refuses a swap between two loans one cent apart (round-8 L1)', async () => {
+  await h.inRollback(async (c) => {
+    const ctx = await seedCompany(c, 'ONECENT');
+    // Both columns are numeric(18,2) and the running sum of 2-dp GL lines is
+    // exact, so one cent is the smallest difference there is: a tolerance of
+    // 0.01 would confirm each loan against the OTHER one's schedule and record
+    // both figures against the wrong loan, one cent out at every later close.
+    const x = await seedLoan(c, ctx, 'LN-002');
+    const y = await seedLoan(c, ctx, 'LN-001');
+    await journal(c, ctx, h.user, 'LN-001', '202602', 100_000);      // X's
+    await journal(c, ctx, h.user, 'LN-002', '202602', 100_000.01);   // Y's
+    await seedScheduleRow(c, ctx, x, '202602', 100_000);
+    await seedScheduleRow(c, ctx, y, '202602', 100_000.01);
+
+    await c.query(REBUILD);
+
+    expect(await recorded(c, ctx.company)).toEqual([]);
+    expect((await refusals(c, ctx.company)).map((r) => r.reason))
+      .toEqual([UNCONFIRMED, UNCONFIRMED]);
+  });
+});

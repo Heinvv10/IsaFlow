@@ -17,3 +17,4 @@ Post-deploy verification (in addition to the deploy script's golden paths + inte
 - Bank reconciliation page (K-020 tile change) loads on Demo with the balance tile rendered — browser proof required.
 - VAT201 page loads for Demo and fields foot (K-031/K-032).
 - Golden path h-payroll-run covers K-022; j-fixed-assets-far covers K-027/K-029.
+- K-081 loan reclass backfill (645 + 659): run `SELECT company_id, loan_key, yyyymm, reason FROM loan_reclass_backfill_refusals ORDER BY company_id, loan_key;` and record the rows here. A refused loan gets no reconstructed prior, so its next `closeLoanPeriod` reclassifies its full current portion as one large movement and reports nothing unusual. Remedy per refused loan: hand-insert the true prior into `loan_reclass_postings` with `source='app'` (the rebuild only ever deletes `source='backfill'`). The migration also prints the refusals as a `[WARNING]` block in the deploy's migration output — capture that output.
