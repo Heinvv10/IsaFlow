@@ -17,6 +17,8 @@ const period = '20000000-0000-4000-8000-000000000001';
 const legacy = '30000000-0000-4000-8000-000000000001';
 const cc1 = '30000000-0000-4000-8000-000000000002';
 const cc2 = '30000000-0000-4000-8000-000000000003';
+const bu = '30000000-0000-4000-8000-000000000004';
+const otherBu = '30000000-0000-4000-8000-000000000005';
 
 // Temporary tables on a single rolled-back connection isolate hand-calculated
 // ledger fixtures from all shared dev data. The real report and CSV SQL run.
@@ -32,7 +34,7 @@ describe('trial balance dimension coverage (Postgres)', async () => {
         await sql`CREATE TEMP TABLE IF NOT EXISTS fiscal_periods (id uuid, company_id uuid, period_name text, start_date date, end_date date) ON COMMIT DROP`;
         await sql`CREATE TEMP TABLE IF NOT EXISTS gl_accounts (id uuid, company_id uuid, account_code text, account_name text, account_type text, normal_balance text) ON COMMIT DROP`;
         await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_entries (id uuid, company_id uuid, status text, entry_date date) ON COMMIT DROP`;
-        await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid, debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid) ON COMMIT DROP`;
+        await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid, debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, bu_id uuid) ON COMMIT DROP`;
         await sql`INSERT INTO companies VALUES (${company}::uuid, 'Fixture', 3)`;
         await sql`INSERT INTO fiscal_periods VALUES (${period}::uuid, ${company}::uuid, 'April 2026', '2026-04-01', '2026-04-30')`;
         await sql`INSERT INTO gl_accounts VALUES (${company}::uuid, ${company}::uuid, '5000', 'Expense', 'expense', 'debit'), (${foreign}::uuid, ${foreign}::uuid, '5000', 'Foreign expense', 'expense', 'debit')`;
@@ -44,17 +46,23 @@ describe('trial balance dimension coverage (Postgres)', async () => {
         ] as const) {
           await sql`INSERT INTO gl_journal_entries VALUES (${id}::uuid, ${owner}::uuid, 'posted', ${date}::date)`;
           await sql`INSERT INTO gl_journal_lines VALUES (${owner}::uuid, ${id}::uuid, ${owner}::uuid, ${amount}, 0,
-            ${dimensioned ? legacy : null}::uuid, ${dimensioned ? cc1 : null}::uuid, ${dimensioned ? cc2 : null}::uuid)`;
+            ${dimensioned ? legacy : null}::uuid, ${dimensioned ? cc1 : null}::uuid, ${dimensioned ? cc2 : null}::uuid,
+            ${dimensioned ? bu : otherBu}::uuid)`;
         }
         // A legacy-only line remains visible after introducing explicit fields.
-        await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, '40000000-0000-4000-8000-000000000001', ${company}::uuid, 3, 0, ${legacy}::uuid, NULL, NULL)`;
+        await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, '40000000-0000-4000-8000-000000000001', ${company}::uuid, 3, 0, ${legacy}::uuid, NULL, NULL, ${otherBu}::uuid)`;
         for (const [selected, movement] of [[legacy, 20], [cc1, 17], [cc2, 17]] as const) {
           const report = await getTrialBalanceReport(company, period, { costCentreId: selected });
           expect(report.rows.find(r => r.accountCode === '5000'), selected).toMatchObject({ debitBalance: movement, periodDebit: movement });
           expect(report.rows.find(r => r.accountCode === 'RE-BF'), selected).toMatchObject({ debitBalance: 11 });
         }
         expect((await getTrialBalanceReport(company, period)).rows.find(r => r.accountCode === '5000')).toMatchObject({ debitBalance: 120 });
-        const req = { method: 'GET', companyId: company, query: { fiscal_period_id: period, cost_centre_id: cc2 } } as unknown as NextApiRequest;
+        const byBu = await getTrialBalanceReport(company, period, { businessUnitId: bu });
+        expect(byBu.rows.find(r => r.accountCode === '5000')).toMatchObject({ debitBalance: 17, periodDebit: 17 });
+        expect(byBu.rows.find(r => r.accountCode === 'RE-BF')).toMatchObject({ debitBalance: 11 });
+        const combined = await getTrialBalanceReport(company, period, { costCentreId: legacy, businessUnitId: otherBu });
+        expect(combined.rows.find(r => r.accountCode === '5000')).toMatchObject({ debitBalance: 3, periodDebit: 3 });
+        const req = { method: 'GET', companyId: company, query: { fiscal_period_id: period, business_unit_id: bu } } as unknown as NextApiRequest;
         let csv = '';
         const res = { setHeader: vi.fn(), status: () => res, send: (body: string) => { csv = body; }, json: vi.fn() };
         await exportHandler(req, res as unknown as NextApiResponse);
