@@ -909,3 +909,98 @@ k071/k074 file is among the 32 failing (auth/2FA, AFS, aging, CSP and similar en
 and 428 = 426 + the two new cases in `k071-rule-sweep-undo-contention.int.test.ts` — absent from
 the FAIL list, and both scenarios' own log lines (`autoPostSkippedLocked: 1`, "Auto-post undo hit a
 contended line") appear in the run.
+
+---
+
+## Round 17 — MEDIUM-1: the census tool's blind spot, and the defect behind it
+
+### The finding
+
+`bulkAllocationPost.ts:199` classified per-line contention on `BANK_TX_LOCK_TIMEOUT` alone,
+while `writeBankBulkAllocate → postPreparedLines → postAllocationLine → allocateTransaction`
+reaches all four members of `isRetryableContention` — through `recordSupplierBankPayment` /
+`autoApplyCustomerReceipt`. A retryable `SupplierPaymentRefusal`, a retryable `ReceiptRefusal`
+and a `PaymentLockTimeoutError` each failed the whole batch, contradicting
+`src/lib/mcp/.claude.md` and the file's own comment. Not financial (the registry savepoint
+unwinds and nothing is posted), but it is the narrow-predicate mistake `isRetryableContention`
+exists to prevent.
+
+**Fix:** `src/lib/mcp/tools/bulkAllocationPost.ts` — the local `isLockTimeout` helper is gone
+and the catch arm calls `isRetryableContention`. The reason wording is unchanged
+(`locked by another request — retry`), which is what the docs and the existing test pin.
+
+### The tool, not just the site
+
+`callgraph-ts.cjs` treated ANY `src/lib/mcp/**` file as a terminal entry, so a tool reaching a
+raiser THROUGH another mcp file was invisible. An HTTP route genuinely is a boundary — nothing
+in the graph calls into `pages/api/**` — but an mcp helper is not: a tool handler calls sibling
+mcp files. The tool now records an mcp file as an entry AND keeps walking up out of it
+(`isHttpEntry` / `isMcpEntry`); only `pages/api/**` still terminates the walk.
+
+Re-run on this worktree: **28 entry files** (was 25). The 14 `pages/api/**` entries are
+byte-identical. The three the old tool could not see:
+
+| New entry | Classification |
+|---|---|
+| `src/lib/mcp/tools/bulkAllocationPost.ts` | **the defect** — fixed above |
+| `src/lib/mcp/tools/writeBankBulkAllocate.ts` | clean: no try/catch around the batch at all (`:152-155`); a throw must reach the registry savepoint |
+| `src/lib/mcp/toolIndex.ts` | clean: module-scope registration, classifies nothing |
+
+Cross-checked by predicate as well: every `BANK_TX_LOCK_TIMEOUT` / `PAYMENT_LOCK_TIMEOUT` /
+`isRetryable*` / `isRetryableContention` mention under `src/lib/mcp/` and
+`pages/api/accounting/`. The only other narrow classifiers are the four documented NARROW-call
+routes (`bank-match-confirm`, `ar/receipt-match/confirm`, `customer-allocations`,
+`supplier-allocations`) that `retryableContention.ts`'s header names as correct by construction.
+`writeMergeGlAccounts.ts:158` reads `GL_ACCOUNT_LOCK_TIMEOUT` — a different lock, taken as the
+first statement of its own write path, not a member of this union. `toolHelpers.ts` is an
+allowlist of refusal codes, not a contention classifier. **No further R-id reserved: nothing was
+found out of scope.**
+
+### Docs
+
+`src/lib/mcp/.claude.md` (the bulk-allocation bullet) now says contention is classified with
+`isRetryableContention`, names the call path that reaches the other three members, and records
+what reading the code alone cost. The comment in `bulkAllocationPost.ts` says the same.
+`src/lib/mcp/AGENTS.md` regenerated with `bun run agent-docs:generate`; `agent-docs:check` →
+`OK: 74 agent document mirror(s) match canonical sources.` Never hand-edited.
+
+### Proof, by outcome, in both directions
+
+`tests/unit/mcp/bulkAllocateSkipAllocated.test.ts` — a new describe block builds each member
+from its REAL class (`PaymentLockTimeoutError`, `ReceiptRefusal({retryable:true})`,
+`SupplierPaymentRefusal({retryable:true})`, plus the bank-lock code), so a member that changes
+its code or flag breaks this file rather than silently leaving the batch fatal.
+
+- all four: line 2 skipped with `locked by another request — retry`, `posted: 2`, and
+  `allocateTransaction` called 3 times — the batch carries on.
+- the other direction: a `SupplierPaymentRefusal` with `retryable` FALSE (a cancelled bill)
+  still throws `BulkAllocationLineError` at index 1 and records no batch lines.
+
+Mutations (file copy restored, never `git checkout --`):
+
+| Mutation | Result |
+|---|---|
+| catch arm back to `code === 'BANK_TX_LOCK_TIMEOUT'` | **3 failed** — payment lock, receipt refusal, supplier refusal |
+| catch arm to `true \|\| isRetryableContention(err)` | **6 failed** — incl. "still FAILS the batch on a refusal about the books" |
+| unmutated | 25 passed |
+
+### Gates (round 17, foreground, on the tree committed below)
+
+`env -u DATABASE_URL bun run ci` (load average 20.45 at start):
+
+    [ci] build PASS
+
+    [ci] all checks passed
+    EXIT=0
+
+Integration, `source fixture.env && bunx vitest run --config vitest.integration.config.ts
+--no-file-parallelism tests/integration`:
+
+    Test Files  32 failed | 78 passed (110)
+    Tests  12 failed | 428 passed | 167 skipped (607)
+    EXIT=1
+
+Identical to the round-16 baseline; no k071/k074 file among the failures (grepped the FAIL/×
+lines for `k071|k074|bulkAlloc|bankRules|undo` — no matches).
+
+**Not done:** R-060 and R-065 (out of scope for this round). No migration.
