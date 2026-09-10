@@ -1,3 +1,4 @@
+import {assertPlatformImportPreparation} from './platformImportConfinement';
 import {randomUUID} from 'node:crypto';
 import {withSavepoint} from '@/lib/neon';
 import {assertControlTx} from './context';
@@ -15,6 +16,7 @@ type Row=Record<string,unknown>;
 export async function prepareHistoricalImport(ctx:ControlTx,input:HistoricalImportPrepareInput):Promise<HistoricalImportPrepared>{
  assertControlTx(ctx);
  if(!input||typeof input!=='object'||Object.keys(input).some(key=>!['sourceSystem','sourceKey','kind','mode','accountingDate','evidenceId','sourceRecordIds'].includes(key)))throw new Error('Invalid historical preparation input');
+ assertPlatformImportPreparation(ctx,input.evidenceId);
  await assertHistoricalImportAuthority(ctx,input.kind,'write');
  const source=await readHistoricalImportSource(ctx,input.evidenceId),normalized=source.normalized;
  if(['sourceSystem','sourceKey','kind','mode','accountingDate'].some(key=>input[key as keyof HistoricalImportPrepareInput]!==normalized[key as keyof typeof normalized]))throw new Error('Historical preparation differs from source group');
@@ -22,7 +24,7 @@ export async function prepareHistoricalImport(ctx:ControlTx,input:HistoricalImpo
   ||canonicalJson([...input.sourceRecordIds].sort())!==canonicalJson(normalized.records.map(row=>row.recordId)))throw new Error('Historical preparation must include the exact source record population');
  return withSavepoint('historical_import_prepare',async()=>{
   const current=await loadHistoricalImportCurrentFacts(ctx,normalized);
-  const id=randomUUID(),p=ctx.principal,grant=p.authMethod==='cookie'?null:p.authMethod==='pat'?p.connectionId:p.grantId;
+  const id=randomUUID(),p=ctx.principal,grant=['cookie','platform_import'].includes(p.authMethod)?null:p.authMethod==='pat'?p.connectionId:p.grantId;
   const body={companyId:p.companyId,importId:id,sourceId:source.sourceId,requesterPersonId:p.personId,requesterAuthMethod:p.authMethod,
    requesterGrantId:grant,requesterGrantedScopes:p.grantedScopes,contentHash:source.contentHash,normalizedHash:source.normalizedHash,normalized,resolvedPlan:current.plan};
   const payloadHash=historicalHash(canonicalJson(body)),envelope=protectChangeValues('historical_import',null,body).protectedPayload;

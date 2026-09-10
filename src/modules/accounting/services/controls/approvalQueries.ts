@@ -12,7 +12,7 @@ export interface ApprovalRow {
 }
 export interface DecisionRow { policy_id: string; person_id: string; decision: 'approved' | 'rejected'; evidence_refs: EvidenceRef[] }
 export interface AuthorityRow {
-  person_id: string; role: string; is_active: boolean | null; status: string | null;
+  person_id: string; role: string | null; authority_kind?: 'member' | 'platform_import'; platform_role?: string | null; is_active: boolean | null; status: string | null;
   suspended_at: Date | string | null; company_status: string | null; company_suspended_at: Date | string | null;
   permissions: Array<Record<string, unknown>>; grant_valid: boolean; current_scopes: string[] | null;
 }
@@ -49,7 +49,7 @@ export async function approvalDecisions(ctx: ControlTx, id: string): Promise<Dec
 }
 export async function assertApprovalAuthority(authority: AuthorityRow | undefined, permission: string, role?: string): Promise<void> {
   const { permissionReason } = await import('@/lib/auth/effectivePermissionPolicy');
-  if (!authority || authority.grant_valid !== true
+  if (!authority || authority.authority_kind === 'platform_import' || !authority.role || authority.grant_valid !== true
     || (authority.current_scopes !== null && (!Array.isArray(authority.current_scopes)
       || authority.current_scopes.some(scope => typeof scope !== 'string'))) || !isActiveUserAccount(authority) || authority.company_suspended_at !== null
     || ['suspended', 'deleted'].includes(authority.company_status ?? '')
@@ -62,8 +62,12 @@ export async function assertApprovalAuthority(authority: AuthorityRow | undefine
   }));
   if (permissionReason(authority.role, permission, authority.current_scopes, overrides)) throw new Error('Approval authority is no longer valid');
 }
-export async function assertRequesterAuthority(row: ApprovalRow, authorities: AuthorityRow[]): Promise<void> {
+export async function assertRequesterAuthority(ctx: ControlTx, row: ApprovalRow, authorities: AuthorityRow[]): Promise<void> {
   const requester = authorities.find(person => person.person_id === row.requester_person_id);
+  if(row.requester_auth_method==='platform_import'){
+    const {assertPlatformImportRequester}=await import('./platformImportRequesterAuthority');
+    return assertPlatformImportRequester(ctx,row,requester);
+  }
   if (!['cookie', 'pat', 'oauth'].includes(row.requester_auth_method)
     || (row.requester_auth_method !== 'cookie' && !Array.isArray(requester?.current_scopes))) {
     throw new Error('Requester grant authority is no longer valid');
