@@ -32,7 +32,8 @@ export async function withBankRuleChange<T>(companyId:string,ids:readonly string
 export async function recordBankRuleChange(ctx:ControlTx,id:string,before:BankRuleRow|null,after:BankRuleRow|null,action:'created'|'updated'|'toggled'|'deleted'){
  if(canonicalJson(before)===canonicalJson(after))return;
  const [version]=await ctx.sql`SELECT version FROM control_entity_versions WHERE company_id=${ctx.principal.companyId}::uuid
-  AND entity_type='bank_categorisation_rule' AND entity_id=${id} FOR UPDATE` as {version:number}[];
+  AND entity_type='bank_categorisation_rule' AND lower(entity_id)=lower(${id})
+  ORDER BY (entity_id=${id}) DESC,entity_id LIMIT 1 FOR UPDATE` as {version:number}[];
  const previousVersion=version?Number(version.version):null;
  await recordCommittedChange(ctx,{entityType:'bank_categorisation_rule',entityId:id,previousVersion,newVersion:previousVersion===null?1:previousVersion+1,
   action:`bank_categorisation_rule.${action}`,accountingDate:null,before,after,bindingHash:null,protectedEvidenceRef:null});

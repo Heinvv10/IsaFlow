@@ -47,14 +47,14 @@ export async function readBankTransferOriginal(ctx:ControlTx,current:BankControl
    AND c.action=e.operation AND c.operation_id=e.operation_id AND c.binding_hash=e.binding_hash) AS audited
   FROM control_operation_effects e LEFT JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=lower(e.entity_id)
   WHERE e.company_id=${company}::uuid AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
-   AND (i.payload->'transfer'->>'originalIntentId'=${rootId} OR lower(e.result->>'originalIntentId')=${rootId}) ORDER BY lower(e.entity_id) LIMIT 2` as Row[];
+   AND (lower(i.payload->'transfer'->>'originalIntentId')=${rootId} OR lower(e.result->>'originalIntentId')=${rootId}) ORDER BY lower(e.entity_id) LIMIT 2` as Row[];
  const links=new Map(parsed.filter(item=>item.receipt.entity_id!==rootId).map(item=>[item.receipt.entity_id,item]));
  for(const receipt of related)links.set(receipt.entity_id,{receipt,plan:parseBankAllocationPlan(receipt.payload)});
  if(links.size>1)throw new Error('Controlled transfer late link population is inconsistent');
  const late=[...links.values()][0];let oppositeId=plan.transfer.oppositeBankTransactionId;
  if(late){
   const saved=late.plan,r=late.receipt.result as Row;
-  if(oppositeId!==null||saved.kind!=='transfer'||saved.transfer.mode!=='link'||saved.transfer.originalIntentId!==rootId
+  if(oppositeId!==null||saved.kind!=='transfer'||saved.transfer.mode!=='link'||!sameIntentId(saved.transfer.originalIntentId,rootId)
    ||late.receipt.audited!==true||late.receipt.currency!=='ZAR'||late.receipt.bank_transaction_id!==saved.bankTransactionId
    ||!sameIntentId(r.intentId,String(late.receipt.entity_id))||!sameIntentId(r.originalIntentId,rootId)||r.bankTransactionId!==saved.bankTransactionId||r.journalEntryId!==journal.id
    ||r.oppositeBankTransactionId!==plan.bankTransactionId||r.paymentId!==null||r.status!=='allocated')throw new Error('Controlled transfer late link receipt is inconsistent');

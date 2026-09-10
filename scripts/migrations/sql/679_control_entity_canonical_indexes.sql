@@ -8,7 +8,7 @@
 CREATE INDEX IF NOT EXISTS control_entity_versions_canonical_idx
  ON control_entity_versions(company_id,entity_type,lower(entity_id));
 CREATE INDEX IF NOT EXISTS control_change_events_canonical_idx
- ON control_change_events(company_id,entity_type,lower(entity_id),occurred_at DESC,id);
+ ON control_change_events(company_id,entity_type,lower(entity_id));
 CREATE INDEX IF NOT EXISTS control_protected_evidence_canonical_idx
  ON control_protected_evidence(company_id,entity_type,lower(entity_id));
 CREATE INDEX IF NOT EXISTS control_operation_approvals_canonical_idx

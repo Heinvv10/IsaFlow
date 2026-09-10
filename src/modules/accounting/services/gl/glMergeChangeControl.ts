@@ -32,7 +32,8 @@ export async function withGlMergeChanges(companyId:string,source:string,target:s
   const periodIds=[...new Set(journals.map(j=>j.header.fiscal_period_id).filter((id):id is string=>typeof id==='string'))].sort();
   await ctx.sql`SELECT id FROM fiscal_periods WHERE company_id=${companyId}::uuid AND id=ANY(${periodIds}::uuid[]) ORDER BY id FOR SHARE`;
   const versions=await ctx.sql`SELECT entity_type,entity_id,version FROM control_entity_versions WHERE company_id=${companyId}::uuid
-   AND ((entity_type='gl_account' AND entity_id=ANY(${changedAccounts}::text[])) OR (entity_type='journal_entry' AND entity_id=ANY(${ids}::text[])))
+   AND ((entity_type='gl_account' AND lower(entity_id)=ANY(${changedAccounts.map(id=>id.toLowerCase())}::text[]))
+    OR (entity_type='journal_entry' AND lower(entity_id)=ANY(${ids.map(id=>id.toLowerCase())}::text[])))
    ORDER BY entity_type,entity_id FOR UPDATE` as {entity_type:string;entity_id:string;version:string|number}[];
   const result=await mutate();
   if(result.movedLinesDigest!==digestLineIds(population.lines.map(line=>line.id))||result.linesRepointed!==population.lines.length
@@ -68,7 +69,7 @@ export async function withGlMergeChanges(companyId:string,source:string,target:s
   }
   const bindingHash=createHash('sha256').update(canonicalJson({mergeRecordId:result.mergeRecordId,sourceAccountId:source,targetAccountId:target,movedLinesDigest:result.movedLinesDigest})).digest('hex');
   const capture=async(entityType:string,entityId:string,before:Record<string,unknown>,after:Record<string,unknown>,accountingDate:string|null)=>{
-   const row=versions.find(v=>v.entity_type===entityType&&v.entity_id===entityId),version=row?Number(row.version):null;
+   const row=versions.find(v=>v.entity_type===entityType&&v.entity_id.toLowerCase()===entityId.toLowerCase()),version=row?Number(row.version):null;
    await recordCommittedChange(ctx,{entityType,entityId,previousVersion:version,newVersion:version===null?1:version+1,
     action:`accounts_merged:${result.mergeRecordId}`,accountingDate,before,after,bindingHash,protectedEvidenceRef:null});
   };
