@@ -10736,12 +10736,13 @@
       "sourceLabel": "",
       "sourceIds": [],
       "correctedTrigger": "",
-      "severityRationale": "Violates the hard rule that every query carries company_id, on a customer-facing tax invoice. MEDIUM as defence in depth; HIGH (a POPIA disclosure) if any write path can store another tenant's customer id in client_id/customer_id — that is being checked.",
+      "severityRationale": "HIGH via the customer portal. Authenticated PDF routes are protected: `customers` has FORCED row-level security with a tenant_isolation policy for app_user, and withAuth switches to app_user, so a foreign customer prints blank. But pages/api/portal/invoice/[token]/pdf.ts is not behind withAuth; it resolves its token via portalTokenService (not R-055's broken portalService, so it is live) and renders via generateInvoicePdf as the connection role `postgres`, which bypasses RLS. There the missing company_id is the only barrier. With R-067, a tenant can plant another tenant's customer on its own invoice and read that customer's name, VAT number and billing address through its own portal link. POPIA-relevant; likelihood is limited only by customer ids being random UUIDs.",
       "auditedSha": "",
       "currentSha": "",
       "status": "confirmed",
       "dependencies": [
-        "K-091"
+        "K-091",
+        "R-067"
       ],
       "testNames": [],
       "evidencePaths": [
@@ -10755,9 +10756,42 @@
       "reportedSeverity": "",
       "branch": null,
       "title": "The tax-invoice PDF joins the customer by id alone, with no company_id: a foreign customer id prints another tenant's name, VAT number and address",
-      "severity": "medium",
+      "severity": "high",
       "source": "Surfaced by the K-091 branch, which fixes it; confirmed on origin/master by the orchestrating session, 2026-09-10",
-      "processNotes": "origin/master invoicePdfBuilder.ts:34 is `LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)` with no `c.company_id = ci.company_id`. The invoice itself is scoped (`ci.company_id = companyId`, :39) and master already scopes the projects join (:37); the customer join is the gap. `customer_invoices.client_id` has no FK, so nothing in the schema stops a foreign id. K-091 adds the predicate on its branch. Impact SQL: SELECT count(*) FROM customer_invoices ci JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) WHERE c.company_id <> ci.company_id;"
+      "processNotes": "origin/master invoicePdfBuilder.ts:34 is `LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)` with no `c.company_id = ci.company_id`. The invoice itself is scoped (`ci.company_id = companyId`, :39) and master already scopes the projects join (:37); the customer join is the gap. `customer_invoices.client_id` has no FK, so nothing in the schema stops a foreign id. K-091 adds the predicate on its branch. Impact SQL: SELECT count(*) FROM customer_invoices ci JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) WHERE c.company_id <> ci.company_id;\n\nSEVERITY RAISED 2026-09-10 after measurement in the disposable fixture (built from the same migrations as production; production itself not queried): customers and customer_invoices have relrowsecurity=true and relforcerowsecurity=true, policy tenant_isolation FOR ALL TO app_user USING (company_id IN (SELECT auth.user_companies())); app_user is neither superuser nor BYPASSRLS; postgres is both; production's DATABASE_URL user is postgres. The portal route can only work by bypassing RLS — as app_user with no user claim, auth.user_companies() is empty and the invoice itself would be hidden — so it necessarily runs unprotected. Fix components: (1) K-091 adds c.company_id = ci.company_id to the PDF join (closes the disclosure once merged AND deployed); (2) R-067 — the ownership check, not on any branch; (3) consider running portal routes under a role scoped to the token's company rather than as superuser."
+    },
+    {
+      "id": "R-067",
+      "claim": "",
+      "area": "accounting/ar",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/customerInvoiceCreateService.ts",
+        "pages/api/accounting/customer-invoices-create.ts",
+        "src/modules/accounting/services/ar/recurringInvoiceService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "It lets a tenant attach another tenant's customer to its own invoice, which R-066's portal path then discloses. On its own it also corrupts that tenant's receivables.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-066"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Impact SQL for Hein — must run as an owner or superuser, because forced RLS hides cross-tenant rows from app_user: SELECT count(*) FROM customer_invoices ci JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) WHERE c.company_id <> ci.company_id;",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Invoice create accepts a customer id from any tenant: nothing checks the customer belongs to the company",
+      "severity": "high",
+      "source": "Found by the orchestrating session while assessing R-066, 2026-09-10; confirmed on origin/master by reading every use of clientId.",
+      "processNotes": "customer-invoices-create.ts checks only that clientId is present, then passes it to createDraftCustomerInvoice. Every use of clientId there is accounted for: the type (:27), the destructure (:54), a company-scoped PROJECT lookup (:96) whose failure is swallowed, and the INSERT (:134) writing it into both customer_id and client_id. No ownership check exists. client_id has no FK; customer_id's FK is tenant-agnostic; the RLS WITH CHECK on customer_invoices checks only the invoice's own company_id. recurringInvoiceService inserts input.clientId the same way, and its runner re-mints an invoice from that template every period. Fix: on every create/convert path, SELECT 1 FROM customers WHERE id = $clientId AND company_id = $companyId and refuse before any write. Not on any branch."
     }
   ],
   "sourceInventory": [
