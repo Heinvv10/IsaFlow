@@ -11332,6 +11332,39 @@
       "severity": "low",
       "source": "Found by the R-059 round-6 fixer; not fixed there because payments and credit notes follow a separate funds rule.",
       "processNotes": "Mirror R-059's approach: a single shared expression for the funds population, a census by claim and consumer, and a mixed-set reconciliation test."
+    },
+    {
+      "id": "R-084",
+      "claim": "",
+      "area": "accounting/reconciliation",
+      "affectedPaths": [
+        "src/modules/accounting/services/reconciliation"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "On books where subledger, control account and ageing all agree, the reconciliation still reports false items plus equal unexplained differences: a voided payment gives -400 and +400 (seen on AR, AP and the bank path); an AP batch payment gives two false +/-400 items; a cancelled linked credit note gives false +/-230 pairs; an unlinked supplier credit note leaves 230 unexplained. A reconciliation that reports differences on balanced books trains users to ignore it.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-059"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-059/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No ledger data is wrong; the reconciliation report is. Any company with voided payments, batch payments or cancelled credit notes sees spurious items today.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "reconcileSubledger invents reconciling items on books that tie: voided payments, AP batch payments, cancelled linked credit notes and unlinked supplier credit notes",
+      "severity": "medium",
+      "source": "Measured by the R-059 round-6 blind reviewer on the schema fixture; each reproduces identically on a clean origin/master archive, so none is caused by R-059.",
+      "processNotes": "Same shape as the two bridge gaps R-059 round 6 fixed (the AR write-off journal and the AP credit-note journal). Fix by enumerating every journal type that settles or reverses a document, and covering each with a mixed-set test that asserts every bridge is 0 and no false items appear. Also investigate the -1150 residual on two leftover K053ID fixture companies (interrupted k053 runs, 2026-09-09): a real gap or a half-deleted-fixture artefact. Note: the cancelled-credit-note pairs were credited to R-074 in R-059's fix.md, wrongly; R-074 is the timestamptz as-at comparison."
     }
   ],
   "sourceInventory": [
