@@ -22,7 +22,7 @@ export async function hasHistoryParent(ctx:ControlTx,type:string,id:string):Prom
    WHERE ${type==='payroll_employee_component'} AND e.company_id=${company}::uuid AND p.id::text=${id}
   UNION ALL SELECT id::text FROM assets WHERE ${type==='asset'} AND company_id=${company}::uuid AND id::text=${id}
   UNION ALL SELECT id::text FROM fiscal_periods WHERE ${type==='fiscal_period'} AND company_id=${company}::uuid AND id::text=${id}
-  UNION ALL SELECT id::text FROM companies WHERE ${type==='company'||type==='company_gl_settings'} AND id=${company}::uuid AND id::text=${id}
+  UNION ALL SELECT id::text FROM companies WHERE ${type==='company'||type==='company_gl_settings'||type==='accounting_default_accounts'} AND id=${company}::uuid AND id::text=${id}
   UNION ALL SELECT id::text FROM control_beneficiary_proposals WHERE ${type==='beneficiary_supplier_proposal'||type==='beneficiary_employee_proposal'}
    AND company_id=${company}::uuid AND id::text=${id} AND entity_type=CASE WHEN ${type}='beneficiary_supplier_proposal' THEN 'supplier' ELSE 'employee' END
   UNION ALL SELECT id::text FROM supplier_payment_batches WHERE ${type==='supplier_payment_batch'} AND company_id=${company}::uuid AND id::text=${id}
