@@ -47,11 +47,14 @@ describe('approver-of-record workflows under an actual impersonated session',()=
  const session=(person:string,sessionId:string,aal:'aal1'|'aal2')=>
   new SignJWT({sub:person,session_id:sessionId,aal,role:'authenticated',aud:'authenticated',email:`${person}@forensic.invalid`})
    .setProtectedHeader({alg:'HS256'}).setIssuedAt().setExpirationTime('1h').sign(new TextEncoder().encode(secret));
+ /** A live impersonation: the stash row the admin route writes, plus its cookies. */
  async function impersonated(){
   const sessionId=`impersonation-${randomUUID()}`,now=Math.floor(Date.now()/1000);
+  const stashId=(await h.pool.query(`INSERT INTO admin_impersonation_stash(admin_user_id,admin_access_token,admin_refresh_token,target_user_id,expires_at)
+   VALUES($1,'ciphertext','ciphertext',$2,NOW()+interval '1 hour') RETURNING stash_id`,[h.admin,target])).rows[0].stash_id;
   return {[ACCESS_COOKIE]:await session(target,sessionId,'aal1'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA,
    [IMPERSONATION_PROOF_COOKIE]:await mintImpersonationProof({actorUserId:h.admin,targetUserId:target,
-    targetSessionId:sessionId,actorExpiresAt:now+3600,stashExpiresAt:now+3600})};
+    targetSessionId:sessionId,stashId,actorExpiresAt:now+3600,stashExpiresAt:now+3600})};
  }
  const ordinary=async()=>({[ACCESS_COOKIE]:await session(target,`ordinary-${randomUUID()}`,'aal2'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA});
  const REFUSAL='An impersonated session cannot record an independent review';
@@ -134,9 +137,10 @@ describe('approver-of-record workflows under an actual impersonated session',()=
   const id=randomUUID();
   await h.pool.query(`INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,created_by,invoice_date,subtotal,tax_amount,total_amount,status)
    VALUES($1,$2,$3,$4,$5,'2024-03-01',1000,150,1150,'draft')`,[id,h.f.companyA,`AOR-AR-${id.slice(0,8)}`,customer,h.f.u1.id]);
+  // This route rethrows anything it does not model, so the refusal arrives as a 500.
   const refused=await post(customerInvoiceRoute as Route,'/api/accounting/customer-invoices-detail',{id,action:'approve'},await impersonated());
-  expect(refused.status).toBe(400);
-  expect(refused.body.error?.message).toBe(REFUSAL);
+  expect(refused.status).toBe(500);
+  expect(refused.body.message).toBe(REFUSAL);
   expect(await state('customer_invoices',id)).toMatchObject({status:'draft'});
  });
 
@@ -167,8 +171,10 @@ describe('approver-of-record workflows under an actual impersonated session',()=
 
  it('records the actor who withdrew an approval by regenerating the pack',async()=>{
   const params={from:'2024-03-01',to:'2024-03-31'} as Parameters<typeof generateDrafts>[0]['params'];
-  const data={priorPeriod:null,balanceSheet:{debtEquityRatio:null,equity:0,
-   debtEquityUnavailableReason:'Debt-to-equity is not meaningful for this balance sheet'}} as unknown as CommentaryPackData;
+  const data={priorPeriod:null,ratios:{grossMargin:50,netMargin:20},
+   incomeStatement:{revenue:0,netProfit:0},
+   balanceSheet:{currentRatio:2,debtEquityRatio:null,equity:0,
+    debtEquityUnavailableReason:'Debt-to-equity is not meaningful for this balance sheet'}} as unknown as CommentaryPackData;
   await h.member(target,()=>generateDrafts({companyId:h.f.companyA,userId:target,params,data}),false,null);
   const row=(await h.pool.query("SELECT id FROM report_commentary WHERE company_id=$1 AND section_ref='balance_sheet' AND row_ref='equity' AND status='draft' ORDER BY created_at DESC LIMIT 1",[h.f.companyA])).rows[0];
   await post(commentaryRoute as Route,'/api/accounting/commentary/[id]/approve',{},await ordinary(),{id:row.id});
