@@ -22,7 +22,7 @@ export interface ControlPrincipal {
   actingFirmId: string | null;
   requestId: string;
   operationId: string;
-  authMethod: 'cookie' | 'pat' | 'oauth' | 'job';
+  authMethod: 'cookie' | 'pat' | 'oauth' | 'job' | 'platform_import';
   provenance: 'human' | 'agent' | 'job';
   delegatedByPersonId: string | null;
   /** Null for cookies; bearer/job grant is an authority ceiling, never proof. */
