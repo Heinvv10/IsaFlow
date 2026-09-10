@@ -2,7 +2,7 @@ import type {NextApiRequest,NextApiResponse} from 'next';
 import {z,ZodError} from 'zod';
 import {withAuth} from '@/lib/auth';
 import {withCsrf} from '@/lib/auth/withCsrf';
-import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
+import {EffectivePermissionError,deniedPermissionMessage} from '@/lib/auth/effectivePermissions';
 import {withErrorHandler} from '@/lib/api-error-handler';
 import {apiResponse} from '@/lib/apiResponse';
 import {ErrorCode} from '@/lib/apiResponse.types';
@@ -27,7 +27,7 @@ export async function auditCheckRunsHandler(req:NextApiRequest,res:NextApiRespon
   return apiResponse.methodNotAllowed(res,req.method??'',['GET','POST']);
  }catch(error){
   if(error instanceof ZodError)return apiResponse.badRequest(res,'Invalid audit check run input');
-  if(error instanceof EffectivePermissionError)return apiResponse.forbidden(res,'Current report permission denied');
+  if(error instanceof EffectivePermissionError)return apiResponse.forbidden(res,deniedPermissionMessage(error));
   // 409 means "ask again later"; a failed run never will publish, so it answers a terminal 422 of its own.
   if(error instanceof CheckRunUnavailableError)return error.reason==='not_ready'?apiResponse.conflict(res,error.message)
    :error.reason==='failed'?apiResponse.error(res,ErrorCode.BUSINESS_RULE_VIOLATION,error.message):apiResponse.notFound(res,'Check run');
