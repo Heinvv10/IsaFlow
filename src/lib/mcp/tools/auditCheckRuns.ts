@@ -4,6 +4,7 @@ import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
 import {AUDIT_CHECK_RUN_IDS} from '@/modules/accounting/services/controls/auditCheckRunContract';
 import {getAuditCheckRunPage,getAuditCheckRunSummary} from '@/modules/accounting/services/controls/auditCheckRunReadService';
+import {AuditEnqueueQuotaError} from '@/modules/accounting/services/controls/auditEnqueueQuota';
 import {ok,toolError} from './toolHelpers';
 const uuid={type:'string',format:'uuid'},key={type:'string',minLength:1,maxLength:128,pattern:'^[A-Za-z0-9_.:-]+$'};
 const id=z.string().uuid(),retry=z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/);
@@ -16,7 +17,9 @@ function tool<T>(name:string,description:string,scope:'write:audit'|'read:report
  const write=scope==='write:audit';
  return{name,description,scope,write,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async(args,ctx)=>{
   const parsed=schema.safeParse(write?writeInput(args,ctx.companyId):args);if(!parsed.success)return toolError('Invalid check run arguments');
-  return ok(await run(parsed.data));
+  // A refused rate is an answer the agent must read, not a failure that invites the retry the rate exists to stop.
+  try{return ok(await run(parsed.data));}
+  catch(error){if(error instanceof AuditEnqueueQuotaError)return toolError(error.message);throw error;}
  }};
 }
 const runChecks=tool('run_control_checks',
