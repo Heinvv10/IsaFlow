@@ -179,3 +179,87 @@ needs a worker or a one-off re-route, which is out of scope here.
    `'received'` event during that window depends on the **R-058 branch's predicates**, which are not
    yet merged. Land R-058 first, or with this.
 2. **R-077** (registered separately) covers the stranded-event recovery path; it is not fixed here.
+
+---
+
+# Round 2 — the two LOWs from the blind review of `e4113b405`
+
+## LOW-1 — three converted callbacks updated by bare primary key
+
+`extractAttachmentData`, `extractStatutoryDocData` and `extractAndStoreDocMetadata` updated
+`WHERE id = $1` and nothing else. Before this fix they ran on the request client under the company
+GUC, with RLS as the backstop; drained callbacks run on the pool's privileged role, where there is
+none. Not exploitable today — every id is a UUID returned by the same request's own
+`INSERT … RETURNING` — but it made the invariant the module header advertises false for 3 of 13
+callers, which is how the next converted site gets it wrong.
+
+Two of the three tables carry **no `company_id` column**; their tenancy lives in a parent, which is
+what their own RLS policies walk. Each predicate now reproduces that policy rather than inventing a
+column:
+
+| Table | Predicate added | Why this shape |
+|---|---|---|
+| `bank_transaction_attachments` | `AND EXISTS (SELECT 1 FROM bank_transactions bt WHERE bt.id = …bank_transaction_id AND bt.company_id = $n)` | No `company_id`; this is the table's own RLS `WITH CHECK`, verbatim. |
+| `company_documents` | `AND company_id = $n` | Has the column. |
+| `procurement_documents` | `AND entity_type = $n AND entity_id = $n` | No `company_id`, and the INSERT never had one: tenancy is `(entity_type, entity_id) -> parent`, which is what `tenant_isolation_via_parent` walks. `uploadDocument` has no companyId to thread, so the predicate restates the identity the request supplied and `withAuth` authorised. |
+
+`afterCommit.ts`'s header now states the obligation precisely — self-scoping, normally an explicit
+`company_id`, and these two tables' parent-scoped exceptions named — instead of a rule that 3 of its
+callers silently broke.
+
+`extractAttachmentData` and `extractStatutoryDocData` were module-private; both are now exported so
+the test can call them with a foreign tenant. Named exports beside a Next API route's default are an
+established pattern here (`reports-html.ts`, `companies.ts`, `depreciation-export.ts`, …).
+
+### Re-check of every other converted callback against the invariant
+
+| Callback | Statements | Verdict |
+|---|---|---|
+| `routeEvent` (upload, imap mirror) | `captureRouterService.ts:115,136,159,174,182,194`, `documentStorage.ts:72-74` | `company_id` on every one. OK |
+| `runLlmResidualPass` (×2) | `llmCategorizationPass.ts:183,199,233,252` | `company_id` on every one. OK |
+| …its auto-post sweep | `autoPostGateService.ts:150,167,253,278` | `company_id` on every one. OK |
+| `recalculateNudge` (×2) | `flowWalletService.ts:574-600` | `WHERE company_id = $1`. OK |
+| `fireWebhook` | see LOW-2 | endpoint SELECT scoped; the two endpoint UPDATEs now scoped too |
+| `checkAndAlert` | `healthAlertService.ts:26,45,61` — `admin_settings` only | Platform-global table, no tenant column and no tenant meaning. Correct as-is; drained from `withAdmin`. |
+| the three above | | fixed |
+
+## LOW-2 — `webhookService.ts` `fireWebhook`, the floating IIFE
+
+`fireWebhook` was `async` but its whole body sat in `void (async () => { … })()`, so its
+`INSERT INTO webhook_deliveries` and `UPDATE webhook_endpoints` — both **after** an outbound
+`safeFetch` — always ran detached, whatever the caller did. That is R-075's shape exactly, and it was
+absent from round 1's census tables. Safe today only because its single caller
+(`emailNotificationService.ts:115`) was converted; a second caller under `withAuth` would have
+reopened it silently.
+
+**Converted, not just documented.** The IIFE is gone: the body already swallows every error, so the
+function is safe to await, and detachment is now the *caller's* decision — `runAfterCommit` inside a
+request, a plain un-awaited call outside one. Its two endpoint UPDATEs also gained
+`AND company_id = $n` (the id is derived from a scoped SELECT, but the invariant is the invariant).
+Census row:
+
+| Site | Disposition |
+|---|---|
+| `src/modules/.../core/webhookService.ts:98` (`fireWebhook`) | **Converted** — no longer self-detaching; awaitable, so a caller under a request transaction can hold or defer it. Sole caller reaches it through `runAfterCommit`. |
+
+## Round-2 tests
+
+- `tests/integration/r075-callback-tenant-scope.int.test.ts` (6) — each of the three callbacks, in
+  **both directions**: given another company's scope it writes nothing; given its own it still
+  writes. Real `isaflow_schema_fixture` rows for two companies; only the OCR/VLM boundary is mocked.
+- `tests/unit/services/fireWebhookAwaitable.test.ts` (3) — the post-fetch writes have been issued by
+  the time `await fireWebhook(...)` resolves; the endpoint UPDATE binds the company (checked on the
+  bound values, not the query text); it still never throws to the caller.
+
+### Round-2 mutations
+
+| # | Mutation | Result |
+|---|---|---|
+| M9 | `bank_transaction_attachments` UPDATE back to bare id | 1 failed |
+| M10 | `company_documents` UPDATE back to bare id | 1 failed |
+| M11 | `procurement_documents` UPDATE back to bare id | 1 failed |
+| M12 | `webhook_endpoints` UPDATE back to bare id | 1 failed |
+| M13 | restore the floating IIFE in `fireWebhook` | 2 failed |
+
+Baseline after restore: 6/6 integration, 3/3 unit; the four mutated files byte-identical to their
+backups.

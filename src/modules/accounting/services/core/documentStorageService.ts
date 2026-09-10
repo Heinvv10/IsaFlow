@@ -141,7 +141,7 @@ export async function uploadDocument(input: UploadDocumentInput): Promise<Linked
   }
 
   if (isVlmAvailable()) {
-    runAfterCommit('procurement document extraction', () => extractAndStoreDocMetadata(buffer, mimeType, docId).catch(err =>
+    runAfterCommit('procurement document extraction', () => extractAndStoreDocMetadata(buffer, mimeType, docId, entityType, entityId).catch(err =>
       log.warn('Background VLM extraction failed', {
         error: err instanceof Error ? err.message : String(err),
       }, 'accounting-docs'),
@@ -217,8 +217,19 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string) 
   }
 }
 
-/** Background VLM extraction — stores result in extracted_data JSONB column */
-export async function extractAndStoreDocMetadata(buffer: Buffer, mimeType: string, docId: string) {
+/**
+ * Background VLM extraction — stores result in extracted_data JSONB column.
+ *
+ * Runs after the request COMMITs, on the pool's role with no RLS (R-075), so
+ * the UPDATE must scope itself. procurement_documents carries NO company_id:
+ * its tenancy lives entirely in (entity_type, entity_id) -> parent row, which
+ * is what its own RLS policy walks. So the predicate restates the identity the
+ * request supplied and withAuth authorised, rather than a company_id it has
+ * nowhere to read.
+ */
+export async function extractAndStoreDocMetadata(
+  buffer: Buffer, mimeType: string, docId: string, entityType: string, entityId: string,
+) {
   const isPdf = mimeType === 'application/pdf';
   const isImage = mimeType.startsWith('image/');
 
@@ -233,6 +244,8 @@ export async function extractAndStoreDocMetadata(buffer: Buffer, mimeType: strin
       UPDATE procurement_documents
       SET extracted_data = ${JSON.stringify(extracted)}::jsonb
       WHERE id = ${docId}::uuid
+        AND entity_type = ${entityType}
+        AND entity_id = ${entityId}::uuid
     `;
     log.info('VLM extraction stored for document', { docId, confidence: extracted.confidence }, 'accounting-docs');
   }

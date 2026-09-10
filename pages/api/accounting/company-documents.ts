@@ -134,7 +134,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Fire-and-forget VLM extraction for statutory documents
     if (isVlmAvailable() && fileData) {
-      runAfterCommit('statutory doc extraction', () => extractStatutoryDocData(fileData, documentType, docId).catch(err =>
+      runAfterCommit('statutory doc extraction', () => extractStatutoryDocData(fileData, documentType, docId, companyId).catch(err =>
         log.warn('Statutory doc extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'company-docs')
       ));
     }
@@ -165,8 +165,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
 }
 
-/** Background statutory document VLM extraction */
-async function extractStatutoryDocData(fileData: string, docType: string, docId: string) {
+/**
+ * Background statutory document VLM extraction.
+ *
+ * Runs after the request COMMITs, on the pool's role with no RLS (R-075), so
+ * the UPDATE carries company_id itself.
+ */
+export async function extractStatutoryDocData(fileData: string, docType: string, docId: string, companyId: string) {
   // fileData is a base64 data URL
   const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return;
@@ -186,6 +191,7 @@ async function extractStatutoryDocData(fileData: string, docType: string, docId:
       UPDATE company_documents
       SET extracted_data = ${JSON.stringify(result)}::jsonb
       WHERE id = ${docId}::uuid
+        AND company_id = ${companyId}::uuid
     `;
     log.info('Statutory doc extraction stored', { docId, docType: result.documentType }, 'company-docs');
   }
