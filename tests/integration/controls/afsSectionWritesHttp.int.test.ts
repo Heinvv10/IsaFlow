@@ -134,6 +134,15 @@ describe('reorder',()=>{
   expect([(await h.read(b)).sort_order,(await h.read(a)).sort_order],'a partial payload left duplicate note numbers').toEqual([1,2]);
  });
 
+ it('refuses a payload that names the same section twice',async()=>{
+  const doc=await h.document(),a=await h.section(doc),b=await h.section(doc),c=await h.section(doc);
+  const before=(await h.read(c)).sort_order;
+  const res=await h.request('PUT',`/api/accounting/afs/${doc}/sections/reorder`,
+   {sections:[{id:a,newSortOrder:1},{id:a,newSortOrder:2},{id:b,newSortOrder:3}]});
+  expect(res.status,JSON.stringify(res.body)).toBe(400);
+  expect((await h.read(c)).sort_order,'a section nobody renumbered was left sharing a number').toBe(before);
+ });
+
  it('voids the review of every section whose note number changes',async()=>{
   const doc=await h.document(),a=await h.section(doc,{status:'reviewed'}),b=await h.section(doc,{status:'reviewed'});
   expect((await reorder(doc,[b,a])).status).toBe(200);

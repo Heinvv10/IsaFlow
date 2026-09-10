@@ -4,10 +4,16 @@ import {createHash} from 'node:crypto';
 import {mkdir,readFile,readdir,writeFile} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {afsSectionHttpFixture} from './afsSectionHttpFixture';
+import {renderDocumentHtml} from '@/modules/accounting/services/afs/pdfExportService';
 
 // Outbound mail is the only boundary replaced besides the Signum HTTP API, which is answered
 // below at the network edge: every route, guard, lock and row is real.
 vi.mock('@/modules/accounting/services/afs/portalNotificationService',()=>({notifySigningRequested:vi.fn(async()=>undefined),notifyDocumentSignedOff:vi.fn(async()=>undefined)}));
+// The real renderer, wrapped so one test can make it fail the way a broken template would.
+vi.mock('@/modules/accounting/services/afs/pdfExportService',async importOriginal=>{
+ const real=await importOriginal<typeof import('@/modules/accounting/services/afs/pdfExportService')>();
+ return{...real,renderDocumentHtml:vi.fn(real.renderDocumentHtml)};
+});
 
 /**
  * A document out for signature is signed as it stood when it was sent. While signatures are
@@ -19,6 +25,8 @@ const realFetch=globalThis.fetch;
 const PDF=Buffer.from('%PDF-synthetic signed');
 /** The HTML actually posted to Signum, per created document. */
 const posted:string[]=[];
+/** Set by the test that proves a failed provider download is recorded as one. */
+let downloadFails=false;
 beforeAll(async()=>{
  h=await afsSectionHttpFixture();
  vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{
@@ -28,7 +36,7 @@ beforeAll(async()=>{
    posted.push(JSON.parse(String(init?.body)).html as string);
    return new Response(JSON.stringify({documentId:`signum-${randomUUID()}`,signers:[]}),{status:200,headers:{'content-type':'application/json'}});
   }
-  if(url.endsWith('/download'))return new Response(PDF,{status:200});
+  if(url.endsWith('/download'))return downloadFails?new Response('unavailable',{status:503}):new Response(PDF,{status:200});
   return new Response('unexpected Signum call',{status:500});
  });
 },30000);
@@ -76,15 +84,23 @@ describe('send for signing',()=>{
    .toBe(createHash('sha256').update(html,'utf8').digest('hex'));
  });
 
- it('refuses to send when the statements cannot be derived from the current content',async()=>{
+ it('refuses to send when the statements cannot be rendered, and says what failed',async()=>{
+  const {doc,contact}=await readyToSign();
+  vi.mocked(renderDocumentHtml).mockRejectedValueOnce(new Error('Synthetic renderer failure'));
+  posted.length=0;
+  const res=await h.request('POST',`/api/accounting/afs/${doc}/send-for-signing`,{signerContactIds:[contact]});
+  expect(res.status,JSON.stringify(res.body)).toBe(409);
+  expect(res.body.error?.message,'the refusal did not name what failed').toContain('Synthetic renderer failure');
+  expect(posted,'the document went to the signatories anyway').toHaveLength(0);
+  expect(await h.readDocument(doc)).toMatchObject({status:'partner_review',signing_requested_at:null,signum_document_id:null});
+ });
+
+ it('sends for a company with no brand profile of its own, on the documented default',async()=>{
   const {doc,contact}=await readyToSign();
   await h.pool.query('DELETE FROM brand_profiles WHERE company_id=$1',[h.f.companyA]);
-  posted.length=0;
   try{
-   const res=await h.request('POST',`/api/accounting/afs/${doc}/send-for-signing`,{signerContactIds:[contact]});
-   expect(res.status,JSON.stringify(res.body)).toBe(409);
-   expect(posted,'the document went to the signatories anyway').toHaveLength(0);
-   expect(await h.readDocument(doc)).toMatchObject({status:'partner_review',signing_requested_at:null,signum_document_id:null});
+   await send(doc,contact);
+   expect((await h.readDocument(doc)).signing_content_fingerprint).toMatch(/^[0-9a-f]{64}$/);
   }finally{await h.brandProfile();}
  });
  it('refuses to send while a mandatory section is not signed off',async()=>{
@@ -162,12 +178,65 @@ describe('a document sent before the fingerprint existed',()=>{
   const signum=await send(doc,contact);
   // The state migration 681 finds: out for signature, with no record of what was sent.
   await h.pool.query('UPDATE afs_documents SET signing_content_fingerprint=NULL,signing_payload_sha256=NULL WHERE company_id=$1 AND id=$2',[h.f.companyA,doc]);
-  const backfill=await readFile('scripts/migrations/sql/682_afs_signing_payload_fingerprint.sql','utf-8');
-  const statement=backfill.split(/;\s*\n/).find(part=>part.includes('UPDATE afs_documents'));
-  expect(statement,'the migration carries no backfill').toBeTruthy();
-  await h.pool.query(`${statement};`);
+  // Exactly what a deploy runs, in order: 682 stamps what it can, 683 re-stamps it with the
+  // formula the running code compares against.
+  for(const file of ['682_afs_signing_payload_fingerprint.sql','683_afs_pack_delivery_withheld.sql']){
+   const migration=await readFile(`scripts/migrations/sql/${file}`,'utf-8');
+   const statement=migration.split(/;\s*\n/).find(part=>part.includes('UPDATE afs_documents'));
+   expect(statement,`${file} carries no backfill`).toBeTruthy();
+   await h.pool.query(`${statement};`);
+  }
   expect((await h.readDocument(doc)).signing_content_fingerprint,'the in-flight document was left with no record').toMatch(/^[0-9a-f]{64}$/);
   expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
   expect((await h.readDocument(doc)).status,'a signature already in flight was refused').toBe('signed_off');
+ });
+});
+
+describe('the fingerprint covers every input the statements are rendered from',()=>{
+ it.each([
+  ['the registered company name',"UPDATE companies SET name='Renamed After Signing' WHERE id=$1"],
+  ['the registration number',"UPDATE companies SET registration_number='2099/123456/07' WHERE id=$1"],
+  ['the fiscal year on the document',"UPDATE afs_documents SET fiscal_year=2099 WHERE company_id=$1 AND id=$2"],
+  ['the reporting framework',"UPDATE afs_documents SET reporting_framework='full_ifrs' WHERE company_id=$1 AND id=$2"],
+  ['the firm branding',"UPDATE brand_profiles SET primary_colour='#abcdef' WHERE company_id=$1"],
+ ])('refuses the signature when %s changed after the send',async(_what,change)=>{
+  const {doc,contact}=await readyToSign();
+  const signum=await send(doc,contact);
+  const before=(await h.pool.query('SELECT name,registration_number FROM companies WHERE id=$1',[h.f.companyA])).rows[0];
+  try{
+   await h.pool.query(change,change.includes('afs_documents')?[h.f.companyA,doc]:[h.f.companyA]);
+   expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
+   const row=await h.readDocument(doc);
+   expect(row.status,'the document was signed off over a render nobody saw').toBe('partner_review');
+   expect(row.signing_refused_reason).toBeTruthy();
+  }finally{
+   await h.pool.query('UPDATE companies SET name=$2,registration_number=$3 WHERE id=$1',[h.f.companyA,before.name,before.registration_number]);
+   await h.pool.query("UPDATE brand_profiles SET primary_colour='#123456' WHERE company_id=$1",[h.f.companyA]);
+  }
+ });
+});
+
+describe('what the refusal record claims',()=>{
+ it('says the signed copy could not be retrieved when the provider download fails, and names no server path',async()=>{
+  const {doc,sections:[a],contact}=await readyToSign();
+  const signum=await send(doc,contact);
+  await h.pool.query(`UPDATE afs_sections SET content='{"title":"Changed","blocks":[]}'::jsonb WHERE company_id=$1 AND id=$2`,[h.f.companyA,a]);
+  downloadFails=true;
+  try{
+   expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
+  }finally{downloadFails=false;}
+  const reason=String((await h.readDocument(doc)).signing_refused_reason);
+  expect(reason,'the record claims an artifact that was never written').not.toContain('quarantined at');
+  expect(reason).toMatch(/could not be retrieved/i);
+  expect(reason,'the server filesystem layout is shown to users').not.toContain(h.storage);
+ });
+
+ it('clears the record of what was sent when the request is cancelled',async()=>{
+  const {doc,contact}=await readyToSign();
+  const signum=await send(doc,contact);
+  expect((await h.webhook({documentId:signum,event:'document.cancelled'})).status).toBe(200);
+  const row=await h.readDocument(doc);
+  expect({fingerprint:row.signing_content_fingerprint,payload:row.signing_payload_sha256},'a cancelled request left the record of what was sent behind')
+   .toEqual({fingerprint:null,payload:null});
  });
 });
