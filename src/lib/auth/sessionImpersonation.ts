@@ -84,9 +84,12 @@ export async function assertImpersonationReaderDeployed(
   }
 }
 
+/** The exact line the gate prints on success; scripts/deploy.sh requires it verbatim. */
+export const IMPERSONATION_READER_GATE_SUCCESS = 'impersonation readers present and executable by their calling roles';
+
 /** The deploy gate's whole job, separable from the process so it can be tested. */
 export async function runImpersonationReaderGate(
   query: (text: string) => Promise<ReaderState[]>, out: (line: string) => void): Promise<void> {
   await assertImpersonationReaderDeployed(query);
-  out('impersonation readers present and executable by their calling roles\n');
+  out(`${IMPERSONATION_READER_GATE_SUCCESS}\n`);
 }
