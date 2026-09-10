@@ -92,10 +92,12 @@ describe('K-076 the gate and the AP routes refuse a larger figure', () => {
 });
 
 describe('K-076 a zero balance is not the payable', () => {
-  it('drops a zero or negative figure beside a positive one', () => {
+  it('drops a zero beside a non-zero figure, and keeps a negative one', () => {
     expect(extractTotalCandidates('Total 1150.00\nAmount Paid 1150.00\nBalance Due 0.00')).toEqual([1150]);
-    // An overpaid account's credit balance is not the payable either.
-    expect(extractTotalCandidates('Total 1150.00\nBalance Due -50.00')).toEqual([1150]);
+    // A negative is KEPT: dropping it read a refund slip's `Refund Total
+    // 499.00` as the payable under `TOTAL -499.00` (review r13 HIGH-1).
+    expect(extractTotalCandidates('Total 1150.00\nBalance Due -50.00')).toEqual([1150, -50]);
+    expect(extractTotalCandidates('TOTAL -499.00\nRefund Total 499.00')).toEqual([-499, 499]);
     expect(extractAmounts('Sub Total 1000.00\nVAT 150.00\nTotal 1150.00\nBalance Due 0.00').totalAmount).toBe(1150);
   });
 

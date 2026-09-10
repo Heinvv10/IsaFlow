@@ -23,7 +23,7 @@
  * nothing it finds is ever offered as the payable.
  */
 import { parseAmount } from './ocrAmountParsing';
-import { UNRECONCILED_WARNING } from './ocrAmountReconciliation';
+import { UNRECONCILED_WARNING, totalPrintedEnd } from './ocrAmountReconciliation';
 
 /**
  * A printed money figure: it carries a decimal part, which is what keeps
@@ -35,20 +35,49 @@ import { UNRECONCILED_WARNING } from './ocrAmountReconciliation';
 const FIGURE = /(?<![\d.,])(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{1,2})(?![\d.,]*\d)(?!\s*%)/g;
 
 /**
- * A figure grouped with a SPACE (`1 253.00`) — but only as the last thing on
- * its line. Mid-line, the same shape is an item row's quantity and unit price
- * (`USB Cable 1 149.00 149.00`), and reading that as R1 149.00 would refuse
- * every invoice with a single-digit quantity and a three-digit price.
+ * A figure grouped with a SPACE (`1 253.00`) — read as thousands only when it
+ * is the LAST figure on its line, whatever text follows it (`AMT DUE 1 265.00
+ * ZAR`, `R1 265.00 (incl)`). Where another figure follows, the same shape is an
+ * item row's quantity and unit price (`USB Cable 1 149.00 149.00`), and reading
+ * that as R1 149.00 would refuse every invoice with a single-digit quantity and
+ * a three-digit price.
  */
-const SPACE_GROUPED_AT_END = /(?<![\d.,])(\d{1,3}(?:[ \u00A0]\d{3})+[.,]\d{1,2})\s*$/;
+const SPACE_GROUPED = /(?<![\d.,])(\d{1,3}(?:[ \u00A0]\d{3})+[.,]\d{1,2})(?![\d.,]*\d)/g;
 
-/** The label of the change a cash tender gives back. */
-const CHANGE_LABEL = /(?<![A-Za-z])(?:Change|Chg|Wisselgeld|Kleingeld)(?![A-Za-z])/i;
+/**
+ * The label of the change a cash tender gives back. Not `Chg`: on SA slips it
+ * means CHARGE (`Svc Chg`, `Del Chg`) at least as often, and `Please Pay 253.00
+ * incl Svc Chg 23.00` then "netted" to a Total of 230.00 and posted it.
+ */
+const CHANGE_LABEL = /(?<![A-Za-z])(?:Change|Wisselgeld|Kleingeld)(?![A-Za-z])/i;
+
+/**
+ * The label of a CASH tender. Only cash gives change: `CARD 253.00 / Change
+ * 23.00` under a Total of 230.00 is a tip mislabelled, not a tender and its
+ * change. A cash spelling missing here only refuses.
+ */
+const CASH_LABEL = /(?<![A-Za-z])(?:Cash|Tender(?:ed)?|Kontant)(?![A-Za-z])/i;
+
+/**
+ * A figure printed NEGATIVE: a glued minus (`-23.00`, `-R23.00`, `R -23.00`),
+ * a trailing minus or parentheses. A spaced dash is a label separator.
+ */
+const NEGATIVE_FIGURE = /(?<![\d.,])(?:[-–](?:R|ZAR)?(\d+[.,]\d{2})|\(\s*(?:R|ZAR)?\s*(\d+[.,]\d{2})\s*\)|(\d+[.,]\d{2})-(?!\d))(?![\d.,]*\d)/g;
+
+/**
+ * A charge added ON TOP of a total: a tip, a gratuity, a service charge, a
+ * delivery fee. A split tender (`Tip 23.00 / VISA 126.50 / MASTERCARD 126.50`)
+ * prints no figure larger than the total, so only the addition's name shows
+ * that the payable is more. This vocabulary only ever REFUSES.
+ */
+const ADDITION_LABEL = /(?<![A-Za-z])(?:Tips?|Gratuit(?:y|ies)|Fooi|Service\s*(?:Charge|Chg|Fee)|Svc(?:\s*Chg)?|Delivery(?:\s*(?:Fee|Charge))?|Del\s*Chg)(?![A-Za-z])[\s:.=R]*(?:incl(?:uded|\.)?[\s:.=R]*)?(\d+(?:[.,]\d{1,2})?)(?![\d.,]*\d)/gi;
 
 interface PrintedFigure {
   value: number;
   /** A change label stands between this figure and the one before it on its line. */
   isChange: boolean;
+  /** A cash label stands between this figure and the one before it on its line. */
+  isCash: boolean;
 }
 
 function printedFigures(text: string): PrintedFigure[] {
@@ -60,16 +89,15 @@ function printedFigures(text: string): PrintedFigure[] {
       onLine.push({
         value: parseAmount(match[1]!),
         isChange: CHANGE_LABEL.test(line.slice(labelFrom, match.index)),
+        isCash: CASH_LABEL.test(line.slice(labelFrom, match.index)),
         end: match.index + match[0].length,
       });
       labelFrom = match.index + match[0].length;
     }
-    const grouped = SPACE_GROUPED_AT_END.exec(line);
     const last = onLine[onLine.length - 1];
-    if (grouped && last && last.end === grouped.index + grouped[1]!.length) {
-      last.value = parseAmount(grouped[1]!);
-    }
-    figures.push(...onLine.map(({ value, isChange }) => ({ value, isChange })));
+    const grouped = last && [...line.matchAll(SPACE_GROUPED)].find((m) => m.index + m[0].length === last.end);
+    if (grouped) last!.value = parseAmount(grouped[1]!);
+    figures.push(...onLine.map(({ value, isChange, isCash }) => ({ value, isChange, isCash })));
   }
   return figures;
 }
@@ -84,13 +112,35 @@ export function unexplainedLargerFigure(text: string, total: number): number | n
   for (let i = 0; i + 1 < figures.length; i++) {
     const tender = figures[i]!;
     const change = figures[i + 1]!;
-    if (!tender.isChange && change.isChange
+    if (tender.isCash && !tender.isChange && change.isChange
       && Math.round((tender.value - change.value) * 100) / 100 === total) {
       explained.add(i).add(i + 1);
     }
   }
   const culprit = figures.find((f, i) => f.value > total && !explained.has(i));
   return culprit ? culprit.value : null;
+}
+
+/**
+ * A charge added to, or a deduction taken from, the total AFTER it is printed
+ * — a positive tip, gratuity, service charge or delivery fee, or any figure
+ * printed negative (`Staff Discount -23.00 / CARD 230.00` under a Total of
+ * 253.00). Either way the total is not what was paid. Null when there is none;
+ * printed BEFORE the total, a charge or a discount is inside it.
+ */
+export function adjustmentAfterTotal(text: string, total: number): number | null {
+  const end = totalPrintedEnd(text, total);
+  if (end === null) return null;
+  const after = text.slice(end);
+  for (const match of after.matchAll(ADDITION_LABEL)) {
+    const value = parseAmount(match[1]!);
+    if (value > 0) return value;
+  }
+  for (const match of after.matchAll(NEGATIVE_FIGURE)) {
+    const value = parseAmount(match[1] ?? match[2] ?? match[3]!);
+    if (value > 0) return -value;
+  }
+  return null;
 }
 
 /**

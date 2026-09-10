@@ -29,15 +29,32 @@
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { detectDocumentType, extractAmounts } from './ocrExtractionService';
 import { extractTotalCandidates, isUnreconciled } from './ocrAmountReconciliation';
-import { unexplainedLargerFigure } from './ocrLargerFigure';
+import { adjustmentAfterTotal, unexplainedLargerFigure } from './ocrLargerFigure';
+import { hasCreditIndicator } from './creditIndicators';
 
 export type UnattendedPostingInput = Pick<
   ExtractedDocument,
-  'documentType' | 'rawText' | 'subtotal' | 'vatAmount' | 'totalAmount' | 'warnings'
+  'documentType' | 'rawText' | 'subtotal' | 'vatAmount' | 'totalAmount' | 'warnings' | 'extractionMethod'
 >;
 
 /**
- * A credit note, by its own classification OR by its text.
+ * Were the figures recovered by the regex/OCR FALLBACK rather than the
+ * structured VLM extraction?
+ *
+ * POLICY (K-072 round 14, recorded in fix.md): fallback figures never post and
+ * never approve with nobody looking, on any path. Five review rounds each beat
+ * the "is this free text unambiguous" classifier with a realistic slip; the
+ * fallback runs only when the VLM fails, so the cost is those documents going
+ * to a person. It still offers its best guess for that person to confirm.
+ * Anything but `'vlm'` — including a stored extraction with no method at all —
+ * is treated as fallback.
+ */
+export function isFallbackExtraction(doc: Pick<ExtractedDocument, 'extractionMethod'>): boolean {
+  return doc.extractionMethod !== 'vlm';
+}
+
+/**
+ * A credit note, refund or return, by its classification, its sign OR its text.
  *
  * Every posting path this gate serves books a PURCHASE, so a refund read with
  * positive figures — the usual credit-note layout, and `Total 115.00-` or
@@ -45,15 +62,34 @@ export type UnattendedPostingInput = Pick<
  * bank credit, the direction of the entry reversed. `detectDocumentType`
  * answered `credit_note` on every one of them and nothing consulted it. The
  * text is read as well as the stored field because the VLM classifies on its
- * own and a stored extraction predates any later change to either.
+ * own and a stored extraction predates any later change to either. The other
+ * spellings — `REFUND`, `RETURN SLIP`, `KREDIETNOTA`, a trailing-minus total —
+ * are `hasCreditIndicator`'s, and a negative total is a credit whatever read it.
  */
-export function isCreditNote(doc: Pick<ExtractedDocument, 'documentType' | 'rawText'>): boolean {
-  return doc.documentType === 'credit_note' || detectDocumentType(doc.rawText ?? '') === 'credit_note';
+export function isCreditNote(
+  doc: Pick<ExtractedDocument, 'documentType' | 'rawText'> & Partial<Pick<ExtractedDocument, 'totalAmount'>>,
+): boolean {
+  return doc.documentType === 'credit_note'
+    || detectDocumentType(doc.rawText ?? '') === 'credit_note'
+    || (doc.totalAmount ?? 0) < 0
+    || hasCreditIndicator(doc.rawText ?? '', doc.totalAmount);
+}
+
+/**
+ * May an AP route approve this document with nobody looking? The routes
+ * cannot take the whole gate (a VLM-read image has no text to re-read), so
+ * they take the credit refusal, the fallback policy and the ambiguity check.
+ */
+export function refusesUnattendedApproval(
+  doc: Pick<ExtractedDocument, 'documentType' | 'rawText' | 'totalAmount' | 'warnings' | 'extractionMethod'>,
+): boolean {
+  return isCreditNote(doc) || isFallbackExtraction(doc) || isAmbiguousTotal(doc);
 }
 
 /** Why this document may not post unattended, or null when nothing is left to choose. */
 export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | null {
-  if (isCreditNote(doc)) return 'the document is a credit note';
+  if (isCreditNote(doc)) return 'the document is a credit note, refund or return';
+  if (isFallbackExtraction(doc)) return 'the figures were read by the text fallback, which never posts unattended';
   if (isUnreconciled(doc.warnings)) return 'the reader could not reconcile the amounts';
 
   const total = doc.totalAmount;
@@ -79,6 +115,8 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   // AMOUNTS, and no spelling can hide it. See `ocrLargerFigure`.
   const larger = unexplainedLargerFigure(doc.rawText ?? '', total);
   if (larger !== null) return `the document prints ${larger.toFixed(2)}, more than the total read`;
+  const adjusted = adjustmentAfterTotal(doc.rawText ?? '', total);
+  if (adjusted !== null) return `the document adjusts the total by ${adjusted.toFixed(2)} after printing it`;
 
   // The TOTAL was re-read; the VAT was not, and a stored net and VAT are a
   // second number the entry is built from. Measured: a zero-rated slip whose
@@ -123,5 +161,7 @@ export function isAmbiguousTotal(
   // One candidate is only one candidate the vocabulary could NAME: the same
   // amount-based check as the gate, so `Total 230.00 / Tip 23.00 / CARD 253.00`
   // is not approved at R230.00 here either.
-  return printed.length === 1 && unexplainedLargerFigure(doc.rawText ?? '', printed[0]!) !== null;
+  if (printed.length === 0) return false;
+  return unexplainedLargerFigure(doc.rawText ?? '', printed[0]!) !== null
+    || adjustmentAfterTotal(doc.rawText ?? '', printed[0]!) !== null;
 }

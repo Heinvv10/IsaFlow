@@ -24,7 +24,10 @@ function read(text: string) {
   const amounts = extractAmounts(text);
   return {
     ...amounts,
-    autoPost: shouldAutoPostReceipt({ documentType: 'receipt', rawText: text, ...amounts, confidence: 0.95 }, AUTO_POST),
+    // A structured (VLM) extraction holding the reader's figures: the regex
+    // fallback itself never posts unattended (K-072 round 14), so this is how
+    // the gate's own arithmetic is exercised.
+    autoPost: shouldAutoPostReceipt({ documentType: 'receipt', rawText: text, ...amounts, confidence: 0.95, extractionMethod: 'vlm' }, AUTO_POST),
   };
 }
 

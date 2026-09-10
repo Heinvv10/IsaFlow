@@ -50,10 +50,11 @@ const bothRoutesDoc = crypto.randomUUID();
 const twoLiveRowsDoc = crypto.randomUUID();
 const creditNoteDoc = crypto.randomUUID();
 const ambiguousTotalDoc = crypto.randomUUID();
+const fallbackDoc = crypto.randomUUID();
 const documents = [
   journalThenPipelineDoc, pipelineTwiceDoc, rejectedPipelineDoc,
   reversedJournalDoc, cancelledInvoiceDoc, bothRoutesDoc, twoLiveRowsDoc, creditNoteDoc,
-  ambiguousTotalDoc,
+  ambiguousTotalDoc, fallbackDoc,
 ];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -311,6 +312,19 @@ describe('K-072 r7 HIGH-1 ai-invoice-pipeline is inside the fence', () => {
     await markAmbiguousTotals(ambiguousTotalDoc);
     expect((await pipeline(ambiguousTotalDoc)).state.statusCode).toBe(200);
     expect(await invoiceStatuses(ambiguousTotalDoc)).toEqual(['draft']);
+  });
+
+  it('never approves figures the text fallback read (K-072 round 14)', async () => {
+    // Same clean shape as `bothRoutesDoc`, which lands 'approved'; only the
+    // extraction method differs.
+    await pool.query(
+      `UPDATE captured_documents
+          SET extracted_data = jsonb_set(extracted_data, '{extractionMethod}', '"regex"')
+        WHERE id=$1 AND company_id=$2`,
+      [fallbackDoc, company],
+    );
+    expect((await pipeline(fallbackDoc)).state.statusCode).toBe(200);
+    expect(await invoiceStatuses(fallbackDoc)).toEqual(['draft']);
   });
 
   it('never approves a credit note unattended, whatever sign its figures carry', async () => {

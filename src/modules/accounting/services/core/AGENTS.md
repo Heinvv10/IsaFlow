@@ -54,6 +54,17 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 
 ## Recent changes
 
+- 2026-09-10 (round 14): **POLICY — figures the regex/OCR fallback recovered never post and never
+  approve unattended, on any path** (`isFallbackExtraction`: anything but `extractionMethod === 'vlm'`,
+  a missing method included). Receipt paths via `unattendedPostingRefusal`; AP routes via
+  `refusesUnattendedApproval` (credit ∨ fallback ∨ ambiguous). The fallback still offers its guess.
+  **A credit never posts or approves as a purchase, VLM included:** `isCreditNote` adds a negative
+  total and `creditIndicators.hasCreditIndicator` — a `CREDIT (NOTE)`/`KREDIETNOTA`/`REFUND`/
+  `RETURN( SLIP)`/`TERUGBETALING` header on its OWN line, a refund word on a figure line, a
+  trailing-minus/glued-minus/parenthesised figure of the total's size (a SPACED dash is a separator).
+  `ocrLargerFigure`: change only after a CASH tender, no `Chg`, space groups read when last on the
+  line; `adjustmentAfterTotal` refuses a named tip/gratuity/service/delivery charge or any negative
+  figure printed after the total. `extractTotalCandidates` drops zeros only (negatives kept).
 - 2026-09-10 (round 13): **the gate measures AMOUNTS, not labels** (`ocrLargerFigure`). "One printed
   total" was measured over candidates defined by LABELS, so a payable under any label the vocabulary
   lacked (`AMT DUE`, `Please Pay`, `SALE`, `Amount Paid`, `Tip 23.00 / CARD 253.00`) was not a

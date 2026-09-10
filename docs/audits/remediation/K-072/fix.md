@@ -1216,3 +1216,165 @@ SELECT cd.id, cd.company_id, cd.posted_at,
    AND cd.extracted_data->>'rawText' <> ''
  ORDER BY cd.posted_at DESC;
 ```
+
+## Round 14 (review of `14e979376`: 2 HIGH · 2 MEDIUM · 1 LOW) — the policy changes
+
+### DECISION — the text fallback never posts or approves unattended (orchestrator, recorded for Hein)
+
+**Decision.** Figures recovered by the regex/OCR FALLBACK never auto-post and never auto-approve, on
+any path. The fallback still produces a best-guess total for a person to confirm. Unattended posting
+and approval stay possible only for a structured VLM extraction (`extractionMethod === 'vlm'`) that
+also passes the existing unambiguity gate. A stored extraction with no method, or `'vlm+regex'`, is
+treated as fallback.
+
+**Reason.** This is the fifth round in which the "is this free text unambiguous" classifier was beaten
+by a realistic slip: section totals, a VAT analysis under the tender, unknown payable labels, a `Chg`
+read as change, split tenders under a tip, a trailing-minus refund. Each fix closed the named layouts
+and the next reviewer found another, so the patching stopped.
+
+**Cost.** `VLLM_BASE_URL` is set in production, so the fallback runs only when the VLM fails or returns
+nothing (`ocrService.extractFromPdf`). Those documents now go to manual review or stay a draft instead
+of posting. Image receipts were already refused unattended, because they have no text to re-read. On
+the corpus the fallback path goes from 87 auto-posts and 94 auto-approvals to 0 and 0. The same
+figures read by the VLM post 62 and approve 66, with 0 wrong.
+
+**Paths changed** (census from every consumer of `extracted_data` / `extractFrom*`. The routes that
+decide without a person are the four below; `doc-auto-invoice`, `document-capture(-action)`,
+`vlm-extract` and `captureRouterService` only read, store or prefill):
+
+| Path | Decides via | Change |
+|---|---|---|
+| `receipt-to-journal` (auto-post journal) | `shouldAutoPostReceipt` → `unattendedPostingRefusal` | fallback refused |
+| `capture/[id]/post-expense` (petty-cash journal) | `pettyCashJournalService` → `shouldAutoPostReceipt` | fallback refused |
+| `ai-invoice-pipeline` (AP auto-approve) | `refusesUnattendedApproval` (new) | fallback → `manual_review` |
+| `capture/[id]/post` (AP auto-approve and `auto_publish`) | `refusesUnattendedApproval` (new) | fallback → `draft`, overriding `auto_publish` |
+
+### HIGH-2 — credit, refund and return documents, VLM path included
+
+`isCreditNote` now also refuses when either of these holds:
+- the total is negative, whatever read it;
+- `creditIndicators.hasCreditIndicator` finds a credit indicator in the text.
+
+Each indicator is anchored where it can only describe the DOCUMENT:
+- a `CREDIT (NOTE)` / `KREDIETNOTA` / `REFUND (SLIP)` / `RETURN(S) (SLIP)` / `TERUGBETALING` header on
+  a line of its own;
+- `REFUND(ED)` / `TERUGBETAL…` on a line that carries a money figure;
+- a figure the size of the total printed with a trailing minus, a glued minus or parentheses. A spaced
+  dash stays a label separator, as `VALUE_SEP` reads it.
+
+Both AP routes and both receipt paths take it. On the VLM path, a document with no text can still be
+refused by the stored `documentType` and a negative total.
+
+Guards fail in both directions, all pinned in `k076-round14-policy.test.ts` and posting in the corpus:
+- `Credit card surcharge 15.00`
+- `VISA CREDIT 23.00`
+- `NO REFUND WITHOUT SLIP`
+- a refund-policy footer with no figure
+- `Acc Type: CREDIT`
+- a spaced-dash invoice
+- `Delivery Note No:`
+
+On the reviewer's 16 ordinary receipts, 0 moved.
+
+### HIGH-1 — zeros only
+
+`extractTotalCandidates` drops a zero beside a non-zero figure and KEEPS negatives. `TOTAL -499.00 /
+Refund Total 499.00` now yields `[-499, 499]` and refuses. As the reviewer measured, 0 corpus or
+ordinary rows moved. The overpaid-invoice assertion is inverted: `[1150, -50]`, which refuses.
+
+### MEDIUM-1 — `Chg` removed. MEDIUM-2 and LOW-1 closed rather than left to the policy
+
+Under the policy these only matter for a VLM extraction. The reviewer's inputs were run as a VLM
+extraction holding the same figures as the reader, and some still posted, so they are closed:
+- `Chg` is removed from `CHANGE_LABEL`.
+- Change now explains a figure only after a CASH tender (`Cash`/`Tender(ed)`/`Kontant`): a card gives
+  no change (H4).
+- The space-group `\s*$` anchor is dropped: a grouped figure is read as thousands when it is the last
+  figure on its line.
+- New `adjustmentAfterTotal`: after the printed total, a positive tip / gratuity / `Fooi` / service or
+  delivery charge, or any figure printed NEGATIVE, refuses. It is taken by the gate and
+  `isAmbiguousTotal`. This closes the split tender under a tip (H15–H17), a tip from cash change (H14),
+  a discount after the total (H19), and the integer / `253 00` / `253.OO` / mid-line `1 265.00` payables
+  (G1–G5), because each prints its gratuity or delivery after the total.
+
+**Every reviewer input, does it auto-post or auto-approve on any path now?**
+- Fallback path: **no, all 70**.
+- The same figures as a VLM extraction:
+  - all 5 refund variants (R2, R3, R5, R6, R9), R10 and S4/S6/S7/S8: refuse on both routes;
+  - the Svc Chg slips H1–H3: refuse;
+  - split tender plus tip H15–H17: refuse;
+  - `AMT DUE 1 265.00 ZAR` (G6 and G7/G9/G10 likewise): refuse;
+  - `253 00` (G3) and `253.OO` (G4): refuse;
+  - still posting: **H8, H9, S14, each at its correct payable**.
+
+**Before → after, measured** (real `extractFromText`, `shouldAutoPostReceipt`, and the AP routes'
+`computePipelineConfidence` / `determineApprovalRoute` / `refusesUnattendedApproval`, supplier
+match 1.0; `<scratchpad>/agents/fix-k072j/r14-{before,now}.jsonl`):
+
+| Input set | `14e979376` post / approve / wrong | now fallback | now as VLM post / approve / wrong |
+|---|---|---|---|
+| corpus, 177 rows | 87 / 94 / 25 posts, 28 approvals | 0 / 0 | 62 / 66 / 0 |
+| reviewer probes, 44 | 24 / 25 / 20, 21 | 0 / 0 | 3 / 3 / 0 |
+| reviewer refunds, 10 | 5 / 7 / 5, 7 | 0 / 0 | 0 / 0 / 0 |
+| reviewer ordinary, 16 | 4 / 8 / 0 | 0 / 0 | 4 / 8 / 0 (gate passes 10, unchanged) |
+
+Over-refusal of the new rules:
+- On the 138 rows that existed at `14e979376`, as a VLM extraction: **0 moved**.
+- On the reviewer's ordinary 16: 0.
+- Two slips now refuse by design:
+  - H13, `CASH 207.00 / CHANGE -23.00`: a negative figure after the total;
+  - my own guard V6, `Staff Discount -23.00` after the total.
+
+The corpus gains 39 rows:
+- F1–F14: refunds, returns and Kredietnota.
+- M1–M18: charges and deductions around the total.
+- V: 7 ordinary purchases carrying credit/charge words, which post.
+
+### Tests pin the policy
+
+- The corpus test asserts, on EVERY row, that the regex extraction neither posts nor approves.
+- `k076-round14-policy.test.ts` pins that a fallback read passing every other check still refuses,
+  while the same figures read by the VLM post.
+- Integration covers all four paths:
+  - `receipt-to-journal`: structured `posted`, fallback `draft`;
+  - `post-expense`: structured `posted`, fallback `draft`;
+  - `capture/[id]/post`: fallback `draft` against the structured `approved`;
+  - `ai-invoice-pipeline`: fallback `draft` against the structured `approved`.
+- Three gate-arithmetic unit helpers and the post-expense unit fixture now declare `extractionMethod:
+  'vlm'`: their subject is the arithmetic, not the method.
+
+### Mutations, round 14 (file copies, restored byte-identical; `<scratchpad>/agents/fix-k072j/mutate14.py`)
+
+| # | Mutation | Outcome |
+|---|---|---|
+| P1 | gate drops the fallback refusal | RED (64) |
+| P2 | `refusesUnattendedApproval` drops the fallback check | RED (68) |
+| P3 | only an explicit `'regex'` counts as fallback | RED (1) |
+| P4 | `ai-invoice-pipeline` approves fallback reads | RED (1, integration) |
+| P5 | `capture/[id]/post` approves fallback reads | RED (1, integration) |
+| C1 | `isCreditNote` drops the text indicators | RED (5) |
+| C2 | `isCreditNote` drops the negative total | RED (1) |
+| C3 | credit header not anchored to its own line | RED (9) |
+| C4 | no refund word on a figure line | RED (1) |
+| C5 | trailing minus not a sign | RED (1) |
+| C6 | parentheses not a sign | RED (1) |
+| C7 | spaced dash read as a sign | RED (3) |
+| N1 | negatives dropped beside a positive | RED (2) |
+| L1 | `Chg` restored as change | RED (1) |
+| L2 | change accepted after any tender | RED (2) |
+| L3 | space group anchored to line end | RED (1) |
+| A1 | no charge-after-total check | RED (10) |
+| A2 | no deduction-after-total check | RED (2) |
+| A3 | AP ambiguity ignores adjustments | RED (10) |
+| A4 | adjustment read from the whole document | RED (2) |
+
+### Round-14 limits, disclosed
+
+- The VLM path is only as corroborated as its `rawText`. A VLM-read image has none, and is refused on
+  the receipt paths as before. On the AP routes, only the stored `documentType`, a negative total and
+  the stored warnings can refuse it.
+- `adjustmentAfterTotal` names its additions, so a vocabulary gap is possible here: a split-tender slip
+  whose tip is printed under a name outside `Tip`/`Gratuity`/`Fooi`/`Service …`/`Svc`/`Delivery`
+  still posts the pre-tip total as a VLM extraction. The fallback path refuses it by policy.
+- Production impact is not measured; the round-13 SQL still applies, plus
+  `extracted_data->>'extractionMethod' IS DISTINCT FROM 'vlm'` for fallback documents already posted.

@@ -49,10 +49,16 @@ const foreignDoc = crypto.randomUUID();
 const creditNoteDoc = crypto.randomUUID();
 const creditNoteJournalDoc = crypto.randomUUID();
 const ambiguousTotalDoc = crypto.randomUUID();
+const fallbackInboxDoc = crypto.randomUUID();
+const fallbackJournalDoc = crypto.randomUUID();
+const structuredJournalDoc = crypto.randomUUID();
+const fallbackExpenseDoc = crypto.randomUUID();
+const structuredExpenseDoc = crypto.randomUUID();
 const documents = [
   inboxAfterJournalDoc, confirmBypassDoc, rejectedDoc, rejectedInboxDoc,
   attachedDoc, inboxOnlyDoc, postedThenConfirmDoc, foreignDoc, creditNoteDoc, creditNoteJournalDoc,
-  ambiguousTotalDoc,
+  ambiguousTotalDoc, fallbackInboxDoc, fallbackJournalDoc, structuredJournalDoc, fallbackExpenseDoc,
+  structuredExpenseDoc,
 ];
 
 const inboxAfterJournalEvent = crypto.randomUUID();
@@ -61,9 +67,12 @@ const rejectedInboxEvent = crypto.randomUUID();
 const inboxOnlyEvent = crypto.randomUUID();
 const creditNoteEvent = crypto.randomUUID();
 const ambiguousTotalEvent = crypto.randomUUID();
+const fallbackInboxEvent = crypto.randomUUID();
+const fallbackExpenseEvent = crypto.randomUUID();
+const structuredExpenseEvent = crypto.randomUUID();
 const events = [
   inboxAfterJournalEvent, confirmBypassEvent, rejectedInboxEvent, inboxOnlyEvent, creditNoteEvent,
-  ambiguousTotalEvent,
+  ambiguousTotalEvent, fallbackInboxEvent, fallbackExpenseEvent, structuredExpenseEvent,
 ];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -235,6 +244,11 @@ beforeAll(async () => {
   await seedEvent(inboxOnlyDoc, inboxOnlyEvent);
   await seedEvent(creditNoteDoc, creditNoteEvent);
   await seedEvent(ambiguousTotalDoc, ambiguousTotalEvent);
+  await seedEvent(fallbackInboxDoc, fallbackInboxEvent);
+  await seedEvent(fallbackExpenseDoc, fallbackExpenseEvent);
+  await seedEvent(structuredExpenseDoc, structuredExpenseEvent);
+  await seedDoc(fallbackJournalDoc);
+  await seedDoc(structuredJournalDoc);
   await seedDoc(rejectedDoc);
   await seedDoc(attachedDoc);
   await seedDoc(postedThenConfirmDoc);
@@ -337,6 +351,47 @@ describe('K-072 HIGH-1 the capture inbox is inside the fence', () => {
       [company, creditNoteJournalDoc],
     )).rows.map((r) => String(r.status));
     expect(statuses).toEqual(['draft']);
+  });
+});
+
+describe('K-072 round 14 figures the text fallback read never post unattended', () => {
+  // Each document below passes every other check — one printed total, a VAT
+  // figure, a net and VAT that add up — and differs from its structured twin
+  // only in `extractionMethod`. That is the policy, and nothing else.
+  const markFallback = (documentId: string, figures: Record<string, unknown> = {}) => pool.query(
+    'UPDATE captured_documents SET extracted_data = extracted_data || $3::jsonb WHERE id=$1 AND company_id=$2',
+    [documentId, company, JSON.stringify({ extractionMethod: 'regex', ...figures })],
+  );
+  const journalStatuses = async (documentId: string) => (await pool.query(
+    'SELECT status FROM gl_journal_entries WHERE company_id=$1 AND source_document_id=$2',
+    [company, documentId],
+  )).rows.map((r) => String(r.status));
+
+  it('receipt-to-journal posts the structured read and drafts the fallback one', async () => {
+    await markFallback(fallbackJournalDoc);
+    expect((await receiptToJournal(structuredJournalDoc)).state.statusCode).toBe(200);
+    expect((await receiptToJournal(fallbackJournalDoc)).state.statusCode).toBe(200);
+    expect(await journalStatuses(structuredJournalDoc)).toEqual(['posted']);
+    expect(await journalStatuses(fallbackJournalDoc)).toEqual(['draft']);
+  });
+
+  it('post-expense posts the structured read and drafts the fallback one', async () => {
+    await markFallback(fallbackExpenseDoc);
+    expect((await postExpense(structuredExpenseEvent)).state.statusCode).toBe(200);
+    expect((await postExpense(fallbackExpenseEvent)).state.statusCode).toBe(200);
+    expect(await journalStatuses(structuredExpenseDoc)).toEqual(['posted']);
+    expect(await journalStatuses(fallbackExpenseDoc)).toEqual(['draft']);
+  });
+
+  it('the capture inbox never approves a fallback read, overriding auto_publish', async () => {
+    // `inboxOnlyDoc` is the same route on the structured read and lands
+    // 'approved'. Its own amount, so the duplicate gate does not answer 409.
+    await markFallback(fallbackInboxDoc, {
+      subtotal: 400, vatAmount: 60, totalAmount: 460,
+      rawText: 'Waltons Stationery\nSub Total 400.00\nVAT 60.00\nTotal 460.00',
+    });
+    expect((await inboxPost(fallbackInboxEvent)).state.statusCode).toBe(200);
+    expect(await invoiceStatuses(fallbackInboxDoc)).toEqual(['draft']);
   });
 });
 

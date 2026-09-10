@@ -17,7 +17,11 @@ import {
   buildExpenseJournalFromReceipt,
   shouldAutoPostReceipt,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
-import { isAmbiguousTotal, unattendedPostingRefusal } from '@/modules/accounting/services/core/unattendedPostingGate';
+import {
+  isAmbiguousTotal,
+  refusesUnattendedApproval,
+  unattendedPostingRefusal,
+} from '@/modules/accounting/services/core/unattendedPostingGate';
 import { UNRECONCILED_WARNING } from '@/modules/accounting/services/core/ocrAmountReconciliation';
 import { SLIPS } from './k076-slip-corpus';
 
@@ -26,7 +30,17 @@ const ACCOUNTS = { expenseAccountId: 'EXP', vatInputAccountId: 'VAT', bankAccoun
 
 describe('K-076 every known slip refuses, or posts exactly its payable', () => {
   it.each(SLIPS.map((s) => [s.name, s] as const))('%s', async (_name, slip) => {
-    const doc = await extractFromText(slip.text);
+    const fallback = await extractFromText(slip.text);
+    // K-072 round 14 policy: figures the regex/OCR fallback recovered never
+    // post and never approve with nobody looking — however clean the slip.
+    expect(fallback.extractionMethod).toBe('regex');
+    expect(shouldAutoPostReceipt(fallback, AUTO_POST)).toBe(false);
+    expect(refusesUnattendedApproval(fallback)).toBe(true);
+
+    // What still stands in front of a STRUCTURED extraction is the
+    // unambiguity gate, judged here on a VLM extraction that read the same
+    // figures the reader did.
+    const doc = { ...fallback, extractionMethod: 'vlm' as const };
     const posts = shouldAutoPostReceipt(doc, AUTO_POST);
 
     if (posts) {
@@ -39,6 +53,8 @@ describe('K-076 every known slip refuses, or posts exactly its payable', () => {
       // replaced with 15% of the total.
       expect(lines.find((l) => l.accountId === 'VAT')!.debit).toBeLessThanOrEqual(doc.vatAmount!);
     }
+    // The AP routes may approve only the payable, and never a credit.
+    if (!refusesUnattendedApproval(doc)) expect(doc.totalAmount).toBe(slip.payable);
     // The outcome is pinned as well, so an over-refusal is as visible as a
     // wrong post.
     expect(posts ? 'post' : 'refuse').toBe(slip.outcome);
