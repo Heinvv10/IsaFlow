@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
   getPracticeClient,
   updatePracticeClient,
@@ -28,8 +29,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PUT') {
-    const client = await updatePracticeClient(companyId, id, req.body);
-    return apiResponse.success(res, client);
+    try {
+      const client = await updatePracticeClient(companyId, id, req.body);
+      return apiResponse.success(res, client);
+    } catch (err) {
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   if (req.method === 'DELETE') {

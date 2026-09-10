@@ -4,7 +4,7 @@ import type { BalanceSheetReport } from '@/modules/accounting/types/gl.report.ty
 
 /**
  * Deliberately OUT OF BALANCE: 500000 of assets against 470000 of claims.
- * With a balanced fixture, `Total Liabilities and Equity` could be wired to
+ * With a balanced fixture, `Total Equity and Liabilities` could be wired to
  * `r.totalAssets` and every assertion below would still pass.
  */
 const R: BalanceSheetReport = {
@@ -17,15 +17,15 @@ const R: BalanceSheetReport = {
 };
 
 describe('toBalanceSheetRows', () => {
-  it('splits assets from liabilities and equity, each with its total', () => {
+  it('presents equity before liabilities and gives each section its total', () => {
     const { assets, liabilitiesAndEquity } = toBalanceSheetRows(R, { comparative: false });
     expect(assets.map(r => r.label)).toEqual(['Assets', 'Bank', 'Total Assets']);
     expect(liabilitiesAndEquity.map(r => r.label)).toEqual([
-      'Liabilities', 'Creditors', 'Total Liabilities', 'Equity', 'Retained income', 'Total Equity', 'Total Liabilities and Equity',
+      'Equity', 'Retained income', 'Total Equity', 'Liabilities', 'Creditors', 'Total Liabilities', 'Total Equity and Liabilities',
     ]);
   });
 
-  it('Total Liabilities and Equity is the only derived figure and equals L + E', () => {
+  it('Total Equity and Liabilities is the only derived figure and equals E + L', () => {
     const { liabilitiesAndEquity } = toBalanceSheetRows(R, { comparative: false });
     const le = liabilitiesAndEquity.find(r => r.id === 'grand:totalLiabilitiesAndEquity')!;
     expect(le.actual).toBe(R.totalLiabilities + R.totalEquity);

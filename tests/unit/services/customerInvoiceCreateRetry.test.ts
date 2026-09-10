@@ -54,6 +54,15 @@ vi.mock('@/lib/apiResponse', () => ({
   },
 }));
 
+// R-067 added a tenant fence on the caller-supplied customer id. These tests
+// pin behaviour AFTER that check, so it is stubbed here; the fence itself is
+// covered by tests/unit/services/assertCustomerInCompany.test.ts and
+// tests/unit/services/customerOwnershipFence.test.ts.
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
+  assertCustomerInCompany: vi.fn(async () => undefined),
+  CustomerNotInCompanyError: class CustomerNotInCompanyError extends Error {},
+}));
+
 const reserveMock = vi.hoisted(() => vi.fn());
 // The reserve-and-retry loop moved into insertWithReservedNumber, which takes
 // its reservation from companySettingsService — so that is the module to stub.

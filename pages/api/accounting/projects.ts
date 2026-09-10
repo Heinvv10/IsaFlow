@@ -8,6 +8,7 @@ import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/li
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { validateProject } from '@/modules/accounting/services/reports/projectAccountingService';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
@@ -31,6 +32,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const body = req.body;
     const validation = validateProject(body);
     if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
+
+    // R-067: client_id is read back with the customer name joined on it.
+    try {
+      await assertCustomerInCompany(companyId, body.clientId);
+    } catch (err) {
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
 
     // MAX, not COUNT: projects carries UNIQUE(company_id, project_number), and
     // count is not max — after a single project was deleted every later create

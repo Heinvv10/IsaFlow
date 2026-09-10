@@ -145,7 +145,7 @@ export default function ConsolidatedBalanceSheetPage() {
 
     const csvRows: string[] = [headerCols.map(c => `"${c}"`).join(',')];
 
-    for (const row of data.rows) {
+    for (const row of [...assetRows, ...equityRows, ...liabilityRows]) {
       const cols: string[] = [
         `"${row.groupAccountCode}"`,
         `"${row.groupAccountName}"`,
@@ -165,7 +165,7 @@ export default function ConsolidatedBalanceSheetPage() {
     a.download = `consolidated-balance-sheet-${asAtDate}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [data, entityIds, asAtDate]);
+  }, [data, entityIds, asAtDate, assetRows, equityRows, liabilityRows]);
 
   /* ---------- Render helpers ---------- */
   const colCount = entityIds.length + 2;
@@ -296,7 +296,7 @@ export default function ConsolidatedBalanceSheetPage() {
                 </p>
               </div>
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-                <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total L + E</p>
+                <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total Equity and Liabilities</p>
                 <p className="text-xl font-bold text-blue-400">
                   {fmt(data.totalLiabilitiesAndEquity?.consolidated ?? 0)}
                 </p>
@@ -369,18 +369,18 @@ export default function ConsolidatedBalanceSheetPage() {
                   {renderSectionRows(assetRows)}
                   {renderTotalsRow('Total Assets', data.totalAssets, true, 'text-blue-400')}
 
-                  {/* Liabilities */}
-                  {renderSectionHeader('Liabilities', 'text-amber-400')}
-                  {renderSectionRows(liabilityRows)}
-                  {renderTotalsRow('Total Liabilities', data.totalLiabilities, false, 'text-amber-400')}
-
                   {/* Equity */}
                   {renderSectionHeader('Equity', 'text-purple-400')}
                   {renderSectionRows(equityRows)}
                   {renderTotalsRow('Total Equity', data.totalEquity, false, 'text-purple-400')}
 
-                  {/* Total L + E */}
-                  {renderTotalsRow('Total Liabilities + Equity', data.totalLiabilitiesAndEquity, true, 'text-blue-400')}
+                  {/* Liabilities */}
+                  {renderSectionHeader('Liabilities', 'text-amber-400')}
+                  {renderSectionRows(liabilityRows)}
+                  {renderTotalsRow('Total Liabilities', data.totalLiabilities, false, 'text-amber-400')}
+
+                  {/* Total E + L */}
+                  {renderTotalsRow('Total Equity and Liabilities', data.totalLiabilitiesAndEquity, true, 'text-blue-400')}
                 </tbody>
               </table>
             </div>

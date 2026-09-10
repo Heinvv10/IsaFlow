@@ -24,6 +24,7 @@ import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 
 
 type Row = DbRow;
@@ -113,6 +114,16 @@ export async function allocateTransaction(
   if (tx.status !== 'imported') {
     throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot allocate`);
   }
+
+  // R-067. `entityId` arrives in the request body (bank-transactions-action.ts:40
+  // validates its UUID SHAPE only) and is written into `customer_payments.client_id`
+  // below; the only customer read on this path fetches a NAME and falls back to
+  // `Customer #<id>` on a miss. Measured: company A allocated a receipt against
+  // company B's customer and the row carried B's client_id. Fenced in the service,
+  // not the route — the two screens, bank-match-confirm and the MCP allocate /
+  // bulk-allocate tools all pass through here — and BEFORE `createJournalEntry`,
+  // because withAuth COMMITs a 4xx returned after a write. Supplier twin: R-068.
+  if (allocType === 'customer') await assertCustomerInCompany(companyId, entityId);
 
   const totalAmount = Math.abs(Number(tx.amount));
   const bankAccountId = String(tx.bank_account_id);
