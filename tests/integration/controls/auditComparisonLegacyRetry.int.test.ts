@@ -40,7 +40,7 @@ for(const uppercase of [false,true])it(`preserves authenticated v1 intent and re
  const {job,request,original}=await legacy(uppercase);
  expect(await actor(()=>enqueueAuditComparison(requireControlTx(),request))).toMatchObject({id:job.id,state:'queued',attempts:0});
  expect(await intent(job.id)).toEqual(original);
- expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool})).toMatchObject({state:'succeeded',comparisonId:job.id});
+ expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool,workerClass:'audit'})).toMatchObject({state:'succeeded',comparisonId:job.id});
  expect(await actor(()=>enqueueAuditComparison(requireControlTx(),request))).toMatchObject({id:job.id,state:'succeeded'});
  expect(await intent(job.id)).toEqual(original);
 });
@@ -75,7 +75,7 @@ it('rolls back the already inserted first original index when the second retaine
  try{
   await pool.query(`CREATE FUNCTION public.${witness}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.companyA}'::uuid AND NEW.snapshot_id='${good}'::uuid THEN PERFORM nextval('public.${witness}'); END IF; RETURN NEW; END $$`);
   await pool.query(`CREATE TRIGGER ${witness} AFTER INSERT ON control_audit_snapshot_indexes FOR EACH ROW EXECUTE FUNCTION public.${witness}()`);
-  expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool})).toMatchObject({state:'failed',failureRecorded:true});
+  expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool,workerClass:'audit'})).toMatchObject({state:'failed',failureRecorded:true});
   expect((await pool.query(`SELECT is_called FROM public.${witness}`)).rows).toEqual([{is_called:true}]);
   for(const table of ['control_audit_snapshot_indexes','control_audit_snapshot_index_items','control_audit_snapshot_index_chunks','control_audit_comparison_sources','control_audit_comparison_source_items']){
    expect((await pool.query(`SELECT snapshot_id FROM ${table} WHERE company_id=$1 AND snapshot_id=ANY($2::uuid[])`,[f.companyA,ids])).rows).toEqual([]);

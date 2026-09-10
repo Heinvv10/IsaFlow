@@ -8,7 +8,7 @@ const company='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8
 const job='33333333-3333-4333-8333-333333333333',query=vi.fn(),release=vi.fn();
 const client={query,release} as unknown as PoolClient,pool={connect:vi.fn(async()=>client)} as unknown as Pool;
 // These queue unit tests explicitly exercise the in-process runner fixture.
-const executeJob=(identity:Parameters<typeof runAuditJob>[0],options:{signal?:AbortSignal})=>runAuditJob(identity,{pool,...options});
+const executeJob=(identity:Parameters<typeof runAuditJob>[0],options:{signal?:AbortSignal})=>runAuditJob(identity,{pool,...options,workerClass:'audit'});
 const candidate={jobId:job,personId:'synthetic-user',updatedAt:'2026-09-09 12:00:00.123456+00'};
 beforeEach(()=>{
  query.mockReset().mockImplementation(async(text:string)=>({rows:text.includes('SELECT j.job_id')?[candidate]:[]}));release.mockReset();
@@ -19,7 +19,7 @@ beforeEach(()=>{
 it('reads only tenant-scoped queue metadata, commits and releases before delegated execution',async()=>{
  const poller=createAuditJobPoller({companyIds:[company],batchSize:10},{pool,executeJob});
  expect(await poller.pollOnce()).toMatchObject({companyId:company,attempted:1});
- expect(runAuditJob).toHaveBeenCalledWith({companyId:company,personId:candidate.personId,jobId:job},{pool,signal:undefined});
+ expect(runAuditJob).toHaveBeenCalledWith({companyId:company,personId:candidate.personId,jobId:job},{pool,signal:undefined,workerClass:'audit'});
  const call=query.mock.calls.find(([text])=>String(text).includes('SELECT j.job_id'))!;
  expect(call[0]).toContain('j.company_id=');expect(call[0]).not.toContain('protected_request');expect(call[1]).toContain(company);
  expect(query.mock.calls.map(([text])=>text)).toContain('COMMIT');
@@ -77,4 +77,15 @@ it('advances past malformed identities rejected before the runner can claim',asy
  const result=await createAuditJobPoller({companyIds:[company]},{pool,executeJob}).pollOnce();
  expect(result.attempted).toBe(2);expect(result.results[0]).toMatchObject({state:'failed',failureRecorded:false});
  expect(result.results[1]).toEqual({state:'not_claimed'});
+});
+it('discovers only the configured kinds, defaulting to the legacy audit class',async()=>{
+ await createAuditJobPoller({companyIds:[company]},{pool,executeJob}).pollOnce();
+ await createAuditJobPoller({companyIds:[company],kinds:['audit_check_run']},{pool,executeJob}).pollOnce();
+ const calls=query.mock.calls.filter(([text])=>String(text).includes('SELECT j.job_id'));
+ expect(calls[0]![0]).toContain('i.kind');
+ expect(calls[0]![1]).toContainEqual(['audit_snapshot','audit_export','audit_compare']);expect(calls[1]![1]).toContainEqual(['audit_check_run']);
+ for(const kinds of [[],['audit_bogus'],['audit_check_run','audit_check_run']])
+  expect(()=>createAuditJobPoller({companyIds:[company],kinds} as never,{pool,executeJob})).toThrow();
+ expect(await runAuditJobPoller({companyIds:[company],kinds:['audit_check_run'],once:true},{pool,executeJob})).toMatchObject({polls:1});
+ expect(query.mock.calls.filter(([text])=>String(text).includes('SELECT j.job_id')).at(-1)![1]).toContainEqual(['audit_check_run']);
 });
