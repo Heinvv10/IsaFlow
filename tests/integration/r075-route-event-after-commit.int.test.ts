@@ -95,11 +95,17 @@ async function upload(req: Record<string, unknown>) {
   return { status: res.statusCode, body: res.body as { data?: { eventIds: string[]; documentIds: string[] } } };
 }
 
-async function settled(eventId: string) {
+async function settled(eventId: string, documentId?: string) {
   let status = '';
   await waitFor(async () => {
     status = (await pool.query('SELECT status FROM capture_events WHERE id=$1', [eventId])).rows[0]?.status ?? '';
-    return status === 'extracted' || status === 'failed';
+    if (status !== 'extracted' && status !== 'failed') return false;
+    // R-058 claims the event's 'extracted' status before writing the document,
+    // so the event alone settling can still race captured_documents.vendor_name.
+    // Wait for the document write too, or a failed extraction that writes none.
+    if (status === 'failed' || !documentId) return true;
+    const doc = (await pool.query('SELECT vendor_name FROM captured_documents WHERE id=$1', [documentId])).rows[0];
+    return doc?.vendor_name != null;
   }, 15000);
   return status;
 }
@@ -114,7 +120,7 @@ it('routeEvent writes on its own connection after COMMIT; a concurrent request f
   // while routeEvent finishes.
   const b = await concurrentRequest(pool, token, coB);
   vlm.gate.resolve();
-  const status = await settled(eventId);
+  const status = await settled(eventId, documentId);
   const bRes = await b.finish();
 
   expect(bRes).toMatchObject({ status: 200, markerPersisted: true });
@@ -126,9 +132,12 @@ it('routeEvent writes on its own connection after COMMIT; a concurrent request f
   const writes = (await pool.query('SELECT * FROM r075_write_log WHERE row_id = ANY($1::uuid[]) ORDER BY id',
     [[eventId, documentId]])).rows;
   // First the request's own storage-path UPDATE, in its own transaction as
-  // app_user for A. Then routeEvent's three writes, none of them in B's
-  // transaction or backend, and none under B's company GUC.
-  expect(writes.map((w) => w.new_status)).toEqual(['pending', 'extracting', 'pending', 'extracted']);
+  // app_user for A. Then routeEvent's three writes: the event claims
+  // 'extracting', then claims 'extracted' BEFORE the document write lands
+  // (R-058 moved the captured_documents write after that claim, so a dropped
+  // result is fully dropped rather than left half-written) — none of these
+  // three in B's transaction or backend, and none under B's company GUC.
+  expect(writes.map((w) => w.new_status)).toEqual(['pending', 'extracting', 'extracted', 'pending']);
   expect(writes[0]).toMatchObject({ role: 'app_user', company: coA });
   for (const w of writes.slice(1)) {
     expect(w.txid).not.toBe(bRes.txid);
@@ -159,7 +168,7 @@ it('the API-key upload (no request transaction) still extracts', async () => {
   vlm.gated = false;
   const res = await upload(uploadReq({ apiKey: API_KEY }));
   expect(res.status).toBe(201);
-  expect(await settled(res.body.data!.eventIds[0]!)).toBe('extracted');
+  expect(await settled(res.body.data!.eventIds[0]!, res.body.data!.documentIds[0]!)).toBe('extracted');
 }, 30000);
 
 it('the Postmark inbound-email webhook still extracts', async () => {
