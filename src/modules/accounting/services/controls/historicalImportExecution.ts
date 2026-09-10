@@ -55,6 +55,9 @@ export async function executeHistoricalImport(ctx:ControlTx,input:OperationRef,a
  const [intent]=await ctx.sql`SELECT requester_person_id,kind FROM control_historical_imports WHERE company_id=${company}::uuid AND id=${ref.entityId}::uuid` as Row[];
  if(!intent||intent.requester_person_id!==user)throw new Error('Historical import belongs to another requester or is unavailable');
  await assertHistoricalImportAuthority(ctx,intent.kind as HistoricalImportKind,'write');
+ const retained=await ctx.sql`SELECT id FROM control_operation_effects WHERE company_id=${company}::uuid
+  AND entity_type='historical_import' AND lower(entity_id)=${ref.entityId} AND operation='historical_import.post' LIMIT 2`;
+ if(retained.length>1)throw new Error('Historical import receipt association invalid');
  if(!approvalId){const prior=await receipt(ctx,ref);if(prior)return prior;throw new Error('Independent operation approval is required');}
  return executeControlledOperation(ctx,ref,approvalId,async permit=>{
   const previous=await ctx.sql`SELECT id FROM control_operation_effects WHERE company_id=${company}::uuid
