@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RotateCcw, Plus, Pause, Play, XCircle, Zap, Loader2, Trash2, Pencil, Save, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
@@ -63,11 +63,25 @@ export default function RecurringJournalsPage() {
 
   const doAction = async (action: string, id: string) => {
     setBusy(id);
-    await apiFetch('/api/accounting/recurring-journals-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ action, id }),
-    });
-    await load(); setBusy('');
+    setError('');
+    // apiFetch RESOLVES on 4xx — it only intercepts 401 — so awaiting it and
+    // reloading discarded every refusal the route sends: not due until <date>,
+    // no fiscal period, closed period, a deactivated account named by its code,
+    // an unbalanced template, and the 409 for a contended generate. The list
+    // reloaded unchanged and the button looked dead.
+    const fallback = `Could not ${action} this recurring journal`;
+    try {
+      const res = await apiFetch('/api/accounting/recurring-journals-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ action, id }),
+      });
+      await assertOk(res, fallback);
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, fallback));
+    } finally {
+      setBusy('');
+    }
   };
 
   const startEdit = (item: RecurringJournal) => {

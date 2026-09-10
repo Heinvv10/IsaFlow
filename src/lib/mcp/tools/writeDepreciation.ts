@@ -32,7 +32,7 @@ export const runDepreciationTool: McpTool = {
     + 'period_date is the LAST DAY of the period being depreciated (YYYY-MM-DD) and defaults to the last day of the current month. It decides the journal date, the journal entry number (DEP-<asset number>-YYYY-MM) and the subledger period, so a run for an earlier month posts into THAT month. '
     + 'ALWAYS CALL IT WITH dry_run: true FIRST. The dry run returns the journals that would post, in full, with the account codes and the amounts on both legs, and the assets that would be skipped with the reason for each. It writes nothing and does not consume the idempotency key. dry_run defaults to FALSE: a call without it POSTS. '
     + 'It refuses BEFORE writing anything when no fiscal period covers period_date, when that period is closed or locked, or when no asset would post. Those are different refusals because the remedies differ — create the fiscal year, re-open the period, or look at why every asset was skipped. '
-    + 'An asset is skipped, not failed, when it is not in service (disposed, retired), has no purchase price, is marked below the capitalisation threshold, has no useful life on itself or its category, or already has an unreversed journal for this period. Re-running a period is therefore safe: every asset already posted is skipped by entry number. '
+    + 'An asset is skipped, not failed, when it is not in service (disposed, retired), has no purchase price, is marked below the capitalisation threshold, has no useful life on itself or its category, already has an unreversed journal for this period, or already has a subledger row for it. Re-running a period is therefore safe on both keys — the journal by entry number, and the subledger by asset and period, which is the one that catches an asset whose policy charge is zero and therefore never took an entry number. '
     + 'READ glFailed ON THE REPLY. It counts assets whose subledger row and journal were rolled back together as a unit while the rest of the run committed. A success with glFailed above zero is a PARTIAL run and accumulated depreciation is understated by those assets until the cause is fixed and the period re-run. '
     + 'It depreciates on the ACCOUNTING (IAS 16) policy only in the general ledger; the SARS wear-and-tear figure is computed and stored in the subledger but is not journalised. It does not create assets, does not dispose of them, and does not reclassify any account. '
     + 'Call reconcile_fixed_assets afterwards to check the register against the ledger — on these books they do not agree, and a depreciation run does not make them.',
@@ -132,6 +132,8 @@ export const runDepreciationTool: McpTool = {
         policy_depreciation: r.policyDep,
         tax_depreciation: r.taxDep,
         journal_entry_id: r.entryId,
+        gl_failed: r.glFailed,
+        ...(r.lifeExpiredNote === undefined ? {} : { life_expired: r.lifeExpiredNote }),
       })),
       skipped_assets: skipped,
     });

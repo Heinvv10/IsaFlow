@@ -150,24 +150,29 @@ async function undoDeleteInner(
  * A data-modifying CTE runs to completion whether or not anything selects from
  * it, and both arms see the same snapshot, so the pair is atomic without a
  * savepoint: either the document and its reversal row both go, or neither does.
- * The pairing is on (company_id, entity_id), never entity_id alone — this purge
- * spans every tenant and two of them can hold the same id.
+ * The pairing is on (company_id, entity_id), never entity_id alone — two
+ * tenants can hold the same id, and the caller scopes the sweep to one of them.
  */
 function purgeInvoices(
   table: 'customer_invoices' | 'supplier_invoices',
   entityType: 'customer_invoice' | 'supplier_invoice',
+  companyId: string,
 ): Promise<DbRow[]> {
   const doomed = sql.unsafe(
     `DELETE FROM ${table}
-     WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes'
+     WHERE company_id = $1::uuid
+       AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes'
+       AND gl_journal_entry_id IS NULL
      RETURNING id, company_id`,
+    [companyId],
   );
   return sql`
     WITH purged AS (
       ${doomed}
     ), cascaded AS (
       DELETE FROM soft_delete_journal_reversals r
-      WHERE r.entity_type = ${entityType}
+      WHERE r.company_id = ${companyId}::uuid
+        AND r.entity_type = ${entityType}
         AND (r.company_id, r.entity_id) IN (SELECT p.company_id, p.id FROM purged p)
     )
     SELECT id, company_id FROM purged
@@ -175,9 +180,9 @@ function purgeInvoices(
 }
 
 /**
- * Hard-purge records that were soft-deleted more than 5 minutes ago.
- * Intended to be called by a scheduled background job.
- * Returns the total count of purged records across all tables.
+ * Hard-purge ONE company's records soft-deleted over 5 minutes ago, for a
+ * scheduled per-tenant job: an unscoped sweep of these DELETEs is a
+ * platform-wide hard delete from a job no request bounds. Returns the count.
  *
  * NOT WIRED UP TODAY — `git grep purgeExpiredDeletes -- src pages` finds no
  * caller — and K-053 is why that matters before one is added. A soft-deleted
@@ -195,19 +200,29 @@ function purgeInvoices(
  * document it describes: it is keyed on (company_id, entity_type, entity_id)
  * with no FK to the invoice, so the purge would otherwise strand it.
  */
-export async function purgeExpiredDeletes(): Promise<number> {
+export async function purgeExpiredDeletes(companyId: string): Promise<number> {
   let total = 0;
 
   // One entry per soft-deletable table.
   // BL-80: RETURNING id, company_id so we can log per-tenant attribution
   // and make a mis-fired purge visible in structured logs.
+  //
+  // An invoice that carries a posted journal is NEVER purged. Soft-deleting one
+  // does not reverse its journal — the guard in this file only fires on
+  // `status = 'posted'`, which is not even a value `supplier_invoices.status`
+  // can hold — so the money stays in the payable/receivable control account
+  // while the document leaves the sub-ledger. Hard-deleting the row afterwards
+  // removes the last trace of what that balance belongs to, and re-lets the
+  // migration wizard import the bill a second time (its duplicate lookup
+  // deliberately ignores `deleted_at` for this reason). Keeping the row is what
+  // makes both of those recoverable.
   const tables: Array<{ entityType: string; fn: () => Promise<DbRow[]> }> = [
-    { entityType: 'customer',         fn: () => sql`DELETE FROM customers WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'supplier',         fn: () => sql`DELETE FROM suppliers WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'item',             fn: () => sql`DELETE FROM items WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'bank_rule',        fn: () => sql`DELETE FROM bank_rules WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'customer_invoice', fn: () => purgeInvoices('customer_invoices', 'customer_invoice') },
-    { entityType: 'supplier_invoice', fn: () => purgeInvoices('supplier_invoices', 'supplier_invoice') },
+    { entityType: 'customer',         fn: () => sql`DELETE FROM customers WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'supplier',         fn: () => sql`DELETE FROM suppliers WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'item',             fn: () => sql`DELETE FROM items WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'bank_rule',        fn: () => sql`DELETE FROM bank_rules WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'customer_invoice', fn: () => purgeInvoices('customer_invoices', 'customer_invoice', companyId) },
+    { entityType: 'supplier_invoice', fn: () => purgeInvoices('supplier_invoices', 'supplier_invoice', companyId) },
   ];
 
   for (const { entityType, fn } of tables) {

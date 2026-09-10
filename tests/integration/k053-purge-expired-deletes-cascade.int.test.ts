@@ -13,8 +13,10 @@
  * only thing the dated presence predicate can evaluate. This test covers the
  * cascade so that whoever does wire it up inherits a correct one.
  *
- * The whole purge runs inside a transaction that is ROLLED BACK: it is not
- * company-scoped, and this fixture database is shared with other suites.
+ * The purge is per-tenant, and it skips an invoice that still carries a posted
+ * journal (`gl_journal_entry_id IS NOT NULL`) — both pinned below alongside the
+ * cascade. It still runs inside a transaction that is ROLLED BACK, because this
+ * fixture database is shared with other suites.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -37,6 +39,8 @@ let supplier: string;
 let arInvoice: string;
 let apInvoice: string;
 let liveInvoice: string;
+/** Deleted long enough ago to be in the window, but still carrying a journal. */
+let journalInvoice: string;
 /** Another tenant's row carrying the SAME entity_id. Must survive. */
 let otherEntry: string;
 
@@ -93,6 +97,14 @@ describeIfDb('K-053 purging a soft-deleted document takes its recorded reversal'
     arInvoice = invoices.find((r) => r.invoice_number.endsWith('-DEL'))!.id;
     liveInvoice = invoices.find((r) => r.invoice_number.endsWith('-LIVE'))!.id;
 
+    journalInvoice = ((await sql`
+      INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
+        due_date, status, total_amount, amount_paid, created_by, deleted_at, gl_journal_entry_id)
+      VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + '-JE'}, CURRENT_DATE,
+              CURRENT_DATE, 'approved', 100, 0, ${USER}::UUID, NOW() - INTERVAL '10 minutes',
+              ${await journalEntry(COMPANY)}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
+
     apInvoice = ((await sql`
       INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
         status, total_amount, amount_paid, created_by, deleted_at)
@@ -120,6 +132,7 @@ describeIfDb('K-053 purging a soft-deleted document takes its recorded reversal'
   afterAll(async () => {
     for (const company of [COMPANY, OTHER_COMPANY]) {
       await sql`DELETE FROM soft_delete_journal_reversals WHERE company_id = ${company}::UUID`;
+      await sql`UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${company}::UUID`;
       await sql`DELETE FROM customer_invoices WHERE company_id = ${company}::UUID`;
       await sql`DELETE FROM supplier_invoices WHERE company_id = ${company}::UUID`;
       await sql`DELETE FROM gl_journal_entries WHERE company_id = ${company}::UUID`;
@@ -131,7 +144,7 @@ describeIfDb('K-053 purging a soft-deleted document takes its recorded reversal'
 
   it('the purge removes the reversal rows of the documents it purged, and only those', async () => {
     const seen = await inRolledBackTx(async () => {
-      await purgeExpiredDeletes();
+      await purgeExpiredDeletes(COMPANY);
       return {
         purgedAr: await recordedFor(COMPANY, arInvoice),
         purgedAp: await recordedFor(COMPANY, apInvoice),
@@ -141,6 +154,8 @@ describeIfDb('K-053 purging a soft-deleted document takes its recorded reversal'
                            WHERE id = ${arInvoice}::UUID`) as { n: number }[])[0]!.n,
         liveRow: ((await sql`SELECT COUNT(*)::int AS n FROM customer_invoices
                              WHERE id = ${liveInvoice}::UUID`) as { n: number }[])[0]!.n,
+        journalRow: ((await sql`SELECT COUNT(*)::int AS n FROM customer_invoices
+                                WHERE id = ${journalInvoice}::UUID`) as { n: number }[])[0]!.n,
       };
     });
 
@@ -152,6 +167,10 @@ describeIfDb('K-053 purging a soft-deleted document takes its recorded reversal'
     expect(seen.live).toBe(1);
     // Same entity_id, other tenant: untouched.
     expect(seen.otherTenant).toBe(1);
+    // In the window, but its journal is still posted — the purge leaves it,
+    // because destroying the row destroys the only side of the control-account
+    // tie the dated presence predicate can evaluate.
+    expect(seen.journalRow).toBe(1);
   });
 
   it('the rollback held: nothing above actually left the database', async () => {

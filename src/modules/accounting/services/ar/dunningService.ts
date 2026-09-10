@@ -12,14 +12,11 @@
  * Company-scoped. Never leaks data across tenants.
  */
 
-import crypto from 'node:crypto';
-
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
-import { log } from '@/lib/logger';
-import { sendEmail } from '../core/emailService';
-import { BRAND, emailLayout } from '@/lib/email-templates';
+import { getInvoicePortalToken, getOrMintInvoicePortalToken } from './portalTokenService';
+import { ArRequestError } from './arErrors';
 
 export type DunningTone = 'polite' | 'firm' | 'final' | 'legal';
 export type TriggerSource = 'manual' | 'cron' | 'auto';
@@ -191,6 +188,22 @@ export async function getTemplateById(
 // ─── Render ─────────────────────────────────────────────────────────────────
 
 /**
+ * Emitted for {{portal_link}} when there is no portal base URL or the invoice
+ * carries no token. sendDunning refuses to email a body containing it.
+ */
+export const PORTAL_LINK_UNAVAILABLE = '(portal link unavailable)';
+
+export interface RenderTemplateOptions {
+  /**
+   * Mint the invoice's portal_token when it has none. True on the send path.
+   * False for a read-shaped caller (preview): minting there would persist a
+   * permanent, unauthenticated-access credential for an invoice nobody ever
+   * emails, and withAuth COMMITs on 4xx so it would survive a later 404.
+   */
+  mintPortalToken?: boolean;
+}
+
+/**
  * Render a template for a specific invoice. Returns null when the invoice
  * is missing; throws when the template doesn't belong to this company.
  */
@@ -199,17 +212,37 @@ export async function renderTemplate(
   templateId: string,
   invoiceId: string,
   portalBaseUrl?: string,
+  options: RenderTemplateOptions = {},
 ): Promise<RenderedTemplate | null> {
   const [tmpl, ctx] = await Promise.all([
     getTemplateById(companyId, templateId),
     loadInvoiceCtx(companyId, invoiceId),
   ]);
-  if (!tmpl) throw new Error(`Template ${templateId} not found for company`);
+  if (!tmpl) {
+    throw new ArRequestError(
+      `Template ${templateId} not found for company`, 404, 'DUNNING_TEMPLATE_NOT_FOUND',
+    );
+  }
   if (!ctx) return null;
 
-  const portalLink = portalBaseUrl
-    ? `${portalBaseUrl}/portal/invoice/${ctx.invoice_id}`
-    : '(portal link unavailable)';
+  // The portal route accepts only the 64-hex portal_token, never the invoice
+  // UUID — resolve (and, on the send path, mint idempotently) so the emailed
+  // link actually resolves.
+  //
+  // Deliberately NOT wrapped in try/catch. Swallowing a PostgreSQL error here
+  // would abort the surrounding request transaction (withAuth runs the whole
+  // handler in one), so every later statement — the dunning_sends INSERT and
+  // the captured_documents INSERT below — would fail with 25P02; and a caller
+  // that did survive would email the customer a body carrying the literal
+  // '(portal link unavailable)' while recording email_status 'sent'. A failed
+  // mint must abort the send.
+  let portalLink: string = PORTAL_LINK_UNAVAILABLE;
+  if (portalBaseUrl) {
+    const token = options.mintPortalToken === false
+      ? await getInvoicePortalToken(ctx.invoice_id, companyId)
+      : (await getOrMintInvoicePortalToken(ctx.invoice_id, companyId)).token;
+    if (token) portalLink = `${portalBaseUrl}/portal/invoice/${token}`;
+  }
 
   const tokens: Record<string, string> = {
     customer_name: ctx.customer_name,
@@ -236,122 +269,4 @@ export async function renderTemplate(
 
 // ─── Send ───────────────────────────────────────────────────────────────────
 
-export interface SendDunningInput {
-  companyId: string;
-  templateId: string;
-  invoiceId: string;
-  sentBy?: string | null;
-  triggerSource?: TriggerSource;
-  portalBaseUrl?: string;
-  /** Allow send even when outstanding ≤ 0 (test-only). */
-  skipPaidGuard?: boolean;
-}
-
-export async function sendDunning(input: SendDunningInput): Promise<SendResult> {
-  const ctx = await loadInvoiceCtx(input.companyId, input.invoiceId);
-  if (!ctx) throw new Error(`Invoice ${input.invoiceId} not found for company`);
-  if (!input.skipPaidGuard && ctx.outstanding <= 0) {
-    throw new Error('Invoice has no outstanding balance — refusing to send dunning');
-  }
-  if (ctx.status === 'cancelled') {
-    throw new Error('Cannot send dunning for a cancelled invoice');
-  }
-  if (!ctx.customer_email) {
-    throw new Error('Customer has no email address on file');
-  }
-
-  const rendered = await renderTemplate(
-    input.companyId,
-    input.templateId,
-    input.invoiceId,
-    input.portalBaseUrl,
-  );
-  if (!rendered) throw new Error('Failed to render template');
-
-  const insertRows = (await sql`
-    INSERT INTO dunning_sends (
-      company_id, customer_invoice_id, template_id, sent_to_email,
-      rendered_subject, rendered_body, trigger_source, sent_by, email_status
-    ) VALUES (
-      ${input.companyId}::uuid, ${input.invoiceId}::uuid, ${input.templateId}::uuid,
-      ${ctx.customer_email},
-      ${rendered.subject}, ${rendered.body},
-      ${input.triggerSource ?? 'manual'}, ${input.sentBy ?? null}, 'pending'
-    )
-    RETURNING id, message_token
-  `) as DbRow[];
-  const sendRow = insertRows[0]!;
-  const sendId = String(sendRow.id);
-  const messageToken = String(sendRow.message_token);
-
-  const bodyWithToken = `${rendered.body}\n\n[ref:${messageToken}]`;
-  const escapedBody = bodyWithToken
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
-  const html = emailLayout(`
-    <tr>
-      <td style="padding:36px 32px 28px; font-family:${BRAND.fontStack};
-                 font-size:15px; color:${BRAND.textBody}; line-height:1.6;">
-        ${escapedBody}
-      </td>
-    </tr>`);
-
-  const result = await sendEmail({
-    to: ctx.customer_email,
-    subject: rendered.subject,
-    html,
-    _log: {
-      companyId: input.companyId,
-      emailType: 'other',
-      sentBy: input.sentBy ?? null,
-    },
-  });
-
-  // Seal a captured_documents row so every dunning send is a first-class
-  // evidence row per PRD §4.6. Bytes-only — no storage upload, since the
-  // authoritative copy lives in dunning_sends.rendered_{subject,body}.
-  const evidenceBytes = Buffer.from(`${rendered.subject}\n\n${bodyWithToken}`, 'utf8');
-  const evidenceHash = crypto.createHash('sha256').update(evidenceBytes).digest('hex');
-  const [evidenceDoc] = (await sql`
-    INSERT INTO captured_documents (
-      company_id, file_name, file_type, file_size,
-      document_type, status,
-      raw_bytes_sha256, raw_bytes_size,
-      notes
-    ) VALUES (
-      ${input.companyId}::uuid,
-      ${`dunning-${messageToken}.txt`},
-      'text/plain',
-      ${evidenceBytes.length},
-      'dunning',
-      'matched',
-      ${evidenceHash},
-      ${evidenceBytes.length},
-      ${`Dunning · invoice ${ctx.invoice_number} · to ${ctx.customer_email}`}
-    )
-    RETURNING id
-  `) as DbRow[];
-  const evidenceDocId = String(evidenceDoc!.id);
-
-  await sql`
-    UPDATE dunning_sends
-    SET email_status = ${result.success ? 'sent' : 'failed'},
-        email_error  = ${result.success ? null : (result.error ?? 'unknown')},
-        source_document_id = ${evidenceDocId}::uuid
-    WHERE id = ${sendId}::uuid AND company_id = ${input.companyId}::uuid
-  `;
-
-  log.info('Dunning send', {
-    sendId, invoiceId: input.invoiceId, templateId: input.templateId,
-    emailStatus: result.success ? 'sent' : 'failed',
-  }, 'dunningService');
-
-  return {
-    sendId,
-    messageToken,
-    emailStatus: result.success ? 'sent' : 'failed',
-    emailError: result.success ? null : (result.error ?? 'unknown'),
-  };
-}
+export { sendDunning, type SendDunningInput } from './dunningSend';
