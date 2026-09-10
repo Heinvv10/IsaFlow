@@ -202,3 +202,8 @@ it('acquires the shared tenant authority lock before taking standing row locks',
  const standingQuery=query.mock.calls.findIndex(([statement])=>String(statement).includes('FROM users'));
  expect(advisory).toBeGreaterThanOrEqual(0);expect(standingQuery).toBeGreaterThan(advisory);
 });
+it('takes a requester UPDATE lock so different-company targets cannot later deadlock upgrading shared maker locks',async()=>{
+ await withPlatformImportRequest(store(),cap=>withPlatformImportTarget(cap,target,async()=>undefined));
+ const standingQuery=query.mock.calls.find(([statement])=>String(statement).includes('FROM users'))?.[0];
+ expect(standingQuery).toContain('FOR UPDATE OF u FOR SHARE OF c');
+});
