@@ -11,7 +11,7 @@ import type {RpcReply} from './client';
  * payroll_run policy, so both payroll previews must refuse.
  */
 let f:Awaited<ReturnType<typeof auditDeliveryFixture>>;
-const run=randomUUID(),posted=randomUUID(),employee=randomUUID(),component=randomUUID();
+const run=randomUUID(),posted=randomUUID(),unbuildable=randomUUID(),employee=randomUUID(),component=randomUUID();
 const text=(reply:RpcReply)=>reply.result?.content?.map(item=>item.text).join('\n')??'';
 async function seedReceipt(company:string,person:string,runId:string){
  const client=await f.pool.connect();
@@ -44,6 +44,8 @@ beforeAll(async()=>{
  await f.pool.query("INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,'Synthetic payroll period 8',8,2026,'2026-08-01','2026-08-31','open')",[randomUUID(),company]);
  await seedReceipt(company,person,run);
  await seedReceipt(company,person,posted);
+ await f.pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_paye,total_uif,total_sdl,total_eti,total_net,employee_count) VALUES($1,$2,7,2026,'calculated',100,10,2,1,0,89,1)",[unbuildable,company]);
+ await f.pool.query('INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,paye,uif_employee,uif_employer,sdl,eti,net_pay) VALUES($1,$2,100,10,1,1,1,0,89)',[unbuildable,employee]);
  await f.pool.query("INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role) VALUES($1,$2,'Synthetic payroll policy','payroll_run','amount','any',0,'admin')",[randomUUID(),company]);
 },60000);
 afterAll(async()=>{if(f)await f.close();});
@@ -62,3 +64,10 @@ it('refuses both payroll previews for an approval-bound run, and the live call a
   'approve_pay_run preview: refused (names the approval)','approve_pay_run live: refused',
   'post_payroll_journal preview: refused (names the approval)','post_payroll_journal live: refused']});
 },180000);
+it('says a run could not be previewed rather than blaming an approval it cannot see',async()=>{
+ const token=await f.scopedToken(['write:payroll','write:post']);
+ const preview=await f.rpcToken(token,'approve_pay_run',{run_id:unbuildable,dry_run:true,idempotency_key:randomUUID()});
+ expect(preview.result?.isError,text(preview)).toBe(true);
+ expect(text(preview)).toContain('could not be previewed');
+ expect(text(preview),'must not instruct an approval request for a material failure').not.toContain('Request one with');
+},120000);
