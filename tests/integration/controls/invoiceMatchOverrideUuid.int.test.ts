@@ -36,12 +36,13 @@ async function state(id:string,invoiceId:string){
  const read=await f.actor(ctx=>queryInvoiceMatchOverrides(ctx,invoiceId));
  const approvals=await f.approvals('invoice_match_override_intent',id);
  return{effects:await f.effects('invoice_match_override_intent','invoice_match.override',id),
-  reader:read.overrides.map(o=>({intentId:o.intentId,state:o.state,staleReasons:o.staleReasons})),consumed:approvals.filter(a=>a.status==='consumed').length,
+  reader:read.overrides.map(o=>({intentId:o.intentId,state:o.state,staleReasons:o.staleReasons,version:o.version})),consumed:approvals.filter(a=>a.status==='consumed').length,
   journals:(await f.pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1',[f.f.companyA])).rows};
 }
 function expectOneOverride(saved:Awaited<ReturnType<typeof state>>,id:string){
  expect(saved.effects).toHaveLength(1);expect(saved.consumed).toBe(1);expect(saved.journals).toEqual([]);
- expect(saved.reader).toEqual([{intentId:id,state:'active',staleReasons:[]}]);
+ // A null version means the retained lineage was not found, so the annotation has no provenance.
+ expect(saved.reader).toEqual([{intentId:id,state:'active',staleReasons:[],version:2}]);
 }
 it.each([false,true])('replays an invoice match override through either UUID case after initial uppercase=%s execution without another approval',async uppercase=>{
  const p=await prepared(),approval=await f.approve(p.operation),caseVariant=upper(p.intentId);
@@ -81,4 +82,21 @@ it('cannot annotate one invoice match twice through a second same-case approval 
  // The kernel lets it through; the effect's own guard is what refuses.
  expect(second.error instanceof Error?second.error.message:second.value).toBe('Unexecuted override belonging to current requester required');
  expect(first).toBeDefined();
+});
+/**
+ * SYNTHESIZED legacy state, not old-code output: the retained control_entity_versions row is rewritten
+ * by hand to the spelling old code would have stored, because no fad0f57f7 baseline seed exists for
+ * this operation. A receipt found but a version join missed still reports the annotation dead.
+ */
+it('reads an override back as active when its retained version row kept a legacy uppercase entity_id',async()=>{
+ const p=await prepared();
+ await execute(p.intentId,await f.approve(p.operation));
+ const forked=async()=>(await f.pool.query(`SELECT entity_id FROM control_entity_versions
+  WHERE company_id=$1 AND entity_type='invoice_match_override_intent' AND lower(entity_id)=$2 ORDER BY entity_id`,[f.f.companyA,p.intentId])).rows;
+ const rewritten=await f.pool.query(`UPDATE control_entity_versions SET entity_id=upper(entity_id)
+  WHERE company_id=$1 AND entity_type='invoice_match_override_intent' AND entity_id=$2 RETURNING entity_id`,[f.f.companyA,p.intentId]);
+ expect(rewritten.rows).toEqual([{entity_id:upper(p.intentId)}]);
+ expectOneOverride(await state(p.intentId,p.invoiceId),p.intentId);
+ await f.attempt(()=>execute(p.intentId));
+ expect((await forked()).map(r=>r.entity_id)).toEqual([upper(p.intentId)]);
 });
