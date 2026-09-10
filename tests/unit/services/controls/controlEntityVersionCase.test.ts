@@ -8,8 +8,13 @@ it('returns the single retained lineage whatever its spelling',async()=>{
  await expect(readControlEntityVersion(ctxWith([{entity_id:id.toUpperCase(),version:2,material_hash:hash}]),{entityType:'bank_allocation_intent',entityId:id}))
   .resolves.toEqual({version:2,materialHash:hash});
 });
-it('refuses two case-variant lineages instead of binding one of them',async()=>{
+it('binds the lineage retained under the requested spelling when one exists',async()=>{
  await expect(readControlEntityVersion(ctxWith([{entity_id:id,version:1,material_hash:hash},{entity_id:id.toUpperCase(),version:2,material_hash:hash}]),
+  {entityType:'bank_allocation_intent',entityId:id})).resolves.toEqual({version:1,materialHash:hash});
+});
+it('refuses two retained spellings when neither is the requested one',async()=>{
+ const mixed=`${id.slice(0,8).toUpperCase()}${id.slice(8)}`;
+ await expect(readControlEntityVersion(ctxWith([{entity_id:id.toUpperCase(),version:2,material_hash:hash},{entity_id:mixed,version:1,material_hash:hash}]),
   {entityType:'bank_allocation_intent',entityId:id})).rejects.toThrow('Ambiguous control entity version');
 });
 it('still reports untracked history as null', async()=>{
