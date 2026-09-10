@@ -20,7 +20,7 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
   'write:beneficiaries': { label: 'Propose beneficiary changes', desc: 'Propose banking changes for independent human verification before use.' },
   'read:access': { label: 'Review access', desc: 'Read current tenant roles and connection grants without credentials.' },
   'read:audit': { label: 'Read forensic evidence', desc: 'Read protected accounting history and control findings. Sensitive payroll needs separate permission.' },
-  'write:audit': { label: 'Capture forensic evidence', desc: 'Create evidence snapshots and audit export jobs.' },
+  'write:audit': { label: 'Capture forensic evidence', desc: 'Start forensic work: evidence snapshots, audit exports, snapshot comparisons and control check runs.' },
   'read:imports': { label: 'Read historical imports', desc: 'Read historical import sources, plans and execution evidence.' },
   'write:imports': { label: 'Execute historical imports', desc: 'Prepare and execute independently approved historical imports with current accounting permissions.' },
   'write:release': { label: 'Release approved payments', desc: 'Dispatch independently approved payment releases using verified banking details.' },

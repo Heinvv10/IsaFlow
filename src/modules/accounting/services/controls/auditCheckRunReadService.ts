@@ -9,13 +9,15 @@ import {openAuditJobRequest} from './auditJobProtection';
 import {auditCheckRunPermissions} from './auditCheckRunContract';
 import {openAuditCheckRunHeader,openAuditCheckRunItem,type CheckRunHeader} from './auditCheckRunProtection';
 /**
- * A run the caller cannot read yet or at all. `not_ready` is told only to the person who enqueued it — the same
- * audience `getAuditJob` shows a job's status to; everyone else, and every other tenant, gets `not_found`, so a read
- * never discloses that someone else's run exists.
+ * A run the caller cannot read yet or at all. `not_ready` (queued or running) and `failed` (it will never publish) are
+ * told only to the person who enqueued it — the same audience `getAuditJob` shows a job's status to; everyone else,
+ * and every other tenant, gets `not_found`, so a read never discloses that someone else's run exists. `failed` is its
+ * own reason because a caller polling on "not ready" would otherwise poll a dead run forever.
  */
 export class CheckRunUnavailableError extends Error {
- constructor(readonly reason:'not_found'|'not_ready'){
-  super(reason==='not_ready'?'Check run is not published yet':'Check run not found');this.name='CheckRunUnavailableError';
+ constructor(readonly reason:'not_found'|'not_ready'|'failed',readonly errorCode:string|null=null){
+  super(reason==='not_ready'?'Check run is not published yet':reason==='failed'?`Check run failed and will not publish (${errorCode??'unknown'})`:'Check run not found');
+  this.name='CheckRunUnavailableError';
  }
 }
 interface HeaderRow {id:string;company_id:string;requester_person_id:string;kind:string;request_hash:string;protected_request:ProtectedChange;
@@ -38,12 +40,14 @@ export async function readAuditCheckRunHeader(ctx:ControlTx,checkRunId:string):P
    AND j.state='succeeded' AND j.result_check_run_id=j.job_id` as HeaderRow[];
  const row=rows[0];
  if(rows.length!==1||!row){
-  const pending=await ctx.sql`SELECT j.state FROM control_audit_jobs j JOIN control_audit_job_intents i ON i.company_id=j.company_id AND i.id=j.job_id
+  const pending=await ctx.sql`SELECT j.state,j.last_error_code FROM control_audit_jobs j JOIN control_audit_job_intents i ON i.company_id=j.company_id AND i.id=j.job_id
    WHERE j.company_id=${ctx.principal.companyId}::uuid AND j.job_id=${jobId}::uuid AND i.kind='audit_check_run'
-    AND i.requester_person_id=${ctx.principal.personId}` as {state:string}[];
+    AND i.requester_person_id=${ctx.principal.personId}` as {state:string;last_error_code:string|null}[];
+  const job=pending.length===1?pending[0]!:null;
   // A succeeded job with no result at its generation is not "not ready": it is a broken publication and stays a fault.
-  if(pending.length===1&&pending[0]!.state==='succeeded')throw new Error('Completed check run result missing');
-  throw new CheckRunUnavailableError(pending.length===1?'not_ready':'not_found');
+  if(job?.state==='succeeded')throw new Error('Completed check run result missing');
+  if(job?.state==='failed')throw new CheckRunUnavailableError('failed',job.last_error_code);
+  throw new CheckRunUnavailableError(job?'not_ready':'not_found');
  }
  const saved=openAuditJobRequest(row);if(saved.kind!=='audit_check_run')throw new Error('Check run retained request kind changed');
  // The caller's CURRENT permissions, derived from the retained check id rather than trusted from the stored list.

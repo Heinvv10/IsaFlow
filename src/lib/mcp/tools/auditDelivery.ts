@@ -26,16 +26,17 @@ function writeInput(args:Record<string,unknown>,companyId:string){
  return input;
 }
 function tool<T>(name:string,description:string,write:boolean,properties:Record<string,unknown>,required:string[],schema:z.ZodType<T>,run:(input:T)=>Promise<unknown>):McpTool{
- return{name,description,scope:'read:reports',write,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async(args,ctx)=>{
+ // Starting forensic work takes the opt-in write:audit; reading what it produced stays on read:reports.
+ return{name,description,scope:write?'write:audit':'read:reports',write,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async(args,ctx)=>{
   const parsed=schema.safeParse(write?writeInput(args,ctx.companyId):args);if(!parsed.success)return toolError('Invalid audit delivery arguments');
   return ok(await run(parsed.data));
  }};
 }
-const snapshot=tool('audit_snapshot','Enqueue an immutable accounting snapshot and selected checks. Returns a durable job ID; no scan runs in this request. Current source read permissions are required and rechecked by the worker.',true,
+const snapshot=tool('audit_snapshot','Enqueue an immutable accounting snapshot and selected checks. Returns a durable job ID; no scan runs in this request. Requires the opt-in write:audit scope plus current source read permissions, which the worker rechecks.',true,
  {cutoff:{type:'string',format:'date'},sources:{type:'array',items:{type:'string',enum:[...AUDIT_SOURCE_TYPES]},minItems:1,maxItems:5},checks:{type:'array',items:{type:'string',enum:[...AUDIT_CHECK_IDS]},maxItems:6},idempotency_key:key},
  ['cutoff','sources','checks','idempotency_key'],z.object({cutoff:z.string(),sources:z.array(z.enum(AUDIT_SOURCE_TYPES)).min(1).max(5),checks:z.array(z.enum(AUDIT_CHECK_IDS)).max(6),idempotency_key:retry}).strict(),
  async({idempotency_key,...request})=>enqueueAuditSnapshot(requireControlTx(),parseAuditSnapshotRequest({...request,idempotencyKey:idempotency_key})));
-const exported=tool('export_audit_evidence','Enqueue a complete retained-evidence export, including the signed manifest and original artifacts. Returns job status; use audit_export_files and audit_export_chunk after success. Never renders in the request.',true,
+const exported=tool('export_audit_evidence','Enqueue a complete retained-evidence export, including the signed manifest and original artifacts. Requires the opt-in write:audit scope. Returns job status; use audit_export_files and audit_export_chunk after success. Never renders in the request.',true,
  {snapshot_id:uuid,idempotency_key:key},['snapshot_id','idempotency_key'],z.object({snapshot_id:id,idempotency_key:retry}).strict(),
  async input=>enqueueAuditExport(requireControlTx(),{snapshotId:input.snapshot_id,idempotencyKey:input.idempotency_key}));
 const status=tool('audit_job_status','Read your audit job status with current source permissions. This read never claims a lease or starts processing.',false,
@@ -55,7 +56,7 @@ const exportChunk=tool('audit_export_chunk','Read one authenticated completed-ex
  {job_id:uuid,file_ordinal:{type:'integer',minimum:0,maximum:100005},chunk_ordinal:{type:'integer',minimum:0,maximum:4095}},['job_id','file_ordinal','chunk_ordinal'],
  z.object({job_id:id,file_ordinal:z.number().int().min(0).max(100005),chunk_ordinal:z.number().int().min(0).max(4095)}).strict(),
  async input=>{const {bytes,...result}=await readAuditExportChunk(requireControlTx(),{jobId:input.job_id,fileOrdinal:input.file_ordinal,chunkOrdinal:input.chunk_ordinal});return{...result,bytesBase64:Buffer.from(bytes).toString('base64')};});
-const comparison=tool('compare_audit_snapshots','Enqueue a comparison of two ordered retained snapshots. Requires current read access to both sources. Processing runs in a worker; use audit_job_status and audit_comparison_items for results.',true,
+const comparison=tool('compare_audit_snapshots','Enqueue a comparison of two ordered retained snapshots. Requires the opt-in write:audit scope and current read access to both sources. Processing runs in a worker; use audit_job_status and audit_comparison_items for results.',true,
  {first_snapshot_id:uuid,second_snapshot_id:uuid,idempotency_key:key},['first_snapshot_id','second_snapshot_id','idempotency_key'],
  z.object({first_snapshot_id:id,second_snapshot_id:id,idempotency_key:retry}).strict(),
  async input=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:input.first_snapshot_id,secondSnapshotId:input.second_snapshot_id,idempotencyKey:input.idempotency_key}));

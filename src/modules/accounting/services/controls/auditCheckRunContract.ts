@@ -16,11 +16,12 @@ export const AUDIT_CHECK_RUN_LIMITS=Object.freeze({
  journal_risk_checks:Object.freeze({maxRuntimeMs:300000,graceMs:30000,idleMs:15000,fetchRows:1000,maxSlabRows:25000,maxFindings:100000,workMem:'64MB'}),
 });
 /**
- * A RATE bound, never an absolute count: at most 6 active (queued or running) and 100 enqueued per company in any
- * trailing 24 hours. The previous cap of 100 published runs, with no retention, made the 101st run a permanent
- * lockout. Storage therefore grows without bound until retention exists — a dependency, not something a cap may hide.
+ * A RATE bound, never an absolute count: at most 6 active (queued or running), 100 enqueued per company and 40 per
+ * member in any trailing 24 hours. The previous cap of 100 published runs, with no retention, made the 101st run a
+ * permanent lockout, and a company-only window let one principal deny every colleague. Storage therefore grows without
+ * bound until retention exists — a dependency, measured in plan v10, not something a cap may hide.
  */
-export const AUDIT_CHECK_RUN_QUOTA=Object.freeze({maxActiveJobs:6,maxJobsPerWindow:100,windowHours:24});
+export const AUDIT_CHECK_RUN_QUOTA=Object.freeze({maxActiveJobs:6,maxJobsPerWindow:100,maxJobsPerPrincipal:40,windowHours:24});
 const PERMISSIONS:Readonly<Record<AuditCheckRunId,readonly string[]>>=Object.freeze({journal_risk_checks:Object.freeze(['read:reports'])});
 const checkId=z.enum(AUDIT_CHECK_RUN_IDS),cutoff=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealCalendarDate);
 // The user key stays <=100 so `${userKey}:${checkId}` fits the 128-character intent key (630:5).

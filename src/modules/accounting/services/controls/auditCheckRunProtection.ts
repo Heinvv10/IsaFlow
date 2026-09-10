@@ -6,12 +6,14 @@ import {AUDIT_CHECK_RUN_IDS,AUDIT_CHECK_RUN_LIMITS} from './auditCheckRunContrac
 const hash=z.string().regex(/^[a-f0-9]{64}$/),reason=z.string().min(1).max(256);
 const maxFindings=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks.maxFindings;
 /**
- * The seal must never refuse a finding the synchronous detector accepts. `message` is the detector's proven maximum
- * (6 fixed signals plus at most 100 threshold reasons of uuid id and bigint version — 8 663 characters, measured) rounded up;
- * currency and amount are unbounded text on the synchronous path, so they get room far past any real value while the
- * whole envelope still fits the table's 64 KiB CHECK after hex encoding.
+ * `message` is the detector's proven maximum (6 fixed signals plus at most 100 threshold reasons of uuid id and bigint
+ * version — 8 663 characters, measured) rounded up, so no message sync writes is refused. Currency and amount are
+ * unbounded text on the synchronous path, and no finite seal can take "any" of them: the real limit is the table's
+ * 64 KiB envelope CHECK after hex encoding. The bounds sit where the widest item still fits it, so it is the seal that
+ * refuses, never the database mid-run. A default_currency longer than 16 384 characters is the one thing sync would
+ * accept that the stream refuses — stated, not hidden.
  */
-export const CHECK_RUN_ITEM_BOUNDS=Object.freeze({message:9216,currency:1024,amount:1024});
+export const CHECK_RUN_ITEM_BOUNDS=Object.freeze({message:9216,currency:16384,amount:1024});
 const identitySchema=z.object({companyId:z.string().uuid(),checkRunId:z.string().uuid(),generation:z.number().int().positive(),leaseId:z.string().uuid()}).strict();
 const money=z.record(z.string().regex(/^[A-Z]{3}$/),z.string().regex(/^-?\d+(\.\d+)?$/));
 const headerSchema=identitySchema.extend({version:z.literal(1),checkId:z.enum(AUDIT_CHECK_RUN_IDS),checkVersion:z.literal(1),

@@ -5,6 +5,8 @@ import {withCsrf} from '@/lib/auth/withCsrf';
 import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
 import {withErrorHandler} from '@/lib/api-error-handler';
 import {apiResponse} from '@/lib/apiResponse';
+import {ErrorCode} from '@/lib/apiResponse.types';
+import {AuditEnqueueQuotaError} from '@/modules/accounting/services/controls/auditEnqueueQuota';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
 import {CheckRunUnavailableError,getAuditCheckRunPage} from '@/modules/accounting/services/controls/auditCheckRunReadService';
@@ -26,7 +28,10 @@ export async function auditCheckRunsHandler(req:NextApiRequest,res:NextApiRespon
  }catch(error){
   if(error instanceof ZodError)return apiResponse.badRequest(res,'Invalid audit check run input');
   if(error instanceof EffectivePermissionError)return apiResponse.forbidden(res,'Current report permission denied');
-  if(error instanceof CheckRunUnavailableError)return error.reason==='not_ready'?apiResponse.conflict(res,error.message):apiResponse.notFound(res,'Check run');
+  // 409 means "ask again later"; a failed run never will publish, so it answers a terminal 422 of its own.
+  if(error instanceof CheckRunUnavailableError)return error.reason==='not_ready'?apiResponse.conflict(res,error.message)
+   :error.reason==='failed'?apiResponse.error(res,ErrorCode.BUSINESS_RULE_VIOLATION,error.message):apiResponse.notFound(res,'Check run');
+  if(error instanceof AuditEnqueueQuotaError)return apiResponse.tooManyRequests(res,error.message);
   throw error;
  }
 }
