@@ -40,8 +40,8 @@ import {
   type BulkApproveAdapter,
   type DocumentState,
   partitionDocuments,
-  postPartitionedDocuments,
 } from './bulkApproveRunner';
+import { postPartitionedDocuments } from './bulkApprovePosting';
 import {
   MAX_DOCUMENTS,
   nothingToApproveText,
