@@ -36,7 +36,11 @@ vi.mock('@/modules/accounting/services/core/contraSettlementService', () => ({
   assertContraAccountUsable: vi.fn(),
   loadContraDocument: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  assertBankAllocationAuthority: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
+  assertCustomerPaymentAuthority: vi.fn(),
   createCustomerPayment: vi.fn(),
   confirmCustomerPayment: vi.fn(),
 }));

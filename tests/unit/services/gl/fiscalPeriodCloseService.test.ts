@@ -27,6 +27,9 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
 vi.mock('@/modules/accounting/services/gl/periodCloseReadinessService', () => ({
   getCloseReadiness: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/controls/periodControl', () => ({
+  assertPeriodControlAuthority: vi.fn(),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { closePeriod, getFiscalPeriodById } from '@/modules/accounting/services/gl/fiscalPeriodService';
