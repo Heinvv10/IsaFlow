@@ -28,8 +28,7 @@ for(const kind of ['account','split','inverse'] as const)it(`${kind}: actual ada
  if(kind==='inverse'){
   await b.actor(a.run);
   const reverse=await b.actor(ctx=>prepareBankAllocationReversal(ctx,{originalIntentId:a.p.intentId,reversalDate:'2026-04-01',reason:'BANK39 lock correction'})),approvalId=await b.approve(reverse.operation);
-  // Normalize the result only for a common callback type; the actual inverse is executed.
-  run=async()=>{const r=await reverseReconciledTransaction(b.f.companyA,a.tx,b.f.u1.id,{intentId:reverse.intentId,approvalId,reversalDate:'2026-04-01'});return{journalEntryId:r.reversalJournalEntryId};};
+  run=()=>reverseReconciledTransaction(b.f.companyA,a.tx,b.f.u1.id,{intentId:reverse.intentId,approvalId,reversalDate:'2026-04-01'});
  }
  const blocker=await b.pool.connect();let pending:Promise<unknown>|undefined;
  try{

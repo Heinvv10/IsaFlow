@@ -87,3 +87,14 @@ The **14 currently passing callback bodies** are frozen before editing. TypeScri
 ### Authorized label restoration
 
 Root confirmed the documented legacy-label compatibility gap and allocated only the adapter options forwarding. Test checkpoint `e6d3171de`: two actual unit REDs /12 PASS; explicit option precedence was already respected, but legacy fallback was lost. One-line forwarding correction now uses `postingOpts.postingAgent ?? postingAgent`; issued person/token authority remains exclusively downstream. Focused26 units passed (`74720`, terminal0). Two new actual PAT/human confirmation tests are authored but await the next PG lease. No claim of final verification yet.
+
+## Final author verification (independent review still required)
+
+- Final owned **19 PostgreSQL cases passed**, handle92284 terminal0 in3.45s, on `80f6e1712`; all pools and synthetic evidence storage servers closed. Log `/tmp/isaflow-bank39-final-pg.log`. Includes actual legacy PAT label/token, human forged-label refusal and normal supplier115 noVAT/one document/unmatched draft.
+- Source `bunx tsc --noEmit --incremental false`:58961 terminal0, `/tmp/isaflow-bank39-source-ts.log`.
+- Dedicated test typecheck first found one unused inverse-result projection not present in legacy adapter type (51901 terminal2). Removed that unused normalization; financial callback and assertions unchanged. Corrected `bunx tsc --noEmit -p /tmp/isaflow-bank39-tsconfig.json`:41098 terminal0. Config extends this worktree tsconfig with the nine owned test/helper paths and no excludes.
+- Typed scoped ESLint on the one source adapter and nine owned test/helper paths, parserOptions projectService=false/project=/tmp/isaflow-bank39-tsconfig.json:82447 terminal0, `/tmp/isaflow-bank39-lint.log`.
+- Affected final four lock/batch PG cases rerun after the unused return projection correction:72303 terminal0,2.86s, `/tmp/isaflow-bank39-final-lock-pg.log`; pool closed.
+- Focused unit final26 GREEN; all14 original passing callback bodies independently re-hashed and remain byte-for-byte unchanged. All owned files below300lines; diff whitespace check clean.
+- Total distinct mandatory mapped financial PG cases: **68 =19 owned +49 unchanged mapped suites**. Extra reruns are not extra coverage. Receipt PDF storage is deliberately an error boundary in this fixture; no PDF or production authenticity claim. Supplier beneficiary prerequisites use actual independent activation with synthetic retained bytes.
+- Production delta is only the root-authorized one-line legacy label fallback. No change to authority derivation, schemas, registry or accounting effects. Full integrated CI, current-census HTTP and programme delivery remain root-owned and outstanding.
