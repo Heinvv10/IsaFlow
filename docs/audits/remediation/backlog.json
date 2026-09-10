@@ -10317,6 +10317,41 @@
       "severity": "high",
       "source": "Measured by the K-071 fixer while rebuilding the module lock-order table; recorded 2026-09-10",
       "processNotes": "Two defects in archiveExecutionService, both measured on the fixture, both pre-existing: (1) step 4 selects `currency` from customer_invoices, which has no such column, so executeArchive raises 42703 for EVERY company -- the archive feature has never completed a run on this schema. Third 'never worked' finding of this programme after R-050 (validateMigration) and portalService's 42703. (2) its delete order violated bank_transactions_matched_journal_line_id_fkey on exactly the pair it archives; the canonical lock order turned out to be the FK-safe order too. Reordered. STILL OPEN and NOT fixed: archive deletes gl_journal_entries but never the payments referencing them (NO ACTION), so that FK still violates whatever the order. Widening archive's coverage is a scope change and needs its own item -- this is that item. The K-071 fixer fixed (1) only because the reorder was otherwise untestable, and flagged it as outside its brief. HEIN: nothing has been archived, so no data was lost; but any retention or archiving obligation believed to be met by this feature has not been."
+    },
+    {
+      "id": "R-054",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "ai-invoice-pipeline.ts",
+        "pages/api/accounting/capture/[id]/post.ts",
+        "uq_gl_je_capture_source_document"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A posting route that never ran is now live; two posting routes have no database backstop.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-072"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-072/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None from the pipeline route -- it never created an invoice. The fence gap is forward-looking.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "ai-invoice-pipeline has never created an invoice, and the capture posting fence's unique index cannot reach the two routes that write supplier_invoices",
+      "severity": "high",
+      "source": "Measured by the K-072 fixer in round 7 while closing the fourth posting route; recorded 2026-09-10",
+      "processNotes": "Two facts, both measured, both correcting earlier assumptions on this programme. (1) ai-invoice-pipeline inserted `company_id` into supplier_invoice_items -- a column that table has NEVER had -- and buildInvoiceFromExtraction always synthesises a line, so every call raised 42703 and rolled back. The route had never created an invoice. This is the FOURTH never-worked feature found (after validateMigration R-050, the portal endpoints, and executeArchive R-053). Note the shape: the R300 duplicate input-tax claim a reviewer measured on this route was LATENT -- one repaired line away from live. K-072 repaired the line and fenced it in the same round, so it is live and guarded now rather than live and unguarded later. (2) The partial unique index uq_gl_je_capture_source_document was believed to be the database backstop behind the application claim. It is on gl_journal_entries; routes 4 and 5 (capture/[id]/post and ai-invoice-pipeline) write supplier_invoices, so the index CANNOT reach them at any `source` value -- the earlier 'a route writing under a different source slips past it' framing was wrong in a more fundamental way than stated. captureRowLock.ts's header asserted the opposite and has been corrected. Those two routes are fenced by the application claim alone. HEIN: a supplier_invoices-side constraint would restore a database backstop for routes 4 and 5; that is a scope change and is why this is an item."
     }
   ],
   "sourceInventory": [
