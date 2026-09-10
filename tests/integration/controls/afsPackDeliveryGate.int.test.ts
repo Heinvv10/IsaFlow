@@ -100,4 +100,24 @@ describe('delivering a management pack that skipped review',()=>{
   expect(vi.mocked(sendEmail)).toHaveBeenCalled();
   expect(attached(),'an unreviewed draft went out looking final').toContain(WATERMARK);
  });
+
+ it('treats a filed pack as signed: no draft watermark',async()=>{
+  const result=await pack('2032-05',true);
+  await h.pool.query("UPDATE afs_documents SET status='filed' WHERE company_id=$1 AND id=$2",[h.f.companyA,result.documentId]);
+  await deliverPack(result.documentId,h.f.companyA);
+  expect(attached(),'a filed pack went out stamped DRAFT').not.toContain(WATERMARK);
+ });
+
+ it('sends a pack still in review to draft-tier recipients only, marked as a draft in the email too',async()=>{
+  const result=await pack('2032-06',true);
+  await h.pool.query("UPDATE afs_documents SET status='in_review' WHERE company_id=$1 AND id=$2",[h.f.companyA,result.documentId]);
+  await h.pool.query(`UPDATE management_pack_configs SET recipients='[{"email":"final@forensic.invalid","role":"owner","receives":"final"},{"email":"draft@forensic.invalid","role":"cfo","receives":"draft"}]'::jsonb
+   WHERE company_id=$1`,[h.f.companyA]);
+  await deliverPack(result.documentId,h.f.companyA);
+  const sentTo=vi.mocked(sendEmail).mock.calls.map(([args])=>(args as {to:string}).to);
+  expect(sentTo,'an unsigned pack reached a final-tier recipient').toEqual(['draft@forensic.invalid']);
+  const email=vi.mocked(sendEmail).mock.calls[0]![0] as {subject:string;html:string};
+  expect(email.html,'the KPI email carries no draft marker').toContain('DRAFT');
+  expect(email.subject).toMatch(/draft/i);
+ });
 });
