@@ -33,10 +33,10 @@ const REQUEST = 'request-1';
 const DECIDER = 'decider-1';
 
 /** One pending request, its resolved rule, and the decider's membership row. */
-const row = (over: { approver_role?: unknown; decider_role?: unknown } = {}) => {
+const row = (over: { approver_role?: unknown; decider_role?: unknown; is_self?: boolean } = {}) => {
   sqlMock.mockReset();
   sqlMock.mockResolvedValueOnce([{
-    is_self: false,
+    is_self: over.is_self === true,
     rule_id: 'rule-1',
     resolved_rule_id: 'rule-1',
     approver_role: 'approver_role' in over ? over.approver_role : 'admin',
@@ -44,7 +44,8 @@ const row = (over: { approver_role?: unknown; decider_role?: unknown } = {}) => 
   }]);
 };
 
-const decide = () => assertMayDecide(COMPANY, REQUEST, DECIDER);
+const decide = (decision: 'approved' | 'rejected' = 'approved') =>
+  assertMayDecide(COMPANY, REQUEST, DECIDER, decision);
 
 describe('assertMayDecide — decider rank fallback', () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -111,5 +112,44 @@ describe('assertMayDecide — rule rank fallback', () => {
   it('still refuses a manager on a genuine owner-only rule', async () => {
     row({ approver_role: 'owner', decider_role: 'manager' });
     await expect(decide()).rejects.toMatchObject({ code: 'APPROVER_ROLE_REQUIRED' });
+  });
+});
+
+/**
+ * Round-7 LOW-3 (R-033): with the ratchet in place a request whose snapshot rank
+ * only the requester holds could be neither approved (self) nor rejected (rank)
+ * by anybody, and there is no cancel action. Only APPROVE is the controlled act,
+ * so the requester's own REJECT is a withdrawal and is allowed — without a rank
+ * check, which is what makes it an escape for a requester below their own
+ * request's demand.
+ */
+describe('assertMayDecide — the requester may withdraw, never approve', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('refuses the requester their own approve', async () => {
+    row({ is_self: true, approver_role: 'owner', decider_role: 'owner' });
+    await expect(decide('approved')).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
+  });
+
+  it('allows the requester their own reject', async () => {
+    row({ is_self: true, approver_role: 'owner', decider_role: 'owner' });
+    await expect(decide('rejected')).resolves.toBeUndefined();
+  });
+
+  it('allows the requester their own reject even when they rank below the demand', async () => {
+    row({ is_self: true, approver_role: 'owner', decider_role: 'accountant' });
+    await expect(decide('rejected')).resolves.toBeUndefined();
+  });
+
+  it('still refuses a NON-requester who ranks below the demand, reject included', async () => {
+    row({ approver_role: 'owner', decider_role: 'manager' });
+    await expect(decide('rejected')).rejects.toMatchObject({ code: 'APPROVER_ROLE_REQUIRED' });
+  });
+
+  it('still refuses a requester with no membership row their own approve', async () => {
+    // Self is checked before the membership floor, and stays so: the answer
+    // must name the segregation breach, not the missing role.
+    row({ is_self: true, decider_role: null });
+    await expect(decide('approved')).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
   });
 });

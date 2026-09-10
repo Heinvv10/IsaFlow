@@ -261,7 +261,7 @@ export async function decideRequest(companyId: string,
   // the row this UPDATE writes. A concurrent rebind can otherwise move the
   // request onto a different rule between the two statements.
   await lockApprovalRequestForUpdate(companyId, requestId);
-  await assertMayDecide(companyId, requestId, decidedBy);
+  await assertMayDecide(companyId, requestId, decidedBy, decision);
   const rows = (await sql`
     UPDATE approval_requests SET
       status = ${decision},

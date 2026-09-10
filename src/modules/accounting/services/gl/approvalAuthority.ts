@@ -95,14 +95,19 @@ export const actorRank = (role: string): number =>
   isApproverRole(role) ? APPROVER_RANK[role]! : 0;
 
 /**
- * Throws ApprovalDecisionError when `decidedBy` may not decide `requestId`.
- * Silent when the request does not exist or is already decided — the caller's
- * status-predicated UPDATE reports that case.
+ * Throws ApprovalDecisionError when `decidedBy` may not take `decision` on
+ * `requestId`. Silent when the request does not exist or is already decided —
+ * the caller's status-predicated UPDATE reports that case.
+ *
+ * `decision` is required rather than defaulted: only `approve` is the controlled
+ * act, and a caller that forgets to say which one it is must not silently get
+ * the permissive answer.
  */
 export async function assertMayDecide(
   companyId: string,
   requestId: string,
-  decidedBy: string
+  decidedBy: string,
+  decision: 'approved' | 'rejected'
 ): Promise<void> {
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
@@ -121,9 +126,17 @@ export async function assertMayDecide(
   if (!row) return;
 
   if (row.is_self === true) {
+    // Rejecting your OWN request is a withdrawal, not a separation-of-duties
+    // breach: it grants nothing and closes the row. Allowing it is what makes a
+    // request escapable when the ratchet's snapshot demands a rank only the
+    // requester holds (a sole owner, say) — before this, such a row could be
+    // neither approved nor rejected by anybody, and there is no cancel action.
+    // The rank check below is skipped with it, for the same reason: a withdrawal
+    // needs no approver authority.
+    if (decision === 'rejected') return;
     throw new ApprovalDecisionError(
       'SELF_APPROVAL_FORBIDDEN',
-      'You cannot decide on an approval request you raised yourself'
+      'You cannot approve an approval request you raised yourself'
     );
   }
 
