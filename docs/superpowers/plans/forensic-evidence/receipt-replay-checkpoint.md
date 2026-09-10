@@ -6,6 +6,8 @@ Root authorized this shared helper for AR/AP/payroll propagation after independe
 
 Four focused helper tests pass (`/tmp/gl-receipt-helper-final-unit.log`), following missing-module RED (`/tmp/gl-receipt-helper-red.log`): kernel delegation/refusal-only callback, unapproved receipt current authority, association/linkage refusal, and permission denial before SQL. Full source TypeScript and helper ESLint pass (`/tmp/gl-receipt-source-ts.log`, `/tmp/gl-receipt-source-lint.log`). These mocked helper tests do not substitute for the queued real role-revocation and tenant-isolation cases.
 
+Ops note: an ambiguous committed effect (two rows differing only by `entity_id` case) refuses the entity's operation with no in-app remedy — the duplicate row must be removed by hand before that entity can be operated again.
+
 ## Actual replay verification
 
 Independent AR review of13730fa9 was clean. The owned bank/asset/year adapters now use the helper. Actual15-case PostgreSQL suite passes (`gl-year-replay-pg-green.log`): bank and year retries with either supplied or omitted approval refuse after the original approver becomes viewer; tenant and wrong-entity effect association refuse; normal stable retries preserve the single effect. Both pools closed and lease returned. Full source TypeScript/helper-adapter ESLint and20focused unit tests pass (`gl-final-replay-ts.log`, `gl-final-replay-lint.log`, `gl-final-replay-unit.log`). Logs are copied to the durable sibling artifacts/gl-recovery directory. Existing legacy year/asset mock tests are being updated separately and final integrated CI remains outstanding.
