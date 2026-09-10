@@ -45,11 +45,20 @@ it('marks every session unverified when the reader function is not deployed',asy
  expect(()=>assertIndependentHumanReview(principal(IMPERSONATION_UNVERIFIED),'requester'))
   .toThrow('Impersonation state is unverified; an independent review cannot be recorded');
 });
-it('fails the deploy gate when the reader function is missing, and passes when it is there',async()=>{
+it.each([
+ ['reader missing',{reader:false,liveness:true,reader_exec:null,liveness_exec:true},/control_session_impersonator/],
+ ['liveness missing',{reader:true,liveness:false,reader_exec:true,liveness_exec:null},/impersonation_delegation_live/],
+ ['app_user cannot execute the reader',{reader:true,liveness:true,reader_exec:false,liveness_exec:true},/app_user.*control_session_impersonator/],
+ ['app_user cannot execute liveness',{reader:true,liveness:true,reader_exec:true,liveness_exec:false},/app_user.*impersonation_delegation_live/],
+] as const)('fails the deploy gate when %s',async(_name,row,message)=>{
  const {assertImpersonationReaderDeployed}=await import('@/lib/auth/sessionImpersonation');
- await expect(assertImpersonationReaderDeployed(async()=>[{available:false}])).rejects
-  .toThrow(/control_session_impersonator/);
- await expect(assertImpersonationReaderDeployed(async()=>[{available:true}])).resolves.toBeUndefined();
+ // Missing EXECUTE would make every authenticated request 500 while an existence check passed.
+ await expect(assertImpersonationReaderDeployed(async()=>[row])).rejects.toThrow(message);
+});
+it('passes the deploy gate only when both functions exist and app_user may execute both',async()=>{
+ const {assertImpersonationReaderDeployed}=await import('@/lib/auth/sessionImpersonation');
+ await expect(assertImpersonationReaderDeployed(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true}]))
+  .resolves.toBeUndefined();
 });
 it('is reached from withAuth and nowhere else',async()=>{
  // An approver path outside withAuth would carry no impersonation marking at all, so the
