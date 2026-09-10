@@ -247,9 +247,12 @@ it('returns the recorder connection to the pool clean after a lock-wait timeout'
   expect(dispatch.error).toBeUndefined();
   reported=errors.mock.calls.map(call=>(call[1] as {code?:unknown}|undefined)?.code);
   // Still under the lock: a clean pool has no other client backend mid-statement or mid-transaction.
+  // Scoped to THIS test process's own backends by application_name. The fixture database is
+  // shared — other suites and other sessions hold connections on it — so an unscoped count
+  // reports their perfectly legitimate work as our leak and fails whenever the box is busy.
   stray=Number((await f.pool.query(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database()
-   AND backend_type='client backend' AND pid NOT IN($1,pg_backend_pid())
-   AND state IN('active','idle in transaction','idle in transaction (aborted)')`,[holderPid])).rows[0].n);
+   AND backend_type='client backend' AND application_name=$2 AND pid NOT IN($1,pg_backend_pid())
+   AND state IN('active','idle in transaction','idle in transaction (aborted)')`,[holderPid,f.appName])).rows[0].n);
  }finally{errors.mockRestore();await holder.query('ROLLBACK');holder.release();}
  expect(stray).toBe(0);
  // The server cancelled it: 57014, never the client's code-less 'Query read timeout'.
