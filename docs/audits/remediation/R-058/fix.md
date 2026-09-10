@@ -518,7 +518,12 @@ nothing else at all.
 Re-derived from the callers, not from the predicate. All four (`upload.ts:173`,
 `inbound-email.ts:51` via `inboundEmailService`, `imapMirrorService.ts:266`,
 `whatsAppInboundService.ts:234`) INSERT a NEW `capture_events` row at
-`status = 'received'` and pass that id. No retry-of-`'failed'` and no
+`status = 'received'` and pass that id. **Corrected in round 6:** there are
+**five** `INSERT INTO capture_events` sites, not four — `whatsAppInboundService
+.ts:255` inserts a text-only command event directly at `'extracted'` and never
+calls `routeEvent`, so it is out of this predicate's path entirely. None of the
+five dedups: a re-sent Postmark webhook or a re-uploaded file INSERTs a NEW row
+at `'received'` (`inboundEmailService` computes a sha256 but only stores it). No retry-of-`'failed'` and no
 re-extraction endpoint exists (`git grep routeEvent` over `pages src scripts`;
 `vlm-extract`, `document-capture` and `document-capture-action` never write
 `captured_documents.extracted_data` for a capture event). So the only
@@ -589,3 +594,125 @@ EXIT=0
 Unit: `tests/unit/services/capture/captureRouterService.test.ts` — 22/22, updated
 for the new `RETURNING id` row (the `'extracting'` mock now returns a row) and
 the LOW-2 call reorder (event UPDATE is the 4th `sql` call, document the 5th).
+
+
+## Round 6 — the reorder had a failure mode of its own
+
+Blind review of `becea5186`: 0 HIGH · 1 MEDIUM · 2 LOW. Every round-5 claim was
+re-checked and held: the round-4 attack is closed on the claim path and the bill
+path, and M8–M11 each turn exactly one test red.
+
+### MEDIUM-1 — a failed extraction reported itself as `'extracted'` — FIXED
+
+`routeEvent` has no transaction, so round 5's reorder (event transition first,
+`captured_documents` second) moved which state a mid-flight failure leaves
+behind. If the `captured_documents` UPDATE throws — a lock timeout or deadlock
+against `post-expense`'s own write on that row, a statement timeout, a dropped
+pooled connection — the catch's recovery write was predicated
+`AND status = 'extracting'`, the event was already `'extracted'`, and the write
+matched **0 rows**: the error was logged as "dropped", `capture_events.error`
+stayed NULL, and the event claimed success with no extraction behind it. The
+reviewer measured it, and measured the pre-reorder ordering doing it correctly:
+
+```
+r5 (event write first):  event 'extracted', doc {pending, no data}, error DISCARDED
+                         → post-expense 200, claims 1; re-running routeEvent refused — no way out
+M11 (old ordering):      event 'failed',    doc {pending, no data}, error recorded
+```
+
+**Chosen by outcome: predicate the recovery write on the state the event is
+actually in** — `AND status IN ('extracting', 'extracted')`. Those are the only
+two states this call can have put the event in: `'extracting'` if the failure
+came before the event transition, `'extracted'` if the transition landed and the
+document write then failed. Both now end `'failed'` with the message recorded,
+which is what the ordering did before round 5. `'posted'` and `'discarded'` are
+still refused — they belong to another request, not to this call, and the
+mutation below shows the narrower predicate is what the test catches.
+
+**Not a transaction, and why.** Wrapping the two writes in one `BEGIN`/`COMMIT`
+is the textbook answer and is wrong here *today*: `sql` from `@/lib/neon`
+resolves `als.getStore()?.client` when one is present, and `routeEvent` is
+fired unawaited from inside `withAuth`'s `als.run` (`upload.ts:173`,
+`inbound-email.ts:51`). Issuing `BEGIN` on that client would open a nested
+transaction on the request's own connection, and `COMMIT` would commit the
+*request's* work early. That coupling is R-075, being fixed on its own branch;
+this branch must be correct on master as it stands, so it does not take a
+dependency on it. The predicate gets the same outcome — no failure is silently
+dropped, in either ordering — with a one-line diff and no new connection
+handling. If R-075 lands and `routeEvent` gets its own client, a transaction
+becomes available and this predicate stays correct either way.
+
+**Failure injected both ways** (`failWrite` in the test file's `sql` mock
+rejects one specific real statement):
+
+- `a captured_documents write failure leaves the event 'failed' with the error
+  recorded` — event `'failed'`, `error` contains the message, document
+  untouched (`'pending'`, no data).
+- `a capture_events transition failure leaves the event 'failed' with the error
+  recorded` — the original case, still correct. This is the both-directions
+  half: narrowing or widening the predicate must not lose it.
+
+### LOW-1 — the with-data (normal) branch's predicate was unpinned — FIXED
+
+Round 5 pinned the no-data and `'failed'` branches with discard-during-extraction
+tests but not the normal path, which was covered only by the round-4 *post* race
+— and a post leaves `'posted'`, which almost any weaker predicate still refuses.
+The reviewer's **MX2** (`AND status = 'extracting'` → `AND status <> 'posted'`)
+survived all 23 tests while reviving a discarded event to `'extracted'` and
+letting a post through. Added `discard during extraction (OCR returns data)
+leaves the event 'discarded', not revived`, which also asserts the document is
+untouched. MX2 re-run: now **red**.
+
+**MX3** (first predicate → `AND status IN ('received', 'extracting')`) re-run:
+still **green**, and deliberately left unpinned. Judged by outcome, not by
+survival: the mutation admits only `'extracting'`, a state nothing but this
+function produces; it admits neither `'posted'` nor `'discarded'`, so no guard
+is defeated, and a second concurrent `routeEvent` it would let in is made a
+no-op by the three post-extraction predicates anyway. There is no bad outcome to
+assert, so there is no test to write.
+
+### LOW-2 — `captureEventLock.ts` documented the opposite ordering — FIXED
+
+The allow-list comment still said `routeEvent` writes `captured_documents`
+*before* the event transition, with stale line numbers — and that sentence was
+the load-bearing justification for `'extracting'` being postable. Round 5
+reversed exactly that. Corrected: the real reason `!extracted_data` never
+refuses is the `JSONB DEFAULT '{}'` (migration 233), and after the reorder an
+`'extracting'` event carries only that empty default — so whether `'received'` /
+`'extracting'` should be postable at all is **R-077**'s decision, stated there
+as such rather than resting on an ordering that no longer holds.
+
+### Round 6 mutations (file copy in `agents/fix-r058e/r6.orig`, restored — sha256 `99be5dd3…d8d04b5e`)
+
+| Mutation | Result |
+|---|---|
+| M12 recovery predicate → `AND status = 'extracting'` (the round-5 code) | 1 failed — `a captured_documents write failure…`: event `'extracted'`, error dropped |
+| MX2 with-data predicate → `AND status <> 'posted'` | 1 failed — the new with-data discard test (was 23 passed on round 5) |
+| MX3 first predicate → `AND status IN ('received', 'extracting')` | 26 passed — survives, by design (reasoned above) |
+| restored | 26 passed |
+
+### Round 6 gates (foreground; uptime 20.30 at start)
+
+```
+env -u DATABASE_URL bun run ci
+[ci] type-check PASS   [ci] lint PASS   [ci] agent-docs PASS   [ci] security-guards PASS
+[ci] user-id-casts PASS   [ci] is-active-filters PASS   [ci] raw-transactions PASS
+[ci] vat-guard-coverage PASS   [ci] self-defining-universe PASS   [ci] findings-numbering PASS
+[ci] migration-rls PASS   [ci] unit-tests PASS   [ci] component-tests PASS
+[ci] migration-naming PASS   [ci] build PASS
+[ci] all checks passed
+CI_EXIT=0
+
+source fixture.env && bunx vitest run --config vitest.integration.config.ts --no-file-parallelism \
+  tests/integration/r058-capture-router-post-race.int.test.ts tests/integration/r058-capture-post-double-post.int.test.ts
+Test Files  2 passed (2)
+     Tests  26 passed (26)
+INT_EXIT=0
+```
+
+### Remaining exposure after round 6
+
+Unchanged and still **R-077** (out of scope): posting from the empty `'{}'`
+extraction default — at `'received'`, or at `'extracting'` for the duration of
+OCR. This branch stops such a post being *doubled* and stops a failed extraction
+being lost; it does not stop the empty post itself.

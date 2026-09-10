@@ -46,6 +46,13 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 
 let beforeExtractedWrite: (() => Promise<void>) | null = null;
+/**
+ * Failure injection for round 6. `routeEvent` has no transaction, so which of
+ * its two writes fails decides which status the event is left in when the
+ * catch runs — 'extracting' or 'extracted'. Both must end 'failed' with the
+ * error recorded.
+ */
+let failWrite: 'doc' | 'event' | null = null;
 
 vi.mock('@/lib/neon', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/neon')>();
@@ -54,6 +61,15 @@ vi.mock('@/lib/neon', async (importOriginal) => {
     const isExtractedWrite = /UPDATE\s+capture_events/.test(text)
       && /SET\s+status\s*=\s*'extracted',/.test(text)
       && /document_category/.test(text);
+    const isDocWrite = /UPDATE\s+captured_documents/.test(text) && /extracted_data\s*=/.test(text);
+    if (failWrite === 'event' && isExtractedWrite) {
+      failWrite = null;
+      return Promise.reject(new Error('r058f event write failure'));
+    }
+    if (failWrite === 'doc' && isDocWrite) {
+      failWrite = null;
+      return Promise.reject(new Error('r058f document write failure'));
+    }
     if (beforeExtractedWrite && isExtractedWrite) {
       const hook = beforeExtractedWrite;
       beforeExtractedWrite = null;
@@ -99,6 +115,7 @@ beforeEach(() => {
   ext.mode = 'data';
   ext.hold = null;
   beforeExtractedWrite = null;
+  failWrite = null;
 });
 
 assertDisposable();
@@ -156,6 +173,11 @@ async function claimsFor(documentId: string): Promise<number> {
 async function statusOf(eventId: string): Promise<string> {
   const { rows } = await pool.query('SELECT status FROM capture_events WHERE id=$1', [eventId]);
   return rows[0].status as string;
+}
+
+async function errorOf(eventId: string): Promise<string | null> {
+  const { rows } = await pool.query('SELECT error FROM capture_events WHERE id=$1', [eventId]);
+  return (rows[0].error as string | null);
 }
 
 async function documentInfo(documentId: string): Promise<{ status: string; hasData: boolean }> {
@@ -408,4 +430,92 @@ it("discard during extraction (OCR throws) leaves the event 'discarded', not rev
   const post = await call(eventId, { employeeId: employee });
   expect(post.state.statusCode).toBe(400);
   expect(await claimsFor(documentId)).toBe(0);
+}, 30_000);
+
+// ── LOW-1: the with-data branch's predicate, pinned against a discard ──────
+//
+// Round 5 pinned the no-data and 'failed' branches only. The with-data branch
+// is the NORMAL path, and a post leaves 'posted', which almost any weaker
+// predicate still refuses — so the post race does not pin it. A discard does:
+// the reviewer's MX2 (`AND status = 'extracting'` → `AND status <> 'posted'`)
+// survived all 23 tests yet revived a discarded event to 'extracted' and let a
+// post through.
+
+it("discard during extraction (OCR returns data) leaves the event 'discarded', not revived", async () => {
+  ext.mode = 'data';
+  let release!: () => void;
+  ext.hold = new Promise<void>((r) => { release = r; });
+
+  const documentId = crypto.randomUUID();
+  const eventId = crypto.randomUUID();
+  await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status)
+     VALUES($1,$2,$3,'pdf','pending')`, [documentId, company, 'r058f-discard-data.pdf']);
+  await pool.query(`INSERT INTO capture_events(id,company_id,channel,status,captured_document_id)
+     VALUES($1,$2,'api','received',$3)`, [eventId, company, documentId]);
+
+  const routing = routeEvent(eventId, company);
+  await waitForExtracting(eventId);
+
+  const dropped = await callWith(discard as typeof postExpense, eventId, { reason: 'junk' });
+  expect(dropped.state.statusCode).toBe(200);
+  expect(await statusOf(eventId)).toBe('discarded');
+
+  release();
+  ext.hold = null;
+  await routing;
+
+  expect(await statusOf(eventId)).toBe('discarded');
+  // The whole result is dropped, document included (round 5's LOW-2 ordering).
+  const doc = await documentInfo(documentId);
+  expect(doc.status).toBe('pending');
+  expect(doc.hasData).toBe(false);
+
+  const post = await call(eventId, { employeeId: employee });
+  expect(post.state.statusCode).toBe(400);
+  expect(await claimsFor(documentId)).toBe(0);
+}, 30_000);
+
+// ── MEDIUM: either write failing must still record the extraction error ────
+//
+// routeEvent has no transaction. Since the event transition is claimed BEFORE
+// the captured_documents UPDATE, a failure of that second write leaves the
+// event on 'extracted' — so a recovery write predicated on 'extracting' alone
+// matched 0 rows, dropped the error, and left the event claiming success with
+// no extraction behind it and no path out.
+
+it("a captured_documents write failure leaves the event 'failed' with the error recorded", async () => {
+  const documentId = crypto.randomUUID();
+  const eventId = crypto.randomUUID();
+  await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status)
+     VALUES($1,$2,$3,'pdf','pending')`, [documentId, company, 'r058f-doc-fail.pdf']);
+  await pool.query(`INSERT INTO capture_events(id,company_id,channel,status,captured_document_id)
+     VALUES($1,$2,'api','received',$3)`, [eventId, company, documentId]);
+
+  failWrite = 'doc';
+  await routeEvent(eventId, company);
+
+  expect(await statusOf(eventId)).toBe('failed');
+  expect(await errorOf(eventId)).toContain('r058f document write failure');
+  // Nothing of the extraction landed.
+  const doc = await documentInfo(documentId);
+  expect(doc.status).toBe('pending');
+  expect(doc.hasData).toBe(false);
+}, 30_000);
+
+it("a capture_events transition failure leaves the event 'failed' with the error recorded", async () => {
+  const documentId = crypto.randomUUID();
+  const eventId = crypto.randomUUID();
+  await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status)
+     VALUES($1,$2,$3,'pdf','pending')`, [documentId, company, 'r058f-event-fail.pdf']);
+  await pool.query(`INSERT INTO capture_events(id,company_id,channel,status,captured_document_id)
+     VALUES($1,$2,'api','received',$3)`, [eventId, company, documentId]);
+
+  failWrite = 'event';
+  await routeEvent(eventId, company);
+
+  expect(await statusOf(eventId)).toBe('failed');
+  expect(await errorOf(eventId)).toContain('r058f event write failure');
+  const doc = await documentInfo(documentId);
+  expect(doc.status).toBe('pending');
+  expect(doc.hasData).toBe(false);
 }, 30_000);

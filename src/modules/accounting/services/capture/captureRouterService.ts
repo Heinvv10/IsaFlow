@@ -234,16 +234,30 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
     const msg = err instanceof Error ? err.message : String(err);
     log.error('routeEvent: extraction failed', { captureEventId, error: msg }, 'capture-router');
 
+    // Recover from EITHER of the two writes above failing. `routeEvent` has no
+    // transaction, so the event can be in one of two states this call put it
+    // in: still 'extracting' (the failure came before the event transition),
+    // or already 'extracted' (the event transition landed and the
+    // `captured_documents` UPDATE then failed — a lock timeout or deadlock
+    // against post-expense's own write, a statement timeout, a dropped pooled
+    // connection). Predicating on 'extracting' alone dropped the second case:
+    // the event was left claiming success with no extraction behind it, the
+    // error lost, and no path out — a worse end state than the half-write the
+    // ordering was changed to prevent. Both must end 'failed' with the error
+    // recorded, which is also what the pre-reorder ordering did.
+    // 'posted' and 'discarded' are still refused: those belong to another
+    // request, not to this call.
     const failedRows = await sql`
       UPDATE capture_events
       SET status = 'failed', error = ${msg}, updated_at = NOW()
       WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-        AND status = 'extracting'
+        AND status IN ('extracting', 'extracted')
       RETURNING id
     ` as Row[];
     if (failedRows.length === 0) {
-      log.warn('routeEvent: event left \'extracting\' before the extraction error was recorded — '
-        + 'a post or a concurrent routeEvent already moved it on, so this failure is dropped', {
+      log.warn('routeEvent: the event was neither \'extracting\' nor \'extracted\' when the '
+        + 'extraction error was recorded — a post or a discard already moved it on, so this '
+        + 'failure is dropped', {
         captureEventId, companyId,
       }, 'capture-router');
     }
