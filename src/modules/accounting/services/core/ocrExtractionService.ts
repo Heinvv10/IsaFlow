@@ -5,9 +5,9 @@
  */
 
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { parseAmount } from './ocrAmountParsing';
 import {
   extractVatAmount,
-  parseAmount,
   SUBTOTAL_PATTERNS,
   SUMMARY_LINE_START,
   TOTAL_PATTERNS,

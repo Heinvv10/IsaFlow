@@ -83,12 +83,35 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
   request; two concurrent posts therefore both passed and both auto-posted a journal against the
   same source document (`idx_gl_je_source_document` is a plain index, not unique). Take the lock
   BEFORE the status check.
+- 2026-09-10: THE POSTING FENCE IS `captured_documents.posted_at`, not `status` (migration 672).
+  `status` is a lifecycle column four subsystems write for four reasons — 'reviewed' (the confirm
+  button), 'rejected' (reject), 'matched' (`attachCapturedDocToBankTx`, evidence only) and
+  'matched' again (a posting route). Used as the fence it leaked in three directions at once: the
+  confirm button RESET it, so post → confirm → post gave two journals and R2 300 of bank credit on
+  one R1 150 receipt; a `<> 'matched'` predicate ADMITTED the terminal 'rejected'; and a document
+  merely attached to a bank transaction was REFUSED with "already posted to a journal" while zero
+  journals existed. `posted_at` is written by a posting path and nothing else.
+  `claimCapturedDocumentForPosting` claims it with `WHERE posted_at IS NULL AND status <> 'rejected'`
+  and returns a `CapturedDocumentRefusal` ('already_posted' | 'rejected') so the message is true;
+  `refusalForPosting(row)` is the matching read guard. `document-capture-action`'s confirm and reject
+  both carry `AND posted_at IS NULL` and answer 400 rather than rewriting a posted document.
+  Behind it, `uq_gl_je_capture_source_document` is a partial UNIQUE index on
+  `gl_journal_entries(company_id, source_document_id) WHERE source = 'auto_expense_receipt'` — it is
+  scoped to that source because the evidence-attach paths stamp `source_document_id` onto an
+  existing provisional bank journal, which is not a posting event.
+- 2026-09-10: `capture/[id]/post` — the ONLY posting button in the product (`capture/inbox.tsx`) —
+  is inside the fence. It read no document state at all, so a receipt already turned into a GL
+  journal could be posted again there as an auto-approved supplier invoice carrying the same
+  `tax_amount`: one slip, the same input VAT in the VAT201 twice. It now locks both rows through
+  `lockCaptureEventForPosting` and claims the document immediately before the `supplier_invoices`
+  INSERT — after the duplicate-blocked branch, which answers 409 having already written the event's
+  'failed' stamp.
 - 2026-09-10: the cross-route double post, which was NOT a race. `post-expense` never read
   `captured_documents.status` at all, so posting through `receipt-to-journal` and then through the
   capture inbox wrote two VAT-bearing journals against one receipt in sequence. Every posting route
-  now calls `claimCapturedDocumentForPosting(companyId, documentId, category?)` — a
-  status-predicated `UPDATE … WHERE status <> 'matched' RETURNING id` — BEFORE its first ledger
-  write, and answers 400 (or `CapturedDocumentAlreadyPostedError`) when it matches no row. Place it
+  now calls `claimCapturedDocumentForPosting(companyId, documentId, category?)` BEFORE its first
+  ledger write, and answers 400 (or `CapturedDocumentAlreadyPostedError`) when it matches no row.
+  (The predicate was `status <> 'matched'` at the time; see the 2026-09-10 entry above.) Place it
   after the last read-only step: `withAuth` COMMITs on 4xx, and a refusal there has written nothing.
   Lock order is document-then-event on every path — `lockCaptureEventForPosting` takes both in that
   order — so there is no cycle; the earlier "opposite order / deadlock" note was wrong.

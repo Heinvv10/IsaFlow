@@ -11,6 +11,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { ClaimHeaderBanners, ClaimToast } from '@/components/accounting/expense/ClaimHeaderBanners';
 import {
   ChevronLeft, Loader2, AlertCircle, Send, Check, X, FileCheck,
   MapPin, Receipt, DollarSign,
@@ -255,41 +256,16 @@ export default function ExpenseClaimDetail() {
           </div>
         </div>
 
-        {toast && (
-          <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${toast.ok ? 'bg-teal-600 text-white' : 'bg-red-700 text-white'}`}>
-            {toast.msg}
-          </div>
-        )}
+        <ClaimToast toast={toast} />
 
         <div className="px-6 py-6 space-y-4">
-          {vatAdvice.map((advice) => (
-            <div key={advice} className="px-4 py-3 rounded-lg bg-amber-900/30 text-amber-200 text-sm flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>{advice}</span>
-            </div>
-          ))}
-
-          {claim.rejectionReason && (
-            <div className="px-4 py-3 rounded-lg bg-red-900/30 text-red-300 text-sm">
-              <strong>Rejected:</strong> {claim.rejectionReason}
-            </div>
-          )}
-
-          {/* Summary */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">Total</p>
-              <p className="text-2xl text-slate-100 font-semibold mt-1">{fmtZAR(claim.totalAmount)}</p>
-            </div>
-            <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">VAT</p>
-              <p className="text-2xl text-slate-100 font-semibold mt-1">{fmtZAR(claim.totalVat)}</p>
-            </div>
-            <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">Lines</p>
-              <p className="text-2xl text-slate-100 font-semibold mt-1">{claim.lines.length}</p>
-            </div>
-          </div>
+          <ClaimHeaderBanners
+            vatAdvice={vatAdvice}
+            rejectionReason={claim.rejectionReason}
+            totalAmount={claim.totalAmount}
+            totalVat={claim.totalVat}
+            lineCount={claim.lines.length}
+          />
 
           {/* Lines */}
           <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl overflow-hidden">

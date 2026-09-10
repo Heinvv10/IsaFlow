@@ -23,9 +23,11 @@ import {
   parseReceiptType,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
+  refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -65,15 +67,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
-  // `status` was selected and never read. The handler stamps the document
-  // 'matched' at the end but refused nothing, and nothing else on this path is
-  // idempotent — so a double-click or a client retry created and auto-posted a
-  // SECOND journal against the same source_document_id, doubling the expense
-  // and the bank credit. Worth refusing now that migration 509 has made this
-  // path actually postable. The check is a read, before any write, so the 4xx
-  // commits nothing.
-  if (doc.status === 'matched') {
-    return apiResponse.badRequest(res, 'Document already posted to a journal');
+  // Nothing on this path is idempotent, so a double-click or a client retry
+  // created and auto-posted a SECOND journal against the same
+  // source_document_id, doubling the expense and the bank credit. The refusal
+  // reads `posted_at`, not `status`: a document that is merely 'matched'
+  // because its slip was attached to a bank transaction has no journal and is
+  // still postable. The check is a read, before any write, so the 4xx commits
+  // nothing.
+  const readRefusal = refusalForPosting(doc);
+  if (readRefusal) {
+    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[readRefusal]);
   }
   if (!doc.extracted_data) return apiResponse.badRequest(res, 'Document has no extracted data');
 
@@ -199,17 +202,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Claim the document BEFORE the first ledger write, not after it.
   //
   // The stamp used to be the last statement in the handler, which made the
-  // status read above a check-then-act — and the OTHER posting route
-  // (`capture/[id]/post-expense`) never read this column at all, so posting a
-  // receipt here and then posting the same document from the capture inbox
-  // wrote two VAT-bearing journals against one receipt with no concurrency
-  // involved. Claiming here settles both: the status-predicated UPDATE is the
-  // one write that decides who posts, and it happens while the row is held.
+  // read above a check-then-act — and the OTHER posting routes never read this
+  // document at all, so posting a receipt here and then posting the same
+  // document from the capture inbox wrote two VAT-bearing journals against one
+  // receipt with no concurrency involved. Claiming here settles all of them:
+  // the `posted_at IS NULL` UPDATE is the one write that decides who posts, and
+  // it happens while the row is held.
   //
   // This is the last point at which a 4xx is safe — `withAuth` COMMITs on 4xx,
   // and a refusal here has written nothing because the UPDATE matched no row.
-  if (!await claimCapturedDocumentForPosting(companyId, documentId)) {
-    return apiResponse.badRequest(res, 'Document already posted to a journal');
+  const refusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  if (refusal) {
+    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
   }
 
   const entry = await createJournalEntry(companyId, {

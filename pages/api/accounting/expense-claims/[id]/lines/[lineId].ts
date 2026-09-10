@@ -59,6 +59,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
+    // The advice query stays on this branch. Deleting a line cannot INTRODUCE a
+    // denied-VAT claim, but the lines that remain can still carry one, so
+    // answering `[]` here would let a client clear a warning that is still
+    // true. One indexed query per DELETE is the cheaper of the two mistakes.
     const refreshed = await deleteLine(lineId, id, companyId);
     return apiResponse.success(res, { claim: refreshed, warnings: await claimInputVatWarnings(id, companyId) });
   }

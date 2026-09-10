@@ -21,10 +21,12 @@ import {
   type ReceiptAccountMapping,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   CapturedDocumentAlreadyPostedError,
   claimCapturedDocumentForPosting,
   lockCaptureEventForPosting,
+  refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -84,13 +86,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Event already posted');
   }
 
-  // The document's own status, which this route never read. `receipt-to-journal`
-  // refuses on it and stamps it; this route stamped it and refused on the EVENT
-  // instead, so posting a receipt there and then opening the same document in
-  // the capture inbox wrote a SECOND VAT-bearing journal against one receipt —
-  // an ordinary two-step operator workflow, no concurrency in it anywhere.
-  if (event.documentStatus === 'matched') {
-    return apiResponse.badRequest(res, 'Document already posted to a journal');
+  // The document's own posting claim, which this route never read — it refused
+  // on the EVENT instead, so posting a receipt on another route and then
+  // opening the same document in the capture inbox wrote a SECOND VAT-bearing
+  // journal against one receipt: an ordinary two-step operator workflow, no
+  // concurrency in it anywhere.
+  const readRefusal = refusalForPosting({
+    status: event.documentStatus,
+    posted_at: event.documentPostedAt,
+  });
+  if (readRefusal) {
+    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[readRefusal]);
   }
 
   if (!event.extractedData) {
@@ -197,12 +203,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       mileageTo: null,
     };
 
-    // Claim the document before the first write: the status read above is a
-    // check-then-act, and this status-predicated UPDATE is what settles it. Last
+    // Claim the document before the first write: the read above is a
+    // check-then-act, and this `posted_at IS NULL` UPDATE is what settles it. Last
     // point at which a 4xx is safe — a refusal matched no row, so
     // `withAuth`'s commit-on-4xx commits nothing.
-    if (!await claimCapturedDocumentForPosting(companyId, documentId, 'expense')) {
-      return apiResponse.badRequest(res, 'Document already posted to a journal');
+    const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense');
+    if (claimRefusal) {
+      return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
     }
 
     const claim = await createClaim({
