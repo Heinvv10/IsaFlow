@@ -171,3 +171,13 @@ independent named review, correction verification, then root integration. Only
 then rerun complete integrated `bun run ci`; build/type/lint/component success at
 old c4b2 is not final CI. New161 registry HTTP contracts and full synthetic
 financial workflows remain distinct outstanding programme acceptance checks.
+
+## GL implementation checkpoint
+
+Branch feat/mcp-ci-gl39-20260910, base447f + plan7239. Focused six-file baseline
+at03:53 reproduced exactly39 failures/36 passes; log
+`/tmp/isaflow-gl39-baseline-447.log`. New gl39Fixture/gl39Posting/gl39Reversal
+actual PG tests are authored before any old assertion removal. No production
+edits. Fixture uses real withControlRequest, current rights, source material,
+approval request/independent decision and actual GL effects. A transaction-local
+synthetic contra-post trigger will test rollback (DDL itself rolls back).
