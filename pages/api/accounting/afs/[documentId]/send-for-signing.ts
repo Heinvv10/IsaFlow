@@ -4,9 +4,8 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
-import fs from 'fs/promises';
+import { createHash } from 'crypto';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { afsHtmlPath } from '@/lib/storage/afsStorage';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -17,6 +16,7 @@ import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { countMandatorySectionsBelow, lockDocumentForTransition } from '@/modules/accounting/services/afs/afsDocumentTransitions';
 import { documentContentFingerprint } from '@/modules/accounting/services/afs/afsSigningIntegrity';
+import { renderDocumentHtml } from '@/modules/accounting/services/afs/pdfExportService';
 import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
@@ -98,13 +98,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // 3. Load rendered AFS HTML (stored by render service)
-  const htmlPath = afsHtmlPath(companyId, documentId);
+  // 3. Render the statements from the CURRENT rows — the same rows the fingerprint below is
+  //     taken over. There is no stored artifact to sign: nothing in the product writes one, so
+  //     reading a file here would post bytes of unknown provenance and arbitrary age.
   let html: string;
   try {
-    html = await fs.readFile(htmlPath, 'utf-8');
-  } catch {
-    return apiResponse.badRequest(res, 'Rendered HTML not yet generated for this document');
+    // skipChecks: the pre-export blocker gate is the export's own policy and runs there. What
+    // matters here is that the bytes are DERIVED from the current rows rather than read from a
+    // stored artifact; a render that cannot be produced at all refuses the send.
+    html = await renderDocumentHtml(documentId, companyId, { skipChecks: true });
+  } catch (err) {
+    log.warn('Signing refused — the statements could not be rendered from the current content',
+      { companyId, documentId, error: err instanceof Error ? err.message : String(err) }, 'send-for-signing-api');
+    return apiResponse.conflict(
+      res,
+      `Cannot send for signing: the statements could not be rendered from the current content (${err instanceof Error ? err.message : 'render failed'})`,
+    );
   }
 
   // 4. Load company name for document title
@@ -116,14 +125,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
+  // Both fingerprints: the rows that were rendered, and the exact bytes that were posted.
   const fingerprint = await documentContentFingerprint(sql, companyId, documentId);
+  const payloadSha256 = createHash('sha256').update(html, 'utf8').digest('hex');
   const { signumDocumentId, signingTokens } = await sendForSigning(
     documentId,
     companyId,
     html,
     title,
     signers,
-    fingerprint,
+    { contentFingerprint: fingerprint, payloadSha256 },
   );
 
   // 6. Notify each signer with their individual signing URL

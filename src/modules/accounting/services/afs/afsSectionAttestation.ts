@@ -67,6 +67,7 @@ export async function lockSectionForWrite(
   companyId: string,
   documentId: string,
   sectionId: string,
+  options: { allowWhileSigning?: boolean } = {},
 ): Promise<LockedSection> {
   await setLockTimeout();
   let rows: Record<string, unknown>[];
@@ -95,7 +96,7 @@ export async function lockSectionForWrite(
   }
   // Out for signature: the signatories are signing the content as it stands, so it may not move
   // under them. The webhook hands the document back if it changed anyway.
-  if (row.signing_requested_at != null) {
+  if (row.signing_requested_at != null && !options.allowWhileSigning) {
     throw new ReviewError('Document is out for signature — no edits until signing completes', 'DOCUMENT_LOCKED');
   }
   return {

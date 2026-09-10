@@ -51,6 +51,11 @@ export interface AfsDocument {
   status: DocumentStatus;
   lockedAt: Date | null;
   lockedBy: string | null;
+  /** Set while the document is out for signature: no section of it takes a write. */
+  signingRequestedAt: Date | null;
+  /** Why the last signature was not accepted, and where the signed copy was quarantined. */
+  signingRefusedAt: Date | null;
+  signingRefusedReason: string | null;
   version: number;
   pisScore: number | null;
   createdAt: Date;

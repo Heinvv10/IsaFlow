@@ -44,7 +44,7 @@ export async function sendForSigning(
   html: string,
   title: string,
   signers: Array<{ email: string; name: string }>,
-  contentFingerprint: string,
+  evidence: { contentFingerprint: string; payloadSha256: string },
 ): Promise<{ signumDocumentId: string; signingTokens: Array<{ email: string; signingToken: string }> }> {
   const apiUrl = getRequiredEnv('SIGNUM_API_URL');
   const apiKey = getRequiredEnv('SIGNUM_API_KEY');
@@ -81,7 +81,8 @@ export async function sendForSigning(
     UPDATE afs_documents
     SET signum_document_id          = ${json.documentId},
         signing_requested_at        = now(),
-        signing_content_fingerprint = ${contentFingerprint},
+        signing_content_fingerprint = ${evidence.contentFingerprint},
+        signing_payload_sha256      = ${evidence.payloadSha256},
         signing_refused_at          = NULL,
         signing_refused_reason      = NULL,
         updated_at                  = now()
@@ -90,7 +91,7 @@ export async function sendForSigning(
 
   log.info(
     'Signum document created',
-    { documentId, signumDocumentId: json.documentId, signerCount: signers.length },
+    { documentId, signumDocumentId: json.documentId, signerCount: signers.length, payloadSha256: evidence.payloadSha256 },
     'signumIntegrationService',
   );
 

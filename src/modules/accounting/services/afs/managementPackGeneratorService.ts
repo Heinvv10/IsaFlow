@@ -14,16 +14,13 @@ type Row = DbRow;
  * A pack generated without review used to be written straight to 'signed_off' — the status that
  * LOCKS a document — with no signatory, and delivered. There is no status for "published without
  * a signature" yet (the follow-up), and inventing one here would change a vocabulary the review
- * workflow, the portal and the section write guard all read. Until it exists, such a pack is not
- * generated at all.
+ * workflow, the portal and the section write guard all read. Until it exists the pack is still
+ * generated, as a draft a person can open and send on, but it is NOT delivered — and the caller
+ * and the scheduler are told why, so nobody is left wondering where the month's pack went.
  */
-export class UnreviewedPackUnavailableError extends Error {
-  constructor() {
-    super('Management packs that skip review need a published status that is not yet available — '
-      + 'turn review on for this company, or wait for the published state.');
-    this.name = 'UnreviewedPackUnavailableError';
-  }
-}
+export const UNREVIEWED_PACK_NOT_DELIVERED =
+  'Not delivered: a pack that skips review needs a published status that is not yet available. '
+  + 'The draft is ready to review and send by hand.';
 
 export class DuplicatePackError extends Error {
   constructor(message: string) {
@@ -44,6 +41,8 @@ export interface GeneratePackResult {
   sectionsGenerated: number;
   status: 'draft';
   deliveryScheduled: boolean;
+  /** Why no pack went out, when none did. Null when delivery follows the normal review path. */
+  deliveryWithheldReason: string | null;
 }
 
 interface PackData {
@@ -176,9 +175,6 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const { companyId, period, config, triggeredBy } = options;
   log.info('Starting management pack generation', { companyId, period, triggeredBy }, 'managementPackGeneratorService');
 
-  // Refused before anything is written or delivered.
-  if (!config.reviewRequired) throw new UnreviewedPackUnavailableError();
-
   if (await checkExisting(companyId, period)) {
     throw new DuplicatePackError(`Management pack already generated for period ${period}`);
   }
@@ -276,7 +272,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     });
   }
 
-  // reviewRequired is enforced above: a generated pack is always a draft awaiting review.
+  // Always a draft: nothing here is signed, so nothing may claim a status that says it is.
   const finalStatus = 'draft' as const;
 
   await sql`
@@ -284,8 +280,14 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     WHERE id = ${doc.id}::UUID AND company_id = ${companyId}::UUID
   `;
 
+  // Delivery follows the review, as it always has: the scheduler delivers on delivery_day.
+  // A pack that skips review is generated and held back, with the reason on the result.
   const deliveryScheduled = false;
+  const deliveryWithheldReason = config.reviewRequired ? null : UNREVIEWED_PACK_NOT_DELIVERED;
+  if (deliveryWithheldReason) {
+    log.warn('Pack generated but not delivered', { companyId, period, documentId: doc.id, reason: deliveryWithheldReason }, 'managementPackGeneratorService');
+  }
 
-  log.info('Pack generated', { companyId, period, documentId: doc.id, finalStatus }, 'managementPackGeneratorService');
-  return { documentId: doc.id, sectionsGenerated: sectionRows.length, status: finalStatus, deliveryScheduled };
+  log.info('Pack generated', { companyId, period, documentId: doc.id, finalStatus, deliveryWithheldReason }, 'managementPackGeneratorService');
+  return { documentId: doc.id, sectionsGenerated: sectionRows.length, status: finalStatus, deliveryScheduled, deliveryWithheldReason };
 }

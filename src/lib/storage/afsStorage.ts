@@ -26,6 +26,15 @@ export function afsSignedPdfPath(companyId: string, documentId: string): string 
   return assertWithinRoot(path.join(STORAGE_ROOT, 'afs-signed', companyId, `${documentId}.pdf`));
 }
 
+/**
+ * Where a signed PDF goes when the signature is REFUSED: the signatories did sign, so the
+ * artifact is evidence and is kept — out of the document's own path, where nothing serves it
+ * as the document's signed copy.
+ */
+export function afsQuarantinedPdfPath(companyId: string, documentId: string, stamp: string): string {
+  return assertWithinRoot(path.join(STORAGE_ROOT, 'afs-signed-quarantine', companyId, `${documentId}-${stamp}.pdf`));
+}
+
 export function afsHtmlPath(companyId: string, documentId: string): string {
   return assertWithinRoot(path.join(STORAGE_ROOT, 'afs-html', companyId, `${documentId}.html`));
 }

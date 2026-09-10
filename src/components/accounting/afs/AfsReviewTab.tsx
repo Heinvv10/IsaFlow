@@ -226,6 +226,22 @@ export function AfsReviewTab({ documentId, doc, onDocUpdate }: Props) {
           </div>
         )}
 
+        {doc?.signingRequestedAt && !doc.signingRefusedAt && (
+          <p className="mt-3 text-xs text-slate-500">
+            Out for signature since {fmtDate(doc.signingRequestedAt)} — sections are locked until signing completes.
+          </p>
+        )}
+
+        {doc?.signingRefusedReason && (
+          <div className="mt-3 flex items-start gap-2 text-sm text-amber-400 bg-amber-900/20 border border-amber-800 rounded px-3 py-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              <strong>Signature not accepted{doc.signingRefusedAt ? ` on ${fmtDate(doc.signingRefusedAt)}` : ''}.</strong>{' '}
+              {doc.signingRefusedReason}
+            </span>
+          </div>
+        )}
+
         {workflowError && (
           <div className="mt-3 flex items-center gap-2 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded px-3 py-2">
             <AlertCircle className="w-4 h-4 shrink-0" /> {workflowError}

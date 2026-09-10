@@ -36,13 +36,10 @@ async function lockOrRefuse(
   }
 }
 
-/** The portal prints the narrative wherever a section has no content blocks to print. */
-const narrativeIsDisplayed = (content: NoteContent | null): boolean => !Array.isArray(content?.blocks);
-
 // ── POST — generate AI narrative ─────────────────────────────────────────────
 
 async function handleGenerate(
-  _req: NextApiRequest,
+  req: NextApiRequest,
   res: NextApiResponse,
   companyId: string,
   userId: string,
@@ -56,9 +53,10 @@ async function handleGenerate(
   // the sign-off, submission and promotion that wait on its row — while holding a pool
   // connection. The lock is taken afterwards, and the content re-checked under it.
   const rows = await sql`
-    SELECT s.section_type, s.content,
+    SELECT s.section_type, s.content, s.overrides, s.ai_narrative_accepted,
            c.name AS company_name,
            d.reporting_framework AS framework, d.fiscal_year, d.status AS document_status,
+           d.signing_requested_at,
            nt.ai_prompt_template
     FROM afs_sections s
     JOIN afs_documents d ON d.id = s.document_id AND d.company_id = ${companyId}::UUID
@@ -78,8 +76,14 @@ async function handleGenerate(
     apiResponse.notFound(res, 'Section', sectionId);
     return;
   }
+  // Refused BEFORE the rate limiter and the model call: a locked document must not spend
+  // model budget to be told no.
   if (row.document_status === 'signed_off' || row.document_status === 'filed') {
     apiResponse.conflict(res, 'Document is locked — no edits allowed');
+    return;
+  }
+  if (row.signing_requested_at != null) {
+    apiResponse.conflict(res, 'Document is out for signature — no edits until signing completes');
     return;
   }
 
@@ -89,7 +93,16 @@ async function handleGenerate(
     return;
   }
 
+  // Sonnet-backed (pricier) — per-IP + per-company + per-company-daily budget cap (pentest H8).
+  if (!(await checkAiRateLimit(req, companyId, 'afs-ai-narrative', { ipMax: 30, companyMax: 20, dailyMax: 100 }))) {
+    apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
+    return;
+  }
+
   const contentAtRead = (row.content as NoteContent | null) ?? null;
+  // Everything the statements or the portal render from, not only `content`: an accepted
+  // narrative writes `overrides`, which is what is printed when it is there.
+  const renderedAtRead = JSON.stringify([row.content ?? null, row.overrides ?? null, Boolean(row.ai_narrative_accepted)]);
   const companyContext: CompanyContext = {
     name: row.company_name as string,
     framework: row.framework as ReportingFramework,
@@ -109,19 +122,20 @@ async function handleGenerate(
   // Re-checked under the lock: a narrative written about content that has since changed would
   // describe figures the section no longer holds.
   const current = (await sql`
-    SELECT content FROM afs_sections
+    SELECT content, overrides, ai_narrative_accepted FROM afs_sections
     WHERE id = ${sectionId}::UUID AND document_id = ${documentId}::UUID AND company_id = ${companyId}::UUID
   `)[0] as DbRow | undefined;
-  if (JSON.stringify(current?.content ?? null) !== JSON.stringify(contentAtRead)) {
+  const renderedNow = JSON.stringify([current?.content ?? null, current?.overrides ?? null, Boolean(current?.ai_narrative_accepted)]);
+  if (renderedNow !== renderedAtRead) {
     apiResponse.conflict(res, 'Section content changed while the narrative was being generated — regenerate it');
     return;
   }
 
   try {
-    // Where the section has no content blocks, the narrative IS what the portal shows.
-    if (narrativeIsDisplayed(contentAtRead)) {
-      await voidSectionAttestation(companyId, section, userId, 'AI narrative generated for a section with no content blocks');
-    }
+    // The narrative and its accepted flag are content: they are in the signing fingerprint, the
+    // portal prints the narrative where a section has no blocks, and updateAfsSection voids on
+    // either. So generating one voids the review the old state carried.
+    await voidSectionAttestation(companyId, section, userId, 'AI narrative generated for the section');
   } catch (err) {
     if (sendReviewError(res, err, 'Section', sectionId)) return;
     throw err;
@@ -220,10 +234,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!sectionId) return;
 
   if (req.method === 'POST') {
-    // Sonnet-backed (pricier) — per-IP + per-company + per-company-daily budget cap (pentest H8).
-    if (!(await checkAiRateLimit(req, companyId, 'afs-ai-narrative', { ipMax: 30, companyMax: 20, dailyMax: 100 }))) {
-      return apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
-    }
     return handleGenerate(req, res, companyId, userId, documentId, sectionId);
   }
   if (req.method === 'PUT') {

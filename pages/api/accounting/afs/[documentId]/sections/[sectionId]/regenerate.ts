@@ -10,11 +10,6 @@ import { ReportingFrameworkEnum } from '@/lib/schemas/afs';
 import { log } from '@/lib/logger';
 import { generateSection } from '@/modules/accounting/services/afs/noteEngineService';
 import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
-import {
-  lockSectionForWrite,
-  voidSectionAttestation,
-  type LockedSection,
-} from '@/modules/accounting/services/afs/afsSectionAttestation';
 
 const BodySchema = z.object({
   fiscalYear: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(
@@ -40,17 +35,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Regenerating AFS section', { companyId, documentId, sectionId }, 'afs/regenerate');
 
-  let section: LockedSection;
   try {
-    section = await lockSectionForWrite(companyId, documentId, sectionId);
+    // generateSection takes the write guard itself: bound to this document, refused while it
+    // is locked or out for signature, and the review of the replaced content is voided.
+    await generateSection(companyId, documentId, sectionId, fiscalYear, framework, companyReq.user.id);
   } catch (err) {
     if (sendReviewError(res, err, 'Section', sectionId)) return;
     throw err;
   }
-
-  // Regenerated content replaces what was reviewed.
-  await voidSectionAttestation(companyId, section, companyReq.user.id, 'Section regenerated from the ledger');
-  await generateSection(companyId, documentId, sectionId, fiscalYear, framework);
 
   return apiResponse.success(res, { sectionId });
 }
