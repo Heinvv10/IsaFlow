@@ -1,0 +1,214 @@
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=8586246.76..8586246.77 rows=2 width=442) (actual time=122425.661..122425.682 rows=4 loops=1)
+   Sort Key: (((COALESCE(j.posted_at, j.created_at) AT TIME ZONE 'Africa/Johannesburg'::text))::date), ((COALESCE(j.posted_by, j.created_by))::text), c.default_currency, j.id
+   Sort Method: quicksort  Memory: 39kB
+   Buffers: shared hit=561 read=10986723
+   ->  Nested Loop Left Join  (cost=4293092.84..8586246.75 rows=2 width=442) (actual time=32690.432..122425.647 rows=4 loops=1)
+         Buffers: shared hit=552 read=10986723
+         ->  Nested Loop Left Join  (cost=4293068.31..8586165.06 rows=2 width=301) (actual time=32677.731..122412.758 rows=4 loops=1)
+               Buffers: shared hit=539 read=10986700
+               ->  Nested Loop Left Join  (cost=132156.12..264340.62 rows=2 width=261) (actual time=2085.316..5405.050 rows=4 loops=1)
+                     Buffers: shared hit=186 read=440690
+                     ->  Nested Loop Left Join  (cost=132087.67..264203.67 rows=2 width=189) (actual time=2073.316..5392.813 rows=4 loops=1)
+                           Buffers: shared hit=162 read=440670
+                           ->  Nested Loop  (cost=15.96..60.21 rows=2 width=128) (actual time=737.997..738.050 rows=4 loops=1)
+                                 Buffers: shared hit=149 read=17
+                                 ->  Seq Scan on companies c  (cost=7.77..10.12 rows=1 width=20) (actual time=732.302..732.305 rows=1 loops=1)
+                                       Filter: ((hashed SubPlan 6) AND (id = 'cd9de97b-eed5-4f50-8748-8b2939b2e0e0'::uuid))
+                                       Rows Removed by Filter: 23
+                                       Buffers: shared hit=136 read=5
+                                       SubPlan 6
+                                         ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=7.094..7.102 rows=1 loops=1)
+                                               Buffers: shared hit=136 read=3
+                                               ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=6.572..6.573 rows=1 loops=1)
+                                 ->  Index Scan using gl_journal_entries_pkey on gl_journal_entries j  (cost=8.20..50.06 rows=2 width=124) (actual time=5.691..5.737 rows=4 loops=1)
+                                       Index Cond: (id = ANY ('{000005b8-7889-418b-b037-e50f46d45c5e,00000791-cc1b-4402-ac85-281cb44d0fe6,00000a60-5faf-4414-af96-721e90c7047f,00000af2-c12e-4350-8974-519f97aa544a,00000bd4-47ee-4eca-ad57-f1590a2fb13e}'::uuid[]))
+                                       Filter: ((hashed SubPlan 5) AND (entry_date <= '2026-09-09'::date) AND (company_id = 'cd9de97b-eed5-4f50-8748-8b2939b2e0e0'::uuid) AND ((status)::text = 'posted'::text))
+                                       Rows Removed by Filter: 1
+                                       Buffers: shared hit=13 read=12
+                                       SubPlan 5
+                                         ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=5.552..5.557 rows=1 loops=1)
+                                               Buffers: shared hit=2
+                                               ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=5.303..5.303 rows=1 loops=1)
+                           ->  Limit  (cost=132071.71..132071.71 rows=1 width=182) (actual time=1163.685..1163.686 rows=1 loops=4)
+                                 Buffers: shared hit=13 read=440653
+                                 ->  Sort  (cost=132071.71..132071.71 rows=1 width=182) (actual time=1163.684..1163.684 rows=1 loops=4)
+                                       Sort Key: cv.version DESC, ((cv.entity_id = (j.id)::text)) DESC, cv.entity_id COLLATE "C"
+                                       Sort Method: quicksort  Memory: 25kB
+                                       Buffers: shared hit=13 read=440653
+                                       ->  WindowAgg  (cost=132071.66..132071.70 rows=1 width=182) (actual time=1163.672..1163.673 rows=1 loops=4)
+                                             Buffers: shared hit=5 read=440653
+                                             ->  WindowAgg  (cost=132071.66..132071.68 rows=1 width=53) (actual time=1163.665..1163.667 rows=1 loops=4)
+                                                   Buffers: shared hit=5 read=440653
+                                                   ->  Sort  (cost=132071.66..132071.66 rows=1 width=45) (actual time=1163.648..1163.649 rows=1 loops=4)
+                                                         Sort Key: cv.version
+                                                         Sort Method: quicksort  Memory: 25kB
+                                                         Buffers: shared hit=5 read=440653
+                                                         ->  Result  (cost=39381.48..132071.65 rows=1 width=45) (actual time=563.599..1163.643 rows=1 loops=4)
+                                                               One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                                                               Buffers: shared hit=5 read=440653
+                                                               ->  Bitmap Heap Scan on control_entity_versions cv  (cost=39381.48..132071.65 rows=1 width=45) (actual time=562.260..1162.302 rows=1 loops=4)
+                                                                     Recheck Cond: ((company_id = j.company_id) AND (entity_type = 'journal_entry'::text))
+                                                                     Filter: ((hashed SubPlan 7) AND (lower(entity_id) = (j.id)::text))
+                                                                     Rows Removed by Filter: 2879539
+                                                                     Heap Blocks: exact=267868
+                                                                     Buffers: shared hit=5 read=440653
+                                                                     ->  Bitmap Index Scan on control_entity_versions_canonical_idx  (cost=0.00..39373.71 rows=554915 width=0) (actual time=198.048..198.048 rows=2879540 loops=4)
+                                                                           Index Cond: ((company_id = j.company_id) AND (entity_type = 'journal_entry'::text))
+                                                                           Buffers: shared read=172788
+                                                                     SubPlan 7
+                                                                       ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=7.164..7.170 rows=1 loops=1)
+                                                                             Buffers: shared hit=2
+                                                                             ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=6.929..6.930 rows=1 loops=1)
+                     ->  Aggregate  (cost=68.45..68.46 rows=1 width=72) (actual time=3.053..3.054 rows=1 loops=4)
+                           Buffers: shared hit=24 read=20
+                           InitPlan 9 (returns $14)
+                             ->  Aggregate  (cost=34.26..34.27 rows=1 width=32) (actual time=1.370..1.370 rows=1 loops=4)
+                                   Buffers: shared hit=22
+                                   ->  Subquery Scan on f  (cost=34.22..34.25 rows=3 width=56) (actual time=1.349..1.351 rows=6 loops=4)
+                                         Buffers: shared hit=22
+                                         ->  Limit  (cost=34.22..34.22 rows=3 width=96) (actual time=1.343..1.345 rows=6 loops=4)
+                                               Buffers: shared hit=22
+                                               ->  Sort  (cost=34.22..34.22 rows=3 width=96) (actual time=1.341..1.342 rows=6 loops=4)
+                                                     Sort Key: x.id
+                                                     Sort Method: quicksort  Memory: 25kB
+                                                     Buffers: shared hit=22
+                                                     ->  Index Scan using idx_gl_jl_company_entry on gl_journal_lines x  (cost=8.33..34.19 rows=3 width=96) (actual time=1.330..1.332 rows=6 loops=4)
+                                                           Index Cond: ((company_id = j.company_id) AND (journal_entry_id = j.id))
+                                                           Filter: (hashed SubPlan 8)
+                                                           Buffers: shared hit=22
+                                                           SubPlan 8
+                                                             ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=5.203..5.208 rows=1 loops=1)
+                                                                   Buffers: shared hit=2
+                                                                   ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=5.019..5.019 rows=1 loops=1)
+                           ->  Index Scan using idx_gl_jl_company_entry on gl_journal_lines l  (cost=8.33..34.16 rows=3 width=4) (actual time=1.667..1.670 rows=6 loops=4)
+                                 Index Cond: ((company_id = j.company_id) AND (journal_entry_id = j.id))
+                                 Filter: (hashed SubPlan 10)
+                                 Buffers: shared hit=2 read=20
+                                 SubPlan 10
+                                   ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=6.408..6.413 rows=1 loops=1)
+                                         Buffers: shared hit=2
+                                         ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=6.217..6.218 rows=1 loops=1)
+               ->  Aggregate  (cost=4160912.19..4160912.20 rows=1 width=40) (actual time=29251.922..29251.923 rows=1 loops=4)
+                     Buffers: shared hit=353 read=10546010
+                     InitPlan 14 (returns $23)
+                       ->  Aggregate  (cost=2080689.78..2080689.79 rows=1 width=32) (actual time=14397.344..14397.345 rows=1 loops=4)
+                             Buffers: shared hit=347 read=5273022
+                             ->  Subquery Scan on f_1  (cost=2080689.49..2080689.73 rows=19 width=92) (actual time=14397.297..14397.302 rows=12 loops=4)
+                                   Buffers: shared hit=347 read=5273022
+                                   ->  Limit  (cost=2080689.49..2080689.54 rows=19 width=100) (actual time=14397.284..14397.287 rows=12 loops=4)
+                                         Buffers: shared hit=347 read=5273022
+                                         ->  Sort  (cost=2080689.49..2080689.54 rows=19 width=100) (actual time=14397.282..14397.283 rows=12 loops=4)
+                                               Sort Key: x_1.occurred_at, x_1.id
+                                               Sort Method: quicksort  Memory: 25kB
+                                               Buffers: shared hit=347 read=5273022
+                                               ->  Result  (cost=133397.48..2080689.09 rows=19 width=100) (actual time=6943.534..14397.263 rows=12 loops=4)
+                                                     One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                                                     Buffers: shared hit=347 read=5273019
+                                                     ->  Nested Loop Left Join  (cost=133397.48..2080688.94 rows=19 width=84) (actual time=6943.528..14397.255 rows=12 loops=4)
+                                                           Buffers: shared hit=347 read=5273019
+                                                           ->  Bitmap Heap Scan on control_change_events x_1  (cost=133372.93..2080222.34 rows=19 width=52) (actual time=6936.846..14390.510 rows=12 loops=4)
+                                                                 Recheck Cond: (company_id = j.company_id)
+                                                                 Filter: ((hashed SubPlan 11) AND (action <> ALL ('{baseline_observed,journal.post}'::text[])) AND (entity_type = 'journal_entry'::text) AND (lower(entity_id) = (j.id)::text))
+                                                                 Rows Removed by Filter: 32019974
+                                                                 Heap Blocks: exact=2155188 lossy=2114148
+                                                                 Buffers: shared hit=4 read=5272990
+                                                                 ->  Bitmap Index Scan on control_change_events_operation_idx  (cost=0.00..133365.17 rows=3411280 width=0) (actual time=2354.395..2354.395 rows=32019985 loops=4)
+                                                                       Index Cond: (company_id = j.company_id)
+                                                                       Buffers: shared read=1003656
+                                                                 SubPlan 11
+                                                                   ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=6.245..6.250 rows=1 loops=1)
+                                                                         Buffers: shared read=2
+                                                                         ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=6.050..6.051 rows=1 loops=1)
+                                                           ->  Limit  (cost=24.53..24.54 rows=1 width=40) (actual time=0.321..0.321 rows=0 loops=46)
+                                                                 Buffers: shared hit=343 read=29
+                                                                 ->  Sort  (cost=24.53..24.54 rows=1 width=40) (actual time=0.320..0.320 rows=0 loops=46)
+                                                                       Sort Key: e_1.occurred_at DESC, e_1.id DESC
+                                                                       Sort Method: quicksort  Memory: 25kB
+                                                                       Buffers: shared hit=343 read=29
+                                                                       ->  Result  (cost=16.23..24.52 rows=1 width=40) (actual time=0.319..0.319 rows=0 loops=46)
+                                                                             One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                                                                             Buffers: shared hit=343 read=29
+                                                                             ->  Nested Loop  (cost=16.23..24.52 rows=1 width=40) (actual time=0.318..0.318 rows=0 loops=46)
+                                                                                   Join Filter: ((p_1.id)::text = lower(e_1.entity_id))
+                                                                                   Rows Removed by Join Filter: 2
+                                                                                   Buffers: shared hit=343 read=29
+                                                                                   ->  Index Scan using control_change_events_canonical_idx on control_change_events e_1  (cost=8.46..15.43 rows=1 width=93) (actual time=0.174..0.174 rows=2 loops=46)
+                                                                                         Index Cond: ((company_id = j.company_id) AND (entity_type = 'fiscal_period'::text) AND (occurred_at <= x_1.occurred_at))
+                                                                                         Filter: ((hashed SubPlan 12) AND (action = ANY ('{fiscal_period.close,fiscal_period.lock,fiscal_period.reopen,year_closed_period}'::text[])))
+                                                                                         Buffers: shared hit=253 read=25
+                                                                                         SubPlan 12
+                                                                                           ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=7.582..7.588 rows=1 loops=1)
+                                                                                                 Buffers: shared read=2
+                                                                                                 ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=7.364..7.365 rows=1 loops=1)
+                                                                                   ->  Seq Scan on fiscal_periods p_1  (cost=7.77..9.06 rows=1 width=32) (actual time=0.071..0.071 rows=1 loops=92)
+                                                                                         Filter: ((hashed SubPlan 13) AND (company_id = j.company_id) AND (id = j.fiscal_period_id))
+                                                                                         Rows Removed by Filter: 16
+                                                                                         Buffers: shared hit=90 read=4
+                                                                                         SubPlan 13
+                                                                                           ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=6.291..6.297 rows=1 loops=1)
+                                                                                                 Buffers: shared hit=2
+                                                                                                 ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=6.078..6.078 rows=1 loops=1)
+                     ->  Result  (cost=133372.95..2080222.36 rows=19 width=0) (actual time=7019.633..14854.559 rows=12 loops=4)
+                           One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                           Buffers: shared hit=6 read=5272988
+                           ->  Bitmap Heap Scan on control_change_events n  (cost=133372.95..2080222.36 rows=19 width=0) (actual time=7017.151..14852.076 rows=12 loops=4)
+                                 Recheck Cond: (company_id = j.company_id)
+                                 Filter: ((hashed SubPlan 15) AND (action <> ALL ('{baseline_observed,journal.post}'::text[])) AND (entity_type = 'journal_entry'::text) AND (lower(entity_id) = (j.id)::text))
+                                 Rows Removed by Filter: 32019974
+                                 Heap Blocks: exact=2155188 lossy=2114148
+                                 Buffers: shared hit=6 read=5272988
+                                 ->  Bitmap Index Scan on control_change_events_operation_idx  (cost=0.00..133365.17 rows=3411280 width=0) (actual time=2323.080..2323.080 rows=32019985 loops=4)
+                                       Index Cond: (company_id = j.company_id)
+                                       Buffers: shared read=1003656
+                                 SubPlan 15
+                                   ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=6.986..6.992 rows=1 loops=1)
+                                         Buffers: shared hit=2
+                                         ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=6.782..6.783 rows=1 loops=1)
+         ->  Limit  (cost=24.53..24.54 rows=1 width=48) (actual time=3.193..3.193 rows=0 loops=4)
+               Buffers: shared hit=13 read=23
+               ->  Sort  (cost=24.53..24.54 rows=1 width=48) (actual time=3.190..3.191 rows=0 loops=4)
+                     Sort Key: e.occurred_at DESC, e.id DESC
+                     Sort Method: quicksort  Memory: 25kB
+                     Buffers: shared hit=13 read=23
+                     ->  Result  (cost=16.23..24.52 rows=1 width=48) (actual time=3.185..3.185 rows=0 loops=4)
+                           One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                           Buffers: shared hit=13 read=23
+                           ->  Nested Loop  (cost=16.23..24.52 rows=1 width=48) (actual time=3.180..3.180 rows=0 loops=4)
+                                 Join Filter: ((p.id)::text = lower(e.entity_id))
+                                 Rows Removed by Join Filter: 2
+                                 Buffers: shared hit=13 read=23
+                                 ->  Index Scan using control_change_events_canonical_idx on control_change_events e  (cost=8.46..15.43 rows=1 width=101) (actual time=1.730..1.732 rows=2 loops=4)
+                                       Index Cond: ((company_id = j.company_id) AND (entity_type = 'fiscal_period'::text) AND (occurred_at <= j.posted_at))
+                                       Filter: ((hashed SubPlan 16) AND (action = ANY ('{fiscal_period.close,fiscal_period.lock,fiscal_period.reopen,year_closed_period}'::text[])))
+                                       Buffers: shared hit=6 read=20
+                                       SubPlan 16
+                                         ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=6.655..6.660 rows=1 loops=1)
+                                               Buffers: shared read=2
+                                               ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=6.430..6.431 rows=1 loops=1)
+                                 ->  Seq Scan on fiscal_periods p  (cost=7.77..9.06 rows=1 width=32) (actual time=0.718..0.719 rows=1 loops=8)
+                                       Filter: ((hashed SubPlan 17) AND (company_id = j.company_id) AND (id = j.fiscal_period_id))
+                                       Rows Removed by Filter: 16
+                                       Buffers: shared hit=7 read=3
+                                       SubPlan 17
+                                         ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=5.616..5.620 rows=1 loops=1)
+                                               Buffers: shared hit=2
+                                               ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=5.428..5.428 rows=1 loops=1)
+         SubPlan 2
+           ->  Index Scan using gl_journal_entries_pkey on gl_journal_entries original  (cost=8.20..16.22 rows=1 width=0) (never executed)
+                 Index Cond: (id = j.reversal_of_id)
+                 Filter: ((hashed SubPlan 1) AND (company_id = j.company_id))
+                 SubPlan 1
+                   ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (never executed)
+                         ->  Result  (cost=0.00..0.01 rows=1 width=0) (never executed)
+ Planning:
+   Buffers: shared hit=1203 read=65
+ Planning Time: 2.608 ms
+ JIT:
+   Functions: 233
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+   Timing: Generation 5.214 ms, Inlining 52.875 ms, Optimization 441.253 ms, Emission 299.314 ms, Total 798.656 ms
+ Execution Time: 122450.206 ms
+(210 rows)
+
