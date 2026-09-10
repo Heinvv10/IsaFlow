@@ -127,10 +127,12 @@ describe('K-076 a document the reader could not settle does not post unattended'
     const result = extractAmounts(text);
     expect(result.subtotal).toBe(1010);
     expect(result.warnings).toHaveLength(1);
-    // The rebased figures now add up and the text prints one total, so the
-    // warning is the ONLY thing standing between this document and a post.
+    // The rebased figures add up and the text prints one total. The warning
+    // refuses on its own; since round 25 the summary block is a second
+    // defence — its printed `Sub Total 1000.00` is neither the 1010 net nor
+    // a figure that, with the VAT, makes the total.
     expect(gate(text, result.warnings)).toBe(false);
-    expect(gate(text, [])).toBe(true);
+    expect(gate(text, [])).toBe(false);
   });
 
   it('refuses auto-post when the amounts were merely named as not reconciling', () => {

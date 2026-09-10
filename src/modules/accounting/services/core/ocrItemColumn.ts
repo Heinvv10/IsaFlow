@@ -18,8 +18,9 @@
  * any figure in the summary block that is not a summary line (`Sub Total /
  * Delivery 350.00 / VAT / TOTAL`). A paid document is spared both: the
  * payment proves what was owed, and a card surcharge inside a paid total is
- * ordinary. Rows summing EXACTLY to the total stay open — items priced VAT
- * inclusive do that, and so does a charge that happens to equal the VAT.
+ * ordinary. On it too, a row equal to the tax refuses where the rows sum to
+ * the total (round 25). `net` is the stored net, or total − VAT when the model
+ * stored none: a null subtotal must not switch these checks off.
  */
 import { printedFigures, type CountIsCounter } from './ocrPrintedFigures';
 
@@ -29,6 +30,8 @@ import { printedFigures, type CountIsCounter } from './ocrPrintedFigures';
  * `Opening balance adjustment 350.00` are charges (r23 HIGH-2).
  */
 const PRIOR_BALANCE = /^[\s*:-]*(?:Balance\s+(?:brought\s+forward|b\/?f|forward)|Previous\s+balance|Opening\s+balance|Vorige\s+saldo|Saldo\s+oorgebring)[\s:=-]*(?:R\s*)?-?\d[\d\s.,]*$/i;
+
+const near = (a: number, b: number) => Math.abs(a - b) <= 0.01;
 
 /** What rule 1 of `unreconciledFigure` established about the payments. */
 export interface PaymentState {
@@ -49,10 +52,16 @@ export function unexplainedItem(
   if (!paid.settled && block >= 0) {
     const end = lines.findIndex((line, i) => i >= block
       && printedFigures(line, isCounter).some((f) => f.isSummary && Math.abs(f.value - total) <= 0.01));
-    for (const line of lines.slice(block, Math.max(end, block))) {
-      const stray = printedFigures(line, isCounter).find((f) => !f.isSummary && f.value !== 0);
-      if (stray) return stray.value;
-    }
+    // A summary figure is explained by VALUE as well as role, as rule 3 below
+    // the total is (round 25): it is the net or the tax, or it and another
+    // summary figure add up to the total. `Total Freight 350.00` and `VAT on
+    // delivery 52.50` open with a summary word and are neither.
+    const inBlock = lines.slice(block, Math.max(end, block)).flatMap((line) => printedFigures(line, isCounter));
+    const explained = (f: typeof inBlock[number], i: number) => f.isSummary
+      && ((net !== null && (near(f.value, net) || near(f.value, total - net)))
+        || inBlock.some((g, j) => j !== i && g.isSummary && near(f.value + g.value, total)));
+    const stray = inBlock.find((f, i) => f.value !== 0 && !explained(f, i));
+    if (stray) return stray.value;
   }
   const body = block < 0 ? lines : lines.slice(0, block);
   const items = body.map((line) => printedFigures(line, isCounter));
@@ -70,7 +79,14 @@ export function unexplainedItem(
     const sum = lineSum(rows);
     const overBoth = sum > total + 0.01 && (net === null || sum > net + 0.01);
     const betweenUnpaid = !paid.settled && net !== null && sum > net + 0.01 && sum < total - 0.01;
-    return overBoth || betweenUnpaid ? sum : null;
+    // Rows that sum to the total are what a VAT-inclusive column prints — and
+    // also what a charge equal to the tax prints (`Delivery 150.00` beside
+    // `Labour 1000.00` under `Sub Total 1000.00 / VAT 150.00`). No label tells
+    // them apart (`Burger 100.00 / Sauce 15.00` is honest), so on an UNPAID
+    // document a row equal to the tax refuses (round 25).
+    const taxRow = !paid.settled && net !== null && near(sum, total) && rows.length > 1
+      && rows.some((row) => near(row[row.length - 1]!.value, total - net));
+    return overBoth || betweenUnpaid || taxRow ? sum : null;
   }
   const matches = (sum: number) => [total, net].some((target) => target !== null && Math.abs(sum - target) <= 0.01);
   // If the priced rows ALREADY add up to the net or the total, the loose whole

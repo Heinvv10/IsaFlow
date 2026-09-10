@@ -201,7 +201,9 @@ export function unreconciledFigure(
 
   const larger = printedFigures(text, isCounter).find((f) => f.value > total && !(settled && (f.isTender || f.isChange)));
   if (larger) return { reason: 'larger', value: larger.value };
-  const item = unexplainedItem(text, total, known.subtotal ?? null, isCounter, { settled, cashChange });
+  // A VLM may store no subtotal; the net is then total − VAT (round 25).
+  const net = known.subtotal ?? (known.vatAmount != null ? Math.round((total - known.vatAmount) * 100) / 100 : null);
+  const item = unexplainedItem(text, total, net, isCounter, { settled, cashChange });
   if (item !== null) return { reason: 'stray', value: item };
 
   const end = totalPrintedLastEnd(text, total);

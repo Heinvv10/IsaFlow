@@ -82,9 +82,9 @@ describe('K-076 r24 HIGH-3 — on an unpaid invoice, a charge the VAT hides or t
     expect(unreconciledFigure(mid, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
   });
 
-  it('still open, by construction: rows summing to the total (a charge equal to the VAT, or within a cent)', () => {
-    expect(unreconciledFigure(`${LABOUR}Delivery 150.00\n${PBLOCK}`, 1150, PK)).toBeNull();
-    expect(unreconciledFigure(`${LABOUR}Travel 149.99\n${PBLOCK}`, 1150, PK)).toBeNull();
+  it('closed in round 25: a row equal to the tax where the rows sum to the total, on an unpaid invoice', () => {
+    expect(unreconciledFigure(`${LABOUR}Delivery 150.00\n${PBLOCK}`, 1150, PK)).not.toBeNull();
+    expect(unreconciledFigure(`${LABOUR}Travel 149.99\n${PBLOCK}`, 1150, PK)).not.toBeNull();
   });
 });
 
