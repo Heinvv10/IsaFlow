@@ -13,7 +13,7 @@ async function candidates(ctx:ControlTx,selection:Selection){
  const company=ctx.principal.companyId;
  return await ctx.sql`SELECT DISTINCT n.id,n.bank_account_id,o.bank_account_id AS counterparty_account_id,
   EXISTS(SELECT 1 FROM control_bank_allocation_intents i JOIN control_operation_effects e ON e.company_id=i.company_id
-   AND e.entity_type='bank_allocation_intent' AND e.entity_id=i.id::text AND e.operation='bank_allocation.post'
+   AND e.entity_type='bank_allocation_intent' AND lower(e.entity_id)=i.id::text AND e.operation='bank_allocation.post'
    AND e.result->>'journalEntryId'=j.id::text WHERE i.company_id=${company}::uuid AND i.bank_transaction_id=o.id
     AND j.source='auto_bank_transfer' AND j.source_record_id=o.id
     AND i.payload->>'kind'='transfer' AND i.payload->'transfer'->>'mode'='post'
@@ -35,12 +35,12 @@ async function candidates(ctx:ControlTx,selection:Selection){
 }
 async function prepareOrResume(ctx:ControlTx,bankId:string,counterpartyAccountId:string){
  const saved=await ctx.sql`SELECT i.id,a.id AS approval_id FROM control_bank_allocation_intents i
-  JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.entity_id=i.id::text AND a.entity_type='bank_allocation_intent'
+  JOIN control_operation_approvals a ON a.company_id=i.company_id AND lower(a.entity_id)=i.id::text AND a.entity_type='bank_allocation_intent'
    AND a.operation='bank_allocation.post' AND a.requester_person_id=i.requester_person_id
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND i.bank_transaction_id=${bankId}::uuid
    AND i.requester_person_id=${ctx.principal.personId} AND i.payload->>'kind'='transfer'
    AND i.payload->>'counterpartyAccountId'=${counterpartyAccountId} AND a.status IN('pending','approved') AND a.expires_at>clock_timestamp()
-   AND NOT EXISTS(SELECT 1 FROM control_operation_effects e WHERE e.company_id=i.company_id AND e.entity_id=i.id::text
+   AND NOT EXISTS(SELECT 1 FROM control_operation_effects e WHERE e.company_id=i.company_id AND lower(e.entity_id)=i.id::text
     AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post') ORDER BY a.requested_at DESC,a.id LIMIT 1` as {id:string;approval_id:string}[];
  const existing=saved[0];
  if(existing){await loadBankAllocationIntent(ctx,existing.id);return{intentId:existing.id,approvalId:existing.approval_id};}

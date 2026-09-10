@@ -16,9 +16,9 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
     AND decision.person_id<>i.requester_person_id) AS review_valid
   FROM control_bank_statement_attestation_intents i
   JOIN control_operation_effects e ON e.company_id=i.company_id AND e.entity_type='bank_statement_attestation_intent'
-   AND e.entity_id=i.id::text AND e.operation='bank_statement.attest'
+   AND lower(e.entity_id)=i.id::text AND e.operation='bank_statement.attest'
   LEFT JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
-   AND a.operation_id=e.operation_id AND a.entity_type=e.entity_type AND a.entity_id=e.entity_id AND a.operation=e.operation
+   AND a.operation_id=e.operation_id AND a.entity_type=e.entity_type AND lower(a.entity_id)=lower(e.entity_id) AND a.operation=e.operation
    AND a.requester_person_id=i.requester_person_id
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND (${cutoff}::date IS NULL OR i.period_end<=${cutoff}::date)
  ),roots AS(
@@ -64,7 +64,7 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
  FROM roots r JOIN companies c ON c.id=${ctx.principal.companyId}::uuid
  LEFT JOIN gl_accounts a ON a.company_id=c.id AND a.id=r.bank_account_id AND a.account_subtype='bank'
  LEFT JOIN captured_documents d ON d.company_id=c.id AND d.id=r.source_document_id
- LEFT JOIN control_entity_versions v ON v.company_id=c.id AND v.entity_type=r.entity_type AND v.entity_id=r.id::text
+ LEFT JOIN control_entity_versions v ON v.company_id=c.id AND v.entity_type=r.entity_type AND lower(v.entity_id)=r.id::text
  ORDER BY r.id LIMIT 10001` as (BankStatementSource&{bank_account_id:string;source_document_id:string;source_fingerprint:string;expected_source_hash:string;
   review_currency:string;review_result:StatementReviewProof['result'];review_valid:boolean;account_type:string|null;account_subtype:string|null;
   is_active:boolean|null;document_status:string|null;uncoveredCount:string;uncoveredFingerprint:string})[];
