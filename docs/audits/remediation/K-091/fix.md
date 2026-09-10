@@ -414,3 +414,200 @@ the old figure has to be reconciled against the corrected one before the next re
 recorded above: the multi-spelling `cost_of_sales` / `depreciation_expense` tokens, and the
 fixed-asset reconciliation's `'fixed_assets'` constant. Both are the same defect shape on the income
 statement and the FAR, and both need their own fixture. Neither is a regression from this round.
+
+---
+
+## Round 7 — the census, built from the consumers instead of from a grep
+
+Rounds 4, 5 and 6 each rebuilt the census by grepping for the literals someone
+had thought of, and each missed live read paths. Round 7 changes the method: the
+sites were enumerated from the CONSUMERS (`git grep` on the column itself — 661
+occurrences in 152 files — then read one by one), and for each the literals were
+mechanically compared against `SUBTYPE_ALIASES` to decide whether the literal is
+a STRICT SUBSET of its canonical token's spellings. That test is objective, so
+the answer no longer depends on which words the author thought to search for.
+The result is then reconciled by OUTCOME in `k091d`, which seeds one account per
+spelling with a distinct balance and asserts the printed figures agree.
+
+### HIGH-1 (fixed) — the eight untabled sites, and two more the method found
+
+| Site | Was | Now | Figure it moved |
+|---|---|---|---|
+| `afs/afsKpiService.ts` `fetchBalanceSnapshot` | `NOT IN ('fixed_asset','accumulated_depreciation')` | `<> ALL(NON_CURRENT_SUBTYPES)`, `COALESCE`d | current ratio, quick ratio |
+| same, current LIABILITIES arm | no non-current exclusion at all | same exclusion, mirrored | the denominator of the same ratio |
+| `afs/managementPackGeneratorService.ts` | identical expression | identical fix | management pack ratios |
+| `gl/closeReadinessChecks/arSubLedgerCheck.ts` | `= 'receivable'` | `= ANY(RECEIVABLE_SUBTYPES)` | the AR-ties close gate |
+| `gl/closeReadinessChecks/apSubLedgerCheck.ts` | `= 'payable'` | `= ANY(PAYABLE_SUBTYPES)` | the AP-ties close gate |
+| `core/migrationValidationService.ts` ×2 | `= 'receivable'` / `= 'payable'` | the same constants | post-migration AR/AP validation |
+| `afs/noteGenerators/notes6to10.ts` ×2 | `IN ('investment',…)`, `IN ('inventory',…)` | `rawSubtypesFor(...)` + the non-vocabulary literals | AFS notes 8 and 9 |
+| `afs/noteGenerators/notes1to5.ts` ×2 | `'depreciation'`, `'intangible_asset'` | `rawSubtypesFor(...)` | AFS notes 2 and 5 |
+| `afs/noteGenerators/notes16to20.ts` ×2 | `'other_income'`, `NOT IN (…'finance_cost')` | `rawSubtypesFor(...)`, `COALESCE`d | AFS notes 19 and 20 |
+| `afs/noteGenerators/notes21to25.ts` ×2 | `'finance_cost'`, `'salaries','wages'` | `rawSubtypesFor(...)` | AFS notes 21 and 22 |
+| `pages/api/accounting/reports-extended-ratios.ts` ×2 | the same two lists | the same constants | interest cover, cost per employee |
+| `afs/afsKpiService.ts` ×2 (income) | `'cost_of_sales'`, `'depreciation_expense'` | `rawSubtypesFor(...)` | gross margin, EBITDA |
+| `afs/managementPackGeneratorService.ts` (income) | `'cost_of_sales'` | same | pack gross profit |
+| `gl/integrityChecks/accountChecks.ts` | `<> 'cost_of_sales'` | `<> ALL(rawSubtypesFor(...))` | a false integrity finding |
+| `reports/consolidatedStatementsService.ts` | `subtype === 'cost_of_sales'` (TS) | `canonicalSubtype(subtype) ===` | group cost of sales |
+
+Round 6 deferred `cost_of_sales` / `depreciation_expense` as "a separate item"
+and the round-6 reviewer ratified that. It is **closed here instead**: deferring
+those two while converting `finance_cost` and `payroll_expense` in the notes
+beside them would be an arbitrary line through one vocabulary, and it is the
+arbitrary line that produced three partial censuses. Each has a fixture in
+`k091d`.
+
+**Two further defects the reconciliation found, both pre-existing:**
+
+1. `afsKpiService` / `managementPackGeneratorService` `NOT IN (...)` is NULL for
+   a NULL subtype, so an asset with no subtype was excluded from current assets
+   entirely. `COALESCE(...,'')` added; NULL now defaults to CURRENT, matching
+   `isCurrentSubtype`. Fixture: "an asset with NO subtype is still a current asset".
+2. `migrationValidationService` summed `balance_due` on `customer_invoices` and
+   `supplier_invoices`. **There is no such column on either table**, so both
+   checks threw and `validateMigration` — the migration wizard's Step 8 — has
+   never returned at all. Changed to `total_amount - COALESCE(amount_paid, 0)`,
+   the project's own rule. Found only because the reconciliation test called it.
+
+### The complete disposition of every surviving literal
+
+The lint below now enforces this: it flags a comparison against ANY raw spelling
+whose canonical token has more than one, so the categories below are what is
+left, and each is left for a reason that is not "nobody noticed it".
+
+| Class | Sites | Why the literal is correct |
+|---|---|---|
+| WRITE side | `chartOfAccountsImportService`, `migrationParserService`, `migrationCoaService`, `migrationTemplateService`, `default-accounts.ts`, `writeGlAccounts.ts`, `csvFieldMapper` | They SET the canonical spelling — that is what makes it canonical. Widening lets an importer invent a second spelling instead of normalising onto the first. |
+| System-account ROLE / UI allocation type | `systemAccountKeys`, `controlAccountService`, `farDisposalService`, `getSystemAccount('bank', …)`, `glCrossModuleHooks`, `CreateRuleModal`, `migration/chart-of-accounts.tsx` | Same word, different question. |
+| Vocabulary definitions | `accountSubtypes.ts`, `glAccountSubtypes.ts`, `gl.types.ts` | They ARE the vocabulary. |
+| Single-spelling tokens | every `vat_input` / `vat_output` / `retained_earnings` / `opening_balance_equity` / `accumulated_depreciation` literal | The literal and the constant are the same set. Mechanically confirmed: these tokens have exactly one alias. |
+| Outside the vocabulary | `bank_loan`, `overdraft`, `vat_payable`, `current_tax_liability`, `provision`, `goodwill`, `raw_materials`, `uif`, `interest_income`, `income_tax_expense`, … | `rawSubtypesFor` cannot express them; extending `SUBTYPE_ALIASES` is a separate change with its own blast radius. |
+| Caller-supplied filter parameter | `chartOfAccountsService:220`, `chart-of-accounts.ts:37`, `consolidatedReportingService:78`, `accountMergeFigures:220`, `controlAccountService:239` | Not a literal — the value comes from the caller. |
+| Already canonicalised | `cashFlowClassification`, `revenueBand`/`expenseBand`, `incomeStatementDisclosure`, `isBankSubtype` call sites | They compare the OUTPUT of `canonicalSubtype`. The lint recognises this shape and permits it everywhere. |
+| Allow-listed in the lint, with the reason in the file | `vatBoxBasisQuery:92`, `vatReturnService:103` (`'tax'`), `classificationCoverageService:73` (`'default_expense'`/`'default_revenue'`) | `'tax'` is the RAW token a VAT control account carries and is deliberately narrow — canonicalising it pulls income tax into the VAT return, the R23,219.01 PAYE defect `accountReportingClass` records. The coverage service asks whether a subtype is a PLACEHOLDER, not what it names. |
+| **Still deferred, named** | `fixedAssetReconciliationQueries` / `fixedAssetReconciliationItems` / `farDisposalService` / `leafAccountValidator` (`'fixed_asset'`+`'fixed_assets'`, missing `property_plant_equipment`) | A two-way partition (cost vs accumulated depreciation) mirrored between SQL and TypeScript plus a write gate. Widening one side without the other IS the disagreement. Needs its own fixture and its own review; unchanged by this round, so not a regression. |
+
+### MEDIUM-1 (fixed) — `credit_card` and `other_current_liability` settle invoices
+
+`VAT_SETTLEMENT_SUBTYPES` gains both. Both are offerable subtypes in the Add
+Account dialog and the MCP write path, and against the four-token list the gross
+leg fell through to `base`, giving a box-15 input base of **-R150** on a
+R1,000 invoice. Two tests in `vatBoxBasis.test.ts` (classification, and the base
+through `deriveVatBoxes`) plus a `k091d` fixture through `getVat201Report`.
+
+### MEDIUM-2 (fixed) — note 27's current ratio gets both `account_type` guards
+
+`ga.account_type = 'asset'` on the current-assets arm and `= 'liability'` on the
+current-liabilities arm. Production carries 27 paycards typed `liability` with a
+bank subtype; round 6's widening to `bank_account`/`petty_cash` made them count
+as current ASSETS at a negative balance. `k091d` seeds exactly that paycard.
+This also closes **LOW-4**: `afsKpiService.fetchBalanceSnapshot` and
+`notes26to30` are now both on the guarded side, so there are two documented
+behaviours (guarded readers; `bankCoverageQueries`' deliberately unguarded
+misclassification report) rather than an undocumented third.
+
+### MEDIUM-3 and LOW-1 (fixed) — the lint can now see what it exists to stop
+
+`bankCashSubtypeCensus.test.ts` is rebuilt. It enumerates files from
+`git ls-files -- src pages` and filters by extension (LOW-1: the old
+`'pages/**/*.tsx'` pathspec silently excluded 13 depth-1 pages), reads each file
+WHOLE and strips comments, so a multi-line `sql` template is no longer invisible
+(MEDIUM-3). Its vocabulary is derived from `SUBTYPE_ALIASES` rather than written
+out, so it refuses a literal for EVERY multi-spelling token, and an alias added
+tomorrow widens it without an edit. Mutations M28 and M29 prove both new powers.
+
+### LOW-2 (fixed) — the file-size disclosure, complete this time
+
+Every file on this branch over the 300-line cap, as `branch/master`. Counted
+mechanically from the whole branch diff, not by memory:
+
+`bankAllocationService.ts` 757/756 · `chartOfAccountsService.ts` 502/501 ·
+`costCentreService.ts` 424/430 · `vatBoxBasis.ts` 393/374 ·
+`bankReconciliationService.ts` 356/355 · `pages/accounting/bank-transactions/new.tsx`
+346/345 · `bank-transactions-bulk-commit.ts` 339/338 ·
+`bankRulesMatchingService.ts` 336/335 · `useBankTxActions.ts` 310/315 ·
+`notes1to5.ts` 309/305 (this round, +4).
+
+Round 6 named four of these ten. Every one was already over on `origin/master`;
+eight gained one import line, `notes1to5` four, and two are SHORTER than master.
+`accountSubtypes.ts` is at 299, one line under, which is why round 7's two new
+exports are derived one-liners rather than written-out arrays. None is split: a
+split to absorb an import is a larger change than the defect, and `vatBoxBasis`'s
+split is raised as its own item as the round-6 reviewer required.
+
+### LOW-3 (fixed) — `k091c` no longer leaks fixture rows
+
+`afterAll` now deletes all three tenants with `company_id = ANY($1::uuid[])` —
+four round trips instead of twelve — and carries an explicit 60s timeout, so the
+config's 10s default cannot cut cleanup off half done on a loaded box. `k091d`
+is written the same way from the start.
+
+### LOW-5 (fixed) — mixed constants and literals now carry the comment
+
+`notes6to10`, `notes1to5`, `notes16to20` and `notes21to25` now spread
+`rawSubtypesFor(...)` first and list the non-vocabulary literals after it, the
+shape `notes26to30` already used, so which half is which is visible.
+
+**Files (round 7).** 15 source files, 4 test files. `accountSubtypes.ts` gains
+`NON_CURRENT_SUBTYPES` (derived from the same `NON_CURRENT` set
+`isCurrentSubtype` reads, so SQL and TypeScript cannot disagree on the
+current/non-current split) and `ALL_CANONICAL_SUBTYPES` (for the lint).
+
+**Tests (round 7).** New `tests/integration/k091d-subtype-census-reconciliation.int.test.ts`,
+11 tests on real Postgres. `k091c` 10 (cleanup rewritten). `vatBoxBasis.test.ts`
++2 (25). `bankCashSubtypeCensus.test.ts` rebuilt, 1.
+Integration, the 8 files of this branch: **67 passed** (35 + 32, two runs).
+Full unit suite with `DATABASE_URL` unset: **9590 passed / 243 skipped / 0 failed**
+(806 files). `bunx tsc --noEmit` exit 0. `bunx eslint` on all 15 changed
+`src`/`pages` files: exit 0, no output.
+
+**Mutation proof (round 7).** Eleven, each applied to the working tree, run, then
+restored from the index; `git status --porcelain` empty afterwards each time.
+
+| # | mutation | result |
+|---|---|---|
+| M19 | current assets back to `NOT IN ('fixed_asset','accumulated_depreciation')` | k091d 3 failed / 8 passed; census lint 1 failed |
+| M20 | current liabilities loses the non-current exclusion | k091d 2 failed / 9 passed |
+| M21 | KPI cogs back to `= 'cost_of_sales'` | k091d 1 failed / 10 passed; lint 1 failed |
+| M22 | AR close gate back to `= 'receivable'` | k091d 1 failed / 10 passed; lint 1 failed |
+| M23 | migration validator back to `= 'receivable'` | k091d 1 failed / 10 passed |
+| M24 | note 27 loses `account_type = 'asset'` | k091d 1 failed / 10 passed |
+| M25 | inventories note back to the literal list | k091d 1 failed / 10 passed; lint 1 failed |
+| M26 | settlement vocabulary back to the four tokens | k091d 1 failed / 10 passed; vatBoxBasis unit 2 failed / 23 passed |
+| M27 | invoice balance back to `balance_due` | k091d 1 failed / 10 passed |
+| M28 | a NEW multi-line `IN ('bank','cash')` written into a service | lint 1 failed — the round-6 lint could not see this |
+| M29 | a NEW `accountSubtype === 'bank'` in `pages/home.tsx` | lint 1 failed — outside the round-6 pathspec |
+
+**Migration / rollback (round 7).** None. Revert the commit.
+
+**Historical-data impact (round 7).** No stored row changes; every change is a
+read. Figures that move: the current and quick ratios on the AFS KPI scorecard
+and the management pack (up for any company holding non-current assets spelled
+anything but `fixed_asset`, down for any carrying long-term debt); gross margin
+and EBITDA for a company spelling cost of sales `cogs`/`direct_cost`; AFS notes
+2, 5, 8, 9, 19, 20, 21, 22; and the AR/AP close gates and migration validation,
+which change from a hard `fail` on correct books to a pass. Read-only sizing,
+not run against production:
+
+```sql
+SELECT ga.company_id, ga.account_type, ga.account_subtype, COUNT(*) AS accounts
+FROM   gl_accounts ga
+WHERE  ga.account_subtype IN ('fixed_assets','property_plant_equipment','intangible_assets',
+                              'investments','non_current_assets','fixed_asset_other',
+                              'long_term_liabilities','non_current_liabilities',
+                              'receivables','accounts_receivable','trade_receivables','debtor','debtors',
+                              'payables','accounts_payable','trade_payables','creditor','creditors',
+                              'cogs','cost_of_goods_sold','direct_cost','direct_costs',
+                              'depreciation','amortisation','amortization',
+                              'finance_costs','other_revenue','stock',
+                              'credit_card','other_current_liability','other_current_liabilities')
+GROUP  BY ga.company_id, ga.account_type, ga.account_subtype
+ORDER  BY accounts DESC;
+```
+
+**Limits (round 7).** `managementPackGeneratorService`'s balance aggregate is
+covered by the census lint and by the identical expression in `afsKpiService`,
+not by a behavioural fixture: `generateManagementPack` writes an AFS document
+and calls the AI summary service, which is not something to run in this suite.
+The fixed-asset register's `'fixed_assets'` partition remains deferred and named
+above. `vatBoxBasis.ts` remains 93 lines over the cap and its split remains an
+open item.

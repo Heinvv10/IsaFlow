@@ -232,6 +232,19 @@ export function rawSubtypesFor(...canonical: CanonicalSubtype[]): string[] {
 export const CASH_SUBTYPES: readonly string[] = rawSubtypesFor('bank', 'cash');
 
 /**
+ * Raw spellings of every NON-CURRENT token, derived from the same `NON_CURRENT`
+ * set `isCurrentSubtype` reads. SQL that partitions the balance sheet passes
+ * this, so the current/non-current split cannot disagree between a query and
+ * the TypeScript answering the same question. Asset and liability tokens are
+ * disjoint by side, so a caller already filtering `account_type` needs only one.
+ */
+export const NON_CURRENT_SUBTYPES: readonly string[] = rawSubtypesFor(...NON_CURRENT);
+
+/** Every canonical token in the vocabulary. Used by the census lint. */
+export const ALL_CANONICAL_SUBTYPES: readonly CanonicalSubtype[] =
+  Array.from(new Set(Object.values(SUBTYPE_ALIASES)));
+
+/**
  * Raw spellings meaning inventory / stock. No production account currently
  * carries any of them — see `inventoryWarning` in financialFiguresService.
  */

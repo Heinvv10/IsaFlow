@@ -2,6 +2,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { NON_CURRENT_SUBTYPES, rawSubtypesFor } from '../gl/accountSubtypes';
 import { createAfsDocument } from './afsDocumentService';
 import { createAfsSection, updateAfsSection } from './afsSectionService';
 import { getKpiScorecard } from './afsKpiService';
@@ -85,7 +86,7 @@ async function fetchIncomeAgg(companyId: string, start: string, end: string): Pr
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = 'cost_of_sales' THEN jl.debit - jl.credit ELSE 0 END), 0) AS cogs,
+      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${rawSubtypesFor('cost_of_sales')}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS cogs,
       COALESCE(SUM(CASE
         WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit
         WHEN ga.account_type = 'expense' THEN -(jl.debit - jl.credit)
@@ -106,8 +107,10 @@ async function fetchIncomeAgg(companyId: string, start: string, end: string): Pr
 async function fetchBalanceAgg(companyId: string, end: string): Promise<Record<string, unknown>> {
   const rows = (await sql`
     SELECT
-      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype NOT IN ('fixed_asset','accumulated_depreciation') THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
+      -- Same current/non-current split as afsKpiService.fetchBalanceSnapshot,
+      -- on the shared vocabulary rather than the singular literal.
+      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND COALESCE(ga.account_subtype, '') <> ALL(${NON_CURRENT_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' AND COALESCE(ga.account_subtype, '') <> ALL(${NON_CURRENT_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
       COALESCE(SUM(CASE WHEN ga.account_type = 'equity' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id

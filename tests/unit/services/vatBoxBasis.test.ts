@@ -34,6 +34,7 @@ import {
   CASH_SUBTYPES,
   PAYABLE_SUBTYPES,
   RECEIVABLE_SUBTYPES,
+  rawSubtypesFor,
 } from '@/modules/accounting/services/gl/accountSubtypes';
 
 const line = (over: Partial<VatLineInput>): VatLineInput => ({
@@ -97,6 +98,36 @@ describe('classifyVatJournalLine', () => {
     for (const subtype of spellings) {
       const c = classifyVatJournalLine(line({ accountSubtype: subtype, debit: 115, credit: 0 }));
       expect(c.role, `subtype ${subtype}`).toBe('settlement');
+    }
+  });
+
+  /**
+   * Round 6 review, MEDIUM-1. A card and a sundry creditor settle an invoice
+   * exactly as a bank account does, and both are offerable subtypes in the Add
+   * Account dialog. Against the four-token list the GROSS leg fell through to
+   * `base` and, because base is credit-less-debit on the input side, the box
+   * came back NEGATIVE at exactly minus the VAT.
+   */
+  it('classifies a card or sundry-creditor settlement leg as settlement', () => {
+    for (const token of ['credit_card', 'other_current_liability'] as const) {
+      for (const subtype of rawSubtypesFor(token)) {
+        expect(classifyVatJournalLine(line({ accountType: 'liability', accountSubtype: subtype })).role, subtype)
+          .toBe('settlement');
+      }
+    }
+  });
+
+  it('reports the NET expense as the input base when a card settles the invoice', () => {
+    for (const subtype of ['credit_card', 'other_current_liabilities']) {
+      const boxes = deriveVatBoxes([
+        line({ accountType: 'expense', accountSubtype: 'operating_expense', debit: 1000, credit: 0, vatType: 'standard' }),
+        line({ lineId: 'l2', accountType: 'asset', accountSubtype: 'vat_input', debit: 150, credit: 0, vatType: 'standard' }),
+        line({ lineId: 'l3', accountType: 'liability', accountSubtype: subtype, debit: 0, credit: 1150 }),
+      ]);
+      const input = boxes.boxes.find((b) => b.direction === 'input' && b.vatType === 'standard');
+      expect(input?.base, subtype).toBeCloseTo(1000, 2);
+      expect(input?.base, subtype).not.toBeCloseTo(-150, 2);
+      expect(boxes.inputVariance).toBeCloseTo(0, 2);
     }
   });
 

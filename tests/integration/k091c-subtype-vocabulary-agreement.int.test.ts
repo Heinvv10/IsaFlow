@@ -198,15 +198,18 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  const ids = [cashCo, vatCo, arApCo];
   try {
-    for (const co of [cashCo, vatCo, arApCo]) {
-      await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [co]);
-      await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [co]);
-      await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [co]);
-      await pool.query('DELETE FROM companies WHERE id=$1', [co]);
-    }
+    // One statement per table across all three tenants, and an explicit
+    // timeout: under the config's 10s default on a loaded box the twelve
+    // round trips were cut off half done and left the fixture companies
+    // behind on a shared database.
+    await pool.query('DELETE FROM gl_journal_lines WHERE company_id = ANY($1::uuid[])', [ids]);
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1::uuid[])', [ids]);
+    await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1::uuid[])', [ids]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [ids]);
   } finally { await pool.end(); }
-});
+}, 60_000);
 
 // ── the vocabulary itself ────────────────────────────────────────────────────
 

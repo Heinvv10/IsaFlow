@@ -155,3 +155,52 @@ mutations (each reverted immediately after):
   M-F  quotePdfBuilder: restore `lines.length > 0` on the note      -> 1 int red
   M-G  isBankSubtype: narrow to `subtype === 'bank'`                -> 1 unit red
 baseline green before each.
+
+=== Round 7 (census rebuilt from consumers; HIGH-1 + 3 MEDIUM + 5 LOW) ===
+date: 2026-09-10
+
+Enumeration (not a grep for literals):
+  git grep -n 'account_subtype|accountSubtype' -- src pages  => 661 occurrences, 152 files
+  each occurrence's comparison operand parsed and its literals checked against
+  SUBTYPE_ALIASES; a literal that is a STRICT SUBSET of its token's spellings is
+  a gap. 17 gap sites converted, 3 allow-listed, the rest tabled in fix.md.
+
+Integration (fixture DB, --testTimeout=180000 --hookTimeout=180000):
+  k091 + k091b + k091c + k091d ............ 4 files, 35 passed
+  k093 + k126 + k126b + k126c ............. 4 files, 32 passed
+  branch total ............................ 8 files, 67 passed
+
+Unit:
+  tests/unit/services/bankCashSubtypeCensus.test.ts .... 1 passed
+  tests/unit/services/vatBoxBasis.test.ts .............. 25 passed
+  FULL suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run):
+      Test Files  806 passed | 40 skipped (846)
+      Tests       9590 passed | 243 skipped (9833)   0 failed
+
+bunx tsc --noEmit ......... exit 0
+bunx eslint <15 changed src/pages files> ... exit 0, no output
+
+Mutation proof — 11 mutations, each applied to the working tree, run, then
+restored from the index (changes were staged first; `git checkout -- <path>`
+against an UNSTAGED edit discards it, which cost one round of rework):
+  M19 current assets -> NOT IN ('fixed_asset','accumulated_depreciation')
+      k091d 3 failed / 8 passed ; census lint 1 failed
+  M20 current liabilities -> no non-current exclusion    k091d 2 failed / 9 passed
+  M21 KPI cogs -> = 'cost_of_sales'    k091d 1 failed / 10 passed ; lint 1 failed
+  M22 AR close gate -> = 'receivable'  k091d 1 failed / 10 passed ; lint 1 failed
+  M23 migration validator -> = 'receivable'              k091d 1 failed / 10 passed
+  M24 note 27 -> no account_type = 'asset'               k091d 1 failed / 10 passed
+  M25 inventories note -> literal list  k091d 1 failed / 10 passed ; lint 1 failed
+  M26 VAT_SETTLEMENT_SUBTYPES -> four tokens
+      k091d 1 failed / 10 passed ; vatBoxBasis unit 2 failed / 23 passed
+  M27 invoice balance -> balance_due (no such column)    k091d 1 failed / 10 passed
+  M28 a NEW multi-line IN ('bank','cash') in a service   census lint 1 failed
+      (round 6's [^\n]-bounded lint could not see this)
+  M29 a NEW accountSubtype === 'bank' in pages/home.tsx  census lint 1 failed
+      (round 6's 'pages/**/*.tsx' pathspec excluded depth-1 files)
+  working tree restored after each: git status --porcelain empty.
+
+Allow-list honesty check: the lint was run once with ALLOWED emptied. Only 4
+hits are actually suppressed (vatBoxBasisQuery:92, vatReturnService:103,
+classificationCoverageService:73 x2); the entries that suppressed nothing were
+deleted rather than left as decoration.
