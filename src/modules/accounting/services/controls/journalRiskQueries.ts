@@ -14,11 +14,10 @@ export async function loadJournalRiskPopulation(ctx:ControlTx,cutoff:string|null
   CASE WHEN event.action IN ('fiscal_period.close','year_closed_period') THEN 'closed'
    WHEN event.action='fiscal_period.lock' THEN 'locked' WHEN event.action='fiscal_period.reopen' THEN 'open' ELSE NULL END AS "periodState",
   COALESCE(changes.facts,'[]'::jsonb) AS changes,COALESCE(changes.count,0)::int AS "changeCount",
-  v.version,(SELECT count(*)::int FROM control_entity_versions fv WHERE fv.company_id=j.company_id AND fv.entity_type='journal_entry'
-   AND lower(fv.entity_id)=j.id::text) AS "lineageCount",COUNT(*) OVER()::text AS population,COALESCE(lines.count,0)::int AS "lineCount",COALESCE(lines.facts,'[]'::jsonb) AS lines,
+  v.version,COALESCE(v.lineage_count,0)::int AS "lineageCount",(v.version_count>1 AND v.entity_id<>j.id::text) IS TRUE AS "lineageTie",COUNT(*) OVER()::text AS population,COALESCE(lines.count,0)::int AS "lineCount",COALESCE(lines.facts,'[]'::jsonb) AS lines,
   (j.reversal_of_id IS NULL OR EXISTS(SELECT 1 FROM gl_journal_entries original WHERE original.company_id=j.company_id AND original.id=j.reversal_of_id)) AS "reversalOwned"
  FROM gl_journal_entries j JOIN companies c ON c.id=j.company_id
- LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=j.company_id AND cv.entity_type='journal_entry' AND lower(cv.entity_id)=j.id::text ORDER BY cv.version DESC,(cv.entity_id=j.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
+ LEFT JOIN LATERAL(SELECT cv.*,count(*) OVER() AS lineage_count,count(*) OVER(PARTITION BY cv.version) AS version_count FROM control_entity_versions cv WHERE cv.company_id=j.company_id AND cv.entity_type='journal_entry' AND lower(cv.entity_id)=j.id::text ORDER BY cv.version DESC,(cv.entity_id=j.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
  LEFT JOIN LATERAL(SELECT SUM(l.debit) AS amount,COUNT(*) AS count,
    (SELECT jsonb_agg(f) FROM(SELECT x.id,x.gl_account_id,x.debit::text,x.credit::text FROM gl_journal_lines x
     WHERE x.company_id=j.company_id AND x.journal_entry_id=j.id ORDER BY x.id LIMIT 101) f) AS facts

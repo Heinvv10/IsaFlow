@@ -5,7 +5,8 @@ import { assertControlTx } from './context';
  * canonical (lowercase) spelling on a tie at that version. That lineage is where the entity's current state and its
  * version-keyed dependent rows (payroll calculation versions and the like) live, so extending any other strands real
  * work. Every projection orders the same way (version DESC, canonical first), so writers and snapshots agree. A tie at
- * the highest version with no canonical spelling is ambiguous: writers refuse it, projections flag it. */
+ * the highest version with no canonical spelling is ambiguous: writers refuse it; the audit snapshot, journal risk, change
+ * history and transaction evidence name it apart from a resolvable fork. */
 export function lineageChoice<T extends { entity_id: string; version: number | string }>(rows: readonly T[], entityId: string):
   { row: T | undefined; forked: boolean; ambiguous: boolean } {
   const canonical = entityId.toLowerCase();

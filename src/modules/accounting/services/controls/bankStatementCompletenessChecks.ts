@@ -15,6 +15,11 @@ export async function checkBankStatementCompleteness(ctx:ControlTx,options:RiskC
   if(row.importedCount>10000)missing.push('async_scan_required:imported_statement_material_exceeds_10000');
   if(row.version===null)missing.push('historical_statement_versions_unavailable');
   if(row.sourceStatus==='rolled_back')missing.push('source_statement_import_rolled_back');
+  // Two receipts for one intent mean the attestation executed twice: a control failure, not missing evidence.
+  if(row.twinReceiptIds)findings.push({amount:'0',currency:row.currency,finding:{key:riskHash({id:row.id,kind:'statement_receipt_twinned'}),
+   kind:'control_receipt_twinned',severity:'high',classification:'confirmed',
+   entities:[{entityType:row.entityType,entityId:row.id},...row.twinReceiptIds.map(id=>({entityType:'control_operation_effect',entityId:id}))],
+   message:`Statement attestation executed more than once: receipts ${row.twinReceiptIds.join(', ')} record one intent under different id spellings.`,evidence:[]}});
   if(!result.reasons.length)continue;
   findings.push({amount:result.amount,currency:row.currency,finding:{key:riskHash({id:row.id,kind:'statement_comparison'}),
    kind:'source_statement_discrepancy',severity:'high',classification:result.classification,
