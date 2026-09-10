@@ -5,7 +5,7 @@ import { withSavepoint } from '@/lib/neon';
 import type { ControlTx, OperationRef } from './contracts';
 import { assertControlTx } from './context';
 import { canonicalJson } from './canonical';
-import { approvalAuthorities, approvalDecisions, assertRequesterAuthority, lockApproval, validateDecisions, type ApprovalRow } from './approvalQueries';
+import { approvalAuthorities, approvalDecisions, assertRequesterAuthority, lockApproval, validateDecisions, type ApprovalRow, type AuthorityRow } from './approvalQueries';
 import { canonicalOperationRef, loadOperationMaterial, materializeOperation, reserveOperationExposure } from './operationMaterializer';
 
 import { initializeOperationObservations } from './approvalRequestService';
@@ -107,20 +107,37 @@ export async function controlledOperationApprovalRequiredForAmount(ctx: ControlT
 }
 
 /**
+ * The one lock order for a supplied approval, shared by the live execution and
+ * its preview so the two cannot drift: the tenant's control-policy lock first,
+ * then the approval row FOR UPDATE, then the requester, authority and decision
+ * checks. Taking the approval first would deadlock (40P01) against a live
+ * execution of the same approval that already holds the policy lock. Locks and
+ * reads only; both locks end with the transaction.
+ */
+async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approvalId: string, authorities: AuthorityRow[]): Promise<ApprovalRow>;
+async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approvalId: string | null, authorities: AuthorityRow[]): Promise<ApprovalRow | null>;
+async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approvalId: string | null, authorities: AuthorityRow[]): Promise<ApprovalRow | null> {
+  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
+  if (!approvalId) return null;
+  const row = await lockApproval(ctx, approvalId);
+  await assertOperationRequester(ctx, ref, row.requester_person_id);
+  await assertRequesterAuthority(row, authorities);
+  await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
+  return row;
+}
+
+/**
  * A preview given an approval must accept it exactly when the live call would:
  * the same requester, authority, decision and binding checks the execution
- * path runs below, in its own savepoint, executing nothing. Throws as the live
- * path throws.
+ * path runs below, in the same lock order and its own savepoint, executing
+ * nothing. Throws as the live path throws.
  */
 export async function assertSuppliedApprovalExecutable(ctx: ControlTx, input: OperationRef, approvalId: string): Promise<void> {
   assertControlTx(ctx);
   const ref = canonicalOperationRef(input);
   const authorities = await approvalAuthorities(ctx, approvalId);
   await withSavepoint('preview_supplied_approval', async () => {
-    const row = await lockApproval(ctx, approvalId);
-    await assertOperationRequester(ctx, ref, row.requester_person_id);
-    await assertRequesterAuthority(row, authorities);
-    await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
+    const row = await lockPolicyThenApproval(ctx, ref, approvalId, authorities);
     assertApprovalExecutable(row, (await loadOperationMaterial(ctx, ref)).bindingHash);
   });
 }
@@ -135,13 +152,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   await assertControlledOperationAuthority(ctx, ref.operation);
   return withSavepoint('controlled_ap_operation', async () => {
     // Preserve policy-before-approval lock order, including replay lookups.
-    await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
-    const row = approvalId ? await lockApproval(ctx, approvalId) : null;
-    if (row) {
-      await assertOperationRequester(ctx,ref,row.requester_person_id);
-      await assertRequesterAuthority(row, authorities);
-      await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
-    }
+    const row = await lockPolicyThenApproval(ctx, ref, approvalId, authorities);
     const operationId = row?.operation_id ?? ctx.principal.operationId;
     const [committed] = await ctx.sql`
       SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
