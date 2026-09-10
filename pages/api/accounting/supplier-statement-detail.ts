@@ -60,14 +60,18 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
         total_amount as amount, amount_paid, notes as description
       FROM supplier_invoices si
       WHERE si.supplier_id = ${supplier_id} AND si.company_id = ${companyId}
-        -- The ageing's status rule, shared rather than re-typed: this page must
-        -- tie to that ageing, and the bare spelling dropped a null-status bill
-        -- while still deducting its payment — balance -400 against an ageing
-        -- and a control account of 750 (R-059 round 7).
+        -- The ageing's status rule, shared rather than re-typed, so this page
+        -- and the ageing admit the same BILLS. The page's balance is not the
+        -- ageing's total: it subtracts EVERY processed payment (total_paid
+        -- below), allocated or not, where the ageing nets only what is
+        -- allocated to a bill. So it ties to the payable CONTROL — the ageing
+        -- less unapplied, on-account payments — and K-053 pins it there.
+        -- The bare spelling dropped a null-status bill while still deducting its
+        -- payment: balance -400 against a control of 750 (R-059 round 7).
         AND ${sql.unsafe(documentInPopulationExpr('si'))}
         -- A soft-deleted bill leaves this statement exactly when the delete's
         -- GL reversal reaches the ledger, and not one day earlier — the same
-        -- dated question the ageing it must tie to now asks.
+        -- dated question the ageing and the control account ask.
         AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
         AND si.invoice_date <= ${asAtDate}::DATE
       ORDER BY si.invoice_date ASC, si.id

@@ -16,6 +16,11 @@
  * before the payment (1150) and at today (750): the statement's balance equals
  * the ageing's total and the negated payable control, and its invoiced figure
  * is the bill's 1150 at both — the headline aggregate AND the row list.
+ *
+ * Round 8 (LOW-4) adds D, an unposted DRAFT bill of 300 for the same supplier.
+ * The shared rule excludes drafts as well as cancelled bills, and until D
+ * existed a mutation re-admitting drafts at either site stayed green here and in
+ * k053-figure-surfaces. D must appear in neither the headline nor the rows.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -125,6 +130,12 @@ describeIfDb('R-059 supplier-statement-detail ties on a NULL-status bill', () =>
     await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${pay}::UUID, ${bill}::UUID, 400)`;
     await inTx(() => processSupplierPayment(COMPANY, pay, USER));
     await sql`UPDATE supplier_invoices SET status = NULL WHERE id = ${bill}::UUID AND company_id = ${COMPANY}::UUID`;
+    // D: a draft, never posted, raised before both dates.
+    await sql`
+      INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
+        status, subtotal, tax_amount, total_amount, amount_paid, created_by)
+      VALUES (${COMPANY}::UUID, ${supplier}::UUID, ${TAG + '-D'}, ${shift(-50)}::date, ${shift(-40)}::date,
+        'draft', 300, 0, 300, 0, ${USER}::UUID)`;
 
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
@@ -150,7 +161,7 @@ describeIfDb('R-059 supplier-statement-detail ties on a NULL-status bill', () =>
   it('the premise: the bill is posted, part-paid and carries a NULL status', async () => {
     const [r] = (await sql`
       SELECT status IS NULL AS null_status, gl_journal_entry_id IS NOT NULL AS posted, amount_paid::numeric AS paid
-      FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID
+      FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID AND invoice_number = ${TAG + '-B'}
     `) as { null_status: boolean; posted: boolean; paid: string }[];
     expect({ ...r!, paid: Number(r!.paid) }).toEqual({ null_status: true, posted: true, paid: 400 });
   });
@@ -165,7 +176,8 @@ describeIfDb('R-059 supplier-statement-detail ties on a NULL-status bill', () =>
         aged,
         control: await owedOnControl(asAt),
       }).toEqual({ invoiced: GROSS, balance: owed, aged: owed, control: owed });
-      // The row list carries the bill as well as the headline aggregate.
+      // The row list carries the bill as well as the headline aggregate — and
+      // the 300 draft is in neither (invoiced above is 1150, not 1450).
       expect(body.transactions.filter(t => t.type === 'invoice').map(t => Number(t.debit))).toEqual([GROSS]);
     });
   }

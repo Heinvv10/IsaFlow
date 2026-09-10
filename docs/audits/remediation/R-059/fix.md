@@ -470,8 +470,8 @@ draft, not its `invoice_date`. Two things follow, and both put it out of scope
 here: (a) it changes TODAY's WIP figure, which R-059 is under an explicit
 constraint not to move, and (b) the exit would need the approval date, which
 `customer_invoices` does not store — it needs a column or the GL journal's
-date. Registered for the orchestrator: **R-id TBA — "an entry invoiced to a
-draft invoice is in neither WIP nor AR"**. The comment now states the gap and
+date. Registered as **R-078** — "an entry invoiced to a draft invoice is in
+neither WIP nor AR" (this line said "R-id TBA" until round 8). The comment now states the gap and
 that it exists at today exactly as at a past date, so the rewind did not
 introduce it.
 
@@ -981,9 +981,9 @@ the balance printed on it. That is a change to outbound customer communication,
 which the standing rules put behind Hein, not behind a refactor. So their claims
 now say precisely what is shared (the dated soft-delete question) and what is
 not (the status rule: they keep drafts, and the bare `!=` drops null-status
-rows). **Registered, not fixed — R-id TBA: "customer and supplier statements
+rows). **Registered, not fixed — R-082: "customer and supplier statements
 include draft invoices and drop null-status ones, so the emailed balance can
-differ from the ageing".** Decision for Hein.
+differ from the ageing".** Decision for Hein. (Said "R-id TBA" until round 8.)
 
 ### B. By bridge — every function `reconcileSubledger` calls
 
@@ -1021,9 +1021,9 @@ all `is_nullable=YES`, `DEFAULT 'draft'`). `agingRewind` filters payments with
 the bare `NOT IN ('draft','cancelled')` and `unappliedCashService` with
 `<> 'cancelled'`. That is the FUNDS population — a different rule, not a claim
 of the document population — and moving it changes every as-at figure's
-settlement rewind. **Registered, not fixed — R-id TBA: "null-status payments are
+settlement rewind. **Registered, not fixed — R-083: "null-status payments are
 dropped from the settlement rewind, and the rewind and unapplied cash disagree
-on draft payments".**
+on draft payments".** (Said "R-id TBA" until round 8.)
 
 ## MEDIUM-1 — FIXED, and the test the round asked for found two more legs missing
 
@@ -1173,17 +1173,24 @@ So: **4 of 9 run and pass; 5 fail identically on master**. The
 (isaflow_dev has the volume but not the table; the fixture has the table but not
 the volume). **None of the five is counted as a pass.** The two assertion
 failures are on fixture data this branch did not create and on shapes the status
-rule does not touch; the −1150 on the K053ID shape may be a real reconciliation
-gap, pre-existing and outside R-059, and is noted for whoever owns K-053's
-leftovers. What round 6 changed is proved instead by the four purpose-built
+rule does not touch. **Corrected in round 8:** the −1150 on the K053ID companies
+is NOT a reconciliation gap — it is a fixture artefact. The round-6 review
+restored the one `soft_delete_journal_reversals` row the aborted cleanup had
+deleted, and `unexplained` went to 0 in both companies. The mechanism is the
+teardown ORDER in `k053-soft-delete-undo-identity`: its `afterAll` deletes
+`soft_delete_journal_reversals` FIRST, and those runs stopped after that
+statement. Checked on the fixture in round 8: the two leftover companies hold 8
+and 10 reversal journals and 0 `soft_delete_journal_reversals` rows, so
+`unappliedCashService` can no longer tell a soft-delete's reversal from an
+orphan. What round 6 changed is proved instead by the four purpose-built
 files above, each of which creates, reconciles and deletes its own books.
 
 ## Round 6 — not done, stated
 
 - Two statement surfaces keep their own status rule, claim corrected, decision
-  registered for Hein (R-id TBA) — it changes what customers are emailed.
+  registered for Hein as R-082 — it changes what customers are emailed.
 - The funds population (payments, credit notes) keeps its NULL-unsafe filters —
-  a separate rule, registered (R-id TBA).
+  a separate rule, registered as R-083.
 - `practiceReportsService.ts` is still 351 lines; R-074, R-078, K-050 untouched;
   the browser check remains not done.
 
@@ -1242,10 +1249,14 @@ sites:
 and `pages/`, binds the aliases given to `customer_invoices` and
 `supplier_invoices`, and reports every predicate on `<alias>.status` (or on bare
 `status` for an unaliased read), in any spelling: `NOT IN`, `IN`, `<>`, `!=`,
-`= ANY`, `<> ALL`, `=`, `IS NULL`. That gave **128 predicates in 58 files**, and it
+`= ANY`, `<> ALL`, `=`, `IS NULL`. That gave "128 predicates in 58 files", and it
 finds all four sites above. Sites already routed no longer spell `.status`, so
-they drop out. A separate grep for status predicates built as strings outside a
-template found none. Every predicate was then classified by what its figure is
+they drop out. It said a separate grep for string-built predicates "found none".
+**Both statements were wrong — corrected in round 8.** The parser had three blind
+spots (nested templates, an unaliased invoice table inside a template that also
+binds aliases, and SQL built as plain strings), and it missed **12** predicates,
+including three string-built ones in `supplierInvoiceWhereBuilder`. At round 7
+the true count was **140 in 62 files**. See round 8 for the corrected census. Every predicate was then classified by what its figure is
 compared with, and a claim filter over ±8 lines around each one (ageing,
 subledger, control account, "tie", "same set/population/rule", "agree",
 "reconcil") was read by hand. **That filter found three MORE false claims**, now
@@ -1255,18 +1266,19 @@ corrected:
 - `bureauClientMetricsService.ts` said "same allowlist as arAgingService / apAgingService";
 - `src/lib/constants/invoiceStatuses.ts` said "at an as-at of TODAY the two agree". They agree only where there is no `pending_approval` document, `disputed` bill (AP only; AR's CHECK has no such status), `paid` document still carrying a balance, or NULL-status row.
 
-### The 128, by what they feed
+### The 128, by what they feed (round 8 adds the 12 it missed — see below)
 
 | Category | Files (sites) | Disposition |
 |---|---|---|
 | **Claims the ageing's population** | `supplier-statement-detail` (2), `documentChecks:154` (1) | **ROUTED this round** |
 | Statement and portal surfaces quoted to a customer or mirroring one: keep drafts, `!=` drops NULL | `customer-statement-detail` (2), `customer-statement` (2), `customer-statements` (1), `statementEmailService` (1), `supplierStatementService` (1), `customerLedgerService` (2), `portalService` (2), `portal/chat` (3), `portal/invoice/[token]` (2), `portal/invoice/generate` (1), `portalTokenService` (3) | **R-082** — they change what customers see; Hein's decision |
-| LIVE open set, today only, by design (`invoiceStatuses.ts` consumers and literal equivalents) | `dashboard-stats` (2), `consolidatedReportingService` (2), `bureauClientMetricsService` (2), `kpiDashboardService` (4), `kpiChartsService` (2), `debtorsManagerService` (4), `dashboard-todos` (2), `cashFlowForecastDataService` (4), `receiptMatchService` (1), `bankMatchDbQueries` (2), `migrationValidationService` (2), `workbenchService` (1), `dunningCronService` (1), `smart-reminder` (1), `masterDeleteGuards` (2) | not the ageing's population; three false claims corrected above; the close checks (`ar/apSubLedgerCheck`, 2) are K-050's |
+| LIVE open set, today only, by design (`invoiceStatuses.ts` consumers and literal equivalents) | `dashboard-stats` (2), `consolidatedReportingService` (2), `bureauClientMetricsService` (2), `kpiDashboardService` (4), `kpiChartsService` (2), `debtorsManagerService` (4), `dashboard-todos` (2), `cashFlowForecastDataService` (4), `receiptMatchService` (1), `bankMatchDbQueries` (2), `workbenchService` (1), `dunningCronService` (1), `smart-reminder` (1), `masterDeleteGuards` (2) | not the ageing's population; three false claims corrected above; the close checks (`ar/apSubLedgerCheck`, 2) are K-050's |
 | Activity totals with the bare `NOT IN ('draft','cancelled')` and no ageing claim | `kpiChartsService:187`, `kpiDashboardService:140,166,175`, `debtorsManagerService:285` | NULL-unsafe under this branch's convention, but they claim nothing about the ageing. Left for the NULL-convention decision (round 5, LOW-1), which Hein makes once and which then applies here |
 | VAT: tax-point population, its own rule | `vat201Service` (3), `vatExceptionsService` (5), `vatBoxBasisQuery` (2), `vat201NilRatedSupplies` (2), `vatReconciliationService` (1), `drcVatService` (1), `vatReturnService` (2) | a different rule and outside R-059 |
 | Workflow: state transitions, eligibility, recompute, archive, counts of drafts | `bank-match-confirm` (2), `customer-invoices-detail` (2), `supplier-invoices-detail` (1), `supplierInvoiceWorkflowService` (4), `supplierPaymentWorkflowService` (2), `supplierAutoAllocate` (2), `customerAutoAllocate` (2), `customerInvoiceApprovalService` (2), `customerInvoiceCancelService` (1), `customerPaymentAllocationService` (2), `invoiceStatusRecompute` (6), `writeOffService` (1), `disputeService` (1), `archiveExecutionService` (4), `archiveQueryService` (2), `sageMigrationCommitService` (1), `continuousCloseQueryService` (1), `dashboard-todos:99` (1), `bureauWorkAggregatorService` (1) | not a population figure |
 | User-chosen list filters | `customer-invoices-export` (1), `customerInvoiceReadService` (10) | the user picks the status |
-| Match candidates | `supplierStatementReconDb:45` (1) | tabled above |
+| Match candidates | `supplierStatementReconDb:45` (1) | tabled above; **changed in round 8** — it does reach a figure |
+| **Compared with the control account, on its own rule** (moved here in round 8 from "LIVE open set") | `migrationValidationService` (2) | **R-086**, pre-existing, out of scope. `checkARvsGL`/`checkAPvsGL` sum `status IN ('approved','partially_paid','overdue')` and compare the total with the receivable/payable control. The AR list omits `'sent'`, so it is not even the live set, and there is no soft-delete predicate |
 
 ## The misattribution — CORRECTED
 
@@ -1310,8 +1322,10 @@ its own design:
 - **A cancelled linked credit note** (AR and AP) leaves a false ±230 pair. **An
   unlinked supplier credit note** leaves `unexplained 230` with nothing named,
   because `apSubledgerService` carries no credit-note rows.
-- **The −1150 residual** on the leftover `K053ID` fixture companies (round 6
-  addendum).
+- ~~The −1150 residual on the leftover `K053ID` fixture companies~~ —
+  **withdrawn in round 8.** It is not an R-084 journal type. It is a fixture
+  artefact left by an interrupted `k053-soft-delete-undo-identity` teardown
+  (see the round-6 addendum, corrected).
 
 Why not here: each fix changes which partition owns a journal type. The two
 round-6 legs were fixed because the round's own mixed-set test demanded them.
@@ -1341,3 +1355,120 @@ where they get their own tests and design.
   R-078 are untouched.
 - The activity-total and VAT sites keep the bare spelling, pending the NULL
   convention decision.
+
+---
+
+# Round 8
+
+## MEDIUM-1: the statement-recon match candidates DO reach a figure — FIXED
+
+Round 7 said `supplierStatementReconDb.loadSupplierInvoices` "never reaches a
+figure". That was false. Every statement line it fails to match counts in
+`missing_in_isaflow_count`. The page shows that count as a badge, and
+`canReconcile` in `pages/accounting/ap/supplier-statements/[id].tsx` refuses
+"Mark reconciled" while it is non-zero. For a NULL-status bill the variance was
+0, because it comes from the ageing, but the line read "missing in IsaFlow" and
+the statement could not be reconciled.
+
+**The decision, made deliberately:** the candidate rule is
+`COALESCE(si.status, '') <> 'cancelled'`, NOT `documentInPopulationExpr`.
+Match candidates keep DRAFTS: a bill we still hold as a draft is worth matching
+to the supplier's line for it, and the variance, which does come from the
+ageing, still refuses the statement because a draft is not owed. Only NULL
+changes, and it gets the same reading the helper gives it.
+
+New file `r059-statement-recon-match-candidates` (2 tests) drives the real
+`createReconciliation`. Only the VLM extraction and the PDF bytes are mocked.
+- **N**, a NULL-status bill of 1000 with its line and a closing balance of 1000:
+  matched, variance 0, missing 0, amount-diff 0, the page's `canReconcile` true,
+  and `markReconciled` lands (`status` 'reconciled').
+- **D**, a DRAFT bill of 300 with its line: MATCHED (missing 0), but
+  `isaflowBalance` 0 and variance 300, so `canReconcile` is false.
+
+Both halves of the decision are pinned. **C1**, the bare `NOT IN` restored, turns
+N red. **C2**, the ageing's rule used instead (drafts excluded), turns D red.
+
+## LOW-1: the census missed 12 predicates — CORRECTED, and the parser fixed
+
+The review found 11. The rewritten parser (`<scratchpad>/agents/fix-r059c/census8.py`)
+finds those 11 and one more, 12 in all. It closes all three blind spots:
+- it splits template literals with `${}` nesting tracked;
+- it checks bare `status` whenever an invoice table is read unaliased, even in a
+  template that also binds aliases;
+- a second pass reads EVERY line, strings and where-clause builders included,
+  for `ci.status` / `si.status` comparisons.
+
+At round-8 HEAD it reports 139 hits, 2 of them false positives: bare `status` on
+`gl_journal_entries` and `bank_transactions` inside `monthEndWorkbenchService`'s
+multi-table count template. That leaves **137 predicates on the invoice tables
+in 60 files**: round 7's true 140 in 62, less the three sites round 7 routed.
+
+| Missed predicate | Disposition |
+|---|---|
+| `customer-invoices-detail.ts:150` (UPDATE … `WHERE status = 'draft'`) | workflow |
+| `ap/batchPaymentService.ts:202` (`SET status = CASE …`) | workflow |
+| `reports/vatExceptionsService.ts:205, 209` (`status != 'cancelled'`, unaliased) | VAT |
+| `dashboard/workbenchService.ts:46, 52` (draft counts) | workflow tile |
+| `workbench/monthEndWorkbenchService.ts:237, 238` (draft counts) | workflow tile |
+| **string-built** `ap/supplierInvoiceWhereBuilder.ts:103` (`NOT IN ('paid','cancelled')`), `:108` (`IN ('approved','partially_paid')`) and the user status filter `si.status = $n` | user-chosen list filters |
+| `ap/supplierInvoiceQueryService.ts:92` (a select-list fragment) | list display |
+
+None of the 12 changes a disposition. Round 7's "128 in 58 files" and "found
+none" are corrected in place above.
+
+## LOW-2: migrationValidationService — R-086, out of scope
+
+It is tabled wrongly as a "live open set" figure. Its `checkARvsGL` and
+`checkAPvsGL` compare an invoice total with the control account. Their AR list
+omits `'sent'`, and there is no soft-delete predicate. This is pre-existing,
+registered as **R-086**, and not fixed here. It is re-tabled above under its own
+category.
+
+## LOW-3: two comments that over-claimed — CORRECTED
+
+- `bureauClientMetricsService.ts` header: it said "these numbers match the Trial
+  Balance / aging reports". It now says what each figure is. Cash, revenue and
+  expenses are GL balances and match the Trial Balance. AR and AP are TODAY's
+  balances on the LIVE allowlists and do NOT match the aging reports.
+- `supplier-statement-detail.ts`: it said the page "must tie to that ageing". The
+  page subtracts EVERY processed payment, allocated or not (`total_paid`), where
+  the ageing nets only what is allocated to a bill. So the page ties to the
+  payable CONTROL, which is the ageing less unapplied on-account payments, and
+  K-053 pins it there. What the page shares with the ageing is which BILLS are
+  admitted.
+
+## LOW-4: draft exclusion at both statement-detail sites — PINNED
+
+The route test now carries D, an unposted draft bill of 300 for the same
+supplier, and still asserts invoiced 1150 in both the headline and the rows.
+Re-admitting drafts (`COALESCE(si.status,'') <> 'cancelled'`) at the row query
+(**D-first**) or at the headline aggregate (**D-last**) turns 2 of 3 red each.
+Before D existed, both mutations stayed green here and in
+`k053-figure-surfaces-tie-to-gl`.
+
+## LOW-5: record leftovers — CORRECTED
+
+- The K053ID −1150 is a fixture artefact, not R-084. The round-6 addendum and
+  the R-084 list are corrected in place: the teardown in
+  `k053-soft-delete-undo-identity` deletes `soft_delete_journal_reversals`
+  first, and the two leftover companies hold 8 and 10 reversals with 0 of those
+  rows.
+- The four "R-id TBA" lines now name **R-082** (statements) and **R-083** (the
+  funds population). A fifth, the round-3 WIP/AR gap, now names **R-078**.
+
+## Round 8 mutations (file copies, each restored and `cmp`-verified)
+
+| # | Mutation | Red |
+|---|---|---|
+| C1 | match candidates back to bare `NOT IN ('cancelled')` | recon-candidates 1 of 2 (N) |
+| C2 | match candidates switched to the ageing's rule | recon-candidates 1 of 2 (D) |
+| D-first | statement-detail row query re-admits drafts | detail 2 of 3 |
+| D-last | statement-detail headline re-admits drafts | detail 2 of 3 |
+
+## Round 8 gates
+
+- `env -u DATABASE_URL bun run ci`: 15/15 PASS, unit 854 files / 10093 tests,
+  component 84 / 537, `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`: every `r059-*` (12 files), every
+  `k053-*`, `k091*`, `k093*` — **37 files / 240 tests passed**.
+- `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
