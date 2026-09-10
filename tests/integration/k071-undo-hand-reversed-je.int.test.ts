@@ -71,9 +71,27 @@ async function undoViaRoute(runId: string) {
   return { status: result.state.statusCode, body: result.state.body as { data?: Record<string, unknown> } };
 }
 
+/**
+ * Net movement on a GL account over POSTED journals, in rands. This is the
+ * test that matters: flags say what the product believes, this says whether
+ * the money is still on the books.
+ */
+async function netOn(accountId: string): Promise<number> {
+  const { rows } = await pool.query(
+    `SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::float8 AS net
+       FROM gl_journal_lines jl
+       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      WHERE jl.gl_account_id = $1 AND jl.company_id = $2 AND je.status = 'posted'`,
+    [accountId, fx.company],
+  );
+  return Number(rows[0].net);
+}
+
 it('finishes a line whose provisional JE was reversed by hand, closes the run, and never reverses twice', async () => {
   const { createJournalEntry, postJournalEntry, reverseJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryService');
   const line = await seedBankLine(pool, fx, -80);
+  const baseExpense = await netOn(expense);
+  const baseBank = await netOn(fx.bankAccount);
   const je = await inRequest(async () => {
     const entry = await createJournalEntry(fx.company, {
       entryDate: DAY, description: 'K071 r21 provisional',
@@ -107,6 +125,9 @@ it('finishes a line whose provisional JE was reversed by hand, closes the run, a
   expect(tx[0]).toEqual({ status: 'imported', provisional_je_id: null, auto_post_run_id: null });
   const { rows: run } = await pool.query('SELECT undone_at FROM bank_auto_post_runs WHERE id=$1', [runId]);
   expect(run[0].undone_at).not.toBeNull();
+  // The condition the flags are only a proxy for: the money is off the ledger.
+  expect(await netOn(expense) - baseExpense).toBe(0);
+  expect(await netOn(fx.bankAccount) - baseBank).toBe(0);
   // Exactly the one hand reversal — the undo posted nothing.
   const { rows: contras } = await pool.query(
     'SELECT count(*)::int AS n FROM gl_journal_entries WHERE reversal_of_id=$1 AND company_id=$2', [je, fx.company]);
@@ -142,4 +163,66 @@ it('still reverses a provisional JE nobody reversed — exactly once', async () 
   const { rows: contras } = await pool.query(
     'SELECT count(*)::int AS n FROM gl_journal_entries WHERE reversal_of_id=$1 AND company_id=$2', [je, fx.company]);
   expect(contras[0].n).toBe(1);
+}, 60000);
+
+/**
+ * K-071 r22 (review MEDIUM-1, probe A). Reversing a CONTRA is permitted and
+ * does not clear the ORIGINAL's `reversed_at`, so original + contra +
+ * contra-of-contra nets back to the original posting while the flag still
+ * reads "reversed". Reading that flag alone, the undo answered
+ * `{reversed 0, alreadyUndone 1, undone true}`, set `undone_at`, put the line
+ * back to `imported` — and left R70 on the expense and the bank account, with
+ * the line re-postable and nothing linking the two postings.
+ */
+it('refuses to close a run whose provisional JE reversal was itself reversed, and leaves the money visible', async () => {
+  const { createJournalEntry, postJournalEntry, reverseJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryService');
+  const line = await seedBankLine(pool, fx, -70);
+  const baseExpense = await netOn(expense);
+  const baseBank = await netOn(fx.bankAccount);
+  const je = await inRequest(async () => {
+    const entry = await createJournalEntry(fx.company, {
+      entryDate: DAY, description: 'K071 r22 provisional, re-reversed',
+      lines: [
+        { glAccountId: expense, debit: 70, credit: 0 },
+        { glAccountId: fx.bankAccount, debit: 0, credit: 70 },
+      ],
+    }, fx.user);
+    await postJournalEntry(fx.company, entry.id, fx.user);
+    return entry.id;
+  });
+  const { rows: runRows } = await pool.query(
+    `INSERT INTO bank_auto_post_runs(company_id,source,min_confidence,amount_cap,posted_count,total_amount)
+     VALUES($1,'categorization',0.9,1000,1,70) RETURNING id`, [fx.company]);
+  const runId = String(runRows[0].id);
+  await pool.query(
+    "UPDATE bank_transactions SET status='allocated', provisional_je_id=$1, auto_post_run_id=$2 WHERE id=$3",
+    [je, runId, line]);
+
+  // The user reverses the journal by hand, then reverses that reversal.
+  const contra = await inRequest(() => reverseJournalEntry(fx.company, je, fx.user));
+  await inRequest(() => reverseJournalEntry(fx.company, String(contra.id), fx.user));
+
+  // The original posting is back on the books, and the flag disagrees.
+  expect(await netOn(expense) - baseExpense).toBe(70);
+  expect(await netOn(fx.bankAccount) - baseBank).toBe(-70);
+  const { rows: flag } = await pool.query('SELECT reversed_at FROM gl_journal_entries WHERE id=$1', [je]);
+  expect(flag[0].reversed_at).not.toBeNull();
+
+  const undo = await undoViaRoute(runId);
+
+  expect(undo.status).toBe(200);
+  expect(undo.body.data).toEqual({
+    reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+  });
+  // The run stays open and the line keeps its tag, so a retry still owns it.
+  const { rows: tx } = await pool.query(
+    'SELECT status, provisional_je_id, auto_post_run_id FROM bank_transactions WHERE id=$1', [line]);
+  expect(tx[0].status).toBe('allocated');
+  expect(String(tx[0].provisional_je_id)).toBe(je);
+  expect(String(tx[0].auto_post_run_id)).toBe(runId);
+  const { rows: run } = await pool.query('SELECT undone_at FROM bank_auto_post_runs WHERE id=$1', [runId]);
+  expect(run[0].undone_at).toBeNull();
+  // Nothing was posted by the undo either — the R70 is exactly where it was.
+  expect(await netOn(expense) - baseExpense).toBe(70);
+  expect(await netOn(fx.bankAccount) - baseBank).toBe(-70);
 }, 60000);

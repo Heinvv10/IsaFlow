@@ -1254,3 +1254,132 @@ build PASS, `[ci] all checks passed`, EXIT=0.
 
 Integration, `--no-file-parallelism`, `k071-*`, `k140-*`, `k143-*`, `k144-*`: **17 files
 passed, 47 tests passed, 1 skipped.**
+
+---
+
+## Round 22 — blind review of `b241fcd7b` (0 HIGH · 1 MEDIUM · 2 LOW), all three addressed
+
+### MEDIUM-1 — a run read "undone" with the money still on the ledger — FIXED
+
+`journalAlreadyReversed` decided "already reversed by hand" from `reversed_at` on the ORIGINAL
+entry alone. Reversing a CONTRA is an ordinary permitted operation (`reverseJournalEntry` refuses
+only a non-posted entry or one that already has `reversedAt`; a contra is posted with `reversedAt`
+NULL) and it does not clear the original's `reversed_at`. So original + contra + contra-of-contra
+nets back to the ORIGINAL posting while the flag still reads "reversed" — the undo counted the row
+`alreadyUndone`, cleared the tag, reset the line to `imported` and set `undone_at`, leaving the
+expense debited and the bank credited and the line re-postable.
+
+`journalAlreadyReversed` is replaced by `journalReversalState`, which walks the reversal chain in
+one recursive CTE and counts POSTED contras: each one flips the sign, so an ODD count means the
+posting is off the books (`live`), an EVEN count means it is back on them (`reReversed`), and zero
+means nothing reverses it (`none`). `ux_gl_je_reversal_of` (migration 619) is unique on
+(company_id, reversal_of_id), so the chain is linear; the `depth < 20` cap only bounds a cycle that
+index should already make impossible. `reReversed` returns a new `RowOutcome` routed to the
+`failed` skip — the tag is kept, the run stays open, the operator gets a row to fix — with its own
+log line rather than the "nothing linked to reverse" wording, which would be false here.
+
+Measured before the fix (probe, fixture DB, R80 provisional JE):
+`{netAfterHand: 80, netAfterUndo: 80, undo: {reversed: 0, skipped: 0, alreadyUndone: 1, undone: true}}`.
+
+**Decided by the net effect, not the flags.** `tests/integration/k071-undo-hand-reversed-je.int.test.ts`
+gains `netOn()` — `SUM(debit - credit)` over POSTED journals for one GL account — and a third test
+that reproduces the reviewer's probe A exactly: R70 posted, hand-reversed, the contra reversed
+again; the net on the expense is +70 and on the bank −70 BEFORE the undo, the undo answers
+`{reversed 0, skipped 1, skippedBy{failed 1}, alreadyUndone 0, undone false}`, `undone_at` stays
+NULL, the line keeps `status='allocated'`, its `provisional_je_id` and its `auto_post_run_id`, and
+both nets are unchanged after. The existing "closes the run" test now also asserts both nets are
+**0** before it accepts `undone_at` being set.
+
+### LOW-1 — `provisional` added to `POSTED_STATUSES`, and the census that called it unreachable was wrong — FIXED
+
+`bank_transactions.status` is constrained (migration 414) to
+`imported | provisional | allocated | matched | reconciled | excluded`, and `provisional` is
+exactly the status a posted provisional JE puts the line in, so it belongs in a set whose comment
+is "statuses that claim a posting". Added.
+
+Re-deriving the reachability census changed the answer. The review walked every TypeScript writer
+of `provisional_je_id` and found none that clears the id without the status — correct as far as it
+goes, but **the FK is also a writer of that column and no `SET provisional_je_id` grep can find
+it**: migration `414_provisional_je_bank_first.sql:23` declares
+`provisional_je_id UUID REFERENCES gl_journal_entries(id) ON DELETE SET NULL`, and
+`archiveExecutionService.ts:200` deletes every `gl_journal_entries` row with
+`status = 'posted' AND entry_date < cutoff` while `:167` deletes only bank transactions with
+`status = 'reconciled'`. An archive run therefore leaves a `provisional` line with a NULL
+`provisional_je_id` whenever the provisional JE is older than the cutoff and its bank line is not
+reconciled. So the shape is **reachable in the product**, not latent — the guard is load-bearing
+rather than tidy. (Brief's census lesson #1, in a form worth recording: a column with
+`ON DELETE SET NULL` has a writer that exists only in the schema.)
+
+### LOW-2 — a partial hand offset is still fully re-reversed — MEASURED, NOT FIXED (needs a redesign)
+
+Reproduced on the fixture: a provisional JE of E1 60 / E2 40 debit against bank 100 credit, then a
+manual journal crediting E1 60 and debiting bank 60 (offsetting one leg only), then the undo:
+
+    {"afterHand":{"e1":0,"e2":40},"afterUndo":{"e1":-60,"e2":0},
+     "body":{"reversed":1,"skipped":0,"alreadyUndone":0,"undone":true}}
+
+E1 ends at **−60** — a credit that corresponds to nothing — and the run reads fully undone.
+
+No contained fix exists. The hand offset is an ordinary posted journal: it carries no
+`reversal_of_id`, sets no `reversed_at`, and is indistinguishable in the data from any other credit
+to E1 (a supplier credit note, a reclassification). Detecting it would need either a per-line
+reversal ledger, or heuristic matching on account/amount/date — and a heuristic here fails in the
+direction the brief forbids, refusing legitimate undos whenever an unrelated journal happens to
+touch the same account for the same amount. Recorded as an open defect for a design decision
+rather than half-fixed. R-id TBA — "undo re-reverses a partially hand-offset provisional journal".
+
+### Files
+
+- `src/modules/accounting/services/bank/autoPostUndoService.ts` — `journalReversalState` replaces
+  `journalAlreadyReversed`; `reReversed` outcome; `provisional` in `POSTED_STATUSES` (251 lines).
+- `tests/unit/services/bank/autoPostUndoService.test.ts` — 2 new tests (re-reversed chain skipped;
+  a depth-3 chain still closes the run), the `it.each` extended to `provisional`, 13 tests.
+- `tests/integration/k071-undo-hand-reversed-je.int.test.ts` — `netOn()`, net assertions on the
+  existing close-the-run test, 1 new test (probe A), 3 tests.
+
+### Mutations (5, all red, file restored byte-identically — sha256 `94fbe5f7…` before and after)
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | delete `if (state === 'reReversed') return 'reReversed'` | int 1 failed / 2 passed |
+| M2 | parity → always `'live'` | int 1 failed / 2 passed |
+| M3 | chain counts `status = 'draft'` contras instead of `'posted'` | int 1 failed / 2 passed |
+| M4 | `if (depth === 0)` → `if (depth >= 0)` (always `'none'`) | int 1 failed / 2 passed |
+| M5 | `POSTED_STATUSES` drops `'provisional'` | unit 1 failed / 12 passed |
+
+M3 and M4 are the both-directions proof: each makes a LEGITIMATE undo fail (the hand-reversed row
+is re-reversed and refused), so neither the new predicate nor the new skip can strand a run that
+should close. The two untouched tests in that file — the legitimate hand-reversal closing the run,
+and an untouched provisional JE reversed exactly once — stay green throughout.
+
+### Gates
+
+- `env -u DATABASE_URL bun run ci` → every step PASS, `[ci] all checks passed`, **EXIT=0**.
+- 17 `k071-*`/`k140-*`/`k143-*`/`k144-*` integration files, `--no-file-parallelism` →
+  `Test Files 17 passed (17)`, `Tests 48 passed | 1 skipped (49)`, **EXIT=0** (round 21: 47 passed).
+
+One intermediate `bun run ci` run (load average 19.4) failed
+`tests/unit/components/reports/reportPacksShareMount.test.tsx > draws it for a manager…`. Run
+alone it passes 6/6, and the next full gate passed EXIT=0 — a load flake, in a file this branch
+does not touch, not a branch failure.
+
+### Migration / historical impact
+
+No migration. Historical: any run marked `undone_at` over a re-reversed provisional journal is
+already wrong in the data and this change cannot repair it. Production not measured (agents do not
+connect to `isaflow`); the SQL for Hein:
+
+The undo clears `auto_post_run_id`, so the affected rows no longer name their run and the damage
+cannot be joined back to it. What CAN be listed is every journal whose reversal was itself
+reversed — the shape that produced it — for manual inspection against the run log:
+
+```sql
+SELECT o.company_id, o.id AS je_id, o.entry_number, c.id AS contra_id, c2.id AS contra_of_contra_id
+  FROM gl_journal_entries o
+  JOIN gl_journal_entries c  ON c.reversal_of_id  = o.id AND c.company_id  = o.company_id
+  JOIN gl_journal_entries c2 ON c2.reversal_of_id = c.id AND c2.company_id = c.company_id
+ WHERE o.reversed_at IS NOT NULL AND c.status = 'posted' AND c2.status = 'posted'
+   AND NOT EXISTS (SELECT 1 FROM gl_journal_entries c3
+                    WHERE c3.reversal_of_id = c2.id AND c3.company_id = c2.company_id
+                      AND c3.status = 'posted');
+```
