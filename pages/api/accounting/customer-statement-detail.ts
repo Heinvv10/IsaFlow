@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 type Row = Record<string, unknown>;
 
 // P3.4: this endpoint has no offset-pagination UI (single full-history view
@@ -31,6 +32,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!clientId) {
     return apiResponse.badRequest(res, 'client_id is required');
   }
+  // This statement carries no as-at parameter: it is the full history as at
+  // today, so today is the date its soft-delete question is asked at.
+  const asAtStr = asAtTodayStr();
 
   try {
     // Get client info
@@ -45,9 +49,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Get invoices
     const invoicesRaw = (await sql`
       SELECT id, invoice_number, invoice_date, notes, total_amount, status
-      FROM customer_invoices
-      WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
-      ORDER BY invoice_date, id
+      FROM customer_invoices ci
+      WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId} AND ci.status != 'cancelled'
+      -- As at TODAY, not undated: a document soft-deleted BEFORE the delete
+      -- began reversing its journal has a standing entry the control account
+      -- still carries, and a bare deleted_at IS NULL would drop it from this
+      -- figure while the GL keeps it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+      ORDER BY ci.invoice_date, ci.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
@@ -90,8 +99,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const [totalsRow] = (await sql`
       SELECT
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM customer_invoices
-          WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
+          SELECT SUM(ci.total_amount::numeric) FROM customer_invoices ci
+          WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId} AND ci.status != 'cancelled'
+            AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         ), 0) AS total_invoiced,
         COALESCE((
           SELECT SUM(pmt_total) FROM (

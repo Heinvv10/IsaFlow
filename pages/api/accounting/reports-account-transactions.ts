@@ -1,10 +1,12 @@
 /**
  * Account Transactions Report API
  * GET /api/accounting/reports-account-transactions?account_code=1110&period_start=&period_end=
+ * Optional cost_centre_id and business_unit_id filters are cumulative.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { UUID_RE } from '@/lib/validation';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
@@ -13,13 +15,22 @@ import { getAccountTransactions } from '@/modules/accounting/services/reports/tr
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   const { companyId } = req as CompanyAuthedRequest;
+  const costCentreId = req.query.cost_centre_id;
+  if (costCentreId !== undefined && (typeof costCentreId !== 'string' || !UUID_RE.test(costCentreId))) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+  const businessUnitId = req.query.business_unit_id;
+  if (businessUnitId !== undefined && (typeof businessUnitId !== 'string' || !UUID_RE.test(businessUnitId))) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
+  }
+
   try {
     const { account_code, period_start, period_end } = req.query;
     if (!account_code || !period_start || !period_end) {
       return apiResponse.badRequest(res, 'account_code, period_start, and period_end required');
     }
     const report = await getAccountTransactions(companyId,
-      String(account_code), String(period_start), String(period_end)
+      String(account_code), String(period_start), String(period_end), costCentreId, businessUnitId
     );
     return apiResponse.success(res, report);
   } catch (err) {

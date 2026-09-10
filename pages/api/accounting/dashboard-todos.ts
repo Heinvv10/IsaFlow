@@ -2,6 +2,15 @@
  * Dashboard Action Items API
  * GET /api/accounting/dashboard-todos
  * Returns overdue invoices, pending supplier payments, uncategorized bank txns, and draft invoices.
+ *
+ * K-053: soft-delete sets `deleted_at` and leaves `status` alone
+ * (`softDeleteRowOps`), so without a `deleted_at` filter a deleted approved
+ * invoice came back here as an overdue to-do and a deleted draft was still
+ * counted. The predicate is UNDATED, exactly as it is on the chase siblings
+ * `dunningService`, `dunningCronService` and `smart-reminder`: this is a
+ * workflow queue asked as at NOW, never an as-at balance that has to tie to a
+ * control account, so the dated `documentInLedgerAsAtFragment` the ageing and
+ * statement surfaces carry would be the wrong question here.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -53,6 +62,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
         WHERE ci.company_id = ${companyId}
+          AND ci.deleted_at IS NULL
           AND ci.status IN ('sent', 'approved', 'partially_paid')
           AND ci.due_date < NOW()
         ORDER BY ci.due_date ASC
@@ -68,6 +78,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
         WHERE si.company_id = ${companyId}
+          AND si.deleted_at IS NULL
           AND si.status IN ('approved', 'partially_paid')
           AND si.due_date < NOW()
         ORDER BY si.due_date ASC
@@ -84,6 +95,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         SELECT COUNT(*)::int AS cnt
         FROM customer_invoices
         WHERE company_id = ${companyId}
+          AND deleted_at IS NULL
           AND status = 'draft'
       `,
     ]);

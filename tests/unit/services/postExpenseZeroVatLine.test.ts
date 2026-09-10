@@ -111,7 +111,9 @@ function stubDb(extracted: Record<string, unknown>) {
     if (text.includes('FROM capture_events')) {
       return Promise.resolve([{
         event_id: EVENT_ID,
-        event_status: 'pending',
+        // 'pending' is not in the capture_events CHECK vocabulary — the route's
+        // postable ALLOW-list refuses it, so use the real post-extraction status.
+        event_status: 'extracted',
         captured_document_id: DOC_ID,
         extracted_data: extracted,
       }]);

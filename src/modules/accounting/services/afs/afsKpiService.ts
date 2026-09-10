@@ -4,6 +4,14 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { KpiResult, KpiScorecard, FinancialSnapshot, RagThresholds } from './afsTypes';
 import { marginPct } from '../reports/marginPct';
+import { fetchOpeningCash, fetchClosingCash } from './afsKpiCash';
+import {
+  INVENTORY_SUBTYPES,
+  NON_CURRENT_SUBTYPES,
+  PAYABLE_SUBTYPES,
+  RECEIVABLE_SUBTYPES,
+  rawSubtypesFor,
+} from '../gl/accountSubtypes';
 
 export type { FinancialSnapshot, RagThresholds };
 
@@ -163,13 +171,13 @@ async function fetchIncomeSnapshot(companyId: string, periodStart: string, perio
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = 'cost_of_sales' THEN jl.debit - jl.credit ELSE 0 END), 0) AS cogs,
+      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${rawSubtypesFor('cost_of_sales')}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS cogs,
       COALESCE(SUM(CASE
         WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit
         WHEN ga.account_type = 'expense' THEN -(jl.debit - jl.credit)
         ELSE 0 END), 0) AS net_profit,
       COALESCE(SUM(CASE
-        WHEN ga.account_type = 'expense' AND ga.account_subtype = 'depreciation_expense'
+        WHEN ga.account_type = 'expense' AND ga.account_subtype = ANY(${rawSubtypesFor('depreciation_expense')}::TEXT[])
         THEN jl.debit - jl.credit ELSE 0 END), 0) AS depreciation
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -193,14 +201,31 @@ async function fetchIncomeSnapshot(companyId: string, periodStart: string, perio
   return { revenue, cogs, grossProfit, ebitda, ebit, netProfit };
 }
 
-async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promise<Pick<FinancialSnapshot, 'currentAssets' | 'currentLiabilities' | 'inventory' | 'tradeReceivables' | 'tradePayables' | 'totalDebt' | 'totalEquity'>> {
+/**
+ * Exported so the management pack reads the SAME current/non-current split
+ * rather than a byte-identical copy of it. The copy is what let the KPI
+ * denominator stay wrong through three review rounds: two surfaces agreeing by
+ * observation agree only until one is edited.
+ */
+export async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promise<Pick<FinancialSnapshot, 'currentAssets' | 'currentLiabilities' | 'inventory' | 'tradeReceivables' | 'tradePayables' | 'totalDebt' | 'totalEquity'>> {
   const rows = (await sql`
     SELECT
-      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype NOT IN ('fixed_asset','accumulated_depreciation') THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = 'inventory' THEN jl.debit - jl.credit ELSE 0 END), 0) AS inventory,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = 'receivable' THEN jl.debit - jl.credit ELSE 0 END), 0) AS trade_receivables,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = 'payable' THEN jl.credit - jl.debit ELSE 0 END), 0) AS trade_payables,
+      -- Current = NOT non-current, on the shared vocabulary. The literal
+      -- ('fixed_asset','accumulated_depreciation') recognised neither the
+      -- plural 'fixed_assets' (30 accounts in production) nor
+      -- property_plant_equipment, intangible_asset(s), investment(s) or
+      -- non_current_asset(s), so those balances were counted as CURRENT and the
+      -- current and quick ratios were wrong by the whole non-current book.
+      -- COALESCE because NOT IN is NULL for a NULL subtype, which dropped an
+      -- unclassified asset out of current assets entirely; NULL defaults to
+      -- current here exactly as isCurrentSubtype defaults it.
+      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND COALESCE(ga.account_subtype, '') <> ALL(${NON_CURRENT_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
+      -- The denominator of the same ratio: long-term debt is not a current
+      -- liability, and counting it as one understated every geared company.
+      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' AND COALESCE(ga.account_subtype, '') <> ALL(${NON_CURRENT_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = ANY(${INVENTORY_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS inventory,
+      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS trade_receivables,
+      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit ELSE 0 END), 0) AS trade_payables,
       COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_debt,
       COALESCE(SUM(CASE WHEN ga.account_type = 'equity' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity
     FROM gl_journal_lines jl
@@ -225,50 +250,12 @@ async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promi
   };
 }
 
-async function fetchCash(companyId: string, beforeDate: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
-    ), 0)::numeric AS balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = 'bank'
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
-      AND je.entry_date < ${beforeDate}::date
-  `) as Row[];
-
-  return Number(rows[0]?.balance ?? 0);
-}
-
-async function fetchClosingCash(companyId: string, upToDate: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
-    ), 0)::numeric AS balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = 'bank'
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
-      AND je.entry_date <= ${upToDate}::date
-  `) as Row[];
-
-  return Number(rows[0]?.balance ?? 0);
-}
-
 async function buildSnapshot(companyId: string, period: string): Promise<FinancialSnapshot> {
   const { start, end, days } = periodBounds(period);
   const [income, balance, openingCash, closingCash] = await Promise.all([
     fetchIncomeSnapshot(companyId, start, end),
     fetchBalanceSnapshot(companyId, end),
-    fetchCash(companyId, start),
+    fetchOpeningCash(companyId, start),
     fetchClosingCash(companyId, end),
   ]);
   return { ...income, ...balance, openingCash, closingCash, daysInPeriod: days };

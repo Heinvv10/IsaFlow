@@ -53,7 +53,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({ id: 'acct-1' }),
 }));
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
@@ -85,6 +85,9 @@ function mockByText(routes: Record<string, unknown[] | Error>) {
 beforeEach(() => {
   vi.resetAllMocks(); // wipes factory implementations too — re-prime below
   mockSql.mockResolvedValue([]);
+  // Includes withSavepoint: resetAllMocks wipes the factory's passthrough, and
+  // R-067's ownership fence runs inside one.
+  vi.mocked(withSavepoint).mockImplementation((_n: string, fn: () => unknown) => fn() as never);
   (getSystemAccount as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'acct-1' });
   (createJournalEntry as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'je-1' });
   (reverseJournalEntry as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'je-rev' });
@@ -122,7 +125,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'FROM customer_invoices': [{ open_count: '2' }],
     });
 
-    await expect(softDelete(COMPANY_ID, 'customer', ENTITY_ID)).rejects.toThrow(
+    await expect(softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID)).rejects.toThrow(
       /open (invoice|document)/i,
     );
     // never reached the UPDATE
@@ -137,7 +140,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'FROM supplier_invoices': [{ open_count: '1' }],
     });
 
-    await expect(softDelete(COMPANY_ID, 'supplier', ENTITY_ID)).rejects.toThrow(
+    await expect(softDelete(COMPANY_ID, 'supplier', ENTITY_ID, USER_ID)).rejects.toThrow(
       /open (invoice|document)/i,
     );
   });
@@ -149,7 +152,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'UPDATE customers SET deleted_at': [{ id: ENTITY_ID }],
     });
 
-    const result = await softDelete(COMPANY_ID, 'customer', ENTITY_ID);
+    const result = await softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID);
     expect(result.undoToken).toBeTruthy();
   });
 });
@@ -161,6 +164,8 @@ describe('W3 — draft payment allocations count pending drafts', () => {
     // invoice: total 115, confirmed paid 0 — but another DRAFT payment
     // already allocates the full 115.
     mockByText({
+      // R-067 fences the caller-supplied clientId before any of this runs.
+      'FROM customers': [{ ok: 1 }],
       'SELECT total_amount, amount_paid': [{ total_amount: '115.00', amount_paid: '0.00' }],
       'customer_payment_allocations': [{ pending: '115.00' }],
     });

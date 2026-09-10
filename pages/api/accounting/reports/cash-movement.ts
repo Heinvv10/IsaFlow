@@ -12,6 +12,7 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 export interface CashMovementRow {
   account_id: string;
@@ -85,7 +86,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       -- bank_transactions row, but deactivating 1049686 would silently remove
       -- R1.9m from this report. Do not reinstate it.
       WHERE ga.company_id = ${companyId}
-        AND ga.account_subtype = 'bank'
+        AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
       GROUP BY ga.id, ga.account_name, ga.bank_account_number
       ORDER BY ga.account_code
     `;
@@ -115,7 +116,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       -- bank_transactions row, but deactivating 1049686 would silently remove
       -- R1.9m from this report. Do not reinstate it.
       WHERE ga.company_id = ${companyId}
-        AND ga.account_subtype = 'bank'
+        AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
       GROUP BY ga.id
     `;
 

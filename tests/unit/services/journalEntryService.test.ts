@@ -18,6 +18,9 @@ vi.mock('@/lib/neon', () => {
     fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
   };
 });
+vi.mock('@/lib/alsTransaction', () => ({
+  withAlsTransaction: (_actor: unknown, fn: () => unknown) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -335,6 +338,9 @@ describe('createJournalEntry', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('inserts entry header then lines and returns mapped entry', async () => {
+    // Ownership: every line's GL account must be in this company
+    // (`accountsBelongToCompany` — one row per distinct account id).
+    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT_A }, { id: ACCOUNT_B }] as never);
     // P2.2: supplied fiscalPeriodId is coverage-validated before anything else
     vi.mocked(sql).mockResolvedValueOnce([{ ok: 1 }] as never);
     // resolveUserUuid — UUID-format user, passes straight through
@@ -378,6 +384,9 @@ describe('createJournalEntry', () => {
   });
 
   it('resolves non-UUID user IDs by querying users table', async () => {
+    // Ownership: every line's GL account must be in this company
+    // (`accountsBelongToCompany` — one row per distinct account id).
+    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT_A }, { id: ACCOUNT_B }] as never);
     // P2.2: supplied fiscalPeriodId is coverage-validated before anything else
     vi.mocked(sql).mockResolvedValueOnce([{ ok: 1 }] as never);
     // resolveUserUuid — non-UUID, triggers lookup query (direct sql call)
@@ -394,6 +403,9 @@ describe('createJournalEntry', () => {
   });
 
   it('falls back to zero UUID when no user row found', async () => {
+    // Ownership: every line's GL account must be in this company
+    // (`accountsBelongToCompany` — one row per distinct account id).
+    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT_A }, { id: ACCOUNT_B }] as never);
     // P2.2: supplied fiscalPeriodId is coverage-validated before anything else
     vi.mocked(sql).mockResolvedValueOnce([{ ok: 1 }] as never);
     // resolveUserUuid — non-UUID, lookup returns empty (direct sql call)
@@ -415,6 +427,9 @@ describe('createJournalEntry', () => {
       fiscalPeriodId: undefined,
     };
 
+    // Ownership: every line's GL account must be in this company
+    // (`accountsBelongToCompany` — one row per distinct account id).
+    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT_A }, { id: ACCOUNT_B }] as never);
     // fiscal period lookup (direct sql call)
     vi.mocked(sql).mockResolvedValueOnce([{ id: FISCAL_ID }] as never);
     // sql.transaction — header + 2 lines
