@@ -6,6 +6,42 @@ Plan: `docs/superpowers/plans/2026-09-10-forensic-check-runs.md` v8–v11 (A26�
 `check-run-storage.json` (bytes per finding, per run and per day) and `check-run-deadline.json` (A34, measured on the
 `2b851aa7b` worker; the harness is now `scripts/forensic/measure-check-run-deadline.ts`).
 
+## Restored by the canonical column (`a807acb23`): the index path is back and the stream publishes again
+
+The fix for the section below: migration 684 adds `entity_id_canonical text GENERATED ALWAYS AS (lower(entity_id))
+STORED` to the five control tables that were matched by `lower(entity_id)`, indexes it in the 678/679 column order,
+drops the 678/679 expression indexes, and every row lookup compares the column with plain `=` (fix `1981532b6`, plus
+`a807acb23`, which leaves the exposure predicate on `control_policy_exposure` alone). Text equality is leakproof, so
+under `app_user` it stays the Index Cond. Measured on an owned disposable database (`isaflow-canonical-scale-pg-20260911`,
+same image and settings as below, schema cloned from the shared fixture after 684, removed with its volume afterwards),
+the after worker (`a807acb23`, SHA-256 `47392c26…`; the `1981532b6` build is byte-identical) alternated with the
+pre-merge worker (`6b80a8a06`, `9e13f4f4…`, the same build as the round below) on the same rows. Raw numbers:
+`check-run-canonical-a807acb23.json`; plans: `check-run-canonical-explain-*.txt`.
+
+| measurement | pre-merge — `6b80a8a06` | broken — `26be1aeed` (below) | fixed — `a807acb23` |
+|---|---|---|---|
+| 100k mixed, elapsed | 29.6 s, 28.5 s, 33.3 s | failed RESOURCE_LIMIT at 300.1 s | **30.7 s, 29.4 s, 31.8 s** |
+| 100k mixed, peak (VmHWM) | 282 / 256 / 274 MiB | 94 MiB | **272 / 274 / 269 MiB** |
+| A17 statements at 100k | 547 total, 101 FETCH | 57 total, 1 FETCH | **547 total, 101 FETCH**, `control_change_events` 1, `gl_journal_lines` 2 |
+| settled 2 093 361 journals (cutoff 2026-08-11) | published 282.7 s, 268.0 s | failed RESOURCE_LIMIT at 300.1 s | **published 288.5 s, 269.0 s** |
+| EXPLAIN, 200 mixed journals | 44.7 ms, 24 767 buffers | 165 037 ms, 17 200 810 buffers | **20.1 ms, 22 979 buffers** |
+| EXPLAIN, 10 026 mixed journals, unrestricted | 1.59 s | cancelled at 645 s | **1.72 s** |
+| EXPLAIN, 5 quiet journals (33M change events) | 979 ms | 122.5 s | **2.4 ms** |
+
+- Every change-event and entity-version lookup in the 200-journal plan is an `Index Cond` on `entity_id_canonical`
+  (`control_entity_versions_entity_canonical_idx`, `control_change_events_entity_canonical_idx`), ~0.002–0.009 ms a
+  loop. The period's latest event walks the company's fiscal-period events by `occurred_at` and joins the period, the
+  same plan shape as the pre-merge worker.
+- The machine was not quiet: load averages 7–11 before every run (a serial integration suite ran beside the first
+  100k pairs). The 2.09M point therefore sits 11–32 s under the deadline for BOTH workers here, where the round below
+  measured 246.1 s for the pre-merge worker; what these numbers show is parity with the pre-merge worker on the same
+  rows at the same moment, not a new ceiling. The settled boundary (~2.1M) is unchanged, not re-bracketed.
+- Deploy cost of 684, measured on this database (32 999 778 change events, 2 969 659 entity versions) in one
+  transaction as the runner applies it: `control_change_events` rewrite 165.9 s and index build 38.8 s,
+  `control_entity_versions` rewrite 6.6 s and index 3.9 s, everything else under a second — about 3 min 36 s under
+  ACCESS EXCLUSIVE locks held until COMMIT. On the shared fixture (221 681 events, 302 967 versions, 213 310
+  protected-evidence rows / 1.6 GB) the whole migration took 30.6 s.
+
 ## Re-measured on the merged code (`26be1aeed`): the lineage query makes the stream unusable at scale
 
 **Every scale figure below this section describes the pre-merge worker and no longer runs.** The check-run branch

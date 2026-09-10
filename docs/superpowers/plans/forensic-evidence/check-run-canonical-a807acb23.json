@@ -1,0 +1,585 @@
+{
+ "measuredOn": "2026-09-11",
+ "container": "isaflow-canonical-scale-pg-20260911 (pgvector/pgvector:pg16, PostgreSQL 16, shared_buffers=1GB, max_wal_size=8GB, log_statement=all; schema cloned read-only from the shared fixture after migration 684; removed with its volume after measuring)",
+ "artifacts": {
+  "after": {
+   "commit": "a807acb23",
+   "sha256": "47392c26695f9ed957f65b487dd65a44ea99745c6bf88b04c5bec87ed971f02b",
+   "note": "byte-identical to the 1981532b6 build"
+  },
+  "before": {
+   "commit": "6b80a8a06",
+   "sha256": "9e13f4f48f4423452f9624762aafed21959925f8d731ab96803808835bebfa30",
+   "note": "same hash as the 26be1aeed round"
+  }
+ },
+ "harness": "real worker artifact as a direct child process (checkRunWorkerChild), node v20.20.1, both artifacts beside the same node_modules (bun.lock identical), alternated on one database",
+ "fixtures": {
+  "mixed": {
+   "journals": 100000,
+   "lines": 649295,
+   "changes": 997286,
+   "versions": 89967,
+   "rules": 10,
+   "seedMs": 34569
+  },
+  "quiet": {
+   "journals": 3200000,
+   "lines": 20799318,
+   "changes": 32002483,
+   "versions": 2879751,
+   "rules": 10,
+   "seedMs": 1220276,
+   "profile": "quiet",
+   "settledBy": "autovacuum during the load plus VACUUM (ANALYZE) of the four streamed tables"
+  }
+ },
+ "mixed100k": [
+  {
+   "commit": "a807acb23",
+   "cutoff": "2026-09-09",
+   "population": null,
+   "jobId": "4a1de958-93c8-4100-bd81-09441bb74d36",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "4a1de958-93c8-4100-bd81-09441bb74d36",
+    "canonicalHash": "b2429e239e9533002351b66209e7f76cdf30519d42d08a9900167901f812289b"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 30559.254,
+    "results": 1
+   },
+   "elapsedMs": 30746,
+   "vmHwmBytes": 285540352,
+   "loadBefore": [
+    10.65,
+    7.06,
+    6.32
+   ],
+   "statements": {
+    "total": 547,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 232,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 101,
+     "INSERT": 197,
+     "CLOSE": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  },
+  {
+   "commit": "6b80a8a06",
+   "cutoff": "2026-09-09",
+   "population": null,
+   "jobId": "aeef123b-8629-4795-abb0-41bce1cfabb9",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "aeef123b-8629-4795-abb0-41bce1cfabb9",
+    "canonicalHash": "609040a1d10e2461094dea0ebb452929a2c320e3c9fc21d5a1ee20099f33dd93"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 29432.994,
+    "results": 1
+   },
+   "elapsedMs": 29613,
+   "vmHwmBytes": 295297024,
+   "loadBefore": [
+    9.51,
+    7.11,
+    6.36
+   ],
+   "statements": {
+    "total": 547,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 232,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 101,
+     "INSERT": 197,
+     "CLOSE": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  },
+  {
+   "commit": "a807acb23",
+   "cutoff": "2026-09-09",
+   "population": null,
+   "jobId": "ef024262-5ab6-4b86-87ae-290c4f1209fd",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "ef024262-5ab6-4b86-87ae-290c4f1209fd",
+    "canonicalHash": "1bc1a816015ca486874dc88832f6ef75205a5a85e315d817cb1073746b333c5c"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 29261.695,
+    "results": 1
+   },
+   "elapsedMs": 29443,
+   "vmHwmBytes": 286818304,
+   "loadBefore": [
+    10.71,
+    7.66,
+    6.57
+   ],
+   "statements": {
+    "total": 547,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 232,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 101,
+     "INSERT": 197,
+     "CLOSE": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  },
+  {
+   "commit": "6b80a8a06",
+   "cutoff": "2026-09-09",
+   "population": null,
+   "jobId": "936a0ebb-522f-4578-9adf-6d734e33230c",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "936a0ebb-522f-4578-9adf-6d734e33230c",
+    "canonicalHash": "06549d743aac27a9a7b1fa906e7aa9ff9beb1c63cc32a00d4409d0bae8df4c0b"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 28300.332,
+    "results": 1
+   },
+   "elapsedMs": 28474,
+   "vmHwmBytes": 268087296,
+   "loadBefore": [
+    8.79,
+    7.48,
+    6.55
+   ],
+   "statements": {
+    "total": 547,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 232,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 101,
+     "INSERT": 197,
+     "CLOSE": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  },
+  {
+   "commit": "a807acb23",
+   "cutoff": "2026-09-09",
+   "population": null,
+   "jobId": "a4f93af3-4973-4fac-82a4-3961084f3540",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "a4f93af3-4973-4fac-82a4-3961084f3540",
+    "canonicalHash": "da99587936698e40e01900a95052cb9cab95d008661f0c75941d65f82a854e75"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 31567.668,
+    "results": 1
+   },
+   "elapsedMs": 31750,
+   "vmHwmBytes": 282009600,
+   "loadBefore": [
+    8.28,
+    9.39,
+    8.48
+   ],
+   "statements": {
+    "total": 547,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 232,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 101,
+     "INSERT": 197,
+     "CLOSE": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  },
+  {
+   "commit": "6b80a8a06",
+   "cutoff": "2026-09-09",
+   "population": null,
+   "jobId": "c3824446-02ea-4f06-86ff-e6ae66f9acaf",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "c3824446-02ea-4f06-86ff-e6ae66f9acaf",
+    "canonicalHash": "fdd15d3dabcaabba174401059424641283fa5402ba7b48f56dc586bc2320d250"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 33088.632,
+    "results": 1
+   },
+   "elapsedMs": 33264,
+   "vmHwmBytes": 287215616,
+   "loadBefore": [
+    7.59,
+    9.11,
+    8.41
+   ],
+   "statements": {
+    "total": 547,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 232,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 101,
+     "INSERT": 197,
+     "CLOSE": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  }
+ ],
+ "settled2093361": [
+  {
+   "commit": "a807acb23",
+   "cutoff": "2026-08-11",
+   "population": 2093361,
+   "jobId": "2f2e14f4-a75b-44f1-991f-c6bf83d88e34",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "2f2e14f4-a75b-44f1-991f-c6bf83d88e34",
+    "canonicalHash": "df67e75ea3e0356fe80ee2435763e9e51b26c5bc42f495884a7fd0df03e36d7e"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 288271.384,
+    "results": 1
+   },
+   "elapsedMs": 288464,
+   "vmHwmBytes": 170971136,
+   "loadBefore": [
+    10.51,
+    7.86,
+    6.91
+   ],
+   "statements": {
+    "total": 2148,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 36,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 2094,
+     "CLOSE": 1,
+     "INSERT": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  },
+  {
+   "commit": "6b80a8a06",
+   "cutoff": "2026-08-11",
+   "population": 2093361,
+   "jobId": "47ad2772-93da-4871-8772-95e8b36dc68f",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "47ad2772-93da-4871-8772-95e8b36dc68f",
+    "canonicalHash": "90ae7bce69fd958d2f668f529611c7376685b836733dba745c161585d6f4128c"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 282472.429,
+    "results": 1
+   },
+   "elapsedMs": 282660,
+   "vmHwmBytes": 175038464,
+   "loadBefore": [
+    9.59,
+    9.57,
+    7.99
+   ],
+   "statements": {
+    "total": 2148,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 36,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 2094,
+     "CLOSE": 1,
+     "INSERT": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  },
+  {
+   "commit": "a807acb23",
+   "cutoff": "2026-08-11",
+   "population": 2093361,
+   "jobId": "fae13464-33db-495b-b7c6-da37a0f6379c",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "fae13464-33db-495b-b7c6-da37a0f6379c",
+    "canonicalHash": "f1c4b0eeb3d7138ae4efcd8f0c8488abe2f7354e1aa28a91709ed11d733f79ec"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 268837.14,
+    "results": 1
+   },
+   "elapsedMs": 269013,
+   "vmHwmBytes": 170934272,
+   "loadBefore": [
+    9.21,
+    8.16,
+    7.72
+   ],
+   "statements": {
+    "total": 2148,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 36,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 2094,
+     "CLOSE": 1,
+     "INSERT": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  },
+  {
+   "commit": "6b80a8a06",
+   "cutoff": "2026-08-11",
+   "population": 2093361,
+   "jobId": "bff94bd8-9257-4d4a-a375-614067adbb51",
+   "published": true,
+   "reply": {
+    "state": "succeeded",
+    "checkRunId": "bff94bd8-9257-4d4a-a375-614067adbb51",
+    "canonicalHash": "63379de4fe43ff970739ac46c509461c72fed2786e0f72d732f08d5cae462b9b"
+   },
+   "job": {
+    "state": "succeeded",
+    "last_error_code": null,
+    "workMs": 267832.941,
+    "results": 1
+   },
+   "elapsedMs": 268032,
+   "vmHwmBytes": 175861760,
+   "loadBefore": [
+    7.4,
+    8.01,
+    7.77
+   ],
+   "statements": {
+    "total": 2148,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 36,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 2094,
+     "CLOSE": 1,
+     "INSERT": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "control_entity_versions": 1,
+     "gl_journal_lines": 2
+    }
+   }
+  }
+ ],
+ "explain": {
+  "role": "app_user with the worker claims (RLS in force), work_mem 64MB, the cursor body (slabTuple) of each commit; restricted runs add j.id = ANY(first N ids) identically",
+  "mixed 200 journals": {
+   "a807acb23": {
+    "executionMs": 20.06,
+    "sharedHit": 22979,
+    "sharedRead": 0
+   },
+   "6b80a8a06": {
+    "executionMs": 44.665,
+    "sharedHit": 24767,
+    "sharedRead": 0
+   },
+   "26be1aeed (previous round)": {
+    "executionMs": 165036.9,
+    "sharedHit": 17200810
+   }
+  },
+  "mixed 10026 journals, cutoff 2026-01-13, unrestricted": {
+   "a807acb23": {
+    "executionMs": 1718.291,
+    "sharedHit": 846273,
+    "sharedRead": 11056
+   },
+   "6b80a8a06": {
+    "executionMs": 1593.825,
+    "sharedHit": 820811,
+    "sharedRead": 0
+   },
+   "26be1aeed (previous round)": "cancelled after 645 s"
+  },
+  "quiet 5 journals": {
+   "a807acb23": {
+    "executionMs": 2.423,
+    "sharedHit": 560,
+    "sharedRead": 42
+   },
+   "6b80a8a06": {
+    "executionMs": 978.732,
+    "sharedHit": 738,
+    "sharedRead": 84685
+   },
+   "26be1aeed (previous round)": {
+    "executionMs": 122450
+   }
+  },
+  "quiet 200 journals": {
+   "a807acb23": {
+    "executionMs": 83.631,
+    "sharedHit": 28230,
+    "sharedRead": 626
+   },
+   "6b80a8a06": {
+    "executionMs": 698.863,
+    "sharedHit": 27970,
+    "sharedRead": 84745
+   }
+  }
+ },
+ "migration684Cost": {
+  "on": "this database after reverting 684 and rebuilding the 678/679 indexes; one transaction as the runner applies it",
+  "rows": {
+   "control_change_events": 32999778,
+   "control_entity_versions": 2969659,
+   "control_operation_effects": 0,
+   "control_operation_approvals": 0,
+   "control_protected_evidence": 2
+  },
+  "statementsMs": {
+   "drop five expression indexes": 51.2,
+   "rewrite control_entity_versions": 6588.4,
+   "rewrite control_change_events": 165944.7,
+   "rewrite effects/approvals/evidence": 33.2,
+   "index control_entity_versions": 3871.2,
+   "index control_change_events": 38797.3,
+   "index others": 19.7,
+   "commit": 729.8
+  },
+  "sizeAfter": {
+   "control_change_events": "23 GB (22 GB before)",
+   "control_entity_versions": "1204 MB (1081 MB before)"
+  },
+  "sharedFixture": "221 681 events, 302 967 versions, 23 337 effects, 20 495 approvals, 213 310 protected evidence (1.6 GB): whole migration 30.6 s"
+ }
+}
