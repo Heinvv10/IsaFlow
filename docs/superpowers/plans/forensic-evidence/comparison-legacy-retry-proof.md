@@ -27,3 +27,21 @@ UUID case mismatch; committing the first conversion independently of the second.
 
 Validation pending the orchestrator's exclusive PostgreSQL lease. These tests add
 coverage against existing implementation; no new production RED/GREEN claim yet.
+
+## Local verification at test commit `0a9d7ee17`
+
+- `bunx vitest run --config vitest.integration.config.ts --no-file-parallelism tests/integration/controls/auditComparisonLegacyRetry.int.test.ts`:
+  **6 PASS**, 10.42 seconds, terminal 0, handle 69421. Log:
+  `.worktrees/mcp-forensic-artifacts-20260909/comparison-legacy-retry-pg.log`.
+- Dedicated strict TypeScript config extends repository config and includes this
+  test plus transitive imports, with Node types: **PASS**. It completed before
+  stock lint rejected integration tests excluded by the default project service.
+- Explicit typed ESLint using that dedicated project: **PASS**, terminal 0,
+  handle 20684. Log: `comparison-legacy-retry-typed-lint.log` in that artifact folder.
+- All six tests passed on the existing implementation. This is additional real
+  regression proof, not a claimed fresh failing-test/production-fix cycle.
+- Root independently inspected exact `0a9d7ee17` before execution and reported no
+  confirmed finding. Final review and integration remain orchestrator-owned.
+
+Only the isolated synthetic PostgreSQL fixture was used. No production validation,
+production mutation, remote delivery or full CI was performed by this task.
