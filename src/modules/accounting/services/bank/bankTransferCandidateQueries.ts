@@ -23,7 +23,7 @@ export async function readExistingTransferFacts(ctx:ControlTx,bank:Row,counterpa
  if(!journal)throw new Error('Existing transfer journal disappeared');
  const lines=await ctx.sql`SELECT id,gl_account_id,debit::text,credit::text,vat_type,cost_center_id,cc1_id,cc2_id,bu_id
   FROM gl_journal_lines WHERE company_id=${company}::uuid AND journal_entry_id=${journal.id}::uuid ORDER BY id LIMIT 3 FOR SHARE` as Row[];
- const effects=await ctx.sql`SELECT e.entity_id,e.entity_type,e.operation,e.operation_id,e.binding_hash,e.result,i.id AS intent_id
+ const effects=await ctx.sql`SELECT lower(e.entity_id) AS entity_id,e.entity_type,e.operation,e.operation_id,e.binding_hash,e.result,i.id AS intent_id
   FROM control_operation_effects e JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=lower(e.entity_id)
   WHERE e.company_id=${company}::uuid AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
    AND e.result->>'journalEntryId'=${journal.id}::text AND i.bank_transaction_id=${journal.source_record_id}::uuid LIMIT 2` as Row[];
@@ -31,7 +31,7 @@ export async function readExistingTransferFacts(ctx:ControlTx,bank:Row,counterpa
  const effect=effects[0]!;
  const [intent]=await ctx.sql`SELECT id,bank_transaction_id,accounting_date::text,amount::text,currency,payload,source_fingerprint
   FROM control_bank_allocation_intents WHERE company_id=${company}::uuid AND id=${effect.intent_id}::uuid` as Row[];
- const events=await ctx.sql`SELECT entity_id,entity_type,action,operation_id,binding_hash FROM control_change_events
+ const events=await ctx.sql`SELECT lower(entity_id) AS entity_id,entity_type,action,operation_id,binding_hash FROM control_change_events
   WHERE company_id=${company}::uuid AND entity_type='bank_allocation_intent' AND lower(entity_id)=lower(${effect.entity_id})
    AND action='bank_allocation.post' AND operation_id=${effect.operation_id}::uuid AND binding_hash=${effect.binding_hash} LIMIT 2` as Row[];
  const destination=lines.find(line=>line.gl_account_id===bank.bank_account_id);
