@@ -90,9 +90,15 @@ export async function fetchStatementData(
       FROM customer_invoices ci
       WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
         AND ci.company_id = ${companyId}::UUID
+        -- NOT the ageing's status rule (shared/documentPopulation): this
+        -- keeps drafts, and the bare != drops a null-status invoice, so the
+        -- balance EMAILED to a customer can differ from arAgingService on
+        -- both. Not changed here because it alters what a customer is sent,
+        -- which needs Hein's decision — registered in R-059 fix.md round 6.
         AND ci.status != 'cancelled'
         -- The statement is what the customer is asked to pay, drawn AS AT a
-        -- date, so it takes the same DATED question arAgingService asks: the
+        -- date, so it takes the same DATED soft-delete question arAgingService
+        -- asks (that, and only that, is shared): the
         -- delete's reversal lands on the delete date, and until that date the
         -- control account still carries the invoice. An undated
         -- deleted_at IS NULL here would state a balance to the customer that

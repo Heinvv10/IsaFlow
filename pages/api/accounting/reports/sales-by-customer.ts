@@ -13,6 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -54,11 +55,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
-        -- COALESCE, because status is nullable and NULL NOT IN (...) is NULL:
-        -- the bare comparison silently dropped every null-status invoice, the
-        -- same under-reporting this report was fixed for (K-091). The draft
-        -- exclusion is R-059's: a draft invoice is not a sale.
-        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY total_sales DESC
     `;

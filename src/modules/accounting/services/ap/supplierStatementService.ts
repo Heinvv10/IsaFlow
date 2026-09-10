@@ -121,8 +121,15 @@ export async function fetchSupplierStatementData(
       FROM supplier_invoices si
       WHERE si.supplier_id = ${supplierId}::UUID
         AND si.company_id = ${companyId}::UUID
+        -- NOT the ageing's status rule (shared/documentPopulation), and this
+        -- comment used to say "same population" without that qualifier. The
+        -- statement KEEPS drafts, and the bare != drops a null-status bill, so
+        -- its closing balance can differ from apAgingService on both. Left as
+        -- it is deliberately: this is the mirror of the customer statement we
+        -- EMAIL, and what a customer is sent is a human decision, not a
+        -- refactor's. Registered, not fixed — see R-059 fix.md round 6.
         AND si.status != 'cancelled'
-        -- Same population as apAgingService, which means the same DATED
+        -- What IS shared with apAgingService is the DATED soft-delete
         -- question: the delete's reversal is dated to the delete, so a bill
         -- deleted after the as-at date is still on the control account and
         -- still on this statement. An undated deleted_at IS NULL would make

@@ -18,15 +18,16 @@
  *
  * Fixture, each side: R 1000 with a real status, and N 700 whose `status` is
  * NULL. Both unpaid, both raised before the as-at. Ageing total and subledger
- * total must both be 1700, and their DOCUMENT SETS must be identical — a total
- * can agree by luck, a set cannot.
+ * total must both be 1700, and the subledger's document set must equal the
+ * AGEING's own set (its detail readers) — a total can agree by luck, a set
+ * cannot, and a set compared with the table cannot see a row both drop.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
-import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
+import { getARAging, getARAgingDetail } from '@/modules/accounting/services/ar/arAgingService';
+import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 import { getARSubledger } from '@/modules/accounting/services/ar/arSubledgerService';
 import { getAPSubledger } from '@/modules/accounting/services/ap/apSubledgerService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -113,16 +114,17 @@ describeIfDb('R-059 the subledger population is the ageing population, nulls inc
     });
   }
 
-  it('the sets agree document by document, not merely in total', async () => {
-    const arIds = (await sql`
-      SELECT id::TEXT FROM customer_invoices WHERE company_id = ${COMPANY}::UUID ORDER BY total_amount DESC
-    `) as { id: string }[];
-    const apIds = (await sql`
-      SELECT id::TEXT FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID ORDER BY total_amount DESC
-    `) as { id: string }[];
+  it('the subledger set IS the ageing set, document by document', async () => {
+    // Compared with the AGEING's own documents (the detail readers, which run
+    // the ageing's population), not with the table — a table comparison would
+    // pass even if both services dropped the same row.
+    const arAged = await getARAgingDetail(COMPANY, customer, TODAY);
+    const apAged = await getAPAgingDetail(COMPANY, supplier, TODAY);
     const arSnap = await getARSubledger(COMPANY, TODAY);
     const apSnap = await getAPSubledger(COMPANY, TODAY);
-    expect(arSnap.documents.map(d => d.id).sort()).toEqual(arIds.map(r => r.id).sort());
-    expect(apSnap.documents.map(d => d.id).sort()).toEqual(apIds.map(r => r.id).sort());
+    expect(arAged.invoices).toHaveLength(2);
+    expect(apAged.invoices).toHaveLength(2);
+    expect(arSnap.documents.map(d => d.id).sort()).toEqual(arAged.invoices.map(i => i.id).sort());
+    expect(apSnap.documents.map(d => d.id).sort()).toEqual(apAged.invoices.map(i => i.id).sort());
   });
 });

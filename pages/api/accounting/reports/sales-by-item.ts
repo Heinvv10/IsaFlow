@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -49,7 +50,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
         -- so the bare comparison silently DROPPED every null-status invoice —
         -- the under-reporting K-091 fixed on sales-by-customer.
-        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       GROUP BY cii.description, ga.account_name
       ORDER BY total_revenue DESC
     `;

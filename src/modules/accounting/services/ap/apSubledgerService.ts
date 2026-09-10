@@ -21,6 +21,7 @@ import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import type { SubledgerSnapshot } from '../ar/subledgerTypes';
 import { buildSnapshot, toDocument } from '../ar/subledgerShared';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 export async function getAPSubledger(
   companyId: string,
@@ -50,13 +51,8 @@ export async function getAPSubledger(
         ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ap' })}
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so the
-        -- bare form dropped null-status documents. The ageing keeps them, and
-        -- this population is the ageing's exactly (see the header) — leaving
-        -- the two spellings apart booked the difference as reconcile_subledger's
-        -- aged_unexplained_difference residual, i.e. a reconciliation that
-        -- invents a difference out of a spelling.
-        AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
         -- Same population as apAgingService — see arSubledgerService.
         AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
         AND COALESCE(si.invoice_date, si.created_at::date) <= ${asAtDate}::DATE
