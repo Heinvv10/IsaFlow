@@ -156,6 +156,7 @@ describe('the signature webhook',()=>{
   // refusal is visible on the document a user opens.
   const quarantined=await readdir(`${h.storage}/afs-signed-quarantine/${h.f.companyA}`).catch(()=>[] as string[]);
   expect(quarantined.some(name=>name.startsWith(doc)),'the signed PDF was discarded').toBe(true);
+  expect(String(row.signing_refused_reason),'the record does not say the copy was kept').toMatch(/has been kept/i);
   const view=await h.request('GET',`/api/accounting/afs/${doc}`);
   expect(JSON.stringify(view.body.data),'a user cannot see why the signature was refused').toContain(String(row.signing_refused_reason));
   expect({requested:row.signing_requested_at,signum:row.signum_document_id,fingerprint:row.signing_content_fingerprint}).toEqual({requested:null,signum:null,fingerprint:null});
