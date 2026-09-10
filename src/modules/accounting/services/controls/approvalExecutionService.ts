@@ -50,19 +50,34 @@ export async function controlledOperationApprovalRequired(ctx: ControlTx, input:
 }
 
 /**
- * Preview-safe form. The material question runs in its own savepoint, and when
- * the operation cannot be materialised at all it falls back to whether the
- * company has any policy for it: a preview must never answer "no approval
- * needed" because the question could not be asked.
+ * What a preview learns about the approval question.
+ *
+ * `answered` is the kernel's own verdict. `unavailable` means the operation
+ * could not be materialised AT ALL — no calculation receipt, no covering fiscal
+ * period, a currency the ledger cannot bind — which is not an approval problem
+ * and must not be reported as one. The caller still needs to know whether a
+ * policy exists, because a preview that cannot ask must not answer "no approval
+ * needed" either.
  */
-export async function controlledOperationApprovalRequiredForPreview(ctx: ControlTx, input: OperationRef): Promise<boolean> {
+export type PreviewApprovalAnswer =
+  | { kind: 'answered'; required: boolean }
+  | { kind: 'unavailable'; policiesExist: boolean };
+
+/** Preview-safe form: the material question runs in its own savepoint. */
+export async function controlledOperationApprovalRequiredForPreview(ctx: ControlTx, input: OperationRef): Promise<PreviewApprovalAnswer> {
   assertControlTx(ctx);
   const ref = canonicalOperationRef(input);
   const { loadApprovalRules } = await import('./approvalRuleService');
   try {
-    return await withSavepoint('preview_approval_question', () => controlledOperationApprovalRequired(ctx, ref));
-  } catch {
-    return (await loadApprovalRules(ctx, operationRuleType(ref.operation))).length > 0;
+    return { kind: 'answered', required: await withSavepoint('preview_approval_question', () => controlledOperationApprovalRequired(ctx, ref)) };
+  } catch (error) {
+    // Logged, never swallowed silently: this is the only record of why a
+    // preview could not be answered, and the reply deliberately does not carry
+    // the domain message.
+    const { log } = await import('@/lib/logger');
+    log.warn('Preview approval question unavailable', { operation: ref.operation, entityType: ref.entityType,
+      reason: error instanceof Error ? error.message : String(error) }, 'controls');
+    return { kind: 'unavailable', policiesExist: (await loadApprovalRules(ctx, operationRuleType(ref.operation))).length > 0 };
   }
 }
 
