@@ -14,7 +14,7 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/safeFetch', () => ({ checkPublicUrl: vi.fn(async () => null) }));
 
 // The out-for-signature warning reads the database; it is proven against PostgreSQL in
-// tests/integration/controls/afsSigningHttp.int.test.ts.
+// tests/integration/controls/afsSigningInputsHttp.int.test.ts.
 vi.mock('@/modules/accounting/services/afs/afsSigningIntegrity', () => ({ signingInvalidationWarnings: vi.fn(async () => []) }));
 const upsertMock = vi.fn();
 vi.mock('@/modules/accounting/services/afs/brandProfileService', () => ({
