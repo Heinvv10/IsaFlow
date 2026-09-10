@@ -18,7 +18,7 @@ import {
   MissingSystemAccountError,
   missingSystemAccountText,
 } from '@/modules/accounting/services/gl/systemAccountKeys';
-import { insufficientScopeMessage } from './scopeRemediation';
+import { insufficientScopeMessage, permissionRefusalMessage } from './scopeRemediation';
 import { EffectivePermissionError } from '@/lib/auth/effectivePermissions';
 import { assertCurrentToolAuthority } from './currentToolAuthority';
 import { validateToolArguments } from './inputValidation';
@@ -272,7 +272,7 @@ export class McpRegistry {
       // write:invoices tool — reads as "the operation failed", which is the one
       // reply an agent cannot act on. Same remediation text the scope fence uses.
       if (err instanceof EffectivePermissionError && err.permission) {
-        return errorResult(insufficientScopeMessage(err.permission));
+        return errorResult(permissionRefusalMessage(err.permission, err.reason));
       }
       return errorResult(GENERIC_FAILURE);
     }
