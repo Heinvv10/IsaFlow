@@ -29,4 +29,5 @@ Shared accounting control contracts, canonical operation material and authentica
 
 ## Recent changes
 - 2026-09-10: `audit_check_run` job kind (migration 680, contract, enqueue); `AUDIT_JOB_KINDS` is the list every re-add of the shared kind/result constraints must name.
+- 2026-09-10: worker classes (`audit`, `check_run`): the parent pins ISAFLOW_AUDIT_WORKER_CLASS as a literal unit variable, the child fails closed without it, and a claim refuses out-of-class kinds before touching the job row. Unit caps, heap, timers and the idle bound come from `AUDIT_PROCESS_LIMITS[class]`; RuntimeMaxUSec is read back over D-Bus before the identity is released. Check-run leases are maxRuntime + grace at claim. The check-run phase itself is T2c; until then a claimed check run fails closed.
 - 2026-09-09: canonical binding contracts and authenticated transaction context; forensic programme implementation underway.
