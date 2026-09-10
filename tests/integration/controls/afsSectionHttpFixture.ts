@@ -21,6 +21,8 @@ const ROUTES:[RegExp,string,string[]][]=[
  [/^\/api\/accounting\/afs\/([^/]+)\/sections\/([^/]+)\/comments\/([^/]+)\/resolve$/,`${AFS}/sections/[sectionId]/comments/[commentId]/resolve`,['documentId','sectionId','commentId']],
  [/^\/api\/accounting\/afs\/([^/]+)\/sections\/([^/]+)\/(overrides|versions|ai-narrative|regenerate|suppress|comments|review|sign-off)$/,`${AFS}/sections/[sectionId]/$3`,['documentId','sectionId']],
  [/^\/api\/accounting\/afs\/([^/]+)\/(submit-for-review|send-for-signing|sign-off|generate)$/,`${AFS}/$2`,['documentId']],
+ [/^\/api\/accounting\/afs\/brand-profile$/,'../../../pages/api/accounting/afs/brand-profile',[]],
+ [/^\/api\/accounting\/companies$/,'../../../pages/api/accounting/companies',[]],
  [/^\/api\/accounting\/afs\/management-packs\/([^/]+)\/deliver$/,'../../../pages/api/accounting/afs/management-packs/[packId]/deliver',['packId']],
  [/^\/api\/accounting\/afs\/([^/]+)$/,`${AFS}/index`,['documentId']],
 ];

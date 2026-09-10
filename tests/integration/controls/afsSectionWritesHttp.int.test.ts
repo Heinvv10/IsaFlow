@@ -143,6 +143,33 @@ describe('reorder',()=>{
   expect((await h.read(c)).sort_order,'a section nobody renumbered was left sharing a number').toBe(before);
  });
 
+ it('decides which notes it renumbers on the numbers as they stand when it holds the locks',async()=>{
+  // A renumbering commits while the reorder waits for its lock. The payload asks for the
+  // numbers the notes had BEFORE that commit — a no-op on a stale read, a real renumbering on
+  // the rows as they stand — so the notes' reviews must be voided.
+  const doc=await h.document(),a=await h.section(doc,{status:'reviewed'}),b=await h.section(doc,{status:'reviewed'});
+  await h.pool.query('UPDATE afs_sections SET sort_order=CASE id WHEN $2::uuid THEN 1 ELSE 2 END WHERE company_id=$1 AND document_id=$3',[h.f.companyA,a,doc]);
+  const blocker=await h.pool.connect();
+  let pending:Promise<unknown>|undefined;
+  try{
+   await blocker.query('BEGIN');
+   await blocker.query('SELECT id FROM afs_sections WHERE company_id=$1 AND document_id=$2 FOR UPDATE',[h.f.companyA,doc]);
+   const holder=(await blocker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+   pending=h.request('PUT',`/api/accounting/afs/${doc}/sections/reorder`,{sections:[{id:a,newSortOrder:1},{id:b,newSortOrder:2}]});
+   let blocked=false;
+   for(let attempt=0;attempt<300&&!blocked;attempt++){
+    blocked=(await h.pool.query('SELECT count(*)::int AS n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))',[holder])).rows[0].n>0;
+    if(!blocked)await new Promise(done=>setTimeout(done,10));
+   }
+   expect(blocked,'the reorder never waited for the lock').toBe(true);
+   await blocker.query('UPDATE afs_sections SET sort_order=CASE id WHEN $2::uuid THEN 2 ELSE 1 END WHERE company_id=$1 AND document_id=$3',[h.f.companyA,a,doc]);
+   await blocker.query('COMMIT');
+  }finally{blocker.release();}
+  const res=await pending!;
+  expect((res as {status:number}).status).toBe(200);
+  for(const id of [a,b])expect((await h.read(id)).status,'a note renumbered under the reorder kept its review').toBe('pending');
+ });
+
  it('voids the review of every section whose note number changes',async()=>{
   const doc=await h.document(),a=await h.section(doc,{status:'reviewed'}),b=await h.section(doc,{status:'reviewed'});
   expect((await reorder(doc,[b,a])).status).toBe(200);
