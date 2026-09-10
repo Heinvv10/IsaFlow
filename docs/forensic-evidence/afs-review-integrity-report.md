@@ -158,6 +158,18 @@ Round 6's FOR SHARE on the `companies` row made every unrelated company write (l
 | T3 | the send takes FOR SHARE on the company row again | killed (2) | … renamed under it; lets an unrelated company setting be saved during a send, promptly |
 | T4 | the send takes FOR SHARE on the brand row again | killed (1) | signs exactly what it fingerprinted when the branding is edited under it |
 
+### Round 8 — exactly what is printed, in the order it is printed
+
+| # | Mutation | Result | First failing test |
+|---|---|---|---|
+| U1 | the render orders sections by note number with no id tiebreak | killed (1) | renders sections with the same note number in one order, by id |
+| U2 | the report footer back in the pre-image | killed (1) | does not void the signature when the report footer … changes |
+| U3 | the draft AI narrative back in the pre-image | killed (1) | does not void the signature when a draft AI narrative … changes |
+| U4 | the reporting framework back in the pre-image | killed (1) | does not void the signature when the reporting framework … changes |
+| U5 | the default branding renders with empty colours | killed (1) | signs on the default branding it saw when a first brand profile is saved under it |
+
+The tie test had to be built against the plan: the planner walks the `(document_id, section_type)` index, so the test gives the higher id the alphabetically first section type and writes it first; no scan order then agrees with id order.
+
 ### Why the survivors are not gaps
 
 - **N2** — the `AND status = <from>` predicate on the transition UPDATE is redundant *while the row lock stands* (N1/N2b prove the lock is what the tests hold). It is kept as defence for a caller that runs outside a request transaction, where `FOR UPDATE` releases at once.
@@ -176,6 +188,11 @@ No test was written to kill a redundant mutant.
 - 681, 682 and 683 were edited in place during review. The branch is unpublished and they have been applied only to the synthetic fixture, which records no migration names, so no environment holds a checksum of the earlier text.
 
 ## Open
+
+- **The logo is covered by its URL, not its image.** The posted HTML carries `<img src=logo_url>` and Signum fetches the image itself, so the picture behind an unchanged URL can change between the send and a signature, or between two signatories. Fix direction, for Hein to decide: embed the image bytes in the render (e.g. a data URI) and hash those bytes into the fingerprint.
+- **The report footer is never printed.** `brand_profiles.report_footer_text` is saved but the AFS renderer never reads it (only management-pack branding does). A latent defect, reported, not fixed here; the fingerprint now leaves it out because it is not printed.
+- **The fiscal year is fingerprinted even when a period is set.** The cover prints the period when there is one and falls back to the fiscal year; the fingerprint carries both raw fields rather than duplicate that rule in SQL, so a fiscal-year edit on a document that has a period voids a signature over identical bytes. Bounded (documents with a period are management packs) and deliberate.
+- **`lockAfsDocument` (afsDocumentService.ts) is dead code that would bypass signing.** It moves any non-signed status to `signed_off` with no lock, no section count and no delivery-hold release, and has no callers. Report only.
 
 - The platform-admin company page (`pages/admin/companies/[id].tsx`) does not display the rename warning the admin PATCH now returns. The file is 606 lines, already over the 300-line limit, so it was not grown; displaying the warning there needs that page split first.
 
