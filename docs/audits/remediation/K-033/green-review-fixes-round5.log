@@ -1,0 +1,34 @@
+=== GREEN (round 5 fixes in place) ===
+ Test Files  2 passed (2)
+      Tests  33 passed (33)
+
+=== S2: retry query no longer excludes an unattributed charge ===
+     × never debits a charge that names no subscription 49ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 32 passed (33)
+
+=== S3: resolver claim without the row-version predicate ===
+     × lets only one of two resolver runs verify the same submitted charge 97ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 32 passed (33)
+
+=== S4: every non-settlement outcome collapsed back into one counter ===
+     × lets only one of two resolver runs verify the same submitted charge 108ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 32 passed (33)
+
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  33 passed (33)
+
+=== FULL UNIT SUITE (bunx vitest run --testTimeout=30000, DATABASE_URL and PG* unset) ===
+ Test Files  785 passed | 36 skipped (821)
+      Tests  9326 passed | 234 skipped (9560)
+
+=== GATES ===
+bunx tsc --noEmit                      -> clean
+bunx eslint src pages (the CI scope)   -> clean
+bun run agent-docs:check               -> 74 mirrors match
+bun scripts/audit-migration-naming.ts  -> no new duplicate prefixes
+
+Migration 624 is unchanged this round, so the fixture database was not re-applied.

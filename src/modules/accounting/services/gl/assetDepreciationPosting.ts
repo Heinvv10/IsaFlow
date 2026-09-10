@@ -13,6 +13,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { getSystemAccountId } from './systemAccountResolver';
+import { lockAssetTaxBase, writeAssetTaxAccumulation } from './assetTaxAccumulation';
 import {
   calculatePolicyDepreciation,
   type DepreciationMethod,
@@ -94,7 +95,10 @@ async function postAssetDepreciationToGLThrows(
   // never touched by reversal). With the number taken by the reversed
   // original, the INSERT below hits the unique index → savepoint rollback →
   // glFailed:true — a LOUD failure the run reports, which is the honest
-  // outcome until a re-post path with suffixed numbering exists.
+  // outcome until a re-post path with suffixed numbering exists. Reachable only
+  // through the LEGACY single-asset entry point now: in the dual run the plan's
+  // `already_in_subledger` guard skips such an asset, with its reason, before
+  // this is reached.
   const existing = (await sql`
     SELECT id FROM gl_journal_entries
     WHERE company_id = ${companyId} AND entry_number = ${entryNumber}
@@ -157,7 +161,6 @@ interface DualDepInput {
   purchaseDate: string;
   periodDate: string;
   openingAccDep: number;
-  taxOpeningAccDep: number;
   deferredTaxRate: number;
   disposalDate?: string;
   /** Policy method for the asset. Omitted = straight line. */
@@ -187,20 +190,13 @@ export async function postDualDepreciationToLedger(
     method: input.method,
   });
 
-  const tax = calculateTaxDepreciation({
-    cost: input.cost,
-    taxLifeYears: input.taxLifeYears,
-    purchaseDate: input.purchaseDate,
-    periodDate: input.periodDate,
-    taxOpeningAccDep: input.taxOpeningAccDep,
-    disposalDate: input.disposalDate,
-  });
-
-  const deferred = calculateDeferredTax({
-    policyCarryingAmount: policy.policyCarryingAmount,
-    taxCarryingAmount: tax.taxCarryingAmount,
-    deferredTaxRate: input.deferredTaxRate,
-  });
+  // The tax figures are computed INSIDE the savepoint, once the asset row is
+  // locked and the subledger has been read. `DualDepInput` deliberately carries
+  // NO tax opening: the only value a caller could pass is a pre-transaction read
+  // of the cache column, which is the defect this module exists to stop relying
+  // on. See `assetTaxAccumulation.ts`. Reported as 0 if the savepoint fails
+  // before the calculation.
+  let taxDep = 0;
 
   // Ledger row + GL entry commit or roll back TOGETHER: a subledger period
   // row without its backing journal (or vice versa) permanently skews
@@ -210,6 +206,22 @@ export async function postDualDepreciationToLedger(
   // transaction and 500ing the rest of the run (P1.5, observed live).
   try {
     const entryId = await withSavepoint('asset_dep_period', async () => {
+      const taxBase = await lockAssetTaxBase(companyId, assetId, yyyymm);
+      const tax = calculateTaxDepreciation({
+        cost: input.cost,
+        taxLifeYears: input.taxLifeYears,
+        purchaseDate: input.purchaseDate,
+        periodDate: input.periodDate,
+        taxOpeningAccDep: taxBase.openingForPeriod,
+        disposalDate: input.disposalDate,
+      });
+      taxDep = tax.monthlyTaxDep;
+      const deferred = calculateDeferredTax({
+        policyCarryingAmount: policy.policyCarryingAmount,
+        taxCarryingAmount: tax.taxCarryingAmount,
+        deferredTaxRate: input.deferredTaxRate,
+      });
+
       await sql`
         INSERT INTO asset_period_ledger (
           company_id, asset_id, period_date, yyyymm,
@@ -241,20 +253,28 @@ export async function postDualDepreciationToLedger(
           deferred_tax            = EXCLUDED.deferred_tax,
           updated_at              = NOW()
       `;
+      // The asset column is a CACHE of the subledger, so it is set from the
+      // subledger total — every other period's charge plus this one's — not
+      // from the row just written. That is what keeps a back-posted period's
+      // charge in the accumulation instead of losing it, and what makes a
+      // same-period re-post idempotent.
+      await writeAssetTaxAccumulation(
+        companyId, assetId, input.cost, taxBase.accumulatedElsewhere + tax.monthlyTaxDep,
+      );
       return postAssetDepreciationToGLThrows(
         companyId, assetId, policy.monthlyDep, userId, input.periodDate,
       );
     });
 
     log.info('Dual depreciation ledger updated', {
-      assetId, yyyymm, policyDep: policy.monthlyDep, taxDep: tax.monthlyTaxDep,
+      assetId, yyyymm, policyDep: policy.monthlyDep, taxDep,
     }, 'accounting');
 
-    return { policyDep: policy.monthlyDep, taxDep: tax.monthlyTaxDep, entryId, glFailed: false };
+    return { policyDep: policy.monthlyDep, taxDep, entryId, glFailed: false };
   } catch (err) {
     // Whole period rolled back for this asset — nothing persisted. Report
     // loudly so the run's caller can surface a failure count.
     log.error('Dual depreciation period failed — rolled back', { assetId, yyyymm, error: err }, 'accounting');
-    return { policyDep: policy.monthlyDep, taxDep: tax.monthlyTaxDep, entryId: null, glFailed: true };
+    return { policyDep: policy.monthlyDep, taxDep, entryId: null, glFailed: true };
   }
 }

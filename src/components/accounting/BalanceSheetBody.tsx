@@ -20,6 +20,7 @@ interface BalanceSheetBodyProps {
   drillDownStart: string;
   drillDownEnd: string;
   costCentreId?: string;
+  returnTo?: string;
   onEvidence: (accountId: string, accountName: string) => void;
   /** Which comparator columns to print. Omitted, the prior-year checkbox alone
    *  decides, which is what every caller did before the trend column existed. */
@@ -30,7 +31,7 @@ interface BalanceSheetBodyProps {
 
 export function BalanceSheetBody({
   report, showComparative, expandedAccount, onToggleAccount, drillDownStart, drillDownEnd, onEvidence,
-  costCentreId, columns: columnsProp, applyComparators = rows => rows,
+  costCentreId, returnTo, columns: columnsProp, applyComparators = rows => rows,
 }: BalanceSheetBodyProps) {
   // The account-detail route master's BalanceSheetRow linked every account
   // name to. The migration to StatementGrid dropped it; the row model now
@@ -38,7 +39,8 @@ export function BalanceSheetBody({
   const detailHref = (code: string) =>
     `/accounting/reports/account-detail/${encodeURIComponent(code)}` +
     `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs` +
-    (costCentreId ? `&cost_centre_id=${encodeURIComponent(costCentreId)}` : '');
+    (costCentreId ? `&cost_centre_id=${encodeURIComponent(costCentreId)}` : '') +
+    (returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : '');
   const built = toBalanceSheetRows(report, { comparative: showComparative, detailHref });
   const assets = applyComparators(built.assets);
   const liabilitiesAndEquity = applyComparators(built.liabilitiesAndEquity);
