@@ -12,7 +12,7 @@ import { requireControlTx } from '@/modules/accounting/services/controls/context
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { approvalRequiredReason, approvalRequiredReply } from '../approvalReply';
 
-// Neither bank tool accepts approval_id; see approvalReply.ts.
+// Neither bank tool accepts approval_id; the reply names the prepared bank route (approvalReply.ts).
 export const BANK_APPROVAL_REQUIRED_REASON = approvalRequiredReason('bulk_allocate_bank_transactions');
 export const BANK_REVERSAL_APPROVAL_TEXT = approvalRequiredReply({ name: 'reverse_allocations', inputSchema: {} });
 
