@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 const control=vi.hoisted(()=>({accountingDate:'2026-07-04'}));
 vi.mock('@/modules/accounting/services/ar/creditTargetEligibility',()=>({assertPostedCreditTarget:vi.fn()}));
 vi.mock('@/modules/accounting/services/ar/arControlBoundary',()=>({
- requireArControl:()=>({}),
+ requireArControl:vi.fn(()=>({})),
  runArControlled:async(_company:string,_person:string,_ref:unknown,_opts:unknown,effect:(permit:unknown)=>Promise<unknown>)=>effect({accountingDate:control.accountingDate}),
 }));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:vi.fn()}));
@@ -33,6 +33,9 @@ vi.mock('@/modules/accounting/services/ar/creditNoteLock', () => ({
   lockCreditNoteForUpdate: vi.fn(),
 }));
 import { sql } from '@/lib/neon';
+import type {PoolClient} from 'pg';
+import {withControlRequest} from '@/modules/accounting/services/controls/context';
+import {requireArControl} from '@/modules/accounting/services/ar/arControlBoundary';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -94,6 +97,7 @@ function creditNoteRow(overrides: Record<string, unknown> = {}) {
   };
 }
 beforeEach(() => {
+  vi.mocked(requireArControl).mockImplementation(()=>({}) as ReturnType<typeof requireArControl>);
   control.accountingDate='2026-07-04';
   vi.clearAllMocks();
   vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(creditNoteRow() as never);
@@ -103,8 +107,9 @@ beforeEach(() => {
     accountName: key,
     accountType: 'asset',
     accountSubtype: 'current',
+    createdAt: Date.parse('2026-07-04T00:00:00Z'),
   }));
-  mockCreateJournalEntry.mockResolvedValue({
+  const journal = {
     id: JE_ID,
     entryNumber: 'JE-2026-00001',
     entryDate: '2026-07-04',
@@ -113,9 +118,9 @@ beforeEach(() => {
     createdBy: USER_ID,
     createdAt: '2026-07-04T00:00:00Z',
     updatedAt: '2026-07-04T00:00:00Z',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-  mockPostJournalEntry.mockResolvedValue(undefined);
+  } as Awaited<ReturnType<typeof createJournalEntry>>;
+  mockCreateJournalEntry.mockResolvedValue(journal);
+  mockPostJournalEntry.mockResolvedValue(journal);
 });
 describe('approveCreditNote — approved accounting date',()=>{
  it.each(['2026-07-04','2026-07-05','2026-07-06'])('posts the bound accounting date %s instead of re-reading the source date',async date=>{
@@ -143,16 +148,24 @@ describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry
   });
 });
 describe('createCreditNote — supplier_id is a UUID, never coerced to a number', () => {
+  beforeEach(async()=>{
+    const real=await vi.importActual<typeof import('@/modules/accounting/services/ar/arControlBoundary')>('@/modules/accounting/services/ar/arControlBoundary');
+    vi.mocked(requireArControl).mockImplementation(real.requireArControl);
+  });
+  function human<T>(effect:()=>Promise<T>){
+    return withControlRequest({client:{} as PoolClient,userId:USER_ID,companyId:COMPANY_ID,claims:{sub:USER_ID}},
+      {personId:USER_ID,companyId:COMPANY_ID,authMethod:'cookie'},effect);
+  }
   const SUPPLIER_ID = '55555555-5555-4555-8555-555555555555';
   it('interpolates the supplier UUID unchanged into the INSERT', async () => {
     mockSql.mockResolvedValue([
       creditNoteRow({ type: 'supplier', client_id: null, supplier_id: SUPPLIER_ID }),
     ]);
-    const note = await createCreditNote(
+    const note = await human(()=>createCreditNote(
       COMPANY_ID,
       { type: 'supplier', supplierId: SUPPLIER_ID, creditDate: '2026-07-04', subtotal: 1000 },
       USER_ID,
-    );
+    ));
     const insert = mockSql.mock.calls.find((c) =>
       sqlCallTouches(c as unknown[], 'INSERT INTO credit_notes', SUPPLIER_ID),
     );
@@ -163,11 +176,11 @@ describe('createCreditNote — supplier_id is a UUID, never coerced to a number'
   });
   it('still writes NULL when no supplier is supplied', async () => {
     mockSql.mockResolvedValue([creditNoteRow()]);
-    await createCreditNote(
+    await human(()=>createCreditNote(
       COMPANY_ID,
       { type: 'customer', clientId: 'client-uuid', creditDate: '2026-07-04', subtotal: 1000 },
       USER_ID,
-    );
+    ));
     const insert = mockSql.mock.calls.find((c) => {
       const [strings] = c as [readonly string[], ...unknown[]];
       return Array.isArray(strings) && strings.join('').includes('INSERT INTO credit_notes');
