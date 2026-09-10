@@ -327,3 +327,153 @@ duplicated batch journal must be reversed by a journal, not deleted.
   locks hold; they are proved by removing the lock as well (M21+M22, M23+M24), not on their own.
 - The concurrency assertions (`settled === false` after 300ms) are timing-sensitive under heavy
   parallel-agent load on this box; one such flake was seen and did not reproduce in three reruns.
+
+---
+
+# Round 6 — the four census survivors (review-k107-r5.md)
+
+The round-5 blind review found four sites the round-5 census missed: three
+check-then-act-on-status approvals that post to the ledger, and one document
+number minted from `COUNT(*)+1`. All four are fixed with the remedy this branch
+already carries — a status-predicated claim under a row lock, taken after the
+last read-only step and before the first ledger write, with the claiming
+UPDATE's row count checked and the loser refused with a typed error.
+
+| Finding | Disposition |
+|---|---|
+| `supplierPaymentWorkflowService.processSupplierPayment` | **HIGH — FIXED.** `processBatch`'s singular twin. Read `payment.status !== 'approved'` in JS, then created and POSTED DR AP / CR Bank for the full amount, incremented `amount_paid` on every allocated bill, and rewrote the payment row with no status predicate. Now a status-predicated claim under `claimUnderLockTimeout`, `SupplierPaymentNotProcessableError` for the loser (raised before the first posting), and the final UPDATE writes only `gl_journal_entry_id`. Route maps only pre-write refusals to 4xx. |
+| `writeOffService.approveWriteOff` | **HIGH — FIXED.** Same shape: read `status !== 'draft'`, then posted DR Bad Debt / CR AR plus the §22(3) VAT recovery and added the amount to the invoice's `amount_paid`. Now claimed; `WriteOffNotApprovableError`. |
+| `adjustmentService.approveAdjustment` | **HIGH — FIXED.** Same shape, posting to AR or AP. Now claimed; `AdjustmentNotApprovableError`. The separate `withTransaction` around the final UPDATE is gone — a second connection could not see the claim; the link write now runs on the request transaction. |
+| `pages/api/accounting/stock-adjustments.ts` | **MEDIUM — FIXED.** Minted `ADJ-${COUNT(*)+1}` with no unique index: silent duplicates after any deletion and under concurrency. Now `insertWithReservedNumber` off the company's atomic `stock_adjustment` counter, with migration **671** adding `uq_stock_adjustments_company_number`. Two adjacent defects on the same path are fixed because the fix moved them: the product-ownership check now runs **before** the first write (it answered 404 after the INSERT, and `withAuth` COMMITs a 4xx), and the `stock_movements` INSERT no longer names a `company_id` column that table has never had — it raised 42703 on **every** adjustment, so this route has never once written a row. Adding that column is K-085's; movements stay tenant-scoped through `products`, as `stockValuationService` documents. |
+
+Also carried in this round, from the round-5 review's remaining M/L: `claimUnderLockTimeout` now
+**refuses** outside a request transaction (`ClaimOutsideTransactionError`) instead of claiming
+without one — an autocommitted claim cannot be rolled back with the posting that follows it — and
+restores `lock_timeout` on the non-55P03 error path, where the transaction is still usable and the
+5s ceiling would otherwise leak onto every later statement. `companySettingsService` gains the
+`stock_adjustment` / `ADJ` default. `assetService.assetNumberPrefix` replaces the
+`generateAssetNumber(cat, 0).split('-')[0]` prefix trick in `assets.ts`. `expenseClaimService`,
+`itemService` and `practiceWipService` carry corrected comments only — each now states plainly that
+MAX+1 without a savepointed retry 23505s into a 500 rather than duplicating, and that the WIP row
+count is defence in depth behind `lockTimeEntries`, not the primary guard.
+
+## Round 6 files
+
+`src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts`,
+`ar/writeOffService.ts`, `items/adjustmentService.ts`, `items/assetService.ts`,
+`core/documentClaimLock.ts`, `core/companySettingsService.ts`, `expense/expenseClaimService.ts`,
+`items/itemService.ts`, `practice/practiceWipService.ts`,
+`pages/api/accounting/{stock-adjustments,assets,supplier-payments-action,write-offs-action,adjustments-action}.ts`,
+`scripts/migrations/sql/671_stock_adjustment_number_unique.sql`.
+
+## Round 6 tests
+
+New: `k107-supplier-payment-double-post` (5), `k107-write-off-double-post` (5),
+`k107-adjustment-double-post` (5), `k107-stock-adjustment-numbering` (4),
+`tests/unit/services/core/documentClaimLock.test.ts` (4),
+`tests/unit/api/approveActionsNo4xxAfterWrite.test.ts` (6). Each of the three double-post files
+proves the guard by OUTCOME — the bank/AR GL measured off posted journal lines, not a journal
+count — under **two interleaved pool clients AND two sequential attempts**, plus the legitimate
+path, a never-approved document, and another tenant's document.
+
+Whole K-107/K-120/K-121 integration set: **23 files, 90 passed**. Full unit suite with the fixture
+env UNSET: **807 files, 9579 passed / 243 skipped / 0 failed**. `tsc --noEmit`: clean. `eslint` on
+every changed `src/` and `pages/` file: clean. Mutation proof M35–M41 in green.log, each applied
+alone from a file copy and restored; all red.
+
+**One correction, carried into green.log.** Its first draft of M35/M36/M37 read "bank credited
+2300.00" / "AR credited twice", which is not what those runs report. Under each mutation the
+assertions that go red are the **typed-error** ones — the loser stops refusing — while the GL
+delta assertions still pass, because the concurrent case rolls its loser back by design. The
+double post is real and was measured directly, but separately: a standalone probe on the fixture DB
+with M35 applied returned `bank=2300.00, amount_paid=2300.00` and two posted journals for one
+1150.00 payment. Stated rather than left to imply a measurement the suite did not make.
+
+## Round 6 migration
+
+**671** `uq_stock_adjustments_company_number` on `(company_id, adjustment_number)`, total (no
+`deleted_at` on `stock_adjustments`). Detects an equivalent index by COLUMN SET, so it is a no-op
+against a differently-named one from a parallel branch. All three paths run against the fixture DB:
+create (the index is present), no-op (`NOTICE … already enforces …`), and refuse — the refusal
+proved inside a rolled-back transaction with the index dropped and a duplicate pair inserted, which
+named the offending group and aborted. Rollback: `DROP INDEX uq_stock_adjustments_company_number`.
+
+**OPERATOR ACTION.** Duplicates are the expected case on any tenant that has ever deleted a stock
+adjustment. Read-only probe, **NOT run against production**:
+```sql
+SELECT company_id, adjustment_number, count(*) FROM stock_adjustments
+ GROUP BY 1,2 HAVING count(*) > 1 ORDER BY 3 DESC;
+```
+Renumber the extras before deploying 671; nothing is auto-corrected.
+
+Historical impact of the three claims: a document processed or approved twice leaves **two posted
+journals** for one document with only the later `gl_journal_entry_id` on the row, so the first is
+unreachable from the document. Read-only probes, **NOT run against production**:
+```sql
+-- supplier payments processed more than once
+SELECT p.company_id, p.id, p.payment_number, count(je.id) AS journals
+  FROM supplier_payments p
+  JOIN gl_journal_entries je ON je.company_id = p.company_id
+   AND je.source = 'auto_supplier_payment'
+   AND je.description = 'Supplier payment ' || p.payment_number
+ GROUP BY 1,2,3 HAVING count(je.id) > 1;
+-- write-offs / adjustments whose subledger moved twice for one document
+SELECT wo.company_id, wo.id, wo.amount, ci.amount_paid, ci.total_amount
+  FROM customer_write_offs wo JOIN customer_invoices ci ON ci.id = wo.invoice_id
+ WHERE wo.status = 'approved' AND ci.amount_paid > ci.total_amount + 0.01;
+```
+
+## Round 6 limits
+
+- The three double-post files prove the refusal by typed error and the legitimate path by outcome.
+  The concurrent case necessarily rolls its loser back, so the GL delta there measures the winner
+  only; the sequential case is what carries the outcome. See the M35 correction above.
+- Migration 671's create path is proven by the index existing on the fixture DB after the run, not
+  by a fresh create in this session — it was already created by the round's earlier work; the
+  refuse and no-op paths were run here.
+- `assets.ts`, `expenseClaimService`, `itemService` and `admin/invoiceService` are MAX+1 against a
+  real unique index with **no savepointed retry**: concurrent creates 23505 into a 500 rather than
+  duplicating. That is the correct trade and is now stated in each comment, but it is not a retry
+  and is not fixed here.
+
+---
+
+# Register item — the complete inventory of what this branch did NOT fix
+
+Enumerated from the ledger writers (every service calling `createJournalEntry` / `postJournalEntry`
+or writing `amount_paid`) and from the tables (every unique index on a document-number column,
+read off the fixture schema), not by grepping for the predicate — a census by predicate cannot find
+the code missing it. Each row below was read in the source and its guard, or absence of one,
+confirmed by eye. Nothing here is fixed on this branch.
+
+## A. Check-then-act on status, still open
+
+| File :: symbol | Risk |
+|---|---|
+| `ar/customerPaymentAllocationService.ts` :: `confirmCustomerPayment` | **HIGH.** The AR twin of `processSupplierPayment`, unfixed: reads `status !== 'draft'`, posts DR Bank / CR AR, increments `amount_paid` on every allocation, then rewrites `customer_payments` with no status predicate and its row count discarded. Two confirms debit the bank twice. |
+| `ar/customerPaymentAllocationService.ts` :: `cancelCustomerPayment` | **HIGH.** Mirror image: reads `status !== 'confirmed'`, then decrements `amount_paid` on every allocation and rewrites the payment unpredicated. Two cancels un-apply the receipt twice. |
+| `reports/vatAdjustmentService.ts` :: `approveVATAdjustment` | **HIGH.** Byte-for-byte the shape just fixed in `adjustmentService`: reads `status !== 'draft'`, posts the VAT journal, then rewrites `vat_adjustments` unpredicated. |
+| `capture/provisionalPostingService.ts` :: `postProvisional` | **MEDIUM.** Reads `bank_transactions.status !== 'imported'`, posts the provisional journal, then sets `status='provisional'` unpredicated — two runs post two provisional journals for one bank line. |
+| `gl/recurringJournalService.ts` :: `generateJournalFromRecurring` | **MEDIUM.** Reads `status !== 'active'`, posts the journal, then `UPDATE recurring_journals … WHERE id = ${id}` — no status predicate **and no `company_id`**, which is a tenancy defect in its own right. Two runs post the recurrence twice and double `run_count`. |
+| `gl/journalEntryPostingService.ts` :: `postJournalEntry` | **MEDIUM.** Reads `entry.status !== 'draft'`, then `SET status='posted' … WHERE id AND company_id` with no status predicate and the row count discarded. Every service above posts through it, so it is the last line that could refuse a double post and it does not. |
+| `ar/creditNoteCancelService.ts` :: `cancelCreditNote` | **LOW-MEDIUM.** Reads `status` in ('approved','applied'), un-applies `amount_paid` (that UPDATE **is** guarded by `AND amount_paid >= ${unapply}` and its row count checked, which is what bounds the damage), then flips `credit_notes.status` unpredicated. |
+
+Verified **not** open, and why, so the next census does not re-open them: `approveSupplierInvoice`
+(`lockSupplierInvoiceForUpdate` before the status read), `expenseClaimService.postClaimToGl`
+(`SELECT … FOR UPDATE` before the status read), `creditNoteCancelService.applyCreditNoteToInvoice`
+and `customerInvoiceCancelService.cancelCustomerInvoice` (both `FOR UPDATE`),
+`customerPaymentAllocationService.postCustomerInvoiceToGL` (early-returns on an existing
+`gl_journal_entry_id`), and the seven already carrying predicated claims on this branch
+(`processBatch`, `processSupplierPayment`, `voidSupplierPayment`, `approveCreditNote`,
+`approveWriteOff`, `approveAdjustment`, `reverseJournalEntry`).
+
+## B. Numbering — unscoped, non-atomic, or unindexed
+
+| File :: symbol | Risk |
+|---|---|
+| DB trigger `trg_cp_payment_number` on `customer_payments`; `trg_sp_payment_number` on `supplier_payments` | **HIGH.** Both mint `CP-/SP-<year>-<MAX+1>` from a `SELECT MAX(...)` inside a `BEFORE INSERT` trigger under READ COMMITTED, and **neither table carries any unique index on `(company_id, payment_number)`** (checked against the fixture schema: `supplier_payments` has only its pkey; `customer_payments` has its pkey and `ux_customer_payments_card_reference`). Two concurrent payments in one company and year get the **same** number, silently — the exact class fixed for stock adjustments here, on the two tables that carry money. |
+| `ap/purchaseOrderService.ts` :: `generateOrderNumber` | **LOW.** The counter UPDATE is atomic, but the zero-row branch (first-ever PO for a company) does an `ON CONFLICT DO NOTHING` insert and returns a hard-coded `PO-0000001`: two concurrent first POs both return it and the second 23505s on `purchase_orders_company_id_po_number_key`. No retry. |
+| `ar/deliveryNoteService.ts` :: `nextDeliveryNoteNumber`; `ar/salesOrderService.ts` :: `nextOrderNumber` | **LOW.** Atomic upsert on `company_document_numbers`, but both ignore the counter row's `padding` column (hard-coded `padStart(5)`) and both fall back to a fixed `DN-00001` / `SO-00001` on zero rows, which can duplicate against an existing row. |
+| `pages/api/accounting/assets.ts`; `expense/expenseClaimService.ts` :: `nextClaimNumber`; `items/itemService.ts` :: `generateItemCode`; `admin/services/invoiceService.ts` | **LOW.** MAX+1 against a real unique index, no savepointed retry — concurrent creates 23505 into a 500. Correct trade, not a retry. Now stated in each comment. |
+| `ap/procurementService.ts` :: `generateGRNNumber` | **NONE — dead.** No non-test caller; `goodsReceivedService` has its own atomic counter. Mentioned, not deleted. |
+| `pages/api/accounting/products.ts` :: `generateProductCode`; `items/inventoryService.ts` :: `generateProductCode` | **NONE — unreachable.** `validateProduct` rejects a blank `code` with a 422 before the generator runs (carried over from round 5). |

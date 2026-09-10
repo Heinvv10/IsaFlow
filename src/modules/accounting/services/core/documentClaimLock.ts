@@ -33,18 +33,36 @@ export class DocumentClaimLockTimeoutError extends Error {
 }
 
 /**
- * Run a claiming UPDATE under a 5s `lock_timeout`.
- *
- * Outside a request transaction the ceiling is skipped rather than faked:
- * `SET LOCAL` affects nothing there, and a claim outside a transaction is a
- * single implicit-transaction statement that cannot park on anything for long.
+ * Raised when a claim is attempted outside a request transaction, where it
+ * would AUTOCOMMIT. The caller then posts a journal it can no longer roll back
+ * with the claim, so a failure one statement later leaves the document claimed
+ * — 'processed', 'approved' — with no journal behind it and no way through the
+ * UI to retry, because every path that could retry is the one the claim now
+ * refuses. The 5s ceiling would be fiction there too: `SET LOCAL` outside a
+ * transaction affects nothing.
+ */
+export class ClaimOutsideTransactionError extends Error {
+  readonly code = 'CLAIM_OUTSIDE_TRANSACTION';
+  constructor(documentKind: string) {
+    super(
+      `Claiming this ${documentKind} requires a request transaction (withAuth / als.run). `
+      + 'Outside one the claim autocommits and cannot be rolled back with the posting that follows it.',
+    );
+    this.name = 'ClaimOutsideTransactionError';
+  }
+}
+
+/**
+ * Run a claiming UPDATE under a 5s `lock_timeout`, inside the request
+ * transaction. Throws `ClaimOutsideTransactionError` without one — same
+ * reasoning as `lockTimeEntries`, which refuses rather than locking nothing.
  */
 export async function claimUnderLockTimeout<T>(
   documentKind: string,
   claim: () => Promise<T>,
 ): Promise<T> {
   const client = als.getStore()?.client;
-  if (!client) return claim();
+  if (!client) throw new ClaimOutsideTransactionError(documentKind);
   // Re-issued every call, never memoised: SET LOCAL is subtransaction-aware and
   // a savepoint rollback restores it to 0 — no timeout at all.
   assertTxUsable();
@@ -61,6 +79,13 @@ export async function claimUnderLockTimeout<T>(
       && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE) {
       throw new DocumentClaimLockTimeoutError(documentKind);
     }
+    // Any OTHER failure out of the claim — a 23505, a CHECK violation — leaves
+    // the transaction usable, so the 5s ceiling must be taken back off here or
+    // it leaks onto every later statement in the request and fails an unrelated
+    // write on a lock wait that has nothing to do with this claim. Only the
+    // 55P03 path above may skip it: there the transaction is ABORTED and this
+    // statement would itself raise 25P02, replacing the typed error.
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
     throw err;
   }
 }

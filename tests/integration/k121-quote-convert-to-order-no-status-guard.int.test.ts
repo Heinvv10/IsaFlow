@@ -10,6 +10,7 @@
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { convertToSalesOrder, QuoteNotConvertibleError } from '../../src/modules/accounting/services/ar/quoteConvertService';
 
@@ -17,6 +18,28 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID(), user = crypto.randomUUID(), customer = crypto.randomUUID();
 const quote = crypto.randomUUID();
+
+/**
+ * Every call runs in a request transaction, exactly as `withAuth` provides:
+ * `claimUnderLockTimeout` refuses to claim outside one, because there the claim
+ * autocommits and cannot be rolled back with the writes that follow it.
+ */
+async function inTx<T>(fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run(
+      { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0], fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K121 fixture']);
@@ -45,13 +68,13 @@ afterAll(async () => {
 });
 
 it('converts a quote to a sales order exactly once', async () => {
-  const first = await convertToSalesOrder(company, quote, user);
+  const first = await inTx(() => convertToSalesOrder(company, quote, user));
   expect(first).not.toBeNull();
 
   // A double-click / client retry. The quote is now 'converted_to_order', which
   // is not a convertible status, so the second call is REFUSED — and it hands
   // back the first call's order id so the caller can open it.
-  const second = await convertToSalesOrder(company, quote, user).then(
+  const second = await inTx(() => convertToSalesOrder(company, quote, user)).then(
     () => null, (err: unknown) => err);
   expect.soft(second).toBeInstanceOf(QuoteNotConvertibleError);
   expect.soft((second as QuoteNotConvertibleError).quoteStatus).toBe('converted_to_order');

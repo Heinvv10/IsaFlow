@@ -17,6 +17,7 @@
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
   convertToSalesOrder,
@@ -25,6 +26,27 @@ import {
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+/**
+ * Every call runs in a request transaction, exactly as `withAuth` provides:
+ * `claimUnderLockTimeout` refuses to claim outside one, because there the claim
+ * autocommits and cannot be rolled back with the writes that follow it.
+ */
+async function inTx<T>(fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run(
+      { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0], fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 const company = crypto.randomUUID();
 const user = crypto.randomUUID();
 const customer = crypto.randomUUID();
@@ -69,7 +91,7 @@ afterAll(async () => {
 
 it.each(REFUSED)('refuses a %s quote and leaves its status untouched', async (status) => {
   const id = quoteIds.get(status)!;
-  const outcome = await convertToSalesOrder(company, id, user).then(() => 'CONVERTED', (e: unknown) => e);
+  const outcome = await inTx(() => convertToSalesOrder(company, id, user)).then(() => 'CONVERTED', (e: unknown) => e);
 
   expect.soft(outcome).toBeInstanceOf(QuoteNotConvertibleError);
   expect.soft((outcome as QuoteNotConvertibleError).quoteStatus).toBe(status);
@@ -85,7 +107,7 @@ it.each(REFUSED)('refuses a %s quote and leaves its status untouched', async (st
 
 it.each(ALLOWED)('converts a %s quote exactly once', async (status) => {
   const id = quoteIds.get(status)!;
-  const result = await convertToSalesOrder(company, id, user);
+  const result = await inTx(() => convertToSalesOrder(company, id, user));
   expect.soft(result).not.toBeNull();
 
   const after = await pool.query('SELECT status, converted_order_id FROM customer_quotes WHERE id=$1', [id]);
@@ -102,7 +124,7 @@ it('an invoiced quote keeps its invoice link and cannot be turned into a second 
     [invoiceLink, company, customer, user]);
   await pool.query('UPDATE customer_quotes SET converted_invoice_id=$1 WHERE id=$2', [invoiceLink, id]);
 
-  await expect(convertToSalesOrder(company, id, user)).rejects.toBeInstanceOf(QuoteNotConvertibleError);
+  await expect(inTx(() => convertToSalesOrder(company, id, user))).rejects.toBeInstanceOf(QuoteNotConvertibleError);
 
   const after = await pool.query('SELECT status, converted_invoice_id, converted_order_id FROM customer_quotes WHERE id=$1', [id]);
   expect.soft(after.rows[0].status).toBe('converted');

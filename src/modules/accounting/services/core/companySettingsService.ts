@@ -33,6 +33,7 @@ const DEFAULT_DOC_NUMBERS: { type: string; prefix: string }[] = [
   { type: 'supplier_payment', prefix: 'PAY' },
   { type: 'supplier_adjustment', prefix: 'SADJ' },
   { type: 'delivery_note', prefix: 'DN' },
+  { type: 'stock_adjustment', prefix: 'ADJ' },
 ];
 
 /**

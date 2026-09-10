@@ -14,7 +14,10 @@ import {
   approveSupplierPayment,
   processSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
-import { voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {
+  SupplierPaymentNotProcessableError,
+  voidSupplierPayment,
+} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -49,9 +52,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Supplier payment action failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    // Only refusals raised BEFORE the first posting may be answered with a 4xx:
+    // `withAuth` COMMITs anything below 500, so the blanket badRequest this
+    // replaced committed a half-processed payment — a posted journal with the
+    // bills not updated — and reported it to the user as a 400.
+    if (err instanceof SupplierPaymentNotProcessableError) {
+      return apiResponse.conflict(res, err.message);
+    }
+    if (err instanceof Error && /not found$/.test(err.message)) {
+      return apiResponse.notFound(res, 'Payment');
+    }
+    // approveSupplierPayment refuses a non-draft payment before it writes
+    // anything, so this one stays a 400.
+    if (err instanceof Error && err.message.startsWith('Cannot approve payment with status')) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    throw err;
   }
 }
 

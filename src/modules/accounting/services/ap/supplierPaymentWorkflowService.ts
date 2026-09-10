@@ -8,6 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { getSupplierPaymentById } from './supplierPaymentService';
@@ -40,6 +41,20 @@ export async function approveSupplierPayment(
 }
 
 /**
+ * Raised when the payment is not 'approved' when the claim runs — because it
+ * never was, or because a concurrent request has already processed it. Raised
+ * BEFORE the journal is created, so a route may answer it with a 4xx without
+ * `withAuth` committing a half-processed payment.
+ */
+export class SupplierPaymentNotProcessableError extends Error {
+  readonly code = 'SUPPLIER_PAYMENT_NOT_PROCESSABLE';
+  constructor(readonly paymentStatus: string) {
+    super(`Payment is ${paymentStatus}, not approved — it cannot be processed.`);
+    this.name = 'SupplierPaymentNotProcessableError';
+  }
+}
+
+/**
  * @param opts.postingAgent Stamp for the DR Accounts Payable / CR Bank journal
  *   this posts. Optional and last-positional so every existing caller keeps its
  *   `human:<userId>` attribution; only non-human callers (the MCP
@@ -55,7 +70,31 @@ export async function processSupplierPayment(
   try {
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
-    if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
+
+    // CLAIM the payment before anything is posted — the singular twin of
+    // batchPaymentService.processBatch, which carried the identical defect.
+    // What this replaced read `payment.status !== 'approved'` and then created
+    // and POSTED DR AP / CR Bank for the full amount and incremented
+    // `amount_paid` on every allocated bill, with the payment's own row
+    // rewritten unconditionally: two concurrent "process" clicks credited the
+    // bank twice and overstated the supplier ledger, and only one journal id
+    // survived on the payment to show for it. The status-predicated UPDATE is
+    // the guard — the loser matches zero rows and stops here, before the first
+    // posting — and it also moves the first blocking point off the per-company
+    // entry_number trigger, where two interleaved callers used to park on each
+    // other with no lock_timeout at all.
+    const claimed = await claimUnderLockTimeout('supplier payment', async () => (await sql`
+      UPDATE supplier_payments
+      SET status = 'processed', processed_at = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
+      RETURNING id
+    `) as Row[]);
+    if (claimed.length === 0) {
+      // Re-read rather than trusting the row read before the UPDATE: the loser
+      // of a double-click needs the status the winner left behind.
+      const now = await getSupplierPaymentById(companyId, id);
+      throw new SupplierPaymentNotProcessableError(now?.status ?? 'missing');
+    }
 
     const apAccount = await getSystemAccount('payable', companyId);
     const bankAccount = payment.bankAccountId
@@ -105,10 +144,11 @@ export async function processSupplierPayment(
       `;
     }
 
+    // Only the journal link is left to write — the status and timestamp were
+    // set by the claim above.
     const updatedRows = (await sql`
       UPDATE supplier_payments
-      SET status = 'processed', processed_at = NOW(),
-          gl_journal_entry_id = ${journalEntry.id}::UUID
+      SET gl_journal_entry_id = ${journalEntry.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];

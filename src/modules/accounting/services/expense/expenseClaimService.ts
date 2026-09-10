@@ -165,7 +165,9 @@ async function nextClaimNumber(companyId: string, claimDate: string): Promise<st
   // MAX, not COUNT: expense_claims carries UNIQUE(company_id, claim_number) and
   // count is not max — after a single claim in the year was deleted every later
   // claim re-issued an existing number and 23505'd permanently, since the count
-  // never caught up.
+  // never caught up. MAX+1 with no savepointed retry: two concurrent claims
+  // still 23505 into a 500 rather than duplicating, which is the correct trade
+  // against the unique index but is not a retry.
   const rows = (await sql`
     SELECT COALESCE(MAX(CAST(SUBSTRING(claim_number FROM '[0-9]+$') AS INTEGER)), 0) AS n
     FROM expense_claims

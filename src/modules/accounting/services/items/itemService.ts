@@ -150,9 +150,11 @@ export async function listItems(companyId: string, filters: ItemFilters = {}): P
 async function generateItemCode(companyId: string): Promise<string> {
   // MAX of the codes already minted under the ITEM- prefix, not a COUNT of the
   // company's items: count is not max, so after a single item was deleted every
-  // later auto-code repeated one already in use — silently, since nothing
-  // enforces uniqueness on (company_id, code) and this path does not run
-  // checkCodeDuplicate.
+  // later auto-code repeated one already in use. `items_company_id_code_key` on
+  // (company_id, code) exists, so that repeat was a hard 23505 that wedged item
+  // creation permanently — the count never catches up — not a silent duplicate.
+  // MAX+1 with no savepointed retry: two concurrent creates still 23505 into a
+  // 500 rather than duplicating, which is the correct trade but is not a retry.
   const maxRows = await sql`
     SELECT COALESCE(MAX(CAST(SUBSTRING(code FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
     FROM items WHERE company_id = ${companyId} AND code ~ '^ITEM-[0-9]+$'
