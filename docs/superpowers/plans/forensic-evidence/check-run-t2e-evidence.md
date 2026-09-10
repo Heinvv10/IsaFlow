@@ -1,9 +1,61 @@
 # Check runs: scale, hard-kill and deadline evidence (T2e), with the corrections from the T2c+T2d review
 
-Plan: `docs/superpowers/plans/2026-09-10-forensic-check-runs.md` v8–v10 (A26–A47). Raw measurements beside this file:
+Plan: `docs/superpowers/plans/2026-09-10-forensic-check-runs.md` v8–v11 (A26–A51). The first section is the merged code
+(`26be1aeed`); every later figure is the pre-merge worker. Raw measurements beside this file:
 `check-run-journals-100k.json` (scale, hard-kill, slab bound, worst-case findings — final head `9ddd49eb7`),
 `check-run-storage.json` (bytes per finding, per run and per day) and `check-run-deadline.json` (A34, measured on the
 `2b851aa7b` worker; the harness is now `scripts/forensic/measure-check-run-deadline.ts`).
+
+## Re-measured on the merged code (`26be1aeed`): the lineage query makes the stream unusable at scale
+
+**Every scale figure below this section describes the pre-merge worker and no longer runs.** The check-run branch
+merged into the integration branch at `ef5c7809c`; integration's lineage work (the per-journal entity-versions
+LATERAL with window counts, and `lower(entity_id)` in the change-event joins) now sits inside the cursor body. Both
+worker builds were measured here side by side, alternating, on one disposable database
+(`isaflow-t2e-merged-scale-pg-20260910`, same image and settings as below), each artifact beside the same
+`node_modules` (`bun.lock` identical at both commits). Raw numbers: `check-run-merged-26be1aeed.json`; plans:
+`check-run-merged-explain-*.txt`. Nothing was optimised in this round.
+
+| measurement | before — `6b80a8a06` (pre-merge head) | after — `26be1aeed` (merged) |
+|---|---|---|
+| 100k mixed, elapsed | **28.7 s** and **25.6 s** (earlier: 26.0 s at `9ddd49eb7`) | **did not publish**: `failed RESOURCE_LIMIT` at 300.1 s, twice |
+| 100k mixed, peak (VmHWM) | 284 / 287 MiB | 94 MiB (waiting on the database) |
+| A17 statements at 100k | 547 total, 101 FETCH, `control_change_events` 1, `gl_journal_lines` 2 | 57 total, **1 FETCH** (never returned), `control_change_events` 1, `gl_journal_lines` 1 |
+| 100k worst-case findings | **76.8 s** / 279 MiB and **74.0 s** / 282 MiB (earlier: 77.6 s at `9ddd49eb7`) | **did not publish**: `failed RESOURCE_LIMIT` at the deadline, twice |
+| settled deadline, 2 093 361 journals | **published, 246.1 s** (earlier: 256.6 s at `2b851aa7b`) | **did not publish**: `failed RESOURCE_LIMIT` at 300.1 s |
+| settled deadline, bracket | 2 173 359 published in 263.1 s; 2 946 673 overran | — |
+| smallest population tried | — | 13 333 journals (unsettled, right after the seed): overran at 300.1 s |
+
+**A17 still holds — there is no per-row statement.** The child tables appear only in the one `DECLARE`; the census
+of the merged run is 57 statements with a single FETCH. The cost moved inside the cursor body: the first FETCH has to
+sort the whole population, so every row's LATERALs run before any page returns, and they never finished.
+
+**Which node pays** — `EXPLAIN (ANALYZE, BUFFERS)` of the cursor body as `app_user` with the worker's claims (RLS in
+force), `work_mem` 64MB, on the 100k mixed company (1 000 678 change events, 89 930 entity versions):
+
+- 10 026 journals, unrestricted body: before **2.45 s**; after **cancelled at 645 s** without finishing.
+- 200 journals (body plus one `j.id = ANY(200 ids)` predicate, identical in both): before **59 ms** (27 014 buffers);
+  after **165.0 s** (17 200 810 buffers) — **~2 800× slower, 825 ms per journal**, of which:
+  - change-facts subquery (`x`): **393 ms** — Bitmap Index Scan on `control_change_events_pkey` with `company_id`
+    alone, 1 000 678 rows, *Rows Removed by Filter: 1 000 669*;
+  - change-count subquery (`n`): **398 ms** — the same full-company scan;
+  - entity-versions LATERAL (`cv`): **30 ms** — `control_entity_versions_canonical_idx` on `(company_id, entity_type)`
+    only, 89 930 rows, *Rows Removed by Filter: 89 929*.
+  Before, both change-event subqueries used `control_change_events_entity_idx` at ~0.01 ms a journal, and entity
+  versions were read once by a single sequential scan into a join (34 ms for the whole query), not once per journal.
+- The cost is per journal × **every change event the company has**: on the 3.2M-journal quiet company (32 019 985
+  change events) five journals took **122.5 s — 24.5 s each**, 29.7× the 1M-event company for 32× the events. At that
+  size about a dozen journals fit in 300 s.
+
+**Why.** `lower()` is not leakproof, and both tables have `FORCE ROW LEVEL SECURITY`. Under `app_user` the planner
+may not evaluate `lower(entity_id) = j.id::text` ahead of the RLS policy's qual, so the predicate that matches the
+canonical expression index becomes a Filter after a scan of the whole company. As `postgres` (RLS bypassed) the same
+body puts `lower(entity_id)` in the Index Cond of `control_entity_versions_canonical_idx`. The same predicate shape
+serves integration's synchronous detector (`loadJournalRiskPopulation`, same SQL), and `lower(<t>.entity_id) = …`
+appears in 15 controls files; only the check-run body was measured here.
+
+**Not decided here:** how to restore an index path (a leakproof comparison, a stored canonical column, a policy change
+or a different join) is the coordinator's decision with these numbers.
 
 ## How these were run, and what that leaves out
 
@@ -190,6 +242,9 @@ lease's own expiry**, inside the 30 s grace. That is what the grace window carri
 wording: a success after the deadline remains unreachable, so the success-inside-grace gate stays an emulation.
 
 ## Residuals, stated
+
+- **Merged code (`26be1aeed`): no 100k run publishes.** Integration's `lower(entity_id)` predicates cannot use their
+  expression indexes under FORCE RLS, so each journal scans every change event of its company (first section).
 
 - A company whose `default_currency` costs more than 1 024 bytes as the seal encodes it gets `unknown`
   (`resource_limit:currency_exceeds_limit`) from every run, published before streaming, where sync would accept it.

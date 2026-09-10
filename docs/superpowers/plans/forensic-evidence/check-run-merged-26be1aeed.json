@@ -1,0 +1,319 @@
+{
+ "measuredOn": "2026-09-10/11",
+ "container": "isaflow-t2e-merged-scale-pg-20260910 (pgvector/pgvector:pg16, disposable, schema cloned read-only from the shared fixture)",
+ "artifacts": {
+  "after": {
+   "commit": "26be1aeed",
+   "sha256": "252382e3f412031a\u2026"
+  },
+  "before": {
+   "commit": "6b80a8a06",
+   "sha256": "9e13f4f48f442345\u2026"
+  }
+ },
+ "harness": "real worker artifact as a direct child process; both artifacts beside the same node_modules (bun.lock identical at both commits)",
+ "mixed100k": [
+  {
+   "commit": "26be1aeed",
+   "published": false,
+   "reply": {
+    "state": "failed",
+    "code": "RESOURCE_LIMIT",
+    "failureRecorded": true
+   },
+   "elapsedMs": 300088,
+   "vmHwmBytes": 98574336
+  },
+  {
+   "commit": "6b80a8a06",
+   "published": true,
+   "elapsedMs": 28652,
+   "vmHwmBytes": 298160128,
+   "loadBefore": [
+    17.72,
+    10.47,
+    9.67
+   ],
+   "statements": {
+    "total": 547,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 232,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 101,
+     "INSERT": 197,
+     "CLOSE": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "gl_journal_lines": 2,
+     "control_audit_check_findings": 393
+    }
+   }
+  },
+  {
+   "commit": "26be1aeed",
+   "published": false,
+   "reply": {
+    "state": "failed",
+    "code": "RESOURCE_LIMIT",
+    "failureRecorded": true
+   },
+   "elapsedMs": 300089,
+   "vmHwmBytes": 98504704
+  },
+  {
+   "commit": "6b80a8a06",
+   "published": true,
+   "elapsedMs": 25621,
+   "vmHwmBytes": 300658688,
+   "loadBefore": [
+    4.08,
+    5.8,
+    7.42
+   ],
+   "statements": {
+    "total": 547,
+    "byVerb": {
+     "BEGIN": 2,
+     "SET": 3,
+     "SELECT": 232,
+     "SAVEPOINT": 3,
+     "UPDATE": 2,
+     "RELEASE": 3,
+     "COMMIT": 2,
+     "DECLARE": 1,
+     "FETCH": 101,
+     "INSERT": 197,
+     "CLOSE": 1
+    },
+    "mentioning": {
+     "control_change_events": 1,
+     "gl_journal_lines": 2,
+     "control_audit_check_findings": 393
+    }
+   }
+  }
+ ],
+ "worstFindings100k": [
+  {
+   "commit": "26be1aeed",
+   "published": false,
+   "reply": {
+    "state": "failed",
+    "code": "RESOURCE_LIMIT"
+   },
+   "elapsedMs": "~300000 (deadline)"
+  },
+  {
+   "commit": "6b80a8a06",
+   "published": true,
+   "elapsedMs": 76808,
+   "vmHwmBytes": 292093952,
+   "loadBefore": [
+    15.07,
+    10.52,
+    9.71
+   ]
+  },
+  {
+   "commit": "26be1aeed",
+   "published": false,
+   "reply": {
+    "state": "failed",
+    "code": "RESOURCE_LIMIT"
+   },
+   "elapsedMs": "~300000 (deadline)"
+  },
+  {
+   "commit": "6b80a8a06",
+   "published": true,
+   "elapsedMs": 73974,
+   "vmHwmBytes": 295620608,
+   "loadBefore": [
+    4.63,
+    5.74,
+    7.35
+   ]
+  }
+ ],
+ "statementCensus": {
+  "method": "checkRunStatementCensus over the container log, per worker application_name",
+  "26be1aeed (job 5f84de13, deadline)": {
+   "total": 57,
+   "FETCH": 1,
+   "DECLARE": 1,
+   "control_change_events": 1,
+   "control_entity_versions": 1,
+   "gl_journal_lines": 1
+  },
+  "6b80a8a06 (job 712d14c2, published)": {
+   "total": 547,
+   "FETCH": 101,
+   "DECLARE": 1,
+   "control_change_events": 1,
+   "control_entity_versions": 1,
+   "gl_journal_lines": 2
+  }
+ },
+ "explain": {
+  "role": "app_user with the worker claims (RLS in force), work_mem 64MB, cursor body unchanged but for an added j.id = ANY(fixed ids) predicate identical in both",
+  "mixedCompany": {
+   "journals": 100000,
+   "changeEvents": 1000678,
+   "entityVersions": 89930,
+   "10026 journals (cutoff 2026-01-13), unrestricted body": {
+    "6b80a8a06": "2451 ms",
+    "26be1aeed": "cancelled after 645 s without finishing"
+   },
+   "200 journals": {
+    "6b80a8a06": "59.4 ms, 27 014 buffers",
+    "26be1aeed": "165 037 ms, 17 200 810 buffers",
+    "perJournal26be1aeed": {
+     "changeFactsSubquery_x": "393 ms: Bitmap Index Scan on control_change_events_pkey (company_id only) -> 1 000 678 rows, Rows Removed by Filter 1 000 669",
+     "changeCountSubquery_n": "398 ms: same scan",
+     "entityVersionsLateral_cv": "30 ms: Bitmap Index Scan on control_entity_versions_canonical_idx (company_id, entity_type only) -> 89 930 rows, Rows Removed by Filter 89 929"
+    }
+   }
+  },
+  "quietCompany": {
+   "journals": 3200000,
+   "changeEvents": 32019985,
+   "entityVersions": 2879540,
+   "5 journals": {
+    "26be1aeed": "122 450 ms (24.5 s per journal)"
+   }
+  },
+  "cause": "lower() is not leakproof; control_change_events and control_entity_versions have FORCE ROW LEVEL SECURITY; under app_user the planner may not evaluate lower(entity_id)=j.id::text ahead of the RLS policy qual, so it is a Filter, not an Index Cond. As postgres (RLS bypassed) the same query uses control_entity_versions_canonical_idx with lower(entity_id) in the Index Cond."
+ },
+ "deadlineSettled": {
+  "company": "quiet, 3 200 000 journals, 32 019 985 change events",
+  "settledBy": "autovacuum 21:45-21:47 plus VACUUM (ANALYZE) 21:50",
+  "6b80a8a06": [
+   {
+    "population": 2093361,
+    "cutoff": "2026-08-11",
+    "jobId": "be4c55ef-8e02-4efe-a2cb-6d5f903e7fcf",
+    "elapsedMs": 246061,
+    "reply": {
+     "state": "succeeded",
+     "checkRunId": "be4c55ef-8e02-4efe-a2cb-6d5f903e7fcf",
+     "canonicalHash": "9af3dc7d258de93447d10f6313de3d3542f8dc5cd1d1f0b4b25d35ed0287e23f"
+    },
+    "job": {
+     "state": "succeeded",
+     "last_error_code": null,
+     "workMs": 245814.677,
+     "results": 1
+    },
+    "loadBefore": [
+     5.27,
+     5.76,
+     6.46
+    ],
+    "peakRssBytes": 180973568
+   },
+   {
+    "population": 2173359,
+    "cutoff": "2026-08-19",
+    "jobId": "0f571f92-1088-4c46-b827-4030c2026cd1",
+    "elapsedMs": 263125,
+    "reply": {
+     "state": "succeeded",
+     "checkRunId": "0f571f92-1088-4c46-b827-4030c2026cd1",
+     "canonicalHash": "26719e01237f041c26095fc4571587bb735b2eb4145d7674deabba63414f979d"
+    },
+    "job": {
+     "state": "succeeded",
+     "last_error_code": null,
+     "workMs": 262983.108,
+     "results": 1
+    },
+    "loadBefore": [
+     5.63,
+     5.06,
+     5.97
+    ],
+    "peakRssBytes": 181141504
+   },
+   {
+    "population": 2946673,
+    "cutoff": "2026-11-09",
+    "jobId": "aff41466-53a8-4f48-8935-554fb86cfbff",
+    "elapsedMs": 300989,
+    "reply": {
+     "state": "failed",
+     "code": "RESOURCE_LIMIT",
+     "failureRecorded": true
+    },
+    "job": {
+     "state": "failed",
+     "last_error_code": "RESOURCE_LIMIT",
+     "workMs": 300831.333,
+     "results": 0
+    },
+    "loadBefore": [
+     4.53,
+     6.19,
+     6.37
+    ],
+    "peakRssBytes": 182194176
+   }
+  ],
+  "26be1aeed": [
+   {
+    "population": 2093361,
+    "cutoff": "2026-08-11",
+    "jobId": "cda0466d-0094-4854-868a-0d9c4739f2ae",
+    "elapsedMs": 300109,
+    "reply": {
+     "state": "failed",
+     "code": "RESOURCE_LIMIT",
+     "failureRecorded": true
+    },
+    "job": {
+     "state": "failed",
+     "last_error_code": "RESOURCE_LIMIT",
+     "workMs": 299952.254,
+     "results": 0
+    },
+    "loadBefore": [
+     5.64,
+     6.08,
+     6.29
+    ],
+    "peakRssBytes": 98717696
+   }
+  ],
+  "26be1aeed unsettled, right after the seed": [
+   {
+    "population": 13333,
+    "cutoff": "2026-01-05",
+    "jobId": "e88758f7-34aa-49d0-953a-a4f85f8c1bab",
+    "elapsedMs": 300077,
+    "reply": {
+     "state": "failed",
+     "code": "RESOURCE_LIMIT",
+     "failureRecorded": true
+    },
+    "job": {
+     "state": "failed",
+     "last_error_code": "RESOURCE_LIMIT",
+     "workMs": 299905.614,
+     "results": 0
+    },
+    "loadBefore": [
+     5.84,
+     6.84,
+     7.01
+    ],
+    "peakRssBytes": 98463744
+   }
+  ]
+ }
+}
