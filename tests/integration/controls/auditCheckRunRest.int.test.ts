@@ -27,7 +27,10 @@ it('queues one job per check through actual cookie auth and retains the original
  expect((await f.pool.query('SELECT job_id FROM control_audit_check_results WHERE company_id=$1 AND job_id=$2',[f.f.companyA,checkRunId])).rows).toEqual([]);
 },60000);
 it('refuses a read before publication, then serves complete authenticated pages over HTTP',async()=>{
- expect((await f.request('GET',{checkRunId})).status).toBe(500);
+ // Not published yet is a 409 with a body that says so — never a 500, which a crash would also produce.
+ const early=await f.request('GET',{checkRunId});
+ expect(early.status).toBe(409);
+ expect(early.body.error).toMatchObject({code:'CONFLICT',message:'Check run is not published yet'});
  expect(await f.run(checkRunId)).toMatchObject({state:'succeeded',checkRunId});
  const first=await f.request('GET',{checkRunId,limit:1});
  expect(first.status,`page refused: ${JSON.stringify(first.body)}`).toBe(200);
@@ -45,13 +48,25 @@ it('refuses a read before publication, then serves complete authenticated pages 
  expect((whole.body.data as typeof page).nextCursor).toBeNull();
 },60000);
 it('refuses a foreign tenant, a bad cursor, a missing CSRF token and an unsupported method',async()=>{
- expect((await f.request('GET',{checkRunId},'u3')).status).toBe(500);
+ // A foreign tenant's run and an absent one are indistinguishable 404s: no existence is disclosed across tenants.
+ for(const [label,response] of [['foreign',await f.request('GET',{checkRunId},'u3')],['absent',await f.request('GET',{checkRunId:randomUUID()})]] as const){
+  expect(response.status,`${label} run`).toBe(404);
+  expect(response.body.error,`${label} run`).toMatchObject({code:'NOT_FOUND',message:'Check run not found'});
+ }
  expect((await f.request('GET',{checkRunId,limit:101})).status).toBe(400);
  expect((await f.request('GET',{checkRunId,cursor:'not-a-cursor'})).status).toBe(400);
  expect((await f.request('GET',{})).status).toBe(400);
  expect((await f.request('POST',{...body(),idempotencyKey:randomUUID(),checks:['not_a_check']})).status).toBe(400);
  expect((await f.request('POST',body(),'u1',false)).status).toBe(403);
  expect((await f.request('DELETE',{checkRunId})).status).toBe(405);
+},60000);
+it('requires write:audit to enqueue but not to read',async()=>{
+ await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read,can_write) VALUES($1,$2,'audit',true,false)",[f.f.companyA,f.f.u1.id]);
+ try{
+  const refused=await f.request('POST',{...body(),idempotencyKey:randomUUID()});
+  expect(refused.status,'a member without write:audit enqueued a check run').toBe(403);
+  expect((await f.request('GET',{checkRunId})).status,'write:audit was demanded for a read').toBe(200);
+ }finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='audit'",[f.f.companyA,f.f.u1.id]);}
 },60000);
 it('forbids the page read with 403 once current read:reports is revoked',async()=>{
  await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'reports',false)",[f.f.companyA,f.f.u1.id]);

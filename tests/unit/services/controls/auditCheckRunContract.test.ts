@@ -18,7 +18,8 @@ it('publishes the shared kind list and the spike-measured journal limits',()=>{
  expect(AUDIT_CHECK_RUN_IDS).toEqual(['journal_risk_checks']);
  expect(AUDIT_CHECK_RUN_LIMITS.journal_risk_checks).toEqual({maxRuntimeMs:300000,graceMs:30000,idleMs:15000,fetchRows:1000,maxSlabRows:1000,maxFindings:100000,workMem:'64MB'});
  expect(Object.isFrozen(AUDIT_CHECK_RUN_LIMITS)&&Object.isFrozen(AUDIT_CHECK_RUN_LIMITS.journal_risk_checks)).toBe(true);
- expect(AUDIT_CHECK_RUN_QUOTA).toEqual({maxActiveJobs:6,maxPublishedJobs:100});
+ // A RATE, never an absolute count: the absolute cap turned the 101st run into a permanent lockout.
+ expect(AUDIT_CHECK_RUN_QUOTA).toEqual({maxActiveJobs:6,maxJobsPerWindow:100,windowHours:24});
 });
 it('public input cannot choose tenant, authority, permissions, limits or a group identity',()=>{
  expect(parseAuditCheckRunRequest({...input,checks:['journal_risk_checks','journal_risk_checks']})).toEqual(input);

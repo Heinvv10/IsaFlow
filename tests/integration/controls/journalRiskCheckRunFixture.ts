@@ -10,11 +10,11 @@ import type {ForensicFixture} from '../forensic-fixture';
  *   STRADDLE_ROWS rows sharing one (day, person, currency) slab that spans the 1000-row FETCH boundary, each below
  *   the threshold and together above it, so a lost carry-over drops every one of their findings;
  *   the signal rows, which carry the backdating, out-of-hours, weekend, reversal, closed-period and >100 markers.
- * OVERFLOW_ROWS rows sit above CUTOFF in one slab, so a run at OVERFLOW_CUTOFF exceeds maxSlabRows.
+ * The slab and finding bounds are exercised at their exact edges by auditCheckRunLimits.int.test.ts.
  */
-export const CUTOFF='2026-09-09',OVERFLOW_CUTOFF='2027-12-31';
+export const CUTOFF='2026-09-09';
 export const FILLER_DAY='2026-03-02',STRADDLE_DAY='2026-03-03';
-export const FILLER_ROWS=930,STRADDLE_ROWS=120,STRADDLE_AMOUNT='100',THRESHOLD_AMOUNT='10000',OVERFLOW_ROWS=1001;
+export const FILLER_ROWS=930,STRADDLE_ROWS=120,STRADDLE_AMOUNT='100',THRESHOLD_AMOUNT='10000';
 export interface JournalRiskSeed {accountId:string;openPeriodId:string;closedPeriodId:string;thresholdId:string;straddlePerson:string}
 const at=(day:string,hour:number,minute=0)=>new Date(`${day}T${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}:00+02:00`).toISOString();
 /** Deterministic 32-bit LCG: the "randomised" fixture must reproduce byte for byte across both readings. */
@@ -103,8 +103,5 @@ export async function seedJournalRiskPopulation(pool:Pool,fixture:ForensicFixtur
  for(let index=0;index<105;index++)changeRows.push({entityType:'journal_entry',entityId:manyChanges,action:'journal.amended',occurredAt:at('2026-08-03',11,index%60),version:index+1});
  changeRows.push({entityType:'journal_entry',entityId:amended,action:'journal.amended',occurredAt:at('2026-07-08',10),version:1});
  await changes(pool,companyId,creator,evidenceId,changeRows);
- const overflowPerson=randomUUID();
- await journals(pool,companyId,creator,accountId,Array.from({length:OVERFLOW_ROWS},():JournalSeed=>({id:randomUUID(),entryDate:'2027-01-05',
-  periodId:openPeriodId,postedAt:at('2027-01-05',10),postedBy:overflowPerson,createdAt:at('2027-01-05',10),amount:'40',version:1})));
  return{accountId,openPeriodId,closedPeriodId,thresholdId,straddlePerson};
 }

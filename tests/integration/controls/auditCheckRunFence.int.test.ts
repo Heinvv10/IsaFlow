@@ -10,6 +10,7 @@ import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/a
 import {createAuditJobPoller} from '@/modules/accounting/services/controls/auditJobPoller';
 import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls/auditWorkerTransaction';
 import {runAuditCheckRunPhase} from '@/modules/accounting/services/controls/auditCheckRunPhase';
+import {CheckRunPublicationFenceError} from '@/modules/accounting/services/controls/auditCheckRunBudget';
 import {AUDIT_PROCESS_LIMITS} from '@/modules/accounting/services/controls/auditJobProcessContract';
 import {AUDIT_CHECK_RUN_LIMITS} from '@/modules/accounting/services/controls/auditCheckRunContract';
 import {CUTOFF,seedJournalRiskPopulation} from './journalRiskCheckRunFixture';
@@ -38,17 +39,53 @@ function phase(lease:AuditJobLease,holdSeconds:number,budgetMs=AUDIT_PROCESS_LIM
    return runAuditCheckRunPhase(ctx,lease,{deadlineAt});
   }),{idleInTransactionMs:AUDIT_PROCESS_LIMITS.check_run.idleInTransactionMs});
 }
+/** Poll a condition on the database clock; the value it resolves to is the proof, so a timeout is a failure. */
+async function until<T>(probe:()=>Promise<T|null|false>,timeoutMs=15000):Promise<T>{
+ const stop=Date.now()+timeoutMs;
+ for(;;){const value=await probe();if(value)return value as T;if(Date.now()>stop)throw new Error('Fence gate condition never held');await new Promise(resolve=>setTimeout(resolve,50));}
+}
 const job=async(jobId:string)=>(await pool.query('SELECT state,attempts,generation::int AS generation,result_check_run_id FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,jobId])).rows[0];
 const rowCounts=async(jobId:string)=>(await pool.query(`SELECT (SELECT count(*)::int FROM control_audit_check_results WHERE company_id=$1 AND job_id=$2) AS results,
  (SELECT count(*)::int FROM control_audit_check_findings WHERE company_id=$1 AND job_id=$2) AS findings`,[fixture.companyA,jobId])).rows[0];
-it('rolls the whole run back with nothing readable when the work transaction crosses lease expiry',async()=>{
- // The lease is live when the work transaction opens and expires while it is streaming, which is the only way a run
- // can cross expiry: the transaction holds FOR SHARE on the job row, so no competitor can shorten the lease under it.
- const jobId=await queued(),lease=await claim(jobId);expect(lease).not.toBeNull();
- await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()+interval '3 seconds' WHERE company_id=$1 AND job_id=$2",[fixture.companyA,jobId]);
- await expect(phase(lease!,10),'a run crossing lease expiry must not publish').rejects.toThrow(/lease expired or was replaced/i);
- expect(await rowCounts(jobId)).toEqual({results:0,findings:0});
- expect(await job(jobId)).toMatchObject({state:'running',result_check_run_id:null});
+it('refuses at the post-stream publication fence when the lease expires after the phase passed its opening check',async()=>{
+ // Nothing may shorten a lease under a running phase (it holds FOR SHARE on the job row), so the only way a run can
+ // cross expiry is wall-clock time INSIDE the phase. That is positioned here by holding a lock the phase first needs
+ // at DECLARE — after its opening lease check, before any write — and releasing it once the lease has expired.
+ // The tenant has no journals, so no finding INSERT (whose RLS also checks the lease) runs before publication: the
+ // first check that can see the expiry is the publication fence, and the error says which fence it was.
+ const empty=await provisionForensicFixture(config),who={companyId:empty.companyA,personId:empty.u1.id};
+ const run=await withAuditWorkerTransaction(pool,{...who,jobId:randomUUID()},'read committed',Date.now()+60000,undefined,
+  store=>withControlRequest(store,{...who,authMethod:'cookie'},()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff:CUTOFF,checks:['journal_risk_checks'],idempotencyKey:randomUUID()})));
+ const jobId=run.jobs[0]!.id,id={...who,jobId};
+ const lease=await withAuditWorkerTransaction(pool,id,'read committed',Date.now()+5000,undefined,store=>claimAuditJobForWorker(store,jobId,AUDIT_WORKER_CLASS_KINDS.check_run));
+ expect(lease).not.toBeNull();
+ const tag=`t2c-fence-${randomUUID()}`,phasePool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:1,application_name:tag});
+ const locker=await pool.connect();
+ try{
+  await locker.query('BEGIN');await locker.query('LOCK TABLE control_entity_versions IN ACCESS EXCLUSIVE MODE');
+  await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()+interval '2 seconds' WHERE company_id=$1 AND job_id=$2",[who.companyId,jobId]);
+  const deadlineAt=Date.now()+AUDIT_PROCESS_LIMITS.check_run.workDeadlineMs;
+  const outcome=withAuditWorkerTransaction(phasePool,id,'repeatable read',deadlineAt,undefined,
+   store=>withControlJobRequest(store,lease!,()=>runAuditCheckRunPhase(requireControlTx(),lease!,{deadlineAt})),
+   {idleInTransactionMs:AUDIT_PROCESS_LIMITS.check_run.idleInTransactionMs}).then(()=>null,(error:unknown)=>error);
+  const blocked=await until(async()=>{
+   const rows=(await pool.query(`SELECT a.pid,(SELECT lease_expires_at>clock_timestamp() FROM control_audit_jobs WHERE company_id=$2 AND job_id=$3) AS live
+    FROM pg_stat_activity a WHERE a.application_name=$1 AND a.wait_event_type='Lock' AND a.query LIKE 'DECLARE audit_check_run_journals%'`,[tag,who.companyId,jobId])).rows;
+   return rows[0]??null;});
+  // Position proof: blocked at DECLARE means the opening checks passed; still live means expiry lands after them.
+  expect(blocked.live,'the lease had already expired before the phase reached DECLARE').toBe(true);
+  await until(async()=>(await pool.query('SELECT lease_expires_at<=clock_timestamp() AS gone FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[who.companyId,jobId])).rows[0].gone||null);
+  await locker.query('COMMIT');
+  const error=await outcome;
+  expect(error,`the publication fence did not refuse; got ${error instanceof Error?`${error.name}: ${error.message}`:String(error)}`).toBeInstanceOf(CheckRunPublicationFenceError);
+  expect((error as CheckRunPublicationFenceError).stage,'a check other than the publication fence refused').toBe('recheck');
+  expect((error as CheckRunPublicationFenceError).reason).toBe('expired');
+ }finally{await locker.query('ROLLBACK');locker.release();await phasePool.end();}
+ const counts=(await pool.query(`SELECT (SELECT count(*)::int FROM control_audit_check_results WHERE company_id=$1 AND job_id=$2) AS results,
+  (SELECT count(*)::int FROM control_audit_check_findings WHERE company_id=$1 AND job_id=$2) AS findings`,[who.companyId,jobId])).rows[0];
+ expect(counts).toEqual({results:0,findings:0});
+ expect((await pool.query('SELECT state,result_check_run_id FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[who.companyId,jobId])).rows[0])
+  .toEqual({state:'running',result_check_run_id:null});
 },120000);
 it('succeeds when the work finishes inside the grace remaining on its lease',async()=>{
  const jobId=await queued(),lease=await claim(jobId);expect(lease).not.toBeNull();
