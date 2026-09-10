@@ -58,7 +58,12 @@ it('forbids the page read with 403 once current read:reports is revoked',async()
  try{
   const refused=await f.request('GET',{checkRunId});
   expect(refused.status,'a reader without current read:reports was served a findings page').toBe(403);
+  const before=(await f.pool.query("SELECT count(*)::int AS n FROM control_audit_job_intents WHERE company_id=$1 AND kind='audit_check_run'",[f.f.companyA])).rows[0].n;
   expect((await f.request('POST',{...body(),idempotencyKey:randomUUID()})).status).toBe(403);
+  // A 403 is a 4xx, and withAuth COMMITs the transaction on 4xx. The refusal must therefore land BEFORE the
+  // intent is written, or a requester who no longer holds read:reports leaves a committed check-run intent behind.
+  const after=(await f.pool.query("SELECT count(*)::int AS n FROM control_audit_job_intents WHERE company_id=$1 AND kind='audit_check_run'",[f.f.companyA])).rows[0].n;
+  expect(after,'a revoked requester committed a check-run intent before being refused').toBe(before);
  }finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='reports'",[f.f.companyA,f.f.u1.id]);}
  expect((await f.request('GET',{checkRunId})).status).toBe(200);
 },60000);

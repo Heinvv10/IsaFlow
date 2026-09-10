@@ -1,9 +1,8 @@
 import {z} from 'zod';
-import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import type {McpTool} from '../types';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
-import {AUDIT_CHECK_RUN_IDS,auditCheckRunPermissions,parseAuditCheckRunRequest} from '@/modules/accounting/services/controls/auditCheckRunContract';
+import {AUDIT_CHECK_RUN_IDS} from '@/modules/accounting/services/controls/auditCheckRunContract';
 import {getAuditCheckRunPage,getAuditCheckRunSummary} from '@/modules/accounting/services/controls/auditCheckRunReadService';
 import {ok,toolError} from './toolHelpers';
 const uuid={type:'string',format:'uuid'},key={type:'string',minLength:1,maxLength:128,pattern:'^[A-Za-z0-9_.:-]+$'};
@@ -35,11 +34,12 @@ const checkRunFindings=tool('control_check_run_findings',
  z.object({check_run_id:id,limit:z.number().int().min(1).max(100).optional(),cursor:z.string().regex(/^(0|[1-9][0-9]{0,5})$/).optional()}).strict(),
  async({check_run_id,...options})=>getAuditCheckRunPage(requireControlTx(),{checkRunId:check_run_id,...options}));
 runChecks.perUserIdempotency=true;
-/** The requester must hold every permission the enqueued checks derive, before any intent is written. */
-runChecks.authorize=async(args,ctx)=>{
- const {idempotency_key,...input}=writeInput(args,ctx.companyId);
- const request=parseAuditCheckRunRequest({...input,idempotencyKey:idempotency_key});
- for(const permission of new Set(request.checks.flatMap(check=>auditCheckRunPermissions(check))))
-  await assertEffectivePermission(requireControlTx(),permission);
-};
+/**
+ * No `authorize` hook. Two layers already assert the same thing and one of them also covers the REST path:
+ * `assertCurrentToolAuthority` checks this tool's declared `read:reports` scope against CURRENT effective
+ * permissions before any handler runs, and `enqueueAuditCheckRuns` asserts every permission its intents derive
+ * inside the transaction that writes them. A third copy here is derivable from neither and provable by neither.
+ * A check whose permissions exceed `read:reports` would need the hook back, and `auditCheckRunPermissions` is
+ * where that decision lives.
+ */
 export const auditCheckRunTools=[runChecks,checkRun,checkRunFindings] as const;
