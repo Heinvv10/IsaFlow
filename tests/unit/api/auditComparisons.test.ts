@@ -1,8 +1,9 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import type {NextApiRequest,NextApiResponse} from 'next';
 import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
-const shared=vi.hoisted(()=>({enqueue:vi.fn(),page:vi.fn(),ctx:{synthetic:'adapter-only'}}));
+const shared=vi.hoisted(()=>({enqueue:vi.fn(),page:vi.fn(),permission:vi.fn(),ctx:{synthetic:'adapter-only'}}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>shared.ctx}));
+vi.mock('@/lib/auth/effectivePermissions',async importOriginal=>({...await importOriginal<object>(),assertEffectivePermission:shared.permission}));
 vi.mock('@/modules/accounting/services/controls/auditComparisonJobService',()=>({enqueueAuditComparison:shared.enqueue}));
 vi.mock('@/modules/accounting/services/controls/auditComparisonPageService',()=>({getAuditComparisonPage:shared.page}));
 import {auditComparisonsHandler} from '../../../pages/api/accounting/audit-comparisons';
@@ -13,6 +14,7 @@ beforeEach(()=>{vi.clearAllMocks();shared.enqueue.mockResolvedValue({id,state:'q
 it('forwards strict POST identities through the shared parser and enqueue',async()=>{
  const body={firstSnapshotId:id,secondSnapshotId:id,idempotencyKey:'same'};expect((await invoke('POST',body)).status).toHaveBeenCalledWith(200);
  expect(shared.enqueue).toHaveBeenCalledWith(shared.ctx,body);
+ expect(shared.permission).toHaveBeenCalledWith(shared.ctx,'write:audit');
  for(const extra of [{companyId:id},{permissions:['read:reports']},{firstCanonicalHash:'a'.repeat(64)}])expect((await invoke('POST',{...body,...extra})).status).toHaveBeenCalledWith(400);
  expect(shared.enqueue).toHaveBeenCalledTimes(1);
 });
