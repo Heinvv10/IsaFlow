@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {platformImportApprovalFixture} from './platformImportApprovalFixture';
 import {historicalHash,readHistoricalImportSource,storeHistoricalImportSource} from '@/modules/accounting/services/controls/historicalImportSourceService';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
+import {executeHistoricalImport} from '@/modules/accounting/services/controls/historicalImportExecution';
 import {prepareHistoricalImport} from '@/modules/accounting/services/controls/historicalImportPreparation';
 
 describe('platform historical import persisted maker and independent tenant approval: actual PostgreSQL',()=>{
@@ -70,6 +71,47 @@ describe('platform historical import persisted maker and independent tenant appr
  it('refuses preparing another source under a valid target selection',async()=>{
   const p=await h.prepared();const source=JSON.parse(p.bytes.toString()) as {sourceKey:string};
   await expect(h.maker({action:'prepare',sourceId:randomUUID()},ctx=>prepareHistoricalImport(ctx,{sourceSystem:'csv',sourceKey:source.sourceKey,kind:'customer_invoice',mode:'post_journal',accountingDate:'2023-02-28',evidenceId:p.retained.sourceId,sourceRecordIds:['1','2','3']}))).rejects.toThrow();
+ });
+ it('refuses a different saved import under a valid execution target and a foreign approval',async()=>{
+  const a=await h.prepared(),b=await h.prepared('supplier_invoice');
+  const approval=await h.request(a.ref);await h.review(approval.id);
+  await expect(h.maker({action:'execute',importId:b.ref.entityId},ctx=>executeHistoricalImport(ctx,a.ref,approval.id))).rejects.toThrow();
+  await expect(h.execute(b.ref,approval.id)).rejects.toThrow();
+  await expect(h.execute(a.ref,randomUUID())).rejects.toThrow();
+  expect(await h.noEffects(a.ref)).toEqual({journals:0,effects:0});expect(await h.noEffects(b.ref)).toEqual({journals:0,effects:0});
+ });
+ it('refuses an actual other-tenant source through a selected company',async()=>{
+  const bytes=Buffer.from(JSON.stringify(h.body()));
+  const retained=await h.maker({action:'retain',sourceHash:historicalHash(bytes)},ctx=>storeHistoricalImportSource(ctx,{bytes,mimeType:'application/json'}));
+  // Trusted fixture relocates this test-only source to the other tenant. Its protected association stays original and must not be disclosed.
+  await h.pool.query('UPDATE control_historical_import_sources SET company_id=$3 WHERE company_id=$1 AND id=$2',[h.f.companyA,retained.sourceId,h.f.companyB]);
+  await expect(h.maker({action:'prepare',sourceId:retained.sourceId},ctx=>readHistoricalImportSource(ctx,retained.sourceId))).rejects.toThrow();
+ });
+ it.each(['control_operation_effects','control_change_events','control_protected_evidence'] as const)('rolls back financial writes and committed events after a caught %s INSERT failure',async table=>{
+  const p=await h.prepared(),approval=await h.request(p.ref);await h.review(approval.id);
+  const before=(await h.pool.query('SELECT id FROM control_change_events WHERE company_id=$1 ORDER BY id',[h.f.companyA])).rows;
+  const name=`pi_failure_${randomUUID().replaceAll('-','')}`;
+  // Identifiers come only from this closed table list and hexadecimal random UUID, never untrusted input.
+  await h.pool.query(`CREATE FUNCTION public.${name}() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN IF NEW.company_id::text=current_setting('control.synthetic_pi_company',true)
+    AND NEW.entity_id=current_setting('control.synthetic_pi_import',true)
+    THEN RAISE EXCEPTION 'Synthetic platform import retained INSERT failure'; END IF; RETURN NEW; END $$`);
+  await h.pool.query(`CREATE TRIGGER ${name} BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION public.${name}()`);
+  let caught='';
+  try{
+   await h.maker({action:'execute',importId:p.ref.entityId},async ctx=>{
+    await ctx.sql`SELECT set_config('control.synthetic_pi_company',${h.f.companyA},true),set_config('control.synthetic_pi_import',${p.ref.entityId},true)`;
+    try{await executeHistoricalImport(ctx,p.ref,approval.id);}catch(error){caught=error instanceof Error?error.message:String(error);}
+   }).catch(error=>{if(!caught)throw error;});
+  }finally{
+   await h.pool.query(`DROP TRIGGER IF EXISTS ${name} ON ${table}`);await h.pool.query(`DROP FUNCTION IF EXISTS public.${name}()`);
+  }
+  expect(caught).toContain('Synthetic platform import retained INSERT failure');
+  expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});
+  expect((await h.pool.query('SELECT id FROM customer_invoices WHERE company_id=$1 AND invoice_number=$2',[h.f.companyA,(JSON.parse(p.bytes.toString()) as {sourceKey:string}).sourceKey])).rows).toHaveLength(0);
+  expect((await h.pool.query('SELECT id FROM control_change_events WHERE company_id=$1 ORDER BY id',[h.f.companyA])).rows).toEqual(before);
+  expect((await h.pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[h.f.companyA,approval.id])).rows[0].status).toBe('approved');
+  expect((await h.execute(p.ref,approval.id)).documentId).toBeTruthy();
  });
  it('refuses an ordinary journal approval through the target-bound import context',async()=>{
   const journal=randomUUID();
