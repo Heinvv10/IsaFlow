@@ -201,8 +201,8 @@ describe('control approval decisions under actual impersonated sessions: actual 
   }finally{vi.unstubAllGlobals();}
  }
  const endRow=async(action:string,sessionId:string)=>(await h.pool.query(
-  `SELECT details->>'target_session_id' AS session FROM admin_audit_log WHERE action=$1 AND target_id=$2::uuid
-    AND details->>'target_session_id'=$3`,[action,target,sessionId])).rowCount;
+  `SELECT details->>'target_session_id' AS session FROM admin_audit_log WHERE action=$1::text AND target_id::text=$2
+    AND details->>'target_session_id'=$3::text`,[action,target,sessionId])).rowCount;
 
  it.each(['target','admin'] as const)('records the impersonated session, not the caller, when the %s ends it',async caller=>{
   const {sessionId,stashId,cookies}=await liveImpersonation();

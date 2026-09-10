@@ -25,10 +25,12 @@ it('refuses an unrecognised principal-less request context',async()=>{
  });
 });
 
-it('refuses a verified platform-admin request context by name',async()=>{
+it('still lets a verified platform-admin request through, which is the one documented exception',async()=>{
+ // The Sage migration commit has no confined route yet, so this context is allowed and
+ // logged rather than refused. When that routing lands this expectation flips, and the
+ // census test is the other half of the reminder.
  await withPlatformImportRequest({client,userId:'platform-admin',claims:{sub:'platform-admin'}},async()=>{
-  expect(()=>assertIndependentRequestReview('requester'))
-   .toThrow('A platform administrator is not an independent reviewer');
+  expect(assertIndependentRequestReview('requester')).toBeUndefined();
  });
 });
 

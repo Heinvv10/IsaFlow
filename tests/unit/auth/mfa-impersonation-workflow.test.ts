@@ -83,7 +83,7 @@ beforeEach(async () => {
     target_user_id: targetId, admin_access_token: adminToken, admin_refresh_token: 'admin-refresh',
     expires_at: new Date(Date.now() + 3_600_000) });
   fixture.sql.mockImplementation(async (parts: TemplateStringsArray) =>
-    parts.join('').includes('admin_impersonation_stash') ? [{ live: true, ended: false }]
+    parts.join('').includes('impersonation_delegation_live') ? [{ live: true }]
       : parts.join('').includes('SELECT company_id') ? [{ company_id: companyId }]
       : parts.join('').includes('FROM users') ? [{ is_active: true, status: 'active', suspended_at: null }] : []);
   fixture.query.mockImplementation(async (sql: string) => ({ command: sql.trim().split(/\s+/)[0]!.toUpperCase(), rows: sql.includes('FROM company_users')
