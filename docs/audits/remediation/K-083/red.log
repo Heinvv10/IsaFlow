@@ -1,0 +1,41 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k083-loan-period-journal-idempotency.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T09:31:34.018Z","component":"accounting","data":{"entryId":"dfd7615b-800d-42bc-8c9d-b6e6d1c61e5c","entryNumber":"JE-2026-00001","lineCount":3}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-09-09T09:31:34.029Z","component":"accounting","data":{"id":"dfd7615b-800d-42bc-8c9d-b6e6d1c61e5c","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Posted loan period journals","timestamp":"2026-09-09T09:31:34.033Z","component":"loans","data":{"loanId":"c919ee77-7ea7-4550-ae1f-fea003f28da2","period":1,"entryId":"dfd7615b-800d-42bc-8c9d-b6e6d1c61e5c"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T09:31:34.114Z","component":"accounting","data":{"entryId":"ec1bae48-d603-4d2a-8be8-0087ddebcf98","entryNumber":"JE-2026-00002","lineCount":3}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-09-09T09:31:34.142Z","component":"accounting","data":{"id":"ec1bae48-d603-4d2a-8be8-0087ddebcf98","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Posted loan period journals","timestamp":"2026-09-09T09:31:34.147Z","component":"loans","data":{"loanId":"c919ee77-7ea7-4550-ae1f-fea003f28da2","period":1,"entryId":"ec1bae48-d603-4d2a-8be8-0087ddebcf98"}}
+ ❯ tests/integration/k083-loan-period-journal-idempotency.int.test.ts (1 test | 1 failed) 498ms
+   × posting the same loan period twice leaves one journal, not two 199ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k083-loan-period-journal-idempotency.int.test.ts > posting the same loan period twice leaves one journal, not two
+AssertionError: expected 2000 to be 1000 // Object.is equality
+
+- Expected
++ Received
+
+- 1000
++ 2000
+
+ ❯ tests/integration/k083-loan-period-journal-idempotency.int.test.ts:115:36
+    113|        FROM gl_journal_lines l JOIN gl_accounts a ON a.id=l.gl_account…
+    114|       WHERE l.company_id=$1 AND a.account_code='8100'`, [company]);
+    115|   expect(rows[0].interest_debited).toBe(1000);
+       |                                    ^
+    116|
+    117|   const posts = await pool.query(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:31:31
+   Duration  2.71s (transform 922ms, setup 0ms, import 1.33s, tests 498ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

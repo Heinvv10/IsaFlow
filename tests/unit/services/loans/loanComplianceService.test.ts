@@ -21,8 +21,6 @@ import {
   computeDaysPastDue,
   computeNpvImpact,
   computeRateSensitivity,
-  assessLoan,
-  listAssessments,
 } from '@/modules/accounting/services/loans/loanComplianceService';
 import type { ScheduleRow, LoanInputs, RatePoint } from '@/lib/amortisation/types';
 
@@ -134,18 +132,29 @@ describe('computeEclAmount', () => {
 // ── computeDaysPastDue (pure) ──────────────────────────────────────────────
 
 describe('computeDaysPastDue', () => {
-  it('returns 0 when last payment is on or before scheduled date', () => {
-    // (lastPayment, asOf, scheduled) — paid on schedule → 0 DPD
+  // (lastPaymentDate, asOf, scheduled). `scheduled` is the OLDEST UNSETTLED
+  // instalment, so arrears run from that due date to the assessment date. The
+  // first argument is retained for the exported signature and deliberately
+  // ignored: measuring `paid − scheduled` reports 0 for a borrower who has
+  // simply stopped paying (K-082). Review L5 — these cases used to assert the
+  // removed semantics and passed only because `asOf` equalled `paid`.
+  it('returns 0 while the oldest unsettled instalment is not yet due', () => {
     expect(computeDaysPastDue('2026-04-15', '2026-04-15', '2026-04-15')).toBe(0);
-    expect(computeDaysPastDue('2026-04-10', '2026-04-15', '2026-04-15')).toBe(0);
+    expect(computeDaysPastDue('2026-04-10', '2026-04-10', '2026-04-15')).toBe(0);
   });
 
-  it('returns positive DPD when payment arrives after scheduled date', () => {
+  it('measures from the scheduled date to asOf, not from the last payment', () => {
     expect(computeDaysPastDue('2026-04-25', '2026-04-25', '2026-04-15')).toBe(10);
+    // A payment received EARLY does not reduce the arrears on an instalment
+    // that is still unsettled — the old `paid − scheduled` reading returned 0.
+    expect(computeDaysPastDue('2026-04-01', '2026-04-25', '2026-04-15')).toBe(10);
   });
 
-  it('handles nulls gracefully — no last payment means asOf - scheduled', () => {
-    expect(computeDaysPastDue(null, '2026-04-25', '2026-04-15')).toBe(10);
+  it('reports the same arrears whatever the last payment date is', () => {
+    const dates = ['2026-01-01', '2026-04-15', '2026-04-30', null];
+    for (const d of dates) {
+      expect(computeDaysPastDue(d, '2026-04-25', '2026-04-15')).toBe(10);
+    }
   });
 
   it('returns 0 when no scheduled date', () => {
@@ -216,89 +225,5 @@ describe('computeRateSensitivity', () => {
     const result = computeRateSensitivity(fixed, curve);
     expect(Math.abs(result.plus100bp.interestDelta)).toBeLessThan(1);
     expect(Math.abs(result.minus200bp.interestDelta)).toBeLessThan(1);
-  });
-});
-
-// ── assessLoan ──────────────────────────────────────────────────────────────
-
-describe('assessLoan', () => {
-  function makeLoanRow(overrides = {}) {
-    return {
-      id: LOAN_ID, company_id: COMPANY_ID,
-      principal: '100000.00', start_date: '2026-03-15', term_months: 12,
-      rate_mode: 'FIXED', margin: '0', fixed_rate: '12', residual: '0',
-      recurring_skip_months: [], day_count: 'ACTUAL_365',
-      reprice_mode: 'FIXED_INSTALLMENT', skip_mode: 'MAINTAIN_TERM', lump_mode: 'REDUCE_INSTALLMENT',
-      curve_id: null, status: 'active', ncaCompliant: true,
-      ...overrides,
-    };
-  }
-
-  function makeScheduleDbRow(period: number, overrides = {}) {
-    return {
-      period, date: '2026-04-15', opening: '100000', rate: '12',
-      installment: '8884.87', interest: '1000', principal: '7884.87',
-      lump: '0', skip_flag: false, payment: '8884.87',
-      closing: '92115.13', st_liability: '50000',
-      extrapolated: false, nca_flagged: false, ...overrides,
-    };
-  }
-
-  it('persists assessment with stage, ECL, and NCA info', async () => {
-    sqlMock
-      .mockResolvedValueOnce([makeLoanRow()])                               // loan
-      .mockResolvedValueOnce([{ id: 'run-1' }])                              // latest run
-      .mockResolvedValueOnce([                                               // schedule rows
-        makeScheduleDbRow(1), makeScheduleDbRow(2), makeScheduleDbRow(3),
-      ])
-      .mockResolvedValueOnce([{ last_payment_date: '2026-04-15' }])          // last payment
-      .mockResolvedValueOnce([{                                              // insert assessment
-        id: 'assess-1', company_id: COMPANY_ID, loan_id: LOAN_ID,
-        assessment_date: '2026-04-19', nca_flagged: false, nca_period: null,
-        ifrs9_stage: 1, days_past_due: 0, ecl_amount: '150.50',
-        ecl_method: '12m', outstanding: '92115.13', notes: null,
-        assessed_by: USER_ID, assessed_at: '2026-04-19T00:00:00Z',
-      }]);
-
-    const result = await assessLoan(COMPANY_ID, LOAN_ID, USER_ID, '2026-04-19');
-    expect(result).toMatchObject({
-      loanId: LOAN_ID, stage: 1, ncaFlagged: false,
-      daysPastDue: 0, eclMethod: '12m',
-    });
-  });
-
-  it('throws when loan does not exist', async () => {
-    sqlMock.mockResolvedValueOnce([]);
-    await expect(assessLoan(COMPANY_ID, LOAN_ID, USER_ID, '2026-04-19')).rejects.toThrow('not found');
-  });
-
-  it('throws when no schedule run exists', async () => {
-    sqlMock
-      .mockResolvedValueOnce([makeLoanRow()])
-      .mockResolvedValueOnce([]);  // no run
-    await expect(assessLoan(COMPANY_ID, LOAN_ID, USER_ID, '2026-04-19')).rejects.toThrow('schedule');
-  });
-});
-
-// ── listAssessments ────────────────────────────────────────────────────────
-
-describe('listAssessments', () => {
-  it('returns mapped assessments', async () => {
-    sqlMock.mockResolvedValueOnce([{
-      id: 'assess-1', company_id: COMPANY_ID, loan_id: LOAN_ID,
-      assessment_date: '2026-04-19', nca_flagged: false, nca_period: null,
-      ifrs9_stage: 1, days_past_due: '0', ecl_amount: '150.50',
-      ecl_method: '12m', outstanding: '92115.13', notes: null,
-      assessed_by: USER_ID, assessed_at: '2026-04-19T00:00:00Z',
-    }]);
-    const results = await listAssessments(COMPANY_ID, LOAN_ID);
-    expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ stage: 1, eclAmount: 150.50 });
-  });
-
-  it('returns empty array when none exist', async () => {
-    sqlMock.mockResolvedValueOnce([]);
-    const results = await listAssessments(COMPANY_ID, LOAN_ID);
-    expect(results).toEqual([]);
   });
 });

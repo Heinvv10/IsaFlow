@@ -15,6 +15,7 @@ import { createHash } from 'crypto';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import pg from 'pg';
+import { makeNoticeListener } from './migrationNoticeListener';
 
 const ADVISORY_LOCK_KEY = 73014132;
 const MIGRATIONS_DIR = join(process.cwd(), 'scripts', 'migrations', 'sql');
@@ -164,6 +165,10 @@ async function main(): Promise<void> {
   });
 
   const client = await pool.connect();
+  // See scripts/migrationNoticeListener.ts: without a listener node-postgres
+  // discards every RAISE WARNING / RAISE NOTICE a migration emits.
+  const noticeListener = makeNoticeListener();
+  client.on('notice', noticeListener);
   try {
     // Bootstrap: ensure tracking table exists with canonical schema even if
     // migration 332 hasn't run yet. Also upgrades pre-existing tables that
@@ -266,6 +271,9 @@ async function main(): Promise<void> {
       await client.query(`SELECT pg_advisory_unlock($1)`, [ADVISORY_LOCK_KEY]);
     }
   } finally {
+    // Review L6. The client goes back to the pool, so the listener would
+    // outlive this call if main() were ever driven more than once.
+    client.removeListener('notice', noticeListener);
     client.release();
     await pool.end();
   }
