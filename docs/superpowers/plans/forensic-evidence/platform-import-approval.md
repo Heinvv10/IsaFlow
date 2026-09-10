@@ -345,3 +345,52 @@ index over three impersonation actions, so the build is short, but it is not zer
 
 Suites: units 10 948 passed with the five known pre-existing failures; integration 240 passed over 16
 files with the known `apSharedWriters` failure (identical at base).
+
+
+## Seventh round
+
+**An AFS section reached `reviewed` without a reviewer - pre-existing, open to the preparer.**
+`restoreVersion` set every restored section to `reviewed` with no reviewer and no guard. Saving a
+version and restoring it turned a pending mandatory section into a reviewed one, which passed
+`countMandatorySectionsBelow('reviewed')` and unblocked submission and partner review. A restore now
+never raises review state: a lower status is kept, and a reviewed or signed-off section drops to
+`pending`, with the saved snapshot recording *"Restoring version N invalidated the section's prior
+<status> review"*. An impersonated session may not make that change. Mutations `m54`-`m56` red.
+Noted, not changed: `saveVersion` itself demotes `signed_off` to `reviewed` on every save.
+
+**Management packs - reported, not changed.** With `reviewRequired` off (the default is on),
+`managementPackGeneratorService` sets the pack's `afs_documents.status` to `signed_off` in plain SQL
+and delivers it: no signatory, `locked_by` NULL. The product deliberately lets an internal management
+pack go out unreviewed, so in that mode it is meant to be an unsigned document, and `signed_off`
+misrepresents it. The right fix is a distinct status (for example `published`) that still locks the
+document - a CHECK-constraint, `DocumentStatus` and UI change, and `assertDocumentEditable` must
+treat it as locked. I chose not to make it in this pass because it changes a shared status
+vocabulary outside the approval work; it is a recommended follow-up.
+
+**Tax directive guard** keys on `status === 'approved' || approvedByUserId`, matching the AFS guard
+(`m57`).
+
+**The deploy gate checked the wrong role for liveness, and its comments were wrong.**
+`impersonationDelegationLive` runs from `verifyToken` on the DATABASE_URL login role through the
+pool, before any app_user transaction exists. The gate now checks EXECUTE for `current_user` on the
+liveness function (it runs with the application's own DATABASE_URL) and for `app_user` on the
+reader, which does run inside withAuth. The failure modes are now described correctly: a reader
+missing EXECUTE makes withAuth throw (500); a liveness failure is caught, logged, and refuses the
+proof - the MFA bypass for impersonated sessions switches off, fail-closed, not a 500. The catch was
+silent before; it logs now. `m58` red.
+
+**The gate always runs.** It executes on load (no argv check), and `deploy.sh` requires its success
+line, so a renamed or wrapped invocation cannot pass having checked nothing (`m59`). The gate SQL now
+runs against the fixture Postgres in `impersonationReaderGate.int.test.ts`: present-and-granted, each
+function missing, app_user lacking EXECUTE, and a login role lacking EXECUTE on liveness - each in a
+rolled-back transaction.
+
+**End records say what happened.** The `impersonation_end` row, written before GoTrue is asked,
+carries `revoked:false`; the revocation GoTrue actually performs is its own append-only
+`impersonation_revoked` row with `revoked:true`; a failed exit leaves `_end` and `_end_failed`, both
+`revoked:false`. Each retry adds another `_end`, but the flag keeps them honest (`m60`). The
+insert-failure test now also shows the impersonation simply continues: stash intact, proof honoured,
+no end row.
+
+Suites: units 10 949 passed with the five known pre-existing failures; integration 251 passed over
+18 files with the known `apSharedWriters` failure (identical at base).
