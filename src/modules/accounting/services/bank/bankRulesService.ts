@@ -38,6 +38,7 @@ export async function createRule(
   input=detachRuleInput(input);
   if(typeof userId!=='string')throw new Error('Rule caller assertion required');
   return withBankRuleChange(companyId,[],async(ctx)=>{
+  await assertOwnedRuleReferences(companyId,input.glAccountId || null,input.supplierId || null,input.clientId || null);
   const vatCode = input.vatCode || 'none';
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -65,6 +66,7 @@ export async function updateRule(
 ): Promise<BankCategorisationRule> {
   input=detachRuleInput(input);
   return withBankRuleChange(companyId,[id],async(ctx,[before])=>{
+  await assertOwnedRuleReferences(companyId,input.glAccountId ?? before!.gl_account_id,input.supplierId ?? before!.supplier_id,input.clientId ?? before!.client_id);
   const fields={ruleName:'rule_name',matchField:'match_field',matchType:'match_type',matchPattern:'match_pattern',glAccountId:'gl_account_id',supplierId:'supplier_id',clientId:'client_id',descriptionTemplate:'description_template',priority:'priority',autoCreateEntry:'auto_create_entry',vatCode:'vat_code',isActive:'is_active'} as const;
   if(Object.entries(fields).every(([key,column])=>{const value=input[key as keyof typeof input];return value==null||value===before![column];}))return mapRuleRow(before!);
   // Use ?? not || so legitimately-zero priorities and false booleans are not
@@ -141,4 +143,23 @@ function mapRuleRow(row: Record<string, unknown>): BankCategorisationRule {
     supplierName: row.supplier_name ? String(row.supplier_name) : undefined,
     clientName: row.client_name ? String(row.client_name) : undefined,
   };
+}
+
+/** Validate effective references inside the mutation savepoint, including no-op updates. */
+async function assertOwnedRuleReferences(companyId:string,gl:unknown,supplier:unknown,customer:unknown):Promise<void>{
+  if(gl!=null){
+    if(typeof gl!=='string')throw new Error('Invalid bank rule reference');
+    const rows=await sql`SELECT id FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=${gl}::uuid FOR SHARE`;
+    if(rows.length!==1)throw new Error('Bank rule reference not found in company');
+  }
+  if(supplier!=null){
+    if(typeof supplier!=='string')throw new Error('Invalid bank rule reference');
+    const rows=await sql`SELECT id FROM suppliers WHERE company_id=${companyId}::uuid AND id=${supplier}::uuid FOR SHARE`;
+    if(rows.length!==1)throw new Error('Bank rule reference not found in company');
+  }
+  if(customer!=null){
+    if(typeof customer!=='string')throw new Error('Invalid bank rule reference');
+    const rows=await sql`SELECT id FROM customers WHERE company_id=${companyId}::uuid AND id=${customer}::uuid FOR SHARE`;
+    if(rows.length!==1)throw new Error('Bank rule reference not found in company');
+  }
 }
