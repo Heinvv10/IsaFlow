@@ -118,3 +118,12 @@ it('only the cookie requester can cancel, and cannot self-reject', async () => {
   await expect(run('u1', ctx => service.rejectBeneficiaryChange(ctx, proposalId, 'reject'))).rejects.toThrow('INDEPENDENT_PERSON_REQUIRED');
   expect(await run('u1', ctx => service.cancelBeneficiaryChange(ctx, proposalId, 'withdraw'))).toEqual({ proposalId, status: 'cancelled' });
 });
+
+it('never persists a beneficiary proposal using a platform import target even if a permission adapter allows it',async()=>{
+ const {withPlatformImportRequest,withPlatformImportTarget}=await import('@/lib/auth/platformImportAuthority');
+ const parent={client,userId:'u1',claims:{sub:'u1'}};
+ vi.mocked(client.query).mockResolvedValue({rows:[{role:'super_admin',is_active:true,status:'active',suspended_at:null,company_status:'active',company_suspended_at:null}]} as never);
+ await expect(withPlatformImportRequest(parent,cap=>withPlatformImportTarget(cap,{action:'execute',companyId,importId:proposalId},
+  ctx=>service.proposeBeneficiaryChange(ctx,ref,bank,evidence)))).rejects.toMatchObject({code:'UNSUPPORTED_PRINCIPAL'});
+ expect(q.insertProposal).not.toHaveBeenCalled();
+});
