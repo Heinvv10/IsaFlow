@@ -658,7 +658,7 @@ written directly, because no route can build them now.
 
 ---
 
-## Round 9 — R-060: the endorsement inverted the defect, and the minus sign was never read
+## Round 9 — the endorsement inverted the defect, and the minus sign was never read
 
 ### HIGH-1 — `subtotal + VAT` may endorse only the BOTTOM figure
 
