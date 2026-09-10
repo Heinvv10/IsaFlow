@@ -199,6 +199,15 @@ export async function getWipAging(
 ): Promise<WipAgingRow[]> {
   const asOfDate = input.asOfDate ?? todayString();
 
+  // POINT IN TIME (R-059 class). `asOfDate` used to reach only the bucket
+  // arithmetic, over TODAY's unbilled WIP. Two bounds make it a real as-of
+  // figure: an entry approved AFTER the date was not WIP then, and one billed
+  // SINCE it still was — markTimeEntriesBilled sets billed_at = NOW(), so that
+  // transition is datable and is rewound here. time-entries-invoice.ts is the
+  // other billing path and sets status='invoiced' leaving billed_at NULL, so
+  // it is NOT datable and is left out: the report understates past WIP rather
+  // than reporting billed work as unbilled, the same direction of error the
+  // AR/AP rewind takes (services/shared/agingRewind).
   const rows = (await sql`
     SELECT te.practice_client_id,
            pc.legal_name,
@@ -214,8 +223,10 @@ export async function getWipAging(
     FROM time_entries te
     JOIN practice_clients pc ON pc.id = te.practice_client_id
     WHERE te.company_id = ${companyId}::UUID
-      AND te.status = 'approved'
-      AND te.billed_at IS NULL
+      AND te.status IN ('approved', 'billed')
+      AND te.approved_at IS NOT NULL
+      AND te.approved_at::DATE <= ${asOfDate}::DATE
+      AND (te.billed_at IS NULL OR te.billed_at::DATE > ${asOfDate}::DATE)
       AND te.billable = true
       AND te.line_total IS NOT NULL
     GROUP BY te.practice_client_id, pc.legal_name
@@ -245,9 +256,14 @@ export async function getRevenuePipeline(
     sql`
       SELECT COALESCE(SUM(line_total), 0) AS v
       FROM time_entries
+      -- The same as-of population as getWipAging above, by the same two
+      -- bounds and for the same reason — these are one figure asked twice,
+      -- and answering it two ways is how they drift.
       WHERE company_id = ${companyId}::UUID
-        AND status = 'approved'
-        AND billed_at IS NULL
+        AND status IN ('approved', 'billed')
+        AND approved_at IS NOT NULL
+        AND approved_at::DATE <= ${asOfDate}::DATE
+        AND (billed_at IS NULL OR billed_at::DATE > ${asOfDate}::DATE)
         AND billable = true
     ` as Promise<DbRow[]>,
     sql`
