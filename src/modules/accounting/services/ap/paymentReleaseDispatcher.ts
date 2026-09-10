@@ -71,31 +71,44 @@ export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId
  let settled=false;
  observeControlTransaction(async outcome=>{
   if(settled)return;settled=true;if(outcome!=='committed')return;
+  // settleControlTransaction discards an observer error and logs only the outcome, so both
+  // failures below have to record themselves; neither can undo a durable commit.
   let claim:ReleaseClaim|null;
-  // settleControlTransaction only logs an observer error, so a refused claim left the outbox
-  // 'ready' — indistinguishable from never dispatched — while the caller saw success.
   try{claim=await transaction(identity,current=>claimPaymentRelease(current,intentId));}
-  catch(error){await recordReleaseClaimRefusal(identity,intentId,error);throw error;}
+  catch(error){await recordUnadvancedRelease(identity,intentId,'ready','payment_release.dispatch_failed',error);return;}
   if(!claim)return;
   // Only this lexical continuation owns the once-only capability after actual COMMIT.
   const result=await transmit(claim);
-  await transaction(identity,current=>completePaymentRelease(current,claim,result));
+  try{await transaction(identity,current=>completePaymentRelease(current,claim,result));}
+  catch(error){await recordUnadvancedRelease(identity,intentId,'attempting','payment_release.acknowledgement_failed',error,result);}
  });
 }
 
-/** A queued release that never reached its provider must leave a durable, tenant-visible trace. */
-async function recordReleaseClaimRefusal(identity:Identity,intentId:string,error:unknown):Promise<void>{
- const reason=error instanceof Error?error.message:'Release claim refused';
+/**
+ * The two dispatch outcomes with no outbox state of their own, precisely because the transition they
+ * would have written is the one that failed: a claim that never ran leaves 'ready', and an
+ * unacknowledged provider result leaves 'attempting' with the money already gone. The state-transition
+ * trigger refuses any UPDATE that does not advance the state, so the durable trace is a change event
+ * on the outbox — whose version lineage nothing binds, unlike the intent's, which the release approval
+ * binding hashes and which a bump would brick.
+ */
+async function recordUnadvancedRelease(identity:Identity,intentId:string,expected:'ready'|'attempting',
+ action:string,error:unknown,provider?:{state:string;code:string}):Promise<void>{
+ const detail=error instanceof Error?error.message:'unknown';
+ const reason=provider?`${detail} after provider outcome ${provider.state} (${provider.code})`:detail;
  try{
   await transaction(identity,async ctx=>{
+   // FOR UPDATE, so a concurrent claim cannot advance the row and make this record a lie.
    const [outbox]=await ctx.sql`SELECT *,intent_id AS id FROM control_payment_release_outbox
-    WHERE company_id=${ctx.principal.companyId}::uuid AND intent_id=${intentId}::uuid` as Array<Record<string,unknown>>;
-   if(!outbox)throw new Error('Refused release has no outbox row');
-   await recordBatchEntity(ctx,'payment_release_outbox',outbox,{...outbox,reason},'payment_release.claim_refused');
+    WHERE company_id=${ctx.principal.companyId}::uuid AND intent_id=${intentId}::uuid FOR UPDATE` as Array<Record<string,unknown>>;
+   if(!outbox)throw new Error('Unadvanced release has no outbox row');
+   // Another attempt already moved it on: that dispatch is its own story, not this one's failure.
+   if(outbox.state!==expected)return;
+   await recordBatchEntity(ctx,'payment_release_outbox',outbox,{...outbox,status:String(outbox.state),reason},action);
   });
  }catch(recordError){
-  log.error('Release claim refusal could not be recorded; queued release requires reconciliation',
-   {intentId,reason,error:recordError instanceof Error?recordError.message:'unknown'},'payment-release');
+  log.error('Release dispatch failure could not be recorded; queued release requires reconciliation',
+   {intentId,action,reason,error:recordError instanceof Error?recordError.message:'unknown'},'payment-release');
  }
 }
 /** Only the lexical committed-claim transport continuation may acknowledge a provider result. */
