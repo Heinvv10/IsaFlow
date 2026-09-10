@@ -121,17 +121,31 @@ grown: `k127` sanitiser (34 unit), `disputeService` (21 unit). K-122…K-125 set
 Full unit suite with `DATABASE_URL` unset: **9598 passed / 243 skipped (801 files)**. `tsc --noEmit`, `eslint`
 and `agent-docs:check` clean. 4 further mutations, each RED.
 
-**Historical-data impact.** A dispute can already be sitting in the committed half-state H-1 describes.
-Read-only identification (production, run manually — not run by this fixer):
+**Historical-data impact (round 5).** None. The half-state H-1 describes — a dispute marked
+`resolution_mode = 'resolve_with_credit'` with `credit_note_id` NULL — was introduced by THIS
+branch's round-3 commit `609ba27f9` and closed in round 5; it has never been merged or deployed.
+No shipped version can produce it, for four reasons the round-5 review measured:
+`origin/master`'s `resolveDispute` is credit-note-first and writes `resolution_mode` and
+`credit_note_id` in the SAME `UPDATE`; the `'Not found'` throw happens inside `createCreditNote`'s
+read-only `validateCreditNoteLinks`, BEFORE any write, so the 400 commits nothing;
+`credit_note_id` has exactly one writer in the tree, no FK and no `ON DELETE SET NULL`; and
+`resolveDispute` has one caller. The round-1 zero-VAT identification query above IS genuine and
+reachable on master — this one is not, and an earlier draft of this section wrongly said it was.
+No register item, no remediation query, no rows to hunt. No migration.
 
-```sql
-SELECT d.id, d.company_id, d.customer_invoice_id, d.disputed_amount, d.resolved_at
-  FROM customer_invoice_disputes d
- WHERE d.resolution_mode = 'resolve_with_credit'
-   AND d.credit_note_id IS NULL
- ORDER BY d.resolved_at DESC;
-```
+---
 
-Each row is a dispute the customer was told was credited and for which no credit note exists. The fix
-prevents new ones; existing rows need a decision per row (raise the note, or reopen the dispute), not a
-blanket backfill. No migration.
+## Blind-review dispositions, round 5 (`scratchpad/review-k122-r5.md`) — 1 MEDIUM, 5 LOW
+
+| # | Finding | Disposition |
+|---|---|---|
+| **M-1** | `fix.md` asserts a production half-state that cannot exist, and hands out a remediation query for it | **Fixed, not softened.** The false claim and its identification SQL are deleted and replaced by the four-point proof above that no shipped version can produce the state. A wrong data-impact claim in an audit record sends an accountant hunting for damage that does not exist. |
+| L-1 | `dunning/overrides/index.ts` still classifies by message, and its fallback turns EVERY failure into a 400 | **Fixed.** `setOverride` raises `ArRequestError(404, 'DUNNING_TEMPLATE_NOT_FOUND')`; the route classifies on `instanceof`, maps that code to 404, and rethrows everything else. Two mutations (route back to `instanceof Error`; service back to a bare `Error`) → both RED. |
+| L-2 | The comment in `dunningSend.ts` overstates the guarantee — the `email_status` UPDATE is itself after the dispatch and can fail | **Fixed by closing the window, and the comment now names the residual.** The UPDATE runs in `withSavepoint('dunning_send_status')` with its failure logged, so a PG error there can no longer roll back the `dunning_sends` row (which would re-send the same escalation next run). The row survives with `email_status` still `pending` — an honest unknown, and enough for the gate; the comment says exactly that. `k122d` case 5 poisons that UPDATE with a real PG error on a real transaction. Mutation (savepoint removed) → RED. |
+| L-3 | Nothing locks the route-level `instanceof` classification | **Fixed.** `k122g-ar-route-error-classification` (18 unit) drives all SIX real route modules — resolve, withdraw, disputes/index, dunning/send, templates/[id]/preview, dunning/overrides — with the service mocked to throw (a) a bare `Error('Not found')`, (b) a PG-shaped `23502`, and (c) an `ArRequestError`. (a) and (b) must escape the handler with no 4xx helper touched; (c) must answer 4xx. Mutation, per route (`err instanceof ArRequestError` → `err instanceof Error`) → 2 RED each, six for six. |
+| L-4 | Sanitiser residual: an embedded lower-case `select … from` reaches the customer verbatim | **Fixed.** The round-5 rule was anchored to a whole sentence; an eighth rule catches the same bare select/from pair mid-sentence, guarded by stop-word lookaheads so portal prose ("select one from the menu", "select the invoice from the list") still passes. Both reviewer-measured strings now drop; `k127` grew 3 drop cases, 4 pass-through cases and a mixed-sentence case (42 unit). Mutation (rule removed) → 4 RED. |
+| L-5 | Two unreachable branches in `disputeResolution.ts` | **Fixed both ways the reviewer asked.** (a) The no-client refusal keeps a comment saying it is defensive — `customer_invoices.customer_id` is NOT NULL, so `COALESCE(client_id, customer_id)` cannot be NULL — and exists so a future migration relaxing that column refuses instead of crediting an invoice with no debtor. (b) The link `UPDATE` matching no row now THROWS, untyped, so `withAuth` answers 5xx and ROLLBACKs; falling through returned a `Dispute` with `creditNoteId` null while the credit note existed, reported to the caller as a success. New unit case asserts the throw is NOT an `ArRequestError`. Mutation (fall-through restored) → RED. |
+
+**Round-6 tests.** New: `k122g-ar-route-error-classification` (18 unit). Grown: `k122d` (5, real DB),
+`k127` sanitiser (42 unit), `disputeService` (22 unit), `dunningOverridesService` (8 unit).
+5 mutations across 11 mutant builds, each RED.

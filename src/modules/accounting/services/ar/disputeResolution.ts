@@ -96,6 +96,10 @@ async function resolveClaimed(
       LIMIT 1
     `) as DbRow[];
 
+    // Defensive, not reachable: customer_invoices.customer_id is NOT NULL, so
+    // COALESCE(client_id, customer_id) cannot come back NULL. Kept so that a
+    // future migration relaxing that column refuses instead of creating a
+    // credit note with no debtor behind it.
     const clientId = invoiceRows[0]?.client_id != null ? String(invoiceRows[0].client_id) : null;
     if (!clientId) {
       throw new ArRequestError(
@@ -143,9 +147,15 @@ async function resolveClaimed(
       WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
       RETURNING *
     `) as DbRow[];
-    if (linked[0]) {
-      Object.assign(dispute, linked[0]);
+    if (!linked[0]) {
+      // The claim UPDATE matched this same row in this same transaction, so a
+      // miss here means the row vanished under us. Falling through would return
+      // a Dispute with creditNoteId null while the credit note exists — the
+      // half-state this item exists to close, and committed, because the caller
+      // sees a success. Throw untyped so withAuth answers 5xx and ROLLBACKs.
+      throw new Error(`Dispute ${id} could not be linked to credit note ${creditNoteId}`);
     }
+    Object.assign(dispute, linked[0]);
   }
 
   log.info(
