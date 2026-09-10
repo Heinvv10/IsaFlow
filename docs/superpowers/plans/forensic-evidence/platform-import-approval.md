@@ -164,3 +164,61 @@ submitter, so a claimant with write access can approve their own claim. The othe
 single-approver by design too - none checks independence at all - so the impersonation guard closes
 "an administrator approving as a member", not "the maker approving their own work". Segregation of
 duties on these five paths is a separate piece of work.
+
+
+## Fourth round: the proof outlived the impersonation, and the guard was a subset
+
+**P1 - ending impersonation did not end it.** The delegation proof was stateless: signature,
+issuer/audience, target binding, one hour. `verifyToken` returns as soon as it validates, so an
+administrator who copied `sb-access-token` and `sb-impersonation-proof` out of the browser kept
+authenticating as the member for the rest of that hour after clicking End Impersonation - the
+MFA-enrolled population the proof exists for, i.e. round two closed the refresh path and left this
+one. A proof now names the stash row it belongs to (`stashId` in the payload) and is honoured only
+while that exact row lives and no `impersonation_end`/`impersonation_end_failed` entry names its
+session. Ending impersonation deletes the stash, so the copied pair stops authenticating
+immediately; every proof minted before this change names no stash and is refused outright. Proven
+through actual withAuth in `impersonatedApprovalDecision.int.test.ts` (a live delegation lists
+approvals; the same cookies 401 once the stash is deleted, and once an end is recorded). Mutation
+`m23` (drop the liveness check) turns it red.
+
+**The corollary, measured rather than assumed.** With the proof dropped and the access token kept,
+acceptance falls to GoTrue `/user`. Against this deployment's GoTrue, on a disposable probe user:
+sign in -> `GET /user` **200**; `POST /logout?scope=global` -> **204**; the same unexpired access
+token then `GET /user` -> **403**, and the refresh token -> **400**. So a revoked session is
+rejected here: `verifyToken`'s fallback throws on the non-2xx and the request is 401. That is a
+property of this GoTrue version, not of our code - a deployment whose `/user` is stateless would
+re-open the dropped-proof path, so it is worth re-measuring after a GoTrue upgrade.
+
+**P2 - the unverified marker was breaking every approval on an unmigrated database.** The probe ran
+after the proof lookup, which is null for ordinary sessions, so every cookie principal on a database
+lagging migration 675 carried the marker and every guard refused - and it was being written into
+`approved_by_impersonator` on ordinary sign-offs. A session with no impersonation signal at all is
+now simply unimpersonated; the marker is reserved for a session a presented proof implicates but
+cannot resolve. The constant moved to `src/lib/auth/impersonationState.ts` so the authenticated
+request path no longer imports the accounting controls graph.
+
+**P2 - the guarded set was hand-picked.** Enumerated by call site instead. Every entry point outside
+the controls kernel that writes an approver column or posts a journal when it approves now refuses
+an impersonated principal before it reads its row: customer invoice, payroll run, supplier payment
+batch, accounting adjustment, supplier payment, practice time entries, leave decision, close-run
+proposal and expense claim rejection, joining supplier invoice, credit note, write-off, VAT
+adjustment and expense claim approval. `core/timeTrackingService.approveEntries` is the one approve
+function deliberately left alone: it flips a status in bulk and records no approver. Each is covered
+in `impersonatedApproverCensus.int.test.ts` with its unimpersonated twin proving the refusal is the
+guard and not the lookup, and each guard was mutation-checked individually.
+
+**P3s.** A request context with no tenant principal is no longer silently allowed: an open
+global-administrator request (asked of the platform-import registry, not inferred from absence) is
+refused as a non-independent reviewer. **This breaks `sageMigrationCommitService` at its
+`approveSupplierInvoice` call under `withPlatformAdmin`** - a platform admin can no longer approve a
+tenant's imported invoices in their own name. That path needs the confined historical-import
+treatment; until then the migration commit stops at the approval step. End-impersonation records the
+session it revoked and the scope, records an `impersonation_end_failed` row when GoTrue refuses (so
+an outage cannot leave a live session with nothing on record), and returns a warning when the exit
+had to revoke every session the member owns. Commentary records and projects the actor behind all
+three decisions - `approved_by_impersonator`, `rejected_by_impersonator`, `withdrawn_by_impersonator`
+(with `rejected_by`, which nothing recorded before), migration 676, applied twice, idempotent.
+
+Suites: integration 211 passed over 16 files with one pre-existing failure in `apSharedWriters`
+(identical case and assertion at base `c26475391`); units 10 927 passed with the five known
+pre-existing failures. Logs `platform-import-fix-r4-*.log`.
