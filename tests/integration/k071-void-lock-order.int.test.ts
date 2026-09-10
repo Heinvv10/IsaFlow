@@ -34,7 +34,16 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 
 assertDisposable();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+/**
+ * A name unique to THIS test process, stamped on every connection this pool
+ * hands out, so the readiness probe below can tell its own backends apart from
+ * the other branches sharing this fixture database.
+ */
+const APP_NAME = `k071-void-lock-order-${process.pid}`;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  application_name: APP_NAME,
+});
 let fx: K074Fixture;
 
 beforeAll(async () => { fx = await seedK074(pool); });
@@ -96,16 +105,23 @@ async function seedProcessedPayment(bill: string, amount: number): Promise<strin
  *
  * A fixed sleep would let the peer reach for the journal before the void has
  * taken anything, and the test would pass on the defect. Matched on the
- * statement text of `lockSupplierPaymentForUpdate` so another session on this
- * shared fixture database cannot be mistaken for it.
+ * statement text of `lockSupplierPaymentForUpdate` AND scoped to this process's
+ * own backends (`application_name = APP_NAME`): the text alone matches any
+ * session in the cluster blocked on that statement, and this fixture database
+ * is shared with the other branches — one of theirs returning the probe early
+ * is a false GREEN, not a flake.
  */
 async function waitForVoidParkedOnPayment(): Promise<void> {
   for (let i = 0; i < 80; i += 1) {
     const { rows } = await pool.query(
       `SELECT count(*)::int AS n FROM pg_stat_activity
        WHERE wait_event_type = 'Lock'
+         AND datname = current_database()
+         AND application_name = $1
+         AND pid <> pg_backend_pid()
          AND query ILIKE '%FROM supplier_payments%'
          AND query ILIKE '%FOR UPDATE OF sp%'`,
+      [APP_NAME],
     );
     if (rows[0].n > 0) return;
     await wait(50);

@@ -153,8 +153,12 @@ async function fetchBillCandidates(
     return await lockBillCandidates(companyId, paymentId, invoiceIds, client);
   } catch (err) {
     if (isLockContention(err)) {
+      // `retryable`: the ONE refusal on this path that is not the caller's
+      // fault. Without the flag the confirm arm cannot tell it from "this bill
+      // is cancelled" and answers both 400.
       throw new SupplierPaymentRefusal(
         'Another request is paying one of these bills — retry in a moment.',
+        { retryable: true },
       );
     }
     throw err;

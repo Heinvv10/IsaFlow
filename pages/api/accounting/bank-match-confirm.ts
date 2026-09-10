@@ -110,8 +110,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         companyId, bankTransactionId, candidateId, userId, paymentAmount,
       );
       if (!outcome.ok) {
-        return outcome.kind === 'not_found'
-          ? apiResponse.notFound(res, 'Supplier invoice', candidateId)
+        if (outcome.kind === 'not_found') {
+          return apiResponse.notFound(res, 'Supplier invoice', candidateId);
+        }
+        // 409, not 400: contention on the BILL is the same event as contention
+        // on the bank line, which `lockBankTransactionForUpdate` already
+        // answers 409. Both are pre-write, so the 4xx `withAuth` COMMITs
+        // commits nothing.
+        return outcome.kind === 'contended'
+          ? apiResponse.conflict(res, outcome.message)
           : apiResponse.badRequest(res, outcome.message);
       }
       settlement = {
@@ -132,8 +139,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         companyId, bankTransactionId, candidateId, userId, paymentAmount,
       );
       if (!outcome.ok) {
-        return outcome.kind === 'not_found'
-          ? apiResponse.notFound(res, 'Customer invoice', candidateId)
+        if (outcome.kind === 'not_found') {
+          return apiResponse.notFound(res, 'Customer invoice', candidateId);
+        }
+        // 409 for contention — see the supplier arm above.
+        return outcome.kind === 'contended'
+          ? apiResponse.conflict(res, outcome.message)
           : apiResponse.badRequest(res, outcome.message);
       }
       receipt = {

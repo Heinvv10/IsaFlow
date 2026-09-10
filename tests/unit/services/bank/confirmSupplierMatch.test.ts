@@ -187,6 +187,33 @@ describe('confirmSupplierInvoiceMatch', () => {
     expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
   });
 
+  // MEDIUM-2 (round 9). Contention is NOT the user's fault, and until round 10
+  // it was answered as one: `fetchBillCandidates` raises its lock timeout as a
+  // `SupplierPaymentRefusal` like every books refusal, so the arm returned
+  // `kind:'refused'` and the route answered 400 — while the same instant of
+  // contention on the bank LINE answered 409. The `retryable` flag is what
+  // separates them.
+  //
+  // The real `planSupplierAllocationLines` runs; only the DB read is stubbed,
+  // and it is stubbed with the 55P03 Postgres raises on our own 5s budget. A
+  // mocked rejection would assert nothing about `supplierAllocationLines.ts`.
+  it('reports lock contention on the bill as contended, not as a refusal', async () => {
+    bill(600);
+    validateBankSupplierPayment.mockImplementationOnce(
+      (async (companyId: string, _txId: string, allocations: SupplierAllocationInput[]) =>
+        planSupplierAllocationLines(companyId, allocations, { paymentId: null, supplierId: null })
+      ) as unknown as () => Promise<typeof VALIDATION>,
+    );
+    sqlMock.mockRejectedValueOnce(Object.assign(
+      new Error('canceling statement due to lock timeout'), { code: '55P03' },
+    ));
+
+    const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
+    expect(outcome).toMatchObject({ ok: false, kind: 'contended' });
+    expect((outcome as { message: string }).message).toMatch(/retry in a moment/i);
+    expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
+  });
+
   it('refuses a bill with nothing outstanding', async () => {
     bill(600, 600);
     const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
