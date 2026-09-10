@@ -35,6 +35,19 @@
  * Rounding to cents before comparing, because the two legs are numeric sums
  * read back through `Number` and an exact `=== 0` on floats is not the test
  * this wants to make.
+ *
+ * The pairing walks the CHAIN, never the row order. A document may be deleted
+ * and restored more than once — `prepareInvoiceDelete` says so in as many words
+ * — and each round trip extends one chain: O <- R <- R2 <- R3 <- R4. Every
+ * delete reversal lands on TODAY, so `ORDER BY je.entry_date, je.id` leaves a
+ * random UUID deciding which candidate a greedy pass sees first, and when R3
+ * came first it paired with R2 and left R and R4 standing — 8 of 8 documents
+ * itemised on a fixture where 4 had mis-paired, for the full gross value each.
+ * So the walk starts only at a HEAD — a candidate whose target is not itself a
+ * candidate — and pairs consecutive links from there, which is a property of
+ * the chain and not of the order the rows arrived in. A link whose pair does
+ * not net to zero is left standing and the walk continues past it, so a partial
+ * correction mid-chain still surfaces and never drags its neighbours out.
  */
 
 import type { DbRow } from '@/lib/neon';
@@ -42,17 +55,41 @@ import type { DbRow } from '@/lib/neon';
 /** Drop candidates that cancel one another exactly through `reversal_of_id`. */
 export function dropCancelledReversalPairs(rows: readonly DbRow[]): DbRow[] {
   const byId = new Map(rows.map((r) => [String(r.id), r]));
-  const cancelled = new Set<string>();
+  /** target id -> the candidate that reverses it. At most one: the UNIQUE on
+   *  (company_id, reversal_of_id) forbids two reversals of one entry. */
+  const reverserOf = new Map<string, DbRow>();
   for (const row of rows) {
-    const id = String(row.id);
-    if (row.reversal_of_id == null || cancelled.has(id)) continue;
-    const targetId = String(row.reversal_of_id);
-    const target = byId.get(targetId);
-    if (!target || cancelled.has(targetId)) continue;
-    const net = Number(row.control_credit ?? 0) + Number(target.control_credit ?? 0);
-    if (Math.round(net * 100) !== 0) continue;
-    cancelled.add(id);
-    cancelled.add(targetId);
+    if (row.reversal_of_id != null) reverserOf.set(String(row.reversal_of_id), row);
   }
+
+  const cancelled = new Set<string>();
+  for (const head of rows) {
+    // Heads only. A candidate whose target is also a candidate is reached by
+    // the walk that owns it, never by a walk of its own.
+    if (head.reversal_of_id != null && byId.has(String(head.reversal_of_id))) continue;
+
+    const seen = new Set<string>();
+    let current: DbRow | undefined = head;
+    while (current) {
+      const currentId = String(current.id);
+      if (seen.has(currentId)) break;
+      seen.add(currentId);
+      const next: DbRow | undefined = reverserOf.get(currentId);
+      if (!next) break;
+      const nextId = String(next.id);
+      if (seen.has(nextId)) break;
+      const net = Number(current.control_credit ?? 0) + Number(next.control_credit ?? 0);
+      if (Math.round(net * 100) !== 0) {
+        // Not a cancelling pair: `current` stands, and `next` starts the next.
+        current = next;
+        continue;
+      }
+      cancelled.add(currentId);
+      cancelled.add(nextId);
+      seen.add(nextId);
+      current = reverserOf.get(nextId);
+    }
+  }
+
   return cancelled.size === 0 ? [...rows] : rows.filter((r) => !cancelled.has(String(r.id)));
 }
