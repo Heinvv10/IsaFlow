@@ -64,8 +64,9 @@ describe('platform import authority through actual admin middleware and PostgreS
   expect(response.body.result.message).toBe('Synthetic ordinary target error');expect(response.body.after.company).toBe('');
   expect(response.body.parentRestored).toBe(true);expect(await f.witness()).toBe('Authority witness');
  });
- it('serializes overlapping same-person target requests before downstream authority row-lock upgrades',async()=>{
-  const requests=[f.request('lock_order',{clientIp:'192.0.2.10'}),f.request('lock_order',{clientIp:'192.0.2.11'})];
+ it.each(['same','different'])('serializes overlapping %s-company same-person requests before downstream authority row-lock upgrades',async scope=>{
+  f.startLockProbe();
+  const requests=[f.request('lock_order',{clientIp:'192.0.2.10'}),f.request('lock_order',{clientIp:'192.0.2.11',companyId:scope==='same'?f.f.companyA:f.f.companyB})];
   try{
    expect(['both_targets','serialized_authority_wait']).toContain(await f.waitForLockOverlap());
    f.releaseLock();
