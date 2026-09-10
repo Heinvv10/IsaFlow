@@ -24,6 +24,7 @@ import { sql } from '@/lib/neon';
 import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
+import { runAfterCommit } from '@/lib/afterCommit';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 
@@ -156,9 +157,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     // Fire-and-forget VLM extraction on the attachment
     if (isVlmAvailable() && mime && attachment?.id) {
-      extractAttachmentData(fileData, mime, attachment.id as string).catch(err =>
+      runAfterCommit('bank tx attachment extraction', () => extractAttachmentData(fileData, mime, attachment.id as string, companyId).catch(err =>
         log.warn('Background attachment extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'bank-tx-attachments')
-      );
+      ));
     }
 
     return apiResponse.created(res, attachment, 'Attachment uploaded');
@@ -193,8 +194,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
-/** Background VLM extraction for bank tx attachments */
-async function extractAttachmentData(dataUrl: string, mime: string, attachmentId: string) {
+/**
+ * Background VLM extraction for bank tx attachments.
+ *
+ * Runs after the request COMMITs, on the pool's role with no RLS (R-075), so
+ * the UPDATE carries the tenant predicate itself. bank_transaction_attachments
+ * has no company_id column; it is scoped through its parent transaction, so
+ * this reproduces the table's own RLS WITH CHECK.
+ */
+export async function extractAttachmentData(dataUrl: string, mime: string, attachmentId: string, companyId: string) {
   const base64Part = dataUrl.split(',')[1];
   if (!base64Part) return;
 
@@ -206,12 +214,24 @@ async function extractAttachmentData(dataUrl: string, mime: string, attachmentId
     : await extractFromImage(buffer, mime);
 
   if (extracted && extracted.confidence > 0) {
-    await sql`
+    const stored = await sql`
       UPDATE bank_transaction_attachments
       SET extracted_data = ${JSON.stringify(extracted)}::jsonb
       WHERE id = ${attachmentId}::uuid
+        AND EXISTS (
+          SELECT 1 FROM bank_transactions bt
+          WHERE bt.id = bank_transaction_attachments.bank_transaction_id
+            AND bt.company_id = ${companyId}::uuid
+        )
+      RETURNING id
     `;
-    log.info('VLM extraction stored for bank tx attachment', { attachmentId, confidence: extracted.confidence }, 'bank-tx-attachments');
+    // By outcome: the fence can match nothing, and a success log there would be
+    // the same false "extraction complete" R-075 itself produced.
+    if (stored.length === 0) {
+      log.warn('VLM extraction discarded — attachment is not this company\'s', { attachmentId, companyId }, 'bank-tx-attachments');
+    } else {
+      log.info('VLM extraction stored for bank tx attachment', { attachmentId, confidence: extracted.confidence }, 'bank-tx-attachments');
+    }
   }
 }
 

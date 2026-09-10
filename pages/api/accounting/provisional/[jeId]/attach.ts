@@ -54,6 +54,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const docHash = docRow.source_document_hash ? String(docRow.source_document_hash) : null;
   const docConfidence = docRow.extraction_confidence != null ? Number(docRow.extraction_confidence) : null;
 
+  // (1) THE BANK LINE FIRST, then (4) the journal — the canonical order in
+  // `src/modules/accounting/services/bank/.claude.md`. These two writes used to
+  // run the other way round, which is the inverse of every settlement path that
+  // locks a bank line and later reaches a PRE-EXISTING journal
+  // (`reverseReconciledTransaction`, `voidPaymentDocument`). The two statements
+  // are independent — the bank UPDATE is keyed on `provisional_je_id` and reads
+  // nothing the journal UPDATE sets — so only the order changes.
+  const [btRow] = (await sql`
+    UPDATE bank_transactions
+    SET status = 'matched'
+    WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
+    RETURNING id
+  `) as Row[];
+
   // Direct flip — no matching check (user has confirmed)
   await sql`
     UPDATE gl_journal_entries
@@ -65,14 +79,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         extraction_confidence = COALESCE(${docConfidence}, extraction_confidence)
     WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
   `;
-
-  // Flip the linked bank transaction to matched (if any)
-  const [btRow] = (await sql`
-    UPDATE bank_transactions
-    SET status = 'matched'
-    WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
-    RETURNING id
-  `) as Row[];
 
   const bankTxId = btRow ? String(btRow.id) : null;
 

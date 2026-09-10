@@ -16,6 +16,7 @@ import {
   updateAutoPostSettings,
 } from '@/modules/accounting/services/bank/autoPostGateService';
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 
 type Row = Record<string, unknown>;
 
@@ -96,6 +97,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       );
       return apiResponse.success(res, result);
     } catch (err) {
+      // Peers held the run's lines and nothing else was written. `undoRun`
+      // skips a contended row under its own savepoint and throws only when no
+      // row was written at all, so the COMMIT withAuth issues for this 4xx
+      // commits nothing and retrying is the whole remedy. A partly-undone run
+      // is a 200 carrying `skipped` and `undone: false` instead.
+      if (isRetryableContention(err)) {
+        log.info('Auto-post undo hit a contended line', { companyId, runId: body.runId }, 'bank-auto-post');
+        return apiResponse.conflict(res, (err as Error).message);
+      }
       return apiResponse.badRequestFromError(res, err, 'Undo failed');
     }
   }

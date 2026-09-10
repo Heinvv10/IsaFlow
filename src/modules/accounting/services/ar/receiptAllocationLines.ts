@@ -16,8 +16,13 @@
  */
 
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
-import { withCustomerInvoiceLock } from './customerInvoiceLock';
+import { ReceiptRefusal } from './receiptRefusal';
+import {
+  withCustomerInvoiceLock,
+  CustomerInvoiceLockTimeoutError,
+} from './customerInvoiceLock';
 import { sql } from '@/lib/neon';
+import { isLockContention } from '../core/lockContention';
 import type { DbRow } from '@/lib/neon';
 
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
@@ -61,18 +66,18 @@ export function round2(n: number): number {
  */
 export function assertAllocationShape(allocations: readonly ReceiptAllocationInput[]): void {
   if (allocations.length === 0) {
-    throw new Error('Provide at least one allocation.');
+    throw new ReceiptRefusal('Provide at least one allocation.');
   }
   const seen = new Set<string>();
   for (const alloc of allocations) {
     if (!Number.isFinite(alloc.amount) || alloc.amount <= 0) {
-      throw new Error(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
+      throw new ReceiptRefusal(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
     }
     if (seen.has(alloc.invoiceId)) {
       // The unique index on (payment_id, invoice_id) would otherwise raise
       // 23505 halfway through the write: a database error the caller cannot
       // act on, arriving after earlier lines have already been written.
-      throw new Error(`Invoice ${alloc.invoiceId} appears more than once in this request.`);
+      throw new ReceiptRefusal(`Invoice ${alloc.invoiceId} appears more than once in this request.`);
     }
     seen.add(alloc.invoiceId);
   }
@@ -112,10 +117,10 @@ export async function planAllocationLines(
     const invoice = byId.get(alloc.invoiceId);
     // Same wording as a genuine miss: an invoice in another tenant must not be
     // distinguishable from one that does not exist.
-    if (!invoice) throw new Error(`Invoice ${alloc.invoiceId} not found`);
+    if (!invoice) throw new ReceiptRefusal(`Invoice ${alloc.invoiceId} not found`);
     const ownerId = invoice.owner_id ? String(invoice.owner_id) : null;
     if (!ownerId) {
-      throw new Error(
+      throw new ReceiptRefusal(
         `Invoice ${String(invoice.invoice_number)} names no customer — it carries neither `
         + 'client_id nor customer_id, so a receipt cannot be attributed to it.',
       );
@@ -126,52 +131,103 @@ export async function planAllocationLines(
 
   // Unreachable while `allocations` is non-empty (assertAllocationShape), but
   // the compiler cannot see that and a silent `''` would be worse.
-  if (!customerId) throw new Error('Provide at least one allocation.');
+  if (!customerId) throw new ReceiptRefusal('Provide at least one allocation.');
   return { customerId, lines };
 }
 
+/**
+ * Read the invoices this allocation names, holding a row lock on each until the
+ * end of the surrounding transaction.
+ *
+ * THE LOCK IS LOAD-BEARING. Applying cash is a check-then-act on
+ * `customer_invoices.amount_paid`: the outstanding balance is read here, the
+ * over-application guard is decided from it in `buildLine`, and the column is
+ * moved much later in `applyLineToInvoice`. Nothing else on the path locks the
+ * invoice — `lockCustomerPaymentForUpdate` protects the RECEIPT's remainder,
+ * and `bankTxLock` protects a bank LINE, which is a different row for each of
+ * two requests. So two bank lines confirmed against one invoice both read the
+ * same outstanding, both pass, and both apply.
+ *
+ * Measured before this lock existed (two pool clients, eight interleavings):
+ * they never over-applied, but only because the second request collided on
+ * `uq_gl_je_company_entry_number` inside `createJournalEntry` and was rolled
+ * back — the money path's safety resting on a unique index that exists to
+ * number journals. The user saw a bare 500 where the same request 20ms later
+ * got the actionable 400.
+ *
+ * `ORDER BY ci.id` fixes the lock ORDER: `LockRows` sits above `Sort`, so two
+ * requests naming the same pair of invoices take them in the same sequence and
+ * cannot deadlock against each other.
+ *
+ * The wait is bounded rather than indefinite, and a timeout is a REFUSAL: it is
+ * raised before anything on this path has been written, and retrying unchanged
+ * is the right move. (55P03 aborts the transaction, so the 409 the caller
+ * answers with is COMMITted over an already-rolled-back transaction — which
+ * writes nothing, the same as every other pre-write refusal here.) A DEADLOCK
+ * (40P01) is answered the same way, via `isLockContention` — see the canonical
+ * lock order in `bank/.claude.md` for why one should not arise here at all.
+ */
 async function fetchInvoiceCandidates(
   companyId: string,
   paymentId: string | null,
   invoiceIds: readonly string[],
 ): Promise<Map<string, InvoiceCandidate>> {
-  // FOR UPDATE, not a plain read. `buildLine` refuses an allocation larger
-  // than the outstanding it computes from `amount_paid` here, and
-  // `applyLineToInvoice` then adds to that same column — a check-then-act. The
-  // other writer of `amount_paid` is a credit-note apply, which does hold an
-  // invoice row lock: without one on this side, a receipt that planned against
-  // a R200 outstanding still wrote its R200 on top of a credit note that
-  // committed R100 in between, leaving amount_paid at R300 on a R200 invoice.
-  // The payment (or bank line) is already locked by the caller, so the invoice
-  // stays the last lock taken and no ordering cycle appears.
-  //
-  // ORDER BY ci.id fixes the acquisition order across rows: two receipts
-  // touching an overlapping set of invoices would otherwise be free to take
-  // them in opposite orders and deadlock.
-  const rows = await withCustomerInvoiceLock(
-    'planAllocationLines',
-    invoiceIds.length === 1 ? `Invoice ${invoiceIds[0]}` : 'One of these invoices',
-    async () => (await sql`
-      SELECT ci.id,
-             ci.invoice_number,
-             COALESCE(ci.client_id, ci.customer_id) AS owner_id,
-             ci.total_amount,
-             ci.amount_paid,
-             ci.status,
-             COALESCE((
-               SELECT SUM(cpa.amount_allocated)
-               FROM customer_payment_allocations cpa
-               WHERE cpa.invoice_id = ci.id
-                 AND cpa.payment_id = ${paymentId}::UUID
-             ), 0) AS already_allocated
-      FROM customer_invoices ci
-      WHERE ci.company_id = ${companyId}::UUID
-        AND ci.id = ANY(${[...invoiceIds]}::UUID[])
-      ORDER BY ci.id
-      FOR UPDATE OF ci
-    `) as InvoiceCandidate[],
-  );
-  return new Map(rows.map((r) => [String(r.id), r]));
+  try {
+    // FOR UPDATE, not a plain read. `buildLine` refuses an allocation larger
+    // than the outstanding it computes from `amount_paid` here, and
+    // `applyLineToInvoice` then adds to that same column — a check-then-act. The
+    // other writer of `amount_paid` is a credit-note apply, which does hold an
+    // invoice row lock: without one on this side, a receipt that planned against
+    // a R200 outstanding still wrote its R200 on top of a credit note that
+    // committed R100 in between, leaving amount_paid at R300 on a R200 invoice.
+    // The payment (or bank line) is already locked by the caller, so the invoice
+    // stays the last lock taken and no ordering cycle appears.
+    //
+    // ORDER BY ci.id fixes the acquisition order across rows: two receipts
+    // touching an overlapping set of invoices would otherwise be free to take
+    // them in opposite orders and deadlock.
+    const rows = await withCustomerInvoiceLock(
+      'planAllocationLines',
+      invoiceIds.length === 1 ? `Invoice ${invoiceIds[0]}` : 'One of these invoices',
+      async () => (await sql`
+        SELECT ci.id,
+               ci.invoice_number,
+               COALESCE(ci.client_id, ci.customer_id) AS owner_id,
+               ci.total_amount,
+               ci.amount_paid,
+               ci.status,
+               COALESCE((
+                 SELECT SUM(cpa.amount_allocated)
+                 FROM customer_payment_allocations cpa
+                 WHERE cpa.invoice_id = ci.id
+                   AND cpa.payment_id = ${paymentId}::UUID
+               ), 0) AS already_allocated
+        FROM customer_invoices ci
+        WHERE ci.company_id = ${companyId}::UUID
+          AND ci.id = ANY(${[...invoiceIds]}::UUID[])
+        ORDER BY ci.id
+        FOR UPDATE OF ci
+      `) as InvoiceCandidate[],
+    );
+    return new Map(rows.map((r) => [String(r.id), r]));
+  } catch (err) {
+    // `retryable`: the ONE refusal on this path that is not the caller's fault.
+    // Without the flag the confirm arm cannot tell it from "this invoice is
+    // cancelled" and answers both 400, where the sibling routes answer 409.
+    //
+    // Two shapes reach here. `withCustomerInvoiceLock` has already mapped the
+    // 5s `lock_timeout` (55P03) to its typed error; a DEADLOCK (40P01) is not
+    // mapped there and arrives raw, so both are classified — they are one
+    // answer to the caller, and neither wrote anything: the lock is taken in
+    // the PLAN phase, before `applyLineToInvoice` moves a cent.
+    if (err instanceof CustomerInvoiceLockTimeoutError || isLockContention(err)) {
+      throw new ReceiptRefusal(
+        'Another request is applying cash to one of these invoices — retry in a moment.',
+        { retryable: true },
+      );
+    }
+    throw err;
+  }
 }
 
 function buildLine(
@@ -181,19 +237,19 @@ function buildLine(
 ): ReceiptApplicationLine {
   const statusBefore = String(invoice.status);
   if (UNALLOCATABLE_INVOICE_STATUSES.has(statusBefore)) {
-    throw new Error(
+    throw new ReceiptRefusal(
       `Invoice ${String(invoice.invoice_number)} is ${statusBefore} and cannot receive a receipt.`,
     );
   }
   if (Number(invoice.already_allocated ?? 0) > 0) {
-    throw new Error(
+    throw new ReceiptRefusal(
       `This receipt is already allocated against invoice ${String(invoice.invoice_number)}. `
       + 'A receipt applies to an invoice once; use a second receipt to apply more.',
     );
   }
   const ownerId = invoice.owner_id ? String(invoice.owner_id) : null;
   if (ownerId !== customerId) {
-    throw new Error(
+    throw new ReceiptRefusal(
       `Invoice ${String(invoice.invoice_number)} belongs to a different customer than this receipt.`,
     );
   }
@@ -201,7 +257,7 @@ function buildLine(
   const total = Number(invoice.total_amount);
   const outstandingBefore = round2(total - Number(invoice.amount_paid ?? 0));
   if (alloc.amount > outstandingBefore + EPS) {
-    throw new Error(
+    throw new ReceiptRefusal(
       `R${alloc.amount.toFixed(2)} exceeds the R${outstandingBefore.toFixed(2)} outstanding on `
       + `invoice ${String(invoice.invoice_number)}.`,
     );
