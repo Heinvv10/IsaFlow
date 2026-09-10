@@ -87,7 +87,9 @@ const CASES: Array<[string, Handler, Record<string, unknown>]> = [
   ['ai-narrative', aiNarrative as Handler, {}],
   ['ai-forecast', aiForecast as Handler, {}],
   ['nl-query', nlQuery as Handler, {}],
-  ['afs ai-narrative', afsNarrative as Handler, { documentId: 'd1', sectionId: 's1' }],
+  // Real UUIDs: the AFS route validates its path params before it spends anything.
+  ['afs ai-narrative', afsNarrative as Handler,
+    { documentId: '22222222-2222-4222-9222-222222222222', sectionId: '33333333-3333-4333-9333-333333333333' }],
 ];
 
 describe('AI endpoints H8 — daily budget cap via checkAiRateLimit', () => {
