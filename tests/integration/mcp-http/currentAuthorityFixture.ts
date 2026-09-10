@@ -1,7 +1,7 @@
 /** Causal current-rights proof: real owned sources, real issued BearerAuth, no financial execution. */
 import {createHash,randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
-import {createServer} from 'node:http';
+import {createServer,type Server} from 'node:http';
 import {Pool} from 'pg';
 import {apiResolver} from 'next/dist/server/api-utils/node/api-resolver';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
@@ -16,10 +16,10 @@ function value<T>(reply:RpcReply):T{
 export async function runCurrentSourceAcceptance(env:NodeJS.ProcessEnv){
  const origin=validateMcpHttpOrigin(env.ISAFLOW_FORENSIC_HTTP_ORIGIN),build=await verifyLocalMcpBuild(env);
  const config=fixtureConfigFromEnv(env),target=validateFixtureTarget(config),fixture=await provisionForensicFixture(config);
- const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3,statement_timeout:10000,connectionTimeoutMillis:3000});
  const {withBearerAuth}=await import('@/lib/auth/withBearerAuth');
  const {MCP_TOOLS}=await import('@/lib/mcp/toolIndex');
  const {runAuditJob}=await import('@/modules/accounting/services/controls/auditJobRunner');
+ const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3,statement_timeout:10000,connectionTimeoutMillis:3000});
  const approvedArgs=new Map<string,Record<string,unknown>>();
  const handler=withBearerAuth(async(req,res)=>{
   const name=String(req.body?.name),args=approvedArgs.get(name),tool=MCP_TOOLS.find(row=>row.name===name);
@@ -28,8 +28,9 @@ export async function runCurrentSourceAcceptance(env:NodeJS.ProcessEnv){
   res.status(200).json({authorized:true,name});
  });
  const server=createServer((req,res)=>{void apiResolver(req,res,{}, {default:handler},{previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,'/api/forensic-authorize-probe').catch(()=>{res.statusCode=500;res.end('Authorization probe failed');});});
+ let failed=false;
  try{
-  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  await listenCurrentAuthorityProbe(server);
   const address=server.address();if(!address||typeof address==='string')throw new Error('Loopback probe unavailable');
   await pool.query("INSERT INTO feature_flags(code,name,is_global) VALUES('mcp_connector','Synthetic MCP',false) ON CONFLICT(code) DO NOTHING");
   await pool.query("INSERT INTO company_feature_overrides(company_id,feature_id,enabled,set_by) SELECT $1,id,true,$2 FROM feature_flags WHERE code='mcp_connector' ON CONFLICT(company_id,feature_id) DO UPDATE SET enabled=true",[fixture.companyA,fixture.u2.id]);
@@ -70,9 +71,22 @@ export async function runCurrentSourceAcceptance(env:NodeJS.ProcessEnv){
   const effects=await pool.query("SELECT (SELECT count(*)::int FROM control_operation_effects WHERE company_id=$1) AS effects,(SELECT count(*)::int FROM control_operation_approvals WHERE company_id=$1) AS approvals,(SELECT status FROM gl_journal_entries WHERE company_id=$1 AND id=$2) AS status,(SELECT count(*)::int FROM control_audit_jobs WHERE company_id=$1) AS jobs",[fixture.companyA,journal]);
   if(effects.rows[0].effects!==0||effects.rows[0].approvals!==0||effects.rows[0].status!=='draft'||effects.rows[0].jobs!==1)throw new Error('Causal probe created an unrequested effect, approval or export job');
   return{outcome:'passed',build,planHash:createHash('sha256').update(JSON.stringify(cases)).digest('hex'),executed,effects:0,fixtureRunId:fixture.runId,limitations:['Positive authorize runs through real issued BearerAuth in a fixture-only probe; negative executes built MCP HTTP','Draft journal is synthetic unposted source, not controlled creation proof','Snapshot is created by real enqueue and runner; no export or financial execution','No production verification']};
- }finally{
-  if(server.listening)await new Promise<void>((resolve,reject)=>{server.close(error=>error?reject(error):resolve());server.closeAllConnections();});
-  await (await import('@/lib/auth/authPool')).getAuthPool().end();
-  await (await import('@/lib/neon')).getPoolForTests().end();await pool.end();
+ }catch(error){failed=true;throw error;}finally{
+  await closeCurrentAuthorityResources([
+   async()=>{if(server.listening)await new Promise<void>((resolve,reject)=>{server.close(error=>error?reject(error):resolve());server.closeAllConnections();});},
+   async()=>{await (await import('@/lib/auth/authPool')).getAuthPool().end();},
+   async()=>{await (await import('@/lib/neon')).getPoolForTests().end();},
+   async()=>{await pool.end();},
+  ],failed);
  }
+}
+/** Every resource gets a close attempt; cleanup cannot replace the original failure. */
+export async function closeCurrentAuthorityResources(closers:Array<()=>Promise<void>>,originalFailed:boolean){
+ const results=await Promise.allSettled(closers.map(async close=>close()));
+ const failures=results.filter((result):result is PromiseRejectedResult=>result.status==='rejected');
+ if(failures.length&&!originalFailed)throw new AggregateError(failures.map(row=>row.reason),'Causal fixture resource cleanup failed');
+}
+
+export async function listenCurrentAuthorityProbe(server:Server,port=0){
+ await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',()=>{server.removeListener('error',reject);resolve();});});
 }

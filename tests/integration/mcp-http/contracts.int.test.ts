@@ -142,3 +142,23 @@ it('proves source-dependent current rights with actual owned sources and unchang
  for(const row of proof.executed)expect(row.causalProof).toMatchObject({positiveAuthorized:true,unchangedToken:true});
  expect(proof.effects).toBe(0);
 },120000);
+
+it('closes every causal fixture resource while preserving the original setup error',async()=>{
+ const {closeCurrentAuthorityResources}=await import('./currentAuthorityFixture');
+ const calls:string[]=[];
+ const closers=[async()=>{calls.push('server');throw new Error('server close failed');},async()=>{calls.push('auth');throw new Error('auth close failed');},async()=>{calls.push('database');}];
+ await expect(closeCurrentAuthorityResources(closers,true)).resolves.toBeUndefined();
+ expect(calls.sort()).toEqual(['auth','database','server']);
+ await expect(closeCurrentAuthorityResources(closers,false)).rejects.toThrow('resource cleanup failed');
+});
+
+it('rejects actual causal probe listen failures without leaving a pending promise',async()=>{
+ const {createServer}=await import('node:http');
+ const {listenCurrentAuthorityProbe}=await import('./currentAuthorityFixture');
+ const first=createServer(),second=createServer();
+ await new Promise<void>(resolve=>first.listen(0,'127.0.0.1',resolve));
+ try{
+  const address=first.address();if(!address||typeof address==='string')throw new Error('Missing local listener');
+  await expect(listenCurrentAuthorityProbe(second,address.port)).rejects.toMatchObject({code:'EADDRINUSE'});
+ }finally{await new Promise<void>((resolve,reject)=>first.close(error=>error?reject(error):resolve()));}
+});
