@@ -31,9 +31,9 @@ function postingActor(ctx:ControlTx){
 }
 async function receipt(ctx:ControlTx,ref:OperationRef):Promise<HistoricalImportEffect|null>{
  const rows=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-  AND entity_type='historical_import' AND entity_id=${ref.entityId} AND operation='historical_import.post' LIMIT 2` as {id:string;result:HistoricalImportEffect}[];
+  AND entity_type='historical_import' AND lower(entity_id)=${ref.entityId} AND operation='historical_import.post' LIMIT 2` as {id:string;result:HistoricalImportEffect}[];
  if(!rows.length)return null;
- const row=rows[0]!;if(rows.length!==1||row.result.importId!==ref.entityId||!UUID_RE.test(row.result.journalEntryId))throw new Error('Historical import receipt association invalid');
+ const row=rows[0]!;if(rows.length!==1||row.result.importId.toLowerCase()!==ref.entityId||!UUID_RE.test(row.result.journalEntryId))throw new Error('Historical import receipt association invalid');
  const journals=await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${ctx.principal.companyId}::uuid
   AND id=${row.result.journalEntryId}::uuid AND status='posted' AND reversed_at IS NULL FOR SHARE`;
  if(journals.length!==1)throw new Error('Historical import receipt journal changed');
@@ -58,7 +58,7 @@ export async function executeHistoricalImport(ctx:ControlTx,input:OperationRef,a
  if(!approvalId){const prior=await receipt(ctx,ref);if(prior)return prior;throw new Error('Independent operation approval is required');}
  return executeControlledOperation(ctx,ref,approvalId,async permit=>{
   const previous=await ctx.sql`SELECT id FROM control_operation_effects WHERE company_id=${company}::uuid
-   AND entity_type='historical_import' AND entity_id=${ref.entityId} AND operation='historical_import.post'`;
+   AND entity_type='historical_import' AND lower(entity_id)=${ref.entityId} AND operation='historical_import.post'`;
   if(previous.length)throw new Error('Historical source already executed');
   const material=await materializeHistoricalImportOperation(ctx,ref),facts=material.observedSources[0]!.facts as unknown as Facts;
   const source=facts.source.normalized;

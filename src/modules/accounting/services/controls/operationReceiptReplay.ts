@@ -15,7 +15,7 @@ export async function replayKnownOperationEffect<T>(ctx:ControlTx,input:Operatio
   FROM control_operation_effects e LEFT JOIN control_operation_approvals a ON a.company_id=e.company_id
    AND (a.operation_id=e.operation_id OR a.consumed_effect_id=e.id)
   WHERE e.company_id=${ctx.principal.companyId}::uuid AND e.id=${effectId}::uuid
-   AND e.operation=${ref.operation} AND e.entity_type=${ref.entityType} AND e.entity_id=${ref.entityId} LIMIT 2` as
+   AND e.operation=${ref.operation} AND e.entity_type=${ref.entityType} AND lower(e.entity_id)=${ref.entityId} LIMIT 2` as
   {id:string;result:T;approval_id:string|null;approval_status:string|null;consumed_effect_id:string|null}[];
  if(rows.length!==1)throw new Error('Operation effect association is missing or ambiguous');
  const effect=rows[0]!;
