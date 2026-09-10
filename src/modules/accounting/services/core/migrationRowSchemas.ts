@@ -48,17 +48,30 @@ export const APInvoiceRowSchema = z.object({
   /**
    * BLANK IS LEGITIMATE on the AP side, and this is the schema half of that
    * decision. A supplier bill taken on from another system often has no number
-   * of its own — a till slip, a cash purchase, a statement line — and
-   * production carries such rows: migration 412's fingerprint substitutes the
-   * literal `no-inv` for exactly this case, and K-107's
-   * `uq_supplier_invoices_supplier_number` exempts `invoice_number = ''` for
-   * the same reason. `importAPInvoices` therefore keys on the number when there
-   * is one and falls back to the duplicate fingerprint when there is not.
-   * Requiring a number here would have made that fallback unreachable through
-   * the API that ships with it, and would have rejected a legitimate take-on
-   * file outright.
+   * of its own — a till slip, a cash purchase, a statement line — and nothing
+   * in the schema refuses one: `supplier_invoices` has no unique index on the
+   * number at all, and the one K-107 proposes (migration 646, not on origin as
+   * this is written) exempts `invoice_number = ''` explicitly. AR is the other
+   * way round — see `ARInvoiceRowSchema`.
+   *
+   * (An earlier revision of this comment cited migration 412's `coalesce(
+   * si.invoice_number, 'no-inv')` as evidence. It is not: the column is
+   * `VARCHAR(50) NOT NULL` since migration 201, so that COALESCE can never
+   * fire on this table and a blank number produces an empty segment.)
+   *
+   * `importAPInvoices` therefore keys on the number when there is one and on
+   * (supplier, date, total, reference) when there is not. Requiring a number
+   * here would have rejected a legitimate take-on file outright.
+   *
+   * ABSENT IS NOT BLANK. A row that carries no `invoiceNumber` key at all is
+   * an unmapped column, not an unnumbered bill; the route refuses the whole
+   * file for that before it reaches this schema — see
+   * `invoiceNumberColumnUnmapped`.
+   *
+   * `max(50)` because the column is VARCHAR(50): a longer number used to pass
+   * validation and die at the INSERT with a raw 22001.
    */
-  invoiceNumber: z.string().trim().max(100),
+  invoiceNumber: z.string().trim().max(50),
   supplierName: z.string().trim().min(1).max(200),
   /**
    * The wizard page's manual supplier correction. Optional, and `''` means the
@@ -75,7 +88,7 @@ export const ARInvoiceRowSchema = z.object({
    * blank-numbered customer invoice cannot be inserted at all; accepting one
    * would only turn a clear rejection into "Invoice number already exists: ".
    */
-  invoiceNumber: z.string().trim().min(1).max(100),
+  invoiceNumber: z.string().trim().min(1).max(50),
   customerName: z.string().trim().min(1).max(200),
 });
 
@@ -85,8 +98,32 @@ export const ARInvoiceRowSchema = z.object({
  */
 export const ImportEnvelopeSchema = z.object({
   sessionId: uuidish,
-  invoices: z.array(z.unknown()).min(1).max(5000),
+  invoices: z.array(z.unknown())
+    .min(1, 'The file has no rows to import')
+    .max(5000, 'Import at most 5000 rows at a time — split the file and run it in parts'),
 });
+
+/**
+ * True when the operator never mapped the invoice-number column: EVERY row in
+ * the file arrives without the key.
+ *
+ * This has to be told apart from a file that legitimately contains blank
+ * numbers, because the two need opposite treatment. A blank number is a bill
+ * with no number of its own and imports normally; an unmapped column makes
+ * every row look blank, and those rows then de-duplicate against each other on
+ * (supplier, date, total, reference) — so a file of real numbered bills would
+ * import a fraction of itself and report the rest as already imported. A
+ * take-on that silently loads a subset is worse than one that refuses, because
+ * nobody investigates a success. The wizard page sends the value only for a
+ * mapped column, so absence here is the mapping mistake and refusing the whole
+ * file is the loud answer.
+ */
+export function invoiceNumberColumnUnmapped(raw: unknown[]): boolean {
+  return raw.length > 0 && raw.every(
+    row => typeof row === 'object' && row !== null
+      && (row as Record<string, unknown>).invoiceNumber === undefined,
+  );
+}
 
 export interface ParsedInvoiceRows<T> {
   /** The rows that parsed, in request order. */

@@ -133,15 +133,23 @@ export async function importAPInvoices(
         // the CSV, re-run — produced a different key, missed, and posted the
         // same bill a second time against the AP control account. AR is spared
         // only because uq_customer_invoices_company_number (migration 220)
-        // refuses it; production has no equivalent index on supplier_invoices,
-        // and cannot get one: rows with no invoice number are legitimate and
-        // repeat — APInvoiceRowSchema allows a blank number for exactly that
-        // reason, so this fallback is on the live path. So the number is the
+        // refuses it; production has no equivalent index on supplier_invoices
+        // as this is written, and any it gets has to exempt the blank number:
+        // rows with no invoice number are legitimate and repeat, which is why
+        // APInvoiceRowSchema allows one, so this fallback is on the live path.
+        // K-107's migration 646 (branch fix/audit-k107-k120-k121-…, not on
+        // origin as this is written) adds exactly such a `<> ''` index; if it
+        // merges, the numbered branch below is belt-and-braces with a 23505
+        // behind it and the blank branch below is still the only guard. So the number is the
         // key only when there IS one, and a blank-numbered row falls back to
-        // the fingerprint, which is the most identity it has. This is a
-        // read-then-write and is therefore not safe against two imports of the
-        // same file running at the same instant; lockMigrationImport above is
-        // what serialises them.
+        // the most identity it has: supplier, date, total and reference. NOT
+        // the duplicate fingerprint, which carries no date — two till slips
+        // from the same supplier for the same round amount on different days
+        // share one fingerprint, and keying on it reported the second as
+        // "already imported" and dropped it. That is precisely the population
+        // the blank number was accepted for. This is a read-then-write and is
+        // therefore not safe against two imports of the same file running at
+        // the same instant; lockMigrationImport above is what serialises them.
         //
         // Compared case-INSENSITIVELY. computeFingerprint lowercases, so the
         // key this replaced ignored case; keying on the raw column would have
@@ -166,14 +174,17 @@ export async function importAPInvoices(
               SELECT id, deleted_at FROM supplier_invoices
               WHERE company_id = ${companyId}::UUID
                 AND supplier_id = ${supplierId}::UUID
-                AND duplicate_fingerprint = ${migFingerprint}
+                AND COALESCE(invoice_number, '') = ''
+                AND invoice_date = ${inv.invoiceDate}::DATE
+                AND total_amount = ${inv.totalAmount}
+                AND COALESCE(reference, '') = COALESCE(${inv.reference ?? null}, '')
               LIMIT 1
             `) as Row[];
         if (already.length > 0) {
           const wasDeleted = already[0]!.deleted_at != null;
           const subject = hasNumber
             ? `Already imported: ${inv.invoiceNumber} for this supplier.`
-            : 'Already imported: a bill with no number and the same amount for this supplier.';
+            : `Already imported: a bill with no number, dated ${inv.invoiceDate}, for ${inv.totalAmount.toFixed(2)} from this supplier.`;
           errors.push({
             step: 'ap_invoices', row: fileRow(i), field: 'invoiceNumber',
             message: wasDeleted

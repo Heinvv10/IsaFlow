@@ -24,8 +24,20 @@ type Row = Record<string, unknown>;
 // ── Fingerprint ───────────────────────────────────────────────────────────────
 
 /**
- * Compute the duplicate-detection fingerprint.
- * Mirrors the SQL in migration 412: lower(vat_number|invoice_number|total_amount)
+ * Compute the duplicate-detection fingerprint — the ONE producer of this
+ * string in TypeScript. Its SQL mirror is the expression in migration 670,
+ * which is the same expression migration 412's backfill used except for the
+ * amount segment.
+ *
+ * THE AMOUNT IS FIXED-2 BECAUSE THE COLUMN IS. `total_amount` is
+ * NUMERIC(15,2), so the SQL side renders 115 as `115.00`, while template
+ * interpolation of the JS number renders it as `115`. The two producers
+ * therefore disagreed on every amount whose JS rendering is not two decimals,
+ * and since 412 backfilled every row that predated it in the SQL format, a
+ * lookup from here could not match any of them: the duplicate went undetected
+ * and was posted a second time. Migration 670 rewrites the stored column in
+ * this format for every row; do not change the shape here without a matching
+ * re-backfill.
  */
 export function computeFingerprint(
   vatNumber: string | null,
@@ -34,7 +46,7 @@ export function computeFingerprint(
 ): string {
   const vat = vatNumber ?? 'no-vat';
   const inv = invoiceNumber ?? 'no-inv';
-  const amt = totalAmount ?? 0;
+  const amt = (totalAmount ?? 0).toFixed(2);
   return `${vat}|${inv}|${amt}`.toLowerCase();
 }
 

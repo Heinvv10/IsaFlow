@@ -28,7 +28,7 @@ vi.mock('@/components/layout/AppLayout', () => ({
 vi.mock('papaparse', () => ({
   default: {
     parse: (_file: unknown, opts: { complete: (r: { data: Record<string, string>[]; meta: { fields: string[] } }) => void }) => {
-      opts.complete({ data: [ROW], meta: { fields: Object.keys(ROW) } });
+      opts.complete({ data: PARSED, meta: { fields: Object.keys(PARSED[0]!) } });
     },
   },
 }));
@@ -46,6 +46,9 @@ const ROW: Record<string, string> = {
   amount_paid: '0',
 };
 
+/** The rows the stubbed parser hands the page; a test may narrow the columns. */
+let PARSED: Record<string, string>[] = [];
+
 const SESSION_ID = '11111111-2222-3333-4444-555555555555';
 const SUPPLIER_ID = '66666666-7777-8888-9999-000000000000';
 
@@ -60,6 +63,7 @@ let posted: { sessionId?: string; invoices?: unknown[] } | null = null;
 
 beforeEach(() => {
   posted = null;
+  PARSED = [ROW];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (url.startsWith('/api/accounting/suppliers')) {
       return envelope([{ id: SUPPLIER_ID, name: 'ACME Trading' }]);
@@ -109,5 +113,34 @@ describe('AP migration wizard page', () => {
     expect(await screen.findByText(/Imported 1 invoices\. Skipped: 0\./)).toBeTruthy();
     expect(await screen.findByText(/rounding difference: INV-1/)).toBeTruthy();
     expect(screen.queryByText(/No active migration session/)).toBeNull();
+  }, 20000);
+
+  it('sends NO invoiceNumber field when the operator never mapped that column', async () => {
+    // `?? ''` here made an unmapped column indistinguishable from a file of
+    // legitimately unnumbered bills: every row went in blank, de-duplicated
+    // against its neighbours on (supplier, date, total, reference), and part of
+    // the file imported while the rest was reported as already imported. The
+    // route refuses the whole file on an absent field — it can only do that if
+    // the page leaves it absent.
+    const { invoice_number: _dropped, ...noNumberColumn } = ROW;
+    PARSED = [noNumberColumn];
+
+    const { container } = render(<ApInvoicesPage />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'ap.csv', { type: 'text/csv' })] } });
+
+    const button = await waitFor(() => {
+      const b = Array.from(container.querySelectorAll('button'))
+        .find(el => /Import 1 Invoices/.test(el.textContent ?? ''));
+      if (!b) throw new Error('import button not rendered');
+      return b;
+    }, { timeout: 5000 });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(posted).not.toBeNull(), { timeout: 5000 });
+    const row = posted!.invoices![0] as Record<string, unknown>;
+    expect('invoiceNumber' in row).toBe(false);
+    // A mapped-but-empty cell is the other case, and still sends the field.
+    expect(row.supplierName).toBe('ACME Trading');
   }, 20000);
 });

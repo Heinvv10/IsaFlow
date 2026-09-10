@@ -379,3 +379,69 @@ HAVING COUNT(*) > 1 AND COUNT(*) FILTER (WHERE si.deleted_at IS NOT NULL) > 0;
 The soft-delete defect in `softDeleteService` (its reversal guard only fires on `status = 'posted'`,
 which a migrated bill never is) is NOT fixed here — this branch stops the wizard doubling the
 control account, it does not make soft-delete reverse a take-on. Register item.
+
+---
+
+## Round 5 — the blind review of `242bf867f` (9 findings)
+
+**H-1 — the blank-number fallback collapsed distinct bills, and an unmapped column imported a
+fraction of the file silently. FIXED, both halves.**
+*Blank rows:* the fallback keyed on `duplicate_fingerprint` — `lower(vat|number|total)`, with no
+date — so two till slips from one supplier for the same round amount on different days were one
+key, and the second was reported "already imported" and dropped. The blank branch now keys on the
+identity such a bill actually has: `COALESCE(invoice_number,'') = ''` AND `invoice_date` AND
+`total_amount` AND `COALESCE(reference,'')`. A genuine repeat is still refused.
+*Unmapped column:* `pages/accounting/migration/ap-invoices.tsx` sent `?? ''`, so an unmapped column
+was indistinguishable from a file of unnumbered bills. It now sends the field only when the column
+is mapped (JSON.stringify drops `undefined`), and the route refuses the WHOLE file with a 400 that
+names the mapping mistake when NO row carries the field (`invoiceNumberColumnUnmapped`). A file that
+legitimately contains blanks sends `''` and still imports.
+
+**H-2 — the two fingerprint producers disagreed. FIXED, and it needs a re-backfill.**
+The column is `NUMERIC(15,2)`, so SQL renders 115 as `115.00`; `computeFingerprint` rendered the JS
+number as `115`. Migration 412 backfilled every pre-412 row in the SQL format, so no lookup from the
+application could match one: the duplicate was created again and posted again. `computeFingerprint`
+is the single TS producer and now formats the amount `.toFixed(2)`; **migration 670 rewrites every
+stored `duplicate_fingerprint` into that same shape** (idempotent, re-runnable). The agreement is
+proved against the real database over six (vat, number, amount) shapes, and 670's statement is
+executed in the test over a row stamped in the old TS format.
+
+**M-1 — `INCLUDING ALL` did not reproduce production's shape. FIXED, partially and explicitly.**
+The per-run copy now replays production's RLS (`ENABLE` + `FORCE`) and its policy and trigger, and
+`beforeAll` asserts all three. The four FOREIGN KEYs are deliberately NOT replayed and the comment
+says so: `ADD CONSTRAINT … FOREIGN KEY` takes SHARE ROW EXCLUSIVE on the REFERENCED table, and
+measured on the fixture it blocks behind other agents' work on `companies` — the shared-lock failure
+that took eighteen files down last round.
+
+**M-2 — `purgeExpiredDeletes` defeated the guard five minutes later. FIXED.** Both invoice sweeps
+now carry `AND gl_journal_entry_id IS NULL`, so a document whose journal is still in the GL is never
+hard-deleted. Proved by running the real function against copies of all six swept tables.
+
+**M-3 — the schema comment's evidence was wrong. FIXED.** The migration-412 `no-inv` claim is gone
+(the column is `VARCHAR(50) NOT NULL`, so that COALESCE cannot fire) and the comment now cites what
+is true: no unique index on the number exists, and K-107's proposed 646 exempts `''`.
+
+**L-1 — zod caps exceeded the columns. FIXED.** `invoiceNumber` is `max(50)` on both schemas.
+**L-2 — the per-run schema leaked on a failed cleanup. FIXED.** `DROP SCHEMA` is in a `finally`.
+**L-3 — the 5000-row cap had no message. FIXED.** It now says to split the file.
+**L-4 — the comment asserted an index that may merge. FIXED.** It cross-references 646 and says what
+changes if it lands.
+
+**Migration.** `670_supplier_invoice_fingerprint_canonical_backfill.sql` — one UPDATE, idempotent,
+applied to the fixture DB. Rollback: none needed; re-running is a no-op. **Not** rerunnable-safe to
+skip: without it, the app's new fingerprints and the stored ones disagree on post-412 rows.
+
+**Historical data.** Every `supplier_invoices.duplicate_fingerprint` in production is in one of the
+two formats; 670 normalises all of them. Rows whose duplicate went undetected because of the split
+(a bill created twice through capture, recurring or the wizard) are found with:
+```sql
+SELECT si.company_id, si.supplier_id, si.invoice_number, si.total_amount, COUNT(*) AS rows
+  FROM supplier_invoices si
+ WHERE si.deleted_at IS NULL
+ GROUP BY 1, 2, 3, 4
+HAVING COUNT(*) > 1;
+```
+
+**Limits.** Still no browser load of the wizard (component-level proof only). The route's whole-file
+refusal is proved at the helper and the page, not through an HTTP request. The `softDeleteService`
+non-reversal of a take-on remains a register item, not fixed here.

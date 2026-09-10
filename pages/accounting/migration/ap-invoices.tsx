@@ -112,8 +112,13 @@ export default function ApInvoicesPage() {
       const sessionId = session?.id;
       if (!sessionId) throw new Error('No active migration session');
 
+      // No `?? ''`: an unmapped invoice-number column has to reach the route as
+      // an absent field, not as a blank number. JSON.stringify drops undefined
+      // properties, and the route refuses the whole file when NO row carries
+      // one — otherwise every row imports as unnumbered and de-duplicates
+      // against its neighbours, loading part of the file silently.
       const invoices = rows.map(r => ({
-        invoiceNumber: r.mapped.invoice_number ?? '',
+        invoiceNumber: r.mapped.invoice_number,
         supplierId: r.overrideSupplierId ?? r.matchedSupplierId ?? '',
         supplierName: r.mapped.supplier_name ?? '',
         invoiceDate: r.mapped.invoice_date ?? '',

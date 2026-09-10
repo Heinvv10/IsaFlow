@@ -53,7 +53,7 @@ function makeExactRow(overrides: Record<string, unknown> = {}): Record<string, u
 describe('computeFingerprint', () => {
   it('produces the expected format: vat|inv|amount in lowercase', () => {
     const fp = computeFingerprint('4150165685', 'INV-2026-001', 11500);
-    expect(fp).toBe('4150165685|inv-2026-001|11500');
+    expect(fp).toBe('4150165685|inv-2026-001|11500.00');
   });
 
   it('is deterministic — same inputs always produce the same output', () => {
@@ -69,22 +69,33 @@ describe('computeFingerprint', () => {
 
   it('substitutes "no-vat" when vatNumber is null', () => {
     const fp = computeFingerprint(null, 'INV-001', 100);
-    expect(fp).toBe('no-vat|inv-001|100');
+    expect(fp).toBe('no-vat|inv-001|100.00');
   });
 
   it('substitutes "no-inv" when invoiceNumber is null', () => {
     const fp = computeFingerprint('4150165685', null, 100);
-    expect(fp).toBe('4150165685|no-inv|100');
+    expect(fp).toBe('4150165685|no-inv|100.00');
   });
 
   it('substitutes 0 when totalAmount is null', () => {
     const fp = computeFingerprint('4150165685', 'INV-001', null);
-    expect(fp).toBe('4150165685|inv-001|0');
+    expect(fp).toBe('4150165685|inv-001|0.00');
   });
 
   it('handles all-null inputs', () => {
     const fp = computeFingerprint(null, null, null);
-    expect(fp).toBe('no-vat|no-inv|0');
+    expect(fp).toBe('no-vat|no-inv|0.00');
+  });
+
+  it('renders the amount with two decimals, the way NUMERIC(15,2)::text does', () => {
+    // The SQL producer (migration 412's backfill, migration 670's re-backfill)
+    // reads a NUMERIC(15,2) column, so 115 is `115.00` there. A bare JS number
+    // renders as `115`, and the two producers then never matched each other on
+    // rows written by the other side.
+    expect(computeFingerprint(null, '', 115)).toBe('no-vat||115.00');
+    expect(computeFingerprint(null, '', 230)).toBe('no-vat||230.00');
+    expect(computeFingerprint(null, 'a', 1234.5)).toBe('no-vat|a|1234.50');
+    expect(computeFingerprint(null, 'a', 99.99)).toBe('no-vat|a|99.99');
   });
 
   it('distinguishes different amounts', () => {
