@@ -22,8 +22,9 @@
  *
  * `cc1_id` / `cc2_id` are the same story on the same table: both name a
  * `cost_centres` row, so they resolve against the same owned set as
- * `cost_center_id`, and `assertJournalCostCentres` refuses a foreign one on the
- * contra exactly as `assertJournalLinesOwned` refuses a foreign project.
+ * `cost_center_id`. The shared writer's explicit `historical-copy` mode keeps
+ * an owned inactive reference on the contra; a foreign one is still dropped
+ * here exactly as `assertJournalLinesOwned` refuses a foreign project.
  *
  * `vat_type` is NOT a tenant reference — it is a classification string with no
  * owning row — so it always comes across untouched.
