@@ -10,6 +10,7 @@
 import { parseAmount } from './ocrAmountParsing';
 import { SUMMARY_LINE_START } from './ocrAmountPatterns';
 import { blankFillers, isCounterLabel, wholeTokens } from './ocrWholeFigures';
+import { titleNumberIsDocument } from './purchaseTitle';
 
 /**
  * A printed money figure: it carries a decimal part, which is what keeps
@@ -133,7 +134,13 @@ export interface PrintedFigure {
  */
 export function printedFigures(text: string): PrintedFigure[] {
   const figures: PrintedFigure[] = [];
+  let inHeader = true;
   for (const printed of text.split(/\r?\n/)) {
+    // A purchase TITLE line's number is the document's (`TAX INVOICE No
+    // 88123`) — in the header only: below the first amount it may be money.
+    if (inHeader && titleNumberIsDocument(printed)) continue;
+    if (FIGURE.test(printed)) inHeader = false;
+    FIGURE.lastIndex = 0;
     const line = blankFillers(printed);
     const cents = [...line.matchAll(FIGURE)].map((m) => ({
       value: parseAmount(m[1]!), index: m.index, end: m.index + m[0].length, whole: false, moneyMark: true,

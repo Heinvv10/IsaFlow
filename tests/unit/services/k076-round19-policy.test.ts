@@ -28,7 +28,9 @@ describe('K-076 r19 HIGH-2 — a tip on the printed blank is money, not a count'
     expect(unreconciledFigure(`${OCEAN}${BLOCK}${tip}\nCARD 230.00`, 230, K)).not.toBeNull();
   });
 
-  it.each(['Items 3', 'Till 3 Op 12', 'Pieces 2', 'Delivery address 12 Main Road', '12 Main Road',
+  // Round 21 removed `Address` (`Delivery Address 35` is a charge), so the
+  // `Delivery address 12 Main Road` row moved to the round-21 refusals.
+  it.each(['Items 3', 'Till 3 Op 12', 'Pieces 2', '12 Main Road',
     'Batch 123'])('"%s" is a count or an address, and a settled slip passes', (footer) => {
     const text = `${HDR('SPAR')}Bread 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00\n${footer}`;
     expect(unreconciledFigure(text, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
@@ -61,7 +63,9 @@ describe('K-076 r19 HIGH-1 — a trailing word does not hide a number from its l
   });
 
   it('a unit after a number is a quantity, not money', () => {
-    expect(unreconciledFigure(`${PLUMB}EFT 1150.00\nWarranty 30 days\nWeight 5 kg`, 1150, PK)).toBeNull();
+    // Round 21: a duration is exempt only after a terms lead, and `Warranty` is
+    // no longer a counter (`Warranty 450 month` is a fee).
+    expect(unreconciledFigure(`${PLUMB}EFT 1150.00\nPayment terms: 30 days\nWeight 5 kg`, 1150, PK)).toBeNull();
   });
 });
 

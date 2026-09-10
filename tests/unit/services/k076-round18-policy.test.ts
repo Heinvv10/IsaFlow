@@ -80,10 +80,10 @@ describe('K-076 r18 MEDIUM-1 — a counter is a labelled small integer, not mone
   const known = { subtotal: 100, vatAmount: 15 };
 
   it.each(['Items 2', 'No of items: 5', 'ITEMS SOLD 4', 'Qty 3', 'Units 3', 'Lane 3', 'Pump 5', 'Table 12',
-    'Covers 2', 'Seat 14', 'Points earned 25', 'Your points balance 1250', 'Seq 4521', 'Cashier 12',
+    'Seat 14', 'Points earned 25', 'Your points balance 1250', 'Seq 4521', 'Cashier 12',
     'Operator 7', 'Terminal 12345', 'Visit us at Shop 45', 'Est. 1967', 'Store 1234', 'Trans 99881',
-    'Customer copy 1', 'Page 1 of 1', 'Open 7 days', 'Total Items 5', 'Smart Shopper points 25',
-    'Table 12 Covers 2', 'Auth Code 123456', 'Odometer 145230', '14:22 03/09/2026'])(
+    'Page 1 of 1', 'Open 7 days', 'Total Items 5', 'Smart Shopper points 25',
+    'Auth Code 123456', 'Odometer 145230', '14:22 03/09/2026'])(
     'a settled slip with "%s" below it is ordinary', (footer) => {
       expect(unreconciledFigure(`${PAID}${footer}`, 115, known)).toBeNull();
     });

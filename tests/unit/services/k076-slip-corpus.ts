@@ -97,11 +97,9 @@ export const SLIPS: Slip[] = [
   { name: 'E4 retail zero-rated, VAT: 0.00', text: `${CHECKERS}Maize Meal 1 100.00 100.00\nSub Total 100.00\nVAT: 0.00\nTotal 100.00`, payable: 100, outcome: 'post' },
 
   // Round 10 — constructed against this gate, in both directions.
-  // Round 20 turned this row from 'post' to 'refuse': its header prints
-  // `Invoice No: 55123` but never names the document a TAX INVOICE, INVOICE or
-  // RECEIPT on a line of its own, and the purchase-title gate fails closed.
-  // Measured cost, not a defect; the invariant still holds.
-  { name: 'X1 registration number glued to a dash', text: `Waltons Stationery\nVAT-4123456789\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'refuse' },
+  // Round 20 refused this row for want of a purchase title; round 21 lets a
+  // title line carry its document number (`Invoice No: 55123`), and it posts.
+  { name: 'X1 registration number glued to a dash', text: `Waltons Stationery\nVAT-4123456789\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'post' },
   { name: 'X2 no VAT line at all (the builder would invent 15%)', text: `${WALTONS}Total 1150.00`, payable: 1150, outcome: 'refuse' },
   { name: 'X3 a TOTAL column header (honest slip, refused)', text: 'Spar Rivonia\nDate: 2026-09-01\nReceipt No: 88001\nQTY ITEM TOTAL\n1 Bread 23.00\nSub Total 20.00\nVAT 3.00\nTotal 23.00', payable: 23, outcome: 'refuse' },
 
@@ -271,5 +269,8 @@ export const SLIPS: Slip[] = [
   { name: "V4 Refund policy footer", text: "Game Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 100403\nKettle 1 299.00 299.00\nSub Total 260.00\nVAT 39.00\nTotal 299.00\nCARD 299.00\nRefunds within 30 days with slip", payable: 299, outcome: 'post' },
   { name: "V5 card slip account type CREDIT line", text: "Game Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 100404\nKettle 1 299.00 299.00\nSub Total 260.00\nVAT 39.00\nTotal 299.00\nCARD 299.00\nAcc Type: CREDIT", payable: 299, outcome: 'post' },
   { name: "V7 Delivery note number footer", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nDelivery Note No: DN4471", payable: 1150, outcome: 'post' },
-  { name: "V8 Delivery address footer", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nDelivery address 12 Main Road", payable: 1150, outcome: 'post' },
+  // Round 21 turned this row from 'post' to 'refuse': `Address` is no longer a
+  // counter label, because `Delivery Address 35` is a delivery charge. The
+  // street shape exempts `12 Main Road` only at the start of its line.
+  { name: "V8 Delivery address footer", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nDelivery address 12 Main Road", payable: 1150, outcome: 'refuse' },
 ];

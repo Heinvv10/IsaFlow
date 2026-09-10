@@ -58,7 +58,8 @@ function ocrTolerant(word: string): string {
 const CREDIT_STEMS = [
   'CREDIT', 'KREDIET', 'REFUND', 'REIMBURS', 'RETURN', 'RETOER', 'RETOUR', 'VOID', 'CANCEL', 'ANNUL',
   'EXCHANG', 'KORREKSIE', 'STORNO', 'GUTSCHRIFT', 'AVOIR', 'RÜCKGABE', 'RUCKGABE', 'OMKER',
-  'RESCIND', 'NULLIF', 'CHARGEBACK',
+  'RESCIND', 'NULLIF', 'CHARGEBACK', 'DEVOLU', 'DEVOLUÇ', 'REEMBOLS', 'ESTORN', 'RECLAIM', 'REPAID',
+  'REPAYMENT', 'MISRING', 'OVERRING', 'GOODWILL', 'COMPENSAT',
 ];
 
 /**
@@ -73,7 +74,7 @@ const AFRIKAANS_VERBS: ReadonlyArray<readonly [string, string]> = [
   ['', 'KANSELL'], ['', 'KREDIT'], ['', 'ANNULEER'], ['', 'KORRIGEER'], ['', 'RETOURNEER'],
   ['OM', 'RUIL'], ['UIT', 'RUIL'], ['TERUG', 'BETA'], ['TERUG', 'GEBETAAL'], ['TERUG', 'GAWE'],
   ['TERUG', 'GEE'], ['TERUG', 'STUUR'], ['OM', 'KEER'], ['TERUG', 'NEEM'], ['TERUG', 'BRING'],
-  ['TERUG', 'BOEK'], ['TERUG', 'SKRY'],
+  ['TERUG', 'BOEK'], ['TERUG', 'SKRY'], ['TERUG', 'SEND'], ['TERUG', 'VORDER'],
 ];
 const AFRIKAANS_FORMS = AFRIKAANS_VERBS.flatMap(([particle, stem]) => [
   `${particle}${stem}`, `${particle}GE${stem}`,
@@ -115,7 +116,9 @@ const CREDIT_MARKINGS = [
   'CXL', 'CNX', 'R/A', 'REVERSE SALE', 'NEG SALE', 'VE SALE', 'RET D', 'ADJ NOTE', 'MONEY BACK',
   'GELD TERUG', 'KONTANT TERUG', 'NIETIG', 'CONTRA', 'KONTRA', 'UNDO SALE', 'VOUCHER ISSUED',
   'GOEDERE TERUG*', 'TERUGNA*', 'RECALL*', 'ROLLBACK', 'ROLL BACK', 'WITHDRAWN', 'AFGETREK',
-  'UITBETALING*', 'OORBETALING*',
+  'UITBETALING*', 'OORBETALING*', 'BUY BACK', 'TRADE IN', 'PAID OUT', 'CASH OUT', 'PAY OUT',
+  'PRICE ADJUSTMENT', 'PRICE CORRECTION', 'CUSTOMER CLAIM', 'SALE CORRECTED', 'ERROR CORRECTION',
+  'GOEDERE ONTVANG TERUG',
   'ADJUSTMENT NOTE', 'DEBIT NOTE', 'ALLOWANCE NOTE', 'REBATE NOTE', 'REBATE',
   'CLAIM NOTE', 'CORRECTION SLIP', 'NEGATIVE SALE', 'MINUS SALE', 'NO SALE',
 ];
@@ -162,12 +165,12 @@ const NUMBERED_MARKING = /(?<![A-Za-z0-9])(?<!\d[ \t]*)(?:CM|REV|RET|RA|VD)[\s#:
 const GLUED_CREDIT_NUMBER = /(?<![A-Za-z0-9])(?:CRN|CN|KN)\d/i;
 
 /**
- * `KANS` (kansellasie) and `MINUS` are credit marks only as a HEADER alone on
- * its line: in prose they are Afrikaans "chance" (`Staan 'n kans om R1000 te
- * wen`) and a discount (`Minus 10% vir pensioenarisse`), and round 19's bare
- * match refused both.
+ * `KANS` (kansellasie), `MINUS` and `TERUG` are credit marks only as a HEADER
+ * alone on its line: in prose they are Afrikaans "chance" (`Staan 'n kans om
+ * R1000 te wen`), a discount (`Minus 10% vir pensioenarisse`) and "back" (`Kom
+ * gerus terug!`), and a bare match refused all three.
  */
-const HEADER_ONLY_MARKING = /^[\s*=-]*(?:KANS|MINUS)[\s*=-]*$/im;
+const HEADER_ONLY_MARKING = /^[\s*=-]*(?:KANS|MINUS|TERUG)[\s*=-]*$/im;
 
 /** `TAX INVOICE (CR)` — the marker printed in brackets beside the type. */
 const BRACKETED_CREDIT = /\(\s*CR\s*\)/i;
