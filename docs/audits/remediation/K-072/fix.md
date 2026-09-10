@@ -1073,3 +1073,146 @@ SELECT cd.id, cd.company_id, cd.posted_at,
    AND cd.extracted_data->>'rawText' ~* '(^|[^a-z])total'
  ORDER BY cd.posted_at DESC;
 ```
+
+## Round 13 (review of `43f114aae`: 1 HIGH · 1 MEDIUM · 1 LOW)
+
+### Why the gate now measures AMOUNTS, not labels — read this before adding a label anywhere
+
+Rounds 8–12 each closed the second-label defect by adding the labels the last reviewer found to
+`TOTAL_PATTERNS` / `PAYABLE_LABEL`, and each next reviewer found more that posted a wrong number. The
+reason is structural: the gate measured "unambiguous" as "one distinct total CANDIDATE", and the
+candidate set is defined by LABELS. A payable printed under a label the vocabulary lacks is not a
+candidate, so the slip looks as if it prints one total and posts it. The label set has no end — this is
+the census-by-spelling failure applied to receipt labels. The gate now also asks a question that needs
+no vocabulary: **is any figure printed on the document larger than the total read?** The payable of a
+purchase is the largest figure it prints, so a larger one is a figure the reader did not account for,
+whatever it is labelled. It is a REFUSAL only; nothing it finds is ever offered as the payable. The one
+ordinary exception is cash, and it is the only vocabulary left in the decision: a tender whose NEXT
+printed figure is on a change line (`Change`/`Chg`/`Wisselgeld`/`Kleingeld`) with tender − change =
+total. A change spelling it lacks can only refuse. **Do not close a posting defect by adding a label:
+`PAYABLE_LABEL` now only improves the guess on the capture screen.**
+
+### HIGH-1 — a payable under an unknown label posted the `Total` above it
+
+**Fixed** in new `ocrLargerFigure.ts` (`unexplainedLargerFigure`), consumed by
+`unattendedPostingRefusal` and `isAmbiguousTotal` (so the AP routes hold the same slips), and surfaced by
+the reader as a warning under `UNRECONCILED_WARNING` (`largerFigureWarning`) so the person on the
+capture screen is told and a stored document carries it. A figure needs a decimal part (registration,
+card, slip and phone numbers stay out); a date run (`01.09.2026`) and a rate (`15.00%`) are refused; a
+space-grouped figure (`1 265.00`) is read as thousands only at the END of its line, because mid-line the
+same shape is an item row's quantity and unit price (`USB Cable 1 149.00 149.00`).
+
+Measured (real `extractFromText` + `shouldAutoPostReceipt`, and the AP routes' own
+`computePipelineConfidence` / `determineApprovalRoute` / `isAmbiguousTotal`, supplier match 1.0): on
+`Sub Total 200 / VAT 30 / Total 230 / Gratuity 23 / <label> 253`, all 14 labels — `AMT DUE`, `BAL DUE`,
+`TOT DUE`, `Please Pay`, `Payment Due`, `Outstanding`, `Balance Outstanding`, `Verskuldig`, `Te Betale`,
+`Card Amount`, `SALE`, and the three former exclusions `Amount Paid`, `ZAR`, `PURCHASE` — plus
+`Tip 23 / CARD 253`, went from **post R230 / auto_approve R230** at `43f114aae` to **refuse /
+manual_review**. The reviewer's three counter-checks hold: N5 (`CASH 50 / CHANGE 27` on 23) posts, N1
+(`CARD 142.98` equal) is not refused by this rule (it still refuses on its VAT label), and
+`Amount Paid 0.00` above `Balance Due 1150.00` is not refused — all pinned in
+`k076-larger-figure.test.ts`.
+
+**Deliberate widening, by measurement.** The brief specified figures printed BELOW the total. That
+rule was run (gate restricted to the text after the total, reader warning removed) and two corpus rows
+then post **R230.00 of R253.00**: a payable under an unknown label ABOVE a VAT-analysis block
+(`SALE 253.00 / CARD 253.00 / VAT ANALYSIS / Sub Total 200 / VAT 30 / Total 230`), and the same with
+`CASH 300 / CHANGE 47` — the A1 layout with the `TOTAL` label spelled differently. So the scan covers
+the whole document. Its extra cost is exactly the rows listed under "over-refusal" below that print a
+larger figure above the total.
+
+### MEDIUM-1 — the round-12 vocabulary made the guess R0.00 / R45.00
+
+- Bare `Balance` is **removed** from `PAYABLE_LABEL` rather than scoped: HIGH-1 no longer depends on the
+  vocabulary, and bare `Balance` was the only round-12 addition that produced a regression (`BALANCE
+  0.00`, `Smart Shopper Balance 45.00`, `Balance 500.00` brought forward). `TOTAAL`, `TO PAY`,
+  `TE BETAAL` and `TTL` stay: measured, none moved any row the wrong way, and each makes the guess the
+  printed payable where a plain `Total` is above it. The one row that loses is `U "Balance"`, whose guess
+  is now 230 (as at `0545d19e3`) — it refuses, and the reader's new warning names 253.00.
+- `extractTotalCandidates` drops a zero or negative figure beside a positive one. All-negative
+  documents keep their figures: a credit note's sign is what the reader reports and the gate refuses on.
+- `validateReceiptExtraction` refuses a total of zero or less ('totalAmount must be positive'); it runs
+  before any write in `receipt-to-journal`, so the 400 commits nothing.
+
+Measured, `43f114aae` → now: P1 paid invoice (`… Total 1150 / Amount Paid 1150 / Balance Due 0.00`)
+total **0 → 1150**, refuse → post; P2 `TOTAL 23 / CARD 23 / BALANCE 0.00` **0 → 23**, refuse → post; P3
+`Balance 500.00` above the invoice refuse → post at 1150; P4 `Smart Shopper Balance 45.00` **45 → 23**,
+still refuses (45.00 is a larger figure — see the over-refusal list). On the AP routes P1–P3 move
+manual_review → auto_approve at the right figure, so paid invoices no longer override `auto_publish`.
+
+### LOW-1 — the corpus
+
+Recounted from the file: at `43f114aae` the corpus had **71 rows** (not 74), and on the AP routes 40
+rows moved to review (not 27; 6 of them wrong figures). This round adds 67 rows — **138 rows** now:
+18 `L` (unknown labels, above and below), 4 `T` (tender/change both directions), 4 `P` (paid invoice,
+zero balance, balance b/f, loyalty balance), 4 `Z` (pinned over-refusals), 3 `D5b–D7b` twins, and 34
+`R` ordinary receipts and invoices (card, cash and change, `Cash Tendered / Change Due`, comma
+decimals, space-grouped thousands, `TOTAL (VAT INCL)`, `Amount Excl/Incl VAT`, `VAT @ 15%`, fuel with
+litres, loyalty points, bank details, remittance slip, delivery line, a zero tip line). Ordinary
+documents (N, R, P, and the two posting T rows) are now 48 of 138 — still a minority, stated rather than
+dressed up; the adversarial rows are the history of this item and are kept.
+
+**Measured over the corpus, `43f114aae` → now:** receipt gate 27 rows post → refuse, **18 of which
+posted a wrong figure at `43f114aae`**; 3 rows refuse → post (P1–P3, each posting its payable); **0 wrong
+posts now** (18 before). AP routes: 30 rows change — 27 to manual_review (18 were approving a wrong
+figure) and P1–P3 to auto_approve. Posting now 55 / 138 (was 79), AP auto-approve 59 / 138 (was 83).
+
+**Over-refusal, all of it** (the 9 post → refuse rows that were not wrong at `43f114aae`):
+- D5–D7: OCEAN's R200.00 line item printed on a R100.00 slip — an impossible fixture; outcome flipped to
+  refuse and consistent twins D5b–D7b added, which post, so every `VAT-0.00` spelling is still pinned
+  posting.
+- T tender with no change line, T change that does not net: refused by design.
+- Z promotion (an item dearer than the slip), Z invoice with a line discount (`Widget 1200.00 /
+  Discount -200.00 / Total 1150.00`), Z two-column item `Chicken Braai Pack 1 200.00` (quantity + a
+  3-digit price at line end reads 1 200.00), and P4/Z "you saved" or loyalty balances larger than the
+  total. Each refuses; none posts wrong. Of the 34 `R` ordinary rows, 33 post; R28 (a tip inside the
+  total) refuses on the pre-existing reconciliation rule, unchanged by this round.
+
+### Round-13 limits, disclosed
+
+- A figure printed WITHOUT a decimal part (`CARD 253`) is not seen; tills print cents, and admitting
+  integers would count registration, card, slip and phone numbers.
+- A space-grouped payable in the MIDDLE of a line (`Please Pay 1 265.00 Tip 115.00` on one OCR line) is
+  read as 265.00.
+- A slip that prints a figure under a change label that is not the change given (`Amount Due 253.00 /
+  Change 23.00` beneath `Total 230.00`) is explained away; tender-then-change must be adjacent figures,
+  which is the tightest shape an honest cash slip satisfies.
+
+### Mutations, round 13 (file copies, restored and byte-compared; `<scratchpad>/agents/fix-k072j/mutate.py`)
+
+Suite per mutation: the eight k076 unit files + `receipt-to-journal.test.ts`, 516 tests, green at rest.
+
+| # | Mutation | Outcome |
+|---|---|---|
+| M1 | gate drops the larger-figure check | RED (1) |
+| M2 | reader drops the larger-figure warning | RED (1) |
+| M3 | `isAmbiguousTotal` drops the larger-figure check | RED (1) |
+| M4 | no tender/change exemption | RED (11) |
+| M5 | change may be ANY later figure, not the next | RED (1) |
+| M6 | change label not required | RED (1) |
+| M7 | no space-grouped reading at line end | RED (3) |
+| M8 | space grouping read mid-line too | RED (24) |
+| M9 | decimal part optional | RED (56) |
+| M10 | a negative figure kept beside a positive | RED (1) |
+| M10b | a zero figure counted as positive | RED (3) |
+| M11 | negatives always dropped (credit notes) | RED (3) |
+| M12 | validation accepts a total ≤ 0 | RED (1) |
+| M13 | bare `Balance` restored | RED (2) |
+| M14 | a figure EQUAL to the total counted as larger | RED (83) |
+
+### Historical impact
+
+Not measured — production must not be queried from here. Documents already auto-posted or
+auto-approved whose stored text prints a figure larger than the posted total are the population; the
+SQL below lists candidates for Hein to re-run through `unexplainedLargerFigure`:
+
+```sql
+SELECT cd.id, cd.company_id, cd.posted_at,
+       cd.extracted_data->>'totalAmount' AS stored_total,
+       cd.extracted_data->>'rawText'     AS raw_text
+  FROM captured_documents cd
+ WHERE cd.posted_at IS NOT NULL
+   AND cd.extracted_data->>'rawText' IS NOT NULL
+   AND cd.extracted_data->>'rawText' <> ''
+ ORDER BY cd.posted_at DESC;
+```

@@ -29,6 +29,7 @@
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { detectDocumentType, extractAmounts } from './ocrExtractionService';
 import { extractTotalCandidates, isUnreconciled } from './ocrAmountReconciliation';
+import { unexplainedLargerFigure } from './ocrLargerFigure';
 
 export type UnattendedPostingInput = Pick<
   ExtractedDocument,
@@ -72,6 +73,12 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   if (printed.length === 0) return 'no printed total could be read from the document text';
   if (printed.length > 1) return `the document prints ${printed.length} different totals`;
   if (printed[0] !== total) return 'the total read is not the total the document prints';
+  // "One printed total" is measured over LABELS, and a payable under a label
+  // the vocabulary lacks is not a candidate at all — six rounds of adding
+  // labels never closed that. A figure larger than the total is measured over
+  // AMOUNTS, and no spelling can hide it. See `ocrLargerFigure`.
+  const larger = unexplainedLargerFigure(doc.rawText ?? '', total);
+  if (larger !== null) return `the document prints ${larger.toFixed(2)}, more than the total read`;
 
   // The TOTAL was re-read; the VAT was not, and a stored net and VAT are a
   // second number the entry is built from. Measured: a zero-rated slip whose
@@ -111,5 +118,10 @@ export function isAmbiguousTotal(
   doc: Pick<ExtractedDocument, 'rawText' | 'warnings'>,
 ): boolean {
   if (isUnreconciled(doc.warnings)) return true;
-  return new Set(extractTotalCandidates(doc.rawText ?? '')).size > 1;
+  const printed = [...new Set(extractTotalCandidates(doc.rawText ?? ''))];
+  if (printed.length > 1) return true;
+  // One candidate is only one candidate the vocabulary could NAME: the same
+  // amount-based check as the gate, so `Total 230.00 / Tip 23.00 / CARD 253.00`
+  // is not approved at R230.00 here either.
+  return printed.length === 1 && unexplainedLargerFigure(doc.rawText ?? '', printed[0]!) !== null;
 }
