@@ -66,5 +66,5 @@ export async function platformImportApprovalFixture(){
   return{journals:(await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[f.companyA,ref.entityId])).rowCount,
    effects:(await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[f.companyA,ref.entityId])).rowCount};
  }
- return{pool,f,admin,revenue,maker,member,body,prepared,request,review,execute,noEffects,close:()=>pool.end()};
+ return{pool,f,admin,revenue,supplier,maker,member,body,prepared,request,review,execute,noEffects,close:()=>pool.end()};
 }
