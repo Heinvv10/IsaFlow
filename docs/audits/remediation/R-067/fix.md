@@ -94,6 +94,12 @@ back to where the id first enters. Directories walked: `services/ar`,
 `src/modules/admin/services`, `src/lib/mcp/tools`, `pages/api/accounting/**`,
 `pages/api/portal/**`.
 
+**That row set was chosen, not derived, and it was too small.** Rounds 1–2 walked
+the write sites of the seven tables named above; `isaflow_dev` has 25 columns named
+`client_id` / `customer_id` / `link_customer_id`. Round 3 (below) re-derives the
+census from `information_schema` and supersedes the scope of the table that follows;
+its rows 1–23b stand as measured.
+
 | # | Write path | Where the id comes from | Disposition |
 |---|---|---|---|
 | 1 | `ar/customerInvoiceCreateService.ts:126` (`createDraftCustomerInvoice`) | request body `clientId` (route) / MCP arg | **FIXED** — assert before `reserveNextDocumentNumber` |
@@ -191,6 +197,90 @@ source row, not only on the invoice the conversion produced.
 pre-existing and untouched here, and it is a create path, where refusing a deleted
 customer is the same call `customerBelongsToCompany` makes.
 
+### Round 3 — the census re-derived from the SCHEMA
+
+The r2 review measured two cross-tenant writes the table-scoped census could not see
+(`createWriteOff`, `createDeliveryNote`) and named four routes taking a body customer
+id unfenced. The universe is now the schema, not a list:
+
+```sql
+-- isaflow_dev, public schema. Every column whose NAME says it holds a customer or
+-- client id, plus every column with an FK to customers under ANY name.
+WITH fk AS (
+  SELECT tc.table_name, kcu.column_name
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema)
+    JOIN information_schema.constraint_column_usage ccu USING (constraint_name, table_schema)
+   WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'customers')
+SELECT c.table_name, c.column_name, (fk.column_name IS NOT NULL) AS fk_customers
+  FROM information_schema.columns c
+  LEFT JOIN fk ON fk.table_name = c.table_name AND fk.column_name = c.column_name
+ WHERE c.table_schema = 'public'
+   AND (c.column_name ~ '(client|customer)_id$' OR fk.column_name IS NOT NULL);
+```
+
+30 rows: the reviewer's 25 (`client_id` / `customer_id` / `link_customer_id`) plus
+`bank_transactions.suggested_client_id`, `companies.stripe_customer_id` and three
+`practice_client_id` columns. No column FKs `customers` under any other name. Each was
+mapped to its writers by searching the table name as a write target (`INSERT INTO`,
+`UPDATE`, multi-line, across `src`, `pages`, `lib`, `chrome-extension`), then walking
+each writer back to where the id enters. Directories walked in addition to round 1's:
+`services/reports`, `services/loans`, `pages/api/accounting/ar/**`,
+`pages/api/accounting/practice/**`, `pages/api/portal/**`.
+
+| # | Column | Writer(s) | Where the id comes from | Disposition |
+|---|---|---|---|---|
+| S1 | `customer_invoices.client_id`, `.customer_id` | rows 1, 10–19, 22, 23b above | — | as above |
+| S2 | `customer_payments.client_id` | rows 7, 23 | — | as above |
+| S3 | `customer_quotes.client_id` | rows 3, 4 | — | as above |
+| S4 | `customer_sales_orders.customer_id` | rows 5, 6 | — | as above |
+| S5 | `credit_notes.client_id` | row 12 | — | as above |
+| S6 | `recurring_invoices.client_id` | row 2 | — | as above |
+| S7 | `practice_clients.link_customer_id` | row 9 | — | as above |
+| S8 | `customer_write_offs.client_id` | `ar/writeOffService.ts` `createWriteOff` ← `write-offs.ts` POST | `req.body.clientId`; only `invoiceId` was read company-scoped | **FIXED (r3)** — fence first; the route's existing catch answers 400 |
+| S9 | `delivery_notes.customer_id` | `ar/deliveryNoteService.ts` `createDeliveryNote` ← `delivery-notes.ts` POST | `input.customer_id`, presence-checked only | **FIXED (r3)** — fence before `nextDeliveryNoteNumber` (a counter write); route maps the error to 400 |
+| S10 | `projects.client_id` | `pages/api/accounting/projects.ts` POST (inline) | `body.clientId` | **FIXED (r3)** — fence before the count read and INSERT, 400 |
+| S11 | `customer_activities.customer_id` | `customer-activities.ts` POST (inline); `customer-merge.ts:87` | `body.customerId` / merge ids | POST **FIXED (r3)**; merge already guarded (row 21) |
+| S12 | `customer_contacts.customer_id` | `customer-contacts.ts` POST (inline); `customer-merge.ts:71` | `body.customerId` | POST **FIXED (r3)** — fence placed before the `is_primary` UPDATE, which is the first write when `isPrimary` is set; merge guarded (row 21) |
+| S13 | `customer_delivery_addresses.customer_id` | `customer-delivery-addresses.ts` POST (inline); `customer-merge.ts:79` | `body.customerId` | POST **FIXED (r3)** — before the `is_default` UPDATE; merge guarded (row 21) |
+| S14 | `customer_dunning_overrides.customer_id` | `ar/dunningOverridesService.ts` `setOverride` ← `ar/dunning/overrides/index.ts` POST | `body.customerId` (UUID shape only) | **FIXED (r3)** — fence before the upsert; the route maps it to 404 by TYPE, like its template refusal |
+| S15 | `bank_categorisation_rules.client_id` | `bank/bankRulesService.ts` `createRule` / `updateRule` ← `bank-rules.ts` POST, `bank-rules-action.ts` update, MCP `writeBankRules` | `body.clientId` | **FIXED (r3)** in both service functions; MCP already checked `refsBelongToCompany`. `bank-rules-seed.ts:98` inserts no `client_id` |
+| S16 | `bank_transactions.suggested_client_id` | `bank-transactions-action.ts` `save_selection` (inline); `bank/bankRulesSuggestionPass.ts:85`; `bankRuleAutoPostLine.ts:214` | `body.selectionEntityId`; a rule's `client_id`; `NULL` | `save_selection` **FIXED (r3)**. The suggestion pass copies a rule's `client_id` — fenced at S15 where it enters; a rule planted before this commit still propagates (impact query). Auto-post writes `NULL` |
+| S17 | `time_entries.customer_id` | `core/timeTrackingService.ts` `createTimeEntry` / `updateTimeEntry` ← `time-entries.ts` POST/PUT | `req.body.customerId` | **FIXED (r3)**; the practice time-entry services write `practice_client_id` only (no `customer_id` in either file) |
+| S18 | `portal_payment_links.client_id` | `pages/api/portal/payment-link.ts` POST → `portalService.createPaymentLink`; `core/paymentGatewayPortalService.ts:18`; `customer-invoices/[id]/pay-now.ts:96` | `body.clientId`; `ci.client_id` of an invoice read `WHERE company_id` (both others) | POST **FIXED (r3)** — the one PORTAL-facing row: the unauthenticated GET hands the link's `client_id` to anyone with the token. The other two are **exempt** — id produced by a company-scoped read |
+| S19 | `archive_customer_invoices.client_id`, `.customer_id` | `core/archiveExecutionService.ts:105` | `INSERT … SELECT` from `customer_invoices WHERE company_id` | **exempt** — copies A's own rows; a planted pre-existing id is carried (impact query covers the source table) |
+| S20 | `portal_access.client_id` | `ar/portalService.ts:61` `createPortalUser` | its `input.clientId` | **no caller** — `rg createPortalUser src pages scripts` finds only the definition. Not fenced: it takes no `companyId`, so a fence would need a signature change for code nothing runs. Stated, not argued safe: whoever wires it must add one |
+| S21 | `payment_transactions.customer_id` | none | — | **no writer in the repo** (`rg payment_transactions src pages scripts` outside migrations: 0 hits). Not measurable in-repo |
+| S22 | `oauth_apps.client_id` (text) | — | an OAuth client identifier | **not a customer id** — name collision |
+| S23 | `companies.stripe_customer_id` (varchar) | — | a Stripe id | **not a customer id** |
+| S24 | `practice_client_contacts.client_id` | `practice/practiceClientService.ts:258` ← `practice/client-contacts.ts` POST | `body.clientId` — unfenced | **FK is `practice_clients`, not `customers`** — same shape, different parent. Registered as **R-073** (reserved), below |
+| S25 | `practice_client_rate_overrides.client_id` | `practice/clients/[id]/rate-overrides.ts` → `practiceClientRateOverrideService` | route `id` | FK `practice_clients`; the routed path checks `assertClientBelongsToCompany` (`:42`) first. The `@deprecated` `practiceStaffRateService.createClientRateOverride` has no route |
+| S26 | `time_entries`, `practice_jobs`, `practice_entry_templates` `.practice_client_id` | practice services | — | FK `practice_clients` — R-073's class; not walked here |
+
+Columns a name- or FK-based query cannot find, stated rather than assumed complete:
+polymorphic `entity_id` columns (`entity_udf_values` — its only writer
+`setEntityUdfValues` has no caller; `audit_log`, `document_links`,
+`accounting_adjustments`, `procurement_documents` — not walked), `loans.counterparty_id`
+(no FK, and no reader resolves it against `customers`), and customer ids inside JSONB
+(`recurring_transactions.template_data` is row 8; other JSONB not enumerable from
+`information_schema`).
+
+**Measured, end to end.** `tests/integration/customer-ownership-fence-routes.int.test.ts`
+drives every r3 site through its real handler — `withAuth`, CSRF, write access — on
+`isaflow_dev` with two throwaway companies (random ids, deleted in `afterAll`; a count
+of leftover `R067 r3%` companies read 0 after every run). For each: company B's
+customer → the refusal status and **0** rows of company A carrying it; company A's own
+customer → 2xx and exactly one row carrying it. The refused delivery note also leaves
+the document counter untouched. With each fence line removed from a file copy, that
+site's own case turns red with the write going through (`expected 201 to be 400` /
+`expected 200 to be 400`), and the delivery-note mutant also burns a number
+(`expected [ 2 ] to deeply equal [ 1 ]`) — which is the reviewer's measurement,
+reproduced from the other side.
+
+The reviewer's grading note stands and is worth keeping precise: none of S8–S17 is
+rendered by the portal superuser route today, so their name joins stay inside RLS for
+`app_user`. S18 is the exception — portal-facing by construction.
+
 ### Reserved, not fixed here
 
 **R-068** — the supplier twin. `ap/supplierInvoiceService.ts:144` writes
@@ -209,7 +299,20 @@ this company for another tenant's creditor. The MCP callers are covered
 line, `assertSupplierInCompany`-shaped, in the same place — registered rather than
 taken here because the supplier twin is R-068's scope.
 
+**R-073** — the practice-client twin (reserved with `reserve-r-id.sh`).
+`pages/api/accounting/practice/client-contacts.ts:28` takes `body.clientId` and
+`createClientContact` writes it into `practice_client_contacts.client_id` under this
+company with no read of `practice_clients`; the FK is tenant-agnostic. The sibling
+`rate-overrides.ts:42` shows the check it lacks. It is not a customer id, so it is
+registered rather than folded in; R-073 should also walk the three
+`practice_client_id` columns (S26).
+
 ### Noted, not fixed (pre-existing, unrelated to this finding)
+
+`pages/api/portal/payment-link.ts` POST derives its `companyId` from the user's
+DEFAULT `company_users` row rather than the active company `withAuth` resolved. The
+r3 fence uses the same `companyId` as the route's own invoice check, so the two agree;
+the choice of company is pre-existing and left as found.
 
 `quoteService.ts:87` — `nextQuoteNumber()` reads
 `SELECT quote_number FROM customer_quotes ORDER BY created_at DESC LIMIT 1` with
@@ -221,8 +324,10 @@ path that runs as a superuser.
 
 | File | What it pins |
 |---|---|
-| `tests/unit/services/assertCustomerInCompany.test.ts` (7) | the fence itself: owned passes, foreign refuses, absent id issues **no query**, the read is company-scoped + `deleted_at IS NULL`, savepoint name ≤31 chars, 22P02 → refusal, any other error propagates |
+| `tests/unit/services/assertCustomerInCompany.test.ts` (7) | the fence itself: owned passes, foreign refuses, absent id issues **no query**, the read is scoped by `company_id` **and asks nothing about `deleted_at`** (`:64` asserts the clause is absent — property 4), savepoint name ≤31 chars, 22P02 → refusal, any other error propagates |
 | `tests/unit/services/customerOwnershipFence.test.ts` (19) | per call site, **by outcome**: a foreign id is refused and the ownership SELECT is the *only* statement that ran (no INSERT/UPDATE/DELETE); an own-tenant id gets past the fence into the rest of the path |
+| `tests/unit/services/customerOwnershipFenceSatellites.test.ts` (14) | round 3's service arms (S8, S9, S14, S15 ×2, S17 ×2): foreign id refused with the ownership SELECT the only statement run; own id proceeds; an update with no customer id issues no customer query |
+| `tests/integration/customer-ownership-fence-routes.int.test.ts` (27) | round 3, end to end through the real handlers: all 13 r3 write arms refuse B's customer with 0 rows written and still store A's; the refused delivery note reserves no document number |
 | `tests/integration/customer-ownership-fence.int.test.ts` (6) | against a real database, because the hole *is* the schema: company B's customer is refused and `customer_invoices` is left empty; company A's own customer still creates the invoice with both columns set; a non-UUID is refused **inside a real `als.run` request transaction** which then stays usable; a soft-deleted own customer still edits its draft quote while B's is still refused; a bank receipt allocated to B's customer posts nothing and the same receipt against A's customer allocates |
 
 Two existing suites (`customerInvoiceCreateRetry`, `customerPaymentService`) now stub
@@ -236,6 +341,10 @@ mock (it was absent, so the fence's savepoint call was `undefined`), and the two
 `sql` queue is positional get one ownership row in the customer arm's position. No
 assertion in any of them was removed or loosened — and both of those queues stay
 mutation-sensitive: reverting the fence line shifts them back and turns them red.
+
+Round 3 does the same for `ar/dunningOverridesService.test.ts`: a `withSavepoint`
+passthrough and one ownership row at the head of each `setOverride` queue. Reverting
+the `setOverride` fence turns 5 of its 8 tests red.
 
 ## Mutations
 
@@ -263,6 +372,34 @@ Every guard line reverted one at a time from file copies, gates re-run, line res
 | `bankAllocationService.ts:123` — the fence line commented out | integration **1 failed**; a witness probe on the same mutation printed the row that was written: `company_id=…f0671 (A) client_id=…f0674 (B) customer_company_id=…f0672 (B) total_amount=115.00` |
 | `assertCustomerInCompany` — `withSavepoint(...)` replaced by a plain call | integration **1 failed** — the malformed-id case now sees the raw 22P02 escape and the request transaction abort. Under the round-1 test (no ALS store) the same mutation left all 3 tests green, which is the LOW the reviewer raised |
 | `assertCustomerInCompany` — `AND deleted_at IS NULL` put back | integration **1 failed** — `CustomerNotInCompanyError` on a draft quote whose own-company customer was soft-deleted. This is the end-to-end measurement behind property 4 |
+
+### Round 3 mutations
+
+Each line commented out (or its error mapping disabled) in a file copy, the file
+restored with `cp`, `git status --porcelain -uall` unchanged afterwards. "Int" is
+`customer-ownership-fence-routes.int.test.ts` on `isaflow_dev`; "Unit" is
+`customerOwnershipFenceSatellites.test.ts`.
+
+| Mutation | Int (27) | Unit (14) |
+|---|---|---|
+| `writeOffService.ts:76` fence | 1 failed — `write-offs POST`: `expected 200 to be 400` | 1 failed |
+| `deliveryNoteService.ts:193` fence | 2 failed — `expected 201 to be 400`; counter `[ 2 ]` not `[ 1 ]` | 1 failed |
+| `bankRulesService.ts:40` (create) | 1 failed — `bank-rules POST` | 2 failed |
+| `bankRulesService.ts:67` (update) | 1 failed — `bank-rules-action update` | 2 failed |
+| `dunningOverridesService.ts:73` | 1 failed — `expected 200 to be 404` | 1 failed |
+| `timeTrackingService.ts:140` (create) | 1 failed — `time-entries POST` | 2 failed |
+| `timeTrackingService.ts:170` (update) | 1 failed — `time-entries PUT` | 1 failed |
+| `projects.ts:38` | 1 failed — `expected 201 to be 400` | — |
+| `customer-activities.ts:101` | 1 failed | — |
+| `customer-contacts.ts:69` | 1 failed | — |
+| `customer-delivery-addresses.ts:74` | 1 failed | — |
+| `bank-transactions-action.ts:154` | 1 failed — `save_selection` | — |
+| `portal/payment-link.ts:80` | 1 failed | — |
+| `delivery-notes.ts:70` — 400 mapping disabled | 1 failed — `expected 500 to be 400` | — |
+| `bank-rules.ts:72` — 400 mapping disabled | 1 failed — `expected 500 to be 400` | — |
+| `ar/dunning/overrides/index.ts:62` — 404 mapping disabled | 1 failed — `expected 500 to be 404` | — |
+
+In every row the case that failed is the mutated site's own; no other case moved.
 
 ## Historical impact — for Hein to run
 
@@ -320,3 +457,32 @@ SELECT 'practice_clients', pc.id, pc.legal_name, pc.company_id,
 A non-empty result on `customer_invoices` is the one to act on first: those rows are
 what the portal PDF renders, so each is a tax invoice carrying another tenant's
 identifying details.
+
+Round 3's columns — same shape, one row per mismatch. Production not measured.
+
+```sql
+SELECT t.tbl, t.id, t.company_id, t.customer_id, c.company_id AS customer_company_id
+  FROM (
+    SELECT 'customer_write_offs' AS tbl, id, company_id, client_id AS customer_id FROM customer_write_offs
+    UNION ALL SELECT 'delivery_notes', id, company_id, customer_id FROM delivery_notes
+    UNION ALL SELECT 'projects', id, company_id, client_id FROM projects
+    UNION ALL SELECT 'customer_activities', id, company_id, customer_id FROM customer_activities
+    UNION ALL SELECT 'customer_contacts', id, company_id, customer_id FROM customer_contacts
+    UNION ALL SELECT 'customer_delivery_addresses', id, company_id, customer_id FROM customer_delivery_addresses
+    UNION ALL SELECT 'customer_dunning_overrides', NULL::uuid, company_id, customer_id FROM customer_dunning_overrides
+    UNION ALL SELECT 'bank_categorisation_rules', id, company_id, client_id FROM bank_categorisation_rules
+    UNION ALL SELECT 'bank_transactions.suggested', id, company_id, suggested_client_id FROM bank_transactions
+    UNION ALL SELECT 'time_entries', id, company_id, customer_id FROM time_entries
+    UNION ALL SELECT 'archive_customer_invoices', id, company_id, COALESCE(client_id, customer_id)
+                FROM archive_customer_invoices
+    UNION ALL SELECT 'portal_payment_links', pl.id, ci.company_id, pl.client_id
+                FROM portal_payment_links pl JOIN customer_invoices ci ON ci.id = pl.invoice_id
+  ) t
+  LEFT JOIN customers c ON c.id = t.customer_id
+ WHERE t.customer_id IS NOT NULL
+   AND (c.id IS NULL OR c.company_id <> t.company_id)
+ ORDER BY 1, 3;
+```
+
+A `bank_categorisation_rules` hit matters beyond itself: the suggestion pass copies its
+`client_id` onto every matching bank line (S16), so correct the rule, not only the lines.

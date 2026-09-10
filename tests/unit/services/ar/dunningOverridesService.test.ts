@@ -17,6 +17,8 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlMock,
     withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(sqlMock)),
+    // R-067: setOverride's tenant fence reads the customer inside a savepoint.
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => Promise.resolve().then(fn)),
   };
 });
 
@@ -62,6 +64,7 @@ describe('getOverride', () => {
 
 describe('setOverride', () => {
   it('upserts with suppress_dunning=true', async () => {
+    mockSql.mockResolvedValueOnce([{ ok: 1 }]);                     // R-067 customer ownership read
     mockSql.mockResolvedValueOnce([]);                              // getOverride → no existing
     mockSql.mockResolvedValueOnce([{                                // upsert RETURNING
       company_id: COMPANY_ID,
@@ -78,6 +81,7 @@ describe('setOverride', () => {
   });
 
   it('validates template_id_override belongs to this company', async () => {
+    mockSql.mockResolvedValueOnce([{ ok: 1 }]);                     // R-067 customer ownership read
     mockSql.mockResolvedValueOnce([]);   // getOverride → none
     mockSql.mockResolvedValueOnce([]);   // template existence check → empty → reject
     await expect(
@@ -89,6 +93,7 @@ describe('setOverride', () => {
   // fall back to a catch-all 400 for everything else, which withAuth COMMITs.
   // The refusal must be TYPED so the route can tell it from a PG error.
   it('raises the missing template as a typed 404 ArRequestError', async () => {
+    mockSql.mockResolvedValueOnce([{ ok: 1 }]);                     // R-067 customer ownership read
     mockSql.mockResolvedValueOnce([]);
     mockSql.mockResolvedValueOnce([]);
     const thrown = await setOverride(COMPANY_ID, CUSTOMER_ID, {
@@ -101,6 +106,7 @@ describe('setOverride', () => {
   });
 
   it('allows clearing template_id_override by passing null', async () => {
+    mockSql.mockResolvedValueOnce([{ ok: 1 }]);                     // R-067 customer ownership read
     mockSql.mockResolvedValueOnce([{                                // getOverride → existing with override set
       company_id: COMPANY_ID,
       customer_id: CUSTOMER_ID,

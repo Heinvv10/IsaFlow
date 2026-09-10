@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type { CustomerWriteOff, WriteOffCreateInput } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -70,6 +71,9 @@ export async function createWriteOff(companyId: string,
   input: WriteOffCreateInput,
   userId: string
 ): Promise<CustomerWriteOff> {
+  // R-067: only the invoice was read company-scoped; client_id went into the
+  // write-off untouched, and every list query joins customers on it.
+  await assertCustomerInCompany(companyId, input.clientId);
   // Validate amount against invoice balance
   const invRows = (await sql`
     SELECT total_amount, amount_paid FROM customer_invoices
