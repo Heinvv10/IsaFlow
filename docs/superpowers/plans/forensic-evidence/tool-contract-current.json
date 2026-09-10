@@ -5725,7 +5725,7 @@
     },
     {
       "name": "run_control_checks",
-      "scope": "read:reports",
+      "scope": "write:audit",
       "write": true,
       "requires_post": false,
       "per_user_idempotency": true,
