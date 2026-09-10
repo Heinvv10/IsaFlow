@@ -2,6 +2,7 @@ import {afterAll,beforeAll,beforeEach,describe,expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {afsSectionHttpFixture} from './afsSectionHttpFixture';
 import {generateNoteNarrative} from '@/modules/accounting/services/afs/noteAiService';
+import {generateSection} from '@/modules/accounting/services/afs/noteEngineService';
 
 // The model call is the only boundary replaced: every route, guard, lock and row is real.
 vi.mock('@/modules/accounting/services/afs/noteAiService',()=>({generateNoteNarrative:vi.fn()}));
@@ -32,15 +33,25 @@ describe('AI narrative generation',()=>{
   expect(vi.mocked(generateNoteNarrative).mock.calls[0]?.[3]).toMatchObject({framework:'ifrs_smes'});
  });
 
- it('voids the review of a section whose narrative is what the portal shows, and only then',async()=>{
-  const doc=await h.document();
-  const shown=await h.section(doc,{status:'reviewed',sectionType:aiType,content:null});
-  expect((await h.request('POST',h.sectionPath(doc,shown,'ai-narrative'))).status).toBe(200);
-  expect(attestation(await h.read(shown)),'a displayed narrative replaced reviewed content').toEqual({status:'pending',reviewed_by:null,signed_off_by:null});
-  expect(await h.audits(shown)).toHaveLength(1);
-  const other=await h.document(),hidden=await h.section(other,{status:'reviewed',sectionType:aiType,content:table});
-  expect((await h.request('POST',h.sectionPath(other,hidden,'ai-narrative'))).status).toBe(200);
-  expect((await h.read(hidden)).status,'a draft narrative behind content blocks is not what was reviewed').toBe('reviewed');
+ it.each([['no content blocks',null],['content blocks the portal prints instead',table]])('voids the review of a reviewed section when it has %s',async(_what,content)=>{
+  // The narrative and its accepted flag are both in the signing fingerprint, and
+  // updateAfsSection treats them as content: writing one is not what was reviewed.
+  const doc=await h.document(),id=await h.section(doc,{status:'reviewed',sectionType:aiType,content});
+  expect((await h.request('POST',h.sectionPath(doc,id,'ai-narrative'))).status).toBe(200);
+  expect(attestation(await h.read(id)),'a new narrative left the old review standing').toEqual({status:'pending',reviewed_by:null,signed_off_by:null});
+  expect(await h.audits(id)).toHaveLength(1);
+ });
+
+ it('refuses when an accepted narrative changed the rendered overrides while the model ran',async()=>{
+  const doc=await h.document(),id=await h.section(doc,{status:'auto_generated',sectionType:aiType,content:table});
+  vi.mocked(generateNoteNarrative).mockImplementationOnce(async()=>{
+   await h.pool.query(`UPDATE afs_sections SET overrides='{"title":"Accepted","blocks":[{"type":"paragraph","text":"Accepted text"}]}'::jsonb
+    WHERE company_id=$1 AND id=$2`,[h.f.companyA,id]);
+   return 'Narrative of superseded content';
+  });
+  const res=await h.request('POST',h.sectionPath(doc,id,'ai-narrative'));
+  expect(res.status,JSON.stringify(res.body)).toBe(409);
+  expect((await h.read(id)).ai_narrative).toBeNull();
  });
 
  it('holds no lock on the document while the model runs',async()=>{
@@ -98,11 +109,27 @@ describe('reorder',()=>{
   expect(res.status,JSON.stringify(res.body)).toBe(409);
   expect([(await h.read(a)).sort_order,(await h.read(b)).sort_order]).toEqual(before);
  });
- it('refuses a section of another document',async()=>{
-  const doc=await h.document(),own=await h.section(doc),foreign=await h.section(await h.document());
+ it('refuses a section of another document and names that section, not the document',async()=>{
+  const doc=await h.document(),own=await h.section(doc),second=await h.section(doc),foreign=await h.section(await h.document());
+  expect(second).toBeTruthy();
   const res=await reorder(doc,[own,foreign]);
   expect(res.status,JSON.stringify(res.body)).toBe(404);
+  expect(res.body.error?.message,'the refusal named the document instead of the section').toContain(foreign);
   expect((await h.read(own)).sort_order).toBe(0);
+ });
+
+ it('takes ids in any case and refuses a payload that does not renumber every section',async()=>{
+  const doc=await h.document(),a=await h.section(doc),b=await h.section(doc);
+  expect((await reorder(doc,[b.toUpperCase(),a.toUpperCase()])).status,'uppercase ids were refused').toBe(200);
+  const partial=await reorder(doc,[a]);
+  expect(partial.status,JSON.stringify(partial.body)).toBe(400);
+  expect([(await h.read(b)).sort_order,(await h.read(a)).sort_order],'a partial payload left duplicate note numbers').toEqual([1,2]);
+ });
+
+ it('voids the review of every section whose note number changes',async()=>{
+  const doc=await h.document(),a=await h.section(doc,{status:'reviewed'}),b=await h.section(doc,{status:'reviewed'});
+  expect((await reorder(doc,[b,a])).status).toBe(200);
+  for(const id of [a,b])expect(attestation(await h.read(id)),'renumbered notes kept their review').toEqual({status:'pending',reviewed_by:null,signed_off_by:null});
  });
 });
 
@@ -142,5 +169,48 @@ describe('an impersonated session',()=>{
   const res=await h.request('PUT',h.sectionPath(doc,id,'overrides'),{overrides:{title:'Impersonated',blocks:[]}},'u1',await h.impersonatedSession('u1'));
   expect(res.status,JSON.stringify(res.body)).toBe(403);
   expect(await h.read(id)).toEqual(before);
+ });
+});
+
+describe('generation',()=>{
+ it('refuses a document-level generate while the document is out for signature',async()=>{
+  const doc=await h.document('partner_review'),id=await h.section(doc,{status:'signed_off'});
+  await h.pool.query("UPDATE afs_documents SET signing_requested_at=now(),signum_document_id='signum-synthetic' WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]);
+  const before=await h.read(id);
+  const res=await h.request('POST',`/api/accounting/afs/${doc}/generate`,{});
+  expect(res.status,JSON.stringify(res.body)).toBe(409);
+  expect(await h.read(id)).toEqual(before);
+  expect((await h.pool.query('SELECT count(*)::int AS n FROM afs_generation_log WHERE company_id=$1 AND document_id=$2',[h.f.companyA,doc])).rows[0].n).toBe(0);
+ });
+
+ it('generateSection goes through the write guard: it voids the review and refuses a locked document',async()=>{
+  const doc=await h.document(),id=await h.section(doc,{status:'reviewed',sectionType:'note_11'});
+  await generateSection(h.f.companyA,doc,id,2024,'ifrs_smes',h.f.u1.id);
+  const row=await h.read(id);
+  expect({reviewed_by:row.reviewed_by,signed_off_by:row.signed_off_by},'the generator left the old reviewer on new content').toEqual({reviewed_by:null,signed_off_by:null});
+  expect(await h.audits(id)).toHaveLength(1);
+  const filed=await h.document('filed'),locked=await h.section(filed,{status:'signed_off',sectionType:'note_11'});
+  const before=await h.read(locked);
+  await expect(generateSection(h.f.companyA,filed,locked,2024,'ifrs_smes',h.f.u1.id)).rejects.toThrow('locked');
+  expect(await h.read(locked)).toEqual(before);
+ });
+});
+
+describe('note templates of several frameworks',()=>{
+ it('counts one mandatory section per type, read from the document\'s own framework',async()=>{
+  const type=`synthetic_fw_${randomUUID().slice(0,8)}`;
+  for(const [framework,mandatory] of [['ifrs_smes',false],['full_ifrs',true],['both',true]] as const)
+   await h.pool.query('INSERT INTO note_templates(section_type,framework,title,is_mandatory) VALUES($1,$2,$3,$4)',[type,framework,'Synthetic framework note',mandatory]);
+  try{
+   const doc=await h.document(),id=await h.section(doc,{status:'pending',sectionType:type});
+   const res=await h.request('POST',`/api/accounting/afs/${doc}/submit-for-review`,{});
+   expect(res.status,`a note not mandatory under this document's framework blocked it: ${JSON.stringify(res.body)}`).toBe(200);
+   await h.pool.query("UPDATE afs_documents SET reporting_framework='full_ifrs' WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]);
+   await h.pool.query("UPDATE afs_documents SET status='draft' WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]);
+   const strict=await h.request('POST',`/api/accounting/afs/${doc}/submit-for-review`,{});
+   expect(strict.status).toBe(409);
+   expect(strict.body.error?.message,'the duplicate template rows multiplied the count').toContain('1 mandatory section');
+   expect(id).toBeTruthy();
+  }finally{await h.pool.query('DELETE FROM note_templates WHERE section_type=$1',[type]);}
  });
 });
