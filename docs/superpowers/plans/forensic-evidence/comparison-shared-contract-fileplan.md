@@ -1,0 +1,20 @@
+# Comparison shared contracts and storage
+
+Base e0dc0fe37; root owns this isolated branch and migration 668 (all registered worktree files scanned before reservation). Extends worker plan 51e1022c8. No change to 60-second job deadline, 65-second process bound or 8-GiB worker limit.
+
+## Frozen first boundary
+
+- `auditComparisonJobContract.ts`: strict detached public `{firstSnapshotId,secondSnapshotId,idempotencyKey}`; self-comparison allowed, ordering significant. Stored request adds two authenticated canonical hashes, sorted unique union of signed source permissions and `comparisonRuleVersion:1`. Caller cannot supply hashes, permissions, identity, resource limits or rule overrides. Only enqueue derives stored fields after authenticating both retained headers and checking their current union authority before replay.
+- `auditComparisonStorageContract.ts`: source/result identity, four sections records/checks/evidence/gaps, authenticated projected item `{identity,materialHash,ordinal}` plus original ordinal; header binds company/snapshot/hash/version/counts and signed globals. Result binds job/generation/lease, ordered source identities/hashes, counts and global comparison hashes. Domain-separated cryptography must reject source/result/header/item substitution before returning plaintext. Source items never include original binary evidence.
+- Migration `668_forensic_snapshot_comparison.sql`: additive audit_compare intent kind/result pointer; exclusive succeeded-result check across all three kinds; result generation FK. Companion source projection rows retain authenticated items with original snapshot FK; comparison result/items bind current delegated job generation/lease and permit SELECT/INSERT only under tenant RLS. No update/delete authority to app_user. A legacy projection may be built only by a current authorized comparison worker; no status-read upgrades. New snapshot projections publish atomically with original snapshot. Result publication is atomic with current lease CAS and exact count reconciliation.
+
+## Tests before implementation
+
+1. Missing request module RED; reject public authority/hash/rule/limit injection, accessors and invalid IDs; preserve ordered IDs/self-comparison; reject stored missing/unknown/duplicate/unsorted permissions, unsupported version, changed source hashes and caller mutations.
+2. Missing comparison crypto/storage RED; authenticate every identity and domain; swapping tenant/source/order/generation/section/ordinal/material hash fails. Tampered ciphertext or signature and oversized envelopes fail before projection returns.
+3. Real PostgreSQL missing tables/jobkind RED before migration; fresh replay and rerun naming, current/foreign tenant and lease expired/wrong person/generation rejection, immutable published rows, no success pointer without retained result. Inject silently suppressed mandatory inserts; publication must refuse exact absent row IDs/counts and roll back.
+4. Integrate job parser/delegation/runner/process/status unions only with implemented enqueue/worker/publication. No executable job kind that falls through to export, no stub result, no implicit work on status. Saved union authority is rechecked at enqueue/replay/start/publication/status/page.
+
+## Subsequent delivery gates
+
+Worker streaming core is independently reviewable before DB wiring; its emit output is provisional until complete counts/order validated. Root freezes concrete projection envelopes and delegates new publication/query files only after contract tests. Full scale admission is 100000 records and 100000 combined evidence/gaps per source; disjoint comparison may produce 400000 changes plus checks. Legacy conversion verifies one bounded original seal at a time without fetching binary artifacts; if actual measured conversion exceeds current limits, authenticated resumability is required. Final acceptance remains actual snapshots/backdated shared mutations/comparison process/MCP and REST, full output reconstruction, tamper/revocation/concurrency/recovery, independent review and full integrated CI. This plan or input parser alone does not deliver comparison.
