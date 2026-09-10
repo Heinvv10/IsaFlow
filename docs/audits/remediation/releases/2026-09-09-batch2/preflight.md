@@ -1,6 +1,8 @@
 # Batch 2 release preflight (draft, updated as branches merge)
 
-Unique indexes added by this batch will refuse to build if production already holds duplicates; the deploy would then fail mid-migration. Run each read-only probe on production BEFORE `bash scripts/deploy.sh`, record the counts here, and stop if any is non-zero.
+Migrations in this batch fail closed: a unique index refuses to build if production already holds
+duplicates, and a guarded migration refuses if its precondition is unmet. Either way the deploy fails
+mid-migration, leaving the batch half-applied with the code not yet rsynced. Run each read-only probe on production BEFORE `bash scripts/deploy.sh`, record the counts here, and stop if any is non-zero.
 
 | Migration | Branch | Probe (read-only) | Prod count | Checked by |
 |---|---|---|---|---|
@@ -10,6 +12,9 @@ Unique indexes added by this batch will refuse to build if production already ho
 | 623_gl_je_reversal_of_index | K-032 | non-unique index, no precondition | n/a | |
 | 624_subscription_charges_subscription_id | K-033/K-034 | backfill precondition: charges whose company holds >1 subscription: see K-033/fix.md | | |
 | 625_supplier_invoice_duplicate_fingerprint_unique | K-015 | duplicate fingerprints per company: see K-015/fix.md | | |
+| 644_loan_gl_postings_period_once | K-083 | loan periods holding >1 journal: see K-083/fix.md | | |
+| 645_loan_reclass_postings | K-081 | new table, no precondition | n/a | |
+| 659_loan_reclass_postings_backfill_rebuild | K-081 | deploy role must be superuser or BYPASSRLS (the rebuild refuses otherwise): `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;` run as the `DATABASE_URL` role | | |
 
 Post-deploy verification (in addition to the deploy script's golden paths + integrity):
 - RELEASE_SHA and BUILD_ID on the live app match the merged master SHA.
