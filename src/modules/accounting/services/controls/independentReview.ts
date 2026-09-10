@@ -1,4 +1,5 @@
 import {als} from '@/lib/als';
+import {log} from '@/lib/logger';
 import {isPlatformAdminRequest} from '@/lib/auth/platformImportAuthority';
 import type {ControlPrincipal} from './contracts';
 import {IMPERSONATION_UNVERIFIED} from '@/lib/auth/impersonationState';
@@ -27,15 +28,30 @@ export function assertIndependentHumanReview(principal:ControlPrincipal,requeste
  */
 export function assertIndependentRequestReview(requesterPersonId:string|null=null):void{
  const store=als.getStore();
- // No request context at all is a script or a background task, not a browser session.
+ // The ONE blanket allow, and a deliberate one: no request context at all is a script or
+ // a background task run by an operator with database credentials, not a session anyone
+ // is signing a decision in.
  if(!store)return;
+ // Inside a request context the answer defaults to no. Every principal-less context in
+ // this codebase - the platform-admin request, invite and extension tokens, MCP
+ // invocation persistence, the audit-worker poller and lease, the portfolio workbench -
+ // either issues its own fixed SQL or serves a flow that records no approver, so none of
+ // them needs to be allowed through here - except the platform-admin request, below, for
+ // a reason that is recorded there. Anything else that reaches this line without a
+ // principal is either one of those (which should not be approving) or a new path nobody
+ // has weighed, and both must fail visibly rather than approve quietly.
  if(!store.controlPrincipal){
-  // A verified global-administrator request acting directly on a tenant's ledger is what
-  // the confined platform-import path exists to replace; it is not a tenant review.
-  // Other principal-less contexts (invite/extension tokens, audit workers) are not
-  // browser sessions and are left alone.
-  if(isPlatformAdminRequest(store))throw new Error('A platform administrator is not an independent reviewer');
-  return;
+  // A verified global-administrator request is the one principal-less context that still
+  // gets through, and only because the Sage migration commit has no other route today:
+  // withPlatformImportTarget cannot carry it (its ceiling grants no write:invoices and its
+  // confinement admits only historical_import.post), so refusing here would fail every AP
+  // invoice of a migration into a counts summary. It is recorded at error level on every
+  // call, and impersonatedApproverCensus.int.test.ts fails the day the refusal lands.
+  if(isPlatformAdminRequest(store)){
+   log.error('platform administrator recorded an approver of record on a tenant ledger',{},'controls');
+   return;
+  }
+  throw new Error('This request context cannot record an independent review');
  }
  assertIndependentHumanReview(store.controlPrincipal,requesterPersonId);
 }

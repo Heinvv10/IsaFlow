@@ -145,6 +145,11 @@ if sudo test -f "$PROD_ENV"; then
   if [ -n "$PROD_DB" ]; then
     DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/apply-migrations.ts"
 
+    # Without control_session_impersonator() every approval in every tenant is refused
+    # at runtime (the request path fails closed), so its absence fails the deploy here.
+    echo "Asserting the impersonation reader is deployed..."
+    DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/assert-impersonation-reader.ts"
+
     echo "Running schema-drift audit..."
     DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/audit-schema-drift.ts"
   else

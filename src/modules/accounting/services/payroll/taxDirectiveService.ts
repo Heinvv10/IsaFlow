@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -167,6 +168,7 @@ export async function updateTaxDirectiveStatus(
   status: DirectiveStatus,
   approvedByUserId?: string,
 ): Promise<TaxDirective | null> {
+  if (approvedByUserId) assertIndependentRequestReview();
   log.info('updateTaxDirectiveStatus', { companyId, id, status });
 
   const rows = await sql`
