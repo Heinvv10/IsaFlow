@@ -24,8 +24,8 @@ export async function platformImportAuthorityFixture(){
  let retainedCapability:PlatformImportRequestCapability|undefined,retainedContext:ControlTx|undefined;
  const lockErrors:Array<{code:unknown;message:string}>=[];
  const lockPids:number[]=[];let lockEntered=0,releaseLock!:()=>void;
- const lockResume=new Promise<void>(resolve=>{releaseLock=resolve;});
- let releaseEntry!:()=>void;const lockEntry=new Promise<void>(resolve=>{releaseEntry=resolve;});
+ let lockResume=new Promise<void>(resolve=>{releaseLock=resolve;});
+ let releaseEntry!:()=>void;let lockEntry=new Promise<void>(resolve=>{releaseEntry=resolve;});
  let escaped:Promise<unknown>|undefined,releaseEscaped:(()=>void)|undefined,escapedQueryRefused=false;
  async function finishEscaped(){releaseEscaped?.();await escaped;return escapedQueryRefused;}
  async function close(){
@@ -125,13 +125,17 @@ export async function platformImportAuthorityFixture(){
     const body=await response.json();await completed;return{status:response.status,body};
    }finally{finished.delete(id);}
   }
+  function startLockProbe(){
+   lockPids.length=0;lockErrors.length=0;lockEntered=0;
+   lockResume=new Promise<void>(resolve=>{releaseLock=resolve;});lockEntry=new Promise<void>(resolve=>{releaseEntry=resolve;});
+  }
   async function waitForLockOverlap(){
    const deadline=Date.now()+5000;
    while(Date.now()<deadline){
     if(new Set(lockPids).size===2&&lockEntered>=1){
      if(lockEntered===2)return 'both_targets';
-     const rows=await pool.query('SELECT pid,wait_event FROM pg_stat_activity WHERE pid=ANY($1::int[])',[lockPids]);
-     if(rows.rows.some((row:{wait_event:string|null})=>row.wait_event==='advisory'))return 'serialized_authority_wait';
+     const rows=await pool.query('SELECT pid,wait_event,wait_event_type FROM pg_stat_activity WHERE pid=ANY($1::int[])',[lockPids]);
+     if(rows.rows.some((row:{wait_event:string|null;wait_event_type:string|null})=>row.wait_event_type==='Lock'&&['advisory','transactionid','tuple'].includes(row.wait_event??'')))return 'serialized_authority_wait';
     }
     await new Promise(resolve=>setTimeout(resolve,10));
    }
@@ -139,6 +143,6 @@ export async function platformImportAuthorityFixture(){
    throw new Error(`Two authority requests did not overlap: ${JSON.stringify({lockPids,lockEntered,waiting:waiting.rows})}`);
   }
   async function witness(){return(await pool.query('SELECT name FROM customers WHERE company_id=$1 AND id=$2',[f.companyA,customer])).rows[0]?.name;}
-  return{f,pool,admin,customer,request,witness,close,finishEscaped,waitForLockOverlap,releaseLock:()=>{releaseEntry();releaseLock();},lockErrors,retained:()=>({capability:retainedCapability,context:retainedContext})};
+  return{f,pool,admin,customer,request,witness,close,finishEscaped,startLockProbe,waitForLockOverlap,releaseLock:()=>{releaseEntry();releaseLock();},lockErrors,retained:()=>({capability:retainedCapability,context:retainedContext})};
  }catch(error){try{await close();}catch(cleanup){throw new AggregateError([error,cleanup],'Authority fixture setup failed');}throw error;}
 }
