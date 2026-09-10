@@ -113,3 +113,32 @@ it('passes actual custom-authorization semantic parsing before the issued-contex
   await expect(tool.authorize!(contractSample(contract),{companyId:SAMPLE_UUID,userId:SAMPLE_UUID,scopes:[],tokenJti:null,oauthAppId:null}),tool.name).rejects.toThrow('Authenticated control transaction required');
  }
 });
+
+it('migrates proof only for byte-identical complete case objects',async()=>{
+ const {migrateCaseProof}=await import('./contractCases');
+ const original={id:'one',tool:'tool',phase:'current',args:{id:'old'},expected:'denied',exact:true};
+ expect(migrateCaseProof([original],[original],['one'])).toMatchObject({unchangedCaseIds:['one'],rerunCaseIds:[]});
+ for(const altered of [{...original,args:{id:'new'}},{...original,expected:'generic'},{...original,exact:false},{...original,phase:'scope'}])expect(migrateCaseProof([original],[altered],['one'])).toMatchObject({unchangedCaseIds:[],rerunCaseIds:['one']});
+ expect(()=>migrateCaseProof([original],[original],['missing'])).toThrow();
+});
+
+it('requires causal owned-source authorization proof for source-dependent current gates',async()=>{
+ const {acceptanceCases,aggregateCoverage}=await import('./contractCases');
+ const inventory=JSON.parse(readFileSync('docs/superpowers/plans/forensic-evidence/tool-contract-current.json','utf8'));
+ const cases=acceptanceCases(inventory.tools);
+ const sourceCases=cases.filter(row=>row.id==='export_audit_evidence:current'||row.id==='request_operation_approval:current');
+ expect(sourceCases.map(row=>row.sourceProof)).toEqual(['owned-retained-snapshot','owned-draft-journal']);
+ const build={commit:'c4b2c9859d15e295447ad1691d5d7d1c47b76d05',buildId:'named-build',verification:'local-process-cwd-artifact'};
+ const report={outcome:'passed',build,planHash:'hash',executed:sourceCases.map(row=>({id:row.id,tool:row.tool,phase:row.phase,committedRefusal:true}))};
+ expect(()=>aggregateCoverage(sourceCases,'hash',[report])).toThrow('causal');
+ const proven={...report,executed:report.executed.map((row,i)=>({...row,causalProof:{kind:sourceCases[i]!.sourceProof,positiveAuthorized:true,unchangedToken:true,boundArgs:{source:'actual-owned-fixture'}}}))};
+ expect(aggregateCoverage(sourceCases,'hash',[proven]).complete).toBe(true);
+});
+
+it('proves source-dependent current rights with actual owned sources and unchanged bearer credentials',async()=>{
+ const {runCurrentSourceAcceptance}=await import('./currentAuthorityFixture');
+ const proof=await runCurrentSourceAcceptance(process.env);
+ expect(proof.executed.map(row=>row.id).sort()).toEqual(['export_audit_evidence:current','request_operation_approval:current']);
+ for(const row of proof.executed)expect(row.causalProof).toMatchObject({positiveAuthorized:true,unchangedToken:true});
+ expect(proof.effects).toBe(0);
+},120000);

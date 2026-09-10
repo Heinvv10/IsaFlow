@@ -30,6 +30,7 @@ export function sample(schema:Schema):unknown{
 export function contractSample(tool:Contract):Record<string,unknown>{
  const args=sample(tool.input_schema) as Record<string,unknown>;
  if(tool.write)args.idempotency_key='http-contract-sample';
+ if(tool.name==='request_operation_approval')Object.assign(args,{operation:'journal.post',entity_type:'journal_entry',entity_id:SAMPLE_UUID});
  if(tool.name==='prepare_bank_operation')args.instruction={action:'prepare_allocate',bankTransactionId:SAMPLE_UUID,allocationType:'account',contraAccountId:SAMPLE_UUID};
  if(tool.name==='execute_bank_operation')args.instruction={action:'allocate',bankTransactionId:SAMPLE_UUID,intent_id:SAMPLE_UUID,approval_id:SAMPLE_UUID};
  const validation=validateToolArguments({name:tool.name,write:tool.write,inputSchema:tool.input_schema} as McpTool,args);

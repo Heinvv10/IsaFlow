@@ -63,7 +63,7 @@ export function contractCases(tool:Contract):ContractCase[]{
  walk(tool.input_schema,[],base);return rows;
 }
 export type GatePhase='fields'|'scope'|'post'|'current';
-export interface AcceptanceCase {id:string;tool:string;phase:GatePhase;args:Record<string,unknown>;expected:string;exact:boolean}
+export interface AcceptanceCase {id:string;tool:string;phase:GatePhase;args:Record<string,unknown>;expected:string;exact:boolean;sourceProof?:string}
 export function acceptanceCases(tools:Contract[]):AcceptanceCase[]{
  const rows:AcceptanceCase[]=[];
  for(const tool of [...tools].sort((a,b)=>a.name.localeCompare(b.name))){
@@ -71,7 +71,7 @@ export function acceptanceCases(tools:Contract[]):AcceptanceCase[]{
   const args=contractSample(tool);
   if(tool.scope)rows.push({id:`${tool.name}:scope`,tool:tool.name,phase:'scope',args,expected:`Insufficient scope: this tool requires ${tool.scope}`,exact:false});
   if(tool.requires_post)rows.push({id:`${tool.name}:post`,tool:tool.name,phase:'post',args,expected:'This operation posts irreversible entries and requires the write:post permission, which this connection was not granted.',exact:true});
-  if(tool.scope)rows.push({id:`${tool.name}:current`,tool:tool.name,phase:'current',args,expected:'Current permissions do not allow this operation.',exact:true});
+  if(tool.scope)rows.push({id:`${tool.name}:current`,tool:tool.name,phase:'current',args,expected:'Current permissions do not allow this operation.',exact:true,...(tool.name==='export_audit_evidence'?{sourceProof:'owned-retained-snapshot'}:tool.name==='request_operation_approval'?{sourceProof:'owned-draft-journal'}:{})});
  }
  return rows;
 }
@@ -80,12 +80,12 @@ export function selectShard<T>(cases:T[],shard:number,size:number):T[]{
  if(shard*size>=cases.length)throw new Error('Shard outside planned coverage');
  return cases.slice(shard*size,(shard+1)*size);
 }
-interface CaseIdentity {id:string;tool:string;phase:string}
+interface CaseIdentity {id:string;tool:string;phase:string;sourceProof?:string}
 export function aggregateCoverage(planned:CaseIdentity[],planHash:string,reports:unknown[]){
  const expected=new Map(planned.map(row=>[row.id,row])),seen=new Set<string>(),builds:LocalBuild[]=[];
  if(expected.size!==planned.length)throw new Error('Duplicate planned case IDs');
  for(const value of reports){
-  const report=value as {outcome?:string;build?:LocalBuild;planHash?:string;executed?:Array<CaseIdentity&{committedRefusal?:boolean}>};
+  const report=value as {outcome?:string;build?:LocalBuild;planHash?:string;executed?:Array<CaseIdentity&{committedRefusal?:boolean;causalProof?:{kind:string;positiveAuthorized:boolean;unchangedToken:boolean;boundArgs:Record<string,unknown>}}>};
   if(!report||report.outcome!=='passed'||report.planHash!==planHash||!Array.isArray(report.executed))throw new Error('Aggregate plan mismatch');
   const build=report.build;
   if(!build||!/^[a-f0-9]{40}$/.test(build.commit)||!build.buildId||build.verification!=='local-process-cwd-artifact')throw new Error('Missing explicit build provenance');
@@ -94,10 +94,24 @@ export function aggregateCoverage(planned:CaseIdentity[],planHash:string,reports
   for(const row of report.executed){
    const match=expected.get(row.id);
    if(!match||row.tool!==match.tool||row.phase!==match.phase||row.committedRefusal!==true)throw new Error('Unverified or mismatched aggregate case');
+   if(match.sourceProof&&(!row.causalProof||row.causalProof.kind!==match.sourceProof||row.causalProof.positiveAuthorized!==true||row.causalProof.unchangedToken!==true||!row.causalProof.boundArgs))throw new Error('Missing causal owned-source authority proof');
    seen.add(row.id);
   }
  }
  const remainingCaseIds=planned.filter(row=>!seen.has(row.id)).map(row=>row.id);
  return{planHash,buildProvenance:builds,plannedCaseCount:planned.length,executedCaseIds:planned.filter(row=>seen.has(row.id)).map(row=>row.id),remainingCaseIds,
   complete:remainingCaseIds.length===0,limitations:['Aggregate covers refusal gates only; safe read defaults and financial workflows are separate','No production verification']};
+}
+export interface ComparedCase extends CaseIdentity {args:Record<string,unknown>;expected:string;exact:boolean}
+/** No old proof is relabelled: differing full case objects explicitly require execution again. */
+export function migrateCaseProof(before:ComparedCase[],after:ComparedCase[],executedIds:string[]){
+ const oldCases=new Map(before.map(row=>[row.id,row])),newCases=new Map(after.map(row=>[row.id,row]));
+ if(oldCases.size!==before.length||newCases.size!==after.length)throw new Error('Duplicate migration case IDs');
+ const comparisons=[...new Set(executedIds)].map(id=>{
+  const old=oldCases.get(id),current=newCases.get(id);if(!old)throw new Error('Executed case absent from original plan');
+  const oldObject=JSON.stringify(old),newObject=current?JSON.stringify(current):null;
+  return{id,oldCase:old,newCase:current??null,unchanged:oldObject===newObject};
+ });
+ return{comparison:'Complete JSON case objects including IDs, args, phase, expected and exact',comparisons,
+  unchangedCaseIds:comparisons.filter(row=>row.unchanged).map(row=>row.id),rerunCaseIds:comparisons.filter(row=>!row.unchanged).map(row=>row.id)};
 }
