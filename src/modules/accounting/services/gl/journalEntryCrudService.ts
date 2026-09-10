@@ -5,6 +5,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { randomUUID } from 'crypto';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { withAlsTransaction } from '@/lib/alsTransaction';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, VatType } from '../../types/gl.types';
 import { assertJournalLinesOwned } from './journalLineOwnership';
@@ -199,7 +200,7 @@ export async function getJournalEntryById(companyId: string,
   }
 }
 
-export async function createJournalEntry(
+async function createJournalEntryInTransaction(
   companyId: string,
   input: JournalEntryCreateInput,
   userId: string,
@@ -298,6 +299,22 @@ export async function createJournalEntry(
     log.error('Failed to create journal entry', { error: err }, 'accounting');
     throw err;
   }
+}
+
+/**
+ * Keep dimension validation locks and journal insertion in one transaction.
+ * Authenticated requests already provide that transaction; direct service and
+ * script callers get an equivalent ALS-bound transaction here.
+ */
+export async function createJournalEntry(
+  companyId: string,
+  input: JournalEntryCreateInput,
+  userId: string,
+  meta?: JournalEntryMeta,
+  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode },
+): Promise<JournalEntry> {
+  return withAlsTransaction({ companyId, userId }, () =>
+    createJournalEntryInTransaction(companyId, input, userId, meta, opts));
 }
 
 // Trial balance split to trialBalanceService.ts — re-exported for backward compat
