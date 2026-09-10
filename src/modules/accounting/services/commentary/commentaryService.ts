@@ -31,6 +31,11 @@ export interface CommentaryRow {
    *  `status` is what says whether the text is published. */
   withdrawnBy: string | null;
   withdrawnAt: string | null;
+  rejectedBy: string | null;
+  /** The administrator impersonating the decider, or null for an ordinary session. */
+  approvedByImpersonator: string | null;
+  rejectedByImpersonator: string | null;
+  withdrawnByImpersonator: string | null;
 }
 
 /** `not_found` is a 404, `empty_draft` a 400, `invalid_state` a 409. The route
@@ -53,6 +58,11 @@ function toRow(r: DbRow): CommentaryRow {
     approvedAt: r.approved_at ? new Date(r.approved_at).toISOString() : null,
     withdrawnBy: r.withdrawn_by ? String(r.withdrawn_by) : null,
     withdrawnAt: r.withdrawn_at ? new Date(r.withdrawn_at).toISOString() : null,
+    rejectedBy: r.rejected_by ? String(r.rejected_by) : null,
+    // Whoever was driving the session behind each decision, or null for an ordinary one.
+    approvedByImpersonator: r.approved_by_impersonator ? String(r.approved_by_impersonator) : null,
+    rejectedByImpersonator: r.rejected_by_impersonator ? String(r.rejected_by_impersonator) : null,
+    withdrawnByImpersonator: r.withdrawn_by_impersonator ? String(r.withdrawn_by_impersonator) : null,
   };
 }
 
@@ -124,6 +134,8 @@ export async function generateDrafts(input: {
         status = 'draft',
         withdrawn_by = CASE WHEN report_commentary.status = 'approved' THEN ${input.userId} ELSE report_commentary.withdrawn_by END,
         withdrawn_at = CASE WHEN report_commentary.status = 'approved' THEN NOW() ELSE report_commentary.withdrawn_at END,
+        withdrawn_by_impersonator = CASE WHEN report_commentary.status = 'approved'
+          THEN ${requestImpersonator()} ELSE report_commentary.withdrawn_by_impersonator END,
         generated_by = EXCLUDED.generated_by,
         updated_at = NOW()
       WHERE report_commentary.status = 'draft' OR ${overwrite}::boolean
@@ -203,7 +215,8 @@ export async function rejectCommentary(companyId: string, id: string, userId: st
 
   const rows = (await sql`
     UPDATE report_commentary
-    SET status = 'rejected', updated_at = NOW()
+    SET status = 'rejected', rejected_by = ${userId}, rejected_by_impersonator = ${requestImpersonator()},
+        updated_at = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'
     RETURNING *
   `) as DbRow[];

@@ -4,6 +4,7 @@
  */
 
 import { sql, withTransaction } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -89,6 +90,7 @@ export async function createAdjustment(companyId: string,
 }
 
 export async function approveAdjustment(companyId: string, id: string, userId: string): Promise<AccountingAdjustment> {
+  assertIndependentRequestReview();
   const adjRows = (await sql`SELECT * FROM accounting_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!adjRows[0]) throw new Error('Adjustment not found');
   if (adjRows[0].status !== 'draft') throw new Error('Adjustment is not in draft status');

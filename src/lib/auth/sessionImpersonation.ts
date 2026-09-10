@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
 import { impersonationActor } from './impersonationAssurance';
-import { IMPERSONATION_UNVERIFIED } from '@/modules/accounting/services/controls/independentReview';
+import { IMPERSONATION_UNVERIFIED } from './impersonationState';
 import type { GoTrueClaims } from './gotrue';
 
 const READER = 'public.control_session_impersonator()';
@@ -28,7 +28,11 @@ export async function resolveImpersonatingActor(client: PoolClient, claims: GoTr
   if (!readerPresent) {
     const probe = await client.query<{ available: boolean }>(
       `SELECT to_regprocedure('${READER}') IS NOT NULL AS available`);
-    if (probe.rows[0]?.available !== true) return IMPERSONATION_UNVERIFIED;
+    // Without the reader nothing can be established. A session with no signal at all is
+    // left alone - refusing every approval in every tenant on a database that lags this
+    // migration is not a security posture - but a presented proof implicates this session,
+    // so it is marked unverified and the review guards fail closed on it.
+    if (probe.rows[0]?.available !== true) return proof ? IMPERSONATION_UNVERIFIED : null;
     readerPresent = true;
   }
   const recorded = await client.query<{ actor: string | null }>(`SELECT ${READER} AS actor`);

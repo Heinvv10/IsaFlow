@@ -1,7 +1,7 @@
 import {als} from '@/lib/als';
 import type {ControlPrincipal} from './contracts';
-/** The session's impersonation state could not be established (the reader function is not deployed). */
-export const IMPERSONATION_UNVERIFIED='impersonation-state-unverified';
+import {IMPERSONATION_UNVERIFIED} from '@/lib/auth/impersonationState';
+export {IMPERSONATION_UNVERIFIED};
 /**
  * Segregation of duties is about people, not cookies. A platform administrator
  * impersonating a member holds that member's session, so every ordinary
@@ -25,8 +25,14 @@ export function assertIndependentHumanReview(principal:ControlPrincipal,requeste
  * script, a background task) is not a browser session and is left alone.
  */
 export function assertIndependentRequestReview(requesterPersonId:string|null=null):void{
- const principal=als.getStore()?.controlPrincipal;
- if(principal)assertIndependentHumanReview(principal,requesterPersonId);
+ const store=als.getStore();
+ // No request context at all is a script or a background task, not a browser session.
+ if(!store)return;
+ // A request context with no tenant principal is a platform-admin request: a global
+ // administrator acting directly on a tenant's ledger, which is what the confined
+ // platform-import path exists to replace. It is not an independent tenant review.
+ if(!store.controlPrincipal)throw new Error('A platform administrator is not an independent reviewer');
+ assertIndependentHumanReview(store.controlPrincipal,requesterPersonId);
 }
 /** The actor to record next to an approver who is not blocked from signing. */
 export function requestImpersonator():string|null{

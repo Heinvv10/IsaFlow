@@ -87,7 +87,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     }
     targetSessionId = targetClaims.session_id;
     proof = await mintImpersonationProof({
-      actorUserId: req.user.id, targetUserId: target.userId, targetSessionId: targetClaims.session_id,
+      actorUserId: req.user.id, targetUserId: target.userId, targetSessionId: targetClaims.session_id, stashId,
       actorExpiresAt: actorClaims.exp, stashExpiresAt: Math.floor(new Date(stash.expires_at).getTime() / 1000),
     });
   } catch (proofErr) {

@@ -55,11 +55,13 @@ const handler: NextApiHandler = async (req, res) => {
   // withPlatformAdmin. The other end is closed too — userImpersonationService
   // refuses to START impersonation of an inactive target (TARGET_INACTIVE).
   let callerId: string;
+  let callerSessionId: string | null = null;
   try {
     // Restoring the owned admin stash must work even when the target needs MFA.
     // The restored session is subject to the normal completed-session gate.
     const claims = await verifyTokenSignature(accessToken);
     callerId = claims.sub;
+    callerSessionId = typeof claims.session_id === 'string' ? claims.session_id : null;
   } catch {
     clearAuthCookies(res);
     clearImpersonationCookies(res);
@@ -89,12 +91,22 @@ const handler: NextApiHandler = async (req, res) => {
   // scope=local revokes only the presented (impersonated) session, so the member's
   // own sessions survive; when the caller is the admin we no longer hold that
   // token and must fall back to revoking the target's sessions globally.
+  const revocationScope = callerId === stash.target_user_id ? 'local' : 'global';
   try {
-    if (callerId === stash.target_user_id) await logout(accessToken, 'local');
+    if (revocationScope === 'local') await logout(accessToken, 'local');
     else await adminRevokeAllUserSessions(stash.target_user_id);
   } catch (revokeErr) {
     log.error('end-impersonation: impersonated session revocation failed',
       { stashId, message: revokeErr instanceof Error ? revokeErr.message : String(revokeErr) }, 'Admin');
+    // The attempt is recorded even though it failed: the session id it names is what
+    // stops the delegation proof from being honoured, so a GoTrue outage cannot leave a
+    // live impersonated session with nothing on record. The stash stays for the retry.
+    await sql`
+      INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+      VALUES (${stash.admin_user_id}, 'impersonation_end_failed', 'user', ${stash.target_user_id},
+        ${JSON.stringify({ stash_id: stashId, target_session_id: callerSessionId,
+          reason: revokeErr instanceof Error ? revokeErr.message : String(revokeErr) })}::jsonb)
+    `;
     return res.status(502).json({ success: false,
       error: { code: 'REVOCATION_FAILED', message: 'Could not revoke the impersonated session — please retry' } });
   }
@@ -122,7 +134,7 @@ const handler: NextApiHandler = async (req, res) => {
       'impersonation_end',
       'user',
       ${stash.target_user_id},
-      ${JSON.stringify({ stash_id: stashId })}::jsonb
+      ${JSON.stringify({ stash_id: stashId, target_session_id: callerSessionId, scope: revocationScope })}::jsonb
     )
   `;
 
@@ -130,7 +142,13 @@ const handler: NextApiHandler = async (req, res) => {
 
   log.info('impersonation ended', { admin: stash.admin_user_id, target: stash.target_user_id }, 'Admin');
 
-  return res.status(200).json({ success: true, data: { redirect: '/admin' } });
+  // A global revocation signs the member out of every device they own, not just the
+  // impersonated session. The caller is told so it can be shown rather than discovered.
+  return res.status(200).json({ success: true, data: { redirect: '/admin',
+    revokedScope: revocationScope,
+    warning: revocationScope === 'global'
+      ? 'Your own session had already replaced the impersonated one, so every session belonging to that user was signed out.'
+      : undefined } });
 };
 
 export default handler;
