@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarCheck, Loader2, AlertCircle, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface FiscalYear {
   year_label: string;
@@ -57,15 +57,12 @@ export default function YearEndPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ yearLabel, action: 'close' }),
       });
-      const json = await res.json();
-      if (res.ok) {
-        setMessage({ type: 'success', text: `Year ${yearLabel} closed. Closing journal created.` });
-        void loadYears();
-      } else {
-        setMessage({ type: 'error', text: json.message || 'Year-end processing failed' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Year-end request failed' });
+      // A refusal is a non-2xx whose reason sits in the envelope's error.message.
+      await assertOk(res, 'Year-end processing failed');
+      setMessage({ type: 'success', text: `Year ${yearLabel} closed. Closing journal created.` });
+      void loadYears();
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Year-end request failed') });
     } finally {
       setIsProcessing(false);
     }
