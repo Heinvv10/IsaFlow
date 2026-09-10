@@ -42,3 +42,17 @@ it('runs that same authority on the AP preview',async()=>{
  expect(text(allowed)).not.toContain('Insufficient scope');
  expect(await count('SELECT count(*)::int AS n FROM supplier_payments WHERE company_id=$1',[f.fixture.companyA])).toBe(0);
 },60000);
+it('rolls back the payment rows a live AP contra wrote before the kernel refused it',async()=>{
+ // Fully authorised caller; the refusal comes AFTER createSupplierPayment and
+ // approveSupplierPayment have written, from the payment approval policy on
+ // supplier_payment.process. The registry savepoint must unwind both writes.
+ const company=f.fixture.companyA;
+ await f.pool.query("INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role) VALUES($1,$2,'Synthetic contra payment policy','payment','amount','any',0,'admin')",[randomUUID(),company]);
+ const payments=()=>count('SELECT count(*)::int AS n FROM supplier_payments WHERE company_id=$1',[company]);
+ const journals=()=>count('SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1',[company]);
+ const before={payments:await payments(),journals:await journals()};
+ const reply=await f.rpcToken(await f.scopedToken(['write:invoices','write:post','write:bank-tx']),'settle_by_contra',{...settlement(),idempotency_key:randomUUID()});
+ expect(reply.result?.isError,text(reply)).toBe(true);
+ expect({payments:await payments(),journals:await journals()}).toEqual(before);
+ expect(await count('SELECT COALESCE(amount_paid,0)::int AS n FROM supplier_invoices WHERE company_id=$1 AND id=$2',[company,invoice])).toBe(0);
+},60000);
