@@ -10589,6 +10589,42 @@
       "severity": "medium",
       "source": "Found by the K-107 r10 census re-derivation; file confirmed present on origin/master by the orchestrating session, 2026-09-10",
       "processNotes": "`isPeriodLocked(companyId, yyyymm)` is read first, then a loop posts one reclassification journal per active loan, then `INSERT INTO loan_period_locks` runs LAST. The primary key makes the outcome safe the same way as R-061. The claim should precede the loop. Registered, NOT fixed -- outside the K-107 brief; needs its own branch."
+    },
+    {
+      "id": "R-060",
+      "claim": "",
+      "area": "accounting/bank",
+      "affectedPaths": [
+        "pages/api/accounting/bank-transactions-action.ts",
+        "pages/api/accounting/supplier-payments-action.ts",
+        "pages/api/accounting/customer-payments-action.ts",
+        "pages/api/accounting/supplier-allocations.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "withAuth COMMITs any response below 500, so a blanket catch that maps an arbitrary post-write error to 400 leaves whatever was written before the throw.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-071"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-071/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown and must be measured. Only throws that do NOT abort the transaction are exposed -- a lock timeout or deadlock (55P03/40P01) rolls everything back, which is why the contention half was safe to fix to 409. A JS-level throw after an INSERT is the exposed case. Impact SQL belongs in fix.md; do not query production from an agent.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Action routes' blanket catches answer 4xx for ANY thrown error, so a post-write throw that does not abort the transaction COMMITs a partial write",
+      "severity": "medium",
+      "source": "Surfaced by the K-071 r12 blind reviewer as the pre-existing half of its MEDIUM-1; reserved and registered by the K-071 r13 fixer, 2026-09-10",
+      "processNotes": "The contention half is FIXED on the K-071 branch: 8 routes can raise the retryable-contention event, 4 needed fixing, and a new `isRetryableContention` union is tested before each blanket branch and answers 409. What remains is the general hazard -- the blanket catch still maps every OTHER error to 400. Registered rather than fixed because narrowing a catch requires typing every refusal first (see `planSupplierPaymentApplication`, where narrowing without typing would have turned 'Cannot apply a cancelled payment' into a 500). Needs its own branch."
     }
   ],
   "sourceInventory": [
