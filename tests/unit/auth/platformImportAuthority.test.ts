@@ -196,3 +196,9 @@ it('restores parent identity and clears target GUC after a thrown callback',asyn
  const finalValues=bindings.at(-1)?.[1];
  expect(Array.isArray(finalValues)&&finalValues.includes('')).toBe(true);
 });
+it('acquires the shared tenant authority lock before taking standing row locks',async()=>{
+ await withPlatformImportRequest(store(),cap=>withPlatformImportTarget(cap,target,async()=>undefined));
+ const advisory=query.mock.calls.findIndex(([statement,values])=>String(statement).includes('pg_advisory_xact_lock')&&Array.isArray(values)&&values.includes(`control-authority:${company}`));
+ const standingQuery=query.mock.calls.findIndex(([statement])=>String(statement).includes('FROM users'));
+ expect(advisory).toBeGreaterThanOrEqual(0);expect(standingQuery).toBeGreaterThan(advisory);
+});
