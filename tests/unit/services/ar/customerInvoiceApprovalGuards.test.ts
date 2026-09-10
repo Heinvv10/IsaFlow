@@ -61,7 +61,11 @@ let clientQuery: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.clearAllMocks();
   clientQuery = vi.fn(async () => ({ rows: [] }));
-  vi.mocked(als.getStore).mockReturnValue({ client: { query: clientQuery } } as never);
+  // A faithful request context: withAuth always installs a control principal, and the
+  // approval guard now refuses a request context that has none.
+  vi.mocked(als.getStore).mockReturnValue({ client: { query: clientQuery },
+    controlPrincipal: { personId: 'reviewer', companyId: 'company', authMethod: 'cookie',
+      provenance: 'human', impersonatorPersonId: null } } as never);
   // The guarded UPDATE claims the transition.
   vi.mocked(sql).mockResolvedValue([{ id: INVOICE }] as never);
   vi.mocked(withSavepoint).mockImplementation(
