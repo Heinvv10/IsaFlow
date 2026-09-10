@@ -24,6 +24,7 @@ const cases:Array<{tool:string;args:Record<string,unknown>;granted:string[];miss
  {tool:'close_fiscal_period',args:{fiscal_period_id:ID()},granted:['write:journals','write:post','read:reports'],missing:'write:locks'},
  {tool:'reopen_fiscal_period',args:{fiscal_period_id:ID()},granted:['write:journals','write:post','read:reports'],missing:'write:locks'},
  {tool:'year_end_close',args:{fiscal_year:2031},granted:['write:journals','write:post','read:reports'],missing:'write:locks'},
+ {tool:'lock_vat_period',args:{period_start:'2031-05-01',period_end:'2031-06-30'},granted:['read:vat','write:post'],missing:'write:locks'},
 ];
 it('names the permission a refused dry run needs, and previews once it is granted',async()=>{
  const outcomes:string[]=[];
