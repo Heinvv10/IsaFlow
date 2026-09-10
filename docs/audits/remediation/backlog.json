@@ -11165,6 +11165,39 @@
       "severity": "medium",
       "source": "Found by the R-059 round-2 blind reviewer (the wipAsOf comment claimed an entry is never in both WIP and AR, or in neither) and confirmed by the R-059 round-3 fixer.",
       "processNotes": "Not fixed in R-059: correcting it moves today's WIP and needs an approval date the schema does not carry, so it is a scope change. Decide first what the right treatment is — keep the entry in WIP until the invoice is approved, or recognise a draft invoice in AR — then fix."
+    },
+    {
+      "id": "R-079",
+      "claim": "",
+      "area": "accounting/bank",
+      "affectedPaths": [
+        "src/modules/accounting/services/bank/autoPostUndoService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A user who corrects an auto-posted entry with a manual offsetting journal instead of a reversal gets that correction applied twice when the run is undone. The money is wrong on the ledger and the run still reads undone. Needs a design decision, not a patch: a hand offset carries no reversal_of_id and no reversed_at, so it is indistinguishable from any other credit, and a heuristic that treats matching credits as reversals would refuse legitimate undos.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-071"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-071/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Look for undone auto-post runs whose accounts moved by the posted amount rather than to zero.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "undoRun re-reverses a journal a user offset by hand, leaving the account overdrawn by the offset amount",
+      "severity": "medium",
+      "source": "Measured by the K-071 round-22 fixer on isaflow_dev: {\"afterHand\":{\"e1\":0,\"e2\":40},\"afterUndo\":{\"e1\":-60,\"e2\":0},\"undone\":true} — account E1 ends at -60 after the undo.",
+      "processNotes": "K-071 round 22 fixed the re-reversed-contra case (a recursive CTE counts posted contras: odd = off the books, even = the posting is back, routed to a failed skip). The hand-offset case is NOT covered and was left deliberately. Decide the contract first: refuse to undo when the net movement is already zero by other means, require the user to reverse rather than offset, or surface the net and ask. Related: [[K-071]]."
     }
   ],
   "sourceInventory": [
