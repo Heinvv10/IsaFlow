@@ -6,10 +6,10 @@ import {validateFixtureTarget} from '../forensic-fixture';
 import {reviewAccessControl} from '@/modules/accounting/services/controls/accessControlReviewService';
 import {getAccessReviewPool,closeAccessReviewPool} from '@/modules/accounting/services/controls/accessControlReviewPool';
 import {getAuthPool} from '@/lib/auth/authPool';
-let f:Awaited<ReturnType<typeof transferControlFixture>>,ownGrant:string,foreignGrant:string;
+let f:Awaited<ReturnType<typeof transferControlFixture>>,ownGrant:string,foreignGrant:string,appId:string;
 beforeAll(async()=>{
  process.env.DATABASE_URL=validateFixtureTarget(fixtureConfigFromEnv(process.env)).connectionString;process.env.DATABASE_SSL='disable';process.env.AUTH_POOL_MAX='2';
- f=await transferControlFixture();const app=randomUUID();ownGrant=randomUUID();foreignGrant=randomUUID();
+ f=await transferControlFixture();const app=randomUUID();appId=app;ownGrant=randomUUID();foreignGrant=randomUUID();
  await f.pool.query("INSERT INTO oauth_apps(id,name,redirect_uris,client_id,client_secret_hash,client_secret_prefix,owner_user_id) VALUES($1,'Synthetic metadata',ARRAY['http://localhost/callback'],$1::uuid::text,'synthetic-private-hash','synthetic-private-prefix',$2)",[app,f.f.u2.id]);
  for(const [id,user] of [[ownGrant,f.f.u2],[foreignGrant,f.f.u3]] as const)await f.pool.query("INSERT INTO oauth_authorisations(id,oauth_app_id,user_id,company_id,scopes,access_token_hash,access_token_prefix,access_token_expires_at,refresh_token_hash,refresh_token_prefix,refresh_token_expires_at) VALUES($1,$2,$3,$4,ARRAY['read:reports'],'synthetic-private-access-hash','synthetic-private-access-prefix',now()-interval '1 day',$1::uuid::text,'synthetic-private-refresh-prefix',now()+interval '1 day')",[id,app,user.id,user.companyId]);
 },30000);
@@ -47,3 +47,10 @@ it('serves concurrent reviews while every request-auth-pool connection is occupi
  try{const results=await Promise.all(Array.from({length:4},()=>f.actor(ctx=>reviewAccessControl(ctx,{kind:'membership',limit:1}))));expect(results).toHaveLength(4);for(const result of results)expect(result.populationTotal).toBeGreaterThan(0);}
  finally{for(const client of held)client.release();}
 },15000);
+
+it('refuses to advertise OAuth refresh after the parent app is revoked',async()=>{
+ const before=await f.actor(ctx=>reviewAccessControl(ctx,{kind:'oauth'}));expect(before.items[0]?.refreshEligible).toBe(true);
+ await f.pool.query('UPDATE oauth_apps SET revoked_at=now() WHERE id=$1 AND owner_user_id=$2',[appId,f.f.u2.id]);
+ const after=await f.actor(ctx=>reviewAccessControl(ctx,{kind:'oauth'}));expect(after.populationTotal).toBe(1);
+ expect(after.items[0]?.refreshEligible).toBe(false);expect(after.items[0]?.findings).toContain('oauth_app_revoked_or_missing');
+});
