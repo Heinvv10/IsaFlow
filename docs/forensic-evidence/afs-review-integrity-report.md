@@ -8,7 +8,7 @@ The rule the branch enforces: a section's review or sign-off is an attestation a
 
 | Suite | Files | Result |
 |---|---|---|
-| AFS integration (real routes, real PostgreSQL) | `tests/integration/controls/afs{SectionReviewIntegrityHttp,SectionWritesHttp,SigningHttp,DocumentTransitionRace,ManagementPackGate,PackDeliveryGate,RestoreReviewState}.int.test.ts` | 99 passed |
+| AFS integration (real routes, real PostgreSQL) | `tests/integration/controls/afs{SectionReviewIntegrityHttp,SectionWritesHttp,SigningHttp,SigningInputsHttp,DocumentTransitionRace,ManagementPackGate,PackDeliveryGate,RestoreReviewState}.int.test.ts` | 146 passed (+12 in the impersonation census) |
 | Unit | `bun run test:unit` | 10,949 passed; the 5 failures in `directPostBypassGuards` and `creditNoteService` fail identically at the base commit |
 
 Integration runs use the shared synthetic instance and `--no-file-parallelism`. The HTTP fixture clears the per-IP rate-limit counters at start: every run arrives from 127.0.0.1, and without that the second run of the day is answered 429 by the real limiter.
@@ -64,7 +64,7 @@ Each mutant was applied to the working tree, the AFS integration suites were run
 | N15 | impersonation mapped to 409 instead of 403 | killed (1) | is refused with 403, not a server error |
 | N16 | `updateAfsSection` voids on content only | killed (1) | voids the review on a status change alone |
 | N17 | `updateAfsSection` skips the void when a reviewer is named | killed (1) | never carries an old sign-off onto new content |
-| N18 | signature refusal ignores section status | **survived** | — |
+| N18 | signature refusal ignores section status | **survived — argument withdrawn, killed by S13** | — |
 
 ### Round 3 — what is signed, guarded generation, held-back packs
 
@@ -129,6 +129,24 @@ caught it, Q8 because no test asserted the success wording. A service-level test
 
 The field-boundary collision named in review ('Acme' + registration vs 'Acme|registration' + NULL) did not collide under the round-4 formula, because every nullable field there was wrapped in COALESCE; the separator-shift collision ('Acme|1998' + '012345/07' vs 'Acme' + '1998|012345/07') did. Both are now tests.
 
+### Round 6 — a send the render's inputs cannot race, no grandfathering, drafts stay drafts
+
+| # | Mutation | Result | First failing test |
+|---|---|---|---|
+| S1 | the send takes no FOR SHARE on the company and brand rows | killed (1) | cannot sign branding changed under the send |
+| S2 | the send compares no fingerprint before and after the render | killed (1) | refuses the send when a first brand profile is saved while it renders |
+| S3–S11 | the pre-image drops period / logo / cover style / font / secondary colour / overrides / data snapshot / note number / section type | each killed (1) | the per-input case for that field |
+| S12 | a document with no fingerprint is accepted | killed (1) | is refused at the webhook with a reason telling the operator to send it again |
+| S13 | the "not signed off" count is removed | killed (1) | refuses when a section becomes mandatory after the send and is not signed off |
+| S14 | only 'signed_off' counts as signed for the watermark | killed (1) | treats a filed pack as signed |
+| S15 | only 'draft' counts as a draft for the recipient tier | killed (1) | sends a pack still in review to draft-tier recipients only |
+| S16 | the email carries no draft mark | killed (1) | … marked as a draft in the email too |
+| S17 | the brand PUT warns on every save | killed (1) | warns only when a signed input actually changes |
+| S18 | the company PUT warns on every save | killed (1) | warns only when a signed input actually changes |
+| S19a/b | the admin rename warns always / never | killed (1 each) | tests/unit/api/adminCompanyRenameWarning.test.ts |
+
+**N18 withdrawn.** Its argument (the fingerprint subsumes section status) held only for documents stamped at send. The template registry is not in the fingerprint, so a section that becomes mandatory after the send, never signed off, matches the fingerprint and is caught only by the count; S13 is killed by exactly that case.
+
 ### Why the survivors are not gaps
 
 - **N2** — the `AND status = <from>` predicate on the transition UPDATE is redundant *while the row lock stands* (N1/N2b prove the lock is what the tests hold). It is kept as defence for a caller that runs outside a request transaction, where `FOR UPDATE` releases at once.
@@ -136,18 +154,19 @@ The field-boundary collision named in review ('Acme' + registration vs 'Acme|reg
 - **N18** — the "sections no longer signed off" count is subsumed by the content fingerprint, which includes each section's status. The count only produces a clearer refusal reason (`N mandatory section(s) are no longer signed off` rather than "content changed").
 - **Q4** — the delivery route's pre-check is deliberately redundant: the gate is inside `deliverPack`, which every delivery passes through (Q1 proves it refuses on its own). The route check only spares a round trip and gives the caller the reason without an exception.
 - ~~**Q11**~~ — withdrawn; see R10.
+- ~~**N18**~~ — withdrawn; see S13.
 
 No test was written to kill a redundant mutant.
 
 ## Deploy notes
 
-- Migrations 681 → 682 → 683 run in that order. 682 stamps documents out for signature with the sections-only formula; 683 re-stamps each with the final formula only if its content is unchanged since the send, and is safe to run again.
+- Migrations 681 → 682 → 683 add columns only. **They back-fill nothing** (reversing the round-3 decision): "sent for signature before this deploy" is not a state the product can produce — the previous send read an HTML file nothing wrote and refused before the only writer of `signing_requested_at` could run — and the back-fills were the one mechanism that could launder a change. A hand-made in-flight document with no fingerprint is refused at the webhook and must be sent again.
 - **Rolling the CODE back with 683 applied fails open**: the previous `deliverPack` does not read `delivery_withheld_reason`, so a held pack becomes deliverable.
-- 683 was edited in place during review. The branch is unpublished and the migration has been applied only to the synthetic fixture, which records no migration names, so no environment holds a checksum of the earlier text.
+- 681, 682 and 683 were edited in place during review. The branch is unpublished and they have been applied only to the synthetic fixture, which records no migration names, so no environment holds a checksum of the earlier text.
 
 ## Decisions worth naming
 
-- **Grandfather clause (migration 682).** Documents already out for signature at deploy carry no fingerprint, so every pending signature would be refused on arrival. The migration backfills `signing_content_fingerprint` for documents with `signing_requested_at` set and status `partner_review`, taking their current content as the content that was sent. `signing_payload_sha256` stays NULL for them — the posted bytes cannot be recovered — and the webhook does not require it.
+- **No grandfather clause.** Rounds 3–5 back-filled fingerprints for documents "already out for signature"; round 6 removed that (see Deploy notes).
 - **Refused signatures.** The signatories did sign, so the PDF is downloaded and kept in `storage/afs-signed-quarantine/<company>/<document>-<timestamp>.pdf`, never as the document's signed copy. The Signum integration in this repo exposes only create and download, so there is no void/cancel call to make; the recorded reason tells a person to cancel the request at the provider. `signing_refused_at/reason` are returned by the document GET and shown on the review tab.
 - **Signing renders with `skipChecks: true`.** The bytes are derived from the current rows (that is the point); the pre-export blocker gate remains the export's own policy. Making it a send gate as well is a separate decision.
 - **Comments stay open while signatures are pending.** Review correspondence is not part of what is signed. Only the document's own lock (signed off, filed) closes it.
