@@ -1,6 +1,7 @@
 // src/modules/accounting/services/afs/afsSectionCommentService.ts
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { lockSectionForWrite } from './afsSectionAttestation';
 import type { AfsSectionComment } from './afsTypes';
 
 // ── Error ───────────────────────────────────────────────────────────────────
@@ -32,13 +33,15 @@ function mapRow(row: Record<string, unknown>): AfsSectionComment {
   };
 }
 
-async function verifySectionBelongsToCompany(
+async function verifySectionInDocument(
   companyId: string,
+  documentId: string,
   sectionId: string
 ): Promise<boolean> {
   const rows = await sql`
     SELECT 1 FROM afs_sections
     WHERE id = ${sectionId}
+      AND document_id = ${documentId}
       AND company_id = ${companyId}
     LIMIT 1
   `;
@@ -49,8 +52,12 @@ async function verifySectionBelongsToCompany(
 
 export async function listComments(
   companyId: string,
+  documentId: string,
   sectionId: string
 ): Promise<AfsSectionComment[]> {
+  if (!(await verifySectionInDocument(companyId, documentId, sectionId))) {
+    throw new CommentError('Section not found', 'NOT_FOUND');
+  }
   const rows = (await sql`
     SELECT c.*
     FROM afs_section_comments c
@@ -64,15 +71,15 @@ export async function listComments(
 
 export async function addComment(
   companyId: string,
+  documentId: string,
   sectionId: string,
   authorId: string,
   body: string,
   parentId?: string
 ): Promise<AfsSectionComment> {
-  const sectionExists = await verifySectionBelongsToCompany(companyId, sectionId);
-  if (!sectionExists) {
-    throw new CommentError('Section not found', 'NOT_FOUND');
-  }
+  // A comment is review correspondence about a section of THIS document, and a locked or
+  // out-for-signature document takes no more of it. Raises ReviewError, which the routes map.
+  await lockSectionForWrite(companyId, documentId, sectionId);
 
   if (parentId) {
     const parentRows = await sql`
@@ -104,15 +111,19 @@ export async function addComment(
 
 export async function resolveComment(
   companyId: string,
+  documentId: string,
+  sectionId: string,
   commentId: string,
   resolvedBy: string
 ): Promise<AfsSectionComment> {
+  await lockSectionForWrite(companyId, documentId, sectionId);
   const rows = (await sql`
     UPDATE afs_section_comments
     SET resolved = TRUE,
         resolved_by = ${resolvedBy},
         resolved_at = now()
     WHERE id = ${commentId}
+      AND section_id = ${sectionId}
       AND company_id = ${companyId}
     RETURNING *
   `) as Record<string, unknown>[];

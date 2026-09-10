@@ -7,6 +7,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID, requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import {
   listComments,
   addComment,
@@ -21,12 +22,21 @@ const AddCommentSchema = z.object({
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const companyReq = req as CompanyAuthedRequest;
   const { companyId } = companyReq;
+  const documentId = requireUuidParam(req, res, 'documentId');
+  if (!documentId) return;
   const sectionId = requireUuidParam(req, res, 'sectionId');
   if (!sectionId) return;
 
   if (req.method === 'GET') {
-    const items = await listComments(companyId, sectionId);
-    return apiResponse.success(res, { items });
+    try {
+      const items = await listComments(companyId, documentId, sectionId);
+      return apiResponse.success(res, { items });
+    } catch (err) {
+      if (err instanceof CommentError && err.code === 'NOT_FOUND') {
+        return apiResponse.notFound(res, 'AFS section', sectionId);
+      }
+      throw err;
+    }
   }
 
   if (req.method === 'POST') {
@@ -35,12 +45,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const { body, parentId } = parsed.data;
 
-    log.info('Adding comment', { companyId, sectionId, userId, parentId }, 'afs-comments-api');
+    log.info('Adding comment', { companyId, documentId, sectionId, userId, parentId }, 'afs-comments-api');
 
     try {
-      const comment = await addComment(companyId, sectionId, userId, body, parentId);
+      const comment = await addComment(companyId, documentId, sectionId, userId, body, parentId);
       return apiResponse.created(res, comment, 'Comment added');
     } catch (err) {
+      // addComment goes through the section write guard: a section of another document is 404,
+      // a locked or out-for-signature document 409.
+      if (sendReviewError(res, err, 'AFS section', sectionId)) return;
       if (err instanceof CommentError && err.code === 'NOT_FOUND') {
         return apiResponse.notFound(res, 'AFS section or parent comment', sectionId);
       }

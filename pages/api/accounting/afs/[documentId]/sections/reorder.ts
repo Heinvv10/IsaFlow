@@ -7,6 +7,8 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID, requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
+import { lockSectionForWrite } from '@/modules/accounting/services/afs/afsSectionAttestation';
 import { sql } from '@/lib/neon';
 
 const ReorderItemSchema = z.object({
@@ -32,18 +34,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { sections } = parsed.data;
 
-  await Promise.all(
-    sections.map(({ id, newSortOrder }) =>
-      sql`
-        UPDATE afs_sections
-        SET sort_order  = ${newSortOrder},
-            updated_at  = NOW()
-        WHERE id          = ${id}::UUID
-          AND document_id = ${documentId}::UUID
-          AND company_id  = ${companyId}::UUID
-      `,
-    ),
-  );
+  // Note order is note numbering: it goes through the same guard as any other section write.
+  // Every section is locked FIRST, in id order, so a document that refuses one refuses all of
+  // them and no partial renumbering is left behind by a 4xx (which commits the request).
+  try {
+    for (const { id } of [...sections].sort((a, b) => a.id.localeCompare(b.id))) {
+      await lockSectionForWrite(companyId, documentId, id);
+    }
+  } catch (err) {
+    if (sendReviewError(res, err, 'Section', documentId)) return;
+    throw err;
+  }
+
+  for (const { id, newSortOrder } of sections) {
+    await sql`
+      UPDATE afs_sections
+      SET sort_order  = ${newSortOrder},
+          updated_at  = NOW()
+      WHERE id          = ${id}::UUID
+        AND document_id = ${documentId}::UUID
+        AND company_id  = ${companyId}::UUID
+    `;
+  }
 
   log.info('Reordered AFS sections', { companyId, documentId, count: sections.length }, 'afs-sections-reorder-api');
 

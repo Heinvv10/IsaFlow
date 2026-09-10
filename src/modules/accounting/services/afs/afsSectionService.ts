@@ -1,7 +1,6 @@
 import { sql } from '@/lib/neon';
-import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
-import { isSectionAttested, lockSectionForWrite, voidSectionAttestation } from './afsSectionAttestation';
+import { assertPersonalReview, isSectionAttested, lockSectionForWrite, voidSectionAttestation } from './afsSectionAttestation';
 import type {
   AfsSection,
   SectionType,
@@ -76,20 +75,29 @@ export async function updateAfsSection(
   // is an approver of record arriving as input, and so is moving the section's status to
   // reviewed or signed off without naming one.
   if (input.reviewedBy || input.signedOffBy || input.status === 'reviewed' || input.status === 'signed_off') {
-    assertIndependentRequestReview();
+    assertPersonalReview();
   }
   log.info('Updating AFS section', { sectionId, documentId, status: input.status }, 'afsSectionService');
 
   // Bound to this document and refused while it is signed off or filed, content or not.
   const section = await lockSectionForWrite(companyId, documentId, sectionId);
-  // New content is not what was reviewed. Unless this same update names the reviewer or
-  // signatory of the new content, the old attestation is voided — recorded against whoever
-  // made the change, so an attested section cannot change anonymously.
-  if ((input.content || input.overrides) && !input.reviewedBy && !input.signedOffBy && isSectionAttested(section)) {
-    if (!input.updatedBy) {
+  // Everything the statements or the portal show is content: the note's blocks, the overrides
+  // that replace them, the AI narrative shown when there are none, the data snapshot that
+  // carries a suppression, and a status moved anywhere other than to a fresh attestation. A
+  // change to any of them is not what was reviewed, so the old attestation is voided — recorded
+  // against whoever made the change, so an attested section cannot change anonymously. An
+  // update that names the new reviewer or signatory still voids: it is the OTHER one, and its
+  // timestamp, that would otherwise ride along onto content nobody attested.
+  const attestsNewContent = input.status === 'reviewed' || input.status === 'signed_off';
+  const changesContent = input.content !== undefined || input.overrides !== undefined
+    || input.aiNarrative !== undefined || input.aiNarrativeAccepted !== undefined
+    || input.dataSnapshot !== undefined || (input.status !== undefined && !attestsNewContent);
+  if (changesContent && isSectionAttested(section)) {
+    const actor = input.updatedBy ?? input.reviewedBy ?? input.signedOffBy;
+    if (!actor) {
       throw new Error('Changing the content of a reviewed or signed-off section requires updatedBy');
     }
-    await voidSectionAttestation(companyId, section, input.updatedBy, 'Section content updated');
+    await voidSectionAttestation(companyId, section, actor, 'Section content updated');
   }
 
   const rows = await sql`

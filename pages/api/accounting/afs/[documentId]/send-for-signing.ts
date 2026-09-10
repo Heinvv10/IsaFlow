@@ -15,6 +15,9 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
+import { countMandatorySectionsBelow, lockDocumentForTransition } from '@/modules/accounting/services/afs/afsDocumentTransitions';
+import { documentContentFingerprint } from '@/modules/accounting/services/afs/afsSigningIntegrity';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
 
@@ -43,25 +46,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { signerContactIds } = parsed.data;
 
-  // 1. Load and verify the document
-  const docs = (await sql`
-    SELECT id, status, signing_requested_at
-    FROM afs_documents
-    WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
-    LIMIT 1
-  `) as Array<{ id: string; status: string; signing_requested_at: Date | null }>;
+  // 1. Load and lock the document: from the moment the signing request is recorded the section
+  //     write guard refuses every edit, so nothing may slip in between this check and that.
+  let doc;
+  try {
+    doc = await lockDocumentForTransition(companyId, documentId);
+  } catch (err) {
+    if (sendReviewError(res, err, 'AFS document', documentId)) return;
+    throw err;
+  }
 
-  if (docs.length === 0) return apiResponse.notFound(res, 'AFS document', documentId);
-
-  const doc = docs[0]!;
   if (doc.status !== 'partner_review') {
     return apiResponse.badRequest(
       res,
       'Document must be in partner_review status to send for signing',
     );
   }
-  if (doc.signing_requested_at) {
+  if (doc.signingRequestedAt) {
     return apiResponse.badRequest(res, 'Signing has already been requested for this document');
+  }
+
+  // What is signed must be what was reviewed and signed off, or the webhook would have to refuse
+  // the signature when it arrives.
+  const notSignedOff = await countMandatorySectionsBelow(companyId, documentId, 'signed_off');
+  if (notSignedOff > 0) {
+    return apiResponse.conflict(
+      res,
+      `Cannot send for signing: ${notSignedOff} mandatory section(s) not yet signed off`,
+    );
   }
 
   // 2. Load and verify signer contacts (IDOR guard: must belong to this company)
@@ -104,12 +116,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
+  const fingerprint = await documentContentFingerprint(sql, companyId, documentId);
   const { signumDocumentId, signingTokens } = await sendForSigning(
     documentId,
     companyId,
     html,
     title,
     signers,
+    fingerprint,
   );
 
   // 6. Notify each signer with their individual signing URL
