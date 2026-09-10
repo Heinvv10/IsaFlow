@@ -531,3 +531,29 @@ not read a parallel run as a regression.
 `k081-loan-reclass-key-swap` 1 failed / 6 passed, the failure being exactly the new one-cent case,
 and the six earlier cases still green (the guard fails in both directions). File restored
 byte-identical.
+
+## Round 9 review (0 HIGH, 0 MEDIUM, 1 LOW — verdict DONE) — dispositions
+
+**LOW-1 — fixed.** The batch preflight's pre-deploy probe table listed the five batch-2 migrations
+but none of this branch's three, so an operator working the preflight had no row for two
+deploy-aborting preconditions and would meet them only when the deploy stopped half-migrated:
+
+- `644_loan_gl_postings_period_once` `RAISE EXCEPTION`s if any `(company_id, loan_id, period)` holds
+  more than one journal. Registered in the table pointing at the probe already written out in
+  `docs/audits/remediation/K-083/fix.md` ("Historical-data impact and remediation", step 1), in the
+  same "see K-0xx/fix.md" shape the other rows use.
+- `659_loan_reclass_postings_backfill_rebuild` `RAISE EXCEPTION`s unless the connected role is
+  superuser or holds `BYPASSRLS`. Registered with the read-only probe
+  `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;`, to be run on
+  production as the `DATABASE_URL` role before `bash scripts/deploy.sh`.
+
+`645_loan_reclass_postings` is also now registered, as "new table, no precondition | n/a", matching
+how 621/623 are recorded — so all three migrations this branch ships appear in the table. The
+table's premise sentence, which spoke only of unique indexes refusing to build, was widened to cover
+a guarded migration refusing on an unmet precondition and to state the cost (the batch stops
+half-applied with the code not yet rsynced).
+
+Doc-only round: no `src/`, migration, script or test change.
+
+**Round-9 files.** `docs/audits/remediation/releases/2026-09-09-batch2/preflight.md`,
+`docs/audits/remediation/K-081/fix.md`.
