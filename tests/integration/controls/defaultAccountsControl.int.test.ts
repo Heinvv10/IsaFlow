@@ -17,3 +17,50 @@ it('captures the actual existing POST settings and every changed account row',as
  for(const id of [old,replacement]){const rows=await f.changes('gl_account',id);expect(rows).toHaveLength(1);expect(rows[0].values).toEqual({before:before.accounts.find((r:{id:string})=>r.id===id),after:after.accounts.find((r:{id:string})=>r.id===id)});}
  expect(events[0].person_id).toBe(f.f.u1.id);expect(events[0].connection_id).toBeNull();expect(events[0].provenance).toBe('human');
 });
+it('does not change timestamps or versions on an identical request',async()=>{
+ const before=await f.state(),events=await f.changes('accounting_default_accounts',f.f.companyA);
+ expect((await f.rest('POST',{mappings:{accounts_receivable:replacement,primary_bank:''}})).status).toBe(200);
+ expect(await f.state()).toEqual(before);expect(await f.changes('accounting_default_accounts',f.f.companyA)).toEqual(events);
+});
+it('preserves null and empty clears while omitted roles are unconfigured',async()=>{
+ for(const mappings of [{primary_bank:null},{primary_bank:''},{}]){
+  const before=await f.state();expect((await f.rest('POST',{mappings})).status).toBe(200);
+  const after=await f.state(),events=await f.changes('accounting_default_accounts',f.f.companyA);
+  expect(JSON.parse(after.settings.value)).toEqual(mappings);expect(events.at(-1).values).toEqual({before:before.settings,after:after.settings});
+  expect(after.accounts.filter((r:{is_system_account:boolean})=>r.is_system_account)).toEqual([]);
+ }
+});
+it('refuses duplicate roles, unknown keys, invalid IDs, foreign accounts and wrong types without changes',async()=>{
+ const foreign=await f.account(f.f.companyB),expense=await f.account(f.f.companyA,'expense');
+ for(const mappings of [{primary_bank:replacement,accounts_receivable:replacement.toUpperCase()},{surprise:replacement},{primary_bank:'invalid'},{primary_bank:foreign},{primary_bank:expense}]){
+  const before=await f.state(),events=await f.changes('accounting_default_accounts',f.f.companyA),response=await f.rest('POST',{mappings});
+  expect(response.status).toBe(400);expect(await f.state()).toEqual(before);expect(await f.changes('accounting_default_accounts',f.f.companyA)).toEqual(events);
+ }
+});
+it('enforces current account write permission and real CSRF before mutation',async()=>{
+ const before=await f.state();
+ await f.pool.query('INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,$3,false)',[f.f.companyA,f.f.u1.id,'accounts']);
+ try{expect((await f.rest('POST',{mappings:{primary_bank:replacement}})).status).toBe(403);}finally{await f.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key=$3',[f.f.companyA,f.f.u1.id,'accounts']);}
+ expect((await f.rest('POST',{mappings:{primary_bank:replacement}},false)).status).toBe(403);expect(await f.state()).toEqual(before);
+});
+for(const table of ['app_settings','gl_accounts','control_protected_evidence','control_change_events']){
+ it(`rolls back all state when ${table} suppresses its mandatory write`,async()=>{
+  const account=await f.account(),before=await f.state();
+  const snapshot=async()=>Promise.all(['control_entity_versions','control_protected_evidence','control_change_events'].map(async t=>(await f.pool.query(`SELECT to_jsonb(t) AS row FROM ${t} t WHERE company_id=$1 ORDER BY entity_type,entity_id`,[f.f.companyA])).rows));
+  const history=await snapshot();
+  await f.pool.query(`CREATE FUNCTION public.synthetic_default_suppression() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.f.companyA}'::uuid THEN RETURN NULL; END IF; RETURN NEW; END $$`);
+  await f.pool.query(`CREATE TRIGGER synthetic_default_suppression BEFORE INSERT OR UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION public.synthetic_default_suppression()`);
+  try{expect((await f.rest('POST',{mappings:{primary_bank:account}})).status).toBeGreaterThanOrEqual(400);expect(await f.state()).toEqual(before);expect(await snapshot()).toEqual(history);}
+  finally{await f.pool.query(`DROP TRIGGER synthetic_default_suppression ON ${table}`);await f.pool.query('DROP FUNCTION public.synthetic_default_suppression()');}
+ });
+}
+it('captures every old designation beyond a preview page and exposes real authorized history',async()=>{
+ const ids=[];for(let i=0;i<105;i++)ids.push(await f.account(f.f.companyA,'asset','bank',true));
+ const before=await f.state();expect((await f.rest('POST',{mappings:{}})).status).toBe(200);
+ const after=await f.state();for(const id of ids){const changes=await f.changes('gl_account',id);expect(changes).toHaveLength(1);expect(changes[0].values).toEqual({before:before.accounts.find((r:{id:string})=>r.id===id),after:after.accounts.find((r:{id:string})=>r.id===id)});}
+ const {readControlEntityHistory}=await import('@/modules/accounting/services/controls/controlChangeHistoryService');
+ const read=()=>f.actor(ctx=>readControlEntityHistory(ctx,{entityType:'accounting_default_accounts',entityId:f.f.companyA}));
+ const result=await read();expect(result.items[0].after).toEqual(after.settings);
+ await f.pool.query('INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,$3,false)',[f.f.companyA,f.f.u1.id,'reports']);
+ try{await expect(read()).rejects.toThrow();}finally{await f.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key=$3',[f.f.companyA,f.f.u1.id,'reports']);}
+});
