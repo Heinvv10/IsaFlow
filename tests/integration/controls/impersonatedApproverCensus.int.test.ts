@@ -54,6 +54,8 @@ describe('every approver-of-record entry point refuses an impersonated principal
   ['tax directive report approval',()=>updateTaxDirectiveReportStatus(h.f.companyA,randomUUID(),'approved',h.f.u2.id)],
   // Keyed on the transition, not on whether the caller happened to name an approver.
   ['tax directive approval with no approver named',()=>updateTaxDirectiveStatus(h.f.companyA,randomUUID(),'approved')],
+  // The actor half: naming an approver writes approved_by whatever the status says.
+  ['tax directive approver named on a non-approving status',()=>updateTaxDirectiveStatus(h.f.companyA,randomUUID(),'pending',h.f.u2.id)],
   ['AFS section signed off by status alone',()=>updateAfsSection(randomUUID(),randomUUID(),h.f.companyA,{status:'signed_off'})],
   ['AFS section reviewed by status alone',()=>updateAfsSection(randomUUID(),randomUUID(),h.f.companyA,{status:'reviewed'})],
  ];

@@ -1,5 +1,5 @@
 import {expect,it,vi} from 'vitest';
-import {runImpersonationReaderGate} from '../../../scripts/assert-impersonation-reader';
+import {runImpersonationReaderGate} from '@/lib/auth/sessionImpersonation';
 
 /**
  * scripts/** is outside tsconfig and no CI step runs this gate: without this test its
@@ -20,4 +20,13 @@ it('asks the database the four questions in one statement',async()=>{
  const text=String((query.mock.calls[0] as unknown as [string])[0]);
  expect(text).toContain("has_function_privilege('app_user'");
  expect(text).toContain('impersonation_delegation_live(uuid,text,text,text)');
+});
+
+it('runs the gate however the script is invoked, so a wrapped or renamed run cannot pass unchecked',async()=>{
+ const {spawnSync}=await import('node:child_process');
+ // Imported rather than executed directly: argv[1] is not the script's own path.
+ const run=spawnSync('bun',['-e',"await import('./scripts/assert-impersonation-reader.ts')"],
+  {encoding:'utf8',env:{...process.env,DATABASE_URL:''}});
+ expect(run.status).not.toBe(0);
+ expect(run.stderr).toContain('DATABASE_URL required');
 });
