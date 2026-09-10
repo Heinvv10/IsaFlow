@@ -4,6 +4,10 @@ import { EffectivePermissionError, loadPermissionState } from './effectivePermis
 
 export { EFFECTIVE_PERMISSION_RULES, attenuateGrantedScopes } from './effectivePermissionPolicy';
 export { EffectivePermissionError } from './effectivePermissionQueries';
+/** A 403's copy: the one permission a refusal was about, when it was about one; otherwise the general refusal. */
+export function deniedPermissionMessage(error: EffectivePermissionError): string {
+  return error.permission ? `Current permission denied: ${error.permission} is required` : error.message;
+}
 export interface EffectivePermissions {
   companyId: string; personId: string; role: string;
   /** Unconstrained allowed permissions only; conditional access never masquerades as allowed. */
@@ -23,7 +27,7 @@ export async function resolveEffectivePermissions(ctx: ControlTx): Promise<Effec
 }
 export async function assertEffectivePermission(ctx: ControlTx, permission: string, entity?: EntityRef): Promise<void> {
   const state = await loadPermissionState(ctx);
-  if (permissionReason(state.role, permission, state.scopes, state.overrides, true)) throw new EffectivePermissionError();
+  if (permissionReason(state.role, permission, state.scopes, state.overrides, true)) throw new EffectivePermissionError(permission);
   const spec = EFFECTIVE_PERMISSION_RULES[permission]!;
   const modules = [...spec.modules, ...(spec.requires ?? []).flatMap(s => EFFECTIVE_PERMISSION_RULES[s]!.modules)];
   const constrained = state.overrides.filter(p => modules.includes(p.moduleKey) && hasConstraints(p));
@@ -33,7 +37,7 @@ export async function assertEffectivePermission(ctx: ControlTx, permission: stri
     || Array.isArray(p.restrictions) || Object.keys(p.restrictions).length > 0)
     || !entity || entity.entityType !== 'gl_account'
     || constrained.some(p => p.moduleKey !== 'accounts')
-    || permission !== 'write:accounts') throw new EffectivePermissionError();
+    || permission !== 'write:accounts') throw new EffectivePermissionError(permission);
   const rows = await ctx.sql`
     SELECT account_code FROM gl_accounts
     WHERE company_id = ${ctx.principal.companyId}::uuid AND id = ${entity.entityId}::uuid

@@ -6,7 +6,8 @@ import {loadStoredAuditJobDelegation} from '@/modules/accounting/services/contro
 
 export class EffectivePermissionError extends Error {
   readonly code = 'CONTROL_FORBIDDEN';
-  constructor() { super('Current permissions do not allow this operation.'); this.name = 'EffectivePermissionError'; }
+  /** `permission` is set only where the refusal is about one named permission, never for membership or grant state. */
+  constructor(readonly permission?: string) { super('Current permissions do not allow this operation.'); this.name = 'EffectivePermissionError'; }
 }
 interface Membership extends UserAccountRow {
   role: string; company_status: string | null; company_suspended_at: Date | string | null;
