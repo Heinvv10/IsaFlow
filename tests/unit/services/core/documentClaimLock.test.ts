@@ -38,12 +38,35 @@ describe('claimUnderLockTimeout', () => {
     ]);
   });
 
-  it('restores the ceiling when the claim fails for a reason OTHER than the lock timeout', async () => {
+  it('restores the ceiling when the claim fails as a JS throw, on a still-usable transaction', async () => {
     const query = vi.fn().mockResolvedValue(undefined);
-    const boom = Object.assign(new Error('duplicate key'), { code: '23505' });
+    const boom = new Error('nothing to claim');
     await expect(als.run(ctxWith(query), () => claimUnderLockTimeout('quote', async () => { throw boom; })))
       .rejects.toBe(boom);
     expect(query.mock.calls.map((c) => c[0])).toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
+  it('reports the constraint that fired, not the 25P02 the restore raises on the aborted tx', async () => {
+    // r9 LOW-1. A SQL failure out of the claim ABORTS the transaction, so the
+    // recovery `SET LOCAL … DEFAULT` rejects with 25P02 on a REAL connection —
+    // which the previous version of this test could not produce, because it
+    // mocked a client that never rejects. Unguarded, that rejection replaces
+    // the 23505 and the operator loses the cause.
+    const aborted = Object.assign(
+      new Error('current transaction is aborted, commands ignored until end of transaction block'),
+      { code: '25P02' },
+    );
+    const query = vi.fn().mockImplementation((text: string) =>
+      (text === 'SET LOCAL lock_timeout = DEFAULT' ? Promise.reject(aborted) : Promise.resolve(undefined)));
+    const boom = Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
+    const err = await als.run(ctxWith(query), () => claimUnderLockTimeout('quote', async () => { throw boom; }))
+      .then(() => null, (e: unknown) => e);
+    expect.soft(err).toBe(boom);
+    expect.soft((err as { code?: string } | null)?.code).toBe('23505');
+    // The restore was still ATTEMPTED — it is what a JS throw needs.
+    expect(query.mock.calls.map((c) => c[0])).toEqual([
+      "SET LOCAL lock_timeout = '5s'", 'SET LOCAL lock_timeout = DEFAULT',
+    ]);
   });
 
   it('does NOT touch the aborted transaction after a 55P03, and types the error', async () => {

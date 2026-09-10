@@ -79,13 +79,22 @@ export async function claimUnderLockTimeout<T>(
       && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE) {
       throw new DocumentClaimLockTimeoutError(documentKind);
     }
-    // Any OTHER failure out of the claim — a 23505, a CHECK violation — leaves
-    // the transaction usable, so the 5s ceiling must be taken back off here or
-    // it leaks onto every later statement in the request and fails an unrelated
-    // write on a lock wait that has nothing to do with this claim. Only the
-    // 55P03 path above may skip it: there the transaction is ABORTED and this
-    // statement would itself raise 25P02, replacing the typed error.
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
+    // Any OTHER failure out of the claim: take the 5s ceiling back off, or it
+    // leaks onto every later statement in the request and fails an unrelated
+    // write on a lock wait that has nothing to do with this claim.
+    //
+    // Best-effort, because it cannot always run. `claim` may fail as a JS throw
+    // on a still-usable transaction — then the restore matters and succeeds.
+    // But a SQL failure (23505, 23514, 23503, 22P02 …) ABORTS the transaction
+    // in Postgres just as a 55P03 does, and the restore then raises 25P02
+    // itself. Left unguarded, THAT rejection is what leaves this catch block,
+    // and the operator sees 'current transaction is aborted' instead of the
+    // constraint that actually fired. `err` is the error worth reporting.
+    try {
+      await client.query('SET LOCAL lock_timeout = DEFAULT');
+    } catch {
+      // Transaction already aborted — the ceiling dies with it at ROLLBACK.
+    }
     throw err;
   }
 }

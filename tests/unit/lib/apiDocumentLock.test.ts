@@ -1,5 +1,5 @@
 /**
- * Blind review r4, LOW-1: the three typed contention errors were raised at the
+ * Blind review r4, LOW-1 (+ r9 LOW-2): the typed contention errors were raised at the
  * service layer and nothing mapped them, so the caller got the generic 500 —
  * whose message `withErrorHandler` masks outright in production — with nothing
  * saying "this is transient, retry". 503 + Retry-After is the whole fix, and
@@ -12,6 +12,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { DocumentNumberLockTimeoutError } from '@/modules/accounting/services/core/companySettingsService';
 import { TimeEntryLockTimeoutError } from '@/modules/accounting/services/practice/timeEntryLock';
 import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
+import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
 
 function mockRes() {
   const res = {
@@ -30,6 +31,9 @@ describe('respondIfLockTimeout', () => {
     ['DocumentNumberLockTimeoutError', new DocumentNumberLockTimeoutError('customer_invoice')],
     ['TimeEntryLockTimeoutError', new TimeEntryLockTimeoutError()],
     ['DocumentClaimLockTimeoutError', new DocumentClaimLockTimeoutError('quote')],
+    // r9 LOW-2: raised from the same 55P03, but the execute route answered it
+    // 409 — no `Retry-After`, and a client retrying on 503 skipped it.
+    ['RecurringTemplateLockTimeoutError', new RecurringTemplateLockTimeoutError('t1')],
   ];
 
   it.each(cases)('answers %s with a 503 the caller can retry', (_name, err) => {

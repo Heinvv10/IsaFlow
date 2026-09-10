@@ -83,11 +83,18 @@ describe('recurring-transactions-execute error mapping', () => {
       .toEqual({ nextRunDate: '2026-09-10' });
   });
 
-  it('answers 409 when another request holds the template row past lock_timeout', async () => {
-    mockExecute.mockRejectedValueOnce(new RecurringTemplateLockTimeoutError('t1'));
+  it('rethrows the lock timeout instead of answering it, so apiDocumentLock gives the 503', async () => {
+    // r9 LOW-2. Raised from Postgres 55P03 like the three sibling classes, and
+    // `apiDocumentLock` documents the contract for exactly that class: 503 +
+    // `Retry-After`, never a 4xx. This route answered 409, so a client
+    // retrying every other contended write path would not retry this one.
+    const timeout = new RecurringTemplateLockTimeoutError('t1');
+    mockExecute.mockRejectedValueOnce(timeout);
     const res = makeRes();
-    await handler(post() as never, res as never);
-    expect(res.statusCode).toBe(409);
+    await expect(handler(post() as never, res as never)).rejects.toBe(timeout);
+    // Nothing answered here — `apiDocumentLock` owns the 503 (proved in
+    // tests/unit/lib/apiDocumentLock.test.ts, which now covers this class).
+    expect(res.json).not.toHaveBeenCalled();
   });
 
   it('answers 400 when the template aggregate disagrees with its lines', async () => {
