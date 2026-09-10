@@ -10801,7 +10801,8 @@
       "area": "accounting/ap",
       "affectedPaths": [
         "src/modules/accounting/services/ap/supplierInvoiceService.ts",
-        "pages/api/accounting/purchase-orders.ts"
+        "pages/api/accounting/purchase-orders.ts",
+        "src/modules/accounting/services/items/adjustmentService.ts"
       ],
       "sourceLabel": "",
       "sourceIds": [],
@@ -10827,7 +10828,7 @@
       "title": "Supplier twin of R-067: bills and purchase orders accept a supplier id from any tenant, and supplierBelongsToCompany is only ever called by MCP",
       "severity": "medium",
       "source": "Found and reserved by the R-067 fixer, 2026-09-10; not independently verified by the orchestrator.",
-      "processNotes": "`supplierBelongsToCompany` already exists and only the MCP layer calls it — the same shape as R-067, where `customerBelongsToCompany` existed and only MCP used it. Entry points named by the R-067 fixer: `ap/supplierInvoiceService.ts:144` and `pages/api/accounting/purchase-orders.ts:42`. Fix as R-067 did: one shared fence called before the first write, an absent id allowed, the read savepointed. Not fixed — outside R-067's scope."
+      "processNotes": "`supplierBelongsToCompany` already exists and only the MCP layer calls it — the same shape as R-067, where `customerBelongsToCompany` existed and only MCP used it. Entry points named by the R-067 fixer: `ap/supplierInvoiceService.ts:144` and `pages/api/accounting/purchase-orders.ts:42`. Fix as R-067 did: one shared fence called before the first write, an absent id allowed, the read savepointed. Not fixed — outside R-067's scope.\n\n2026-09-10 (R-067 round 4, 0b56ad247): createAdjustment (adjustments.ts POST) stores accounting_adjustments.entity_id from the body with no tenant check; R-067 fenced entityType='customer', and the entityType='supplier' arm has the same flaw and belongs here - it needs the assertSupplierInCompany this item builds. Measured on the customer arm: company A posting company B's id got 200 and a stored row."
     },
     {
       "id": "R-069",
