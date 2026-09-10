@@ -15,8 +15,9 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
    WHERE decision.company_id=i.company_id AND decision.approval_id=a.id AND decision.decision='approved'
     AND decision.person_id<>i.requester_person_id) AS review_valid
   FROM control_bank_statement_attestation_intents i
-  JOIN control_operation_effects e ON e.company_id=i.company_id AND e.entity_type='bank_statement_attestation_intent'
-   AND lower(e.entity_id)=i.id::text AND e.operation='bank_statement.attest'
+  JOIN LATERAL(SELECT fx.* FROM control_operation_effects fx WHERE fx.company_id=i.company_id AND fx.entity_type='bank_statement_attestation_intent'
+   AND lower(fx.entity_id)=i.id::text AND fx.operation='bank_statement.attest'
+   ORDER BY (fx.entity_id=i.id::text) DESC,fx.committed_at,fx.id LIMIT 1) e ON true
   LEFT JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
    AND a.operation_id=e.operation_id AND a.entity_type=e.entity_type AND lower(a.entity_id)=lower(e.entity_id) AND a.operation=e.operation
    AND a.requester_person_id=i.requester_person_id

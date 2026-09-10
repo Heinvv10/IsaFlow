@@ -27,7 +27,7 @@ export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventIn
     // and its event and evidence rows join that same lineage rather than the caller's spelling.
     const lineages = await ctx.sql`SELECT entity_id FROM control_entity_versions WHERE company_id=${p.companyId}::uuid
       AND entity_type=${input.entityType} AND lower(entity_id)=lower(${input.entityId})
-      ORDER BY (entity_id=${input.entityId}) DESC,entity_id LIMIT 2` as { entity_id: string }[];
+      ORDER BY (entity_id=lower(${input.entityId})) DESC,entity_id LIMIT 2` as { entity_id: string }[];
     const entityId = retainedLineage(lineages, input.entityId)?.entity_id ?? input.entityId;
     const versions = input.previousVersion === null
       // The baseline targets the retained spelling, so a lineage retained under any spelling conflicts and refuses.

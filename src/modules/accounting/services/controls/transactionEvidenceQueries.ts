@@ -37,13 +37,14 @@ export async function loadEvidenceNode(ctx:ControlTx,ref:EvidenceIdentity,permis
   const lineages=await ctx.sql`SELECT v.entity_id,v.version,(SELECT min(e.occurred_at) FROM control_change_events e
       WHERE e.company_id=v.company_id AND e.entity_type=v.entity_type AND e.entity_id=v.entity_id) AS recorded_since
     FROM control_entity_versions v WHERE v.company_id=${c}::uuid AND v.entity_type=${t} AND lower(v.entity_id)=lower(${id})
-    ORDER BY (v.entity_id=${id}) DESC,v.entity_id LIMIT 2` as
+    ORDER BY (v.entity_id=lower(${id})) DESC,v.entity_id LIMIT 2` as
     {entity_id:string;version:string|number;recorded_since:Date|string|null}[];
-  const lineage=retainedLineage(lineages,id),history=lineage?[lineage]:[];
+  const canonical=lineages.find(row=>row.entity_id===id.toLowerCase()),ambiguous=!canonical&&lineages.length>1;
+  const lineage=ambiguous?undefined:retainedLineage(lineages,id),history=lineage?[lineage]:[];
   const version=history[0]?Number(history[0].version):null;
   const recorded=history[0]?.recorded_since;
   const flags:EvidenceNode['flags']=[];
-  if(version===null||!recorded)flags.push('untracked');
+  if(ambiguous)flags.push('ambiguous');else if(version===null||!recorded)flags.push('untracked');
   if(row.reversed||row.status==='reversed')flags.push('reversed');
   if(row.hash_available===false)flags.push('missing');
   return{...ref,status:row.status&&SAFE_STATUS.has(row.status)?row.status:'unknown',
