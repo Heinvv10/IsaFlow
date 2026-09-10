@@ -225,6 +225,11 @@ export async function getUnappliedControlCash(
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
           AND NOT EXISTS (SELECT 1 FROM credit_notes d
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+          -- A write-off's journal IS claimed — by the write-off, and through it
+          -- by the invoice (unpostedDocumentService counts it there). Leaving it
+          -- out of this list reported it as a posting with no document.
+          AND NOT EXISTS (SELECT 1 FROM customer_write_offs d
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
           AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
                           WHERE r.company_id = ${companyId}::UUID
                             AND r.reversal_journal_entry_id = je.id)

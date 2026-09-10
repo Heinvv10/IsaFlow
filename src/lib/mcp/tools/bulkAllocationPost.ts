@@ -12,6 +12,7 @@ import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
 import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocationVatGuard';
 import { postAllocationLine } from './allocationLine';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -71,20 +72,6 @@ function racedStatus(err: unknown): string | null {
 }
 
 /**
- * `lockBankTransactionForUpdate` waits 5s for the row and then raises
- * `BankTransactionLockTimeoutError` (code BANK_TX_LOCK_TIMEOUT). Detected by
- * CODE rather than `instanceof`: the loop must not import a bank service just
- * to compare constructors, and the code is the stable part of that contract.
- *
- * Write-free by construction — the lock is taken before anything is posted —
- * so the line is skipped rather than failing the batch.
- */
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === 'BANK_TX_LOCK_TIMEOUT';
-}
-
-/**
  * How much of a failure's own message may reach the agent.
  *
  * The registry's `.claude.md` invariant is that a handler error surfaces NO SQL
@@ -141,12 +128,17 @@ export function safeLineDetail(err: unknown): string {
  *     status under its own FOR UPDATE and refused, so NOTHING was written for
  *     this line and the batch is entitled to treat it exactly like a pre-check
  *     skip: counted, reported, and the batch continues.
- *   - the row is LOCKED by another request that has not finished (5s
- *     lock_timeout, BankTransactionLockTimeoutError). Also write-free — the
- *     lock is taken before anything is posted — so it is the same class of
- *     outcome as the race: skipped, reported as retryable, batch continues.
- *     Failing 499 good lines because one row was briefly busy is the opposite
- *     of what a bulk tool is for.
+ *   - a peer HELD a row this line needed and it was never acquired — the whole
+ *     `isRetryableContention` union, not the bank lock alone. `postAllocationLine`
+ *     reaches `allocateTransaction`, which reaches `recordSupplierBankPayment` /
+ *     `autoApplyCustomerReceipt` and through them the payment lock and the two
+ *     retryable plan refusals, so classifying on BANK_TX_LOCK_TIMEOUT alone
+ *     failed the whole batch for three of the four members. Every one of them is
+ *     write-free for the call that raised it, and the per-line savepoint has
+ *     rolled back anyway, so it is the same class of outcome as the race:
+ *     skipped, reported as retryable, batch continues. Failing 499 good lines
+ *     because one row was briefly busy is the opposite of what a bulk tool is
+ *     for.
  *   - anything else — a closed period, a missing contra account, a constraint —
  *     is fatal. It is rethrown as BulkAllocationLineError so the registry's
  *     savepoint unwinds the whole batch AND the agent is told which line did
@@ -196,7 +188,7 @@ export async function postPreparedLines(
         raced.push({ index, transaction_id: txId, reason: reasonForStatus(status) });
         continue;
       }
-      if (isLockTimeout(err)) {
+      if (isRetryableContention(err)) {
         raced.push({
           index, transaction_id: txId, reason: 'locked by another request — retry',
         });

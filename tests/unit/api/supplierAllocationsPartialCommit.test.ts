@@ -44,6 +44,9 @@ import {
   planSupplierPaymentApplication,
   applySupplierPaymentPlan,
 } from '@/modules/accounting/services/ap/supplierPaymentApplicationService';
+import { log } from '@/lib/logger';
+import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
 import handler from '../../../pages/api/accounting/supplier-allocations';
 
 const PAYMENT = '33333333-3333-4333-8333-333333333333';
@@ -93,13 +96,69 @@ beforeEach(() => { vi.resetAllMocks(); });
 describe('POST /api/accounting/supplier-allocations', () => {
   it('A PRE-WRITE REFUSAL IS A 400 and never reaches the apply', async () => {
     vi.mocked(planSupplierPaymentApplication).mockRejectedValue(
-      new Error('Invoice BILL0001 belongs to a different supplier than this payment.'),
+      new SupplierPaymentRefusal(
+        'Invoice BILL0001 belongs to a different supplier than this payment.',
+      ),
     );
     const { req, res } = mockReqRes('POST', BODY);
     await handler(req, res);
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.sent)).toMatch(/different supplier/i);
     expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
+    // A refusal is the user's own mistake; logging it at `error` makes it
+    // indistinguishable from a fault in Bugsink.
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  // CONTENTION, the other direction of the same classifier. Both rows that can
+  // be held raise it, four lines apart in the same call, and this route used to
+  // answer both 400 — the status reserved for the caller's own mistake.
+  it.each([
+    ['the PAYMENT row', () => new PaymentLockTimeoutError(PAYMENT)],
+    ['a BILL row', () => new SupplierPaymentRefusal(
+      'Another request is applying cash to one of these bills — retry in a moment.',
+      { retryable: true },
+    )],
+  ])('answers contention on %s with 409 and the retry wording', async (_label, make) => {
+    vi.mocked(planSupplierPaymentApplication).mockRejectedValue(make());
+    const { req, res } = mockReqRes('POST', BODY);
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
+    // Pre-write: the plan writes nothing, so the 4xx withAuth COMMITs is empty.
+    expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
+  });
+
+  // The disclosure this catch used to carry: it caught EVERYTHING and answered
+  // 400 with `err.message`, so a driver error handed the user schema and column
+  // names on a status `withAuth` COMMITs, monitored as their mistake.
+  it('RETHROWS a driver error rather than answering 400 with its text', async () => {
+    vi.mocked(planSupplierPaymentApplication).mockRejectedValue(
+      Object.assign(
+        new Error('column "amount_paid" of relation "supplier_invoices" does not exist'),
+        { code: '42703' },
+      ),
+    );
+    const { req, res } = mockReqRes('POST', BODY);
+
+    await expect(handler(req, res)).rejects.toThrow(/does not exist/);
+    // Never answered: withErrorHandler decides the status and it is a 5xx, so
+    // withAuth ROLLBACKs instead of committing.
+    expect(res.statusCode).toBe(0);
+    expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
+  });
+
+  // A code-less internal bug is equally not a refusal — the reason the
+  // predicate is the TYPE and not "carries no SQLSTATE".
+  it('RETHROWS a code-less internal bug rather than answering 400', async () => {
+    vi.mocked(planSupplierPaymentApplication).mockRejectedValue(
+      new TypeError("Cannot read properties of undefined (reading 'total_amount')"),
+    );
+    const { req, res } = mockReqRes('POST', BODY);
+
+    await expect(handler(req, res)).rejects.toThrow(/total_amount/);
+    expect(res.statusCode).toBe(0);
   });
 
   it('A POST-WRITE FAILURE PROPAGATES — it must not become a 400', async () => {

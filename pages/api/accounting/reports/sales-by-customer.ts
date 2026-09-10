@@ -12,6 +12,8 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -22,28 +24,39 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const format = typeof req.query.format === 'string' ? req.query.format : undefined;
 
     const { companyId } = req as CompanyAuthedRequest;
+    const paid = effectivePaidExpr('ar');
     const rows = await sql`
       SELECT
         COALESCE(ci.client_id, ci.customer_id) AS client_id,
         c.name AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0)::numeric AS total_sales,
-        COALESCE(SUM(COALESCE(ci.amount_paid, 0)), 0)::numeric AS payments_received,
-        COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0)::numeric AS outstanding
+        COALESCE(SUM(${sql.unsafe(paid)}), 0)::numeric AS payments_received,
+        COALESCE(SUM(ci.total_amount - ${sql.unsafe(paid)}), 0)::numeric AS outstanding
       FROM customer_invoices ci
+      -- LEFT and scoped, from K-091: an inner join on ci.client_id alone DROPPED
+      -- every invoice carrying only customer_id, and every invoice whose
+      -- customer row belongs to another company. Only the name comes from it.
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
                            AND c.company_id = ci.company_id
+      LEFT JOIN LATERAL (
+        ${rewindAmount({ companyId, asAtStr: to, todayStr: fmtDate(new Date()), side: 'ar' })}
+      ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
-        -- Dated to the period end this report is drawn to, so the outstanding
-        -- column agrees with the ageing and the control account at that date.
-        -- See shared/softDeleteLedgerPresence.
+        -- Everything here is AS AT "to": the invoices raised in the period,
+        -- and what had been received on them and was still outstanding on the
+        -- period end — the ageing at "to" restricted to these invoices. It is
+        -- NOT the ageing's total, which also carries invoices raised before
+        -- "from". Received/outstanding used to be TODAY's amount_paid, so a
+        -- past period showed settlement made after it (R-059); the rewind is
+        -- the aged report's own (shared/agingRewind). Drafts are excluded for
+        -- the same reason the ageing excludes them: nothing was sold or owed.
+        -- The soft-delete leg is dated to "to" — shared/softDeleteLedgerPresence.
         AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
-        -- COALESCE, because status is nullable and NULL != 'cancelled' is
-        -- NULL: the bare inequality silently dropped every null-status invoice,
-        -- the same under-reporting this report was fixed for.
-        AND COALESCE(ci.status, '') <> 'cancelled'
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY total_sales DESC
     `;

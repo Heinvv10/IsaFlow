@@ -27,6 +27,8 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/ap/*`. Every p
 - `getSupplierStatementBalances(companyId, asAtDate)` preserves gross ageing and reports unallocated payments/credit notes separately as `onAccount`; `netBalance = total - onAccount`. The supplier-statements list and CSV use the net figure; AP ageing itself remains invoice-based.
 
 ## Business rules
+- **Lock order**: the canonical sequence for every settlement path (bank line → payment → invoices → GL) lives in `bank/.claude.md`. Read it before adding a lock here; a path that takes two of these rows out of sequence deadlocks against one that does not (40P01 → 500).
+
 - `supplier_invoices.status`: `draft → approved → posted → paid`, plus `void`. `match_status`: `unmatched | partial | matched`.
 - PO state: `draft → sent → partial → received → closed`.
 - Posting runs inside the REQUEST transaction (withAuth, PR #264) — the services open none of their own; JE header gets `source='supplier_invoice'` but NOT the invoice id as `sourceDocumentId` (2026-04-24 fix — FK is to `documents`).
@@ -35,6 +37,7 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/ap/*`. Every p
 - EFT amounts are centified (×100) inside `formatEFTAmount` — pass Rands, not cents.
 - `netcashService` returns `mock: true` when `NETCASH_API_KEY` missing — production must not gate on absence.
 - `validatePaymentAllocations` (shared with AR, in `utils/paymentAllocation`) throws if allocations ≠ payment total before any DB write.
+- **`fetchBillCandidates` (`supplierAllocationLines`) LOCKS the bills it decides from** — `ORDER BY si.id`, `FOR UPDATE OF si`, 5s `lock_timeout`, 55P03 → `SupplierPaymentRefusal` ("retry in a moment"). Paying a bill is a check-then-act on `amount_paid` and nothing else on the AP path locks it: `lockSupplierPaymentForUpdate` protects a payment this request created, `bankTxLock` a bank LINE. Without it two lines against one bill both passed, and the only thing that stopped the second was a collision on `uq_gl_je_company_entry_number` — a 500 where the answer is a 400. The AR mirror is `fetchInvoiceCandidates`; keep the two identical. It THROWS outside a request transaction (`core/requestTransaction`), because an implicit one releases the lock at the end of the statement and discards the `SET LOCAL`.
 
 ## Related files
 - `pages/api/accounting/ap/*.ts` — routes.

@@ -33,6 +33,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
@@ -99,7 +100,8 @@ export async function getSettlementFlagged(
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.payment_matched = TRUE
-        AND si.status NOT IN ('draft', 'cancelled')
+        -- The subledger's status rule, shared rather than re-typed (header).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
         AND COALESCE(si.invoice_date, si.created_at::date) <= ${asAtDate}::DATE
         AND (si.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY (si.total_amount - ${sql.unsafe(paid)}) DESC, si.id

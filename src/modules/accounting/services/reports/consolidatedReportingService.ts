@@ -118,8 +118,9 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
       // There is no balance_due column on either invoice table — these queries
       // threw 42703, taking the whole dashboard down. Outstanding is
       // total_amount - amount_paid, and the open-status allowlists are the
-      // shared constants the aging reports use ('partial' was never a legal
-      // status, and supplier_invoices has no 'overdue').
+      // shared LIVE constants ('partial' was never a legal status, and
+      // supplier_invoices has no 'overdue'). NOT the aging reports' set: this
+      // used to say it was. See src/lib/constants/invoiceStatuses.ts.
       sql`SELECT company_id, COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) AS ar
           FROM customer_invoices ci
           WHERE ci.company_id = ANY(${companyIds}::UUID[])

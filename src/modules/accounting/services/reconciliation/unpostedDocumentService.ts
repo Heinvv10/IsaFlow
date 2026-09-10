@@ -39,6 +39,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 import type { SubledgerRole } from '../gl/controlAccountService';
 import { round2 } from './reconciliationMath';
 
@@ -86,9 +87,13 @@ export async function getUnpostedSubledgerDocuments(
     // that much into the residual.
     const todayStr = fmtDate(new Date());
     const paid = effectivePaidExpr(isAr ? 'ar' : 'ap');
+    // The status half is the shared rule, NOT a re-typed copy: the bare
+    // spelling here drifted from the subledger's in R-059 round 5 and turned a
+    // null-status document into a false document_not_on_control_account item
+    // plus an equal and opposite unexplained_difference on books that tied.
     const inPopulation = isAr
-      ? `ci.status NOT IN ('draft', 'cancelled') AND COALESCE(ci.invoice_date, ci.created_at::date) <= `
-      : `si.status NOT IN ('draft', 'cancelled') AND COALESCE(si.invoice_date, si.created_at::date) <= `;
+      ? `${documentInPopulationExpr('ci')} AND COALESCE(ci.invoice_date, ci.created_at::date) <= `
+      : `${documentInPopulationExpr('si')} AND COALESCE(si.invoice_date, si.created_at::date) <= `;
 
     // AR and AP are SEPARATE queries, not one query branching on a boolean
     // parameter: that form type-checked, ran without error and returned nothing
@@ -138,6 +143,25 @@ export async function getUnpostedSubledgerDocuments(
                                          AND jl.gl_account_id = ANY(${ids}::uuid[])
                  WHERE cn.company_id = ${companyId}::UUID
                    AND cn.customer_invoice_id = ci.id
+               ), 0)
+               -- The write-off leg. approveWriteOff raises amount_paid AND
+               -- credits the control account, so without its journal here a
+               -- written-off invoice read as "not on the control account" by
+               -- the write-off, and unappliedCashService read the same journal
+               -- as a posting with no document: two false items netting to
+               -- nothing. Pre-existing on master; measured in R-059 round 6.
+               + COALESCE((
+                 SELECT SUM(jl.debit - jl.credit)
+                 FROM customer_write_offs wo
+                 JOIN gl_journal_entries je ON je.id = wo.gl_journal_entry_id
+                                           AND je.company_id = ${companyId}::UUID
+                                           AND je.status = 'posted'
+                                           AND je.entry_date <= ${asAtDate}::DATE
+                 JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+                                         AND jl.company_id = ${companyId}::UUID
+                                         AND jl.gl_account_id = ANY(${ids}::uuid[])
+                 WHERE wo.company_id = ${companyId}::UUID
+                   AND wo.invoice_id = ci.id
                ), 0) AS control_amount
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
@@ -179,6 +203,25 @@ export async function getUnpostedSubledgerDocuments(
                                          AND jl.company_id = ${companyId}::UUID
                                          AND jl.gl_account_id = ANY(${ids}::uuid[])
                  WHERE a.invoice_id = si.id
+               ), 0)
+               -- The credit-note leg, the mirror of the AR one above. A linked
+               -- supplier credit note raises the bill's amount_paid AND debits
+               -- the control account; the AR side counted it and this side did
+               -- not, so every credit-noted bill read as "not on the control
+               -- account" by the note and the same amount fell into
+               -- unexplained_difference. Pre-existing on master; R-059 round 6.
+               + COALESCE((
+                 SELECT SUM(jl.credit - jl.debit)
+                 FROM credit_notes cn
+                 JOIN gl_journal_entries je ON je.id = cn.gl_journal_entry_id
+                                           AND je.company_id = ${companyId}::UUID
+                                           AND je.status = 'posted'
+                                           AND je.entry_date <= ${asAtDate}::DATE
+                 JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+                                         AND jl.company_id = ${companyId}::UUID
+                                         AND jl.gl_account_id = ANY(${ids}::uuid[])
+                 WHERE cn.company_id = ${companyId}::UUID
+                   AND cn.supplier_invoice_id = si.id
                ), 0) AS control_amount
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID

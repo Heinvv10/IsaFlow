@@ -22,6 +22,7 @@ import type { BankTransaction } from '../../types/bank.types';
 import { mapTxRow } from './bankTxRowMapper';
 import {
   lockBankTransactionForUpdate, isLockNotAvailable, tableLockUnavailable, BankMatchUnavailableError,
+  withBankLockBudget,
 } from './bankTxLock';
 export { BankMatchUnavailableError } from './bankTxLock';
 
@@ -172,7 +173,7 @@ export async function matchTransaction(
     // every later row) would make impossible.
     let rows: Row[];
     try {
-      rows = await withSavepoint(MATCH_WRITE_SAVEPOINT, async (): Promise<Row[]> => {
+      rows = await withSavepoint(MATCH_WRITE_SAVEPOINT, () => withBankLockBudget(async (): Promise<Row[]> => {
         try {
           if (reconciliationId) {
             return (await sql`
@@ -194,12 +195,12 @@ export async function matchTransaction(
           }
           throw writeErr;
         }
-      });
+      }));
     } catch (writeErr) {
       // The same race, seen slowly: before migration 657 the two racers locked
       // different bank rows and never blocked; the unique index makes them
-      // block on the INDEX instead, and that wait is bounded by the 5s
-      // lock_timeout, so a peer holding its transaction longer hands this
+      // block on the INDEX instead, and that wait is bounded by
+      // `withBankLockBudget`'s 5s lock_timeout, so a peer holding its transaction longer hands this
       // UPDATE a raw 55P03 rather than the 23505 above. Unmapped it escapes as
       // a bare pg error, the run does not recognise it, the route 400s and
       // withAuth COMMITs the partial run. But the same 55P03 is what a locked

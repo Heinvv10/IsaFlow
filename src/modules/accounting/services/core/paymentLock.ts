@@ -24,13 +24,13 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
-
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
+import { isLockContention } from './lockContention';
 
 /**
  * Raised when another request holds the payment row longer than the 5s
- * `lock_timeout`. The wording says "retry" because both the REST routes and the
+ * `lock_timeout`, or when Postgres breaks a deadlock (`40P01`) by choosing this
+ * transaction as the victim (`isLockContention` covers both — same answer to
+ * the caller, since neither wrote anything and both are retryable). The wording says "retry" because both the REST routes and the
  * MCP tools surface a caught service message straight to the caller, and a
  * lock timeout is the one refusal where retrying unchanged is the right move.
  */
@@ -42,9 +42,34 @@ export class PaymentLockTimeoutError extends Error {
   }
 }
 
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
+/**
+ * Raised when a payment POSTS between the unlocked peek `voidPaymentDocument`
+ * resolves its bank line from and the payment lock it takes afterwards — so the
+ * line it locked first hangs off a journal this payment did not have. Nothing
+ * has been written when it is raised, and the identical call a moment later
+ * sees the posted payment, so it is retryable exactly like the timeout above.
+ * It carries a CODE for the same reason that one does: `safeErrorText` surfaces
+ * a message only for a code on its own allowlist, and an agent told the generic
+ * fallback retries the call it was just refused.
+ */
+export class PaymentPostedDuringVoidError extends Error {
+  readonly code = 'PAYMENT_POSTED_DURING_VOID';
+  constructor(paymentId: string) {
+    super(`Payment ${paymentId} was posted while this void was being prepared — retry in a moment.`);
+    this.name = 'PaymentPostedDuringVoidError';
+  }
+}
+
+/**
+ * Structural, not `instanceof`: a route deciding a status code on this must not
+ * be defeated by module mocking or by two bundled copies of this file. Mirrors
+ * `isBankTransactionLockTimeout`. The condition is RETRYABLE and nothing has
+ * been written — the row was never acquired — so a caller may answer it with a
+ * 409 and keep the wording above.
+ */
+export function isPaymentLockTimeout(err: unknown): err is PaymentLockTimeoutError {
+  return err instanceof Error
+    && (err as { code?: unknown }).code === 'PAYMENT_LOCK_TIMEOUT';
 }
 
 function requireRequestTransaction(fnName: string): { query: (t: string) => Promise<unknown> } {
@@ -97,7 +122,7 @@ export async function lockCustomerPaymentForUpdate(
     await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
-    if (isLockTimeout(err)) throw new PaymentLockTimeoutError(paymentId);
+    if (isLockContention(err)) throw new PaymentLockTimeoutError(paymentId);
     throw err;
   }
 }
@@ -133,7 +158,7 @@ export async function lockSupplierPaymentForUpdate(
     await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
-    if (isLockTimeout(err)) throw new PaymentLockTimeoutError(paymentId);
+    if (isLockContention(err)) throw new PaymentLockTimeoutError(paymentId);
     throw err;
   }
 }

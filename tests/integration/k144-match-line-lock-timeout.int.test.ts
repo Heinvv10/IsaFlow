@@ -78,7 +78,11 @@ describeIfDb('K-144 M-A a slow peer is the same race, not a bare pg error', () =
     await b.query('BEGIN');
     try {
       // A binds the line and holds its transaction open past B's 5s timeout.
+      const budgetBefore = (await a.query('SHOW lock_timeout')).rows[0].lock_timeout;
       await als.run(ctx(a), () => matchTransaction(COMPANY, txA, line));
+      // The 5s budget ends with the write it bounds (K-071): it must not govern
+      // every later lock the same request takes.
+      expect((await a.query('SHOW lock_timeout')).rows[0].lock_timeout).toBe(budgetBefore);
 
       // B's claim SELECT cannot see A's uncommitted row, so it reaches the
       // UPDATE, blocks on the index, and is cancelled by lock_timeout — 55P03.
