@@ -214,7 +214,7 @@ export async function extractAttachmentData(dataUrl: string, mime: string, attac
     : await extractFromImage(buffer, mime);
 
   if (extracted && extracted.confidence > 0) {
-    await sql`
+    const stored = await sql`
       UPDATE bank_transaction_attachments
       SET extracted_data = ${JSON.stringify(extracted)}::jsonb
       WHERE id = ${attachmentId}::uuid
@@ -223,8 +223,15 @@ export async function extractAttachmentData(dataUrl: string, mime: string, attac
           WHERE bt.id = bank_transaction_attachments.bank_transaction_id
             AND bt.company_id = ${companyId}::uuid
         )
+      RETURNING id
     `;
-    log.info('VLM extraction stored for bank tx attachment', { attachmentId, confidence: extracted.confidence }, 'bank-tx-attachments');
+    // By outcome: the fence can match nothing, and a success log there would be
+    // the same false "extraction complete" R-075 itself produced.
+    if (stored.length === 0) {
+      log.warn('VLM extraction discarded — attachment is not this company\'s', { attachmentId, companyId }, 'bank-tx-attachments');
+    } else {
+      log.info('VLM extraction stored for bank tx attachment', { attachmentId, confidence: extracted.confidence }, 'bank-tx-attachments');
+    }
   }
 }
 
