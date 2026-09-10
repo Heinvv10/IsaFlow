@@ -23,9 +23,9 @@ export async function queryVerifiedBankStatements(ctx:ControlTx,cutoff:string|nu
     AND decision.person_id<>i.requester_person_id) AS independent_decision
   FROM control_bank_statement_attestation_intents i
   JOIN control_operation_effects e ON e.company_id=i.company_id AND e.entity_type='bank_statement_attestation_intent'
-   AND e.entity_id=i.id::text AND e.operation='bank_statement.attest'
+   AND lower(e.entity_id)=i.id::text AND e.operation='bank_statement.attest'
   LEFT JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
-   AND a.operation_id=e.operation_id AND a.entity_type=e.entity_type AND a.entity_id=e.entity_id AND a.operation=e.operation
+   AND a.operation_id=e.operation_id AND a.entity_type=e.entity_type AND lower(a.entity_id)=lower(e.entity_id) AND a.operation=e.operation
    AND a.requester_person_id=i.requester_person_id
   JOIN companies c ON c.id=i.company_id
   LEFT JOIN gl_accounts b ON b.company_id=i.company_id AND b.id=i.bank_account_id
