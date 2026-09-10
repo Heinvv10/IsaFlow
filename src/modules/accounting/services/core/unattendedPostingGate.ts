@@ -32,6 +32,7 @@ import { extractTotalCandidates, isUnreconciled } from './ocrAmountReconciliatio
 import type { Unreconciled } from './ocrLargerFigure';
 import { adjustmentAfterTotal, unexplainedLargerFigure, unreconciledFigure } from './ocrLargerFigure';
 import { hasCreditIndicator } from './creditIndicators';
+import { namesForeignCurrency } from './documentCurrency';
 
 export type UnattendedPostingInput = Pick<
   ExtractedDocument,
@@ -192,21 +193,4 @@ export function isAmbiguousTotal(
   return unexplainedLargerFigure(text, printed[0]!) !== null
     || adjustmentAfterTotal(text, printed[0]!) !== null
     || off !== null;
-}
-
-/**
- * Does the document name a currency that is not the rand?
- *
- * `R`/`ZAR` are the rand. Anything else means the printed figures are not the
- * amounts this ledger would post, whatever the reader made of them. Round 17
- * read a symbol only BEFORE the figure and a code only, so an EU reverse-charge
- * invoice printing `Total 100,00 €` was auto-approved at R100. A bare `Pound`
- * is deliberately absent (a weight); `Pounds Sterling` is not.
- */
-function namesForeignCurrency(text: string): boolean {
-  return /(?<![A-Za-z])(?:USD|EUR|GBP|AUD|CAD|CHF|JPY|CNY|INR|NGN|KES|BWP|NAD|ZWL)(?![A-Za-z])/.test(text)
-    // …before the figure or AFTER it, as EU invoices print it (`100,00 €`) …
-    || /[$€£¥]\s*\d|\d\s*[$€£¥]/.test(text)
-    // …or spelled out (`Total 115.00 (US Dollars)`, `Currency: Dollar`).
-    || /(?<![A-Za-z])(?:(?:US|American|Australian|Canadian)\s+)?(?:Dollars?|Euros?|Pounds?\s+Sterling|Sterling|Yen|Yuan|Renminbi|Naira)(?![A-Za-z])/i.test(text);
 }

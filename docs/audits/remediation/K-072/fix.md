@@ -1938,3 +1938,77 @@ not leak on the refusal), and once the holder lets go the retry posts one invoic
 Gates after the addition: `env -u DATABASE_URL bun run ci` → `[ci] all checks passed`, `CI_EXIT=0`
 (878 files / 11052 tests passed, component 84/530, build PASS); integration `k072-*` + `r058-*` →
 9 files / **85** tests passed, `INT_EXIT=0`.
+
+---
+
+## Round 19 — every vocabulary in the gate fails closed
+
+The round-18 review (`fdef9416e`) was 2H/2M/1L; its LOW-1 was already closed by `1c319e5eb`. The
+orchestrator's principle for this round: **a list is acceptable only where a missing entry causes a
+refusal, never a post.** Round 18 had two lists pointing the wrong way, and this round inverts them.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-2 (regression) a handwritten tip on the printed blank posted the pre-tip total, 47 of 59 | FIXED by INVERTING the counter rule. A whole number is a count ONLY when a closed list of counter/reference labels names it (`Items`, `Qty`, `Pieces`, `Till`, `Op`, `Pump`, `Table`, `Cashier`, `Page`, `Batch`, `Store`, `Terminal`, `Receipt`, `Order`, `Ref`, `Auth Code`, `Address`, …, `ocrPrintedFigures.ts`), or it has one of the excluded shapes. Any other whole number no payment, change or summary label claims is unexplained money and refuses — wherever printed, whatever was paid. A counter label missing from the list costs a refusal, never money. All 59 tip probes refuse. **Round 18's pinned trade-off is withdrawn:** `CARD 230.00 / Car Guard 23` now refuses too — the card proves what was paid, but nothing on the document explains the 23, and keeping it would have been a carve-out, not arithmetic. The item-column check lost its "payment proven" licence for the same reason. |
+| HIGH-1 a number followed by any word was dropped before its label was read | FIXED. `ocrWholeFigures` no longer drops a number for a trailing word; the label decides. `Paid 253 by card`, `CARD 253 APPROVED`, `Paid R253 thank you`, `EFT 1500 received`, `Payment received: 1500` are summed; `Call-out fee 350 (after hours)` on an unpaid invoice refuses. Excluded by SHAPE only: dates, times, leading zeros, `%`, `N of M`, "No"/`#`, masked card digits, 7+ digits, a reference code (`TAL-998877`), a street number (`12 Main Road`), a unit glued to the digits (`2L`) and a following UNIT word (`30 days`, `5 kg`) — the unit and road-word lists fail closed (a missing unit leaves the number read, and the document refuses). |
+| MEDIUM-1 39 of 72 credit markings posted | FIXED. Afrikaans VERBS are generated with their past participle (`GE` in front, or after a separable particle: `GEKANSELLEER`, `GEKREDITEER`, `OMGERUIL`, `TERUGGEGEE`, `UITRUIL`); `AMOUNT_CR` is case-insensitive and reads the Afrikaans `KT`; a Pastel number glued to its prefix (`CRN00045`, `CN0012`, `KN00123`) is a marking; the separator admits an apostrophe (`RET'D`); plus `RVSL`, `REVSL`, `RETD`, `REFD`, `CXL`, `CNX`, `RTV`, `ADJ NOTE`, `KR NOTA`, `REVERSE`/`NEG`/`-VE SALE`, `MONEY BACK`, `KANS`, `MINUS`, `Reimburs…`, `Annul…`, `Rückgabe`, and numbered `RET`/`RA`/`VD`/`GRV`. `Money back guarantee` stays ordinary. **All 72 refuse.** This list is still the one open direction left in the credit rule — a credit document that prints no signal the list knows, AND no negative figure, AND whose model did not classify it — and fix.md says so rather than calling it closed. |
+| MEDIUM-2 `US$`, `MZN`, `MT`, `Pula`, `Kwacha` after the figure posted | FIXED by INVERTING the currency test (`documentCurrency.ts`, new). A document passes only when every currency mark beside an amount is the rand: beside a cents figure, any symbol, any `X$` and any uppercase code of two or three letters refuses unless it is on `NOT_A_CURRENCY`, a closed list of words a till prints beside an amount (`VAT`, `EFT`, `QTY`, `CR`…) — a missing entry refuses. A single letter (a VAT-band mark, `32.99 A`) and a code glued to a digit (`50PPM`) are left alone. **Spelled-out names cannot be inverted** (any word may sit beside an amount) and remain a list, now with `Pula`, `Kwacha`, `Metical`, `Rupees`, `Dirham` and others; that is the one open direction left in this file, disclosed in its header. All 18 FX probes refuse. |
+
+### What the inverted counter rule costs — stated plainly
+
+Measured head vs `1c319e5eb`, extraction stamped `'vlm'`, identity supplied, 990 rows (the 177-row
+corpus + 813 probes, including all of rev-k072s's). **Across every ordinary set, the inverted rule refuses
+3 documents that passed before, and all three are the shape it is meant to refuse:**
+
+- `M8` (r16) and `B1` (r18): `Car Guard 23` under a card equal to the total — the withdrawn trade-off.
+- `C1` (r18): an invoice paid in full by `EFT 1150.00` that then prints `Deposit 500` — a whole number
+  under a label that is not a counter; a person decides what the deposit was.
+
+Everything else held, because the counter list covers the labels that actually print: the 16 ordinary
+receipts 4 posts / 7 approvals (unchanged), rev-k072q's 30 ordinary documents 16 / 27 (unchanged),
+rev-k072q's footer counters **26 of 26** (`Batch 123` recovered: a counter is a count at any size), the
+reviewer's 15 ordinary documents 7 / 14 (unchanged — 14 of 15 still pass unattended), the corpus 61 / 64
+(unchanged). Four counter labels were added only after a measured over-refusal each (`Op`, `Pieces`,
+`Address`, and the street-number shape), and two shapes (`TAL-998877`, `50PPM`) likewise.
+
+| Set | rows | posts | approvals | WRONG posts | WRONG approvals | newly refused |
+|---|---|---|---|---|---|---|
+| `k076-slip-corpus.ts` | 177 | 61 → 61 | 64 → 64 | 0 → 0 | 0 → 0 | 0 |
+| r13 ordinary receipts | 16 | 4 → 4 | 7 → 7 | 0 → 0 | 0 → 0 | 0 |
+| rev-k072q ordinary (Q1–Q18, S1–S12) | 30 | 16 → 16 | 27 → 27 | 0 → 0 | 0 → 0 | 0 |
+| rev-k072q footer counters | 26 | 25 → 26 | 25 → 26 | 0 → 0 | 0 → 0 | 0 |
+| **rev-k072s ordinary** | 15 | 7 → 7 | 14 → 14 | 0 → 0 | 0 → 0 | 0 |
+| **rev-k072s tip probes** | 59 | 47 → 0 | 47 → 0 | **47 → 0** | **47 → 0** | 0 |
+| **rev-k072s payment probes** | 19 | 11 → 0 | 11 → 0 | **11 → 0** | **11 → 0** | 0 |
+| **rev-k072s credit probes** | 72 | 39 → 0 | 39 → 0 | **39 → 0** | **39 → 0** | 0 |
+| **rev-k072s FX probes** | 18 | 8 → 0 | 8 → 0 | **8 → 0** | **8 → 0** | 0 |
+| rev-k072s mixed probes | 39 | 18 → 0 | 19 → 0 | 16 → 0 | 17 → 0 | 2 (`B1`, `C1`) |
+| r16 reviewer ordinary | 34 | 27 → 26 | 28 → 27 | 0 → 0 | 0 → 0 | 1 (`M8`) |
+| every other r13–r17 set | 485 | unchanged | unchanged | unchanged (r14 artefact 1) | unchanged | 0 |
+
+The one remaining WRONG row is still the r14 `C negative stored total only` harness artefact, fixed at
+source in round 16.
+
+Two round-18 tests were rewritten, not weakened, because the rule they pinned was deliberately reversed:
+the pinned `Car Guard 23` trade-off now asserts refusal, and "a counter with no payment refuses" became
+"a counter label makes a count whatever was paid; an unknown label refuses either way".
+
+### Mutations — 17, all RED, restored byte-identically (`md5sum -c` OK on all six files)
+
+T1 an unroled number is a count when payments balance (16) · T2 every unroled number is a count (38) ·
+T3 no counter labels at all (36) · T4 a trailing word drops the number (12) · T5 unit words ignored (4)
+· T6 a reference code is an amount (1) · T7 a street number is an amount (1) · T8 no Afrikaans `GE`
+participle (6) · T9 glued `cr` case-sensitive (1) · T10 no glued Pastel number (3) · T11 a code glued to
+a digit is a currency (1) · T12 an unknown code beside a figure is the rand (2) · T13 no word known not
+to be a currency (57) · T14 `Kwacha` unknown (1) · T15 a symbol after the figure is the rand (2) · T16 a
+money-back guarantee is a refund (1) · T17 an apostrophe is not a marking separator (1).
+
+### Gates
+
+`env -u DATABASE_URL bun run ci` → 15 checks PASS, `Test Files 879 passed | 40 skipped (919)`,
+`Tests 11141 passed | 248 skipped (11389)`, component 84/530, build PASS, `[ci] all checks passed`,
+`CI_EXIT=0`. Integration `k072-*` + `r058-*` → 9 files / 85 tests passed, `INT_EXIT=0`.
+
+**Files.** `documentCurrency.ts` (new, 50), `ocrWholeFigures.ts` 82, `ocrPrintedFigures.ts` 194,
+`ocrLargerFigure.ts` 268, `creditIndicators.ts` 258, `unattendedPostingGate.ts` 196 — all under 300.
+**Migration:** none. **Historical data:** unchanged. **Rollback:** revert the commit.

@@ -114,9 +114,8 @@ function recapRows(text: string, figures: readonly PrintedFigure[], total: numbe
 /**
  * A whole number printed as a LINE ITEM, above the total block — `Waiter 23`
  * over `Sub Total 200.00 / VAT 15% 30.00 / Total 230.00` (round-17 review,
- * posted R230.00 against R253.00, with nothing paid on the slip). Nothing
- * below the total mentions it, so rules 1 to 3 cannot see it. What can is the
- * item column's own sum: the last
+ * posted R230.00 against R253.00). Nothing below the total mentions it, so
+ * rules 1 to 3 cannot see it. What can is the item column's own sum: the last
  * figure of every item line must add up to the net or to the total. Checked
  * only where an item line prints a whole number and nothing else, so a
  * cents-only document is judged exactly as before; `Cappuccino 35 / Muffin
@@ -183,11 +182,14 @@ export interface Unreconciled {
  *
  * All three rules read the same figures, whole rands included (see
  * `ocrWholeFigures`): a whole-rand payment is summed by rule 1 and is larger
- * than the total under rule 2 exactly as its cents twin is. A whole number no
- * role claims — `Items 2`, `Table 12`, `Pump 5`, and equally `SERVICE 23` — is
- * a COUNT only where rule 1 has proven what was paid and nothing else of money
- * shares its line; with no payment on the document, or beside a cents figure,
- * it refuses. Larger than the total, it always refuses.
+ * than the total under rule 2 exactly as its cents twin is. A whole number is
+ * a COUNT only when a counter label names it (`Items 2`, `Table 12`, `Pump 5`
+ * — `ocrPrintedFigures`); any other whole number no role claims is an amount
+ * nobody explained, and refuses wherever it is printed, whatever was paid.
+ * Round 18 licensed it as a count whenever the payments balanced, and a
+ * handwritten tip (`Tip: ____ 23` under `CARD 230.00`) posted the pre-tip
+ * total. `CARD 230.00 / Car Guard 23` refuses now too: the card proves what
+ * was paid, but nothing on the document explains the 23.
  */
 export function unreconciledFigure(
   text: string,
@@ -212,11 +214,7 @@ export function unreconciledFigure(
 
   const larger = figures.find((f) => f.value > total && !(settled && (f.isTender || f.isChange)));
   if (larger) return { reason: 'larger', value: larger.value };
-  // The same licence rule 3 gives a count: where the payments PROVE the total
-  // was what was paid (`Car Guard 23 / … / VISA 230.00`), a whole number no
-  // role claims did not change the payable; where nothing proves it, the item
-  // column has to add up instead.
-  const item = settled ? null : unexplainedItem(text, total, known.subtotal ?? null);
+  const item = unexplainedItem(text, total, known.subtotal ?? null);
   if (item !== null) return { reason: 'stray', value: item };
 
   const end = totalPrintedLastEnd(text, total);
@@ -228,7 +226,7 @@ export function unreconciledFigure(
   const stray = belowFigures.find((f, i) => {
     if (f.value === 0 || f.isTender || f.isChange || recap.has(i)) return false;
     if (f.isSummary) return !roleValues.has(f.value);
-    if (f.isUnroled) return !settled || f.besideMoney;
+    if (f.isUnroled) return true;
     return true;
   });
   return stray ? { reason: 'stray', value: stray.value } : null;
