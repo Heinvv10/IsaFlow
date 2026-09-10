@@ -9,7 +9,7 @@ import type {RiskCheckOptions} from '@/modules/accounting/services/controls/invo
 import {ok,toolError} from './toolHelpers';
 const options=z.object({limit:z.number().int().min(1).max(100).optional(),cursor:z.string().max(1024).optional(),
  cutoff:z.string().refine(isRealCalendarDate).optional()}).strict();
-function riskTool(name:string,description:string,check:(ctx:ControlTx,input:RiskCheckOptions)=>Promise<ControlCheckResult>):McpTool {
+export function riskTool(name:string,description:string,check:(ctx:ControlTx,input:RiskCheckOptions)=>Promise<ControlCheckResult>):McpTool {
  return{name,description,scope:'read:reports',write:false,inputSchema:{type:'object',additionalProperties:false,properties:{
   limit:{type:'integer',minimum:1,maximum:100,description:'Finding page size; totals cover the complete supported population. Default 20.'},
   cursor:{type:'string',maxLength:1024,description:'Cursor from this check. Restart if source facts change.'},
