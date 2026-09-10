@@ -58,7 +58,7 @@ it('executes the actual comparison worker and publishes complete authenticated c
  const {openComparisonResultHeader,openComparisonResultItem}=await import('@/modules/accounting/services/controls/auditComparisonResultProtection');
  const {createComparisonResultDigest}=await import('@/modules/accounting/services/controls/auditComparisonResultDigest');
  const job=await actor(()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:first,secondSnapshotId:second,idempotencyKey:randomUUID()}));
- const result=await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool});expect(result).toMatchObject({state:'succeeded',comparisonId:job.id});
+ const result=await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool,workerClass:'audit'});expect(result).toMatchObject({state:'succeeded',comparisonId:job.id});
  const row=(await pool.query('SELECT generation,lease_id,protected_header FROM control_audit_comparison_results WHERE company_id=$1 AND job_id=$2',[f.companyA,job.id])).rows[0];
  const header=openComparisonResultHeader(row.protected_header,{companyId:f.companyA,comparisonId:job.id,generation:Number(row.generation),leaseId:row.lease_id});
  const rows=(await pool.query('SELECT section,position,protected_item FROM control_audit_comparison_items WHERE company_id=$1 AND job_id=$2 ORDER BY section,position',[f.companyA,job.id])).rows;
@@ -67,7 +67,7 @@ it('executes the actual comparison worker and publishes complete authenticated c
  expect(header.counts.records).toEqual({first:0,second:1,added:1,removed:0,changed:0,unchanged:0});
  const digest=createComparisonResultDigest();digest.append(change);expect(digest.finish(header)).toBe(header.canonicalHash);
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({kind:'audit_compare',state:'succeeded',resultComparisonId:job.id});
- expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool})).toEqual({state:'not_claimed'});
+ expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool,workerClass:'audit'})).toEqual({state:'not_claimed'});
 });
 it('converts a legacy companion in the worker without rewriting its original and supports self comparison',async()=>{
  const legacy=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
@@ -77,7 +77,7 @@ it('converts a legacy companion in the worker without rewriting its original and
  await pool.query('DELETE FROM control_audit_comparison_sources WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,legacy.id]);
  const job=await actor(()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:legacy.id,secondSnapshotId:legacy.id,idempotencyKey:randomUUID()}));
  expect((await pool.query('SELECT snapshot_id FROM control_audit_comparison_sources WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,legacy.id])).rows).toEqual([]);
- expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool})).toMatchObject({state:'succeeded',comparisonId:job.id});
+ expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool,workerClass:'audit'})).toMatchObject({state:'succeeded',comparisonId:job.id});
  expect((await pool.query('SELECT build_job_id FROM control_audit_comparison_sources WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,legacy.id])).rows).toEqual([{build_job_id:job.id}]);
  expect((await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,legacy.id])).rows[0]).toEqual(original);
  expect((await pool.query('SELECT position FROM control_audit_comparison_items WHERE company_id=$1 AND job_id=$2',[f.companyA,job.id])).rows).toEqual([]);
@@ -86,7 +86,7 @@ it('rolls back incomplete retained comparison output without a published result 
  const job=await actor(()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:first,secondSnapshotId:second,idempotencyKey:randomUUID()}));
  await pool.query(`CREATE FUNCTION public.synthetic_comparison_result_suppress() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.companyA}'::uuid AND NEW.job_id='${job.id}'::uuid THEN RETURN NULL; END IF; RETURN NEW; END $$`);
  try{await pool.query('CREATE TRIGGER synthetic_comparison_result_suppress BEFORE INSERT ON control_audit_comparison_items FOR EACH ROW EXECUTE FUNCTION public.synthetic_comparison_result_suppress()');
-  expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool})).toMatchObject({state:'failed',failureRecorded:true});
+  expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool,workerClass:'audit'})).toMatchObject({state:'failed',failureRecorded:true});
   expect((await pool.query('SELECT state,result_comparison_id FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[f.companyA,job.id])).rows).toEqual([{state:'failed',result_comparison_id:null}]);
   for(const table of ['control_audit_comparison_items','control_audit_comparison_results'])expect((await pool.query(`SELECT job_id FROM ${table} WHERE company_id=$1 AND job_id=$2`,[f.companyA,job.id])).rows).toEqual([]);
  }finally{await pool.query('DROP TRIGGER IF EXISTS synthetic_comparison_result_suppress ON control_audit_comparison_items');await pool.query('DROP FUNCTION public.synthetic_comparison_result_suppress()');}
@@ -94,7 +94,7 @@ it('rolls back incomplete retained comparison output without a published result 
 it('current source revocation after enqueue prevents worker publication',async()=>{
  const job=await actor(()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:first,secondSnapshotId:second,idempotencyKey:randomUUID()}));
  await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'banking',false)",[f.companyA,f.u1.id]);
- try{expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool})).toMatchObject({state:'failed',code:'AUTHORITY_REVOKED'});
+ try{expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool,workerClass:'audit'})).toMatchObject({state:'failed',code:'AUTHORITY_REVOKED'});
   expect((await pool.query('SELECT job_id FROM control_audit_comparison_results WHERE company_id=$1 AND job_id=$2',[f.companyA,job.id])).rows).toEqual([]);
  }finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='banking'",[f.companyA,f.u1.id]);}
 });
@@ -102,7 +102,7 @@ it('independent jobs over the same retained sources produce exactly the same can
  const hashes:string[]=[];
  for(let i=0;i<2;i++){
   const job=await actor(()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:first,secondSnapshotId:second,idempotencyKey:randomUUID()}));
-  const result=await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool});expect(result.state).toBe('succeeded');
+  const result=await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool,workerClass:'audit'});expect(result.state).toBe('succeeded');
   if(result.state!=='succeeded')throw new Error('Comparison failed');hashes.push(result.canonicalHash);
  }
  expect(hashes[0]).toBe(hashes[1]);

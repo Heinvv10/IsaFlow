@@ -75,6 +75,9 @@ const TOOL_FLOW_OPERATIONS:Record<string,FlowOperationCode|null>={
   audit_export_chunk:null,
   compare_audit_snapshots:null,
   audit_comparison_items:null,
+  run_control_checks:null,
+  control_check_run:null,
+  control_check_run_findings:null,
 };
 
 /**

@@ -1,0 +1,57 @@
+import {beforeAll,expect,it} from 'vitest';
+import {randomBytes,randomUUID} from 'node:crypto';
+import {analyseJournalRisks,type JournalRiskRow,type JournalThreshold} from '@/modules/accounting/services/controls/journalRiskAnalysis';
+import {buildJournalRiskFinding,type JournalRiskSourceRow} from '@/modules/accounting/services/controls/journalRiskShared';
+import {CHECK_RUN_ITEM_BOUNDS,checkRunCurrencyFits,sealAuditCheckRunItem} from '@/modules/accounting/services/controls/auditCheckRunProtection';
+beforeAll(()=>{process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');});
+const identity={companyId:randomUUID(),checkRunId:randomUUID(),generation:1,leaseId:randomUUID()};
+/**
+ * The seal must never refuse a finding the synchronous detector accepts. The detector's message is bounded by its
+ * inputs at their DATABASE type bounds: at most 100 usable thresholds (it keeps 100), ids that are uuid (36 chars),
+ * versions that are bigint (at most 19 digits), and six fixed per-row signals. This builds that worst case through
+ * the real detector and the real finding builder — no hand-written message — and seals it.
+ */
+function worstCase(){
+ const thresholds:JournalThreshold[]=Array.from({length:100},(_unused,index)=>({id:`ffffffff-ffff-4fff-bfff-${String(index).padStart(12,'f')}`,
+  version:Number.MAX_SAFE_INTEGER,amount:'1.5',operator:'greater_than'}));
+ // node-pg returns a bigint column as a STRING, so the detector interpolates all 19 digits of the widest value
+ // `control_version` can hold; the declared `number` type is narrower than what actually arrives.
+ for(const threshold of thresholds)(threshold as unknown as {version:string}).version='9223372036854775807';
+ const row=(id:string):JournalRiskSourceRow&JournalRiskRow=>({id,accountingDate:'2026-06-05',actualAt:'2026-06-06T20:00:00+02:00',actualBasis:'posted_at',
+  personId:'p',amount:'1',currency:'ZAR',reversalOfId:randomUUID(),reversedAt:null,periodState:'closed',periodEventId:randomUUID(),version:1,
+  changes:[{id:randomUUID(),action:'journal.amended',periodState:'locked',periodEventId:randomUUID()}],lineCount:1,changeCount:1,reversalOwned:true,periodEventVersion:1});
+ const results=analyseJournalRisks([row(randomUUID()),row(randomUUID())],thresholds);
+ expect(results[0]!.reasons,'the worst case did not trigger every signal and every threshold').toHaveLength(106);
+ return buildJournalRiskFinding(results[0]!);
+}
+it('seals the longest message the detector can produce, and states that bound',()=>{
+ const built=worstCase();
+ expect(built.finding.message.length,'the detector can exceed the declared message bound').toBeLessThanOrEqual(CHECK_RUN_ITEM_BOUNDS.message);
+ expect(()=>sealAuditCheckRunItem(identity,0,{amount:built.amount,currency:built.currency,finding:built.finding})).not.toThrow();
+});
+/** What one character of a currency costs inside the sealed plaintext: canonical JSON, then UTF-8. */
+const sealedBytes=(text:string)=>Buffer.byteLength(JSON.stringify(text),'utf8')-2;
+// Two-, three- and six-byte characters once sealed (U+0001 is escaped as \u0001): the reviewer's probes, never 'X'.
+const PROBES=['\u00e9','\u4e2d','\u0001'];
+it('bounds the currency by its sealed bytes, so the widest one of every encoding fits the table CHECK beside the longest message',()=>{
+ // companies.default_currency is unbounded text, so no finite seal bound accepts "any" currency: the real limit is the
+ // table's CHECK octet_length(protected_item::text) <= 65 536, after hex encoding doubles the plaintext. A bound
+ // counted in UTF-16 code units lets a non-ASCII currency past the seal and into that CHECK, mid-run.
+ const built=worstCase(),amount='9'.repeat(CHECK_RUN_ITEM_BOUNDS.amount);
+ for(const probe of PROBES){
+  const widest=probe.repeat(Math.floor(CHECK_RUN_ITEM_BOUNDS.currencyBytes/sealedBytes(probe)));
+  const envelope=sealAuditCheckRunItem(identity,0,{amount,currency:widest,finding:built.finding});
+  // jsonb::text renders ", " and ": " where JSON.stringify writes "," and ":"; four keys add at most eight octets.
+  expect(Buffer.byteLength(JSON.stringify(envelope))+8,`the widest ${JSON.stringify(probe)} currency would breach the table CHECK`).toBeLessThanOrEqual(65536);
+  expect(()=>sealAuditCheckRunItem(identity,0,{amount,currency:`${widest}${probe}`,finding:built.finding}),`a ${JSON.stringify(probe)} currency past the byte bound sealed`).toThrow();
+  // 16 384 of each sealed to 66 531, 99 299 and 197 603 bytes under the old code-unit bound: the seal must refuse them.
+  expect(()=>sealAuditCheckRunItem(identity,0,{amount,currency:probe.repeat(16384),finding:built.finding})).toThrow();
+ }
+});
+it('names the currency check a run performs up front with the same byte measure',()=>{
+ for(const probe of PROBES){
+  const at=probe.repeat(Math.floor(CHECK_RUN_ITEM_BOUNDS.currencyBytes/sealedBytes(probe)));
+  expect(checkRunCurrencyFits(at)).toBe(true);expect(checkRunCurrencyFits(`${at}${probe}`)).toBe(false);
+ }
+ expect(checkRunCurrencyFits('ZAR')).toBe(true);
+});

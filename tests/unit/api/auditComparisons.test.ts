@@ -1,6 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import type {NextApiRequest,NextApiResponse} from 'next';
 import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
+import {AuditEnqueueQuotaError} from '@/modules/accounting/services/controls/auditEnqueueQuota';
 const shared=vi.hoisted(()=>({enqueue:vi.fn(),page:vi.fn(),permission:vi.fn(),ctx:{synthetic:'adapter-only'}}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>shared.ctx}));
 vi.mock('@/lib/auth/effectivePermissions',async importOriginal=>({...await importOriginal<object>(),assertEffectivePermission:shared.permission}));
@@ -34,4 +35,19 @@ it('returns current shared authority denial as forbidden for enqueue and read',a
  shared.enqueue.mockRejectedValueOnce(new EffectivePermissionError());shared.page.mockRejectedValueOnce(new EffectivePermissionError());
  expect((await invoke('POST',{firstSnapshotId:id,secondSnapshotId:id,idempotencyKey:'denied'})).status).toHaveBeenCalledWith(403);
  expect((await invoke('GET',{}, {comparisonId:id,section:'records'})).status).toHaveBeenCalledWith(403);
+});
+it('answers a refused comparison quota with 429, not a server error',async()=>{
+ shared.enqueue.mockRejectedValueOnce(new AuditEnqueueQuotaError('audit_compare','member'));
+ const res=await invoke('POST',{firstSnapshotId:id,secondSnapshotId:id,idempotencyKey:'quota'});
+ expect(res.status,'a comparison quota refusal surfaced as a server error').toHaveBeenCalledWith(429);
+ expect(res.json.mock.calls[0]?.[0]?.error).toMatchObject({code:'RATE_LIMIT',message:'Audit comparison quota exceeded (member)'});
+});
+it('names the missing permission in a 403, whichever it is',async()=>{
+ shared.enqueue.mockRejectedValueOnce(new EffectivePermissionError('write:audit'));shared.page.mockRejectedValueOnce(new EffectivePermissionError('read:payroll'));
+ const enqueue=await invoke('POST',{firstSnapshotId:id,secondSnapshotId:id,idempotencyKey:'denied'}),read=await invoke('GET',{}, {comparisonId:id,section:'records'});
+ expect(enqueue.json.mock.calls[0]?.[0]?.error?.message).toBe('Current permission denied: write:audit is required');
+ expect(read.json.mock.calls[0]?.[0]?.error?.message).toBe('Current permission denied: read:payroll is required');
+ // A refusal that names no permission (an inactive membership, a revoked grant) keeps the general wording.
+ shared.page.mockRejectedValueOnce(new EffectivePermissionError());
+ expect((await invoke('GET',{}, {comparisonId:id,section:'records'})).json.mock.calls[0]?.[0]?.error?.message).toBe('Current permissions do not allow this operation.');
 });

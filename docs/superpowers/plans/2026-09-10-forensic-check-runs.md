@@ -504,3 +504,329 @@ check that no per-row child query appears in the statement log (≈101 statement
 A18 constraint assertions and merge grep, the A21 CHECK and the A23 setting check. T2e records the 100k run
 under the real check-run unit with `RuntimeMaxUSec` read back, closing the spike's caveat that no runtime cap
 was in force.
+
+
+---
+
+# v7 amendments (implementation findings from T2c; nothing above is rewritten)
+
+T2c shipped at `60794ad8f`. These entries record what the database actually does, where the v6 text assumed
+otherwise, and which v6 gates moved to a later task rather than being dropped.
+
+## A24 `approval_rules` accepts exactly one aggregate shape, so §2.3's premise is wrong
+
+v6 §2.3 and A8 finding 9 assume the detector's `usable` filter (`aggregate_window_days === null &&
+aggregate_by === null`, now `journalRiskThresholds` in `journalRiskPopulationSql.ts`) is guarding against
+arbitrary windowed or grouped approval policies. It is not, because such policies cannot exist. The row
+trigger `control_version_approval_policy` on `approval_rules` raises `Unsupported aggregate approval policy`
+unless
+
+```
+(aggregate_window_days IS NULL OR aggregate_window_days = 1)
+AND (aggregate_by IS NULL OR aggregate_by = 'supplier')
+AND (aggregate_window_days IS NULL) = (aggregate_by IS NULL)
+```
+
+so the only non-null aggregate a company can hold is **one day, by supplier**. The assumption that is wrong is
+the plan's, not the trigger's: `usable` is not a broad filter over a large space of unsupported policies, it is
+a two-valued gate.
+
+`unsupported_or_bounded_current_journal_policy` is therefore reachable in production through exactly three
+doors, and the check must be read as covering those and nothing else:
+
+1. an active `journal_entry` policy with `aggregate_window_days = 1 AND aggregate_by = 'supplier'`;
+2. an active `journal_entry` policy whose `condition_field` is outside `('amount','total')`;
+3. an active `journal_entry` policy whose `condition_operator` is outside `('greater_than','greater_equal')` —
+   in practice `'any'`, which is the column default's neighbour and the commonest value in the wild.
+
+Consequences carried forward: T2c's fixture uses door 1, since it is the only aggregate the database will
+accept (`tests/integration/controls/journalRiskCheckRunFixture.ts`, the "Windowed" rule). A later plan that
+widens `usable` must widen the trigger first, and that is a root-coordinated shared object. No new detector
+work is implied — the flag already fires correctly on all three doors.
+
+**Deployed-company incidence: NOT MEASURED, and deliberately so.** Production (`isaflow`) is never queried
+from an implementation session, not even with `SELECT`. The shapes enumerated while writing this amendment
+came from the disposable synthetic fixture database `isaflow_schema_fixture` on 127.0.0.1:33149, whose rows
+are the accumulated residue of test runs and say nothing about any real tenant: there, `1/supplier` was the
+only non-null aggregate present on `journal_entry` (19 rows) alongside 45 `journal_entry` rows at operator
+`'any'` (door 3). Whether any deployed company holds a door-1, door-2 or door-3 policy is an open question for
+whoever runs the production read, and this plan does not answer it.
+
+## A25 v6 gates deferred out of T2c, with their destination
+
+- **A15 gate c0** (the vendored pre-seam `journalRiskQueries.ts` reference) and the **over-cap differential**
+  (10 001-row / 150-change fixtures, oracle at `sourceFetch` 200 001) move to **T2e**, beside the scale
+  fixture that has to build a population that large anyway. T2c implemented the A14 seam itself
+  (`loadJournalRiskPopulation(ctx, cutoff, limits = JOURNAL_RISK_DEFAULT_LIMITS)`), so the oracle can reach
+  past 10 000 as soon as a population exists to read; the differential T2c did run is at default limits over
+  1 086 rows, where neither path emits `async_scan_required:journal_population_exceeds_10000`, which is the
+  end state A20 describes.
+- **A17's statement-count gate** ("no per-row child query in the statement log, ≈101 statements for 100k
+  rows") moves to **T2e**: it is an M3-style measurement and needs the 100k population. The property it
+  measures is structural in T2c — both LATERALs travel inside the cursor body and the only per-page statement
+  is `FETCH` — but it is asserted by nothing, and a later edit could reintroduce a per-parent query silently.
+- **§4's "a run finishing inside grace succeeds" is an emulation and stays one.** The gate shortens the lease
+  to exactly `graceMs` before the run rather than letting a real 300 s run overrun into the grace window, so
+  what it proves is "work landing in the last 30 s of a lease publishes", not "work that exceeded
+  `maxRuntimeMs` publishes". The genuine half is the opposite gate, which lets the lease expire while the
+  transaction is streaming — the only way a run can cross expiry, since it holds `FOR SHARE` on the job row
+  and no competitor can shorten the lease under it. Any evidence document for this slice must say so in these
+  terms; a summary that reports the gate as "finishes inside grace: PASS" without the emulation is wrong.
+
+
+---
+
+# v8 amendments (blind review of T2c+T2d, `bcf5aab53..f5f09286d`: no P1, three P2, six P3)
+
+Nothing above is rewritten; where an earlier entry is wrong, the entry here says so and supersedes it.
+
+## A26 G3 did not reach the fence — A25's "genuine half" was false
+
+A25 said the crossing-expiry gate "lets the lease expire while the transaction is streaming". It did not. The gate
+set the lease to now+3 s and then ran a 10 s `pg_sleep` *before* calling the phase, so the phase's opening lease check
+(`auditCheckRunPhase.ts`, the first `loadStoredAuditJobDelegation`) already saw an expired lease and refused — and the
+gate's `/lease expired or was replaced/` matched that message as readily as the publication fence's. Deleting the
+lease predicate from both the post-stream re-check and the success UPDATE left it green.
+
+Rebuilt (`e1c911a87`, `68d6fffe0`): the gate holds a lock the phase first needs at `DECLARE`, proves the phase is
+blocked there with the lease still live (so the opening check passed and expiry lands after it), waits for expiry on
+the database clock, releases, and demands `CheckRunPublicationFenceError` with `stage:'recheck'`. The tenant has no
+journals, so no finding INSERT — whose RLS also checks the lease — runs first. The reviewer's exact mutant now fails
+with "the publication fence did not refuse; got Error: Audit job lease expired or was replaced".
+
+What no gate can isolate, stated rather than hidden: the success UPDATE's own `lease_expires_at` predicate. For it to
+be the refusing check, expiry must land between the result-row INSERT (whose RLS already demands a live lease) and
+the UPDATE, a window of microseconds with no lock to widen it. Removing that predicate alone survives. It is depth
+behind the RLS, like T2d's layered permission checks, and it stays.
+
+## A27 `maxSlabRows` counted the wrong rows and rested on a false premise
+
+v6 set `maxSlabRows 1000` because "real slabs ≤6 rows". That premise is false: the reviewer measured one user's
+927 posted journals in a single (SAST day, person, currency) slab on isaflow_dev (2026-07-05), with others at 670 and
+387 — dev data, not production, which nobody queries from here. Worse, the bound counted every row, including rows
+that can never join a threshold group, and the population is cumulative to the cutoff: one historical day of more than
+1 000 postings by one user made every later run `unknown`, permanently.
+
+Now: only rows that can join a threshold group are held and counted. A row that can join none has a result that
+depends on no other row, so it is analysed at once, alone, by the same detector. The eligibility predicate
+(`journalRiskThresholdGroup`) is extracted from `analyseJournalRisks`, not copied. The per-row array copy that made
+one group quadratic is gone — same node harness, one group, typical history: 10 000 rows 472 ms → 133 ms, 20 000
+5.6 s → 0.24 s, 40 000 33.8 s → 0.48 s. The bound was then set by
+measurement on the fixed detector, under node with the worker's 1 536 MiB heap:
+
+| rows held | analyse (3 facts) | analyse (101 facts) | heap held (101 facts) |
+|---|---|---|---|
+| 10 000 | 133 ms | 136 ms | 149 MiB |
+| 20 000 | 244 ms | 295 ms | 298 MiB |
+| 40 000 | 481 ms | 550 ms | 595 MiB |
+
+A held row costs 0.7 KiB with typical history and 15.2 KiB at the 101-change-fact worst case; the unfixed detector
+exhausted the heap at 80 000 worst-case rows. **`maxSlabRows = 25 000` groupable rows**: at most ≈371 MiB held and
+≈0.36 s of analysis, 27× the largest dev slab. A 2 500-journal dev-shaped slab publishes at production limits.
+
+Residual, stated: a single (day, person, currency) with more than 25 000 journals that can join a threshold group
+still makes that run `unknown`, and so does every later run whose cutoff includes that day, until retention or a
+different algorithm exists. The exact edge of both bounds is now gated through a tighten-only limits parameter.
+
+## A28 The absolute run cap was a permanent lockout; it is now a rate — and storage has no bound
+
+`maxPublishedJobs = 100` counted every succeeded run, `unknown` included, with no retention: the 101st run was
+refused forever, and a read-only token or a looping agent could reach it. It is replaced by **at most 100 enqueued per
+company in any trailing 24 hours** (plus the unchanged 6 active), on the database clock, so old runs stop counting.
+
+**Dependency Hein must see:** with a rate instead of a count, check-run results and findings now grow without bound
+until retention exists. The cap no longer hides that; nothing else bounds it either.
+
+## A29 Enqueueing takes `write:audit`
+
+`run_control_checks` was `write:true` but gated on `read:reports`. It now requires the existing opt-in `write:audit`
+scope: the MCP tool declares it (so the tool boundary refuses legibly), and `enqueueAuditCheckRuns` asserts it inside
+the transaction that writes — the only layer REST has. Reads stay on `read:reports`. The worker's stored delegation is
+unchanged (`read:reports`): enqueue authority and execution authority are separate. Out of this slice, noted:
+`audit_snapshot`, `export_audit_evidence` and `compare_audit_snapshots` share the old write-under-`read:reports` shape.
+
+## A30 Reader statuses
+
+An absent run and another tenant's are indistinguishable `not_found` (REST 404); the requester's own unpublished run
+is `not_ready` (REST 409) — told only to the person who enqueued it, matching `getAuditJob`'s audience. A succeeded job
+without its result row stays a server fault. None of these is a 500.
+
+## A31 The seal never refuses what the synchronous detector accepts
+
+The 4 096-character message cap refused a journal carrying about 60 threshold reasons, which sync publishes. The
+detector's maximum is now proven at the database's type bounds (100 thresholds of uuid id and bigint version, six
+signals): **8 663 characters**, built through the real detector in a unit test. The cap is 9 216; currency and amount,
+unbounded text on the sync path, get 1 024 each, and the envelope still fits the table's 64 KiB CHECK.
+
+## A32 Permission asserted once before `DECLARE` — accepted, with the reason
+
+The worker asserts `read:reports` once, before the cursor. A re-check inside the repeatable-read snapshot could not
+see a revocation anyway, and per-row assertion would reload and decrypt the delegation 100 000 times (spike M5).
+Readers re-authorise against their own current permissions on every read. This is accepted, not an oversight.
+
+## A33 What the A20 differential does and does not prove
+
+The run and the sync oracle share `journalRiskPopulationSql` on both sides, so the A20 differential proves the
+stream, slab assembly, writer, seal and reader — not the population SQL itself. The shared layer is covered by A15:
+the vendored pre-seam reference compared byte for byte against today's sync detector. Evidence must say this.
+
+## A34 A run past the 300 s deadline is `failed`, never `unknown` — T2e measures where that begins
+
+The contract stays: a timeout records `RESOURCE_LIMIT` failure, so a population too large to stream in 300 s can
+never publish anything. T2e must measure the largest population that fits and put the number in the evidence doc.
+
+
+---
+
+# v9 amendments (T2e results; evidence in `forensic-evidence/check-run-t2e-evidence.md`)
+
+## A35 T2e ran without a systemd unit, so part of its definition of done is still open
+
+The worker ran as the real artifact but as a direct child process, because this session was barred from starting
+systemd units. "Under `createIsolatedAuditJobRunner`" and "under the real check-run unit with `RuntimeMaxUSec` read
+back" were therefore **not done**: no `RuntimeMaxSec`/`MemoryMax` wall was in force and no unit readback happened. The
+T1 spike's caveat that no runtime cap was in force is still open, and T2f or a later session must close it.
+
+## A36 A17's "≈101 statements" was the FETCH count, not the statement count
+
+Measured at 100 000 journals: 101 FETCH, one statement touching `control_change_events` (the DECLARE), two touching
+`gl_journal_lines` (the DECLARE and the SUM cross-check), 546 in total. The total grows with findings — one sealed
+INSERT and one re-read page per 512 — never with rows. The gate asserts the FETCH count, the two child-table counts and
+a total below one per hundred rows.
+
+## A37 A34's answer: there is no single largest population
+
+Settled tables: 2 093 361 journals published in 256.6 s, the most measured. The first run after a bulk load, while
+autovacuum was processing the streamed tables, overran the deadline at 1 400 045. So "largest population that fits"
+depends on the database's state, not only its size; a restored or freshly migrated tenant near 1.4M journals can time
+out and publish nothing. That overrun is also the only real evidence of the grace window: the failure record landed
+29.8 s before lease expiry. G2's success-inside-grace remains an emulation — a COMMIT after the work deadline is
+refused by construction.
+
+## A38 The mixed scale fixture makes every journal a finding
+
+Its day (`g % 240`) and person (`g % 50`) assignments cycle together every 1 200 journals, giving ~83 journals per
+(day, person) that split every threshold: the 100k run carried exactly `maxFindings`. It is the worst case for the
+findings path, not a realistic mix, and the evidence says so. Decorrelating it would change what the recorded run
+measured, so it stays as committed.
+
+
+---
+
+# v10 amendments (blind review of `f5f09286d..2b851aa7b`: no P1, three P2, six P3)
+
+Evidence in `forensic-evidence/check-run-t2e-evidence.md`, `check-run-journals-100k.json` and `check-run-storage.json`.
+
+## A39 A run's findings are held as hashes, not findings — A27's heap figures did not bound the findings path
+
+The phase kept every full finding for the whole run and, while verifying the re-read, built a second decrypted copy.
+`maxFindings` is a count, and a message reaches 8 663 characters (A31), so 100 000 worst-case findings exhausted the
+1 536 MiB heap before any bound refused. Measured through the real worker at that heap: the `2b851aa7b` build died by
+SIGABRT after 79 s with no reply and its lease held — reclaimed and aborted again until RETRY_EXHAUSTED, never
+`unknown`. Now the phase keeps `{key, itemHash, amount, currency}` per finding, and each re-read page is compared with
+`staged[ordinal]`; nothing builds a map. The same worst case publishes in 77.6 s at 280 MiB VmHWM; the mixed 100k run
+fell from 673 MiB to 287 MiB. A27's 15.2 KiB per held row remains a slab-only figure.
+
+## A40 Storage is measured, the cap is not changed, and a per-member share sits beneath it
+
+Bytes per finding row, heap plus both indexes plus TOAST, from `pg_total_relation_size` deltas after CHECKPOINT around
+real worker runs: **2 359** at a typical 122-character message, **21 018** at the 8 663-character worst case. At
+`maxFindings` that is 0.24 GB and 2.1 GB per run, and **23.6 GB and 210 GB per company per day at the 100/24 h cap**.
+The cap stays at 100 per company per 24 h — tightening it is Hein's decision with these numbers. Beneath it, one member
+may enqueue at most 40 in the same window (`AUDIT_CHECK_RUN_QUOTA.maxJobsPerPrincipal`), so one principal cannot deny
+colleagues for a day. A28's dependency stands: nothing bounds growth until retention exists.
+
+## A41 Snapshot, export and comparison enqueues take `write:audit`, each with a rate — A29's out-of-slice note, closed
+
+`audit_snapshot`, `export_audit_evidence` and `compare_audit_snapshots` now declare `write:audit` on MCP, and the three
+services assert it inside the writing transaction, so REST is gated too. Every audit job kind is bounded by
+`AUDIT_ENQUEUE_QUOTAS` — one shared `assertAuditEnqueueQuota`, an advisory lock per (kind, company), a rolling window on
+the database clock, a company cap and a per-member share: snapshot 50/20, export 50/20, comparison 100/40, check run
+100/40, all per 24 h. Reads stay on `read:reports`. The `write:audit` consent copy in `consentScopeLabels.ts` and
+`patScopeMeta.ts` now names all four kinds of work, and a unit test ties the copy to the enforced tool list.
+
+## A42 Reader statuses, completed — supersedes part of A30
+
+A requester's own `failed` run is its own reason, `failed`, carrying the error code (REST 422 "Check run failed and
+will not publish (CODE)"), not `not_ready`: a client polling for readiness would otherwise loop forever. An enqueue
+refused by a rate is REST 429 on both enqueue routes, and on MCP a tool error carrying the quota message rather than
+the registry's generic "operation failed" — both added here, beyond the review's ask, because the new quotas made a
+refusal reachable on every enqueue and a generic failure invites the retry loop the rate exists to stop.
+
+## A43 A31's currency bound is 1 024 sealed bytes, checked up front (text corrected in v11, A48)
+
+As first written, this entry said the bound rose to 16 384 characters and that this was the most that fits the
+table's 64 KiB envelope CHECK. That was wrong: the bound counted UTF-16 code units while the CHECK counts bytes, so
+16 384 'é' sealed to 66 531 bytes, '中' to 99 299 and U+0001 to 197 603 — past the CHECK, as a retried mid-run
+fault. The bound is now **1 024 bytes of the currency as the seal encodes it** (canonical JSON, then UTF-8), and a run
+whose company currency exceeds it publishes `unknown` (`resource_limit:currency_exceeds_limit`) before streaming.
+`default_currency` is unbounded TEXT, so sync still accepts a currency the stream refuses; that residual is stated.
+
+## A44 Measurements are scripts; opt-in suites skip
+
+The deadline measurement is `scripts/forensic/measure-check-run-deadline.ts` and the storage measurement
+`measure-check-run-storage.ts`: they record observations and refuse only on a broken product contract.
+`auditCheckRunDeadline.int.test.ts` is deleted. `auditCheckRunScale.int.test.ts` follows the repo's
+`describe.skipIf(!enabled)` convention from `forensic-invocations.int.test.ts` — skipped without opt-in, a
+misconfiguration throws once opted in — rather than `auditJobScale`'s throw-in-`beforeAll`, which stays as it was.
+
+## A45 Eligibility is gated, not proven by reading
+
+Every regular fixture had exactly one usable threshold, where `some` and `every` agree. Two gates now kill that mutant:
+a slab under two usable rules where a row can join one group only, and a slab under no usable rule past a tightened
+bound. The rate window is pinned the same way: 99 seeded five minutes inside the window admit the 100th and refuse the
+next; 100 seeded five minutes outside admit.
+
+## A46 A26's survivor, accepted on the reviewer's stronger argument
+
+The phase takes `FOR SHARE OF j` on the job at its start and the claim uses `FOR UPDATE SKIP LOCKED`, so no second
+generation can be claimed until the phase transaction ends, and nothing renews a lease. Expiry inside the phase is only
+a clock fact: a gap between the success UPDATE and COMMIT exists with the predicate too, and removing it only widens
+that gap by the header INSERT's duration, with no reclaimer able to act inside it. For the same reason the
+`success_pointer` fence branch is effectively unreachable under repeatable read. Both stay as depth.
+
+## A47 The re-read's money re-total is deleted as inert — a deviation from the review's literal fix
+
+The review suggested folding totals incrementally during the re-read. Each re-read row's amount and currency are
+already compared with `staged[ordinal]`, from which the published totals are computed, so a re-total from the same
+values could never disagree: removing it survived every gate (mutant M13). It was deleted rather than kept as an
+untestable check. A corrupted retained amount is still caught — by the per-item comparison, and with that removed too,
+by A20's differential.
+
+
+---
+
+# v11 amendments (final review of `2b851aa7b..5f6dcc6bf`: may merge, no P1; four P3)
+
+## A48 The currency is bounded in sealed bytes, and an over-long one publishes `unknown` up front
+
+The probes were two-, three- and six-byte characters, never 'X'. The seal refines the currency by
+`checkRunCurrencyFits` — its canonical-JSON UTF-8 length, at most 1 024 bytes — and the phase checks the company's
+`default_currency` with the same measure right after its permission check, throwing
+`CheckRunResourceLimitError('currency_exceeds_limit')`, which the runner publishes as `unknown` with zero findings.
+Unfixed, the runner answered all three 16 384-character probes with WORKER_ERROR. 1 024 bytes also bounds what
+`staged` can hold for currency: 100 000 × 1 KiB ≈ 98 MiB at the absolute worst, where the old code-unit bound allowed
+16 KiB a finding, which is what reopened A39. The storage figures in A40 assume a three-letter currency; an absurd one
+adds at most 2 048 ciphertext bytes a finding.
+
+## A49 A job principal is refused every audit enqueue by name
+
+`enqueueAuditSnapshot` refused a job principal only because the saved delegation lacked `write:audit`. It now refuses
+first, by name, like the other three, and one gate pins the named refusal for all four.
+
+## A50 The enqueue quota's advisory lock is depth; the lock doing the work is upstream
+
+Every enqueue asserts `write:audit` before counting, and `assertEffectivePermission` calls
+`control_lock_permission_principal` (migration 626), which takes `pg_advisory_xact_lock('control-authority:' ||
+company)` until the transaction ends. So two enqueues in one company are serialised before either counts, and removing
+the quota's own `audit-enqueue:<kind>:<company>` lock leaves every gate green. The local lock stays so the quota does
+not depend on a permission helper's locking. **Watch for this:** a change that narrows that helper's lock (per person,
+or released before commit) is the change that exposes the last-slot race between concurrent members, and it needs a
+concurrency gate on the quota at that point.
+
+## A51 A 403 names the missing permission
+
+`EffectivePermissionError` carries the one permission a refusal was about, set only by `assertEffectivePermission`'s
+two permission refusals; membership and grant refusals carry none and keep the general wording. The check-run and
+comparison routes answer "Current permission denied: <permission> is required". The MCP copy that still called the
+check-run tools "all `read:reports`" is corrected.

@@ -16,7 +16,7 @@ export async function comparisonDispatchFixture(){
  process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
  const pool=new Pool({connectionString:target.connectionString,ssl:false,max:4});
  try{
-  const f=await provisionForensicFixture(config),runner=createIsolatedAuditJobRunner({nodePath:process.execPath,entryPath});
+  const f=await provisionForensicFixture(config),runner=createIsolatedAuditJobRunner({nodePath:process.execPath,entryPath,workerClass:'audit'});
   const identity=(jobId:string=randomUUID())=>({companyId:f.companyA,personId:f.u1.id,jobId});
   const actor=<T>(fn:()=>Promise<T>)=>withAuditWorkerTransaction(pool,identity(),'read committed',Date.now()+15000,undefined,
    store=>withControlRequest(store,{companyId:f.companyA,personId:f.u1.id,authMethod:'cookie'},fn));

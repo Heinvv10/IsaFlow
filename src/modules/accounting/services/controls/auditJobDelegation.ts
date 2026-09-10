@@ -1,8 +1,14 @@
 import type {TxSql} from '@/lib/neon';
 import {UUID_RE} from '@/lib/validation';
-import {openAuditJobRequest} from './auditJobProtection';
+import {openAuditJobRequest,type AuthenticatedAuditJobRequest} from './auditJobProtection';
 import {auditSnapshotPermissions} from './auditJobContract';
+import {auditCheckRunPermissions} from './auditCheckRunContract';
 import type {ProtectedChange} from './changeProtection';
+/** Per-kind current permissions: snapshots and check runs derive them from the request, never from a stored list. */
+export function auditJobRequestPermissions(delegation:AuthenticatedAuditJobRequest):string[]{
+ return delegation.kind==='audit_snapshot'?auditSnapshotPermissions(delegation.request)
+  :delegation.kind==='audit_check_run'?auditCheckRunPermissions(delegation.request.checkId):[...delegation.request.permissions];
+}
 export interface AuditJobLeaseReference {jobId:string;leaseId:string;generation:number}
 /** Internal bootstrap and permission recheck: authority comes from protected storage plus the live lease. */
 export async function loadStoredAuditJobDelegation(sql:TxSql,companyId:string,personId:string,lease:AuditJobLeaseReference){
@@ -18,5 +24,5 @@ export async function loadStoredAuditJobDelegation(sql:TxSql,companyId:string,pe
  const delegation=openAuditJobRequest(rows[0]);
  const [clock]=await sql`SELECT ${delegation.delegationExpiresAt}::timestamptz>clock_timestamp() AS valid` as {valid:boolean}[];
  if(clock?.valid!==true)throw new Error('Audit job delegation expired');
- return{...delegation,permissions:delegation.kind==='audit_snapshot'?auditSnapshotPermissions(delegation.request):delegation.request.permissions};
+ return{...delegation,permissions:auditJobRequestPermissions(delegation)};
 }

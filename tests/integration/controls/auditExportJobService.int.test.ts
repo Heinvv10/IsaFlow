@@ -1,4 +1,5 @@
 import {beforeAll,afterAll,it,expect} from 'vitest';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
@@ -17,12 +18,12 @@ let fixture:ForensicFixture,snapshotId:string;
 const sharedKey=randomUUID();
 function actor<T>(fn:()=>Promise<T>,person:'u1'|'u2'|'u3'='u1',pat=false){
  const user=fixture[person];return withAuditWorkerTransaction(pool,{companyId:user.companyId,personId:user.id,jobId:randomUUID()},'read committed',Date.now()+10000,undefined,
- store=>withControlRequest(store,{companyId:user.companyId,personId:user.id,authMethod:pat?'pat':'cookie',...(pat?{connectionId:user.tokens[0]!.id,grantId:user.tokens[0]!.id,grantedScopes:['read:reports','read:payroll']}: {})},fn));
+ store=>withControlRequest(store,{companyId:user.companyId,personId:user.id,authMethod:pat?'pat':'cookie',...(pat?{connectionId:user.tokens[0]!.id,grantId:user.tokens[0]!.id,grantedScopes:['read:reports','read:payroll','write:audit']}: {})},fn));
 }
 function work<T>(lease:AuditJobLease,fn:()=>Promise<T>){return withAuditWorkerTransaction(pool,{companyId:fixture.companyA,personId:fixture.u1.id,jobId:lease.jobId},'read committed',Date.now()+10000,undefined,store=>withControlJobRequest(store,lease,fn));}
 beforeAll(async()=>{
  fixture=await provisionForensicFixture(config);
- await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['read:reports','read:payroll'] WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u1.id]);
+ await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['read:reports','read:payroll','write:audit'] WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u1.id]);
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals','payroll'],checks:[],idempotencyKey:sharedKey}));
  snapshotId=job.id;expect(await runAuditSnapshotJob({companyId:fixture.companyA,personId:fixture.u1.id,jobId:job.id},{pool})).toMatchObject({state:'succeeded'});
  // A foreground enqueue/status must never decrypt the complete retained representation.
@@ -55,7 +56,7 @@ it('rolls back enqueue and denies revoked source reads before retry/status',asyn
 });
 it('retains original PAT delegation and refuses a revoked token at actual worker context bootstrap',async()=>{
  const job=await actor(()=>enqueueAuditExport(requireControlTx(),{snapshotId,idempotencyKey:randomUUID()}),'u1',true);
- const lease=await actor(()=>claimAuditJob(requireControlTx(),job.id));expect(lease).not.toBeNull();
+ const lease=await actor(()=>claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit));expect(lease).not.toBeNull();
  await work(lease!,async()=>{expect(requireControlTx().principal.authMethod).toBe('job');await assertEffectivePermission(requireControlTx(),'read:payroll');});
  await pool.query('UPDATE personal_access_tokens SET revoked_at=clock_timestamp() WHERE company_id=$1 AND id=$2',[fixture.companyA,fixture.u1.tokens[0]!.id]);
  let called=false;

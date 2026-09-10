@@ -11,11 +11,13 @@ import {parseAuditComparisonRequest} from './auditComparisonJobContract';
 import {auditRequestHash,openAuditJobRequest} from './auditJobProtection';
 import {protectChangeValues} from './changeProtection';
 import {getAuditJob,type AuditJobStatus} from './auditJobService';
-/** Metadata-only enqueue. Authenticated original intents anchor sources; workers verify their retained contents. */
+import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
+import {assertAuditEnqueueQuota} from './auditEnqueueQuota';
+/** Metadata-only enqueue. Authenticated original intents anchor sources; workers verify their retained contents; write:audit starts it. */
 export async function enqueueAuditComparison(ctx:ControlTx,input:unknown):Promise<AuditJobStatus>{
  assertControlTx(ctx);
  if(ctx.principal.authMethod==='job')throw new Error('An authenticated request is required to delegate comparison work');
- const request=parseAuditComparisonRequest(input);
+ const request=parseAuditComparisonRequest(input);await assertEffectivePermission(ctx,'write:audit');
  const first=await readAuditSnapshotIntentMetadata(ctx,request.firstSnapshotId),second=await readAuditSnapshotIntentMetadata(ctx,request.secondSnapshotId);
  const anchor=({snapshotId,sourceJobId,sourceRequestHash}:typeof first)=>({snapshotId,sourceJobId,sourceRequestHash});
  const stored=parseDeferredAuditComparisonRequest({...request,requestVersion:2,sourceVerification:'worker',firstSource:anchor(first),secondSource:anchor(second),
@@ -33,6 +35,7 @@ export async function enqueueAuditComparison(ctx:ControlTx,input:unknown):Promis
    if('requestVersion'in prior.request&&canonicalJson(prior.request)!==canonicalJson(stored))throw new Error('Comparison retry source anchors changed');
    await readComparisonIntentInputs(ctx,prior.request);return getAuditJob(ctx,existing[0]!.id);
   }
+  await assertAuditEnqueueQuota(ctx,'audit_compare',1);
   const id=randomUUID(),protectedRequest=protectChangeValues('audit_job',null,{companyId:principal.companyId,jobId:id,kind:'audit_compare',request:stored,
    authority:{personId:principal.personId,authMethod:principal.authMethod,connectionId:principal.connectionId,grantId:principal.grantId,
     grantedScopes:principal.grantedScopes,actingFirmId:principal.actingFirmId},delegationExpiresAt:new Date(Date.now()+86400000).toISOString()}).protectedPayload;

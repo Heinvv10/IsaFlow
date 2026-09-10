@@ -14,6 +14,17 @@ export function riskOptions(input:RiskCheckOptions){
  if(input.cursor!==undefined&&(typeof input.cursor!=='string'||input.cursor.length>1024))throw new Error('Invalid risk cursor');
  return{...input,limit,cutoff:input.cutoff??null};
 }
+/** Decimal(80) per ISO currency. Shared so a streamed run and a paged check normalise money the same way. */
+export function riskAmountTotals(findings:readonly Pick<RiskFinding,'amount'|'currency'>[]):Record<string,string>{
+ const D=Decimal.clone({precision:80}),totals:Record<string,string>={};
+ for(const finding of findings){if(!/^[A-Z]{3}$/.test(finding.currency))continue;
+  totals[finding.currency]=new D(totals[finding.currency]??'0').add(canonicalMoney(finding.amount)).toFixed();}
+ return totals;
+}
+/** A check with any finding fails; one with none but an uncovered source is unknown, never a pass. */
+export function checkStatus(findingCount:number,missingCount:number):'pass'|'fail'|'unknown'{
+ return findingCount?'fail':missingCount?'unknown':'pass';
+}
 export function riskResult(input:{companyId:string;id:string;options:RiskCheckOptions;populationCount:number;excludedCount:number;findings:RiskFinding[];
  missing:string[];coverage:string[];capturedAt:string;sourceVersions:EntityVersionRef[];sourceHash:string}):ControlCheckResult{
  const options=riskOptions(input.options),findings=[...input.findings].sort((a,b)=>a.finding.key<b.finding.key?-1:a.finding.key>b.finding.key?1:0);
@@ -23,10 +34,9 @@ export function riskResult(input:{companyId:string;id:string;options:RiskCheckOp
    if(!Number.isSafeInteger(cursor.offset)||cursor.offset<0||cursor.offset>findings.length||cursor.signature!==signature)throw new Error('changed');offset=cursor.offset;
   }catch{throw new Error('Risk population changed or cursor invalid; restart the check');}
  }
- const D=Decimal.clone({precision:80}),totals:Record<string,string>={};
- for(const finding of findings){if(!/^[A-Z]{3}$/.test(finding.currency))continue;totals[finding.currency]=new D(totals[finding.currency]??'0').add(canonicalMoney(finding.amount)).toFixed();}
+ const totals=riskAmountTotals(findings);
  const missing=[...new Set(input.missing)].sort(),next=offset+options.limit;
- return{checkId:input.id,checkVersion:1,status:findings.length?'fail':missing.length?'unknown':'pass',populationCount:input.populationCount,
+ return{checkId:input.id,checkVersion:1,status:checkStatus(findings.length,missing.length),populationCount:input.populationCount,
  excludedCount:input.excludedCount,findingCount:findings.length,amountTotals:totals,findings:findings.slice(offset,next).map(row=>row.finding),
  nextCursor:next<findings.length?Buffer.from(JSON.stringify({offset:next,signature})).toString('base64url'):null,
  coverage:input.coverage,missingSources:missing,capturedAt:input.capturedAt,cutoff:options.cutoff,sourceVersions:input.sourceVersions};

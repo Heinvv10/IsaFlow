@@ -1,0 +1,103 @@
+{
+ "environment": {
+  "head": "9ddd49eb7158afa82d7990fec901b75928728609",
+  "artifactSha256": "342376ed68c88b608ff276cbeef2599d5b34004fb992106c80d94ece35b0bee8",
+  "node": "v22.23.1",
+  "container": "isaflow-t2e-scale-pg-20260910",
+  "server": "PostgreSQL 16.11 (Debian 16.11-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "workerHeapMb": 1536,
+  "harness": "real worker artifact as a direct child process; no systemd-run unit, so no RuntimeMaxSec/MemoryMax wall and no unit readback"
+ },
+ "fixture": {
+  "journals": 100000,
+  "lines": 649266,
+  "changes": 1001106,
+  "versions": 90023,
+  "rules": 10,
+  "seedMs": 21720,
+  "profile": "mixed",
+  "loadAfterSeed": [
+   7.21,
+   7.3,
+   7.26
+  ]
+ },
+ "scaleRun": {
+  "jobId": "c5bba932-8772-47a4-9bac-8e0ab694f09a",
+  "elapsedMs": 26012,
+  "peakRssBytes": 300716032,
+  "vmHwmBytes": 300716032,
+  "loadBefore": [
+   7.21,
+   7.3,
+   7.26
+  ],
+  "loadAfter": [
+   5.97,
+   7.01,
+   7.16
+  ],
+  "populationCount": 100000,
+  "findingCount": 100000,
+  "status": "fail",
+  "statements": {
+   "total": 546,
+   "byVerb": {
+    "BEGIN": 2,
+    "SET": 3,
+    "SELECT": 231,
+    "SAVEPOINT": 3,
+    "UPDATE": 2,
+    "RELEASE": 3,
+    "COMMIT": 2,
+    "DECLARE": 1,
+    "FETCH": 101,
+    "INSERT": 197,
+    "CLOSE": 1
+   },
+   "mentioning": {
+    "control_change_events": 1,
+    "gl_journal_lines": 2,
+    "control_audit_check_findings": 393
+   }
+  }
+ },
+ "hardKill": {
+  "jobId": "368b9398-de35-4e6c-ab70-3f8eb82299ee",
+  "killedAfterMs": 8535,
+  "leaseWaitMs": 349697,
+  "rerunElapsedMs": 28033,
+  "generation": 2,
+  "attempts": 2,
+  "findingCount": 100000
+ },
+ "slabBound": {
+  "bound": 25000,
+  "atElapsedMs": 851,
+  "overElapsedMs": 748,
+  "atPeakRssBytes": 145682432,
+  "overPeakRssBytes": 131313664
+ },
+ "worstFindings": {
+  "jobId": "e0b261b3-e43b-444f-b65e-5fbe4e6ae4bf",
+  "seedMs": 3847,
+  "elapsedMs": 77592,
+  "peakRssBytes": 294084608,
+  "vmHwmBytes": 294084608,
+  "loadBefore": [
+   8.98,
+   7.96,
+   7.44
+  ],
+  "loadAfter": [
+   6.73,
+   7.45,
+   7.3
+  ],
+  "findingCount": 100000,
+  "messageChars": {
+   "min": 8663,
+   "max": 8663
+  }
+ }
+}

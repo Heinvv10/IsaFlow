@@ -5,6 +5,7 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls/auditWorkerTransaction';
 import {withControlRequest,withControlJobRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {claimAuditJobForWorker,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
 import {enqueueAuditSnapshot} from '@/modules/accounting/services/controls/auditJobService';
 import {enqueueAuditComparison} from '@/modules/accounting/services/controls/auditComparisonJobService';
@@ -16,7 +17,7 @@ let f:ForensicFixture,original:string,comparison:AuditJobLease,snapshot:AuditJob
 const rollback=new Error('Rollback synthetic unsigned policy probe');
 function actor<T>(person:'u1'|'u2',fn:()=>Promise<T>){const user=f[person];return withAuditWorkerTransaction(pool,{companyId:user.companyId,personId:user.id,jobId:randomUUID()},'read committed',Date.now()+15000,undefined,
  store=>withControlRequest(store,{companyId:user.companyId,personId:user.id,authMethod:'cookie'},fn));}
-async function claim(person:'u1'|'u2',jobId:string){const user=f[person];const lease=await withAuditWorkerTransaction(pool,{companyId:user.companyId,personId:user.id,jobId},'read committed',Date.now()+15000,undefined,store=>claimAuditJobForWorker(store,jobId));if(!lease)throw new Error('Missing fixture lease');return lease;}
+async function claim(person:'u1'|'u2',jobId:string){const user=f[person];const lease=await withAuditWorkerTransaction(pool,{companyId:user.companyId,personId:user.id,jobId},'read committed',Date.now()+15000,undefined,store=>claimAuditJobForWorker(store,jobId,AUDIT_WORKER_CLASS_KINDS.audit));if(!lease)throw new Error('Missing fixture lease');return lease;}
 beforeAll(async()=>{
  f=await provisionForensicFixture(config);
  const job=await actor('u1',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));original=job.id;

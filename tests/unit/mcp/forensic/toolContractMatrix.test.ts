@@ -65,9 +65,9 @@ const context = (scopes: string[]): McpToolContext => ({ companyId: UUID, userId
   scopes, tokenJti: UUID, oauthAppId: null });
 
 describe('every registered tool has a frozen schema/auth fixture', () => {
-  it('matches all 163 tool names and all schema keywords without silently skipping a new tool', () => {
-    expect(MCP_TOOLS).toHaveLength(163);
-    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(163);
+  it('matches all 166 tool names and all schema keywords without silently skipping a new tool', () => {
+    expect(MCP_TOOLS).toHaveLength(166);
+    expect(new Set(MCP_TOOLS.map(t => t.name)).size).toBe(166);
     expect(MCP_TOOLS.map(t => t.name).sort()).toEqual(frozen.tools.map(t => t.name).sort());
     expect([...CLIENT_MCP_TOOL_NAMES].sort()).toEqual(MCP_TOOLS.map(t => t.name).sort());
     const visit = (s: Schema) => {
@@ -80,7 +80,7 @@ describe('every registered tool has a frozen schema/auth fixture', () => {
     // defect class this suite exists to stop, and regenerating the frozen JSON
     // would hide a reintroduction from every agreement check.
     expect(MCP_TOOLS.filter(t => t.write && !(t.scope ?? '').startsWith('write:')).map(t => t.name)).toEqual([]);
-    expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(72);
+    expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(73);
     expect(MCP_TOOLS.filter(t => t.requiresPost)).toHaveLength(32);
   });
 

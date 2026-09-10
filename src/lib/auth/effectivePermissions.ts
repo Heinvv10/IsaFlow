@@ -5,6 +5,10 @@ import { EffectivePermissionError, loadPermissionState } from './effectivePermis
 
 export { EFFECTIVE_PERMISSION_RULES, attenuateGrantedScopes } from './effectivePermissionPolicy';
 export { EffectivePermissionError } from './effectivePermissionQueries';
+/** A 403's copy: the one permission a refusal was about, when it was about one; otherwise the general refusal. */
+export function deniedPermissionMessage(error: EffectivePermissionError): string {
+  return error.permission ? `Current permission denied: ${error.permission} is required` : error.message;
+}
 export interface EffectivePermissions {
   companyId: string; personId: string; role: string;
   /** Unconstrained allowed permissions only; conditional access never masquerades as allowed. */
