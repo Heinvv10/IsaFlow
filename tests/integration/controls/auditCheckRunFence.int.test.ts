@@ -11,6 +11,7 @@ import {createAuditJobPoller} from '@/modules/accounting/services/controls/audit
 import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls/auditWorkerTransaction';
 import {runAuditCheckRunPhase} from '@/modules/accounting/services/controls/auditCheckRunPhase';
 import {AUDIT_PROCESS_LIMITS} from '@/modules/accounting/services/controls/auditJobProcessContract';
+import {AUDIT_CHECK_RUN_LIMITS} from '@/modules/accounting/services/controls/auditCheckRunContract';
 import {CUTOFF,seedJournalRiskPopulation} from './journalRiskCheckRunFixture';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
 const config=fixtureConfigFromEnv(process.env),pool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:4});
@@ -41,16 +42,19 @@ const job=async(jobId:string)=>(await pool.query('SELECT state,attempts,generati
 const rowCounts=async(jobId:string)=>(await pool.query(`SELECT (SELECT count(*)::int FROM control_audit_check_results WHERE company_id=$1 AND job_id=$2) AS results,
  (SELECT count(*)::int FROM control_audit_check_findings WHERE company_id=$1 AND job_id=$2) AS findings`,[fixture.companyA,jobId])).rows[0];
 it('rolls the whole run back with nothing readable when the work transaction crosses lease expiry',async()=>{
+ // The lease is live when the work transaction opens and expires while it is streaming, which is the only way a run
+ // can cross expiry: the transaction holds FOR SHARE on the job row, so no competitor can shorten the lease under it.
  const jobId=await queued(),lease=await claim(jobId);expect(lease).not.toBeNull();
- await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1 AND job_id=$2",[fixture.companyA,jobId]);
- await expect(phase(lease!,0),'a run crossing lease expiry must not publish').rejects.toThrow(/lease expired or was replaced/i);
+ await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()+interval '3 seconds' WHERE company_id=$1 AND job_id=$2",[fixture.companyA,jobId]);
+ await expect(phase(lease!,10),'a run crossing lease expiry must not publish').rejects.toThrow(/lease expired or was replaced/i);
  expect(await rowCounts(jobId)).toEqual({results:0,findings:0});
  expect(await job(jobId)).toMatchObject({state:'running',result_check_run_id:null});
 },120000);
 it('succeeds when the work finishes inside the grace remaining on its lease',async()=>{
  const jobId=await queued(),lease=await claim(jobId);expect(lease).not.toBeNull();
- const grace=AUDIT_PROCESS_LIMITS.check_run.workDeadlineMs===0?0:30;
- await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()+($3||' seconds')::interval WHERE company_id=$1 AND job_id=$2",[fixture.companyA,jobId,grace]);
+ // Only the grace window is left on the lease; work that lands inside it still publishes.
+ const grace=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks.graceMs/1000;
+ await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()+make_interval(secs=>$3) WHERE company_id=$1 AND job_id=$2",[fixture.companyA,jobId,grace]);
  const result=await phase(lease!,0);
  expect(result.checkRunId).toBe(jobId);
  expect(await job(jobId)).toMatchObject({state:'succeeded',attempts:1,generation:1,result_check_run_id:jobId});
