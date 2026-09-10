@@ -83,7 +83,8 @@ const extracted = (reference: string) => ({
   referenceNumber: reference, currency: 'ZAR', subtotal: 1000, vatAmount: 150,
   vatRate: 15, totalAmount: 1150, lineItems: [], confidence: 0.9,
   // The text the auto-post gate re-reads — without it nothing posts unattended.
-  rawText: 'Waltons Stationery\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00',
+  // Under a purchase title (K-072 round 20), so only the rule under test refuses.
+  rawText: 'Waltons Stationery\nTAX INVOICE\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00',
   warnings: [], extractionMethod: 'vlm',
 });
 
@@ -308,7 +309,7 @@ describe('K-072 HIGH-1 the capture inbox is inside the fence', () => {
     // the duplicate gate does not answer 409 against the R1 150 invoices.
     const basket = {
       subtotal: 220, vatAmount: 33, totalAmount: 253,
-      rawText: 'Waltons Stationery\nTOTAL 253.00\nCASH 300.00\nCHANGE 47.00\n'
+      rawText: 'Waltons Stationery\nTAX INVOICE\nTOTAL 253.00\nCASH 300.00\nCHANGE 47.00\n'
         + 'VAT ANALYSIS\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00',
     };
     await pool.query(
@@ -326,7 +327,7 @@ describe('K-072 HIGH-1 the capture inbox is inside the fence', () => {
     // R1 150 invoices the other cases create.
     const note = {
       documentType: 'credit_note', subtotal: 100, vatAmount: 15, totalAmount: 115,
-      rawText: 'Sub Total 100.00\nVAT 15.00\nTotal 115.00',
+      rawText: 'TAX INVOICE\nSub Total 100.00\nVAT 15.00\nTotal 115.00',
     };
     await pool.query(
       'UPDATE captured_documents SET extracted_data = extracted_data || $3::jsonb WHERE id=$1 AND company_id=$2',
@@ -388,7 +389,7 @@ describe('K-072 round 14 figures the text fallback read never post unattended', 
     // 'approved'. Its own amount, so the duplicate gate does not answer 409.
     await markFallback(fallbackInboxDoc, {
       subtotal: 400, vatAmount: 60, totalAmount: 460,
-      rawText: 'Waltons Stationery\nSub Total 400.00\nVAT 60.00\nTotal 460.00',
+      rawText: 'Waltons Stationery\nTAX INVOICE\nSub Total 400.00\nVAT 60.00\nTotal 460.00',
     });
     expect((await inboxPost(fallbackInboxEvent)).state.statusCode).toBe(200);
     expect(await invoiceStatuses(fallbackInboxDoc)).toEqual(['draft']);

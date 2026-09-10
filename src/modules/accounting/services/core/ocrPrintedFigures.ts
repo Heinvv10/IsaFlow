@@ -9,7 +9,7 @@
  */
 import { parseAmount } from './ocrAmountParsing';
 import { SUMMARY_LINE_START } from './ocrAmountPatterns';
-import { wholeTokens } from './ocrWholeFigures';
+import { blankFillers, isCounterLabel, wholeTokens } from './ocrWholeFigures';
 
 /**
  * A printed money figure: it carries a decimal part, which is what keeps
@@ -110,20 +110,6 @@ function summaryAdjacent(line: string, index: number): boolean {
   return match !== null && SUMMARY_CONNECTOR.test(line.slice(lead + match[0].length, index));
 }
 
-/**
- * The labels of a COUNT or a REFERENCE — the one list in this gate that says a
- * number is NOT money. It is closed and it FAILS CLOSED: a whole number whose
- * label is not here, and that no payment, change or summary label claims, is
- * read as an amount nobody explained, and the document goes to a person.
- *
- * Round 18 had it the other way round: any whole number no role claimed was a
- * count wherever the payments balanced. A handwritten tip on the printed blank
- * (`Tip: ____ 23`, `Tip - 23`, `Gratuity ___ 23`) under `CARD 230.00` was then
- * a "count" too, and 47 of 59 tip probes posted the pre-tip total. A counter
- * label missing from this list costs a refusal; it never costs money.
- */
-const COUNTER_LABEL = /(?<![A-Za-z])(?:Items?|Qty|Quantity|Units?|Pieces|Parcels?|Packages?|Boxes|Cartons?|Lane|Till|Pump|Table|Tafel|Cashier|Kassier|Operator|Op|Clerk|Server|Page|Bladsy|Batch|Seq(?:uence)?|Store|Shop|Branch|Terminal|Trans(?:action)?|Receipt|Slip|Invoice|Order|Ref(?:erence)?|Acc(?:ount)?|Auth(?:ori[sz]ation)?(?:\s*Code)?|Approval(?:\s*Code)?|Code|Covers|Seats?|Guests?|Pax|Points|Odometer|Est(?:ablished)?|Since|Copy|Floor|Room|Aisle|Register|Lot|Serial|Version|Address|Adres)(?:\s+(?:Sold|Earned|Balance|Count|Total))?[\s:#.=-]*$/i;
-
 export interface PrintedFigure {
   value: number;
   /** A change label stands between this figure and the one before it on its line. */
@@ -141,13 +127,17 @@ export interface PrintedFigure {
 /**
  * Every figure the document prints, cents and whole, in reading order, each
  * with the role its own line gives it. ONE reader for all three rules of the
- * whitelist. A whole number named by a counter label is not a figure at all.
+ * whitelist. A whole number named by a counter label is not a figure at all;
+ * the counter list is closed and FAILS CLOSED — a label missing from it leaves
+ * the number read as money nobody explained (`ocrWholeFigures`).
  */
 export function printedFigures(text: string): PrintedFigure[] {
   const figures: PrintedFigure[] = [];
-  for (const line of text.split(/\r?\n/)) {
+  for (const printed of text.split(/\r?\n/)) {
+    const line = blankFillers(printed);
     const cents = [...line.matchAll(FIGURE)].map((m) => ({
       value: parseAmount(m[1]!), index: m.index, end: m.index + m[0].length, whole: false, moneyMark: true,
+      timeAfter: false, unitAfter: false,
     }));
     const lastCents = cents[cents.length - 1];
     const grouped = lastCents && [...line.matchAll(SPACE_GROUPED)].find((m) => m.index + m[0].length === lastCents.end);
@@ -172,7 +162,11 @@ export function printedFigures(text: string): PrintedFigure[] {
         isSummary,
         isUnroled: f.whole && !roled,
         end: f.end,
-        counter: f.whole && !roled && COUNTER_LABEL.test(segment),
+        // A COUNT: the whole label is a counter's, or a quantity unit follows a
+        // number no role claims on a line that prices it in cents. A role
+        // always wins — `Paid 253 x` is money.
+        counter: f.whole && !roled
+          && (isCounterLabel(segment, f.value) || f.timeAfter || (f.unitAfter && cents.length > 0)),
       });
       labelFrom = f.end;
     }

@@ -78,7 +78,8 @@ const extracted = (reference: string, confidence: number) => ({
   vatRate: 15, totalAmount: 1150, lineItems: [], confidence,
   // The text the auto-post gate re-reads: one printed total, so only
   // `confidence` decides draft vs posted here.
-  rawText: 'Waltons Stationery\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00',
+  // Under a purchase title (K-072 round 20), so the gate lets the structured read post.
+  rawText: 'Waltons Stationery\nTAX INVOICE\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00',
   warnings: [], extractionMethod: 'vlm',
 });
 

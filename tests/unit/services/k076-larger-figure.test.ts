@@ -67,7 +67,8 @@ describe('K-076 the gate and the AP routes refuse a larger figure', () => {
     documentType: 'receipt', vendorName: 'Ocean Basket', vendorVatNumber: null, vendorAddress: null,
     vendorBankDetails: null, customerName: null, customerVatNumber: null, date: '2026-09-01',
     dueDate: null, paymentTerms: null, referenceNumber: 'R1', purchaseOrderRef: null, currency: 'ZAR',
-    subtotal: 200, vatAmount: 30, vatRate: 15, totalAmount: 230, lineItems: [], rawText,
+    // Round 20: the header names the document a purchase (`purchaseTitle`).
+    subtotal: 200, vatAmount: 30, vatRate: 15, totalAmount: 230, lineItems: [], rawText: `TAX INVOICE\n${rawText}`,
     confidence: 1, warnings: [], extractionMethod: 'vlm', ...o,
   });
 

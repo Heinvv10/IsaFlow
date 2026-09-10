@@ -33,6 +33,7 @@ import type { Unreconciled } from './ocrLargerFigure';
 import { adjustmentAfterTotal, unexplainedLargerFigure, unreconciledFigure } from './ocrLargerFigure';
 import { hasCreditIndicator } from './creditIndicators';
 import { namesForeignCurrency } from './documentCurrency';
+import { identifiesAsPurchase } from './purchaseTitle';
 
 export type UnattendedPostingInput = Pick<
   ExtractedDocument,
@@ -87,7 +88,7 @@ export function refusesUnattendedApproval(
   doc: Pick<ExtractedDocument, 'documentType' | 'rawText' | 'totalAmount' | 'warnings' | 'extractionMethod'>
     & Partial<Pick<ExtractedDocument, 'vendorName' | 'vendorAddress'>>,
 ): boolean {
-  return isCreditNote(doc) || isFallbackExtraction(doc) || isAmbiguousTotal(doc);
+  return isCreditNote(doc) || isFallbackExtraction(doc) || !identifiesAsPurchase(doc) || isAmbiguousTotal(doc);
 }
 
 /** The refusal a failed reconciliation is reported as. */
@@ -154,6 +155,9 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   const reread = extractAmounts(doc.rawText ?? '');
   if (reread.vatAmount === null) return 'no VAT figure is printed on the document';
   if (reread.vatAmount !== vat) return 'the VAT figure read is not the VAT the document prints';
+  // LAST, so every reason above keeps its own wording: a document that passes
+  // all of them must still POSITIVELY name itself a purchase (`purchaseTitle`).
+  if (!identifiesAsPurchase(doc)) return 'the document does not name itself an invoice, receipt or till slip';
   return null;
 }
 
