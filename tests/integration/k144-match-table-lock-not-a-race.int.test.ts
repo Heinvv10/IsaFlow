@@ -1,8 +1,8 @@
 /**
  * K-144 (review r3 M1) — a locked TABLE is not "this line is already matched".
  *
- * `lockBankTransactionForUpdate` issues `SET LOCAL lock_timeout = '5s'`, which
- * bounds EVERY lock wait for the rest of the request. So the 55P03 that a slow
+ * The match UPDATE runs under `withBankLockBudget`'s 5s `lock_timeout`, which
+ * bounds EVERY lock wait that statement takes. So the 55P03 that a slow
  * peer produces on the match UPDATE is the same code a relation-level lock
  * produces — DDL, `VACUUM FULL`, or migration 657's own `CREATE UNIQUE INDEX`,
  * which holds SHARE on `bank_transactions` for the length of the build. Mapped
