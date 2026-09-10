@@ -45,6 +45,13 @@ vi.mock('@/modules/accounting/services/core/nlQueryService', () => ({
   buildTextToSQLPrompt: vi.fn(), validateGeneratedSQL: vi.fn(), detectIntent: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/afs/noteAiService', () => ({ generateNoteNarrative: vi.fn() }));
+// The AFS route reads the section (one query, bound to the document) before it spends anything,
+// so a locked document is refused without touching the budget; the row below is an open one.
+vi.mock('@/lib/neon', () => ({ sql: vi.fn().mockResolvedValue([{
+  section_type: 'note_1', content: { title: 'n', blocks: [] }, overrides: null, ai_narrative_accepted: false,
+  company_name: 'Test Co', framework: 'ifrs_smes', fiscal_year: 2025, document_status: 'draft',
+  signing_requested_at: null, ai_prompt_template: 'template',
+}]) }));
 
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
