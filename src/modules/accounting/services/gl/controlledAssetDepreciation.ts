@@ -64,7 +64,10 @@ export async function executeAssetDepreciation(companyId:string,userId:string,in
  if(!options?.approvalId){const prior=await receipt(ctx,intentId);if(prior)return prior;}
  const parent=ref(intentId);
  return executeControlledOperation(ctx,parent,options?.approvalId??null,async permit=>{
-  if(await receipt(ctx,intentId))throw new Error('Depreciation intent already executed');
+  // Existence only: receipt() ends in a replay, and a replay inside this execution is a nested
+  // kernel call that reports 'Nested execution requires the parent effect permit' instead of the
+  // reason. The refusal is the same either way; the message has to name it.
+  if(await loadIntentReceipt(ctx,ref(intentId)))throw new Error('Depreciation intent already executed');
   const material=await materializeAssetDepreciationOperation(ctx,parent),facts=material.observedSources[0]!.facts as unknown as Facts;
   if(facts.company.lockdown_enabled===true&&(!facts.company.lockdown_date||permit.accountingDate<=String(facts.company.lockdown_date)))throw new Error('Depreciation date is within company lockdown');
   if(facts.period.status!=='open'||facts.accounts.some(a=>a.is_active!==true))throw new Error('Depreciation period or accounts are not open');

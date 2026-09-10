@@ -136,9 +136,11 @@ it('records a durable failure when the provider result cannot be acknowledged af
  expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([]);
 });
 /**
- * paymentInvoiceSource reads the settlement receipt by an id the database owns, so the only reachable
- * mismatch is a receipt old code retained under the caller's spelling. Rewriting the retained entity_id
- * to that spelling reproduces it without touching the receipt's result or its approval linkage.
+ * SYNTHESIZED legacy state, NOT old-code output: no fad0f57f7 baseline seed exists for this operation,
+ * so the retained entity_id is rewritten to uppercase by a hand UPDATE below. What that stands in for
+ * is real — old code wrote entity_id from the caller's spelling — but this row was produced by current
+ * code and edited, and it is weaker evidence than the AR case, which replays a receipt a genuine
+ * fad0f57f7 worktree wrote.
  */
 it('loads a payment settlement whose retained receipt kept a legacy uppercase entity_id',async()=>{
  const p=await prepared(),company=f.f.companyA;
