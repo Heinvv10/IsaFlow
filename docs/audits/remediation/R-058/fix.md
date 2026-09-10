@@ -306,3 +306,68 @@ unless `error` still carries the discard reason: add
   one path with none. Not done: it is a migration, not among the four scored
   findings, and needs a dedupe check on existing rows first. Recommended as a
   follow-up alongside R-071.
+
+## Round 3 — two unpinned lines, one wrong comment
+
+Blind review of `467bbf1d4`: 0 HIGH · 0 MEDIUM · 2 LOW.
+
+### LOW-1 — `captureEventLock.ts:189` (the reset) and `:72-74` (the allow-list) had no test — FIXED
+
+Two tests added to `tests/integration/r058-capture-post-double-post.int.test.ts`
+(now 18):
+
+- `post-expense: a downstream lock wait outlives the 5s used to acquire the
+  event lock` — adapted from the reviewer's own probe
+  (`agents/rev-r058b/r058b.probe.test.ts`, the `LOW-2` block). Holds
+  `captured_documents`' row `FOR UPDATE` from an independent connection for 7s,
+  then calls `post-expense` and asserts 200 in >5000ms. Without
+  `lockWithTimeout`'s `SET LOCAL lock_timeout = DEFAULT` reset, the downstream
+  wait on that unrelated row inherits the 5s bound meant only for the
+  `FOR UPDATE OF ce` acquisition and the request 500s at ~5s instead.
+- `post-expense: a 'failed' event (post.ts's duplicate-retry park) is still
+  postable` — seeds an event at `status='failed'` with extracted data, posts,
+  asserts 200 / one journal / `status='posted'`. Pins the allow-list's
+  over-refusal direction: `post.ts:151` parks a duplicate-blocked bill there
+  for retry, and a shrunk allow-list would strand it with no race needed.
+
+`seedEvent()` gained an optional 4th `status` parameter (default `'extracted'`,
+unchanged for every existing call) and a `holdDocumentRow(documentId, ms)`
+helper was added alongside `holdEventRow` for the first test.
+
+### LOW-2 — the `!extracted_data` justification at `captureEventLock.ts:63-65` was false — FIXED
+
+Corrected the comment only; `'extracting'` stays on the allow-list (decided
+with R-071, not here). It no longer claims the routes' `!extracted_data`
+refusal stops a still-extracting event — it doesn't: `routeEvent` writes
+`captured_documents.extracted_data` in its own `UPDATE`
+(`captureRouterService.ts` ~161) *before* it sets `capture_events.status =
+'extracted'` in a second, separate statement (~176), so a request landing
+between those two writes sees `status='extracting'` with data already present
+and passes both checks. The comment now states what actually makes that window
+survivable — `routeEvent` still runs to completion and flips the status
+forward, so a request racing it doesn't itself corrupt anything — and points to
+R-071 as the unpredicated writer that could turn this into a real defect (not
+fixed here).
+
+### Round 3 mutations (file copy, restored, `git diff` = the edits only)
+
+| Mutation | Result |
+|---|---|
+| M6 drop `SET LOCAL lock_timeout = DEFAULT` | 1 failed — the new reset test (5095ms, timed out at ~5s instead of succeeding at >7s) |
+| M7 allow-list → `'received', 'extracting', 'extracted'` (drop `'failed'`) | 1 failed — the new `'failed'` retry test |
+| restored | 18 passed |
+
+### Round 3 gates (foreground)
+
+```
+env -u DATABASE_URL bun run ci
+[ci] build PASS
+[ci] all checks passed
+EXIT=0
+
+source fixture.env && bunx vitest run --config vitest.integration.config.ts --no-file-parallelism \
+  tests/integration/r058-capture-post-double-post.int.test.ts
+Test Files  1 passed (1)
+     Tests  18 passed (18)
+EXIT=0
+```
