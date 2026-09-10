@@ -55,6 +55,18 @@ const ALLOWED: Record<string, string> = {
     + 'stored header `taxAmount`, not per line, so the screen warns on the '
     + 'creation path (where the header is the sum of the lines) and does not '
     + 'verify what approval ultimately posts on an invoice captured elsewhere.',
+  'src/modules/accounting/services/expense/expenseClaimService.ts':
+    'Attended: `postClaimToGl` has one caller, `expense-claims/[id]/post`, '
+    + 'reached by a person clicking Post to GL on one claim they approved a '
+    + 'moment earlier — and the approve endpoint returns INPUT_VAT_DENIED_ADVICE, '
+    + 'which the detail page now renders (ClaimHeaderBanners), so the human who '
+    + 'chose the coding was shown the s17(2)(a) warning before the ledger write. It decides NO claim of its own: it picks no account, holds '
+    + 'no rate, and forwards `line.vatAmount` that the capture route resolved '
+    + 'through `resolveVatCodeForAccount` and the line PATCH warns on. Its only '
+    + 'vat_type write is `deniedVatTypeForLine` (claimVatAdvice, a wrapper over '
+    + 'inputVatDenial), which LABELS a zero-VAT leg `no_vat` and never turns a '
+    + 'claim on.',
+
   'pages/api/accounting/bank-match-confirm.ts':
     'Attended API action on one transaction the user is looking at.',
   'pages/api/accounting/bank-transactions-action.ts':

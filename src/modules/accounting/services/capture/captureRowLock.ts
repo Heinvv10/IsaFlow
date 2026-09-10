@@ -15,22 +15,32 @@
  * refuses. Same shape and the same reasoning as `bankTxLock.ts`, including why
  * `SET LOCAL lock_timeout` is re-issued on every call rather than memoised.
  *
- * A LOCK IS NOT THE WHOLE ANSWER, and reading it as one is what left the two
- * routes open in sequence. They guarded on DIFFERENT rows: `receipt-to-journal`
- * on `captured_documents.status`, `post-expense` on `capture_events.status`,
- * with only the second stamping both. So `post-expense` → `receipt-to-journal`
- * was refused and `receipt-to-journal` → `post-expense` was not refused at all
- * — an operator posting a receipt and then opening the same document in the
- * capture inbox got two VAT-bearing journals against one receipt, with no
- * concurrency anywhere in it. The DOCUMENT is the thing that can only be posted
- * once, so every posting route now locks it, reads it, and CLAIMS it through
- * `claimCapturedDocumentForPosting` before its first write.
+ * A LOCK IS NOT THE WHOLE ANSWER, and reading it as one is what left the
+ * routes open in sequence: they guarded on DIFFERENT rows, so an operator
+ * posting a receipt and then opening the same document in the capture inbox got
+ * two VAT-bearing journals against one receipt with no concurrency in it. The
+ * DOCUMENT is the thing that can only be posted once, so every posting route
+ * locks it, reads it, and CLAIMS it before its first write.
  *
  * Lock order is document-then-event on every path, so there is no cycle to
- * deadlock on: `receipt-to-journal` takes the document alone, `post-expense`
- * takes the document and then the event, and nothing takes them the other way
- * round. (An earlier version of this comment claimed the opposite; there was
- * never a path that took the event before the document.)
+ * deadlock on: nothing takes them the other way round.
+ *
+ * THE FENCE IS `captured_documents.posted_at`, NOT `status`. It was `status`,
+ * and every leak this module has had came from that: `status` is a lifecycle
+ * column four subsystems write for four reasons ('reviewed' from the confirm
+ * button, 'rejected' from reject, 'matched' from attaching the slip to a bank
+ * transaction, 'matched' again from a posting route). As a posting fence it
+ * failed in both directions at once — confirm RESET it and a second post went
+ * through, 'rejected' was ADMITTED by a `<> 'matched'` predicate, and a
+ * document merely attached to a bank transaction was REFUSED with "already
+ * posted to a journal" when no journal existed. `posted_at` means one thing,
+ * is written by a posting path and nothing else, and is claimed with
+ * `WHERE posted_at IS NULL` (migration 672).
+ *
+ * Behind it, `uq_gl_je_capture_source_document` (same migration) is a partial
+ * UNIQUE index on `gl_journal_entries(company_id, source_document_id)` for the
+ * capture posting sources, so a route that forgets to claim — or one invented
+ * later — still cannot land a second posting journal against one receipt.
  *
  * Write paths ONLY.
  */
@@ -85,7 +95,7 @@ export async function lockCapturedDocumentForUpdate(
   await beginLock(documentId);
   try {
     const rows = (await sql`
-      SELECT extracted_data, status FROM captured_documents
+      SELECT extracted_data, status, posted_at FROM captured_documents
       WHERE id = ${documentId}::uuid AND company_id = ${companyId}
       FOR UPDATE`) as DbRow[];
     return rows[0] ?? null;
@@ -121,7 +131,39 @@ export async function lockCaptureEventForUpdate(
 }
 
 /**
- * The document has already been posted by another route or another request.
+ * Why a posting route refused the document.
+ *
+ * Two reasons, two messages: telling an operator "already posted to a journal"
+ * about a document that was merely rejected — or merely attached to a bank
+ * transaction — is a false statement about the ledger, and the only undo the
+ * product offered for it was the confirm button, which is itself a bypass.
+ */
+export type CapturedDocumentRefusal = 'already_posted' | 'rejected';
+
+export const CAPTURED_DOCUMENT_REFUSAL_MESSAGE: Record<CapturedDocumentRefusal, string> = {
+  already_posted: 'Document already posted',
+  rejected: 'Document was rejected — reopen it before posting',
+};
+
+/**
+ * The refusal a locked document row earns, or null when it may be posted.
+ *
+ * `posted_at` is the fence; `status` is consulted for one value only, the
+ * terminal `'rejected'` an operator set deliberately. Every other status —
+ * including the `'matched'` that attaching the slip to a bank transaction
+ * writes — is postable, which is the whole point of moving off the column.
+ */
+export function refusalForPosting(
+  row: { status?: unknown; posted_at?: unknown },
+): CapturedDocumentRefusal | null {
+  if (row.posted_at != null) return 'already_posted';
+  if (row.status === 'rejected') return 'rejected';
+  return null;
+}
+
+/**
+ * The document cannot be posted: already claimed by another route or request,
+ * or rejected by an operator.
  *
  * Thrown rather than returned where the claim happens inside a service, so the
  * route can answer 400 with the same wording it uses for its own read guard.
@@ -131,46 +173,67 @@ export async function lockCaptureEventForUpdate(
  */
 export class CapturedDocumentAlreadyPostedError extends Error {
   readonly code = 'CAPTURED_DOCUMENT_ALREADY_POSTED';
-  constructor() {
-    super('Document already posted to a journal');
+  readonly refusal: CapturedDocumentRefusal;
+  constructor(refusal: CapturedDocumentRefusal = 'already_posted') {
+    super(CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
     this.name = 'CapturedDocumentAlreadyPostedError';
+    this.refusal = refusal;
   }
 }
 
 /**
- * Claim the document for posting: stamp it 'matched', but only from a status
- * that is not already settled.
+ * Claim the document for posting: stamp `posted_at`, but only from a row that
+ * has not been claimed and has not been rejected.
  *
- * The status read under `lockCapturedDocumentForUpdate` is what refuses the
- * ordinary second attempt with a 400. This is the fence behind it — a single
- * statement whose WHERE clause carries the same predicate the read did, so that
- * a caller which somehow reaches the write without the lock (a future route, a
- * path that forgets it) still cannot post a document another path has settled.
+ * The read under `lockCapturedDocumentForUpdate` refuses the ordinary second
+ * attempt with an accurate message. This is the fence behind it — one statement
+ * carrying the same predicate the read did, so a caller reaching the write
+ * without the lock still cannot post what another path settled. The predicate
+ * is on `posted_at`: a status-predicated claim is only as durable as the
+ * lifecycle column it rides on, and that column is rewritten by the confirm
+ * button, the reject button and the bank-attach path — none of which know they
+ * are unlocking a ledger write.
  *
- * Callers MUST run it BEFORE their first ledger write and answer `false` with a
- * 4xx. That ordering is the safe one: `withAuth` COMMITs the request
+ * Callers MUST run it BEFORE their first ledger write and answer a refusal with
+ * a 4xx. That ordering is the safe one: `withAuth` COMMITs the request
  * transaction on a 4xx, so a refusal here commits nothing (the UPDATE matched
  * no row), while every failure AFTER it throws and rolls the claim back with
  * the journal.
  *
- * `document_category` is stamped alongside because the two routes that set it
- * did so in this same statement; passing null leaves the column untouched.
+ * `status = 'matched'` is stamped alongside because the inbox reads that column
+ * to show the document as settled; it is now a consequence of posting, never
+ * the thing that decides it. `document_category` is stamped for the two routes
+ * that set it; passing null leaves the column untouched.
+ *
+ * Returns null when the claim succeeded, otherwise the reason it did not.
  */
 export async function claimCapturedDocumentForPosting(
   companyId: string,
   documentId: string,
   documentCategory: string | null = null,
-): Promise<boolean> {
+): Promise<CapturedDocumentRefusal | null> {
   const rows = (await sql`
     UPDATE captured_documents
-       SET status = 'matched',
+       SET posted_at = NOW(),
+           status = 'matched',
            document_category = COALESCE(${documentCategory}, document_category),
            updated_at = NOW()
      WHERE id = ${documentId}::uuid
        AND company_id = ${companyId}
-       AND status <> 'matched'
+       AND posted_at IS NULL
+       AND status <> 'rejected'
     RETURNING id`) as DbRow[];
-  return rows.length === 1;
+  if (rows.length === 1) return null;
+
+  // Which of the two predicates refused it. The row is held under
+  // `lockCapturedDocumentForUpdate` on every posting path, so this re-read sees
+  // the settled values. A row that vanished (wrong tenant, deleted) reports
+  // 'already_posted' — the caller has already answered NOT_FOUND for that case
+  // from its own earlier read.
+  const [row] = (await sql`
+    SELECT status, posted_at FROM captured_documents
+    WHERE id = ${documentId}::uuid AND company_id = ${companyId}`) as DbRow[];
+  return row ? (refusalForPosting(row) ?? 'already_posted') : 'already_posted';
 }
 
 /** The two rows a capture-inbox post has to agree on, read under both locks. */
@@ -178,6 +241,7 @@ export interface CaptureEventForPosting {
   eventStatus: string;
   documentId: string;
   documentStatus: string;
+  documentPostedAt: Date | string | null;
   extractedData: unknown;
 }
 
@@ -208,7 +272,8 @@ export async function lockCaptureEventForPosting(
 
   const [row] = (await sql`
     SELECT ce.status AS event_status, ce.captured_document_id,
-           cd.status AS document_status, cd.extracted_data
+           cd.status AS document_status, cd.posted_at AS document_posted_at,
+           cd.extracted_data
     FROM capture_events ce
     JOIN captured_documents cd ON cd.id = ce.captured_document_id
     WHERE ce.id = ${eventId}::uuid
@@ -221,6 +286,7 @@ export async function lockCaptureEventForPosting(
     eventStatus: String(row.event_status),
     documentId: String(row.captured_document_id),
     documentStatus: String(row.document_status),
+    documentPostedAt: (row.document_posted_at as Date | string | null) ?? null,
     extractedData: row.extracted_data,
   };
 }

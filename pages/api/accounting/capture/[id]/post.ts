@@ -25,6 +25,13 @@ import { recordCoding } from '@/modules/accounting/services/capture/supplierRule
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
 import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
+import {
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CaptureRowLockTimeoutError,
+  claimCapturedDocumentForPosting,
+  lockCaptureEventForPosting,
+  refusalForPosting,
+} from '@/modules/accounting/services/capture/captureRowLock';
 
 type Row = Record<string, unknown>;
 
@@ -46,34 +53,46 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!eventId) return apiResponse.badRequest(res, 'eventId is required');
 
-  // Load event + document
-  const eventRows = await sql`
-    SELECT ce.id AS event_id, ce.status AS event_status,
-           ce.captured_document_id, cd.extracted_data
-    FROM capture_events ce
-    JOIN captured_documents cd ON cd.id = ce.captured_document_id
-    WHERE ce.id = ${eventId}::uuid
-      AND ce.company_id = ${companyId}
-      AND cd.company_id = ${companyId}
-    LIMIT 1
-  ` as Row[];
+  // Load event + document, holding BOTH rows for the rest of the request.
+  //
+  // This is the only posting button in the product (capture/inbox.tsx), and it
+  // read no document state at all: it selected `ce.status` and stamped
+  // `captured_documents.status = 'matched'` at the end, so a receipt already
+  // turned into a GL journal by receipt-to-journal could be posted again here
+  // as an auto-approved supplier invoice carrying the same tax_amount — one
+  // slip, the same input VAT in the VAT201 twice, no concurrency in it. The
+  // refusals below are reads under the locks; nothing is written yet, so a
+  // lock timeout is a safe 4xx.
+  let event;
+  try {
+    event = await lockCaptureEventForPosting(companyId, eventId);
+  } catch (err) {
+    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
 
-  if (eventRows.length === 0) {
+  if (!event) {
     return apiResponse.notFound(res, 'Capture event', eventId);
   }
 
-  const event = eventRows[0]!;
-
-  if (event.event_status === 'posted') {
+  if (event.eventStatus === 'posted') {
     return apiResponse.badRequest(res, 'Event already posted');
   }
 
-  if (!event.extracted_data) {
+  const readRefusal = refusalForPosting({
+    status: event.documentStatus,
+    posted_at: event.documentPostedAt,
+  });
+  if (readRefusal) {
+    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[readRefusal]);
+  }
+
+  if (!event.extractedData) {
     return apiResponse.badRequest(res, 'Document has no extracted data — extraction may still be in progress');
   }
 
-  const documentId = event.captured_document_id as string;
-  const extracted = event.extracted_data as ExtractedDocument;
+  const documentId = event.documentId;
+  const extracted = event.extractedData as ExtractedDocument;
 
   // Validate
   const validation = validatePipelineInput(extracted);
@@ -129,6 +148,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Override status to 'approved' when gate permits auto_publish
   const invoiceStatus = gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
 
+  // Claim the document BEFORE the first ledger write, and AFTER the
+  // duplicate-blocked branch above — that branch answers 409 having written the
+  // event's 'failed' stamp, and `withAuth` COMMITs on a 4xx, so claiming any
+  // earlier would leave a blocked document marked posted and unrecoverable.
+  //
+  // This is the last point at which a 4xx is safe here: everything above is a
+  // SELECT or a pure function, and a refusal matched no row.
+  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  if (claimRefusal) {
+    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+  }
+
   // Create supplier invoice
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
@@ -155,10 +186,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
 
-  // Link document and mark event posted
+  // Link document and mark event posted. `status` is not stamped here any more
+  // — the claim above already settled it, and writing it twice was what made
+  // the lifecycle column look like the fence.
   await sql`
     UPDATE captured_documents
-    SET matched_invoice_id = ${invoice.id as string}::uuid, status = 'matched'
+    SET matched_invoice_id = ${invoice.id as string}::uuid
     WHERE id = ${documentId}::uuid AND company_id = ${companyId}
   `;
 

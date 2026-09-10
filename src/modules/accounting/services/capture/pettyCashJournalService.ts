@@ -146,8 +146,9 @@ export async function postReceiptAsPettyCashJournal(
   // nothing. The route read `captured_documents.status` under the row lock; this
   // status-predicated UPDATE is the write that settles who posts, and it is what
   // stops the same receipt being posted through `receipt-to-journal` as well.
-  if (!await claimCapturedDocumentForPosting(companyId, documentId, 'expense')) {
-    throw new CapturedDocumentAlreadyPostedError();
+  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense');
+  if (refusal) {
+    throw new CapturedDocumentAlreadyPostedError(refusal);
   }
 
   const jeEntry = await createJournalEntry(

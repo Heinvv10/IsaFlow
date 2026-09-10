@@ -268,3 +268,77 @@ to a bank transaction as evidence is now refused by both posting routes. That is
 has been accounted for — but it is a behaviour change beyond the double-post itself. The claim
 predicate keys on that one status value; a future status that also means "settled" has to be added
 to it.
+
+---
+
+## Round 6 — the fence stops being a lifecycle column
+
+**Trigger.** `review-k072-r5.md`: 3 HIGH, 2 MEDIUM, 2 LOW. The reviewer's root-cause reading is
+correct and is what this round implements — `captured_documents.status` was one column meaning
+four things to four subsystems, and every leak followed from using it as the posting fence.
+
+**Before → after.**
+
+| # | Before | After |
+|---|---|---|
+| HIGH-1 | `capture/[id]/post.ts` — the only posting button in the product — read no document state. receipt-to-journal then inbox-post gave a posted journal AND an auto-approved supplier invoice with `tax_amount` 150.00 on one R1 150 receipt: R300 of input tax from R150 of VAT. | Locks both rows (`lockCaptureEventForPosting`), refuses on the claim, and claims the document immediately before the `supplier_invoices` INSERT — after the duplicate-blocked 409 branch, which has already written. |
+| HIGH-2 | `document-capture-action` `'confirm'` reset `status` unconditionally: post → confirm → post = 2 journals, R2 300 bank credit, in three UI clicks. | The fence is `posted_at`, which no lifecycle action writes. `confirm` and `reject` both carry `AND posted_at IS NULL` and answer 400 naming the reason; a posted document cannot be edited or un-posted by a button. |
+| HIGH-3 | `status <> 'matched'` admitted `'rejected'`; a rejected receipt posted. | `claimCapturedDocumentForPosting` claims `WHERE posted_at IS NULL AND status <> 'rejected'`, and `refusalForPosting` is the matching read guard used by all three routes. |
+| MEDIUM-1 | A document merely ATTACHED to a bank transaction was refused with "Document already posted to a journal" while zero journals existed, undoable only via HIGH-2's button. | Attach writes `status`, not `posted_at`, so attach-then-post works. Refusals now say either "Document already posted" or "Document was rejected — reopen it before posting". The reviewer's correction is confirmed: `evidenceAttachmentService` stamps `bank_transactions.status`, never the document's. |
+| MEDIUM-2 | `pages/accounting/expenses/[id].tsx` 444 lines (cap 300); the branch added 13. | Toast, VAT advice, rejection banner and summary tiles lifted into `src/components/accounting/expense/ClaimHeaderBanners.tsx`. Page is 420 — below the 431 it was BEFORE this branch, still over the cap. Getting under 300 means extracting the line-editing forms, which is a refactor this defect does not justify. |
+| LOW-1 | `ocrAmountPatterns.ts` 305 lines. | `AMOUNT`, `parseAmount`, `hasDecimalPart`, `isPlausibleVatAmount` moved to `ocrAmountParsing.ts` (79). Patterns file is 247; the split is number-spelling vs label-spelling. |
+| LOW-2 | `claimInputVatWarnings` runs on PATCH and DELETE of a route no `.tsx` consumes. | **Kept, deliberately.** Removing it from DELETE means answering `warnings: []`, and the lines that REMAIN can still carry a denied claim — a client would clear a warning that is still true. One indexed query is the cheaper of the two mistakes; the reasoning is now a comment on the branch. |
+
+**Files.** `scripts/migrations/sql/672_capture_posting_claim_fence.sql` (new);
+`captureRowLock.ts`; `pettyCashJournalService.ts`; `receipt-to-journal.ts`;
+`capture/[id]/post.ts`; `capture/[id]/post-expense.ts`; `document-capture-action.ts`;
+`expense-claims/[id]/lines/[lineId].ts`; `expenses/[id].tsx`; `ClaimHeaderBanners.tsx` (new);
+`ocrAmountParsing.ts` (new); `ocrAmountPatterns.ts`; `ocrExtractionService.ts`;
+`check-vat-guard-coverage.ts`; capture `.claude.md` + `AGENTS.md`.
+
+**Round-6 tests.** Real DB: `k072-capture-posting-fence.int.test.ts` (new, 9) — each HIGH driven as
+a UI-shaped sequence asserting journals, bank credit, supplier invoices and total input tax, plus
+attach-then-post, cross-tenant, and a direct INSERT proving the unique index. Unit:
+`k072-posting-fence-refusal.test.ts` (new, 11). Existing k072 integration 21/21 and full unit suite
+9648 passed with the fixture env unset. Four mutations RED — `green-round6.log`.
+
+**Round-6 migration.** 672. Adds `captured_documents.posted_at` + `idx_captured_documents_unposted`,
+backfills it for documents that already produced a journal, a supplier invoice or a
+`matched_invoice_id`, and creates `uq_gl_je_capture_source_document` — a partial UNIQUE index on
+`gl_journal_entries(company_id, source_document_id) WHERE source = 'auto_expense_receipt'`. Scoped
+to that source on purpose: the evidence-attach paths stamp `source_document_id` onto an existing
+provisional bank journal, and an unscoped index would 23505 a legitimate attach. Rollback: `DROP
+INDEX uq_gl_je_capture_source_document, idx_captured_documents_unposted; ALTER TABLE
+captured_documents DROP COLUMN posted_at;` — the three routes then refuse nothing again, so roll the
+code back with it.
+
+**Round-6 historical data.** The index is created only when no duplicate pair exists; otherwise the
+migration RAISEs a WARNING, skips it and still exits 0, so it cannot abort a deploy. Production has
+not been queried. Run this read-only first — every row is one receipt whose input tax reached the
+VAT201 twice:
+
+```sql
+SELECT company_id, source_document_id, COUNT(*) AS journals, MIN(entry_number), MAX(entry_number)
+FROM gl_journal_entries
+WHERE source_document_id IS NOT NULL AND source = 'auto_expense_receipt'
+GROUP BY company_id, source_document_id
+HAVING COUNT(*) > 1;
+```
+
+And the HIGH-1 shape, which produces no duplicate journal at all — one journal plus one invoice:
+
+```sql
+SELECT je.company_id, je.source_document_id, je.entry_number, si.invoice_number, si.tax_amount
+FROM gl_journal_entries je
+JOIN supplier_invoices si
+  ON si.source_document_id = je.source_document_id AND si.company_id = je.company_id
+WHERE je.source = 'auto_expense_receipt' AND je.source_document_id IS NOT NULL;
+```
+
+**Round-6 limits.** The backfill treats "has a journal, a supplier invoice, or a
+`matched_invoice_id`" as posted; a document whose ledger row was later deleted outright becomes
+postable again. The unique index does not cover the supplier-invoice path — `capture/[id]/post` and
+`ai-invoice-pipeline` both insert `supplier_invoices.source_document_id`, and only the application
+claim stops a second invoice there; a partial unique index on `supplier_invoices(company_id,
+source_document_id)` is the follow-up, deferred because its production duplicate risk has not been
+measured. `expenses/[id].tsx` is still over the 300-line cap.
