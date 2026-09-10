@@ -14,7 +14,7 @@
 --    migration_admin does, so as written it is a migration_admin -> owner step.
 --
 -- 2. DATABASE_URL is the `postgres` role in .env.local and .env.production and
---    scripts/migrations/apply-migrations.ts connects with it, so 648 created the
+--    scripts/apply-migrations.ts connects with it, so 648 created the
 --    function OWNED BY A SUPERUSER. SECURITY DEFINER runs as the owner.
 --
 -- Re-create it with the catalog pinned first and hand it to migration_admin,

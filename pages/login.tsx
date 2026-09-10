@@ -247,6 +247,7 @@ export default function LoginPage() {
 
   const inviteToken =
     typeof router.query.invite === 'string' ? router.query.invite : null;
+
   const isAdminHost =
     typeof window !== 'undefined' && window.location.hostname === 'admin.isaflow.co.za';
   const defaultRedirect = isAdminHost ? '/' : '/accounting';

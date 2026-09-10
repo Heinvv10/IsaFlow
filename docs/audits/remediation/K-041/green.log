@@ -213,3 +213,36 @@ Mutation proofs (production change reverted, test re-run, then restored):
    only by the 13 accept tests continuing to pass with the pool now shared across requests.)
 
 Every fixture probe ran inside BEGIN … ROLLBACK; nothing left behind.
+
+=====================================================================
+ROUND 5 (review-k041-r5.md: 0 HIGH, 3 MEDIUM, 7 LOW) — 2026-09-10T04:44:19+02:00
+=====================================================================
+
+GREEN — 6 integration files, fixture DB (bun run test:integration):
+  k-041-invite-accept-overwrites-existing-password.int.test.ts
+  k-041-invite-accept-adjacent.int.test.ts
+  k-041-invite-page-reinvite-role.int.test.ts
+  k-042-reinvite-unique-violation.int.test.ts
+  k104-k105-invitation-token-encoding.int.test.ts
+  k106-invitation-502-rollback.int.test.ts
+  -> Test Files  6 passed (6) / Tests  34 passed (34)
+
+FULL UNIT SUITE, DATABASE_URL UNSET (env -u DATABASE_URL bun run test:unit):
+  -> Test Files  792 passed | 36 skipped (828)
+  -> Tests  9438 passed | 234 skipped (9672)
+
+tsc --noEmit                          : clean
+eslint (6 changed src/pages files)    : clean
+eslint (3 test files)                 : the pre-existing "not found by the project
+  service" parse error that every file under tests/** produces (tsconfig excludes
+  tests/**); reproduced on untouched tests/integration/k106-invitation-502-rollback.int.test.ts.
+bun scripts/audit-migration-naming.ts : "No new duplicate prefixes found."
+
+MUTATION PROOF (each mutation applied to pages/api/invitations/[token]/accept.ts,
+adjacent spec re-run, then the file restored from a byte-for-byte backup):
+  MUT-1  profileName reverted to trimmed.slice(0, 255)  -> 1 failed | 5 passed (6)
+  MUT-2  email_confirm: true removed from the patch     -> 1 failed | 5 passed (6)
+  MUT-3  23505 catch removed (violation escapes)        -> 1 failed | 5 passed (6)
+  MUT-4  both await refund() calls removed              -> 2 failed | 4 passed (6)
+  restore verified: git diff --stat unchanged at 58 insertions(+), 23 deletions(-)
+  raw output: /tmp/claude-1003/-home-hein-Workspace-IsaFlow/a343cb6e-63c0-41df-aedb-6490b827844a/scratchpad/mutation-r6.log

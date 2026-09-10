@@ -10,7 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { als } from '@/lib/als';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, refundRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 
@@ -41,11 +41,19 @@ function adminPool(): pg.Pool {
  * nor length was asserted before they reached GoTrue user_metadata and
  * `users.first_name` / `users.last_name` (VARCHAR(255)): a non-string bound as
  * JSON text, and an over-long string raised 22001, which escaped as a 500.
+ *
+ * The cap counts CODE POINTS, not `String.prototype.slice`'s UTF-16 code
+ * units. A name of astral characters cut at 255 units ends on a lone high
+ * surrogate, which Postgres refuses as `22021 invalid byte sequence for
+ * encoding "UTF8"` — the same 500 this guard exists to remove, with 22021
+ * substituted for 22001. Spreading into an array iterates by code point, so a
+ * surrogate pair is never split. VARCHAR(255) counts characters, and a code
+ * point outside the BMP is one character, so 255 of them still fit.
  */
 function profileName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed.slice(0, 255);
+  const capped = [...value.trim()].slice(0, 255).join('');
+  return capped === '' ? null : capped;
 }
 
 const handler: NextApiHandler = async (req, res) => {
@@ -118,6 +126,11 @@ const handler: NextApiHandler = async (req, res) => {
   if (!admitted) {
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
   }
+  // Hand the units back on the two verdicts below that are reachable ONLY
+  // after signIn has already succeeded, so no unauthenticated caller can spend
+  // the counter down. als.exit for the same reason the charge uses it: keep it
+  // off the invite-token transaction, which is rolled back on any throw.
+  const refund = () => als.exit(() => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST));
 
 
   // 2-4 run on the BYPASSRLS admin role: RLS would refuse the company_users
@@ -148,8 +161,20 @@ const handler: NextApiHandler = async (req, res) => {
       if (password.length < 10) {
         return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
       }
+      // email_confirm is not redundant with the `email_confirm: true` that
+      // POST /api/invitations passes to adminCreateUser: that call returns
+      // early through adminGetUserByEmail on a 422 and never applies it
+      // (src/lib/auth/gotrue.ts). An address with a pending, unverified
+      // /api/auth/register signup is exactly that case — no `users` row, so
+      // !isEstablished, but a GoTrue user that already exists unconfirmed.
+      // Without this the password below is overwritten and the signIn that
+      // follows fails `email_not_confirmed`, rethrows, and answers 500 on
+      // every retry until the invitee's hourly budget is gone. Holding the
+      // invitation link is proof of control of the mailbox it was sent to,
+      // which is the same proof the verification mail asks for.
       await adminUpdateUser(inv.gotrue_user_id, {
         password,
+        email_confirm: true,
         user_metadata: { first_name: firstName, last_name: lastName },
       });
     }
@@ -171,6 +196,11 @@ const handler: NextApiHandler = async (req, res) => {
         inviteId: inv.id,
         companyId: inv.company_id,
       }, 'auth');
+      // Refunded: the cap bounds password GUESSING, and this verdict is only
+      // reachable after signIn already succeeded. It is also permanent — an
+      // administrator has to repair the invitation — so charging it only
+      // locks the rightful invitee out of their own link for an hour.
+      await refund();
       return res.status(409).json({ success: false, error: { code: 'IDENTITY_MISMATCH', message: 'Invitation does not match this account' } });
     }
 
@@ -190,34 +220,39 @@ const handler: NextApiHandler = async (req, res) => {
     // key, and the INSERT below arbitrates only on `id`. Another row holding
     // this address under a different id (a pre-GoTrue-cutover profile, a
     // deleted-and-recreated GoTrue identity) therefore raised 23505, which
-    // escaped as an opaque 500 the invitee could do nothing about. Answer the
-    // conflict instead. A concurrent insert of the same address between this
-    // read and the write still raises 23505 — the unique index remains the
-    // authority; this turns the reachable case into an actionable message.
-    const emailClash = await client.query<{ id: string }>(
-      `SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1`,
-      [inv.email, tok.user.id]
-    );
-    if ((emailClash.rowCount ?? 0) > 0) {
+    // escaped as an opaque 500 the invitee could do nothing about.
+    //
+    // Answered from the violation itself rather than from a preceding SELECT.
+    // A pre-check cannot close the window between the read and the write, so
+    // the same condition answered a clear 409 when it was pre-existing and an
+    // opaque 500 when it was concurrent — and it cost an extra round-trip on
+    // every accept to buy that. The unique index is the authority either way.
+    try {
+      await client.query(
+        // No `email = EXCLUDED.email` on the conflict branch: that reverted the
+        // profile email of an account that had changed it, every time its owner
+        // accepted an invitation. The row's own email stays its own.
+        `INSERT INTO users (id, email, first_name, last_name, is_active)
+         VALUES ($1, $2, $3, $4, true)
+         ON CONFLICT (id) DO UPDATE SET
+           first_name = COALESCE(EXCLUDED.first_name, users.first_name),
+           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name)`,
+        [tok.user.id, inv.email, firstName, lastName]
+      );
+    } catch (err) {
+      const pgErr = err as { code?: string; constraint?: string };
+      if (pgErr.code !== '23505' || pgErr.constraint !== 'users_email_key') throw err;
+      // 23505 aborts the transaction, so nothing may run on this client until
+      // it is rolled back. The membership INSERT above goes with it.
       await client.query('ROLLBACK');
       opened = false;
       log.error('invite accept blocked: email already held by another user row', {
         inviteId: inv.id,
         companyId: inv.company_id,
       }, 'auth');
+      await refund();
       return res.status(409).json({ success: false, error: { code: 'EMAIL_IN_USE', message: 'This email is already attached to a different IsaFlow profile. Ask an administrator to resolve it before accepting.' } });
     }
-    await client.query(
-      // No `email = EXCLUDED.email` on the conflict branch: that reverted the
-      // profile email of an account that had changed it, every time its owner
-      // accepted an invitation. The row's own email stays its own.
-      `INSERT INTO users (id, email, first_name, last_name, is_active)
-       VALUES ($1, $2, $3, $4, true)
-       ON CONFLICT (id) DO UPDATE SET
-         first_name = COALESCE(EXCLUDED.first_name, users.first_name),
-         last_name  = COALESCE(EXCLUDED.last_name,  users.last_name)`,
-      [tok.user.id, inv.email, firstName, lastName]
-    );
     await client.query(
       `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid`,
       [inv.id]
