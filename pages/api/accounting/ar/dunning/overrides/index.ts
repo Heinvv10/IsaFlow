@@ -15,6 +15,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
   listOverrides,
   setOverride,
@@ -58,6 +59,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
       // 400 to a failure that is not setOverride's own refusal would commit
       // whatever it had already written. See
       // src/modules/accounting/services/ar/arErrors.ts.
+      if (err instanceof CustomerNotInCompanyError) {
+        apiResponse.notFound(res, 'Customer', customerId);
+        return;
+      }
       if (err instanceof ArRequestError) {
         if (err.code === 'DUNNING_TEMPLATE_NOT_FOUND') {
           apiResponse.notFound(res, 'Template', String(rest.template_id_override ?? ''));

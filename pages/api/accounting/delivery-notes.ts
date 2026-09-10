@@ -26,6 +26,7 @@ import {
   type DeliveryNoteInput,
 } from '@/modules/accounting/services/ar/deliveryNoteService';
 import { log } from '@/lib/logger';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -61,8 +62,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     log.info('Creating delivery note', { companyId, customerId: input.customer_id });
-    const note = await createDeliveryNote(companyId, { ...input, lines: validLines }, userId);
-    return apiResponse.created(res, note);
+    try {
+      const note = await createDeliveryNote(companyId, { ...input, lines: validLines }, userId);
+      return apiResponse.created(res, note);
+    } catch (err) {
+      // Thrown before the note number is reserved, so nothing has been written.
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   if (req.method === 'PATCH') {
