@@ -7,6 +7,8 @@ it('reverses the real approved invoice exactly once with immutable original and 
  const id=await f.invoice(),posted=await f.post(id),approvalId=await f.approve(f.ref('supplier_invoice.cancel',id));
  const result=await f.cancel(id,approvalId);expect(result.status).toBe('cancelled');
  expect(await f.cancel(id,approvalId)).toEqual(result);
+ const secondApproval=await f.approve(f.ref('supplier_invoice.cancel',id)),unchanged=await f.state();
+ await expect(f.cancel(id,secondApproval)).rejects.toThrow('already cancelled');expect(await f.state()).toEqual(unchanged);
  const journals=(await f.pool.query('SELECT id,status,reversed_at,reversal_of_id,source_document_id FROM gl_journal_entries WHERE company_id=$1 AND (id=$2 OR reversal_of_id=$2)',[f.f.companyA,posted.glJournalEntryId])).rows;
  expect(journals).toHaveLength(2);expect(journals.find(r=>r.id===posted.glJournalEntryId)).toMatchObject({status:'posted',source_document_id:null});expect(journals.find(r=>r.id===posted.glJournalEntryId).reversed_at).not.toBeNull();
  const lines=(await f.pool.query('SELECT gl_account_id,sum(debit)::text AS debit,sum(credit)::text AS credit FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=ANY($2::uuid[]) GROUP BY gl_account_id',[f.f.companyA,journals.map(r=>r.id)])).rows;
