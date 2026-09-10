@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type { AccountingAdjustment, AdjustmentCreateInput } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -72,6 +73,10 @@ export async function createAdjustment(companyId: string,
   input: AdjustmentCreateInput,
   userId: string
 ): Promise<AccountingAdjustment> {
+  // R-067: entity_id comes from the request body; the list joins customers on
+  // it and approveAdjustment posts it against AR control. The supplier arm is
+  // R-068's.
+  if (input.entityType === 'customer') await assertCustomerInCompany(companyId, input.entityId);
   const rows = (await sql`
     INSERT INTO accounting_adjustments (
       company_id, entity_type, entity_id, adjustment_type, amount, reason,

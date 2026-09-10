@@ -43,6 +43,7 @@ import { createDeliveryNote } from '@/modules/accounting/services/ar/deliveryNot
 import { createRule, updateRule } from '@/modules/accounting/services/bank/bankRulesService';
 import { setOverride } from '@/modules/accounting/services/ar/dunningOverridesService';
 import { createTimeEntry, updateTimeEntry } from '@/modules/accounting/services/core/timeTrackingService';
+import { createAdjustment } from '@/modules/accounting/services/items/adjustmentService';
 
 const mockSql = sql as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown[]>>;
 
@@ -79,6 +80,12 @@ const CASES: { name: string; run: () => Promise<unknown> }[] = [
     name: 'createTimeEntry',
     run: () => createTimeEntry(COMPANY, { taskDescription: 'Work', hours: 1, customerId: FOREIGN } as never, USER),
   },
+  {
+    name: 'createAdjustment (customer)',
+    run: () => createAdjustment(COMPANY, {
+      entityType: 'customer', entityId: FOREIGN, adjustmentType: 'debit', amount: 50, reason: 'Fence',
+    }, USER),
+  },
 ];
 
 describe('R-067 r3 — a foreign customer id is refused before the first write', () => {
@@ -106,6 +113,13 @@ describe('R-067 r3 — a foreign customer id is refused before the first write',
     });
     await run().catch(() => undefined);
     expect(sqlTexts.length).toBeGreaterThan(1);
+  });
+
+  it('does not read customers for a supplier adjustment (that arm is R-068)', async () => {
+    await createAdjustment(COMPANY, {
+      entityType: 'supplier', entityId: FOREIGN, adjustmentType: 'debit', amount: 50, reason: 'Fence',
+    }, USER).catch(() => undefined);
+    expect(sqlTexts.some((t) => t.includes('FROM customers'))).toBe(false);
   });
 
   it('does not query customers when no customer id is supplied', async () => {

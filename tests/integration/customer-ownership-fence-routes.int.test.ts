@@ -31,6 +31,7 @@ import bankTransactionsAction from '../../pages/api/accounting/bank-transactions
 import dunningOverrides from '../../pages/api/accounting/ar/dunning/overrides/index';
 import timeEntries from '../../pages/api/accounting/time-entries';
 import portalPaymentLink from '../../pages/api/portal/payment-link';
+import adjustments from '../../pages/api/accounting/adjustments';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -117,6 +118,11 @@ describeIfDb('R-067 r3 — every route that stores a body customer id refuses a 
       body: (c) => ({ invoiceId: INVOICE, clientId: c, amount: 10 }),
       carried: (c) => count(
         'SELECT count(*) AS n FROM portal_payment_links WHERE invoice_id = $1 AND client_id = $2', [INVOICE, c]) },
+    { name: 'adjustments POST (customer)', handler: adjustments, method: 'POST', refusal: 400,
+      body: (c) => ({ entityType: 'customer', entityId: c, adjustmentType: 'debit', amount: 50, reason: 'Fence' }),
+      carried: (c) => count(
+        "SELECT count(*) AS n FROM accounting_adjustments WHERE company_id = $1 AND entity_type = 'customer' AND entity_id = $2",
+        [A, c]) },
     // Update arms: the row already belongs to A; the body re-points its customer.
     { name: 'bank-rules-action update', handler: bankRulesAction, method: 'POST', refusal: 400,
       body: (c) => ({ action: 'update', id: RULE, clientId: c }),
@@ -178,7 +184,7 @@ describeIfDb('R-067 r3 — every route that stores a body customer id refuses a 
       await pool.query(
         'DELETE FROM delivery_note_lines WHERE delivery_note_id IN (SELECT id FROM delivery_notes WHERE company_id = ANY($1::uuid[]))',
         [[A, B]]);
-      for (const t of ['delivery_notes', 'customer_write_offs', 'customer_dunning_overrides', 'customer_activities',
+      for (const t of ['accounting_adjustments', 'delivery_notes', 'customer_write_offs', 'customer_dunning_overrides', 'customer_activities',
         'customer_contacts', 'customer_delivery_addresses', 'projects', 'time_entries', 'bank_transactions',
         'bank_categorisation_rules', 'customer_invoices', 'company_document_numbers', 'gl_accounts',
         'company_users', 'customers']) {
