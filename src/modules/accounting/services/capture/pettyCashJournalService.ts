@@ -86,7 +86,6 @@ export async function postReceiptAsPettyCashJournal(
     extracted, resolvedGlAccountId, vatInputAccountId, costCentreId,
   } = input;
 
-  const total = extracted.totalAmount ?? 0;
   const entryDate = extracted.date ?? new Date().toISOString().slice(0, 10);
 
   const bankAccountId = await getSystemAccountId('bank', companyId);
@@ -163,11 +162,8 @@ export async function postReceiptAsPettyCashJournal(
     userId,
   );
 
-  // Auto-post when the receipt passes the gate (under R5 000 + high confidence)
-  const confidence = typeof extracted.confidence === 'number' ? extracted.confidence : 0;
-  const autoPost = shouldAutoPostReceipt(
-    total, confidence, { maxAmount: 5000, minConfidence: 0.80 }, extracted.warnings,
-  );
+  // Auto-post only an unambiguous receipt, under R5 000, at high confidence.
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.80 });
 
   let jeStatus = jeEntry.status;
   if (autoPost) {

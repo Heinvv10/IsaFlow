@@ -72,9 +72,9 @@ const SEP = String.raw`(?:[\s._/]|-(?!\d))*`;
  * refund read as a purchase reverses the direction of the posting. `-(?!\d)`
  * is what separates the two spellings: `Total - 115.00` and `Total -  115.00`
  * keep the dash as a separator, `Total -115.00` reads the sign. A dash printed
- * as a separator with NO space after it is the one ambiguous spelling, and it
- * now reads negative; that is the safe way round, because a negative total is
- * refused by the auto-post gate and a person looks at it.
+ * as a separator with NO space after it is the one ambiguous spelling, and here
+ * it reads negative, which the auto-post gate refuses. That is NOT automatically
+ * true of every pattern: see `VAT_PATTERNS[1]`, whose separator is required.
  */
 const VALUE_SEP = String.raw`\s*(?::|-(?!\d))?\s*(?:ZAR|R)?\s*`;
 
@@ -230,7 +230,12 @@ export const TOTAL_PATTERNS: RegExp[] = [
  */
 export const VAT_PATTERNS: RegExp[] = [
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?${VALUE_SEP}${AMOUNT}`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?::|-(?!\d))\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
+  // The separator here is REQUIRED, so excluding a glued dash from it did not
+  // make `VAT-0.00` read negative — it made it read NOTHING, and a null VAT is
+  // not a refusal downstream: the builder derives 15%, an invented R13.04 claim
+  // on a zero-rated slip. `(?=-\d)` accepts the glued dash without consuming
+  // it, so `AMOUNT` reads the sign: `VAT-0.00` is 0, `VAT-150.00` is -150.
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?::|-(?!\d)|(?=-\d))\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+(?:ZAR|R)\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)${SEP})?Tax${TAX_NOUN}${VALUE_SEP}${AMOUNT}`, 'gi'),

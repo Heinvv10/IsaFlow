@@ -139,17 +139,24 @@ describe('Expense Journal Building', () => {
 
 describe('Auto-Post Decision', () => {
   const config: ReceiptAutoPostConfig = { maxAmount: 5000, minConfidence: 0.85 };
+  // A slip whose text prints the one total it was read as — the gate re-reads it.
+  const printed = (confidence: number) =>
+    makeReceipt({ confidence, rawText: 'Sub Total 386.96\nVAT 58.04\nTotal 445.00' });
 
   it('auto-posts when amount < R5000 and confidence >= 0.85', () => {
-    expect(shouldAutoPostReceipt(445, 0.90, config)).toBe(true);
+    expect(shouldAutoPostReceipt(printed(0.90), config)).toBe(true);
   });
 
   it('does not auto-post when amount >= R5000', () => {
-    expect(shouldAutoPostReceipt(6000, 0.95, config)).toBe(false);
+    const large = makeReceipt({
+      subtotal: 5217.39, vatAmount: 782.61, totalAmount: 6000, confidence: 0.95,
+      rawText: 'Sub Total 5217.39\nVAT 782.61\nTotal 6000.00',
+    });
+    expect(shouldAutoPostReceipt(large, config)).toBe(false);
   });
 
   it('does not auto-post when confidence < 0.85', () => {
-    expect(shouldAutoPostReceipt(445, 0.70, config)).toBe(false);
+    expect(shouldAutoPostReceipt(printed(0.70), config)).toBe(false);
   });
 });
 

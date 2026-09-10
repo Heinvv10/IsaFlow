@@ -20,6 +20,7 @@ import {
   type PipelineThresholds,
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { isCreditNote } from '@/modules/accounting/services/core/unattendedPostingGate';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -145,8 +146,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const approvalRoute = determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
 
-  // Override status to 'approved' when gate permits auto_publish
-  const invoiceStatus = gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
+  // Override status to 'approved' when gate permits auto_publish — never for a
+  // credit note, which booked as a supplier invoice reverses the entry.
+  const invoiceStatus = isCreditNote(extracted)
+    ? 'draft'
+    : gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
 
   // Claim the document BEFORE the first ledger write, and AFTER the
   // duplicate-blocked branch above — that branch answers 409 having written the

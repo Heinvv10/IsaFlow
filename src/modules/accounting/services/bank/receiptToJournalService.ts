@@ -7,7 +7,10 @@
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import type { VatType } from '@/modules/accounting/types/gl.types';
 import { applyVatDenial, VAT_CODE_STANDARD } from '@/modules/accounting/services/gl/inputVatDenial';
-import { isUnreconciled } from '@/modules/accounting/services/core/ocrAmountReconciliation';
+import {
+  unattendedPostingRefusal,
+  type UnattendedPostingInput,
+} from '@/modules/accounting/services/core/unattendedPostingGate';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -225,33 +228,22 @@ export function buildExpenseJournalFromReceipt(
 /**
  * May this receipt post with nobody looking at it?
  *
- * `warnings` is not decoration. The reader rebases a printed subtotal its own
- * total and tax contradict whenever the derived split looks standard-rated —
- * right for a levy printed below the subtotal, and the same band admits a total
- * mis-read by a percent or two. The printed subtotal was the only checksum on
- * those three independently-extracted figures, so a document that used to stop
- * at the callers' balance pre-check now balances at the wrong total. The rebase
- * stays for the attended path, where `ExtractedDocument.warnings` is rendered;
- * this gate is the unattended one, and it refuses what the reader could not
- * settle. Neither `totalAmount` nor `confidence` carries that fact — confidence
- * is computed from which FIELDS were found, not from whether they agree.
- *
- * A total of zero or less is refused outright. `ocrAmountParsing` now reads a
- * printed minus sign, so a credit note ("Total -115.00") reaches here as a
- * negative — and `buildExpenseJournalFromReceipt` would build a REVERSED
- * expense entry from it, balanced, with negative debits and a negative bank
- * credit, unattended. A refund is a real accounting event and not this route's:
- * it goes to a person.
+ * The document has to be unambiguous first — `unattendedPostingRefusal` owns
+ * that, and it is the part that decides money: one printed total, a VAT
+ * figure, a net and VAT that add up where a net is printed, no reconciliation
+ * warning, and not a credit note. The whole document is taken rather than its
+ * total, because every one of those facts was a separate way an earlier
+ * version of this gate posted a wrong number: it read the total and the
+ * confidence, and confidence is computed from which FIELDS were found, not
+ * from whether they agree. Only then do the amount cap and the confidence
+ * floor apply.
  */
 export function shouldAutoPostReceipt(
-  totalAmount: number,
-  confidence: number,
+  extracted: UnattendedPostingInput & Pick<ExtractedDocument, 'confidence'>,
   config: ReceiptAutoPostConfig,
-  warnings?: readonly string[] | null,
 ): boolean {
-  if (isUnreconciled(warnings)) return false;
-  if (totalAmount <= 0) return false;
-  return totalAmount < config.maxAmount && confidence >= config.minConfidence;
+  if (unattendedPostingRefusal(extracted) !== null) return false;
+  return (extracted.totalAmount ?? 0) < config.maxAmount && extracted.confidence >= config.minConfidence;
 }
 
 export function parseReceiptType(extracted: ExtractedDocument): ReceiptType {

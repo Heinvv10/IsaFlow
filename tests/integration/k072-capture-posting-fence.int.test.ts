@@ -46,17 +46,20 @@ const attachedDoc = crypto.randomUUID();
 const inboxOnlyDoc = crypto.randomUUID();
 const postedThenConfirmDoc = crypto.randomUUID();
 const foreignDoc = crypto.randomUUID();
+const creditNoteDoc = crypto.randomUUID();
+const creditNoteJournalDoc = crypto.randomUUID();
 const documents = [
   inboxAfterJournalDoc, confirmBypassDoc, rejectedDoc, rejectedInboxDoc,
-  attachedDoc, inboxOnlyDoc, postedThenConfirmDoc, foreignDoc,
+  attachedDoc, inboxOnlyDoc, postedThenConfirmDoc, foreignDoc, creditNoteDoc, creditNoteJournalDoc,
 ];
 
 const inboxAfterJournalEvent = crypto.randomUUID();
 const confirmBypassEvent = crypto.randomUUID();
 const rejectedInboxEvent = crypto.randomUUID();
 const inboxOnlyEvent = crypto.randomUUID();
+const creditNoteEvent = crypto.randomUUID();
 const events = [
-  inboxAfterJournalEvent, confirmBypassEvent, rejectedInboxEvent, inboxOnlyEvent,
+  inboxAfterJournalEvent, confirmBypassEvent, rejectedInboxEvent, inboxOnlyEvent, creditNoteEvent,
 ];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -65,7 +68,9 @@ let token = '';
 const extracted = (reference: string) => ({
   documentType: 'receipt', vendorName: 'Waltons Stationery', date: today,
   referenceNumber: reference, currency: 'ZAR', subtotal: 1000, vatAmount: 150,
-  vatRate: 15, totalAmount: 1150, lineItems: [], rawText: '', confidence: 0.9,
+  vatRate: 15, totalAmount: 1150, lineItems: [], confidence: 0.9,
+  // The text the auto-post gate re-reads — without it nothing posts unattended.
+  rawText: 'Waltons Stationery\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00',
   warnings: [], extractionMethod: 'vlm',
 });
 
@@ -157,6 +162,14 @@ async function inputTaxClaimed(documentId: string): Promise<number> {
   return Math.round((journal + invoice) * 100) / 100;
 }
 
+/** The statuses of the supplier invoices a document produced — 'approved' is unattended. */
+async function invoiceStatuses(documentId: string): Promise<string[]> {
+  return (await pool.query(
+    'SELECT status FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2 ORDER BY created_at',
+    [company, documentId],
+  )).rows.map((r) => String(r.status));
+}
+
 async function invoiceCount(documentId: string): Promise<number> {
   return (await pool.query(
     'SELECT COUNT(*)::int AS n FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2',
@@ -216,10 +229,12 @@ beforeAll(async () => {
   await seedEvent(confirmBypassDoc, confirmBypassEvent);
   await seedEvent(rejectedInboxDoc, rejectedInboxEvent);
   await seedEvent(inboxOnlyDoc, inboxOnlyEvent);
+  await seedEvent(creditNoteDoc, creditNoteEvent);
   await seedDoc(rejectedDoc);
   await seedDoc(attachedDoc);
   await seedDoc(postedThenConfirmDoc);
   await seedDoc(foreignDoc, otherCompany);
+  await seedDoc(creditNoteJournalDoc);
 
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
@@ -259,11 +274,47 @@ describe('K-072 HIGH-1 the capture inbox is inside the fence', () => {
     expect(first.state.statusCode).toBe(200);
     expect(await invoiceCount(inboxOnlyDoc)).toBe(1);
     expect(await postedAt(inboxOnlyDoc)).not.toBeNull();
+    // Approved unattended — the case the credit-note refusal below must not become.
+    expect(await invoiceStatuses(inboxOnlyDoc)).toEqual(['approved']);
 
     const again = await inboxPost(inboxOnlyEvent);
     expect(again.state.statusCode).toBe(400);
     expect(await invoiceCount(inboxOnlyDoc)).toBe(1);
     expect(await inputTaxClaimed(inboxOnlyDoc)).toBe(150);
+  });
+
+  it('never approves a credit note from the inbox, whatever sign its figures carry', async () => {
+    // A refund booked as a supplier INVOICE raises the liability it should
+    // reduce, and positive figures are the usual credit-note layout.
+    // Its own amount, so the duplicate gate does not answer 409 against the
+    // R1 150 invoices the other cases create.
+    const note = {
+      documentType: 'credit_note', subtotal: 100, vatAmount: 15, totalAmount: 115,
+      rawText: 'Sub Total 100.00\nVAT 15.00\nTotal 115.00',
+    };
+    await pool.query(
+      'UPDATE captured_documents SET extracted_data = extracted_data || $3::jsonb WHERE id=$1 AND company_id=$2',
+      [creditNoteDoc, company, JSON.stringify(note)],
+    );
+    expect((await inboxPost(creditNoteEvent)).state.statusCode).toBe(200);
+    expect(await invoiceStatuses(creditNoteDoc)).toEqual(['draft']);
+  });
+
+  it('never auto-posts a credit note as a receipt journal', async () => {
+    // Same R1 150 figures as every receipt here, which DO auto-post; only the
+    // classification differs, so it is what keeps this journal a draft.
+    await pool.query(
+      `UPDATE captured_documents
+          SET extracted_data = jsonb_set(extracted_data, '{documentType}', '"credit_note"')
+        WHERE id=$1 AND company_id=$2`,
+      [creditNoteJournalDoc, company],
+    );
+    expect((await receiptToJournal(creditNoteJournalDoc)).state.statusCode).toBe(200);
+    const statuses = (await pool.query(
+      'SELECT status FROM gl_journal_entries WHERE company_id=$1 AND source_document_id=$2',
+      [company, creditNoteJournalDoc],
+    )).rows.map((r) => String(r.status));
+    expect(statuses).toEqual(['draft']);
   });
 });
 

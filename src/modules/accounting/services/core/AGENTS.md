@@ -54,6 +54,16 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 
 ## Recent changes
 
+- 2026-09-10 (round 10): **extraction guesses, `unattendedPostingGate` decides.** Four rounds tried to
+  PICK the payable out of several printed totals and each rule was beaten by a slip it had not seen
+  (last: a VAT-analysis block under the tender read R230 of R253). `selectTotalAmount` now offers the
+  bottom candidate as a guess and ALWAYS warns when more than one distinct total is printed;
+  `unattendedPostingRefusal` refuses unattended posting unless the document is unambiguous — not a
+  credit note (stored type OR text), no reconciliation warning, total > 0, VAT read and >= 0, net +
+  VAT = total where a net is printed, and exactly ONE distinct total re-read from `rawText` equal to
+  the total read. A document with no text (a VLM photo) cannot show that and is refused.
+  `shouldAutoPostReceipt(extracted, config)` takes the whole document. **Do not add a rule that makes
+  one of several candidates postable.** `VAT_PATTERNS[1]` reads `VAT-0.00` as 0 (it read null).
 - 2026-09-10: `ocrAmountReconciliation.selectTotalAmount` — `subtotal + VAT` endorses a total ONLY
   when it is the BOTTOM candidate. Endorsing one anywhere read the intermediate `Total 230.00` as the
   payable on a slip that prints a gratuity/delivery line below it (`Total Due 253.00`), with no

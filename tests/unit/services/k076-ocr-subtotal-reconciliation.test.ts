@@ -114,37 +114,45 @@ describe('K-076 a document the reader could not settle does not post unattended'
   // was computed (it counts FIELDS FOUND, not whether they agree), so the
   // rebased document would have posted unattended where it used to stop.
   const config = { maxAmount: 5000, minConfidence: 0.85 };
+  const gate = (text: string, warnings: string[], confidence = 0.95) => shouldAutoPostReceipt(
+    { documentType: 'receipt', rawText: text, ...extractAmounts(text), warnings, confidence }, config,
+  );
+  const RECONCILES = 'Sub Total 1000.00\nVAT 150.00\nTotal Due 1150.00';
 
   it('refuses auto-post when the amounts were rebased', () => {
     // 1150 mis-read as 1160: 150/1010 = 14.9%, inside the band, so the printed
     // 1000 is overwritten with 1010 and the entry balances at the wrong total.
-    const result = extractAmounts('Sub Total 1000.00\nVAT 150.00\nTotal Due 1160.00');
+    const text = 'Sub Total 1000.00\nVAT 150.00\nTotal Due 1160.00';
+    const result = extractAmounts(text);
     expect(result.subtotal).toBe(1010);
     expect(result.warnings).toHaveLength(1);
-    expect(shouldAutoPostReceipt(1160, 0.95, config, result.warnings)).toBe(false);
+    // The rebased figures now add up and the text prints one total, so the
+    // warning is the ONLY thing standing between this document and a post.
+    expect(gate(text, result.warnings)).toBe(false);
+    expect(gate(text, [])).toBe(true);
   });
 
   it('refuses auto-post when the amounts were merely named as not reconciling', () => {
-    const result = extractAmounts('Sub Total 1000.00\nTax 12.00\nTotal Due 1150.00');
-    expect(shouldAutoPostReceipt(1150, 0.95, config, result.warnings)).toBe(false);
+    const text = 'Sub Total 1000.00\nTax 12.00\nTotal Due 1150.00';
+    expect(gate(text, extractAmounts(text).warnings)).toBe(false);
   });
 
   it('still auto-posts a document that reconciles', () => {
-    const result = extractAmounts('Sub Total 1000.00\nVAT 150.00\nTotal Due 1150.00');
+    const result = extractAmounts(RECONCILES);
     expect(result.warnings).toEqual([]);
-    expect(shouldAutoPostReceipt(1150, 0.95, config, result.warnings)).toBe(true);
+    expect(gate(RECONCILES, result.warnings)).toBe(true);
   });
 
   it('leaves an unrelated warning alone', () => {
     // Only the reconciliation warnings gate the unattended path — a missing
     // merchant name is a different fact and has never blocked auto-post.
-    expect(shouldAutoPostReceipt(1150, 0.95, config, ['Merchant name not extracted'])).toBe(true);
-    expect(shouldAutoPostReceipt(1150, 0.95, config, [])).toBe(true);
-    expect(shouldAutoPostReceipt(1150, 0.95, config)).toBe(true);
+    expect(gate(RECONCILES, ['Merchant name not extracted'])).toBe(true);
+    expect(gate(RECONCILES, [])).toBe(true);
   });
 
   it('keeps refusing on amount and confidence', () => {
-    expect(shouldAutoPostReceipt(6000, 0.95, config, [])).toBe(false);
-    expect(shouldAutoPostReceipt(1150, 0.5, config, [])).toBe(false);
+    const large = 'Sub Total 5217.39\nVAT 782.61\nTotal Due 6000.00';
+    expect(gate(large, [])).toBe(false);
+    expect(gate(RECONCILES, [], 0.5)).toBe(false);
   });
 });

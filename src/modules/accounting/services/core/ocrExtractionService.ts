@@ -162,8 +162,8 @@ export function extractAmounts(text: string): ExtractedAmounts {
   // EVERY figure that could be the total, not the leftmost one. `String.match`
   // returned the first hit, so a sectioned till slip ("Food Total 200.00 / …
   // TOTAL 287.50") posted its first section as the amount payable — see
-  // `extractTotalCandidates`. The choice between them needs the printed net and
-  // the VAT, so it is made below, once those are read.
+  // `extractTotalCandidates`. More than one distinct figure is declared, not
+  // resolved — see `selectTotalAmount`.
   const totalCandidates = extractTotalCandidates(text);
   // The bottom-most candidate is the provisional total the VAT plausibility
   // test uses: `isPlausibleVatAmount` rejects a candidate too large for the
@@ -181,7 +181,7 @@ export function extractAmounts(text: string): ExtractedAmounts {
 
   result.vatAmount = extractVatAmount(text, result.subtotal, provisionalTotal);
 
-  const selectedTotal = selectTotalAmount(totalCandidates, result.subtotal, result.vatAmount);
+  const selectedTotal = selectTotalAmount(totalCandidates);
   result.totalAmount = selectedTotal.totalAmount;
   if (selectedTotal.warning) result.warnings.push(selectedTotal.warning);
 

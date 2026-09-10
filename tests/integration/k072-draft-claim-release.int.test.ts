@@ -75,7 +75,10 @@ let token = '';
 const extracted = (reference: string, confidence: number) => ({
   documentType: 'receipt', vendorName: 'Waltons Stationery', date: today,
   referenceNumber: reference, currency: 'ZAR', subtotal: 1000, vatAmount: 150,
-  vatRate: 15, totalAmount: 1150, lineItems: [], rawText: '', confidence,
+  vatRate: 15, totalAmount: 1150, lineItems: [], confidence,
+  // The text the auto-post gate re-reads: one printed total, so only
+  // `confidence` decides draft vs posted here.
+  rawText: 'Waltons Stationery\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00',
   warnings: [], extractionMethod: 'vlm',
 });
 

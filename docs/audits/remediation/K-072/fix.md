@@ -717,6 +717,10 @@ nothing in the posting path consults it.
   (`-(?!\d)`), so `Total - 115.00` and `Total -  115.00` stay positive and `Total -115.00`
   reads the sign. A dash printed as a separator with no space after it is the one ambiguous
   spelling and now reads negative — the safe way round, because the gate below refuses it.
+  **Corrected in round 10: that held for the total and net labels only.** On the VAT line
+  (`VAT_PATTERNS[1]`, whose separator is required, not optional) `VAT-0.00` read NULL, and a null
+  VAT is not refused — the builder derived 15%, R13.04 of invented input tax on a zero-rated
+  slip, auto-posted. See round 10, HIGH-2.
 - `isPlausibleVatAmount` compares MAGNITUDE. Signed, `-15 <= -115` is false, so a credit note's
   VAT line printed without cents would have been refused as a registration number and lost.
 - `shouldAutoPostReceipt` refuses `totalAmount <= 0`. `buildExpenseJournalFromReceipt` would
@@ -770,3 +774,164 @@ home. Now: patterns 283, reconciliation 235, parsing 90, extraction service 295.
 
 The LOW-2 change is test hygiene against a shared fixture and has no production line to mutate;
 its correctness is that the 7 integration files still pass 49 tests unchanged.
+
+---
+
+## Round 10 — the gate stops picking a total, and asks whether there is one to pick
+
+### Why the approach changed — read this before adding a rule to `selectTotalAmount`
+
+Four rounds in a row had a HIGH in grand-total selection, and every fix failed in a direction
+nobody was pointing it at:
+
+| round | rule for "which printed total is the payable" | the slip that beat it |
+|---|---|---|
+| 5–7 | leftmost `Total`, guarded by a DENYLIST of net labels | `Goods / Items / Line / Order / Deposit Total` above the payable |
+| 8 | the candidate `subtotal + VAT` endorses, anywhere | a gratuity, delivery fee or rounding line BELOW the block: 230 read of 253 |
+| 9 | the endorsed candidate only if it is the BOTTOM one | a mixed basket whose VAT-analysis block is printed UNDER the tender: 230 read of 253, where master read 253 |
+| (proposed) | `&& last === Math.max(...distinct)` | not built — a fifth heuristic, and a sixth slip would beat it |
+
+The OCR text is genuinely ambiguous: `Sub Total 200 / VAT 30 / Total 230` is a complete
+standard-rated block whether it is the whole slip, the part above a gratuity, or the VAT analysis
+of a basket that also carries zero-rated bread. No ordering or arithmetic rule separates those,
+and by label only a denylist does — which is what round 8 abolished.
+
+But on an UNATTENDED posting path the goal was never to pick right. It is **never to post a wrong
+number**, and that problem is solvable, because a refusal costs a person a few seconds on the
+capture screen while a wrong post costs money silently. So the two are separated:
+
+- **Extraction guesses.** `selectTotalAmount` offers the bottom candidate as the best guess and
+  ALWAYS declares the ambiguity (under `UNRECONCILED_WARNING`) when more than one distinct total is
+  printed. The `subtotal + VAT` endorsement is gone — it never decided anything safely.
+- **`unattendedPostingRefusal` decides** (`core/unattendedPostingGate.ts`, new). A document posts
+  with nobody looking only if nothing on it is left to choose: not a credit note (stored type OR
+  text); no reconciliation warning; a total > 0; a VAT figure that was read and is >= 0; net + VAT =
+  total where a net is printed; and exactly ONE distinct total re-read from `rawText`, equal to the
+  total read. Re-reading the text rather than trusting the stored warnings means an extraction
+  stored by an earlier build — or produced by the VLM — is judged by the same rule.
+- `shouldAutoPostReceipt(extracted, config)` takes the whole document; the amount cap and the
+  confidence floor apply only after the gate.
+
+**The default for any ambiguity is refusal. Do not add a rule that promotes one of several
+candidates to postable** — that is the move that failed four times.
+
+### HIGH-1 — every slip from rounds 5–9 either refuses or posts its payable
+
+`tests/unit/services/k076-slip-corpus.ts` holds all 50 (the Tashas multi-section slip, the eleven
+section nouns, gratuity/delivery/rounding below the block, the `Delivery Total / Sub Total` case,
+the tender and card-slip layouts, the four VAT-analysis layouts, nine credit-note spellings, the
+glued-dash slips, three slips built against this gate). `k076-unattended-posting-gate.test.ts`
+runs each through the real `extractFromText` and the real gate, asserts the invariant on every row
+(refuses, or posts `totalAmount === payable` with the bank leg equal to it and no more input tax
+than the slip prints), and pins the outcome. Measured, old = `c23bbf133`, new = this round
+(`<scratchpad>/agents/fix-k072h/probe-{old,new}.tsv`):
+
+| outcome | slips |
+|---|---|
+| refused before and after | 25 |
+| posted the payable before and after | 12 — ordinary single total, one total printed twice, cash tendered + change, card slip with its own `Total`, tender-only mixed basket, zero-rated `VAT-0.00` / `VAT - 0.00` / `VAT: 0.00` (D5–D7, E2–E4), registration number glued to a dash. E2 and E3 posted the right bank figure before with R13.04 of INVENTED input tax (HIGH-2); they now claim 0 |
+| **posted a WRONG number before, refused now** | 9 — A1–A4 (230 of 253), C1/C2/C3/C5 (credit notes as purchases), X2 (no VAT line: the builder invented 15%) |
+| posted the payable before, refused now (over-refusal) | 4 — see below |
+| posts a wrong number now | **0** |
+
+**Over-refusal, measured honestly.** Four honest slips that posted correctly at `c23bbf133` now
+refuse: `Delivery Total 250 / Sub Total 1000 / VAT 150 / Total Due 1150` (two distinct totals);
+`VAT-150.00` on two standard-rated slips (D1, E1 — the glued dash now reads -150, see HIGH-2; they
+posted before only because a null VAT was replaced by 15%, which happened to be right); and a slip
+with a `QTY ITEM TOTAL` column header, whose `TOTAL` reads the next line's quantity as a total.
+Ordinary tender lines and card slips still post (O2, O3, the tender-only basket). Two structural
+costs are larger than any slip count:
+
+- **A photo the VLM read directly has no `rawText`, so it cannot show it is unambiguous, and is
+  refused.** `extractFromImage` returns `rawText: ''` and `vllm-qwen` is active on this machine, so
+  if the production `.env.local` sets `VLLM_BASE_URL` every photographed receipt now lands as a
+  draft. I could not read that file. The count is one query:
+  `SELECT COUNT(*) FILTER (WHERE COALESCE(extracted_data->>'rawText','') = '') , COUNT(*) FROM captured_documents`.
+  This follows the brief's rule (ambiguity refuses); reversing it is one line in the gate.
+- **A slip with no VAT line refuses** (a non-VAT vendor). It used to post with 15% input tax the
+  document never stated, so this corrects a wrong post rather than blocking a right one.
+
+### The other direction — what this gate still lets through
+
+Built against the gate before reporting (`probe-residual.tsv`). A payable printed under a label the
+total vocabulary does not read — `TO PAY 253.00`, Afrikaans `TOTAAL 253.00`, a bare `Balance
+253.00` — below a gratuity or a VAT-analysis block leaves exactly ONE readable total, the
+intermediate `Total 230.00`, and it posts: **R230 against a payable of R253**. Master and
+`c23bbf133` post the same figure, so this is not a regression, but it is the gate's limit: it is
+exactly as strong as the vocabulary that finds totals. Two ways to close it, neither built, both a
+decision: widen the PAYABLE vocabulary positively (unlike the old denylist, each label added can
+only add a candidate, i.e. move a slip towards refusal), or refuse any larger two-decimal figure
+printed after the single total (which costs the cash-tendered layout — `Cash 300.00 / Change
+47.00` — the brief requires to keep posting). In the other direction, `Points Total 45` on an
+honest slip refuses.
+
+### HIGH-2 — `VAT-0.00` reads 0 again
+
+`VAT_PATTERNS[1]`'s separator is REQUIRED, so round 9's `(?::|-(?!\d))` did not make a glued
+`VAT-0.00` negative — it made it read NOTHING, and the builder replaced the null with 15%: R13.04
+of invented input tax on a zero-rated slip, auto-posted. The reviewer's measured fix is taken:
+`(?::|-(?!\d)|(?=-\d))` accepts the glued dash without consuming it, so `AMOUNT` reads the sign —
+`VAT-0.00` is 0, `VAT-150.00` is -150 and refuses. `parseAmount` folds the resulting `-0` into 0.
+The round-9 claim that this spelling "reads negative, safe" is corrected in place (round 9, LOW-1)
+and at `ocrAmountPatterns.ts` `VALUE_SEP`. Under the new gate a null VAT refuses anyway; the fix is
+so the person reviewing the draft sees 0.
+
+With the dash now read as a sign, a letterhead `VAT-4123456789` reaches `isPlausibleVatAmount` as
+-4123456789; its MAGNITUDE comparison refuses it (row X1 pins that — the reviewer's "nearly
+equivalent" `Math.abs` survivor is now load-bearing and killed).
+
+### HIGH-3 — a credit note never posts unattended, on any of the four paths
+
+`isCreditNote` reads the stored `documentType` OR `detectDocumentType(rawText)` (the VLM classifies
+on its own). Enumerated from the writers in the round-7 census, not assumed:
+
+| path | unattended outcome | refusal |
+|---|---|---|
+| `receipt-to-journal.ts` | posts the journal | `shouldAutoPostReceipt` → gate → draft |
+| `capture/[id]/post-expense.ts` → `pettyCashJournalService` | posts the journal | same gate → draft |
+| `ai-invoice-pipeline.ts` | `status = 'approved'` supplier invoice | `approvalRoute = 'manual_review'` → draft |
+| `capture/[id]/post.ts` | `approved` via `auto_approve` OR the supplier rule's `auto_publish` | `invoiceStatus = 'draft'` before either |
+| `post-expense` → `expenseClaimService` | claim lines, approved by a person | not unattended |
+
+Each path is pinned by an outcome test (two unit, three integration). On the invoice paths the
+ambiguity checks are NOT applied — only the credit-note refusal the finding named. A supplier
+invoice's text layer routinely prints a `Total` column header, so the candidate check would refuse
+most PDF invoices, and I have no invoice corpus to measure that on.
+
+### LOW-1 — the five `VALUE_SEP` sites are pinned
+
+`Amount Due`, `Incl VAT`, `Tax Amount`, `Excl VAT`, `Nett Excl` each read a glued minus sign
+(`k076-ocr-negative-amounts.test.ts`, `GLUED_MINUS`); reverting any one site goes red (P2–P6 below).
+
+### Mutations, round 10 (file copies, restored and byte-compared identical)
+
+Unit suite: the k07x unit files, `receiptZeroVatLine`, `fiscalPeriodAutoCreate`,
+`ai/receipt-to-journal`, `postExpenseZeroVatLine` — 15 files, 483 tests, green before each run.
+W2–W4 run the integration file named. Script and log: `<scratchpad>/agents/fix-k072h/mutate.{py,log}`.
+
+| # | Mutation | Outcome |
+|---|---|---|
+| G1 | gate: drop the credit-note refusal | RED (7) |
+| G2 | `isCreditNote` by text only | RED (2) |
+| G3 | `isCreditNote` by stored type only | RED (1) |
+| G4 | gate: ignore the reconciliation warning | RED (2) |
+| G5 | gate: allow a zero total | RED (1) |
+| G6 | gate: allow a null VAT | RED (1) |
+| G7 | gate: allow a negative VAT | RED (1) |
+| G8 | gate: skip net + VAT = total | RED (1) |
+| G9 | gate: allow no printed total | RED (1) |
+| G10 | gate: allow several printed totals | RED (1) |
+| G11 | gate: allow a total the text does not print | RED (1) |
+| S1 | `selectTotalAmount` never warns on several totals | RED (2) |
+| P1 | `VAT_PATTERNS[1]` separator back to round 9 | RED (5) |
+| P2–P6 | `VALUE_SEP` reverted at Amount Due / Incl VAT / Tax Amount / Excl VAT / Nett Excl | RED (1) each |
+| P7 | `parseAmount` keeps `-0` | RED (1) |
+| A1 | `isPlausibleVatAmount` compares signed values | RED (2) |
+| W1 | post-expense hands the gate figures, not the document | RED (1) |
+| W2 | receipt-to-journal hands the gate figures, not the document | RED (1, integration) |
+| W3 | `ai-invoice-pipeline` approves a credit note | RED (1, integration) |
+| W4 | `capture/[id]/post` approves a credit note | RED (1, integration) |
+
+The round-9 mutations N1/N2 (the endorsement rule) have no code left to mutate: the endorsement
+is gone. Three integration fixtures carried `rawText: ''`, which the gate now refuses; they print
+their figures instead, because they test the fence, not the gate.

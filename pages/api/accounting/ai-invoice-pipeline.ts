@@ -21,6 +21,7 @@ import {
   type PipelineThresholds,
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { isCreditNote } from '@/modules/accounting/services/core/unattendedPostingGate';
 import {
   computeFingerprint,
   findDuplicate,
@@ -118,7 +119,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Build invoice
   const invoiceInput = buildInvoiceFromExtraction(extracted, supplierMatch.supplierId);
   const pipelineConfidence = computePipelineConfidence(extracted, supplierMatch);
-  const approvalRoute = determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
+  // A refund booked as a purchase reverses the entry; never approve one unattended.
+  const approvalRoute = isCreditNote(extracted) ? 'manual_review'
+    : determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
 
   // Fetch supplier VAT number (needed for fingerprint + duplicate detection)
   const [supplierRow] = (await sql`
