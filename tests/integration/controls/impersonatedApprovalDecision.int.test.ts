@@ -205,6 +205,9 @@ describe('control approval decisions under actual impersonated sessions: actual 
   `SELECT details->>'target_session_id' AS session FROM admin_audit_log WHERE action=$1::text AND target_id::text=$2
     AND details->>'target_session_id'=$3::text`,[action,target,sessionId])).rowCount;
 
+ const revokedFlag=async(action:string,sessionId:string)=>(await h.pool.query(
+  `SELECT details->>'revoked' AS revoked FROM admin_audit_log WHERE action=$1::text AND target_id::text=$2
+    AND details->>'target_session_id'=$3::text ORDER BY created_at`,[action,target,sessionId])).rows.map(row=>String(row.revoked));
  it.each(['target','admin'] as const)('records the impersonated session, not the caller, when the %s ends it',async caller=>{
   const {sessionId,stashId,cookies}=await liveImpersonation();
   expect((await list(cookies)).status).toBe(200);
@@ -216,6 +219,10 @@ describe('control approval decisions under actual impersonated sessions: actual 
   if(caller==='admin')expect(ended.body.data?.warning).toContain('every session');
   // The evidence names the session that was impersonated, never the caller's own.
   expect(await endRow('impersonation_end',sessionId)).toBe(1);
+  // The end is written before GoTrue is asked, so it cannot claim the revocation; the
+  // revocation is its own row once GoTrue has actually done it.
+  expect(await revokedFlag('impersonation_end',sessionId)).toEqual(['false']);
+  expect(await revokedFlag('impersonation_revoked',sessionId)).toEqual(['true']);
   expect((await list(cookies)).status).toBe(401);
  });
 
@@ -225,6 +232,9 @@ describe('control approval decisions under actual impersonated sessions: actual 
   const failed=await endImpersonation(cookies,stashId,503);
   expect(failed.status).toBe(502);
   expect(await endRow('impersonation_end_failed',sessionId)).toBe(1);
+  expect(await revokedFlag('impersonation_end',sessionId)).toEqual(['false']);
+  expect(await revokedFlag('impersonation_end_failed',sessionId)).toEqual(['false']);
+  expect(await revokedFlag('impersonation_revoked',sessionId)).toEqual([]);
   // The stash is deliberately kept for the retry, so the recorded failure is what has to
   // stop the copied cookies - otherwise the 502 path is the hole all over again.
   expect((await h.pool.query('SELECT stash_id FROM admin_impersonation_stash WHERE stash_id=$1',[stashId])).rowCount).toBe(1);
@@ -260,6 +270,11 @@ describe('control approval decisions under actual impersonated sessions: actual 
   // GoTrue was never asked: a session is not revoked while nothing records that it ended,
   // so no still-valid access token can outlive its revocation unmarked.
   expect(fetchMock).not.toHaveBeenCalled();
+  // And the impersonation simply continues: the stash is intact and the proof is honoured,
+  // which is the pre-exit state the admin can retry from - not a half-ended one.
+  expect((await h.pool.query('SELECT stash_id FROM admin_impersonation_stash WHERE stash_id=$1',[stashId])).rowCount).toBe(1);
+  expect((await list(cookies)).status).toBe(200);
+  expect(await endRow('impersonation_end',sessionId)).toBe(0);
  });
 
  it('still lets the same tenant administrator approve and the maker post from an unimpersonated session',async()=>{
