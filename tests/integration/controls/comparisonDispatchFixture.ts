@@ -17,7 +17,7 @@ export async function comparisonDispatchFixture(){
  const pool=new Pool({connectionString:target.connectionString,ssl:false,max:4});
  try{
   const f=await provisionForensicFixture(config),runner=createIsolatedAuditJobRunner({nodePath:process.execPath,entryPath});
-  const identity=(jobId=randomUUID())=>({companyId:f.companyA,personId:f.u1.id,jobId});
+  const identity=(jobId:string=randomUUID())=>({companyId:f.companyA,personId:f.u1.id,jobId});
   const actor=<T>(fn:()=>Promise<T>)=>withAuditWorkerTransaction(pool,identity(),'read committed',Date.now()+15000,undefined,
    store=>withControlRequest(store,{companyId:f.companyA,personId:f.u1.id,authMethod:'cookie'},fn));
   async function snapshot(){
