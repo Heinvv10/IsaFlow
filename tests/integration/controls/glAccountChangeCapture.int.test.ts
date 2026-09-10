@@ -19,8 +19,9 @@ it('captures actual create, rename, edit and deactivate with exact rows and cons
 });
 it('retains real legacy before and does not record repeated no-ops',async()=>{
  const f=glFixture(),id=await legacy();
+ await pool.query("UPDATE gl_accounts SET bank_opening_balance='1000000000000.10'::numeric WHERE company_id=$1 AND id=$2",[f.companyA,id]);
  await actor(()=>updateAccount(f.companyA,id,{accountName:'New legacy name'}));
- const first=await changes(id);expect(first).toHaveLength(1);expect(first[0].previous_version).toBeNull();expect(first[0].values.before?.account_name).toBe('Synthetic legacy GL');
+ const first=await changes(id);expect(first).toHaveLength(1);expect(first[0].previous_version).toBeNull();expect(first[0].values.before?.account_name).toBe('Synthetic legacy GL');expect(first[0].values.before?.bank_opening_balance).toBe('1000000000000.10');
  await actor(()=>updateAccount(f.companyA,id,{accountName:'New legacy name'}));
  await actor(()=>reclassifyAccount(f.companyA,id,{parentAccountId:null}));
  expect(await changes(id)).toHaveLength(1);
