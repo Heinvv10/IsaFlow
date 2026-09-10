@@ -146,16 +146,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   ws.addRow([]);
 
-  // Liabilities
-  addSectionHeader(ws, 'Liabilities', AMBER_ARGB);
-  for (const item of report.liabilities) {
-    addLineItem(ws, 'Liabilities', item.accountCode, item.accountName, item.balance);
-  }
-  ws.addRow([]);
-  addTotalRow(ws, 'Total Liabilities', report.totalLiabilities, AMBER_ARGB);
-
-  ws.addRow([]);
-
   // Equity
   addSectionHeader(ws, 'Equity', PURPLE_ARGB);
   for (const item of report.equity) {
@@ -166,9 +156,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   ws.addRow([]);
 
-  // Total L + E
+  // Liabilities
+  addSectionHeader(ws, 'Liabilities', AMBER_ARGB);
+  for (const item of report.liabilities) {
+    addLineItem(ws, 'Liabilities', item.accountCode, item.accountName, item.balance);
+  }
+  ws.addRow([]);
+  addTotalRow(ws, 'Total Liabilities', report.totalLiabilities, AMBER_ARGB);
+
+  ws.addRow([]);
+
+  // Total E + L
   const totalLE = report.totalLiabilities + report.totalEquity;
-  addTotalRow(ws, 'Total Liabilities + Equity', totalLE);
+  addTotalRow(ws, 'Total Equity and Liabilities', totalLE);
 
   // Balance check
   const diff = Math.abs(report.totalAssets - totalLE);
