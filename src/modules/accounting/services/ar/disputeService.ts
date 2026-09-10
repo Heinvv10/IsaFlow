@@ -195,21 +195,54 @@ export async function getDispute(
 }
 
 /**
- * Per-invoice open-dispute totals, keyed by customer_invoice_id. Used by AR
- * aging to split the "disputed" bucket out of "overdue".
+ * Per-invoice totals for the disputes that were OPEN at `asAtDate`, keyed by
+ * customer_invoice_id. Used by AR aging to split the "disputed" bucket out of
+ * "overdue", and through it by the year-end receivables notes.
+ *
+ * R-059. Without a date this read `status = 'open'` — TODAY's disputes — so a
+ * dispute raised after a past as-at date moved money out of that date's age
+ * bucket, and one that was open then but has since been resolved was missing
+ * from its Disputed column. A dispute was open at a date when it had been
+ * raised by then and had not yet been closed:
+ *
+ *     raised_at <= asAt AND (still open, OR closed after asAt)
+ *
+ * Both columns are TIMESTAMPTZ and the as-at date is a SAST calendar date, so
+ * each is converted to the Africa/Johannesburg day before the comparison; the
+ * session runs UTC, where a bare `::date` names the previous day for anything
+ * struck in the first two hours of the SAST day.
+ *
+ * A dispute that is closed but carries no `resolved_at` cannot be dated and is
+ * treated as never having been open, which is what the undated read already
+ * did with it. Every transition in disputeResolution.ts sets the column, so
+ * this can only be a row predating that code; the effect is that its amount
+ * stays in an age bucket instead of the Disputed column, and `gross` — what
+ * the notes total — is the same either way.
+ *
+ * @param asAtDate 'YYYY-MM-DD'. Omitted means today's open disputes, the
+ *   original behaviour, which the rewind reproduces exactly at today.
  */
 export async function getOpenDisputeTotals(
   companyId: string,
   invoiceIds: string[],
+  asAtDate?: string,
 ): Promise<Map<string, number>> {
   if (invoiceIds.length === 0) return new Map();
 
+  const asAt = asAtDate ?? null;
   const rows = (await sql`
     SELECT customer_invoice_id, SUM(disputed_amount) AS total
     FROM customer_invoice_disputes
     WHERE company_id = ${companyId}::uuid
-      AND status = 'open'
       AND customer_invoice_id = ANY(${invoiceIds}::uuid[])
+      AND CASE WHEN ${asAt}::date IS NULL THEN status = 'open' ELSE
+            (raised_at AT TIME ZONE 'Africa/Johannesburg')::date <= ${asAt}::date
+            AND (
+              status = 'open'
+              OR (resolved_at IS NOT NULL
+                  AND (resolved_at AT TIME ZONE 'Africa/Johannesburg')::date > ${asAt}::date)
+            )
+          END
     GROUP BY customer_invoice_id
   `) as DbRow[];
 

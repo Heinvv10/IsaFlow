@@ -48,10 +48,37 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+// Both confirm arms now take the bank line's row lock FIRST — the canonical
+// order (`bank/.claude.md`) — and `lockBankTransactionForUpdate` refuses to run
+// outside a request transaction. Stand in for the withAuth-bound client so the
+// route reaches its arms, and queue the lock's own read where it now falls.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: { client: { query: () => Promise.resolve(undefined) } },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return { ...actual, als: { ...actual.als, getStore: () => ({ client: mockTx.client }) } };
+});
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   allocateTransaction: vi.fn(),
   matchTransaction: vi.fn(),
+}));
+// The supplier branch settles through the AP service rather than posting and
+// updating inline (K-074), so THAT is the collaborator the guard must keep it
+// away from. Both halves are mocked: the guard is what this suite tests.
+vi.mock('@/modules/accounting/services/ap/supplierBankPaymentService', () => ({
+  validateBankSupplierPayment: vi.fn(async () => ({})),
+  applyBankLineToSupplierInvoices: vi.fn(async () => ({
+    supplierPaymentId: 'payment-1', allocatedTotal: 1000, unappliedRemainder: 0,
+  })),
+}));
+// The customer branch settles through the AR service for the same reason
+// (MEDIUM-1 of the round-4 review): a bare `amount_paid` write leaves no
+// allocation row for a reversal to unwind.
+vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
+  validateBankReceiptApplication: vi.fn(async () => ({})),
+  confirmReceiptMatch: vi.fn(async () => ({ customerPaymentId: 'receipt-1', allocatedTotal: 1000 })),
 }));
 
 import { sql } from '@/lib/neon';
@@ -59,6 +86,10 @@ import {
   allocateTransaction,
   matchTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import {
+  applyBankLineToSupplierInvoices,
+} from '@/modules/accounting/services/ap/supplierBankPaymentService';
+import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import handler from '../../../pages/api/accounting/bank-match-confirm';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -96,6 +127,10 @@ function mockReqRes(body: Record<string, unknown>) {
 function withBankLine(amount: number, candidateRow: Record<string, unknown>) {
   mockSql
     .mockResolvedValueOnce([{ amount }])
+    // The confirm arms' own `FOR UPDATE` on the bank line, taken before the
+    // document is read. The `purchase_order` and `journal_line` branches never
+    // reach an arm, so this row goes unread there and the queue still lines up.
+    .mockResolvedValueOnce([{ id: BANK_TX, status: 'imported' }])
     .mockResolvedValueOnce([candidateRow])
     .mockResolvedValue([]);
 }
@@ -137,6 +172,8 @@ describe('bank-match-confirm — a line pointing the wrong way is refused', () =
     // The whole point: nothing was written, so the 400 that COMMITs cannot
     // commit a journal or a settled document.
     expect(allocateTransaction).not.toHaveBeenCalled();
+    expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
     // Two reads and no more — the guard fires before the UPDATE.
     const writes = mockSql.mock.calls.filter(
       (c) => /UPDATE|INSERT/.test((c[0] as unknown as TemplateStringsArray).join('')),
@@ -156,7 +193,13 @@ describe('bank-match-confirm — a line pointing the wrong way is refused', () =
     await handler(req, res);
 
     expect(res.statusCode).not.toBe(400);
-    expect(allocateTransaction).toHaveBeenCalledTimes(1);
+    // Each invoice arm reaches its own settlement service; the purchase order
+    // still posts through allocateTransaction directly, because a PO is not a
+    // document a settlement can be applied to.
+    const settler = candidateType === 'supplier_invoice' ? applyBankLineToSupplierInvoices
+      : candidateType === 'customer_invoice' ? confirmReceiptMatch
+      : allocateTransaction;
+    expect(settler).toHaveBeenCalledTimes(1);
   });
 
   // These two settle no document — they tie a bank line to a journal that

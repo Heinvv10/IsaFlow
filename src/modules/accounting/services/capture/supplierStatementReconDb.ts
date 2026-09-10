@@ -7,6 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 import {
   toDateStr,
   toNum,
@@ -42,7 +43,22 @@ export async function loadSupplierInvoices(
       -- still matches the supplier's statement lines for it.
       -- See shared/softDeleteLedgerPresence.
       AND ${documentInLedgerAsAtFragment('si', periodEnd ?? asAtTodayStr(), companyId)}
-      AND si.status NOT IN ('cancelled')
+      -- MATCH candidates for the supplier's statement lines: the ageing's own
+      -- population (shared/documentPopulation), so a line matches only a bill
+      -- the variance also counts. This rule reaches figures — every line it
+      -- fails to match counts in missing_in_isaflow_count, which the page's
+      -- "Mark reconciled" gate reads.
+      --
+      -- NOT drafts. Round 8 kept them matchable, reasoning that the variance
+      -- would still refuse a draft because a draft is not owed. That was
+      -- wrong: the variance refuses a draft only when nothing offsets it. An
+      -- owed bill the supplier does not claim, of the same amount — a
+      -- duplicate capture, a mistyped number — made the balances tie while
+      -- the draft silenced the line's "missing in IsaFlow", and the statement
+      -- reconciled against a bill nobody owes. A draft is not in the ledger, so
+      -- its line IS missing from IsaFlow. NULL status is admitted, as the
+      -- ageing admits it; the bare NOT IN had dropped it (R-059 rounds 8-9).
+      AND ${sql.unsafe(documentInPopulationExpr('si'))}
       AND (${periodStart}::date IS NULL OR si.invoice_date >= ${periodStart}::date)
       AND (${periodEnd}::date IS NULL OR si.invoice_date <= ${periodEnd}::date)
     ORDER BY si.invoice_date

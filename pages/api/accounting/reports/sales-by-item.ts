@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -40,7 +41,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
-        AND ci.status != 'cancelled'
+        -- Drafts are excluded for the same reason sales-by-customer and the
+        -- ageing exclude them: a draft invoice is not a sale. It is not issued
+        -- to anyone, it posts nothing to the GL, and its lines are still being
+        -- edited — counting them made this report disagree with
+        -- sales-by-customer over the same range by every draft, while the
+        -- comment above claimed the two were dated alike (R-059 round 3).
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
+        -- so the bare comparison silently DROPPED every null-status invoice —
+        -- the under-reporting K-091 fixed on sales-by-customer.
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       GROUP BY cii.description, ga.account_name
       ORDER BY total_revenue DESC
     `;

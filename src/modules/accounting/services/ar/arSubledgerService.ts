@@ -37,6 +37,7 @@ import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence
 import { getOpenDisputeTotals } from './disputeService';
 import type { SubledgerDocument, SubledgerSnapshot } from './subledgerTypes';
 import { buildSnapshot, toDocument } from './subledgerShared';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 export interface ARSubledgerSnapshot extends SubledgerSnapshot {
   /** Open-dispute amount per document id. AR only. */
@@ -82,7 +83,8 @@ export async function getARSubledger(
         ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}::UUID
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- Same population as arAgingService, deliberately: a soft-deleted
         -- document leaves that report when its delete reversal reaches the
         -- ledger, and two populations would make reconcile_subledger's
@@ -123,9 +125,12 @@ export async function getARSubledger(
       return { ...doc, balance: -doc.balance };
     });
 
+    // As at the reporting date, like every balance above it (R-059): a
+    // dispute raised after asAtDate was not in force on it.
     const disputes = await getOpenDisputeTotals(
       companyId,
       documents.map((d) => d.id),
+      asAtDate,
     );
 
     return {

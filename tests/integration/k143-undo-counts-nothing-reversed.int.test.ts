@@ -130,6 +130,11 @@ describeIfDb('K-143 undo must not count a row it did not reverse', () => {
     expect(result.skipped).toBe(1);
     expect(result.reversed).toBe(0);
     expect(result.alreadyUndone).toBe(0);
+    // K-071 r19: the reconciled row is still posted and tagged, so the run is
+    // not recorded undone.
+    expect(result.undone).toBe(false);
+    const after = await admin.query('SELECT undone_at FROM bank_auto_post_runs WHERE id = $1', [otherRun]);
+    expect(after.rows[0].undone_at).toBeNull();
   });
 
   // Adjacent case: another company's run id is not this company's to undo.

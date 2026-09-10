@@ -229,7 +229,10 @@ export async function approveEntries(
 ): Promise<number> {
   if (!ids.length) return 0;
   const result = (await sql`
-    UPDATE time_entries SET status = 'approved', updated_at = NOW()
+    -- approved_at: the date WIP is measured from (practice/wipAsOf). This path
+    -- used to leave it NULL, so an as-of WIP report could not tell when these
+    -- entries were approved; the practice approval path has always set it.
+    UPDATE time_entries SET status = 'approved', approved_at = NOW(), updated_at = NOW()
     WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'submitted'

@@ -9,7 +9,8 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 import { fetchRawBytes } from '@/lib/documentStorage';
 import { extractSupplierStatementWithVlm } from '@/modules/accounting/services/bank/vlmSupplierStatementService';
 import {
@@ -79,6 +80,31 @@ type DbRow = Record<string, unknown>;
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * Our side of the variance: what we owed this supplier ON THE STATEMENT DATE —
+ * the date the supplier's closing balance is struck at — from the AP ageing's
+ * own rewind (R-059). It used to be today's si.balance over every non-paid,
+ * non-cancelled bill, drafts included: a payment made after the statement date
+ * showed as a variance the supplier could never explain, and a bill raised
+ * after it was compared against a statement that predates it.
+ *
+ * The ONE place this is computed. Creation and Rematch both call it, because a
+ * variance struck once and then kept while the lines are re-matched against
+ * today's bills is a figure from a different moment than the counts beside it
+ * (R-059 round 10).
+ */
+async function measureOurSide(
+  companyId: string,
+  supplierId: string,
+  statementDate: string,
+  supplierBalance: number,
+): Promise<{ isaflowBalance: number; variance: number }> {
+  const aged = await getAPAgingDetail(companyId, supplierId, statementDate);
+  const isaflowBalance = Math.round(aged.invoices.reduce((s, inv) => s + inv.balance, 0) * 100) / 100;
+  const variance = Math.round((supplierBalance - isaflowBalance) * 100) / 100;
+  return { isaflowBalance, variance };
+}
+
 export async function createReconciliation(
   companyId: string,
   supplierId: string,
@@ -96,22 +122,10 @@ export async function createReconciliation(
     log.warn('Supplier statement extraction warnings', { warnings: extraction.warnings }, 'recon-service');
   }
 
-  const statementDate = extraction.statementDate ?? new Date().toISOString().slice(0, 10);
+  const statementDate = extraction.statementDate ?? asAtTodayStr();
   const supplierBalance = extraction.closingBalance ?? 0;
 
-  const [balRow] = (await sql`
-    SELECT COALESCE(SUM(si.balance), 0) AS isaflow_balance
-    FROM supplier_invoices si
-    WHERE si.company_id = ${companyId}
-      AND si.supplier_id = ${supplierId}::uuid
-      -- The variance below is against the supplier's own statement, so this
-      -- side must be the balance our ledger actually carries today.
-      -- See shared/softDeleteLedgerPresence.
-      AND ${documentInLedgerAsAtFragment('si', asAtTodayStr(), companyId)}
-      AND si.status NOT IN ('paid', 'cancelled')
-  `) as DbRow[];
-  const isaflowBalance = toNum(balRow?.isaflow_balance);
-  const variance = Math.round((supplierBalance - isaflowBalance) * 100) / 100;
+  const { isaflowBalance, variance } = await measureOurSide(companyId, supplierId, statementDate, supplierBalance);
 
   const [headerRow] = (await sql`
     INSERT INTO supplier_statement_reconciliations
@@ -196,15 +210,30 @@ export async function listReconciliations(
   }));
 }
 
+/** Rematch of a reconciled statement. Thrown before any write, so the route may answer 409. */
+export class ReconciliationClosedError extends Error {
+  readonly code = 'RECONCILIATION_CLOSED';
+  constructor(readonly reconciliationId: string) {
+    super('This statement is already marked reconciled; Rematch would overwrite the variance it was reconciled at.');
+    this.name = 'ReconciliationClosedError';
+  }
+}
+
 export async function rematchLines(
   companyId: string,
   reconciliationId: string,
 ): Promise<SupplierStatementReconciliation> {
+  // FOR UPDATE: the status check and the writes below are check-then-act.
   const [header] = (await sql`
     SELECT * FROM supplier_statement_reconciliations
     WHERE id = ${reconciliationId}::uuid AND company_id = ${companyId}
+    FOR UPDATE
   `) as DbRow[];
   if (!header) throw new Error(`Reconciliation ${reconciliationId} not found`);
+  // Closed: Rematch re-measures the variance, which would overwrite the one it
+  // was reconciled at (stored nowhere else). Refused rather than re-matched
+  // without the variance write, which would split counts from variance (R-059 r11).
+  if (String(header.status) === 'reconciled') throw new ReconciliationClosedError(reconciliationId);
 
   const existingLines = (await sql`
     SELECT * FROM supplier_statement_lines
@@ -231,6 +260,23 @@ export async function rematchLines(
 
   const { inserts } = buildInserts(reconciliationId, syntheticLines, invoices);
   await persistLinesAndUpdateCounts(reconciliationId, inserts);
+
+  // Re-measure our side too. Rematch re-reads the bills, so the counts move —
+  // approving a draft turns its "missing in IsaFlow" line into a match — and a
+  // variance left as it was struck at creation then belongs to a different set
+  // of bills than those counts. That let a statement reconcile at a stale
+  // variance of 0 while we owed twice what the supplier claimed, and kept a
+  // phantom variance on one that now ties (R-059 round 10).
+  const statementDate = toDateStr(header.statement_date);
+  if (!statementDate) throw new Error(`Reconciliation ${reconciliationId} has no statement date`);
+  const { isaflowBalance, variance } = await measureOurSide(
+    companyId, header.supplier_id as string, statementDate, toNum(header.supplier_balance),
+  );
+  await sql`
+    UPDATE supplier_statement_reconciliations
+    SET isaflow_balance = ${isaflowBalance}, variance = ${variance}, updated_at = NOW()
+    WHERE id = ${reconciliationId}::uuid AND company_id = ${companyId}
+  `;
 
   const result = await fetchFullReconciliation(companyId, reconciliationId);
   if (!result) throw new Error('Failed to retrieve rematch result');

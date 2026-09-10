@@ -19,15 +19,15 @@
  *   service at the earlier date and dropped by BOTH at today, by exactly its
  *   own balance. That is this branch's claim and it survives the noise.
  *
- *   The two are NOT the same report otherwise, and this file pins the size of
- *   the gap rather than hiding it. `arAgingService`/`apAgingService` bound the
- *   population by `invoice_date <= as-at` and rewind `amount_paid` to the
- *   as-at date (services/shared/agingRewind); `reports-ar-aging` and
- *   `reports-ap-aging` do neither, so at the earlier date they include L and
- *   they take S's later payment off. That is a real defect in the two routes,
- *   registered as R-059; it predates this branch and is not a soft-delete
- *   question. When it is fixed the deltas below become zero and this file goes
- *   red on the two assertions that name it — which is the point.
+ *   R-059 IS NOW FIXED, and this file is the measurement. It used to pin a
+ *   NON-ZERO route-minus-service gap at the earlier date: the services bound
+ *   the population by `invoice_date <= as-at` and rewind `amount_paid` to that
+ *   date (services/shared/agingRewind) while `reports-ar-aging` and
+ *   `reports-ap-aging` did neither, so the routes included L and took S's
+ *   later payment off — a gap of LATE - PAID = -R300 on each side. The routes
+ *   now use the same two bounds and the same shared rewind, so the gap is zero
+ *   at every as-at date, and it was always zero at TODAY, which is why no
+ *   earlier fixture could see the defect at all.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -269,12 +269,16 @@ describeIfDb('K-053 the ageing routes and services on a book with settlements an
 
     const rtBefore = await routeTotal(arAgingRoute, AS_AT_BEFORE);
     const rtToday = await routeTotal(arAgingRoute, TODAY);
-    expect(rtBefore).toBeCloseTo(DELETED + (SETTLED - PAID) + LATE, 2);
+    // R-059: the route now answers exactly what the service answers. Before the
+    // fix this line read DELETED + (SETTLED - PAID) + LATE.
+    expect(rtBefore).toBeCloseTo(DELETED + SETTLED, 2);
     expect(rtToday).toBeCloseTo(SETTLED - PAID + LATE, 2);
 
     // The K-053 claim, in both implementations: the ONLY thing the reversal
     // takes out is the deleted document, and it takes out exactly its balance.
-    expect(rtBefore - rtToday).toBeCloseTo(DELETED, 2);
+    // The route's before-minus-today now also carries the rewound payment and
+    // the later document, because the route is now a point-in-time report.
+    expect(rtBefore - rtToday).toBeCloseTo(DELETED + PAID - LATE, 2);
     expect(svcBefore - svcToday).toBeCloseTo(DELETED + PAID - LATE, 2);
   });
 
@@ -286,25 +290,24 @@ describeIfDb('K-053 the ageing routes and services on a book with settlements an
 
     const rtBefore = await routeTotal(apAgingRoute, AS_AT_BEFORE);
     const rtToday = await routeTotal(apAgingRoute, TODAY);
-    expect(rtBefore).toBeCloseTo(DELETED + (SETTLED - PAID) + LATE, 2);
+    expect(rtBefore).toBeCloseTo(DELETED + SETTLED, 2);
     expect(rtToday).toBeCloseTo(SETTLED - PAID + LATE, 2);
 
-    expect(rtBefore - rtToday).toBeCloseTo(DELETED, 2);
+    expect(rtBefore - rtToday).toBeCloseTo(DELETED + PAID - LATE, 2);
   });
 
   /**
-   * R-059, measured. The routes and the services are not the same report at any
-   * as-at date in the past: the route includes documents raised since, and
-   * takes off settlements made since. Both are zero at TODAY, which is why no
-   * earlier fixture could see them.
+   * R-059, measured after the fix. The gap that used to be LATE - PAID (-R300
+   * on each side) at the earlier date is now zero, and stays zero at TODAY
+   * where every earlier fixture measured.
    */
-  it('the route-vs-service gap at an earlier date is exactly the later document less the later payment', async () => {
+  it('the route and the service agree at an earlier as-at date, not only at today', async () => {
     const arGap = (await routeTotal(arAgingRoute, AS_AT_BEFORE))
       - (await getARAging(COMPANY, AS_AT_BEFORE)).reduce((s, b) => s + b.total, 0);
     const apGap = (await routeTotal(apAgingRoute, AS_AT_BEFORE))
       - (await getAPAging(COMPANY, AS_AT_BEFORE)).reduce((s, b) => s + b.total, 0);
-    expect(arGap).toBeCloseTo(LATE - PAID, 2);
-    expect(apGap).toBeCloseTo(LATE - PAID, 2);
+    expect(arGap).toBeCloseTo(0, 2);
+    expect(apGap).toBeCloseTo(0, 2);
 
     // And at today, where every earlier fixture measured, the gap is zero.
     expect(await routeTotal(arAgingRoute, TODAY))
