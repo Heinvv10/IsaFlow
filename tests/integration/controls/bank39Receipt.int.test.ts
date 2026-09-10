@@ -1,5 +1,6 @@
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
+import {withBank39MissingPayment} from './bank39MissingPayment';
 import {bank39Fixture} from './bank39Fixture';
 import {approveCustomerInvoice} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import {confirmReceiptMatch} from '@/modules/accounting/services/ar/receiptMatchConfirmService';
@@ -37,4 +38,16 @@ it('outer failure after real confirmation rolls back journal, child, application
  expect((await b.pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[b.f.companyA,r.tx])).rows).toEqual([]);
  expect((await b.pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[b.f.companyA,r.invoice])).rows[0].amount_paid).toBe('0.00');
  expect((await b.pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[b.f.companyA,r.p.approvalId])).rows[0].status).toBe('approved');
+});
+
+it('a real missing child INSERT aborts confirmation and unwinds journal and approval',async()=>{
+ const r=await preparedReceipt();
+ await expect(withBank39MissingPayment(b.pool,b.f,r.run)).rejects.toThrow('Allocation payment insert failed');
+ expect((await b.pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[b.f.companyA,r.tx])).rows).toEqual([]);
+ expect((await b.pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[b.f.companyA,r.p.approvalId])).rows[0].status).toBe('approved');
+ expect((await b.pool.query("SELECT oid FROM pg_trigger WHERE tgname='bank39_drop_payment'")).rows).toEqual([]);
+});
+it('failure-injection helper rolls back its DDL even on unexpected callback success',async()=>{
+ expect(await withBank39MissingPayment(b.pool,b.f,async()=>42)).toBe(42);
+ expect((await b.pool.query("SELECT oid FROM pg_trigger WHERE tgname='bank39_drop_payment'")).rows).toEqual([]);
 });
