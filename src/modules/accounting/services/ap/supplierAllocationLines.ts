@@ -22,6 +22,7 @@ import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { sql } from '@/lib/neon';
 import { requireRequestTransaction } from '../core/requestTransaction';
+import { isLockContention } from '../core/lockContention';
 import type { DbRow } from '@/lib/neon';
 
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
@@ -116,9 +117,6 @@ export async function planSupplierAllocationLines(
   return { supplierId, lines };
 }
 
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
-
 /**
  * Read the bills this allocation names, holding a row lock on each until the
  * end of the surrounding transaction.
@@ -140,7 +138,9 @@ const LOCK_NOT_AVAILABLE = '55P03';
  * cannot deadlock against each other.
  *
  * A timeout is a REFUSAL: it is raised before anything on this path has been
- * written, and retrying unchanged is the right move.
+ * written, and retrying unchanged is the right move. A DEADLOCK (40P01) is
+ * answered the same way, via `isLockContention` — see the canonical lock order
+ * in `bank/.claude.md` for why one should not arise here at all.
  */
 async function fetchBillCandidates(
   companyId: string,
@@ -152,7 +152,7 @@ async function fetchBillCandidates(
   try {
     return await lockBillCandidates(companyId, paymentId, invoiceIds, client);
   } catch (err) {
-    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) {
+    if (isLockContention(err)) {
       throw new SupplierPaymentRefusal(
         'Another request is paying one of these bills — retry in a moment.',
       );

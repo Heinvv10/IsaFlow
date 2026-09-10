@@ -19,12 +19,14 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
-
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
+import { isLockContention } from '../core/lockContention';
 
 /**
- * Raised when another request holds the row longer than the 5s `lock_timeout`.
+ * Raised when another request holds the row longer than the 5s `lock_timeout`,
+ * or when Postgres breaks a deadlock (`40P01`) by choosing this transaction as
+ * the victim — `isLockContention` covers both. They are one answer to a caller:
+ * nothing was written, the row was never acquired, and retrying is the remedy.
+ * The name is kept because routes match on the `BANK_TX_LOCK_TIMEOUT` code.
  * The bank API routes surface a caught service error's message to the caller —
  * as a 400, or as the 409 `bank-match-confirm` answers via
  * `isBankTransactionLockTimeout` — so this wording is what the user reads. It
@@ -47,11 +49,6 @@ export class BankTransactionLockTimeoutError extends Error {
 export function isBankTransactionLockTimeout(err: unknown): err is BankTransactionLockTimeoutError {
   return err instanceof Error
     && (err as { code?: unknown }).code === 'BANK_TX_LOCK_TIMEOUT';
-}
-
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
 }
 
 /**
@@ -106,7 +103,7 @@ export async function lockBankTransactionForUpdate(
       FOR UPDATE`) as DbRow[];
     return rows[0] ?? null;
   } catch (err) {
-    if (isLockTimeout(err)) throw new BankTransactionLockTimeoutError(bankTxId);
+    if (isLockContention(err)) throw new BankTransactionLockTimeoutError(bankTxId);
     throw err;
   }
 }

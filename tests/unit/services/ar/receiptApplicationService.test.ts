@@ -163,6 +163,20 @@ describe('the invoice read locks what it is about to decide from', () => {
     expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
   });
 
+  it('turns a DEADLOCK into the same retryable refusal', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    sqlMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+
+  // 40P01, not 55P03: a DEADLOCK is the other contention SQLSTATE and it must
+  // reach the caller as the same retryable refusal. The canonical lock order
+  // (`bank/.claude.md`) is what makes one unlikely; this is what stops the one
+  // that still happens from being answered as a 500 on a money path.
+    await expect(
+      planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]),
+    ).rejects.toThrow(/retry in a moment/i);
+    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
   it('refuses to run at all outside a request transaction', async () => {
     lockMock.mockResolvedValue(paymentRow());
     invoiceRows([invoiceRow(INV_A)]);
@@ -395,7 +409,13 @@ describe('applyReceiptPlan', () => {
     // them and the guard passed on exactly the write it exists to catch (an
     // `amount_paid` move). `FOR UPDATE OF ci` is still excluded — no SET
     // follows it.
+    //
+    // The optional alias group catches `UPDATE customer_invoices ci SET …` too.
+    // Aliased updates are an idiom in use here (`expenseClaimService`,
+    // `bankRulesMatchingService`, `bankTransferLinkService`), so without it the
+    // guard is blind to exactly the form a future write is most likely to take.
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    expect(texts.some((t) => /INSERT INTO|UPDATE\s+\w+\s+SET|DELETE FROM/.test(t))).toBe(false);
+    const WRITE_SQL = /INSERT INTO|UPDATE\s+\w+(\s+(?:AS\s+)?\w+)?\s+SET|DELETE FROM/;
+    expect(texts.some((t) => WRITE_SQL.test(t))).toBe(false);
   });
 });

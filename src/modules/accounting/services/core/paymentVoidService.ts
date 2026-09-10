@@ -33,6 +33,15 @@
  * control account while the invoice still reads as settled, which widens the
  * subledger-to-control gap behind an ordinary-looking reversal. If the unwind
  * throws, nothing has been posted.
+ *
+ * ── SO IS THE LOCK ORDER ────────────────────────────────────────────────────
+ *
+ * Shape 1 locks two rows. `reverseReconciledTransaction`, which it delegates to,
+ * takes the bank line first and reaches the payment afterwards through
+ * `unwindOnePayment`'s `UPDATE …_payments`; locking the payment first here is
+ * the inverse, so a `void_receipt` on P racing a `reverse_bank_allocation` on
+ * the line P settles would hold one row each and deadlock. The line is
+ * therefore locked FIRST, off an UNLOCKED read. Order: `bank/.claude.md`.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -43,6 +52,7 @@ import {
   unwindOnePayment,
 } from '../bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
+import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
 export type PaymentKind = 'customer' | 'supplier';
@@ -160,6 +170,23 @@ async function findBankTransactions(
   return rows.map((r) => String(r.id));
 }
 
+/** The payment's journal id WITHOUT its row lock — only to resolve the bank
+ * line so THAT can be locked first (see the header). Nothing is decided from
+ * it: status and number are re-read under the lock, a moved journal id is
+ * caught at the call site. `undefined` = no such row for this tenant. */
+async function peekPaymentJournal(
+  companyId: string, kind: PaymentKind, paymentId: string,
+): Promise<string | null | undefined> {
+  const rows = (kind === 'customer'
+    ? await sql`SELECT gl_journal_entry_id FROM customer_payments
+        WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`
+    : await sql`SELECT gl_journal_entry_id FROM supplier_payments
+        WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+  if (rows.length === 0) return undefined;
+  const id = rows[0]!.gl_journal_entry_id;
+  return id == null ? null : String(id);
+}
+
 export async function voidPaymentDocument(
   companyId: string,
   kind: PaymentKind,
@@ -167,20 +194,35 @@ export async function voidPaymentDocument(
   userId: string,
   opts?: PostingActorOpts & { reversalDate?: string },
 ): Promise<VoidPaymentResult | VoidRefusal> {
+  // LOCK ORDER: bank line, then payment — see the header.
+  const peekedJournalId = await peekPaymentJournal(companyId, kind, paymentId);
+  if (peekedJournalId === undefined) return { refusal: 'not_found' };
+
+  const bankLines = peekedJournalId
+    ? await findBankTransactions(companyId, peekedJournalId)
+    : [];
+  if (bankLines.length > 1) {
+    return { refusal: 'ambiguous_bank_lines', count: bankLines.length };
+  }
+  const bankTransactionId = bankLines[0] ?? null;
+  // A no-op re-lock for `reverseReconciledTransaction` below — one statement,
+  // and it fixes the order for the pair.
+  if (bankTransactionId) await lockBankTransactionForUpdate(companyId, bankTransactionId);
+
   const payment = await loadPayment(companyId, kind, paymentId);
   if (!payment) return { refusal: 'not_found' };
   if (payment.status === 'cancelled') return { refusal: 'already_cancelled' };
   if (!VOIDABLE_STATUSES[kind].includes(payment.status)) {
     return { refusal: 'not_applied', status: payment.status };
   }
-
-  const bankLines = payment.journalEntryId
-    ? await findBankTransactions(companyId, payment.journalEntryId)
-    : [];
-  if (bankLines.length > 1) {
-    return { refusal: 'ambiguous_bank_lines', count: bankLines.length };
+  if (payment.journalEntryId !== peekedJournalId) {
+    // `gl_journal_entry_id` is written once, when the payment posts, and never
+    // reassigned — so the row posted between the peek and the lock and the line
+    // locked above is the wrong one. Nothing has been written.
+    throw new Error(
+      `Payment ${paymentId} was posted while this void was being prepared — retry in a moment.`,
+    );
   }
-  const bankTransactionId = bankLines[0] ?? null;
 
   // Shape 1: the bank path already unwinds, posts the contra AND resets the
   // bank line. Doing any of that here as well would double-reverse.

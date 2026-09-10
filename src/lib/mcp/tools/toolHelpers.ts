@@ -128,7 +128,7 @@ function truncateForMessage(value: unknown): string {
 /**
  * The codes this codebase's own refusal classes carry — the complete set of
  * `readonly code = '…'` declarations under `src/`, kept in sync by
- * `tests/unit/mcp/safeErrorTextAllowlist.test.ts`, which fails when a new one
+ * `tests/unit/mcp/typedRefusalReachesAgent.test.ts`, which fails when a new one
  * is declared and not listed here.
  *
  * An ALLOWLIST, not a shape test. A shape test asked "does this code look like

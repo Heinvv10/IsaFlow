@@ -48,6 +48,17 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+// Both confirm arms now take the bank line's row lock FIRST — the canonical
+// order (`bank/.claude.md`) — and `lockBankTransactionForUpdate` refuses to run
+// outside a request transaction. Stand in for the withAuth-bound client so the
+// route reaches its arms, and queue the lock's own read where it now falls.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: { client: { query: () => Promise.resolve(undefined) } },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return { ...actual, als: { ...actual.als, getStore: () => ({ client: mockTx.client }) } };
+});
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   allocateTransaction: vi.fn(),
@@ -116,6 +127,10 @@ function mockReqRes(body: Record<string, unknown>) {
 function withBankLine(amount: number, candidateRow: Record<string, unknown>) {
   mockSql
     .mockResolvedValueOnce([{ amount }])
+    // The confirm arms' own `FOR UPDATE` on the bank line, taken before the
+    // document is read. The `purchase_order` and `journal_line` branches never
+    // reach an arm, so this row goes unread there and the queue still lines up.
+    .mockResolvedValueOnce([{ id: BANK_TX, status: 'imported' }])
     .mockResolvedValueOnce([candidateRow])
     .mockResolvedValue([]);
 }

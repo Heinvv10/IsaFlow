@@ -28,6 +28,8 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/ar/*` and `
 - `authenticatePortalUser(email, password)`, `getClientInvoices(clientId, companyId)`, `createPaymentLink(invoiceId, clientId, amount)`.
 
 ## Business rules
+- **Lock order**: the canonical sequence for every settlement path (bank line → payment → invoices → GL) lives in `bank/.claude.md`. Read it before adding a lock here; a path that takes two of these rows out of sequence deadlocks against one that does not (40P01 → 500).
+
 - `customer_invoices.status`: `draft | sent | partial | paid | void | written_off`. All AR invoice queries MUST use `COALESCE(ci.client_id, ci.customer_id)` — both columns exist (legacy mig artefact).
 - Confirm/cancel-payment uses ALS-bound `sql` (NOT `withTransaction`) — the outer `withAuth` transaction provides atomicity. Using `withTransaction` here caused idle-in-transaction timeouts because it opened a second pool connection while the ALS client sat idle.
 - 2026-04-24: JE link-back uses ALS-bound `sql` instead of `withTransaction` to avoid nested-tx issues. Do NOT pass invoice id as JE `sourceDocumentId` (FK is to `documents`).

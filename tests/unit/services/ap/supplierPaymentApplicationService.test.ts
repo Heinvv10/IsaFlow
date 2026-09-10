@@ -160,6 +160,20 @@ describe('the bill read locks what it is about to decide from', () => {
     expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
   });
 
+  it('turns a DEADLOCK into the same retryable refusal', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    sqlMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+
+  // 40P01, not 55P03: a DEADLOCK is the other contention SQLSTATE and it must
+  // reach the caller as the same retryable refusal. The canonical lock order
+  // (`bank/.claude.md`) is what makes one unlikely; this is what stops the one
+  // that still happens from being answered as a 500 on a money path.
+    await expect(
+      planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 100 }]),
+    ).rejects.toThrow(/retry in a moment/i);
+    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
   it('refuses to run at all outside a request transaction', async () => {
     lockMock.mockResolvedValue(paymentRow());
     billRows([billRow(BILL_A)]);
@@ -323,9 +337,12 @@ describe('planSupplierPaymentApplication', () => {
     // which a bare /UPDATE/ matches although it writes nothing. `\s+` between
     // the table and SET because every UPDATE here breaks the line there — a
     // literal space matches none of them and the guard would pass on the
-    // `amount_paid` move it exists to catch.
+    // `amount_paid` move it exists to catch. The optional alias group catches
+    // `UPDATE supplier_invoices si SET …` too — an idiom in use in this repo,
+    // and otherwise invisible to this guard.
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    expect(texts.some((t) => /INSERT INTO|UPDATE\s+\w+\s+SET|DELETE FROM/.test(t))).toBe(false);
+    const WRITE_SQL = /INSERT INTO|UPDATE\s+\w+(\s+(?:AS\s+)?\w+)?\s+SET|DELETE FROM/;
+    expect(texts.some((t) => WRITE_SQL.test(t))).toBe(false);
   });
 });
 

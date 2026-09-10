@@ -32,6 +32,16 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+// The customer arm now takes the bank line's row lock FIRST — the canonical
+// order (`bank/.claude.md`) — and `lockBankTransactionForUpdate` refuses to run
+// outside a request transaction. Stand in for the withAuth-bound client.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: { client: { query: () => Promise.resolve(undefined) } },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return { ...actual, als: { ...actual.als, getStore: () => ({ client: mockTx.client }) } };
+});
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   allocateTransaction: vi.fn(),
@@ -92,10 +102,19 @@ function mockReqRes(candidateType = 'purchase_order') {
   return { req, res: res as unknown as NextApiResponse & typeof res };
 }
 
-/** Writes the route issued itself. The 4xx branches must have issued none. */
+/**
+ * Writes the route issued itself. The 4xx branches must have issued none.
+ *
+ * Anchored on the WRITE forms rather than a bare /UPDATE/: since the confirm
+ * arms take the bank line's row lock first, `FOR UPDATE` appears on a statement
+ * that reads and writes nothing, and a bare match counted it as a write. The
+ * optional alias group covers `UPDATE customer_invoices ci SET …`, an idiom in
+ * use in this repo and otherwise invisible here.
+ */
+const WRITE_SQL = /INSERT INTO|UPDATE\s+\w+(\s+(?:AS\s+)?\w+)?\s+SET|DELETE FROM/;
 function writeCount(): number {
   return mockSql.mock.calls.filter(
-    (c) => /UPDATE|INSERT|DELETE/.test((c[0] as unknown as TemplateStringsArray).join('')),
+    (c) => WRITE_SQL.test((c[0] as unknown as TemplateStringsArray).join('')),
   ).length;
 }
 
@@ -151,7 +170,10 @@ describe('bank-match-confirm — the status code the trailing catch answers', ()
   // correctly would answer a contended line with a bare 500.
   it('answers 409 for a contended line raised through the customer settlement service', async () => {
     mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([{ amount: 1000 }]).mockResolvedValueOnce([INVOICE]).mockResolvedValue([]);
+    mockSql.mockResolvedValueOnce([{ amount: 1000 }])
+      // The arm's `FOR UPDATE` on the bank line, before the invoice read.
+      .mockResolvedValueOnce([{ id: BANK_TX, status: 'imported' }])
+      .mockResolvedValueOnce([INVOICE]).mockResolvedValue([]);
     confirmReceipt.mockRejectedValueOnce(new BankTransactionLockTimeoutError(BANK_TX));
 
     const { req, res } = mockReqRes('customer_invoice');

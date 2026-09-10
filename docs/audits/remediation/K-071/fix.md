@@ -190,3 +190,57 @@ HAVING COALESCE(si.amount_paid,0) > si.total_amount + 0.01
 **Limits.** `requireRequestTransaction` makes both candidate reads throw for any caller outside
 `withAuth` / `als.run`. Every production caller was enumerated and all are route- or MCP-bound; a
 future background job applying cash must wrap itself in `als.run` rather than removing the guard.
+
+---
+
+## Round 8 (blind review `review-k071-r7.md`: 0 HIGH, 1 MEDIUM, 3 LOW)
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 — both confirm arms lock the invoice BEFORE the bank line, inverting every other path | **Fixed, and the rule behind it written down.** `confirmSupplierInvoiceMatch` and `confirmCustomerInvoiceMatch` now call `lockBankTransactionForUpdate` as their first act, before the document read — restoring the `bank_transactions → invoice` order that `allocateTransaction`, `splitAllocateTransaction` and `reverseReconciledTransaction` all take. The lock's row is deliberately discarded: it is taken for its ORDER (and for making the validator's `status = 'imported'` read race-free), and a vanished or foreign-tenant line is still refused by the validator's own not-found wording, which the route and the MCP tools depend on. Proved on the real fixture: `tests/integration/k071-lock-order-deadlock.int.test.ts` parks a peer on the bank line, waits (on `pg_stat_activity`, not a sleep) until the confirm is blocked on it, then takes the document — free with the fix, **40P01 without it on both arms** (mutation: remove the two lock calls → `expected 409 to be 200`, twice). |
+| — the same inversion elsewhere: `voidPaymentDocument` | **Found by the enumeration the review asked for, and fixed.** It locked the payment first and then reached `bank_transactions` through `reverseReconciledTransaction`, while that same function reaches the payment through `unwindOnePayment`'s `UPDATE …_payments` — a genuine cycle between `void_receipt(P)` and `reverse_bank_allocation(L)`. The bank line is now resolved from an UNLOCKED peek at the payment's `gl_journal_entry_id` and locked BEFORE the payment; the locked re-read asserts the journal id did not move (it is written once when a payment posts and never reassigned), and throws rather than proceeding against a line it never locked. Two new tests; removing the reorder turns the order test red. |
+| — 40P01 answered as a 500 | **Fixed.** New `core/lockContention.isLockContention` classifies BOTH `55P03` and `40P01` — one answer to a caller, since both abort the transaction, neither wrote anything, and both are retryable. Wired into `bankTxLock`, `core/paymentLock` (both arms), `fetchInvoiceCandidates` and `fetchBillCandidates`, so a deadlock reaches the caller as `BankTransactionLockTimeoutError` (409), `PaymentLockTimeoutError`, `ReceiptRefusal` or `SupplierPaymentRefusal` with the retry wording. Pinned by `tests/unit/services/core/lockContention.test.ts` plus a `40P01` case beside each existing `55P03` case; mutating the constant turns five tests red. Second line of defence, not a substitute for ordering — said so in the module doc. |
+| LOW-1 — the dry-run write guard is blind to an aliased UPDATE | **Fixed.** `/INSERT INTO\|UPDATE\s+\w+(\s+(?:AS\s+)?\w+)?\s+SET\|DELETE FROM/` in both files (and in `bankMatchConfirmRefusalStatus.test.ts`'s `writeCount`, whose bare `/UPDATE/` now matched the new `FOR UPDATE` on the lock). Measured in both directions: with `UPDATE customer_invoices ci\nSET updated_at = NOW()` injected after `fetchInvoiceCandidates`, the OLD regex passes and the new one fails. |
+| LOW-2 — the allowlist comment names a test file that does not exist | **Fixed.** `toolHelpers.ts` now names `tests/unit/mcp/typedRefusalReachesAgent.test.ts`, where the census actually lives. |
+| LOW-3 — two soft edges on the census | **Both taken.** `git grep --untracked` closes the local-loop hole (an unstaged new refusal class was invisible to the index-only search); and a comment records that a future code which must stay HIDDEN is the signal to split the census into `REFUSAL_CODES` plus an explicit not-a-refusal set, rather than to silence it by adding the code to the allowlist. |
+| LOW-4 (round 7) — `bankAllocationService.ts` is 768 lines | **Still carried, unchanged.** The reviewer's own ruling was that deferring is correct; this round adds nothing to that file. |
+
+**Canonical lock order (the deliverable behind MEDIUM-1).** Recorded in
+`src/modules/accounting/services/bank/.claude.md` as a bullet with a table of every path that locks
+more than one of these tables and the order it takes: **(1) `bank_transactions` → (2)
+`customer_payments`/`supplier_payments` → (3) `customer_invoices`/`supplier_invoices` (a set of them
+`ORDER BY id`) → (4) `gl_journal_entries`/`gl_journal_lines`**. Pointers added in the `ap/`, `ar/`
+and `core/` module docs. One disagreement is recorded rather than changed: the supplier-payment void
+takes `gl_journal_entries` before the invoices it un-applies, where the two invoice cancels take the
+invoice first — no cycle is reachable (they never want the same journal), so changing it would be an
+adjacent refactor with no defect behind it.
+
+**Files.** `src/modules/accounting/services/core/lockContention.ts` (new), `core/paymentLock.ts`,
+`core/paymentVoidService.ts`; `bank/bankTxLock.ts`, `bank/confirmSupplierMatch.ts`,
+`bank/confirmCustomerMatch.ts`; `ar/receiptAllocationLines.ts`; `ap/supplierAllocationLines.ts`;
+`src/lib/mcp/tools/toolHelpers.ts`; the `bank/`, `ap/`, `ar/`, `core/` `.claude.md` files (+ their
+`AGENTS.md` mirrors).
+
+**Tests this round.** New `tests/integration/k071-lock-order-deadlock.int.test.ts` (3, real DB) and
+`tests/unit/services/core/lockContention.test.ts` (5); `+2` each in `confirmSupplierMatch.test.ts`,
+`confirmCustomerMatch.test.ts` and `paymentVoidService.test.ts`; `+1` each in
+`receiptApplicationService.test.ts` and `supplierPaymentApplicationService.test.ts`. Full unit suite
+**9,501 passed / 234 skipped / 0 failed** with the fixture env UNSET; **34 integration tests passed**
+over the branch's eight files on the real PostgreSQL fixture. `tsc --noEmit` and `eslint` clean;
+`agent-docs:check` 74 mirrors match.
+
+**Migration.** None, this round or any other on this branch.
+
+**Historical-data impact.** None. A deadlock aborts the transaction, so no row in production is wrong
+because of the old order — the damage was availability and a misleading 500, both of which this
+changes going forward only. The new `voidPaymentDocument` peek reads a column it already read under
+the lock, and writes nothing.
+
+**Limits.** The integration test stands a raw pool client in for `allocateTransaction` rather than
+calling it, because driving the real auto-allocation would make the test about the supplier's
+`auto_allocate_strategy` instead of about the lock order. The order the peer takes is the order
+`allocateTransaction` takes, asserted in the module doc's table and read from the code, not measured
+by that test. The 40P01 mapping is deliberately narrow: only the four settlement locks. Other lock
+helpers (`glAccountLock`, `creditNoteLock`, `supplierInvoiceLock`, `recurringInvoiceLock`,
+`reclassification/lineLock`) still classify 55P03 alone — outside this defect's blast radius, and
+changing them would be an adjacent refactor.

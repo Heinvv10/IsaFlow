@@ -24,13 +24,13 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
-
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
+import { isLockContention } from './lockContention';
 
 /**
  * Raised when another request holds the payment row longer than the 5s
- * `lock_timeout`. The wording says "retry" because both the REST routes and the
+ * `lock_timeout`, or when Postgres breaks a deadlock (`40P01`) by choosing this
+ * transaction as the victim (`isLockContention` covers both — same answer to
+ * the caller, since neither wrote anything and both are retryable). The wording says "retry" because both the REST routes and the
  * MCP tools surface a caught service message straight to the caller, and a
  * lock timeout is the one refusal where retrying unchanged is the right move.
  */
@@ -52,11 +52,6 @@ export class PaymentLockTimeoutError extends Error {
 export function isPaymentLockTimeout(err: unknown): err is PaymentLockTimeoutError {
   return err instanceof Error
     && (err as { code?: unknown }).code === 'PAYMENT_LOCK_TIMEOUT';
-}
-
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
 }
 
 function requireRequestTransaction(fnName: string): { query: (t: string) => Promise<unknown> } {
@@ -109,7 +104,7 @@ export async function lockCustomerPaymentForUpdate(
     await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
-    if (isLockTimeout(err)) throw new PaymentLockTimeoutError(paymentId);
+    if (isLockContention(err)) throw new PaymentLockTimeoutError(paymentId);
     throw err;
   }
 }
@@ -145,7 +140,7 @@ export async function lockSupplierPaymentForUpdate(
     await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
-    if (isLockTimeout(err)) throw new PaymentLockTimeoutError(paymentId);
+    if (isLockContention(err)) throw new PaymentLockTimeoutError(paymentId);
     throw err;
   }
 }
