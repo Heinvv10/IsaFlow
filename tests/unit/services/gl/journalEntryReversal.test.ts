@@ -17,7 +17,31 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return { sql: sqlMock };
+  return {
+    sql: sqlMock,
+  };
+});
+vi.mock('@/lib/alsTransaction', async () => {
+  const { als } = await import('@/lib/als');
+  return {
+    // reverseJournalEntry wraps itself in a transaction (withAlsTransaction) so
+    // the reversal claim cannot outlive the contra, and the claim REFUSES to run
+    // without one. Bind a client whose BEGIN/COMMIT and lock_timeout statements
+    // are no-ops, so this suite keeps asserting reversal semantics.
+    withAlsTransaction: (
+      actor: { userId: string; companyId: string | undefined },
+      fn: () => Promise<unknown>,
+    ) =>
+      als.run(
+        {
+          client: { query: async () => ({ rows: [{ v: '0' }] }) } as never,
+          userId: actor.userId,
+          companyId: actor.companyId,
+          claims: {},
+        },
+        fn,
+      ),
+  };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
@@ -95,6 +119,31 @@ function joinSql(call: unknown[]): string {
 beforeEach(() => vi.clearAllMocks());
 
 describe('reverseJournalEntry — semantics', () => {
+  it.each(['capital_goods', 'standard', 'zero_rated', undefined])(
+    'preserves VAT classification %s on the contra lines', async (vatType) => {
+      const original = originalEntry();
+      const lines = original.lines.map((line, i) => ({ ...line, vatType: i === 0 ? vatType : undefined }));
+      mockGetById.mockResolvedValueOnce({ ...original, lines }).mockResolvedValueOnce(contraEntryDraft());
+      mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID });
+      mockSql
+        // reverseJournalEntry claims the reversal BEFORE creating the contra:
+        // one row back means this caller won it (journalEntryReversalClaim).
+        .mockResolvedValueOnce([{ id: ENTRY_ID }])
+        .mockResolvedValueOnce([{ status: 'open' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ status: 'posted' }])
+        // the contra link-back
+        .mockResolvedValueOnce([]);
+
+      await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
+
+      const input = mockCreate.mock.calls[0]![1] as { lines: typeof lines };
+      expect(input.lines.map(line => line.vatType)).toEqual([vatType, undefined]);
+      expect(input.lines[0]!.credit).toBe(lines[0]!.debit);
+      expect(input.lines[1]!.debit).toBe(lines[1]!.credit);
+    },
+  );
+
   it.each([
     ['66666666-6666-6666-6666-666666666666', '77777777-7777-7777-7777-777777777777'],
     [undefined, undefined],
@@ -103,8 +152,15 @@ describe('reverseJournalEntry — semantics', () => {
     const lines = original.lines.map((line, i) => ({ ...line, buId: i === 0 ? firstBu : secondBu }));
     mockGetById.mockResolvedValueOnce({ ...original, lines }).mockResolvedValueOnce(contraEntryDraft());
     mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID });
-    mockSql.mockResolvedValueOnce([{ status: 'open' }]).mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ status: 'posted' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockSql
+      // reverseJournalEntry claims the reversal BEFORE creating the contra: one
+      // row back means this caller won it (see journalEntryReversalClaim).
+      .mockResolvedValueOnce([{ id: ENTRY_ID }])
+      .mockResolvedValueOnce([{ status: 'open' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'posted' }])
+      // the contra link-back
+      .mockResolvedValueOnce([]);
 
     await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
 
@@ -121,14 +177,17 @@ describe('reverseJournalEntry — semantics', () => {
       .mockResolvedValueOnce(originalEntry()) // reverseJournalEntry: load original
       .mockResolvedValueOnce(contraEntryDraft()); // postJournalEntry: load the contra
     mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID, entryNumber: 'JE-2026-00002' });
-    // postJournalEntry sql: fiscal-period check, then UPDATE->posted;
-    // then reverseJournalEntry's two link-back UPDATEs.
+    // reverseJournalEntry's reversal claim; postJournalEntry's fiscal-period
+    // check, inactive guard and UPDATE->posted; then the contra link-back.
     mockSql
+      // reverseJournalEntry claims the reversal BEFORE creating the contra: one
+      // row back means this caller won it (see journalEntryReversalClaim).
+      .mockResolvedValueOnce([{ id: ENTRY_ID }])
       .mockResolvedValueOnce([{ status: 'open' }])
       // postJournalEntry's inactive-account guard: none on the contra
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ entry_number: 'JE-2026-00002', status: 'posted' }])
-      .mockResolvedValueOnce([])
+      // reverseJournalEntry's link-back UPDATE
       .mockResolvedValueOnce([]);
 
     const result = await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
@@ -169,11 +228,14 @@ describe('reverseJournalEntry — contra attribution', () => {
       .mockResolvedValueOnce(contraEntryDraft());
     mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID, entryNumber: 'JE-2026-00002' });
     mockSql
+      // reverseJournalEntry claims the reversal BEFORE creating the contra: one
+      // row back means this caller won it (see journalEntryReversalClaim).
+      .mockResolvedValueOnce([{ id: ENTRY_ID }])
       .mockResolvedValueOnce([{ status: 'open' }])
       // postJournalEntry's inactive-account guard: none on the contra
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ entry_number: 'JE-2026-00002', status: 'posted' }])
-      .mockResolvedValueOnce([])
+      // reverseJournalEntry's link-back UPDATE
       .mockResolvedValueOnce([]);
   }
 

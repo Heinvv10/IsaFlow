@@ -1,0 +1,67 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k104-k105-invitation-token-encoding.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Invitation created","timestamp":"2026-09-09T09:39:19.886Z","component":"accounting","data":{"companyId":"8792e203-e3d7-4305-86f3-e8bdbee64352","email":"k104-9d09caa7-3db1-436b-898e-6b3578d40c94@test.local","role":"viewer"}}
+ ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts (2 tests | 2 failed) 245ms
+   × K-104: one token column must hold one encoding, and a re-invite must not kill the live link 64ms
+   × K-105: the public lookup resolves a live invitation, masks the email, and refuses expired/accepted ones 31ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k104-k105-invitation-token-encoding.int.test.ts > K-104: one token column must hold one encoding, and a re-invite must not kill the live link
+AssertionError: expected { storedIsHashOfIssued: true, …(2) } to deeply equal { storedIsHashOfIssued: false, …(2) }
+
+- Expected
++ Received
+
+  {
+-   "newLinkRows": 1,
+-   "originalLinkRows": 1,
+-   "storedIsHashOfIssued": false,
++   "newLinkRows": 0,
++   "originalLinkRows": 0,
++   "storedIsHashOfIssued": true,
+  }
+
+ ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts:92:6
+     90|     originalLinkRows: await acceptLookupRows(rawToken),
+     91|     newLinkRows: await acceptLookupRows(issued),
+     92|   }).toEqual({ storedIsHashOfIssued: false, originalLinkRows: 1, newLi…
+       |      ^
+     93| });
+     94|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k104-k105-invitation-token-encoding.int.test.ts > K-105: the public lookup resolves a live invitation, masks the email, and refuses expired/accepted ones
+AssertionError: expected { freshStatus: 410, …(3) } to deeply equal { freshStatus: 200, …(3) }
+
+- Expected
++ Received
+
+  {
+    "acceptedStatus": 410,
+    "emailReturned": null,
+    "expiredStatus": 410,
+-   "freshStatus": 200,
++   "freshStatus": 410,
+  }
+
+ ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts:103:6
+    101|     expiredStatus: (await lookup(expiredToken)).state.statusCode,
+    102|     acceptedStatus: (await lookup(acceptedToken)).state.statusCode,
+    103|   }).toEqual({ freshStatus: 200, emailReturned: null, expiredStatus: 4…
+       |      ^
+    104| });
+    105|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:39:18
+   Duration  1.94s (transform 356ms, setup 0ms, import 693ms, tests 245ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
