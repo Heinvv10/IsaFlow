@@ -15,6 +15,7 @@ import {getAuditExportFiles,readAuditExportChunk} from '@/modules/accounting/ser
 import {AUDIT_SOURCE_TYPES,AUDIT_CHECK_IDS,parseAuditSnapshotRequest,auditSnapshotPermissions} from '@/modules/accounting/services/controls/auditJobContract';
 import {parseAuditExportRequest} from '@/modules/accounting/services/controls/auditExportJobContract';
 import {SNAPSHOT_INDEX_SECTIONS} from '@/modules/accounting/services/controls/auditSnapshotIndexContract';
+import {AuditEnqueueQuotaError} from '@/modules/accounting/services/controls/auditEnqueueQuota';
 import {ok,toolError} from './toolHelpers';
 const uuid={type:'string',format:'uuid'},key={type:'string',minLength:1,maxLength:128,pattern:'^[A-Za-z0-9_.:-]+$'},
  limit={type:'integer',minimum:1,maximum:100},cursor={type:'string',pattern:'^(0|[1-9][0-9]{0,5})$'},
@@ -29,7 +30,9 @@ function tool<T>(name:string,description:string,write:boolean,properties:Record<
  // Starting forensic work takes the opt-in write:audit; reading what it produced stays on read:reports.
  return{name,description,scope:write?'write:audit':'read:reports',write,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async(args,ctx)=>{
   const parsed=schema.safeParse(write?writeInput(args,ctx.companyId):args);if(!parsed.success)return toolError('Invalid audit delivery arguments');
-  return ok(await run(parsed.data));
+  // A refused rate is an answer the agent must read, not a failure that invites the retry the rate exists to stop.
+  try{return ok(await run(parsed.data));}
+  catch(error){if(error instanceof AuditEnqueueQuotaError)return toolError(error.message);throw error;}
  }};
 }
 const snapshot=tool('audit_snapshot','Enqueue an immutable accounting snapshot and selected checks. Returns a durable job ID; no scan runs in this request. Requires the opt-in write:audit scope plus current source read permissions, which the worker rechecks.',true,
