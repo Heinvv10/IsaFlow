@@ -123,7 +123,9 @@ function stubDb(supplierVat: string | null = SUPPLIER_VAT) {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
     if (text.includes('FROM capture_events')) {
       return Promise.resolve([{
-        event_id: EVENT_ID, event_status: 'pending', captured_document_id: DOC_ID,
+        // 'pending' is not in the capture_events CHECK vocabulary — see
+        // captureEventLock.CAPTURE_EVENT_STATUSES.
+        event_id: EVENT_ID, event_status: 'extracted', captured_document_id: DOC_ID,
         extracted_data: { vendorName: 'ACME', vendorVatNumber: DOCUMENT_VAT },
       }]);
     }

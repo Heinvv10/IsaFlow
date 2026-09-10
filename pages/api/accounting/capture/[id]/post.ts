@@ -24,6 +24,7 @@ import { decide } from '@/modules/accounting/services/capture/autoPublishGateSer
 import {
   lockCaptureEventForPosting,
   CaptureEventLockedError,
+  isCaptureEventPostable,
 } from '@/modules/accounting/services/capture/captureEventLock';
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
@@ -72,8 +73,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.notFound(res, 'Capture event', eventId);
   }
 
-  if (event.event_status === 'posted') {
-    return apiResponse.badRequest(res, 'Event already posted');
+  // Postable is an ALLOW-list (`captureEventLock.ts`), not `status === 'posted'`.
+  // Naming one value left every OTHER terminal state postable: a user could
+  // discard a captured document and then post it anyway, with no race at all.
+  if (!isCaptureEventPostable(event.event_status)) {
+    return apiResponse.badRequest(
+      res,
+      event.event_status === 'posted'
+        ? 'Event already posted'
+        : `Event cannot be posted from status '${String(event.event_status)}'`,
+    );
   }
 
   if (!event.extracted_data) {

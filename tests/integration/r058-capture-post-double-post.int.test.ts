@@ -18,12 +18,25 @@
  * The guard is also proved in the OTHER direction: a legitimate first post
  * succeeds on both routes, and an event whose earlier post failed hard (rolled
  * back) is still retryable rather than being stuck 'posted' with no journal.
+ *
+ * Round 2 adds the rest of the class. The guard reads a column THREE handlers
+ * write, and refusing only the literal `'posted'` left the other terminal state
+ * postable:
+ *
+ *   - post-after-DISCARD: no race at all — discard a captured bill, post it
+ *     anyway. Refused now by the postable ALLOW-list.
+ *   - discard-after-POST, sequentially and concurrently: `discard.ts` took no
+ *     lock and its UPDATE carried no status predicate, so a discard queued
+ *     behind a post landed after it and reset the status the post guard reads.
+ *   - the lock's own 409: another transaction holding the row past the 5s
+ *     `lock_timeout`.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import postExpense from '../../pages/api/accounting/capture/[id]/post-expense';
 import post from '../../pages/api/accounting/capture/[id]/post';
+import discard from '../../pages/api/accounting/capture/[id]/discard';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
@@ -131,6 +144,17 @@ async function invoicesFor(documentId: string): Promise<number> {
     [company, documentId],
   );
   return rows[0].n as number;
+}
+
+/** Hold the event row from an INDEPENDENT transaction, past the 5s lock_timeout. */
+async function holdEventRow(eventId: string): Promise<() => Promise<void>> {
+  const client = await pool.connect();
+  await client.query('BEGIN');
+  await client.query('SELECT id FROM capture_events WHERE id=$1 FOR UPDATE', [eventId]);
+  return async () => {
+    await client.query('ROLLBACK');
+    client.release();
+  };
 }
 
 async function statusOf(eventId: string): Promise<string> {
@@ -303,3 +327,103 @@ it('post: a SEQUENTIAL second attempt is refused and accrues nothing more', asyn
   expect(second.state.statusCode).toBe(400);
   expect(await invoicesFor(documentId)).toBe(1);
 });
+
+// ── the guard reads a column three handlers write ──────────────────────────
+
+it('post: a DISCARDED event is refused — no race needed', async () => {
+  const { eventId, documentId } = await seedEvent(BILL, 'discarded-bill', bill(6150));
+
+  const dropped = await call(discard as typeof postExpense, eventId, { reason: 'wrong company' });
+  expect(dropped.state.statusCode).toBe(200);
+  expect(await statusOf(eventId)).toBe('discarded');
+
+  // Before the postable allow-list this returned 200 and accrued the bill to
+  // payables: the refusal named `'posted'` and nothing else.
+  const posted = await call(post as typeof postExpense, eventId, {});
+  expect(posted.state.statusCode).toBe(400);
+  expect(await invoicesFor(documentId)).toBe(0);
+  expect(await statusOf(eventId)).toBe('discarded');
+});
+
+it('post-expense: a DISCARDED event creates no expense claim', async () => {
+  const { eventId, documentId } = await seedEvent(RECEIPT, 'discarded-claim');
+  await call(discard as typeof postExpense, eventId, {});
+
+  const posted = await call(postExpense, eventId, { employeeId: employee });
+  expect(posted.state.statusCode).toBe(400);
+  // expense_claim_lines carries only a NON-unique index on source_document_id,
+  // so this path has no database backstop — the guard is the whole defence.
+  expect(await claimsFor(documentId)).toBe(0);
+  expect(await journalsFor(documentId)).toBe(0);
+});
+
+it('discard: a POSTED event cannot be discarded back into a postable state', async () => {
+  const { eventId, documentId } = await seedEvent(RECEIPT, 'discard-after-post');
+  expect((await call(postExpense, eventId, { employeeId: employee })).state.statusCode).toBe(200);
+  expect(await claimsFor(documentId)).toBe(1);
+
+  const dropped = await call(discard as typeof postExpense, eventId, {});
+  expect(dropped.state.statusCode).toBe(400);
+  expect(await statusOf(eventId)).toBe('posted');
+
+  // …and the event is therefore still not re-postable: this sequence used to
+  // produce a SECOND expense claim for one receipt.
+  const again = await call(postExpense, eventId, { employeeId: employee });
+  expect(again.state.statusCode).toBe(400);
+  expect(await claimsFor(documentId)).toBe(1);
+});
+
+it('discard CONCURRENT with post never leaves a posted bill on a discarded event', async () => {
+  const { eventId, documentId } = await seedEvent(BILL, 'race-discard', bill(7350));
+  const [p, d] = await Promise.all([
+    call(post as typeof postExpense, eventId, {}),
+    call(discard as typeof postExpense, eventId, {}),
+  ]);
+  expect([p.state.statusCode, d.state.statusCode].sort()).toEqual([200, 400]);
+
+  // Whichever won, the ledger and the inbox agree: an accrual exists if and
+  // only if the event reads 'posted'.
+  const status = await statusOf(eventId);
+  expect(await invoicesFor(documentId)).toBe(status === 'posted' ? 1 : 0);
+  expect(['posted', 'discarded']).toContain(status);
+});
+
+// ── the guard must still fail in the OTHER direction ───────────────────────
+
+it('discard: an extracted event is still discardable', async () => {
+  const { eventId } = await seedEvent(RECEIPT, 'discard-ok');
+  const dropped = await call(discard as typeof postExpense, eventId, { reason: 'duplicate scan' });
+  expect(dropped.state.statusCode).toBe(200);
+  expect(await statusOf(eventId)).toBe('discarded');
+});
+
+// ── the lock's own 409 branch ──────────────────────────────────────────────
+
+it('post-expense: answers 409 when another transaction holds the event', async () => {
+  const { eventId, documentId } = await seedEvent(RECEIPT, 'locked');
+  const release = await holdEventRow(eventId);
+  try {
+    const blocked = await call(postExpense, eventId, {});
+    expect(blocked.state.statusCode).toBe(409);
+    expect(await journalsFor(documentId)).toBe(0);
+  } finally {
+    await release();
+  }
+
+  // The 409 is retryable, not terminal: once the holder lets go it posts.
+  const retry = await call(postExpense, eventId, {});
+  expect(retry.state.statusCode).toBe(200);
+  expect(await journalsFor(documentId)).toBe(1);
+}, 30_000);
+
+it('discard: answers 409 when another transaction holds the event', async () => {
+  const { eventId } = await seedEvent(RECEIPT, 'locked-discard');
+  const release = await holdEventRow(eventId);
+  try {
+    const blocked = await call(discard as typeof postExpense, eventId, {});
+    expect(blocked.state.statusCode).toBe(409);
+    expect(await statusOf(eventId)).toBe('extracted');
+  } finally {
+    await release();
+  }
+}, 30_000);
