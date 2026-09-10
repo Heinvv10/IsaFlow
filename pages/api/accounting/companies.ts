@@ -11,6 +11,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
+import { signingInvalidationWarnings } from '@/modules/accounting/services/afs/afsSigningIntegrity';
 import {
   getCompany, createCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
@@ -133,7 +135,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.forbidden(res, 'Only owners and admins can update company details');
     }
     const company = await updateCompany(id, updates);
-    return apiResponse.success(res, company);
+    // The registered name and number are printed on the statements' cover. Changing them is the
+    // company's right while a document is out for signature, but it voids that signature.
+    const touchesStatements = updates.name !== undefined || updates.registrationNumber !== undefined;
+    const warnings = touchesStatements
+      ? await signingInvalidationWarnings(sql, id, 'the registered company name or number')
+      : [];
+    return apiResponse.success(res, { ...company, warnings });
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'PUT']);

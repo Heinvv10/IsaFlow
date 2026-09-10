@@ -7,6 +7,8 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { BrandPrimaryError } from '@/lib/brand/contrast';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
+import { signingInvalidationWarnings } from '@/modules/accounting/services/afs/afsSigningIntegrity';
 import { checkPublicUrl } from '@/lib/safeFetch';
 import {
   getBrandProfile,
@@ -67,7 +69,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         logoUrl: parsed.data.logoUrl ?? null,
         reportFooterText: parsed.data.reportFooterText ?? null,
       });
-      return apiResponse.success(res, profile);
+      // Allowed while a document is out for signature — blocking a company's own branding for
+      // a whole signing round would be the mirror defect — but the change voids that signature,
+      // so say so where the person making it will see it.
+      const warnings = await signingInvalidationWarnings(sql, companyId, 'the firm branding');
+      return apiResponse.success(res, { ...profile, warnings });
     } catch (err) {
       if (err instanceof BrandPrimaryError) {
         log.warn('Rejected brand primary colour', { companyId, problem: err.problem }, 'afs-brand-profile-api');
