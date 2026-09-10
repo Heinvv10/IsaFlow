@@ -4,6 +4,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import TrialBalancePage from '@/../pages/accounting/trial-balance';
 import BalanceSheetPage from '@/../pages/accounting/reports/balance-sheet';
 import AccountDetailPage from '@/../pages/accounting/reports/account-detail/[accountId]';
+import { accountReportBackHref, reportHref } from '@/components/reports/reportReturnState';
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({children}: {children: React.ReactNode}) => <>{children}</> }));
 vi.mock('@/contexts/TableDensityContext', () => ({ useTableDensity: () => ({rowClass: ''}) }));
@@ -20,6 +21,15 @@ const response = (data: unknown) => new Response(JSON.stringify({data}));
 const params = (fragment: string) => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes(fragment)).map(([url]) => new URL(String(url), 'http://localhost').searchParams);
 function navigate(href: string) { route.query = Object.fromEntries(new URL(href, 'http://localhost').searchParams); }
 afterEach(cleanup);
+
+it('allows only known income-statement controls in a return URL', () => {
+  const returnTo = reportHref('is', {
+    period_start:'2026-04-01', period_end:'2026-04-30', cost_centre_id:cc,
+    business_unit_id:bu, hostile:'drop-me',
+  });
+  expect(returnTo).toBe(`/accounting/reports/income-statement?period_start=2026-04-01&period_end=2026-04-30&cost_centre_id=${cc}&business_unit_id=${bu}`);
+  expect(accountReportBackHref({source:'is', return_to:returnTo})).toBe(returnTo);
+});
 beforeEach(() => {
   route.query = {}; route.isReady = true;
   vi.mocked(apiFetch).mockReset().mockImplementation(async url => {

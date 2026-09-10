@@ -10,7 +10,7 @@
  *   to          — ISO date YYYY-MM-DD (required)
  *   posted_only — "false" to include drafts (default: true)
  *   cost_centre_id / business_unit_id — optional dimension filters
- *   source      — "tb" | "bs" (controls the back-link label)
+ *   source      — "tb" | "bs" | "is" (controls the back-link label)
  *   page        — page number (default: 1)
  */
 
@@ -99,7 +99,8 @@ export default function AccountDetailPage() {
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
 
   const backHref = accountReportBackHref(router.query);
-  const backLabel = sourceParam === 'bs' ? 'Back to Balance Sheet' : 'Back to Trial Balance';
+  const backLabel = sourceParam === 'bs' ? 'Back to Balance Sheet'
+    : sourceParam === 'is' ? 'Back to Income Statement' : 'Back to Trial Balance';
 
   function goPage(p: number) {
     void router.push({ pathname: router.pathname, query: { ...router.query, page: String(p) } });
