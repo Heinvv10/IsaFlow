@@ -21,6 +21,11 @@ it('refuses a high risk owner using a different identity token',async()=>{
  await expect(resolveControlException(ctx,{exceptionId:id,expectedVersion:1,resolution:'accepted_risk',reason:'Reviewed',expiresAt:'2099-01-01T00:00:00Z'})).rejects.toThrow(/Independent/);
  expect(mocks.store.controlWriteFailed).toBe(true);
 });
+it('refuses a high risk resolution recorded through an impersonated session',async()=>{
+ const impersonated={...ctx,principal:{...ctx.principal,impersonatorPersonId:'platform-admin'}} as unknown as ControlTx;
+ await expect(resolveControlException(impersonated,{exceptionId:id,expectedVersion:1,resolution:'accepted_risk',reason:'Reviewed',expiresAt:'2099-01-01T00:00:00Z'})).rejects.toThrow(/impersonated/i);
+ expect(mocks.store.controlWriteFailed).toBe(true);
+});
 it('rejects stale versions before deciding',async()=>{
  await expect(resolveControlException(ctx,{exceptionId:id,expectedVersion:2,resolution:'fixed',reason:'Correction'})).rejects.toThrow(/version/);
 });
