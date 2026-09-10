@@ -1595,3 +1595,77 @@ That is the registered R-085 flake, which is being fixed on its own branch.
 - Fixture integration, `--no-file-parallelism`: every `r059-*` (12 files), every
   `k053-*`, `k091*`, `k093*` — **37 files / 244 tests passed**.
 - `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
+
+---
+
+# Round 11
+
+## LOW-1: Rematch overwrote a reconciled statement's variance — REFUSED now
+
+Round 10 made Rematch re-measure the variance. Nothing stopped it on a statement
+already marked `reconciled`, and the status stayed `reconciled`. The review
+measured it: reconcile at variance 0, capture a backdated bill of 200, Rematch.
+The variance became −200 and `isaflow_balance` 500 on a row still marked
+reconciled. The variance it was reconciled at was lost, because `markReconciled`
+stores none.
+
+**Refused, not half-done.** `rematchLines` now locks the header (`FOR UPDATE`,
+since the status check and the writes are check-then-act against
+`markReconciled`). It throws `ReconciliationClosedError` BEFORE any write, and
+the route answers **409**. It deliberately does NOT re-match with the variance
+write skipped: that would put the line counts and the variance on different sets
+of bills again, the split round 10 closed. The page disables the Rematch button
+for a reconciled statement.
+
+Pinned:
+- `r059-statement-recon-rematch` **CLOSED**: reconcile → backdated bill →
+  Rematch. The service throws `ReconciliationClosedError`, the route answers
+  409, and the status, balance, variance, counts and every line are exactly as
+  reconciled.
+- `tests/unit/components/supplierStatementRematchClosed.test.tsx`, the real page
+  component: reconciled → Rematch disabled and a click sends nothing;
+  unreconciled → enabled and it POSTs.
+
+## LOW-2: "Rematch measures at the statement date" — PINNED
+
+**PAY**, the review's probe, in the same new file: bill 500 raised before the
+statement, statement closing 500 with its line, then a payment of 500 dated
+TODAY, then Rematch. The variance stays 0 and isaflow stays 500. On the
+statement date the bill was owed, whatever happened since.
+
+## LOW-3: the module doc — CORRECTED
+
+`pages/api/accounting/supplier-statements/.claude.md` said the variance was
+"computed at creation", understated Rematch, and said `mark-reconciled` "gates
+on |variance|". It now says:
+- Rematch re-matches and re-measures, from the AP ageing at the statement date,
+  and is refused with 409 once the statement is reconciled.
+- `mark-reconciled` has **no** server-side gate (R-087), and the page's
+  `canReconcile` does not consider `missingInStatementCount`.
+- The match candidates are the ageing's population.
+
+`bun run agent-docs:generate` regenerated only this directory's `AGENTS.md`, and
+`agent-docs:check` reports "OK: 74 agent document mirror(s) match canonical
+sources."
+
+## Round 11 mutations (file copies, restored and `cmp`-verified)
+
+| # | Mutation | Red |
+|---|---|---|
+| W1 | Rematch measures at `asAtTodayStr()` instead of the statement date | PAY — 1 of 2 |
+| W2 | the service no longer refuses a reconciled statement | CLOSED — 1 of 2 |
+| W3 | the page offers Rematch on a reconciled statement | component — 1 of 2 |
+| W4 | the route no longer maps the refusal to 409 (it becomes a 500) | CLOSED — 1 of 2 |
+
+## Not ours
+
+`supplierStatementBalances.int.test.ts > retains funds…` fails identically on
+master: R-076, its shadow tables lack `deleted_at`.
+
+## Round 11 gates
+
+- `env -u DATABASE_URL bun run ci`: 15/15 PASS, unit 854 files / 10093 tests,
+  component **85 / 539** (the new page test), `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`: every `r059-*` (13 files), every
+  `k053-*`, `k091*`, `k093*` — **38 files / 246 tests passed**.
+- `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.

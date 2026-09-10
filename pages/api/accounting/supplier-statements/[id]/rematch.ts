@@ -1,8 +1,10 @@
 /**
  * POST /api/accounting/supplier-statements/[id]/rematch
  *
- * Recomputes matches without re-running the VLM.
- * Useful when supplier_invoices change after the initial import.
+ * Recomputes matches — and re-measures the variance from the AP ageing at the
+ * statement date — without re-running the VLM. Useful when supplier_invoices
+ * change after the initial import. Refused with 409 once the statement is
+ * marked reconciled.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -12,7 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { rematchLines } from '@/modules/accounting/services/capture/supplierStatementReconService';
+import { rematchLines, ReconciliationClosedError } from '@/modules/accounting/services/capture/supplierStatementReconService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -26,8 +28,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Rematch requested', { reconciliationId: id }, 'supplier-stmt-api');
 
-  const reconciliation = await rematchLines(companyId, id);
-  return apiResponse.success(res, reconciliation);
+  try {
+    const reconciliation = await rematchLines(companyId, id);
+    return apiResponse.success(res, reconciliation);
+  } catch (err) {
+    // A reconciled statement is closed: nothing was written, so 409 is safe
+    // even though withAuth commits a 4xx.
+    if (err instanceof ReconciliationClosedError) return apiResponse.conflict(res, err.message);
+    throw err;
+  }
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
