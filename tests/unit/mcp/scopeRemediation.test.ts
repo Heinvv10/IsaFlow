@@ -49,6 +49,19 @@ describe('insufficientScopeMessage', () => {
     expect(message).toContain('write:invoices');
   });
 
+  it('an account-range or restriction refusal asks for the constraint to be removed, not widened', () => {
+    const message = permissionRefusalMessage('write:bank-tx', 'ENTITY_REQUIRED');
+    expect(message).toMatch(/remove/i);
+    expect(message).not.toMatch(/widen/i);
+    expect(message).toMatch(/restriction/i);
+  });
+
+  it('a module refusal does not claim a restriction that may never have existed', () => {
+    const message = permissionRefusalMessage('write:bank-tx', 'MODULE_DENIED');
+    expect(message).not.toMatch(/has restricted/i);
+    expect(message).toMatch(/not been granted|never been granted|not granted/i);
+  });
+
   it('uses the re-authorise reply ONLY when the token lacks the scope', () => {
     expect(permissionRefusalMessage('write:bank-tx', 'MISSING_SCOPE')).toBe(insufficientScopeMessage('write:bank-tx'));
     for (const reason of ['ROLE_CEILING', 'MODULE_DENIED', 'ENTITY_REQUIRED'] as const) {
