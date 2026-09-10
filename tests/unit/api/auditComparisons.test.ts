@@ -1,5 +1,6 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import type {NextApiRequest,NextApiResponse} from 'next';
+import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
 const shared=vi.hoisted(()=>({enqueue:vi.fn(),page:vi.fn(),ctx:{synthetic:'adapter-only'}}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>shared.ctx}));
 vi.mock('@/modules/accounting/services/controls/auditComparisonJobService',()=>({enqueueAuditComparison:shared.enqueue}));
@@ -26,4 +27,9 @@ it('refuses query arrays, unknown authority, invalid limits and cursors before d
 });
 it('rejects unsupported methods without calling either shared service',async()=>{
  expect((await invoke('DELETE')).status).toHaveBeenCalledWith(405);expect(shared.page).not.toHaveBeenCalled();expect(shared.enqueue).not.toHaveBeenCalled();
+});
+it('returns current shared authority denial as forbidden for enqueue and read',async()=>{
+ shared.enqueue.mockRejectedValueOnce(new EffectivePermissionError());shared.page.mockRejectedValueOnce(new EffectivePermissionError());
+ expect((await invoke('POST',{firstSnapshotId:id,secondSnapshotId:id,idempotencyKey:'denied'})).status).toHaveBeenCalledWith(403);
+ expect((await invoke('GET',{}, {comparisonId:id,section:'records'})).status).toHaveBeenCalledWith(403);
 });
