@@ -1,3 +1,4 @@
+import {publishAuditComparison} from './auditComparisonPublication';
 import {z} from 'zod';
 import type {Pool} from 'pg';
 import {als} from '@/lib/als';
@@ -20,6 +21,7 @@ import {withAuditWorkerTransaction,type AuditWorkerIdentity} from './auditWorker
 const identitySchema=z.object({companyId:z.string().uuid(),personId:z.string().min(1).max(256),jobId:z.string().uuid()}).strict();
 export type AuditWorkerResult={state:'busy'|'not_claimed'}|{state:'succeeded';snapshotId:string;canonicalHash:string}
  |{state:'succeeded';exportId:string;canonicalHash:string}
+ |{state:'succeeded';comparisonId:string;canonicalHash:string}
  |{state:'failed';code:AuditJobErrorCode;failureRecorded:boolean};
 let running=false;
 function failureCode(error:unknown,signal:AbortSignal|undefined,timedOut:boolean):AuditJobErrorCode{
@@ -54,6 +56,10 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
   const result=await withAuditWorkerTransaction(pool,identity,'repeatable read',deadlineAt,signal,store=>withControlJobRequest(store,currentLease,async()=>{
    const ctx=requireControlTx(),saved=await loadStoredAuditJobDelegation(ctx.sql,identity.companyId,identity.personId,currentLease);
    signal.throwIfAborted();
+   if(saved.kind==='audit_compare'){
+    if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
+    return publishAuditComparison(ctx,currentLease,{signal,deadlineAt});
+   }
    if(saved.kind==='audit_export'){
     if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
     const bundle=await exportAuditEvidence(ctx,saved.request.snapshotId,{signal,deadlineAt});
