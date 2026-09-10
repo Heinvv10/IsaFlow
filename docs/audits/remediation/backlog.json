@@ -11027,6 +11027,43 @@
       "severity": "medium",
       "source": "Found and measured by the R-059 round-1 blind reviewer on isaflow_dev: ageing as at the cancellation day reads 2450 against a correct 2650.",
       "processNotes": "Boundary defect in the cancelled-credit-note condition of the shared rewind (likely a < vs <= on the cancellation timestamp against the as-at day). Outside R-059's diff; registered separately so R-059 does not widen."
+    },
+    {
+      "id": "R-075",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "pages/api/accounting/capture/upload.ts",
+        "pages/api/accounting/capture/inbound-email.ts",
+        "src/modules/accounting/services/capture/captureRouterService.ts",
+        "src/lib/neon.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "PROVISIONAL, read from code, not measured. routeEvent awaits a VLM call (seconds) and then writes capture_events/captured_documents. Its async context still carries the request client, which by then is back in the pool: the writes can land inside ANOTHER request's transaction (another tenant's GUCs and role, committing or rolling back with that request), or run on an idle pooled connection outside any transaction. Either is a tenant-isolation and integrity breach. Downgrade if a measurement shows withAuth clears the store or assertTxUsable refuses the released client.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-058",
+        "K-226"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-058/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Symptoms to look for: capture events stuck in extracting, or capture writes attributed to the wrong request in logs. Impact SQL belongs in the fix's fix.md.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "routeEvent is fire-and-forget from capture upload and inbound-email, and its queries keep routing through the request's AsyncLocalStorage transaction client after withAuth has committed and released it",
+      "severity": "high",
+      "source": "Raised by the R-058 round-3 blind reviewer from code; the un-awaited calls (upload.ts:173, inbound-email.ts:51) confirmed on origin/master by the orchestrating session, as is neon.ts:110 routing every sql call through als.getStore()?.client whenever one is present.",
+      "processNotes": "Same class as K-226 (fire-and-forget on the request transaction), at a different site. Fix direction: run background work outside the request's ALS context (als.exit / a fresh context with its own pooled connection and its own company GUCs), or enqueue it. First step for the fixer: MEASURE which of the outcomes above actually occurs."
     }
   ],
   "sourceInventory": [
