@@ -3,9 +3,9 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 161,
-    "reads": 90,
-    "writes": 71,
+    "total": 163,
+    "reads": 91,
+    "writes": 72,
     "requires_post": 32
   },
   "tools": [
@@ -6739,6 +6739,77 @@
           "idempotency_key"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "audit_comparison_items",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "comparison_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "records",
+              "checks",
+              "evidence",
+              "evidenceGaps"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,5})$"
+          }
+        },
+        "required": [
+          "comparison_id",
+          "section"
+        ]
+      }
+    },
+    {
+      "name": "compare_audit_snapshots",
+      "scope": "read:reports",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "first_snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "second_snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          }
+        },
+        "required": [
+          "first_snapshot_id",
+          "second_snapshot_id",
+          "idempotency_key"
+        ]
       }
     }
   ]

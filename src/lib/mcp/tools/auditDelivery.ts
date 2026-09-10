@@ -3,6 +3,10 @@ import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import type {McpTool} from '../types';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditSnapshot,getAuditJob} from '@/modules/accounting/services/controls/auditJobService';
+import {enqueueAuditComparison} from '@/modules/accounting/services/controls/auditComparisonJobService';
+import {parseAuditComparisonRequest} from '@/modules/accounting/services/controls/auditComparisonJobContract';
+import {getAuditComparisonPage} from '@/modules/accounting/services/controls/auditComparisonPageService';
+import {COMPARISON_SECTIONS} from '@/modules/accounting/services/controls/auditSnapshotComparisonMaterial';
 import {enqueueAuditExport} from '@/modules/accounting/services/controls/auditExportJobService';
 import {readAuditSnapshotIndexHeader} from '@/modules/accounting/services/controls/auditSnapshotIndexRead';
 import {getAuditSnapshotPage,readAuditSnapshotChunk} from '@/modules/accounting/services/controls/auditSnapshotPageService';
@@ -50,6 +54,22 @@ const exportChunk=tool('audit_export_chunk','Read one authenticated completed-ex
  {job_id:uuid,file_ordinal:{type:'integer',minimum:0,maximum:100005},chunk_ordinal:{type:'integer',minimum:0,maximum:4095}},['job_id','file_ordinal','chunk_ordinal'],
  z.object({job_id:id,file_ordinal:z.number().int().min(0).max(100005),chunk_ordinal:z.number().int().min(0).max(4095)}).strict(),
  async input=>{const {bytes,...result}=await readAuditExportChunk(requireControlTx(),{jobId:input.job_id,fileOrdinal:input.file_ordinal,chunkOrdinal:input.chunk_ordinal});return{...result,bytesBase64:Buffer.from(bytes).toString('base64')};});
+const comparison=tool('compare_audit_snapshots','Enqueue a comparison of two ordered retained snapshots. Requires current read access to both sources. Processing runs in a worker; use audit_job_status and audit_comparison_items for results.',true,
+ {first_snapshot_id:uuid,second_snapshot_id:uuid,idempotency_key:key},['first_snapshot_id','second_snapshot_id','idempotency_key'],
+ z.object({first_snapshot_id:id,second_snapshot_id:id,idempotency_key:retry}).strict(),
+ async input=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:input.first_snapshot_id,secondSnapshotId:input.second_snapshot_id,idempotencyKey:input.idempotency_key}));
+const comparisonItems=tool('audit_comparison_items','Read at most 100 authenticated comparison changes and section totals. The signed header contains the complete result digest; a partial page does not independently recompute it.',false,
+ {comparison_id:uuid,section:{type:'string',enum:[...COMPARISON_SECTIONS]},limit,cursor},['comparison_id','section'],
+ z.object({comparison_id:id,section:z.enum(COMPARISON_SECTIONS),...page}).strict(),
+ async({comparison_id,...options})=>getAuditComparisonPage(requireControlTx(),{comparisonId:comparison_id,...options}));
+comparison.perUserIdempotency=true;
+comparison.authorize=async(args,ctx)=>{
+ const input=writeInput(args,ctx.companyId);
+ const parsed=z.object({first_snapshot_id:id,second_snapshot_id:id,idempotency_key:retry}).strict().parse(input);
+ const request=parseAuditComparisonRequest({firstSnapshotId:parsed.first_snapshot_id,secondSnapshotId:parsed.second_snapshot_id,idempotencyKey:parsed.idempotency_key});
+ await readAuditSnapshotIndexHeader(requireControlTx(),request.firstSnapshotId);
+ await readAuditSnapshotIndexHeader(requireControlTx(),request.secondSnapshotId);
+};
 snapshot.perUserIdempotency=true;
 snapshot.authorize=async(args,ctx)=>{
  const {idempotency_key,...input}=writeInput(args,ctx.companyId);
@@ -62,4 +82,4 @@ exported.authorize=async(args,ctx)=>{
  const request=parseAuditExportRequest({snapshotId:input.snapshot_id,idempotencyKey:input.idempotency_key});
  await readAuditSnapshotIndexHeader(requireControlTx(),request.snapshotId);
 };
-export const auditDeliveryTools=[snapshot,exported,status,manifest,items,snapshotChunk,files,exportChunk] as const;
+export const auditDeliveryTools=[snapshot,exported,status,manifest,items,snapshotChunk,files,exportChunk,comparison,comparisonItems] as const;

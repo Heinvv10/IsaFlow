@@ -315,7 +315,7 @@ describe('post_journal / finalize_invoice (post tools)', () => {
     vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null, evidenceDocumentId: null });
     vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' } } as never);
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({invoicesReopened:0,amountUnapplied:0,paymentsCancelled:0});
 
     await tool('create_draft_journal').handler({
       date: '2026-06-30',
@@ -539,9 +539,9 @@ describe('write-tool manifest invariants', () => {
     vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
     vi.mocked(bulkCategorize).mockResolvedValue({ categorized: 0 } as never);
     vi.mocked(postJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
-    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null });
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null, evidenceDocumentId: null });
     vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' } } as never);
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({invoicesReopened:0,amountUnapplied:0,paymentsCancelled:0});
 
     const argsByTool: Record<string, Record<string, unknown>> = {
       // Actual authority is covered by exceptionTools.int.test.ts; scan strict input refusals here.
@@ -557,6 +557,7 @@ describe('write-tool manifest invariants', () => {
       propose_supplier_bank_change: { ...KEY },
       audit_snapshot: { cutoff: '2026-09-09', sources: [], checks: [], ...KEY },
       export_audit_evidence: { snapshot_id: 'not-a-uuid', ...KEY },
+      compare_audit_snapshots: { first_snapshot_id: 'not-a-uuid', second_snapshot_id: 'not-a-uuid', ...KEY },
       create_draft_invoice: { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_quote: { customer_name: 'A', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_journal: { date: '2026-06-30', lines: [{ account_id: 'ddd887ce-a246-46cb-898c-2bd2f4ddecfe', debit: 1, credit: 0 }, { account_id: '3413c139-d94c-48bd-8513-baff94ff4818', debit: 0, credit: 1 }], ...KEY },
