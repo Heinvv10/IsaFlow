@@ -33,3 +33,7 @@ it('treats UUID case variants as one database identity before comparing source a
  expect(()=>parseDeferredAuditComparisonRequest({...same,secondSource:{...same.secondSource,sourceRequestHash:'c'.repeat(64)}})).toThrow();
  expect(parseDeferredAuditComparisonRequest(same)).toMatchObject({firstSnapshotId:lower,secondSnapshotId:lower,secondSource:{snapshotId:lower,sourceJobId:lower}});
 });
+it('opens versioned deferred stored requests while refusing unsupported versions',()=>{
+ expect(parseStoredAuditComparisonRequest(saved)).toEqual(saved);
+ expect(()=>parseStoredAuditComparisonRequest({...saved,requestVersion:3})).toThrow();
+});
