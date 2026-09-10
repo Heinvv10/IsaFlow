@@ -39,3 +39,11 @@ it('rolls back an inverse prefix when the final bill status write fails, even wh
  }finally{await f.pool.query('DROP TRIGGER IF EXISTS synthetic_ap_ci_cancel_failure ON supplier_invoices');await f.pool.query('DROP FUNCTION public.synthetic_ap_ci_cancel_failure()');}
  expect((await f.cancel(id,approvalId)).status).toBe('cancelled');
 });
+it('refuses inactive posting and ordinary closed-period posting without leaving a journal prefix',async()=>{
+ const inactive=await f.invoice();await f.pool.query('UPDATE gl_accounts SET is_active=false WHERE company_id=$1 AND id=$2',[f.f.companyA,f.accounts.default_expense]);
+ try{const before=await f.state();await expect(f.post(inactive)).rejects.toThrow();expect(await f.state()).toEqual(before);}finally{await f.pool.query('UPDATE gl_accounts SET is_active=true WHERE company_id=$1 AND id=$2',[f.f.companyA,f.accounts.default_expense]);}
+ const closed=await f.invoice(),approvalId=await f.approve(f.ref('supplier_invoice.post',closed));
+ await f.pool.query("UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND period_number=9 AND fiscal_year=2026",[f.f.companyA]);
+ try{const before=await f.state();const {approveSupplierInvoice}=await import('@/modules/accounting/services/ap/supplierInvoiceWorkflowService');await expect(f.actor(()=>approveSupplierInvoice(f.f.companyA,closed,f.f.u1.id,{approvalId}))).rejects.toThrow();expect(await f.state()).toEqual(before);}
+ finally{await f.pool.query("UPDATE fiscal_periods SET status='open' WHERE company_id=$1 AND period_number=9 AND fiscal_year=2026",[f.f.companyA]);}
+});
