@@ -19,6 +19,7 @@ import {
   missingSystemAccountText,
 } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { insufficientScopeMessage } from './scopeRemediation';
+import { EffectivePermissionError } from '@/lib/auth/effectivePermissions';
 import { assertCurrentToolAuthority } from './currentToolAuthority';
 import { validateToolArguments } from './inputValidation';
 import {withMcpInvocation,type MarkInvocation} from './invocationBoundary';
@@ -265,6 +266,13 @@ export class McpRegistry {
       // in the message but the caller's own transaction id.
       if (err instanceof BankLineDirectionError) {
         return errorResult(bankLineDirectionErrorText(name, err));
+      }
+      // A domain permission refusal names the grant to ask for. Without this a
+      // guard the tool's declared scope does not cover — write:bank-tx behind a
+      // write:invoices tool — reads as "the operation failed", which is the one
+      // reply an agent cannot act on. Same remediation text the scope fence uses.
+      if (err instanceof EffectivePermissionError && err.permission) {
+        return errorResult(insufficientScopeMessage(err.permission));
       }
       return errorResult(GENERIC_FAILURE);
     }

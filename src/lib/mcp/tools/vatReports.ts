@@ -115,7 +115,9 @@ export const lockVatPeriodTool: McpTool = {
     + 'It REFUSES to lock a period whose rateCheck.ties is false unless you pass force:true, because a return that fails SARS\'s own check is not one to freeze; fix it or record explicitly that you are filing it as it stands. '
     + 'IDEMPOTENT BY THE PERIOD ITSELF: locking a period that is already locked returns the EXISTING lock and does not overwrite its figures, so a retry can never rewrite what was filed. '
     + 'LIMITS: the lock is a record that posting paths read, not a database trigger. It does not unlock — that is deliberate; a lock you can lift with one call is not a control.',
-  scope: 'read:vat',
+  // write:locks is what lockVatPeriod asserts; read:vat is asserted alongside
+  // it by the service, so both are still required.
+  scope: 'write:locks',
   write: true,
   requiresPost: true,
   inputSchema: {
