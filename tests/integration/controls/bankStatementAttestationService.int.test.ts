@@ -13,6 +13,7 @@ import {queryVerifiedBankStatements} from '@/modules/accounting/services/control
 import {prepareBankStatementAttestation} from '@/modules/accounting/services/controls/bankStatementAttestationPreparation';
 import {materializeBankStatementAttestation} from '@/modules/accounting/services/controls/bankStatementAttestationMaterial';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+import {insertCaseVariantReceipt} from './intentReceiptRows';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:2});let fixture:ForensicFixture,account:string,document:string,hash:string;
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
@@ -141,6 +142,18 @@ it('passes a current independently reviewed quiet statement locally without clai
 
  capturedStorage().put(fixture.companyA,document,Buffer.from('Changed after review'));
  expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}))).status).toBe('unknown');
+});
+it('a twin receipt of a reviewed statement is a second execution: the check fails and names both receipts',async()=>{
+ const data=await approvedStatement();await actor(ctx=>executeBankStatementAttestation(ctx,data.intentId,data.approvalId));
+ expect((await actor(ctx=>checkBankStatementCompleteness(ctx,{}))).status).toBe('pass');
+ const [first]=(await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='bank_statement.attest'",[fixture.companyA,data.intentId])).rows as {id:string}[];
+ const twin=await insertCaseVariantReceipt(pool,{id:fixture.u1.id,companyId:fixture.companyA},first!.id);
+ const result=await actor(ctx=>checkBankStatementCompleteness(ctx,{}));
+ expect(result.status,'a statement attested twice cannot pass').toBe('fail');
+ const finding=result.findings.find(row=>row.kind==='control_receipt_twinned');
+ expect(finding,'the second execution is reported as a finding').toBeDefined();
+ expect(finding!.entities).toEqual(expect.arrayContaining([{entityType:'control_operation_effect',entityId:first!.id},{entityType:'control_operation_effect',entityId:twin.id}]));
+ expect(finding!.message).toContain(first!.id);expect(finding!.message).toContain(twin.id);
 });
 
 it('commits an independently approved local statement effect once through central dispatch',async()=>{

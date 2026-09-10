@@ -83,7 +83,7 @@ it('a rule change extends the lineage retained under a legacy spelling instead o
  expect((await eventSpellings(pool,fixture.companyA,'bank_categorisation_rule',rule)).events).toEqual([rule.toUpperCase()]);
 });
 type Lineage={entityId:string;eventCount:number};
-type HistoryPage={available:boolean;code?:string;lineages?:Lineage[];writerLineage?:string|null;entity:{lineage?:string};items:{newVersion:number;eventId:string}[];nextCursor:string|null};
+type HistoryPage={available:boolean;code?:string;lineages?:Lineage[];writerLineage?:string|null;lineageTieUnresolvable?:boolean;entity:{lineage?:string};items:{newVersion:number;eventId:string}[];nextCursor:string|null};
 const history=(entityId:string,extra:Record<string,unknown>={})=>actor(()=>readControlEntityHistory(requireControlTx(),{entityType:'bank_transaction',entityId,...extra})) as Promise<unknown> as Promise<HistoryPage>;
 it('a forked history is two named lineages, never a merge, and each pages without losing a sibling',async()=>{
  const tx=randomUUID();
@@ -104,7 +104,7 @@ it('a forked history is two named lineages, never a merge, and each pages withou
  expect(fork).toMatchObject({available:false,code:'FORKED_LINEAGE',items:[],nextCursor:null});
  expect(fork.lineages!.map(row=>row.entityId).sort()).toEqual([tx,tx.toUpperCase()].sort());
  // Which lineage the next write extends, so an agent takes expected_version from the right one.
- expect(fork.writerLineage).toBe(tx);
+ expect(fork.writerLineage).toBe(tx);expect(fork.lineageTieUnresolvable).toBe(false);
  for(const lineage of [tx,tx.toUpperCase()]){
   const seen:string[]=[];let cursor:string|null=null;
   do{const page:HistoryPage=await history(tx,{lineage,limit:1,...(cursor?{cursor}:{})});
@@ -187,17 +187,17 @@ it('a forked payroll run recalculates on the lineage its calculation versions li
  expect((await pool.query('SELECT max(calculation_version)::int AS v FROM control_payroll_calculations WHERE company_id=$1 AND run_id=$2',[fixture.companyA,run])).rows[0].v).toBe(8);
 });
 /** Appends a change event and its evidence as legacy source recorded them, copied from a real retained event. */
-async function appendEvent(templateId:string,entityType:string,entityId:string,action:string){
+async function appendEvent(templateId:string,entityType:string,entityId:string,action:string,version:number|null=null){
  await pool.query(`WITH ev AS (INSERT INTO control_protected_evidence(company_id,id,entity_type,entity_id,key_id,envelope_version,ciphertext)
    SELECT p.company_id,gen_random_uuid(),$2,$3,p.key_id,p.envelope_version,p.ciphertext FROM control_change_events t
    JOIN control_protected_evidence p ON p.company_id=t.company_id AND p.id=t.protected_evidence_id WHERE t.company_id=$1 AND t.id=$5 RETURNING id)
   INSERT INTO control_change_events(company_id,id,person_id,connection_id,grant_id,acting_firm_id,request_id,operation_id,provenance,entity_type,entity_id,
    previous_version,new_version,action,accounting_date,before_values,after_values,binding_hash,protected_evidence_id)
   SELECT t.company_id,gen_random_uuid(),t.person_id,t.connection_id,t.grant_id,t.acting_firm_id,t.request_id,gen_random_uuid(),t.provenance,$2,$3,
-   last.v,COALESCE(last.v,0)+1,$4,t.accounting_date,t.before_values,t.after_values,NULL,ev.id
+   last.v,COALESCE($6::bigint,COALESCE(last.v,0)+1),$4,t.accounting_date,t.before_values,t.after_values,NULL,ev.id
   FROM control_change_events t,ev,(SELECT max(new_version) AS v FROM control_change_events WHERE company_id=$1 AND entity_type=$2 AND entity_id=$3) last
   WHERE t.company_id=$1 AND t.id=$5`,
-  [fixture.companyA,entityType,entityId,action,templateId]);
+  [fixture.companyA,entityType,entityId,action,templateId,version]);
 }
 it('a post-close edit retained under a non-canonical spelling still fires the journal signal, and the fork is flagged',async()=>{
  const {posted}=await postedCash(),journal=String(posted.journalEntryId);
@@ -212,4 +212,39 @@ it('a post-close edit retained under a non-canonical spelling still fires the jo
  const finding=analyseJournalRisks(population.rows,[]).find(row=>row.row.id===journal);
  expect(finding?.reasons).toContain('change_after_recorded_period_close');
  expect(finding?.reasons).toContain('change_history_lineage_forked');
+ expect(finding?.reasons,'a fork with a canonical spelling at its top version is resolvable').not.toContain('change_history_lineage_tie_unresolvable');
+});
+/** Two retained spellings of one id, neither canonical. */
+const nonCanonical=(id:string)=>{const upper=id.toUpperCase(),letter=upper.search(/[A-F]/);
+ return[upper,`${upper.slice(0,letter)}${upper[letter]!.toLowerCase()}${upper.slice(letter+1)}`];};
+async function journalTemplate(){
+ const {posted}=await postedCash(),journal=String(posted.journalEntryId);
+ const [template]=(await pool.query("SELECT id FROM control_change_events WHERE company_id=$1 AND entity_type='journal_entry' AND entity_id=$2 ORDER BY new_version LIMIT 1",[fixture.companyA,journal])).rows;
+ return{journal,template:template.id as string};
+}
+it('a journal whose top version ties across two non-canonical spellings is named as the tie writers refuse',async()=>{
+ const {journal}=await journalTemplate();
+ for(const spelling of nonCanonical(journal))await appendEntityVersion(pool,ident(),'journal_entry',spelling,99);
+ const population=await actor(()=>loadJournalRiskPopulation(requireControlTx(),null));
+ const finding=analyseJournalRisks(population.rows,[]).find(row=>row.row.id===journal);
+ expect(finding?.reasons).toContain('change_history_lineage_forked');
+ expect(finding?.reasons).toContain('change_history_lineage_tie_unresolvable');
+});
+it('a top-version tie with no canonical spelling is answered as the fork writers refuse',async()=>{
+ const tx=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',1,'Synthetic tied history bank','imported')",[tx,fixture.companyA,bank]);
+ for(const spelling of nonCanonical(tx))await appendEntityVersion(pool,ident(),'bank_transaction',spelling,2);
+ expect(await history(tx)).toMatchObject({available:false,code:'FORKED_LINEAGE',writerLineage:null,lineageTieUnresolvable:true});
+});
+it('history names the writer lineage from the version rows writers read, not from an event past its version row',async()=>{
+ const {template}=await journalTemplate(),tx=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',1,'Synthetic writer lineage bank','imported')",[tx,fixture.companyA,bank]);
+ await appendEntityVersion(pool,ident(),'bank_transaction',tx,5);
+ await appendEntityVersion(pool,ident(),'bank_transaction',tx.toUpperCase(),3);
+ // No current writer records an event past its lineage's version row; legacy rows may.
+ await appendEvent(template,'bank_transaction',tx.toUpperCase(),'journal.memo_changed',9);
+ const fork=await history(tx);
+ expect(fork.code).toBe('FORKED_LINEAGE');
+ expect(fork.writerLineage,'writers extend the canonical v5 version row').toBe(tx);
+ expect(fork.lineageTieUnresolvable).toBe(false);
 });
