@@ -87,7 +87,7 @@ it('expires a child context while its parent stays active and permits a fresh se
 it('revokes an unawaited child when the outer request ends, including deferred SQL',async()=>{
  const entered=barrier(),resume=barrier();let child:Promise<unknown>|undefined;let checked=false;
  try{
-  await withPlatformImportRequest(store(),async cap=>{
+  await expect(withPlatformImportRequest(store(),async cap=>{
    child=withPlatformImportTarget(cap,target,async ctx=>{
     const deferred=ctx.sql`SELECT 1`;
     entered.release();await resume.promise;
@@ -97,7 +97,7 @@ it('revokes an unawaited child when the outer request ends, including deferred S
    });
    // Attach a rejection handler immediately: expiration may make the wrapper reject too.
    void child.catch(()=>undefined);await entered.promise;
-  });
+  })).rejects.toThrow('active');
  }finally{resume.release();}
  if(child)await child.catch(error=>{
   // Assertion errors must never be mistaken for the expected lifetime rejection.
