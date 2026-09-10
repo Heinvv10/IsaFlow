@@ -18,8 +18,12 @@
  *
  * So the foreign id is dropped, per LINE and per DIMENSION, before the drafts
  * are built. What that costs is nothing this company can see: an id it does not
- * own matches no dimension filter it can run, so the original was already
- * outside every one of its dimension reports. And because BOTH legs get the
+ * own matches no dimension filter it can run, so there is no dimension report
+ * it can meaningfully run on the original. (`getProjectProfitability` is the
+ * one report that enumerates raw `jl.project_id` values instead of the
+ * company's own projects, so a foreign tag does get an unnamed bucket there;
+ * after a drop that bucket keeps the pre-reclassification classification while
+ * both new legs post untagged.) And because BOTH legs get the
  * same treatment, the contra and the re-application land in the same
  * (untagged) bucket and net to zero there — no figure a reader has moves.
  *
@@ -29,7 +33,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { ownedDimensions } from '../journalLineOwnership';
+import { ownedDimensions, ownedOrNull } from '../journalLineOwnership';
 import type { ReclassSourceLine } from './journals';
 
 export interface CarriedDimensions<T> {
@@ -51,16 +55,13 @@ export async function carryForwardDimensions<T extends ReclassSourceLine>(
     costCentre: lines.map((l) => l.costCenterId),
     businessUnit: lines.map((l) => l.buId),
   });
-  const keep = (set: ReadonlySet<string>, id: string | null): string | null =>
-    id !== null && id !== '' && set.has(id) ? id : null;
-
   let droppedLineCount = 0;
   const carried = lines.map((line) => {
     const next = {
       ...line,
-      projectId: keep(owned.project, line.projectId),
-      costCenterId: keep(owned.costCentre, line.costCenterId),
-      buId: keep(owned.businessUnit, line.buId),
+      projectId: ownedOrNull(owned.project, line.projectId),
+      costCenterId: ownedOrNull(owned.costCentre, line.costCenterId),
+      buId: ownedOrNull(owned.businessUnit, line.buId),
     };
     if (
       next.projectId !== line.projectId

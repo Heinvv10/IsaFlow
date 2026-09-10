@@ -103,6 +103,13 @@ describe('reverseJournalEntry — semantics', () => {
     const lines = original.lines.map((line, i) => ({ ...line, buId: i === 0 ? firstBu : secondBu }));
     mockGetById.mockResolvedValueOnce({ ...original, lines }).mockResolvedValueOnce(contraEntryDraft());
     mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID });
+    // The contra carries a dimension forward only when this company OWNS it
+    // (reversalLines.ts), so the ownership SELECT runs first and answers that
+    // both business units are ours. It is skipped entirely when no line carries
+    // one — hence the conditional, which mirrors ownedIds' empty-list return.
+    if (firstBu !== undefined) {
+      mockSql.mockResolvedValueOnce([{ id: firstBu }, { id: secondBu }]);
+    }
     mockSql.mockResolvedValueOnce([{ status: 'open' }]).mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ status: 'posted' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
@@ -114,6 +121,26 @@ describe('reverseJournalEntry — semantics', () => {
       expect(input.lines[i]!.debit).toBe(lines[i]!.credit);
       expect(input.lines[i]!.credit).toBe(lines[i]!.debit);
     }
+  });
+
+  it('drops a business unit this company does not own instead of refusing the reversal', async () => {
+    const foreignBu = '88888888-8888-8888-8888-888888888888';
+    const original = originalEntry();
+    const lines = original.lines.map((line, i) => (i === 0 ? { ...line, buId: foreignBu } : line));
+    mockGetById.mockResolvedValueOnce({ ...original, lines }).mockResolvedValueOnce(contraEntryDraft());
+    mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID });
+    // The ownership SELECT finds nothing: the id belongs to another company.
+    mockSql.mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'open' }]).mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'posted' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    // Refusing here would leave the entry permanently un-reversible — reversal
+    // is the only correction this schema has.
+    const result = await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
+
+    const input = mockCreate.mock.calls[0]![1] as { lines: { buId?: string }[] };
+    expect(input.lines[0]!.buId).toBeUndefined();
+    expect((result as { foreignDimensionDroppedLines: number }).foreignDimensionDroppedLines).toBe(1);
   });
 
   it('marks the original with reversed_at metadata and does NOT flip its status', async () => {
