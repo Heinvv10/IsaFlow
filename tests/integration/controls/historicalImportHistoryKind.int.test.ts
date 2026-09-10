@@ -2,6 +2,7 @@ import {expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {actor,pool,historyFixture} from './controlChangeHistoryFixture';
 import {storeHistoricalImportSource} from '@/modules/accounting/services/controls/historicalImportSourceService';
+import {prepareHistoricalImport} from '@/modules/accounting/services/controls/historicalImportPreparation';
 import {readControlEntityHistory} from '@/modules/accounting/services/controls/controlChangeHistoryService';
 import {openProtectedChange,protectChangeValues} from '@/modules/accounting/services/controls/changeProtection';
 async function staged(large=false){
@@ -15,7 +16,9 @@ for(const large of [false,true])it(`reads genuine staged-unprepared import histo
  const source=await staged(large),before=await row(source.sourceId);
  expect((await pool.query('SELECT id FROM control_historical_imports WHERE company_id=$1 AND source_id=$2',[historyFixture().companyA,source.sourceId])).rows).toEqual([]);
  if(large)expect(Buffer.byteLength(JSON.stringify(before.payload_envelope))).toBeGreaterThan(65536);
- const result=await history(source.sourceId);expect(result).toMatchObject({available:true,items:[{action:'historical_import.source_staged',after:{kind:'gl',sourceId:source.sourceId}}]});
+ const statements:string[]=[];
+ const result=await actor(ctx=>readControlEntityHistory(ctx,{entityType:'historical_import_source',entityId:source.sourceId}),'u1',false,statement=>statements.push(statement));
+ expect(statements.join(' ')).toContain('octet_length(p.ciphertext)<=65536');expect(statements.join(' ')).not.toContain('AS payload_envelope');expect(result).toMatchObject({available:true,items:[{action:'historical_import.source_staged',after:{kind:'gl',sourceId:source.sourceId}}]});
  expect(await row(source.sourceId)).toEqual(before);
 });
 it('rechecks reports domain permission and refuses foreign source history',async()=>{
@@ -35,4 +38,36 @@ it('refuses corrupt kind metadata without trusting an unrelated event or unbound
  const source=await staged(true),retained=await evidence(source.sourceId);
  await pool.query("UPDATE control_protected_evidence SET ciphertext='invalid' WHERE company_id=$1 AND id=$2",[historyFixture().companyA,retained.id]);
  await expect(history(source.sourceId)).rejects.toThrow();
+});
+
+async function legacyMetadata(id:string){
+ const retained=await evidence(id),body=openProtectedChange({version:1,keyId:retained.key_id,ciphertext:retained.ciphertext});
+ for(const key of ['kind','sourceCompanyId','sourceEnvelopeHash','sourceEnvelopeKeyId','sourceEnvelopeVersion'])delete body.after![key];
+ const old=protectChangeValues('historical_import_source',body.before,body.after).protectedPayload;
+ await pool.query('UPDATE control_protected_evidence SET ciphertext=$3 WHERE company_id=$1 AND id=$2',[historyFixture().companyA,retained.id,old.ciphertext]);
+}
+it('authenticates a bounded legacy original when its old staged event had no kind',async()=>{
+ const source=await staged();await legacyMetadata(source.sourceId);const retained=await evidence(source.sourceId);
+ expect(await history(source.sourceId)).toMatchObject({available:true,items:[{after:{sourceId:source.sourceId}}]});
+ expect(await evidence(source.sourceId)).toEqual(retained);
+});
+it('refuses oversized legacy staged sources without kind evidence rather than guessing a domain',async()=>{
+ const source=await staged(true);await legacyMetadata(source.sourceId);
+ await expect(history(source.sourceId)).rejects.toThrow('History domain metadata unavailable');
+});
+it('preserves prepared source history and records kind on the new preparation event',async()=>{
+ const source=await staged(true),f=historyFixture(),original=await row(source.sourceId);
+ const normalized=openProtectedChange(original.payload_envelope).after!.normalized as {sourceKey:string;records:Array<{recordId:string}>};
+ await pool.query("INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,level) VALUES($1,'HISTORY','History fixture','asset','debit',true,3)",[f.companyA]);
+ await pool.query("INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,'History fixture',2,2023,'2023-02-01','2023-02-28','closed')",[f.companyA]);
+ const prepared=await actor(ctx=>prepareHistoricalImport(ctx,{sourceSystem:'csv',sourceKey:normalized.sourceKey,kind:'gl',mode:'post_journal',accountingDate:'2023-02-28',evidenceId:source.sourceId,sourceRecordIds:normalized.records.map(r=>r.recordId)}));
+ expect(await actor(ctx=>readControlEntityHistory(ctx,{entityType:'historical_import',entityId:prepared.importId}))).toMatchObject({available:true,items:[{after:{kind:'gl'}}]});
+ await legacyMetadata(source.sourceId);
+ expect(await history(source.sourceId)).toMatchObject({available:true});expect(await row(source.sourceId)).toEqual(original);
+});
+it('refuses a correctly encrypted kind proof claiming another tenant',async()=>{
+ const source=await staged(),retained=await evidence(source.sourceId),body=openProtectedChange({version:1,keyId:retained.key_id,ciphertext:retained.ciphertext});
+ const changed=protectChangeValues('historical_import_source',body.before,{...body.after,sourceCompanyId:historyFixture().companyB}).protectedPayload;
+ await pool.query('UPDATE control_protected_evidence SET ciphertext=$3 WHERE company_id=$1 AND id=$2',[historyFixture().companyA,retained.id,changed.ciphertext]);
+ await expect(history(source.sourceId)).rejects.toThrow('History kind metadata changed');
 });
