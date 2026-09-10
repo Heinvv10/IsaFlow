@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
+import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
   matchTransaction,
   unmatchTransaction,
@@ -148,6 +149,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         const selType: string = body.selectionType || 'account';
         const selEntityId: string | null = body.selectionEntityId || null;
         const selVatCode: string | null = body.vatCode || null;
+        // R-067: suggested_client_id is read back with the customer name joined
+        // on it. Refused before the UPDATE; the catch below answers 400.
+        if (selType === 'customer') await assertCustomerInCompany(companyId, selEntityId);
         await sql`
           UPDATE bank_transactions
           SET suggested_gl_account_id = ${selType === 'account' && selEntityId ? selEntityId : null}::UUID,

@@ -15,6 +15,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { getRules, createRule, applyRules } from '@/modules/accounting/services/bank/bankRulesService';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 const CreateRuleSchema = z.object({
   ruleName: z.string().min(1).max(200),
@@ -51,19 +52,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
     const input = parsed.data;
-    const rule = await createRule(companyId, {
-      ruleName: input.ruleName,
-      matchField: input.matchField,
-      matchType: input.matchType,
-      matchPattern: input.matchPattern,
-      glAccountId: input.glAccountId || undefined,
-      supplierId: input.supplierId || undefined,
-      clientId: input.clientId || undefined,
-      descriptionTemplate: input.descriptionTemplate || undefined,
-      priority: input.priority ?? 100,
-      autoCreateEntry: input.autoCreateEntry,
-      vatCode: input.vatCode,
-    }, userId);
+    let rule;
+    try {
+      rule = await createRule(companyId, {
+        ruleName: input.ruleName,
+        matchField: input.matchField,
+        matchType: input.matchType,
+        matchPattern: input.matchPattern,
+        glAccountId: input.glAccountId || undefined,
+        supplierId: input.supplierId || undefined,
+        clientId: input.clientId || undefined,
+        descriptionTemplate: input.descriptionTemplate || undefined,
+        priority: input.priority ?? 100,
+        autoCreateEntry: input.autoCreateEntry,
+        vatCode: input.vatCode,
+      }, userId);
+    } catch (err) {
+      // Refused before the INSERT, so nothing has been written.
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
 
     // Auto-apply on create: run only the new rule so the returned `applied`
     // count reflects this rule's matches and not the entire ruleset.

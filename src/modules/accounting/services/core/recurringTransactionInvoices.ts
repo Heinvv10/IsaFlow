@@ -9,6 +9,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
+import { assertCustomerInCompany } from './contactDirectoryService';
 import { insertWithReservedNumber } from './documentNumberRetry';
 import { headerTotals, normaliseLines } from './recurringTemplateLines';
 import type { RecurringTemplate } from './recurringTransactionService';
@@ -28,6 +29,10 @@ export async function mintRecurringCustomerInvoice(
   // table uses: a second type would leave the counter in company settings
   // failing to account for invoices this runner created.
   const clientId = data.clientId ? String(data.clientId) : null;
+  // R-067: templateData is opaque JSON supplied when the template was saved,
+  // so the id is caller-supplied however company-scoped the template row is.
+  // Before insertWithReservedNumber, whose reservation is the first write.
+  await assertCustomerInCompany(companyId, clientId);
   const lines = normaliseLines(data);
   // Asserted BEFORE the first write of the run, so the route may answer 4xx.
   const totals = headerTotals(template.id, data, lines);
