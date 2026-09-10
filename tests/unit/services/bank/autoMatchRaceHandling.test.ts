@@ -33,7 +33,13 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', async 
   return { ...actual, matchTransaction: matchMock };
 });
 
-import { BankTransactionAllocatedError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
+import {
+  BankTransactionAllocatedError,
+  BankMatchTargetError,
+} from '@/modules/accounting/services/bank/bankTxStatusMutations';
+import {
+  BankTransactionLockTimeoutError, BankMatchUnavailableError,
+} from '@/modules/accounting/services/bank/bankTxLock';
 import { autoMatchTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
@@ -81,6 +87,88 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
 
     const attempted = matchMock.mock.calls.map((c) => c[1]);
     expect(attempted).toEqual([...attempted].sort());
+  });
+
+  // The same race seen from the other side: the peer got there first and the
+  // claim check (or `uq_bank_tx_matched_line`) names the line as already bound.
+  // The candidate query excludes claimed lines, so this can only be a peer
+  // binding it between that read and this write.
+  it('skips a LINE_CLAIMED target error the same way', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) {
+        throw new BankMatchTargetError('LINE_CLAIMED', `Journal line jl-2 is already matched to bank transaction ${TX(9)}`);
+      }
+      return { id: txId };
+    });
+
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+
+    expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(1);
+  });
+
+  // The third face of the same race. `uq_bank_tx_matched_line` (migration 657)
+  // makes two racers block on the INDEX where they previously never contended,
+  // and that wait is bounded by lockBankTransactionForUpdate's 5s lock_timeout
+  // — so a slow peer surfaces as a lock timeout rather than a 23505. Escaping,
+  // it would abort the run with the earlier matches COMMITted by withAuth's 4xx.
+  it('skips a lock timeout the same way', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankTransactionLockTimeoutError(txId);
+      return { id: txId };
+    });
+
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+
+    expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(1);
+  });
+
+  // A locked TABLE is skipped like a race — the run must not lose the matches
+  // already applied — but it is NOT a race, and `skippedRaced` reaches the user
+  // as "allocated by another request". Counting it there says something false
+  // about a row nothing is known about.
+  it('counts a table-lock skip apart from the raced ones', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankMatchUnavailableError(txId);
+      return { id: txId };
+    });
+
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+
+    expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(0);
+    expect(result.skippedUnavailable).toBe(1);
+  });
+
+  // Adjacent case: a raced row and a locked table in the same run are reported
+  // as the two different things they are.
+  it('separates the two counters when both happen in one run', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(1)) throw new BankTransactionLockTimeoutError(txId);
+      if (txId === TX(2)) throw new BankMatchUnavailableError(txId);
+      return { id: txId };
+    });
+
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+
+    expect(result.matched).toBe(1);
+    expect(result.skippedRaced).toBe(1);
+    expect(result.skippedUnavailable).toBe(1);
+  });
+
+  // Adjacent case: the type alone is not the licence to continue. A target the
+  // company does not own is a real failure and must still reach the caller.
+  it('propagates a LINE_NOT_FOUND target error', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankMatchTargetError('LINE_NOT_FOUND', 'Journal line jl-2 not found');
+      return { id: txId };
+    });
+
+    await expect(autoMatchTransactions(COMPANY, BANK_GL)).rejects.toThrow('not found');
   });
 
   it('still propagates a failure that is not a race', async () => {

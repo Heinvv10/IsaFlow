@@ -193,6 +193,7 @@ export {
   unmatchTransaction,
   excludeTransaction,
   BankTransactionAllocatedError,
+  BankMatchTargetError,
 } from './bankTxStatusMutations';
 
 /** Delete bank transactions — only imported (unallocated) transactions can be deleted. */
