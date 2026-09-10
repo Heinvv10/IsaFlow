@@ -3,12 +3,51 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 160,
-    "reads": 89,
+    "total": 161,
+    "reads": 90,
     "writes": 71,
     "requires_post": 32
   },
   "tools": [
+    {
+      "name": "access_control_review",
+      "scope": "read:access",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "membership",
+              "pat",
+              "oauth"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "dormant_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      }
+    },
     {
       "name": "aged_creditors",
       "scope": "read:reports",

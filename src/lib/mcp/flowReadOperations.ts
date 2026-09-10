@@ -11,6 +11,7 @@ export const FLOW_READ_OPERATIONS: Record<string, FlowOperationCode | null> = {
   capture_control_exceptions: null,
   assign_exception: null,
   resolve_exception: null,
+  access_control_review: null,
   connection_permissions: null,
   entity_change_history: null,
   mcp_call_history: null,
