@@ -59,6 +59,20 @@ const CHANGE_LABEL = /(?<![A-Za-z])(?:Change|Wisselgeld|Kleingeld)(?![A-Za-z])/i
 const CASH_LABEL = /(?<![A-Za-z])(?:Cash|Tender(?:ed)?|Kontant)(?![A-Za-z])/i;
 
 /**
+ * The label of ANY payment: what the document says it was settled with. Cash
+ * is one of them, and only cash gives change.
+ *
+ * This is the one vocabulary the arithmetic below needs, and it is a closed
+ * set — a country has a handful of ways to pay, where it has no end of names
+ * for a charge (`Tip`, `Gratuity`, `Waiter`, `Fooi`, `Service`, `Freight`,
+ * `Handling`, `Surcharge`, `Levy`, `Car Guard`...). Six rounds tried to name
+ * the charges; this names the payments instead and lets the arithmetic find
+ * the charge, whatever it is called. `Account` is deliberately absent: on a
+ * trade slip `Account Balance 12 345.67` is not a payment.
+ */
+const TENDER_LABEL = /(?<![A-Za-z])(?:Cash|Kontant|Tender(?:ed)?|Card|Kaart|Visa|Master(?:\s*card)?|Maestro|Amex|American\s+Express|Diners|Debit|EFT|Snap\s*Scan|Zapper|Yoco|Speedpoint|Voucher|Cheque|Payment|Paid|Betaal\w*|Betaling)(?![A-Za-z])/i;
+
+/**
  * A figure printed NEGATIVE: a glued minus (`-23.00`, `-R23.00`, `R -23.00`),
  * a trailing minus or parentheses. A spaced dash is a label separator.
  */
@@ -78,6 +92,8 @@ interface PrintedFigure {
   isChange: boolean;
   /** A cash label stands between this figure and the one before it on its line. */
   isCash: boolean;
+  /** Any payment label stands between this figure and the one before it. */
+  isTender: boolean;
 }
 
 function printedFigures(text: string): PrintedFigure[] {
@@ -90,6 +106,7 @@ function printedFigures(text: string): PrintedFigure[] {
         value: parseAmount(match[1]!),
         isChange: CHANGE_LABEL.test(line.slice(labelFrom, match.index)),
         isCash: CASH_LABEL.test(line.slice(labelFrom, match.index)),
+        isTender: TENDER_LABEL.test(line.slice(labelFrom, match.index)),
         end: match.index + match[0].length,
       });
       labelFrom = match.index + match[0].length;
@@ -97,7 +114,13 @@ function printedFigures(text: string): PrintedFigure[] {
     const last = onLine[onLine.length - 1];
     const grouped = last && [...line.matchAll(SPACE_GROUPED)].find((m) => m.index + m[0].length === last.end);
     if (grouped) last!.value = parseAmount(grouped[1]!);
-    figures.push(...onLine.map(({ value, isChange, isCash }) => ({ value, isChange, isCash })));
+    // A payment names itself AFTER its figure as often as before it — `Waiter
+    // 23.00 CASH`, `230.00 VISA`. Only the last figure on the line may claim
+    // the trailing text, so a two-figure item row cannot smear one label over
+    // both. Measured: without this, a tip settled in cash beside a card
+    // payment equal to the total still auto-posted the total.
+    if (last && TENDER_LABEL.test(line.slice(last.end))) last.isTender = true;
+    figures.push(...onLine.map(({ value, isChange, isCash, isTender }) => ({ value, isChange, isCash, isTender })));
   }
   return figures;
 }
@@ -119,6 +142,45 @@ export function unexplainedLargerFigure(text: string, total: number): number | n
   }
   const culprit = figures.find((f, i) => f.value > total && !explained.has(i));
   return culprit ? culprit.value : null;
+}
+
+/**
+ * Do the payments printed after the total ADD UP to it?
+ *
+ * This is HIGH-1 of the round-14 review and the sixth attempt at the same
+ * defect. `SERVICE 10% 23.00 / VISA 126.50 / MASTERCARD 126.50` under a total
+ * of 230.00 asks for 253.00, and neither vocabulary saw it: `ADDITION_LABEL`
+ * did not know bare `Service` (nor `Waiter`, `Freight`, `Shipping`,
+ * `Handling`), and because the payment was SPLIT no single printed figure
+ * exceeded the total, so `unexplainedLargerFigure` found nothing either. The
+ * same slip with `Freight` or `Waiter` in place of `SERVICE`, and with two
+ * EFT legs instead of two cards, behaved identically.
+ *
+ * A charge has no end of names; the arithmetic has one form. What was paid is
+ * what was tendered less what was given back, and on an ordinary purchase it
+ * equals the total. Where it does not, something between the two is a figure
+ * the reader did not account for — whatever the document calls it — and the
+ * document goes to a person. Change is subtracted only where a CASH tender is
+ * printed: only cash gives change, and `CARD 253.00 / Change 23.00` under a
+ * total of 230.00 is a mislabelled tip, not a tender and its change.
+ *
+ * A cent of rounding is allowed. Null when the document prints no payment
+ * after its total, which is the ordinary shape of a supplier invoice.
+ */
+export function unsettledTender(text: string, total: number): number | null {
+  const end = totalPrintedEnd(text, total);
+  if (end === null) return null;
+  const figures = printedFigures(text.slice(end));
+  const tenders = figures.filter((f) => f.isTender && !f.isChange);
+  if (tenders.length === 0) {
+    const stray = figures.find((f) => f.value !== 0 && f.value !== total);
+    return stray ? stray.value : null;
+  }
+  const change = figures.some((f) => f.isCash && !f.isChange)
+    ? figures.filter((f) => f.isChange).reduce((sum, f) => sum + f.value, 0)
+    : 0;
+  const settled = Math.round((tenders.reduce((sum, f) => sum + f.value, 0) - change) * 100) / 100;
+  return Math.abs(settled - total) <= 0.01 ? null : settled;
 }
 
 /**
