@@ -87,11 +87,12 @@ function bill(total: number) {
   return { totalAmount: total, subtotal: total / 1.15, vatAmount: total - total / 1.15 };
 }
 
-/** One extracted document + one extracted capture event ready to post. */
+/** One extracted document + one capture event ready to post (status defaults to 'extracted'). */
 async function seedEvent(
   extracted: Record<string, unknown>,
   tag: string,
   overrides: Record<string, unknown> = {},
+  status = 'extracted',
 ) {
   const documentId = crypto.randomUUID();
   const eventId = crypto.randomUUID();
@@ -103,8 +104,8 @@ async function seedEvent(
   );
   await pool.query(
     `INSERT INTO capture_events(id,company_id,channel,status,captured_document_id)
-     VALUES($1,$2,'api','extracted',$3)`,
-    [eventId, company, documentId],
+     VALUES($1,$2,'api',$3,$4)`,
+    [eventId, company, status, documentId],
   );
   return { eventId, documentId };
 }
@@ -155,6 +156,24 @@ async function holdEventRow(eventId: string): Promise<() => Promise<void>> {
     await client.query('ROLLBACK');
     client.release();
   };
+}
+
+/**
+ * Hold the DOCUMENT row (not the event) from an independent transaction. The
+ * post routes never take `FOR UPDATE` on `captured_documents` themselves, but
+ * a downstream statement in the posting handler does touch that row — this is
+ * what proves `lockWithTimeout`'s `SET LOCAL lock_timeout = DEFAULT` reset
+ * (LOW-1a): without it, that downstream wait inherits the 5s bound meant only
+ * for the `FOR UPDATE OF ce` acquisition and the request 500s at ~5s instead
+ * of waiting the release out.
+ */
+async function holdDocumentRow(documentId: string, ms: number): Promise<void> {
+  const client = await pool.connect();
+  await client.query('BEGIN');
+  await client.query('SELECT id FROM captured_documents WHERE id=$1 FOR UPDATE', [documentId]);
+  setTimeout(() => {
+    void client.query('ROLLBACK').then(() => client.release());
+  }, ms);
 }
 
 async function statusOf(eventId: string): Promise<string> {
@@ -427,3 +446,35 @@ it('discard: answers 409 when another transaction holds the event', async () => 
     await release();
   }
 }, 30_000);
+
+// ── round 3: the lock_timeout reset and the allow-list's over-refusal side ──
+
+it('post-expense: a downstream lock wait outlives the 5s used to acquire the event lock', async () => {
+  // captureEventLock.ts's `lockWithTimeout` sets `lock_timeout = '5s'` only to
+  // bound the `FOR UPDATE OF ce` acquisition, then resets it to DEFAULT the
+  // moment that lock is granted. Without the reset, a downstream statement
+  // that then waits on an UNRELATED lock (here: another transaction holding
+  // the document row) inherits the same 5s bound and the request 500s instead
+  // of waiting the 7s release out. Hold the document row 7s, well past 5s, and
+  // assert the request still succeeds — it must wait longer than 5s to do so.
+  const { eventId, documentId } = await seedEvent(RECEIPT, 'lock-reset');
+  await holdDocumentRow(documentId, 7000);
+  const t0 = Date.now();
+  const result = await call(postExpense, eventId, {});
+  const elapsedMs = Date.now() - t0;
+  expect(result.state.statusCode).toBe(200);
+  expect(elapsedMs).toBeGreaterThan(5000);
+  expect(await journalsFor(documentId)).toBe(1);
+}, 30_000);
+
+it("post-expense: a 'failed' event (post.ts's duplicate-retry park) is still postable", async () => {
+  // The allow-list keeps 'failed' postable on purpose — post.ts:151 parks a
+  // duplicate-blocked bill there for retry, and routeEvent parks an extraction
+  // error there. Losing 'failed' from the allow-list would strand both without
+  // any race: a legitimately retryable event refused forever.
+  const { eventId, documentId } = await seedEvent(RECEIPT, 'failed-retry', {}, 'failed');
+  const result = await call(postExpense, eventId, {});
+  expect(result.state.statusCode).toBe(200);
+  expect(await journalsFor(documentId)).toBe(1);
+  expect(await statusOf(eventId)).toBe('posted');
+});

@@ -60,11 +60,20 @@ export type CaptureEventStatus = (typeof CAPTURE_EVENT_STATUSES)[number];
  * discards a captured bill, the post route sees a status that is not
  * `'posted'`, and accrues it to payables anyway. No race needed.
  *
- * `'received'` / `'extracting'` stay postable because they always were, and the
- * routes' own `!extracted_data` refusal is what actually stops an event whose
- * extraction has not finished. `'failed'` stays postable because it is a RETRY
- * state, not a terminal one — `post.ts` itself parks a duplicate there, and
- * `routeEvent` parks an extraction error there.
+ * `'received'` / `'extracting'` stay postable because they always were. The
+ * routes' `!extracted_data` refusal does NOT stop a still-extracting event —
+ * `routeEvent` writes `captured_documents.extracted_data` in its own UPDATE
+ * (`captureRouterService.ts` ~161) *before* it sets `capture_events.status =
+ * 'extracted'` in a second, separate statement (~176), so a request that lands
+ * between those two writes sees `status = 'extracting'` WITH data already
+ * populated and both checks pass. What keeps that window survivable is that
+ * `routeEvent` still runs to completion and flips the status forward — a
+ * request racing it does not itself corrupt anything. Only an unpredicated
+ * writer that could revert a `'posted'` event back to `'extracting'` would
+ * turn this into a second post; that is R-071, tracked separately, not fixed
+ * here. `'failed'` stays postable because it is a RETRY state, not a terminal
+ * one — `post.ts` itself parks a duplicate there, and `routeEvent` parks an
+ * extraction error there.
  *
  * Anything outside the vocabulary fails CLOSED: a status added to the CHECK
  * constraint tomorrow is not postable until someone decides here that it is.
