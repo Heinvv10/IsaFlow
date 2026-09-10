@@ -20,6 +20,18 @@
  *        service, 409 from the route — and the variance, the balance, the lines
  *        and the status are all exactly as they were reconciled.
  *
+ *   RACE (round 12)  the FOR UPDATE on the header is what makes the refusal
+ *        hold against a concurrent mark-reconciled, and nothing pinned it. A
+ *        second connection B marks the statement reconciled and holds that
+ *        UNCOMMITTED; Rematch runs through the route and blocks on B; B commits.
+ *        With the lock, Rematch re-reads the committed status and answers 409;
+ *        the variance stays 0. Without it, Rematch passes the check before B
+ *        commits, answers 200, and leaves a row marked reconciled with isaflow
+ *        500 and variance −200. Every wait is bounded: B's statements carry a
+ *        statement_timeout, the "is Rematch blocked on B yet" poll gives up
+ *        after 10 s, the route call races a 20 s timer, and B is always
+ *        committed or rolled back and closed in finally.
+ *
  * Only the VLM extraction and the stored PDF bytes are mocked.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -58,8 +70,8 @@ const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 const COMPANY = randomUUID();
 const USER = randomUUID();
 const TAG = `R59M${Math.floor(Math.random() * 1e8)}`;
-const docs = { PAY: randomUUID(), CLOSED: randomUUID() };
-const suppliers = { PAY: '', CLOSED: '' };
+const docs = { PAY: randomUUID(), CLOSED: randomUUID(), RACE: randomUUID() };
+const suppliers = { PAY: '', CLOSED: '', RACE: '' };
 let token = '';
 
 async function bill(supplier: string, n: string, gross: number, raised: string, status: string, paid = 0): Promise<string> {
@@ -85,7 +97,7 @@ describeIfDb('R-059 Rematch measures at the statement date, and a reconciled sta
     await sql`INSERT INTO companies (id, name, registration_number) VALUES (${COMPANY}::UUID, ${'R059M ' + TAG}, ${TAG})`;
     await sql`INSERT INTO users (id, email, role, is_active) VALUES (${USER}, ${USER + '@test.local'}, 'admin', true)`;
     await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${COMPANY}::UUID, ${USER}, 'admin')`;
-    for (const key of ['PAY', 'CLOSED'] as const) {
+    for (const key of ['PAY', 'CLOSED', 'RACE'] as const) {
       suppliers[key] = ((await sql`
         INSERT INTO suppliers (company_id, name) VALUES (${COMPANY}::UUID, ${key + ' ' + TAG}) RETURNING id
       `) as { id: string }[])[0]!.id;
@@ -155,4 +167,56 @@ describeIfDb('R-059 Rematch measures at the statement date, and a reconciled sta
 
     expect(await snapshot()).toEqual(before);
   });
+
+  it('RACE: a mark-reconciled committing while Rematch is in flight still wins — 409, variance unchanged', async () => {
+    await bill(suppliers.RACE, '-R1', 300, shift(-40), 'approved');
+    nextExtraction = { closingBalance: 300, lines: [{ date: shift(-40), reference: TAG + '-R1', debit: 300 }] };
+    const created = await createReconciliation(COMPANY, suppliers.RACE, docs.RACE, USER);
+    // Captured after the upload, dated before the statement: a Rematch that got
+    // through would re-measure isaflow to 500 and the variance to -200.
+    await bill(suppliers.RACE, '-R2', 200, shift(-30), 'approved');
+
+    const { default: pg } = await import('pg');
+    const b = new pg.Client({ connectionString: process.env.DATABASE_URL });
+    await b.connect();
+    let bOpen = false;
+    try {
+      await b.query(`SET statement_timeout = '15s'`);
+      const [{ pid: bPid }] = (await b.query('SELECT pg_backend_pid() AS pid')).rows as { pid: number }[];
+      await b.query('BEGIN');
+      bOpen = true;
+      await b.query(
+        `UPDATE supplier_statement_reconciliations SET status = 'reconciled', reconciled_at = NOW()
+         WHERE id = $1::uuid AND company_id = $2::uuid`,
+        [created.id, COMPANY],
+      );
+
+      let settled = false;
+      const call = callRematch(created.id).finally(() => { settled = true; });
+
+      // Wait until Rematch is blocked on B's row lock (or has already finished),
+      // bounded: never commit B before Rematch has reached the row.
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const { rows } = await b.query(
+          'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [bPid],
+        );
+        if ((rows[0] as { n: number }).n > 0 || settled || Date.now() > deadline) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await b.query('COMMIT');
+      bOpen = false;
+
+      const res = await Promise.race([
+        call,
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Rematch did not return within 20s')), 20_000)),
+      ]);
+      const after = (await getReconciliation(COMPANY, created.id))!;
+      expect({ http: res.status, status: after.status, isaflow: after.isaflowBalance, variance: after.variance })
+        .toEqual({ http: 409, status: 'reconciled', isaflow: 300, variance: 0 });
+    } finally {
+      if (bOpen) await b.query('ROLLBACK').catch(() => undefined);
+      await b.end();
+    }
+  }, 60000);
 });
