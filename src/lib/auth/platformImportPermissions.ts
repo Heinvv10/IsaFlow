@@ -2,11 +2,12 @@ import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 import {readPlatformImportTarget,assertCurrentPlatformImportStanding} from './platformImportAuthority';
 import {EFFECTIVE_PERMISSION_RULES,type PermissionReason} from './effectivePermissionPolicy';
 import {EffectivePermissionError} from './effectivePermissionQueries';
-const reads=['read:imports','read:reports','read:invoices','read:accounts','read:contacts'];
 /** This ceiling does not authorize a resource: historical source/operation boundaries must also match the private target. */
 export async function platformImportPermissions(ctx:ControlTx){
  const target=readPlatformImportTarget(ctx);await assertCurrentPlatformImportStanding(ctx);
- const permissions=[...reads];
+ // Exactly what the confined path asks for. A generic tenant reader running on the
+ // BYPASSRLS platform client is outside confinement, so it must find no permission here.
+ const permissions=target.action==='retain'?[]:['read:imports'];
  if(target.action!=='read')permissions.push('write:imports');
  if(target.action==='request')permissions.push('write:approvals');
  if(target.action==='execute')permissions.push('write:post');
