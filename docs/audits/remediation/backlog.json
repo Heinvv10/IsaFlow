@@ -10534,7 +10534,7 @@
       "sourceLabel": "",
       "sourceIds": [],
       "correctedTrigger": "",
-      "severityRationale": "Outcome is safe by unique index, but the loser does a full VAT201 posting before it discovers it lost and the caller gets an opaque 500 instead of a refusal.",
+      "severityRationale": "Safe today by ORDERING, not by design: the loser fails inside a savepoint, its outer transaction survives, and the route answers 400 which withAuth COMMITs. Nothing strands only because no write precedes that savepoint; a write added ahead of it would commit silently as a partial write.",
       "auditedSha": "",
       "currentSha": "",
       "status": "confirmed",
@@ -10548,14 +10548,14 @@
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "None. The unique index `vat_returns_company_id_period_start_period_end_key` aborts the loser's transaction and its journal unwinds with it. The defect is diagnosability and wasted posting, not wrong data.",
+      "historicalDataImpact": "None measured. Two interleaved clients left exactly the winner's journal (headers and lines) and one vat_returns row. The earlier claim that the caller gets 'an opaque 500' was wrong — it gets a 400.",
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": null,
       "title": "submitVATReturn posts the VAT201 journal before it claims the period; the concurrency guard is decorative",
       "severity": "medium",
       "source": "Found by the K-107 r10 census re-derivation; file confirmed present on origin/master by the orchestrating session, 2026-09-10",
-      "processNotes": "Reads `vat_returns` for a `status='submitted'` row at :219, posts the VAT201 journal, then INSERTs the `vat_returns` row LAST at :325. The UNIQUE on (company_id, period_start, period_end) is confirmed on the fixture schema and makes the OUTCOME safe, so the read is decorative under concurrency. The claim should be taken before the first posting. Registered, NOT fixed -- outside the K-107 brief; needs its own branch. Same class as `recordLoanPayment`."
+      "processNotes": "Reads `vat_returns` for a `status='submitted'` row at :219, posts the VAT201 journal, then INSERTs the `vat_returns` row LAST at :325. The UNIQUE on (company_id, period_start, period_end) is confirmed on the fixture schema and makes the OUTCOME safe, so the read is decorative under concurrency. The claim should be taken before the first posting. Registered, NOT fixed -- outside the K-107 brief; needs its own branch. Same class as `recordLoanPayment`.\n\nCORRECTED 2026-09-10 — measured by the K-107 r11 blind reviewer with two interleaved pool clients; the original entry's mechanism was wrong. The loser does NOT die on the unique key and its transaction is NOT aborted. It dies EARLIER, on `uq_gl_je_company_entry_number`, INSIDE `createJournalEntry`'s `sql.transaction` SAVEPOINT (journalEntryCrudService.ts:244). The savepoint rolls back cleanly, so the outer transaction stays live and whatever the route does next decides the outcome. For submitVATReturn the route maps the error through `badRequestFromError` (vat-returns/index.ts:64) to a **400**, and withAuth COMMITs it."
     },
     {
       "id": "R-062",
@@ -10567,7 +10567,7 @@
       "sourceLabel": "",
       "sourceIds": [],
       "correctedTrigger": "",
-      "severityRationale": "Same decorative-guard class as R-061, but the loser does N postings rather than one before it discovers it lost.",
+      "severityRationale": "Same mechanism as R-061 and more fragile: in a multi-loan close, a savepoint-contained failure on loan N leaves loans 1..N-1's reclassification journals LIVE in the transaction. Safe today only because the loan route has no catch, so it answers 500 and ROLLBACKs. Adding any 4xx mapping to that route — a natural 'friendly error' change — would strand N-1 reclassification journals.",
       "auditedSha": "",
       "currentSha": "",
       "status": "confirmed",
@@ -10581,14 +10581,14 @@
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "None. `loan_period_locks_pkey` on (company_id, yyyymm) aborts the loser and its reclassification journals unwind with its transaction.",
+      "historicalDataImpact": "None measured. With the loser ROLLBACKing (current route) and with a simulated COMMITting loser, only the winner's balanced reclass journal and one loan_period_locks row remained.",
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": null,
       "title": "closeLoanPeriod posts one reclassification journal per active loan before it claims the period",
       "severity": "medium",
       "source": "Found by the K-107 r10 census re-derivation; file confirmed present on origin/master by the orchestrating session, 2026-09-10",
-      "processNotes": "`isPeriodLocked(companyId, yyyymm)` is read first, then a loop posts one reclassification journal per active loan, then `INSERT INTO loan_period_locks` runs LAST. The primary key makes the outcome safe the same way as R-061. The claim should precede the loop. Registered, NOT fixed -- outside the K-107 brief; needs its own branch."
+      "processNotes": "`isPeriodLocked(companyId, yyyymm)` is read first, then a loop posts one reclassification journal per active loan, then `INSERT INTO loan_period_locks` runs LAST. The primary key makes the outcome safe the same way as R-061. The claim should precede the loop. Registered, NOT fixed -- outside the K-107 brief; needs its own branch.\n\nCORRECTED 2026-09-10 — measured by the K-107 r11 blind reviewer with two interleaved pool clients; the original entry's mechanism was wrong. The loser does NOT die on the unique key and its transaction is NOT aborted. It dies EARLIER, on `uq_gl_je_company_entry_number`, INSIDE `createJournalEntry`'s `sql.transaction` SAVEPOINT (journalEntryCrudService.ts:244). The savepoint rolls back cleanly, so the outer transaction stays live and whatever the route does next decides the outcome. For closeLoanPeriod the danger is the LOOP: journals for loans already processed stay live after a later loan fails. Protection currently rests entirely on the route having no catch."
     },
     {
       "id": "R-060",
