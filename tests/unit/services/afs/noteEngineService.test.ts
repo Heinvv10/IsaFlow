@@ -182,7 +182,7 @@ describe('noteEngineService', () => {
       expect(sql).toHaveBeenCalledTimes(5);
     });
 
-    it('swallows individual section errors and continues other sections', async () => {
+    it('continues other sections and RETURNS the failure rather than only logging it', async () => {
       // First call: list sections
       vi.mocked(sql)
         .mockImplementationOnce(() =>
@@ -212,10 +212,11 @@ describe('noteEngineService', () => {
       });
       vi.mocked(isZeroBalance).mockReturnValue(false);
 
-      // Should NOT throw even though sec-1 fails
-      await expect(
-        generateAllSections(COMPANY_ID, DOCUMENT_ID, FISCAL_YEAR, FRAMEWORK, USER_ID),
-      ).resolves.toBeUndefined();
+      // Should NOT throw even though sec-1 fails — and must hand the failure back
+      const failures = await generateAllSections(COMPANY_ID, DOCUMENT_ID, FISCAL_YEAR, FRAMEWORK, USER_ID);
+      expect(failures, 'a refused section was lost to a log line').toEqual([
+        expect.objectContaining({ sectionId: 'sec-1' }),
+      ]);
 
       // Error should be logged
       expect(log.error).toHaveBeenCalledWith(

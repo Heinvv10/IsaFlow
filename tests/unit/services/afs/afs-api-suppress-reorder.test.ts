@@ -286,10 +286,11 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
     const locked = { id: SECTION_ID, document_id: DOCUMENT_ID, section_type: 'note_1', status: 'auto_generated',
       reviewed_by: null, signed_off_by: null, document_status: 'draft', signing_requested_at: null };
     vi.mocked(sql)
-      // the document's own sections, then one lock per section, then one UPDATE per section
-      .mockResolvedValueOnce([{ id: SECTION_ID, sort_order: 1 }, { id: SECT_A, sort_order: 2 }] as never)
+      // one lock per section, then the document's own sections read under those locks, then
+      // one UPDATE per section
       .mockResolvedValueOnce([locked] as never)
       .mockResolvedValueOnce([{ ...locked, id: SECT_A }] as never)
+      .mockResolvedValueOnce([{ id: SECTION_ID, sort_order: 1 }, { id: SECT_A, sort_order: 2 }] as never)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
     const req = makeReq({ sections });
