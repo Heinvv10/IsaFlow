@@ -139,9 +139,10 @@ describe('Expense Journal Building', () => {
 
 describe('Auto-Post Decision', () => {
   const config: ReceiptAutoPostConfig = { maxAmount: 5000, minConfidence: 0.85 };
-  // A slip whose text prints the one total it was read as — the gate re-reads it.
+  // A slip whose text prints the one total it was read as — the gate re-reads
+  // it — under the purchase title the gate requires (K-072 round 20).
   const printed = (confidence: number) =>
-    makeReceipt({ confidence, rawText: 'Sub Total 386.96\nVAT 58.04\nTotal 445.00' });
+    makeReceipt({ confidence, rawText: 'TAX INVOICE\nSub Total 386.96\nVAT 58.04\nTotal 445.00' });
 
   it('auto-posts when amount < R5000 and confidence >= 0.85', () => {
     expect(shouldAutoPostReceipt(printed(0.90), config)).toBe(true);

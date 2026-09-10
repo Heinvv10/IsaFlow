@@ -2012,3 +2012,90 @@ money-back guarantee is a refund (1) · T17 an apostrophe is not a marking separ
 **Files.** `documentCurrency.ts` (new, 50), `ocrWholeFigures.ts` 82, `ocrPrintedFigures.ts` 194,
 `ocrLargerFigure.ts` 268, `creditIndicators.ts` 258, `unattendedPostingGate.ts` 196 — all under 300.
 **Migration:** none. **Historical data:** unchanged. **Rollback:** revert the commit.
+
+---
+
+## Round 20 — every exemption answers "can this ever let money through?"
+
+The round-19 review (`7c7c15af0`) was 3H/3M/1L, and two of the HIGHs were regressions round 19 itself
+introduced: an exemption that could let money through. This round puts that question to every exemption
+in the reader, removes or narrows each one that failed it, and adds a second gate that fails closed.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 (regression) `COUNTER_LABEL` matched the END of a label: `Admin fee per Invoice 50`, `Tip for Server 23`, `Function Room 500` were counts | FIXED. A counter label must BE the whole label (`ocrWholeFigures.isCounterLabel`): anchored at the line start or the previous figure (a skipped id counts — `Till 04 Cashier 12`), the counter noun first after at most one fixed lead word (`Customer copy`, `Your points balance`, `Benefit points earned`), then only a number word and a code prefix. The `Sold/Earned/Copy` qualifiers stay; `Total`/`Balance`/`Count` do not (`Order Total 253` is money). A label that merely ends in a counter word is money. Added only after a measured over-refusal each: `Class`, `Waybill`, `Duration`, `Weight`, `Warranty`, `Payment Terms`, `Ticket`, the loyalty leads. |
+| HIGH-2 (regression) the reference-code shape swallowed `TIP-23`, `FEE-350`, `CARD-253`, `EFT-1500` | FIXED by REMOVING the shape. A code prefix (`TAL-998877`) is exempt only behind a counter/reference label (`Invoice No: TAL-`, `Waybill: TCG-`); anywhere else the number is read and its label decides. Measured cost of the removal: zero — every ordinary `XXX-NNNN` in the sets sits behind such a label. |
+| HIGH-3 a figure glued to leader dots was invisible to all three rules | FIXED. `blankFillers` blanks a run of 2+ dots, dashes, underscores, tildes or middots before a figure (and SA phone numbers) before either reader runs, keeping every index. `Call-out fee..........350.00`, `Paid EFT............1500.00` and `Waiter..........23.00` refuse; an honest leader-style slip that reconciles passes. |
+| MEDIUM-1 the `of`, masked-card, unit and street shapes dropped money | FIXED — each is exact. `of` exempts only `N of M`; a mask only `****`+ then EXACTLY four digits; a street number only at the START of its line; a glued measure (`2L`, `700G`, `3S`, `9h`) is one token, but a glued word (`253APPROVED`) is not in the list, so its label decides; a DURATION (`30 days`) is never a rand amount and exempts anywhere; a MEASURE (`150 km`, `23 x`) exempts only in a row that prices it in cents — `Travel 150 km` alone is the charge; and `pp` is never a unit. A role always wins: `Paid 253 x` is a payment. |
+| MEDIUM-2 `SR` on the till-word list; mixed-case codes; codes away from a figure; 18 names | FIXED. `SR`, `KGS`, `KM` removed. After a figure, a code of ANY case and up to four letters refuses unless on the closed till-word list (`Rs`, `kr`, `FCFA`, and a lone `P` closing the line); before a figure it stays uppercase-only, because an item name sits there (`Tea 18.00`). A currency DECLARED anywhere (`Currency: MUR`, `Currency code: ZWG`, `Currency: ZiG`) refuses unless it is the rand. ISO list broadened to SADC, the Indian Ocean and the majors; `zł`/`Kč`/`₵`… symbols; the 18 names added (`Won`/`Som` only after a figure — `som` is Afrikaans for "sum"). **Spelled-out names still fail OPEN**: a name missing from the list is the one open direction left, stated in the file and here. |
+| MEDIUM-3 25 of 32 credit markings posted | FIXED. `OMKEER`, `TERUGNEEM`, `TERUGBRING`, `TERUGBOEK`, `TERUGSKRY` join the generated Afrikaans verbs; `OMKER`, `RESCIND`, `NULLIF`, `CHARGEBACK` stems; `GELD`/`KONTANT TERUG`, `NIETIG`, `CONTRA`/`KONTRA` (whole word — `Contract` is not a credit), `UNDO SALE`, `VOUCHER ISSUED`, `ROLLBACK`, `WITHDRAWN`, `AFGETREK`, `UITBETALING*`, `OORBETALING*`, `RECALL*`, `TERUGNA*`, and `GOEDERE TERUG*` now inflects. All 32 refuse. |
+| MEDIUM-3, the second gate | ADDED, fail-closed (`purchaseTitle.ts`). A document posts or auto-approves only when its HEADER — every line above its first money figure — has a line that IS a purchase title (`TAX INVOICE`, `INVOICE`, `RECEIPT`, `TILL SLIP`, `CASH SALE`, `BELASTINGFAKTUUR`, `KWITANSIE`, `BILL`, optionally `(COPY)`). A reference line (`Original Invoice No: 88123`) is not a title. A text-less image passes only on a model type of `invoice` or `receipt`. So a credit note titled with a word the credit list lacks carries no purchase title and refuses — the credit list is no longer load-bearing for it. It runs LAST in `unattendedPostingRefusal` so every other reason keeps its wording, and on both AP routes. SA's VAT Act requires the words "Tax Invoice" on a tax invoice, so the title is what the documents this gate should pass already print. |
+| LOW `KANS`, `MINUS`, `GRV`, `MONEY BACK`, `Class 1` over-refused | FIXED where a narrower match holds: `KANS` and `MINUS` count only as a HEADER alone on its line (`Staan 'n kans om R1000 te wen`, `Minus 10% vir pensioenarisse` are ordinary); `GRV` removed (a Goods RECEIVED Voucher is a purchase); `100% money back` and `Money back if/guarantee/…` carved back; `Class` is a counter. |
+
+### Tests changed because the RULE changed, not weakened
+
+The purchase-title gate is a new condition for every document that posts, so every POSITIVE fixture that
+expects a post now carries `TAX INVOICE` in its re-read text: the `read`/`gate`/`stored` helpers of six
+k076 unit files, `receipt-to-journal.test.ts`, `postExpenseZeroVatLine.test.ts`, and the default
+fixtures of three K-072 integration files. The NEGATIVE fixtures in those integration files (ambiguous
+totals, a credit note, a fallback read) got the title too, deliberately, so that each still refuses
+for its OWN reason and not merely for lacking a title — otherwise a mutation of its own rule would stay
+green. The round-19 test that pinned `GRV 0012` as a credit now pins it as ordinary (LOW), and corpus row
+`X1` changed its pinned outcome to `refuse`, annotated: it prints `Invoice No: 55123` but no title.
+
+### THE COST AND THE WRONG POSTS — head vs `7c7c15af0`, 1 312 rows
+
+Extraction stamped `'vlm'`, identity supplied, corpus + 1 135 probes (every set, all of rev-k072t's).
+
+| Set | rows | posts | approvals | WRONG posts | WRONG approvals | newly refused |
+|---|---|---|---|---|---|---|
+| `k076-slip-corpus.ts` | 177 | 61 → 60 | 64 → 63 | 0 → 0 | 0 → 0 | 1 (`X1`, no title) |
+| r13 ordinary receipts | 16 | 4 → 4 | 7 → 7 | 0 → 0 | 0 → 0 | 0 |
+| rev-k072q ordinary | 30 | 16 → 16 | 27 → 27 | 0 → 0 | 0 → 0 | 0 |
+| rev-k072q footer counters | 26 | 26 → 26 | 26 → 26 | 0 → 0 | 0 → 0 | 0 |
+| rev-k072s ordinary | 15 | 7 → 7 | 14 → 14 | 0 → 0 | 0 → 0 | 0 |
+| **rev-k072t ordinary** | 20 | 7 → 7 | 11 → 12 | 0 → 0 | 0 → 0 | 0 |
+| **rev-k072t counter-suffix (A/X)** | 101 | 73 → 0 | 73 → 0 | **73 → 0** | **73 → 0** | 0 |
+| **rev-k072t shape** | 62 | 56 → 0 | 56 → 0 | **56 → 0** | **56 → 0** | 0 |
+| **rev-k072t payment** | 26 | 24 → 0 | 24 → 0 | **24 → 0** | **24 → 0** | 0 |
+| **rev-k072t leaders** | 8 | 0 → 0 | 6 → 2 | 0 → 0 | **4 → 0** | 0 |
+| **rev-k072t credit** | 32 | 25 → 0 | 25 → 0 | **25 → 0** | **25 → 0** | 0 |
+| **rev-k072t FX** | 73 | 35 → 0 | 35 → 0 | **35 → 0** | **35 → 0** | 0 |
+| rev-k072s credit | 72 | 0 → 1 | 0 → 1 | 0 → 1 | 0 → 1 | 0 |
+| every other r13–r18 set | 654 | unchanged | unchanged | unchanged (r14 artefact 1) | unchanged | 0 |
+
+**One ordinary document in 1 312 is newly refused** (`X1`, by the title gate). The reviewer's 20 ordinary
+documents pass unattended 12 of 20 (was 11 of 20); the four Afrikaans slips they note refuse on the
+reader's own `BTW 15%`-after-`Subtotaal` VAT read, pre-existing and not touched here.
+
+**The one row that got worse is deliberate:** rev-k072s's credit probe `GRV 0012` was scored a credit by
+the round-18 reviewer and now posts, because the round-19 reviewer and this round's brief identify a GRV as
+a Goods Received Voucher — a purchase. It is counted above as a wrong post by its original label. The
+only other WRONG row is the r14 negative-stored-total harness artefact, fixed at source in round 16.
+
+### Mutations — 21, all RED, restored byte-identically (`md5sum -c` OK on all seven files)
+
+Three survived the first sweep and are recorded: U9 (the priced-rows check), U12 (the currency
+declaration — masked because every declared code in the tests was also on the ISO list) and U15 (the
+title gate on the AP routes). Each got a test that isolates it (`Cake cutting per Table 30`, `Currency:
+ZiG`, `refusesUnattendedApproval` on an untitled letter); all three are now RED.
+
+U1 counter matched at the END (17) · U2 label not restarted after a skipped id (5) · U3 no leader
+blanking (6) · U4 `of` after any word (5) · U5 a 2-char mask (4) · U6 street anywhere (3) · U7 a measure
+without a priced row (5) · U8 a code prefix anywhere (10) · U9 priced rows adding up ignored (1) · U10
+`SR` a till word (1) · U11 codes after a figure uppercase-only (4) · U12 no declaration check (1) · U13
+the 18 names missing (13) · U14 no title gate on posting (1) · U15 no title gate on the AP routes (1) ·
+U16 a reference line is a title (1) · U17 an untyped image passes (1) · U18 new Afrikaans verbs missing
+(2) · U19 `KANS`/`MINUS` anywhere (3) · U20 `GRV` a credit (1) · U21 a money-back promise a refund (1).
+
+### Gates
+
+`env -u DATABASE_URL bun run ci` → 15 checks PASS, `Test Files 880 passed | 40 skipped (920)`,
+`Tests 11286 passed | 248 skipped (11534)`, component 84/530, build PASS, `[ci] all checks passed`,
+`CI_EXIT=0`. Integration `k072-*` + `r058-*` → 9 files / 85 tests passed, `INT_EXIT=0`. (The first CI run
+of this round failed 3 tests in `receipt-to-journal.test.ts` and `postExpenseZeroVatLine.test.ts`,
+positive fixtures without a title; they were given one, and the run above is the re-run.)
+
+**Files.** `purchaseTitle.ts` (new, 40), `ocrWholeFigures.ts` 131, `ocrPrintedFigures.ts` 188,
+`ocrLargerFigure.ts` 274, `creditIndicators.ts` 274, `documentCurrency.ts` 74, `unattendedPostingGate.ts`
+200 — all under 300. **Migration:** none. **Historical data:** unchanged. **Rollback:** revert the commit.

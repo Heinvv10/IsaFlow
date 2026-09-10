@@ -67,7 +67,8 @@ const stored = (overrides: Partial<ExtractedDocument>): ExtractedDocument => ({
   vendorAddress: null, vendorBankDetails: null, customerName: null, customerVatNumber: null,
   date: '2026-09-01', dueDate: null, paymentTerms: null, referenceNumber: 'INV-1',
   purchaseOrderRef: null, currency: 'ZAR', subtotal: 1000, vatAmount: 150, vatRate: 15,
-  totalAmount: 1150, lineItems: [], rawText: 'Sub Total 1000.00\nVAT 150.00\nTotal 1150.00',
+  // Round 20: the header names the document a purchase (`purchaseTitle`).
+  totalAmount: 1150, lineItems: [], rawText: 'TAX INVOICE\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00',
   confidence: 0.95, warnings: [], extractionMethod: 'vlm',
   ...overrides,
 });

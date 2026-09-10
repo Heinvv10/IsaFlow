@@ -159,8 +159,9 @@ const ZERO_VAT = {
   date: '2026-08-13',
   vendorName: 'Standard Bank',
   confidence: 0.95,
-  // The text the auto-post gate re-reads: one printed total, a VAT figure.
-  rawText: 'Standard Bank\nSub Total 500.00\nVAT 0.00\nTotal 500.00',
+  // The text the auto-post gate re-reads: a purchase title (K-072 round 20),
+  // one printed total, a VAT figure.
+  rawText: 'Standard Bank\nTAX INVOICE\nSub Total 500.00\nVAT 0.00\nTotal 500.00',
   // Only a structured extraction may post unattended (K-072 round 14).
   extractionMethod: 'vlm',
 };

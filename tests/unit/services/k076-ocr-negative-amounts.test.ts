@@ -27,7 +27,9 @@ function read(text: string) {
     // A structured (VLM) extraction holding the reader's figures: the regex
     // fallback itself never posts unattended (K-072 round 14), so this is how
     // the gate's own arithmetic is exercised.
-    autoPost: shouldAutoPostReceipt({ documentType: 'receipt', rawText: text, ...amounts, confidence: 0.95, extractionMethod: 'vlm' }, AUTO_POST),
+    // Round 20: a document posts unattended only when its header NAMES it a
+    // purchase (`purchaseTitle`), so the text the gate re-reads carries one.
+    autoPost: shouldAutoPostReceipt({ documentType: 'receipt', rawText: `TAX INVOICE\n${text}`, ...amounts, confidence: 0.95, extractionMethod: 'vlm' }, AUTO_POST),
   };
 }
 

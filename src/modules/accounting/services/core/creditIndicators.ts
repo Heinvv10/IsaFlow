@@ -57,7 +57,8 @@ function ocrTolerant(word: string): string {
  */
 const CREDIT_STEMS = [
   'CREDIT', 'KREDIET', 'REFUND', 'REIMBURS', 'RETURN', 'RETOER', 'RETOUR', 'VOID', 'CANCEL', 'ANNUL',
-  'EXCHANG', 'KORREKSIE', 'STORNO', 'GUTSCHRIFT', 'AVOIR', 'RÜCKGABE', 'RUCKGABE', 'MINUS',
+  'EXCHANG', 'KORREKSIE', 'STORNO', 'GUTSCHRIFT', 'AVOIR', 'RÜCKGABE', 'RUCKGABE', 'OMKER',
+  'RESCIND', 'NULLIF', 'CHARGEBACK',
 ];
 
 /**
@@ -71,7 +72,8 @@ const CREDIT_STEMS = [
 const AFRIKAANS_VERBS: ReadonlyArray<readonly [string, string]> = [
   ['', 'KANSELL'], ['', 'KREDIT'], ['', 'ANNULEER'], ['', 'KORRIGEER'], ['', 'RETOURNEER'],
   ['OM', 'RUIL'], ['UIT', 'RUIL'], ['TERUG', 'BETA'], ['TERUG', 'GEBETAAL'], ['TERUG', 'GAWE'],
-  ['TERUG', 'GEE'], ['TERUG', 'STUUR'],
+  ['TERUG', 'GEE'], ['TERUG', 'STUUR'], ['OM', 'KEER'], ['TERUG', 'NEEM'], ['TERUG', 'BRING'],
+  ['TERUG', 'BOEK'], ['TERUG', 'SKRY'],
 ];
 const AFRIKAANS_FORMS = AFRIKAANS_VERBS.flatMap(([particle, stem]) => [
   `${particle}${stem}`, `${particle}GE${stem}`,
@@ -110,10 +112,12 @@ const CREDIT_WORDS = [
 const CREDIT_MARKINGS = [
   'CR NOTE', 'CRD NOTE', 'CRED NOTE', 'KRED NOTA', 'KR NOTA', 'CRN', 'C N', 'K N', 'C R', 'CR', 'C/M',
   'RTN', 'RTRN', 'RTV', 'RETD', 'RFND', 'RFD', 'REFD', 'RVSL', 'REVSL', 'RMA', 'CANX', 'CANC', 'CNCL',
-  'CXL', 'CNX', 'R/A', 'REVERSE SALE', 'NEG SALE', 'VE SALE', 'RET D', 'ADJ NOTE', 'MONEY BACK', 'KANS',
+  'CXL', 'CNX', 'R/A', 'REVERSE SALE', 'NEG SALE', 'VE SALE', 'RET D', 'ADJ NOTE', 'MONEY BACK',
+  'GELD TERUG', 'KONTANT TERUG', 'NIETIG', 'CONTRA', 'KONTRA', 'UNDO SALE', 'VOUCHER ISSUED',
+  'GOEDERE TERUG*', 'TERUGNA*', 'RECALL*', 'ROLLBACK', 'ROLL BACK', 'WITHDRAWN', 'AFGETREK',
+  'UITBETALING*', 'OORBETALING*',
   'ADJUSTMENT NOTE', 'DEBIT NOTE', 'ALLOWANCE NOTE', 'REBATE NOTE', 'REBATE',
   'CLAIM NOTE', 'CORRECTION SLIP', 'NEGATIVE SALE', 'MINUS SALE', 'NO SALE',
-  'GOEDERE TERUG',
 ];
 
 const SEPARATOR = String.raw`[\s./'-]`;
@@ -121,9 +125,11 @@ const SEPARATOR = String.raw`[\s./'-]`;
 /** `CR NOTE` → `CR[\s./-]*N[O0]TE`; `R/A` → `R[\s./-]A`. */
 function ocrTolerantMarking(marking: string): string {
   const chars = (word: string) => [...word].map((c) => OCR_LOOKALIKE[c] ?? c).join('');
-  return marking.split(' ')
+  // A trailing `*` lets the last word inflect (`GOEDERE TERUGONTVANG`).
+  const open = marking.endsWith('*');
+  return marking.replace(/\*$/, '').split(' ')
     .map((word) => word.split('/').map(chars).join(SEPARATOR))
-    .join(`${SEPARATOR}*`);
+    .join(`${SEPARATOR}*`) + (open ? String.raw`\w*` : '');
 }
 
 const CREDIT_WORD = new RegExp(
@@ -146,7 +152,7 @@ const AMOUNT_CR = /\d\s*(?:CR|KT)\.?(?![A-Za-z0-9])/i;
  * only where a number follows AND none precedes on the line — a length is the
  * number before it, and the price after it is not a document number.
  */
-const NUMBERED_MARKING = /(?<![A-Za-z0-9])(?<!\d[ \t]*)(?:CM|REV|RET|RA|VD|GRV)[\s#:.-]*\d/i;
+const NUMBERED_MARKING = /(?<![A-Za-z0-9])(?<!\d[ \t]*)(?:CM|REV|RET|RA|VD)[\s#:.-]*\d/i;
 
 /**
  * A Pastel credit-note NUMBER glued to its prefix: `CRN00045`, `CN0012`,
@@ -154,6 +160,14 @@ const NUMBERED_MARKING = /(?<![A-Za-z0-9])(?<!\d[ \t]*)(?:CM|REV|RET|RA|VD|GRV)[
  * `CRN-00045` refused while the glued form posted.
  */
 const GLUED_CREDIT_NUMBER = /(?<![A-Za-z0-9])(?:CRN|CN|KN)\d/i;
+
+/**
+ * `KANS` (kansellasie) and `MINUS` are credit marks only as a HEADER alone on
+ * its line: in prose they are Afrikaans "chance" (`Staan 'n kans om R1000 te
+ * wen`) and a discount (`Minus 10% vir pensioenarisse`), and round 19's bare
+ * match refused both.
+ */
+const HEADER_ONLY_MARKING = /^[\s*=-]*(?:KANS|MINUS)[\s*=-]*$/im;
 
 /** `TAX INVOICE (CR)` — the marker printed in brackets beside the type. */
 const BRACKETED_CREDIT = /\(\s*CR\s*\)/i;
@@ -198,7 +212,8 @@ const BENIGN_PHRASES: RegExp[] = [
   /(?:returned|exchanged)\s+(?:with)?in\s+\d+\s+days[^\n]*/gi,
   /exchange\s+rate[^\n]*/gi,
   /less\s+credit\s+note[^\n]*/gi,
-  /money[\s-]*back\s+guarantee[^\n]*/gi,
+  /money[\s-]*back\s+(?:guarantee|if|when|policy|offer)[^\n]*/gi,
+  /\d+\s*%\s*money[\s-]*back[^\n]*/gi,
 ];
 
 /** The document with every benign phrase blanked out. */
@@ -254,5 +269,6 @@ export function hasCreditIndicator(
   const scrubbed = scrubBenign(scrubVendorIdentity(text, vendorIdentity));
   if (CREDIT_WORD.test(scrubbed) || BRACKETED_CREDIT.test(scrubbed)) return true;
   if (AMOUNT_CR.test(scrubbed) || NUMBERED_MARKING.test(scrubbed) || GLUED_CREDIT_NUMBER.test(scrubbed)) return true;
+  if (HEADER_ONLY_MARKING.test(scrubbed)) return true;
   return total !== null && total !== undefined && total !== 0 && totalPrintedSigned(text, total);
 }

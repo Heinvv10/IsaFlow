@@ -71,7 +71,7 @@ describe('K-076 r19 MEDIUM-1 — credit markings the stems could not reach', () 
   it.each(['GEKANSELLEER', 'GEKREDITEER', 'OMGERUIL', 'TERUGGEGEE', 'Geannuleer', 'UITRUIL', 'Kr. Nota',
     'KRNOTA', 'CRN00045', 'CN0012', 'KN00123', 'RVSL', 'REVSL', 'RET 0012', 'RETD', "RET'D", 'REFD 0012',
     'RA 0012', 'CXL', 'CNX', 'RTV 0012', 'ANNULLED', 'REVERSE SALE', 'NEG SALE', '-VE SALE', 'ADJ NOTE',
-    'Adj. note', 'Reimbursement', 'Rückgabe', 'VD 0012', 'GRV 0012', 'MONEY BACK', 'KANS', 'MINUS'])(
+    'Adj. note', 'Reimbursement', 'Rückgabe', 'VD 0012', 'MONEY BACK', 'KANS', 'MINUS'])(
     '%s is a credit', (marker) => {
       expect(hasCreditIndicator(G(marker), 499)).toBe(true);
     });

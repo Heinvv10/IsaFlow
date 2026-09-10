@@ -97,7 +97,11 @@ export const SLIPS: Slip[] = [
   { name: 'E4 retail zero-rated, VAT: 0.00', text: `${CHECKERS}Maize Meal 1 100.00 100.00\nSub Total 100.00\nVAT: 0.00\nTotal 100.00`, payable: 100, outcome: 'post' },
 
   // Round 10 — constructed against this gate, in both directions.
-  { name: 'X1 registration number glued to a dash', text: `Waltons Stationery\nVAT-4123456789\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'post' },
+  // Round 20 turned this row from 'post' to 'refuse': its header prints
+  // `Invoice No: 55123` but never names the document a TAX INVOICE, INVOICE or
+  // RECEIPT on a line of its own, and the purchase-title gate fails closed.
+  // Measured cost, not a defect; the invariant still holds.
+  { name: 'X1 registration number glued to a dash', text: `Waltons Stationery\nVAT-4123456789\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'refuse' },
   { name: 'X2 no VAT line at all (the builder would invent 15%)', text: `${WALTONS}Total 1150.00`, payable: 1150, outcome: 'refuse' },
   { name: 'X3 a TOTAL column header (honest slip, refused)', text: 'Spar Rivonia\nDate: 2026-09-01\nReceipt No: 88001\nQTY ITEM TOTAL\n1 Bread 23.00\nSub Total 20.00\nVAT 3.00\nTotal 23.00', payable: 23, outcome: 'refuse' },
 

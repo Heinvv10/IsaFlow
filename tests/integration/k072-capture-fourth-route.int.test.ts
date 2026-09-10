@@ -76,8 +76,9 @@ const extracted = (reference: string, total: number) => ({
     unitPrice: Math.round((total / 1.15) * 100) / 100,
     total: Math.round((total / 1.15) * 100) / 100,
   }],
-  // The text the auto-post gate re-reads — without it nothing posts unattended.
-  rawText: `Sub Total ${(Math.round((total / 1.15) * 100) / 100).toFixed(2)}\n`
+  // The text the auto-post gate re-reads — without it nothing posts unattended —
+  // under the purchase title the gate requires (K-072 round 20).
+  rawText: `TAX INVOICE\nSub Total ${(Math.round((total / 1.15) * 100) / 100).toFixed(2)}\n`
     + `VAT ${(Math.round((total - total / 1.15) * 100) / 100).toFixed(2)}\nTotal ${total.toFixed(2)}`,
   confidence: 0.9, warnings: [], extractionMethod: 'vlm',
 });
@@ -184,7 +185,7 @@ async function markCreditNote(documentId: string): Promise<void> {
 
 /** Reprint the document's text as a mixed basket whose VAT analysis is below the tender. */
 async function markAmbiguousTotals(documentId: string): Promise<void> {
-  const text = 'Waltons Stationery\nTOTAL 1150.00\nCASH 1200.00\nCHANGE 50.00\n'
+  const text = 'Waltons Stationery\nTAX INVOICE\nTOTAL 1150.00\nCASH 1200.00\nCHANGE 50.00\n'
     + 'VAT ANALYSIS\nSub Total 870.00\nVAT 15% 130.50\nTotal 1000.50';
   await pool.query(
     `UPDATE captured_documents

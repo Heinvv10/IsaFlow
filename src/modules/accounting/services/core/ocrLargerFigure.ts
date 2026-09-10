@@ -127,11 +127,17 @@ function unexplainedItem(text: string, total: number, net: number | null): numbe
   // header's `VAT No 4123456789` opens with a summary word and prints none.
   const block = lines.findIndex((line) => SUMMARY_LINE_START.test(line.trimStart()) && printedFigures(line).length > 0);
   const items = (block < 0 ? lines : lines.slice(0, block)).map((line) => printedFigures(line));
-  const loose = items.find((row) => row.length === 1 && row[0]!.isUnroled);
+  const isLoose = (row: typeof items[number]) => row.length === 1 && row[0]!.isUnroled;
+  const loose = items.find(isLoose);
   if (!loose) return null;
-  const sum = Math.round(items.reduce((acc, row) => acc + (row[row.length - 1]?.value ?? 0), 0) * 100) / 100;
-  const adds = [total, net].some((target) => target !== null && Math.abs(sum - target) <= 0.01);
-  return adds ? null : loose[0]!.value;
+  const lineSum = (rows: typeof items) => Math.round(rows.reduce((acc, row) => acc + (row[row.length - 1]?.value ?? 0), 0) * 100) / 100;
+  const matches = (sum: number) => [total, net].some((target) => target !== null && Math.abs(sum - target) <= 0.01);
+  // If the priced rows ALREADY add up to the net or the total, the loose whole
+  // number is an extra on top of them, however neatly the grand sum lands:
+  // `Hake 200.00 / Cake cutting per Table 30` under `Sub Total 200.00 /
+  // Total 230.00` sums to the total only because the charge equals the VAT.
+  if (matches(lineSum(items.filter((row) => !isLoose(row))))) return loose[0]!.value;
+  return matches(lineSum(items)) ? null : loose[0]!.value;
 }
 
 /** Why a document's own figures do not reconcile against the total read. */
