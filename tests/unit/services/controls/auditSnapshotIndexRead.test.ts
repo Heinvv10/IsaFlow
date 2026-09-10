@@ -3,6 +3,7 @@ import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 import {sealAuditSnapshot} from '@/modules/accounting/services/controls/auditSnapshotSeal';
 import {buildSnapshotIndex} from '@/modules/accounting/services/controls/auditSnapshotIndexMaterial';
 import {getAuditSnapshotPage,readAuditSnapshotChunk} from '@/modules/accounting/services/controls/auditSnapshotPageService';
+import {readAuditSnapshotIndexHeader} from '@/modules/accounting/services/controls/auditSnapshotIndexRead';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 vi.mock('@/modules/accounting/services/controls/context',()=>({assertControlTx:vi.fn()}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:vi.fn(async()=>undefined)}));
@@ -11,9 +12,9 @@ const companyId='11111111-1111-4111-8111-111111111111',snapshotId='22222222-2222
 const query=vi.fn(),ctx={principal:{companyId},sql:query} as unknown as ControlTx;
 beforeEach(()=>{query.mockReset();vi.mocked(assertEffectivePermission).mockReset().mockResolvedValue(undefined);vi.stubEnv('ENCRYPTION_KEY','synthetic-index-read-key-outside-database');vi.stubEnv('CONTROL_SNAPSHOT_SIGNING_KEY','synthetic-index-sign-key-outside-database');});
 afterEach(()=>vi.unstubAllEnvs());
-async function fixture(){
+async function fixture(identity=snapshotId){
  const record={source:'journal_entry',id:'one',version:1,data:{amount:'115.00'}};
- const sealed=sealAuditSnapshot({version:1,companyId,snapshotId,cutoff:'2026-09-09',capturedAt:'2026-09-09T00:00:00.000Z',records:[record],
+ const sealed=sealAuditSnapshot({version:1,companyId,snapshotId:identity,cutoff:'2026-09-09',capturedAt:'2026-09-09T00:00:00.000Z',records:[record],
   populations:['journal_entry','journal_line','payroll_run','payroll_run_line'].map(source=>({source,count:source==='journal_entry'?1:0,excludedCount:0,exclusions:[]})),checks:[],evidence:[],coverage:[],missingSources:[]});
  const material=await buildSnapshotIndex(sealed,[],['read:reports','read:payroll']);
  query.mockImplementation(async(strings:TemplateStringsArray)=>{
@@ -47,4 +48,9 @@ it('refuses a missing item rather than returning a misleading complete page',asy
  await fixture();const original=query.getMockImplementation()!;
  query.mockImplementation(async(strings,...args)=>strings.join('').includes('protected_item')?[]:original(strings,...args));
  await expect(getAuditSnapshotPage(ctx,{snapshotId,section:'records'})).rejects.toThrow(/incomplete|unavailable/i);
+});
+
+it('normalizes valid UUID aliases before authenticating the retained header identity',async()=>{
+ const id='abcdefab-1234-4123-8123-abcdefabcdef';await fixture(id);
+ expect(await readAuditSnapshotIndexHeader(ctx,id.toUpperCase())).toMatchObject({snapshotId:id});
 });
