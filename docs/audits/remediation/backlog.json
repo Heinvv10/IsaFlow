@@ -11365,6 +11365,35 @@
       "severity": "medium",
       "source": "Measured by the R-059 round-6 blind reviewer on the schema fixture; each reproduces identically on a clean origin/master archive, so none is caused by R-059.",
       "processNotes": "Same shape as the two bridge gaps R-059 round 6 fixed (the AR write-off journal and the AP credit-note journal). Fix by enumerating every journal type that settles or reverses a document, and covering each with a mixed-set test that asserts every bridge is 0 and no false items appear. Note: the cancelled-credit-note pairs were credited to R-074 in R-059's fix.md, wrongly; R-074 is the timestamptz as-at comparison.\n\nRESOLVED 2026-09-10 (R-059 round-6 reviewer): the -1150 residual on two leftover K053ID fixture companies is a FIXTURE ARTEFACT, not a reconcileSubledger gap. Each holds a soft-deleted invoice whose last delete reversal has no soft_delete_journal_reversals row, because k053-soft-delete-undo-identity.int.test.ts:205's afterAll deletes those rows first and the interrupted run stopped before its other deletes. With the row restored (in a rolled-back transaction), unexplained is 0 in both companies at both dates. Production cannot reach this state: the only code deleting those rows un-deletes the invoice (softDeleteJournalService.ts:216) or hard-deletes it in the same pass (softDeleteService.ts:173). Separate test-hygiene fix: reorder that afterAll and purge the two K053ID companies from the schema fixture."
+    },
+    {
+      "id": "R-085",
+      "claim": "",
+      "area": "reports",
+      "affectedPaths": [
+        "tests/unit/components/reports/reportPacksShareMount.test.tsx"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Test-only, but the CI gate is what deploy.sh runs first: this flake aborted a production deploy on 2026-09-07 and costs a full gate rerun on every branch that hits it. The find(...)! also turns \"the call never happened\" into a misleading wrong-value assertion.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None; test defect.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "reportPacksShareMount.test.tsx asserts that fetches fired after waiting only for a button, so the CI gate flakes under load",
+      "severity": "medium",
+      "source": "Confirmed on origin/master by the orchestrating session: lines ~106-110 do asked.find(...)! after waiting only for the Regenerate button, and the manager test (~:138-144) asserts asked.some(commentary) with no waitFor. Failed the full gate twice on 2026-09-10, on K-071 round 22 and on the R-075 test fix, at load ~19-22; passed alone both times.",
+      "processNotes": "Fix: waitFor the condition the assertion depends on (the fetch having fired), then find; never assert on asynchronously collected state outside a waitFor; do not raise timeouts. Prove it by reproducing the flake under artificial CPU load before and after."
     }
   ],
   "sourceInventory": [
