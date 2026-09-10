@@ -14,7 +14,7 @@ const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3,st
 let fixture:ForensicFixture;
 type Person={id:string;companyId:string};
 const u4:Person={id:randomUUID(),companyId:''};
-const employee=randomUUID(),component=randomUUID();
+const employee=randomUUID(),component=randomUUID(),policyId=randomUUID();
 const accounts=['5200','2140','2150','2160','1110','2175'].map(code=>({id:randomUUID(),code}));
 async function actor<T>(user:Person,fn:(ctx:ControlTx)=>Promise<T>):Promise<T>{
   const client=await pool.connect();
@@ -41,7 +41,7 @@ beforeAll(async()=>{
   await pool.query(`INSERT INTO payroll_employee_components(id,employee_id,component_id,amount,effective_from)
     VALUES($1,$2,$3,100,'2026-01-01')`,[randomUUID(),employee,component]);
   await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
-    VALUES($1,$2,'Synthetic payroll policy','payroll_run','amount','any',0,'admin')`,[randomUUID(),fixture.companyA]);
+    VALUES($1,$2,'Synthetic payroll policy','payroll_run','amount','any',0,'admin')`,[policyId,fixture.companyA]);
 });
 afterAll(async()=>{await pool.end();});
 let nextMonth=0;
@@ -68,7 +68,7 @@ async function ledger(runId:string){
   const journals=await pool.query(`SELECT id,status FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2 ORDER BY id`,[fixture.companyA,runId]);
   const totals=await pool.query(`SELECT COALESCE(SUM(debit),0)::text AS debit,COALESCE(SUM(credit),0)::text AS credit,COUNT(*)::int AS lines FROM gl_journal_lines
     WHERE company_id=$1 AND journal_entry_id IN(SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2)`,[fixture.companyA,runId]);
-  const effects=await pool.query(`SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='payroll_run.post'`,[fixture.companyA,runId]);
+  const effects=await pool.query(`SELECT id FROM control_operation_effects WHERE company_id=$1 AND lower(entity_id)=lower($2) AND operation='payroll_run.post'`,[fixture.companyA,runId]);
   const events=await pool.query(`SELECT id FROM control_change_events WHERE company_id=$1 AND entity_id=$2 AND action='payroll_run.post'`,[fixture.companyA,runId]);
   return {journals:journals.rows,totals:totals.rows[0],effects:effects.rows.length,events:events.rows.length};
 }
@@ -76,6 +76,12 @@ async function withRole<T>(person:Person,role:string,fn:()=>Promise<T>):Promise<
   await pool.query('UPDATE company_users SET role=$3 WHERE company_id=$1 AND user_id=$2',[fixture.companyA,person.id,role]);
   try{return await fn();}finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,person.id]);}
 }
+async function withoutPolicy<T>(fn:()=>Promise<T>):Promise<T>{
+  await pool.query('UPDATE approval_rules SET is_active=false WHERE company_id=$1 AND id=$2',[fixture.companyA,policyId]);
+  try{return await fn();}finally{await pool.query('UPDATE approval_rules SET is_active=true WHERE company_id=$1 AND id=$2',[fixture.companyA,policyId]);}
+}
+const services=async()=>({...await import('@/modules/accounting/services/controls/approvalRequestService'),
+  ...await import('@/modules/accounting/services/payroll/payrollApprovalService')});
 
 it('replays an unrevoked effected payroll posting exactly once on retry, with and without the approval id',async()=>{
   const current=await calculatedRun(),approvalId=await approve(current.ref,fixture.u1,fixture.u2);
@@ -96,7 +102,7 @@ it('refuses a retried payroll posting after the independent reviewer is revoked,
   // Kernel path (approval id supplied) is the sibling behaviour: the revoked reviewer voids replay.
   expect(withId).toMatchObject({ok:false,error:expect.stringMatching(/no longer valid/)});
   // Fresh retry of the same run must refuse too; a returned receipt here is the defect.
-  expect(withoutId,'fresh retry returned the stored receipt despite revoked reviewer').toMatchObject({ok:false});
+  expect(withoutId,'fresh retry returned the stored receipt despite revoked reviewer').toEqual({ok:false,error:'Approval authority is no longer valid'});
 });
 
 it('refuses a retried payroll posting after the original requester is revoked, without a second GL effect',async()=>{
@@ -106,5 +112,60 @@ it('refuses a retried payroll posting after the original requester is revoked, w
   expect(await ledger(current.id)).toEqual(before);
   expect(before.journals).toEqual([{id:first.journalEntryId,status:'posted'}]);
   expect(withId).toMatchObject({ok:false,error:expect.stringMatching(/no longer valid/)});
-  expect(withoutId,'fresh retry returned the stored receipt despite revoked requester').toMatchObject({ok:false});
+  expect(withoutId,'fresh retry returned the stored receipt despite revoked requester').toEqual({ok:false,error:'Approval authority is no longer valid'});
+});
+
+it('replays an uppercase-ID retry of a posted run exactly once, ledger unchanged',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref,fixture.u1,fixture.u2);
+  const first=await post(current.id,approvalId),before=await ledger(current.id),upper=current.id.toUpperCase();
+  expect(await settle(post(upper)),'uppercase fresh retry').toEqual({ok:true,value:first});
+  expect(await settle(post(upper,approvalId)),'uppercase kernel retry').toEqual({ok:true,value:first});
+  expect(await ledger(current.id)).toEqual(before);
+});
+
+it('replays a legacy receipt stored under an uppercase entity id, and refuses a case-only duplicate receipt',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref,fixture.u1,fixture.u2);
+  const first=await post(current.id,approvalId);
+  await pool.query(`UPDATE control_operation_effects SET entity_id=upper(entity_id)
+    WHERE company_id=$1 AND entity_id=$2 AND operation='payroll_run.post'`,[fixture.companyA,current.id]);
+  const before=await ledger(current.id);
+  expect(await settle(post(current.id)),'legacy uppercase receipt').toEqual({ok:true,value:first});
+  await pool.query(`INSERT INTO control_operation_effects(company_id,id,operation_id,operation,entity_type,entity_id,binding_hash,result,committed_at)
+    SELECT company_id,gen_random_uuid(),operation_id,operation,entity_type,lower(entity_id),binding_hash,result,committed_at
+    FROM control_operation_effects WHERE company_id=$1 AND entity_id=upper($2) AND operation='payroll_run.post'`,[fixture.companyA,current.id]);
+  expect(await settle(post(current.id)),'case-only duplicate').toEqual({ok:false,error:'Ambiguous payroll posting receipt'});
+  expect((await ledger(current.id)).journals).toEqual(before.journals);
+});
+
+it('replays a payroll receipt that had no linked approval exactly once on retry',async()=>{
+  const current=await calculatedRun();
+  const [first,before,retry,after]=await withoutPolicy(async()=>{
+    const first=await post(current.id),before=await ledger(current.id);
+    return [first,before,await settle(post(current.id)),await ledger(current.id)] as const;
+  });
+  const approvals=await pool.query('SELECT id FROM control_operation_approvals WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,current.id]);
+  expect(approvals.rows).toEqual([]);expect(before.effects).toBe(1);
+  expect(retry).toEqual({ok:true,value:first});expect(after).toEqual(before);
+});
+
+it('replays a no-approval receipt whose own request also requested approval for another run',async()=>{
+  const other=await calculatedRun(),current=await calculatedRun(),{requestOperationApproval,approvePayrollRun}=await services();
+  const [first,before,retry]=await withoutPolicy(async()=>{
+    const first=await actor(fixture.u1,async ctx=>{await requestOperationApproval(ctx,other.ref);return approvePayrollRun(fixture.companyA,current.id,fixture.u1.id);});
+    return [first,await ledger(current.id),await settle(post(current.id))] as const;
+  });
+  const shared=await pool.query(`SELECT a.id FROM control_operation_effects e JOIN control_operation_approvals a
+    ON a.company_id=e.company_id AND a.operation_id=e.operation_id WHERE e.company_id=$1 AND e.entity_id=$2`,[fixture.companyA,current.id]);
+  expect(shared.rows,'effect shares its operation id with the other run approval').toHaveLength(1);
+  expect(retry).toEqual({ok:true,value:first});expect(await ledger(current.id)).toEqual(before);
+});
+
+it('replays a consumed approval whose request also requested another run approval, still rechecking revocation',async()=>{
+  const current=await calculatedRun(),other=await calculatedRun(),{requestOperationApproval,decideOperationApproval}=await services();
+  const approvalId=await actor(fixture.u1,async ctx=>{const own=await requestOperationApproval(ctx,current.ref);await requestOperationApproval(ctx,other.ref);return own.id;});
+  await actor(fixture.u2,ctx=>decideOperationApproval(ctx,approvalId,'approved'));
+  const first=await post(current.id,approvalId),before=await ledger(current.id);
+  expect(await settle(post(current.id)),'fresh retry with shared request').toEqual({ok:true,value:first});
+  expect(await withRole(fixture.u2,'viewer',()=>settle(post(current.id))),'revoked reviewer').toEqual({ok:false,error:'Approval authority is no longer valid'});
+  expect(await ledger(current.id)).toEqual(before);
 });
