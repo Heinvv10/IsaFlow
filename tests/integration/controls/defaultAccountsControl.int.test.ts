@@ -60,7 +60,9 @@ it('captures every old designation beyond a preview page and exposes real author
  const after=await f.state();for(const id of ids){const changes=await f.changes('gl_account',id);expect(changes).toHaveLength(1);expect(changes[0].values).toEqual({before:before.accounts.find((r:{id:string})=>r.id===id),after:after.accounts.find((r:{id:string})=>r.id===id)});}
  const {readControlEntityHistory}=await import('@/modules/accounting/services/controls/controlChangeHistoryService');
  const read=()=>f.actor(ctx=>readControlEntityHistory(ctx,{entityType:'accounting_default_accounts',entityId:f.f.companyA}));
- const result=await read();expect(result.items[0].after).toEqual(after.settings);
+ const result=await read(),retained=await f.changes('accounting_default_accounts',f.f.companyA);
+ expect(result.items).toHaveLength(retained.length);expect(result.items[0].before).toEqual(retained[0].values.before);
+ expect(result.items.at(-1)?.after).toEqual(after.settings);expect(result.items.at(-1)?.newVersion).toBe(Number(retained.at(-1).new_version));
  await f.pool.query('INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,$3,false)',[f.f.companyA,f.f.u1.id,'reports']);
  try{await expect(read()).rejects.toThrow();}finally{await f.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key=$3',[f.f.companyA,f.f.u1.id,'reports']);}
 });
