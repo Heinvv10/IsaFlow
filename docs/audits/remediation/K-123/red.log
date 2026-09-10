@@ -1,0 +1,25 @@
+AssertionError: expected 2 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 2
+
+ ❯ tests/integration/k123-list-disputes-total.int.test.ts:47:22
+     45|   const page = await listDisputes(company, { limit: 2, offset: 0 });
+     46|   expect(page.disputes).toHaveLength(2);
+     47|   expect(page.total).toBe(3);
+       |                      ^
+     48| });
+     49|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:30:44
+   Duration  1.57s (transform 633ms, setup 0ms, import 901ms, tests 287ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

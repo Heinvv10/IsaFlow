@@ -1,0 +1,103 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts (4 tests | 4 failed) 184ms
+     × exact matches only the identical description 18ms
+     × contains treats _ as a literal underscore 7ms
+     × starts_with treats _ as a literal underscore 11ms
+     × contains treats % as a literal percent sign 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts > K-141 a rule pattern must not act as an ILIKE wildcard > exact matches only the identical description
+AssertionError: expected [ 'SALARYXJAN', 'SALARY_JAN' ] to deeply equal [ 'SALARY_JAN' ]
+
+- Expected
++ Received
+
+  [
++   "SALARYXJAN",
+    "SALARY_JAN",
+  ]
+
+ ❯ tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts:82:46
+     80|
+     81|   it('exact matches only the identical description', async () => {
+     82|     expect(await ids('SALARY_JAN', 'exact')).toEqual(['SALARY_JAN']);
+       |                                              ^
+     83|   });
+     84|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts > K-141 a rule pattern must not act as an ILIKE wildcard > contains treats _ as a literal underscore
+AssertionError: expected [ 'SALARYXJAN', 'SALARY_JAN' ] to deeply equal [ 'SALARY_JAN' ]
+
+- Expected
++ Received
+
+  [
++   "SALARYXJAN",
+    "SALARY_JAN",
+  ]
+
+ ❯ tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts:86:49
+     84|
+     85|   it('contains treats _ as a literal underscore', async () => {
+     86|     expect(await ids('SALARY_JAN', 'contains')).toEqual(['SALARY_JAN']…
+       |                                                 ^
+     87|   });
+     88|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts > K-141 a rule pattern must not act as an ILIKE wildcard > starts_with treats _ as a literal underscore
+AssertionError: expected [ 'SALARYXJAN', 'SALARY_JAN' ] to deeply equal [ 'SALARY_JAN' ]
+
+- Expected
++ Received
+
+  [
++   "SALARYXJAN",
+    "SALARY_JAN",
+  ]
+
+ ❯ tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts:90:49
+     88|
+     89|   it('starts_with treats _ as a literal underscore', async () => {
+     90|     expect(await ids('SALARY_', 'starts_with')).toEqual(['SALARY_JAN']…
+       |                                                 ^
+     91|   });
+     92|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts > K-141 a rule pattern must not act as an ILIKE wildcard > contains treats % as a literal percent sign
+AssertionError: expected [ 'DISCOUNT 50% OFF', …(1) ] to deeply equal [ 'DISCOUNT 50% OFF' ]
+
+- Expected
++ Received
+
+  [
+    "DISCOUNT 50% OFF",
++   "DISCOUNT 50ANYTHING OFF",
+  ]
+
+ ❯ tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts:94:46
+     92|
+     93|   it('contains treats % as a literal percent sign', async () => {
+     94|     expect(await ids('50% OFF', 'contains')).toEqual(['DISCOUNT 50% OF…
+       |                                              ^
+     95|   });
+     96| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  11:39:24
+   Duration  2.60s (transform 656ms, setup 0ms, import 1.20s, tests 184ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

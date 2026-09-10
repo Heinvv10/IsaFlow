@@ -209,6 +209,7 @@ export const performBankReconciliationTool: McpTool = {
       still_unmatched: matchResult?.unmatched ?? current?.unmatchedCount ?? 0,
       low_confidence_candidates: matchResult?.candidates.length ?? 0,
       skipped_raced: matchResult?.skippedRaced ?? 0,
+      skipped_unavailable: matchResult?.skippedUnavailable ?? 0,
       ...(complete && !balanced
         ? {
           note:

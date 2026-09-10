@@ -16,6 +16,9 @@ import type {
   SupplierInvoice,
   SupplierInvoiceItem,
   SupplierInvoiceCreateInput,
+  SupplierInvoiceItemInput,
+  SupplierInvoiceImportInput,
+  SupplierInvoiceImportItemInput,
 } from '../../types/ap.types';
 import type { VatType } from '../../types/gl.types';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
@@ -63,14 +66,22 @@ export async function getSupplierInvoiceById(
   }
 }
 
+/** The importer-only exact tax on a line, or undefined on a public input. */
+const lineTax = (item: SupplierInvoiceItemInput): number | undefined =>
+  (item as SupplierInvoiceImportItemInput).taxAmount;
+
 export async function createSupplierInvoice(
   companyId: string,
-  input: SupplierInvoiceCreateInput,
+  input: SupplierInvoiceCreateInput | SupplierInvoiceImportInput,
   userId: string,
   /** Migration 530 actor. Omitted by the REST route; the MCP tool supplies it. */
   actor?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
+    // Only an importer's own input object can turn this on; every REST route
+    // builds its input field by field and never copies it from a body.
+    const trustSourceTax = 'trustSourceTax' in input && input.trustSourceTax === true;
+
     // W1 (P2.1): negative quantities/prices produce negative documents.
     for (const item of input.items || []) {
       if (!(Number(item.quantity) > 0)) {
@@ -78,6 +89,10 @@ export async function createSupplierInvoice(
       }
       if (Number(item.unitPrice) < 0) {
         throw new Error(`Line "${item.description}": unit price cannot be negative`);
+      }
+      if (trustSourceTax && lineTax(item) !== undefined
+          && !(Number.isFinite(Number(lineTax(item))) && Number(lineTax(item)) >= 0)) {
+        throw new Error(`Line "${item.description}": tax amount must be a non-negative number`);
       }
     }
     const invoiceTaxRate = input.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE;
@@ -87,7 +102,13 @@ export async function createSupplierInvoice(
     const computedItems = input.items.map((item) => {
       const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100;
       const itemTaxRate = item.taxRate ?? invoiceTaxRate;
-      const itemTax = Math.round(lineTotal * itemTaxRate / 100 * 100) / 100;
+      // An importer may supply the source system's exact tax; deriving it from
+      // the rounded rate is what makes a migrated row disagree with its journal.
+      // Gated on trustSourceTax so a request body can never reach this branch.
+      const sourceTax = trustSourceTax ? lineTax(item) : undefined;
+      const itemTax = sourceTax !== undefined
+        ? Math.round(Number(sourceTax) * 100) / 100
+        : Math.round(lineTotal * itemTaxRate / 100 * 100) / 100;
       // Warn when a 0% line has no explicit vatClassification — exempt and zero-rated
       // both have 0% rate but differ in input VAT recoverability under the VAT Act.
       if (itemTaxRate === 0 && !item.vatClassification) {

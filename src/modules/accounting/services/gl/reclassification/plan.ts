@@ -136,7 +136,7 @@ export async function planReclassification(
   //
   // IN ITS OWN SAVEPOINT, because the timeout is CAUGHT. A `lock_timeout`
   // raises 55P03, which aborts the (sub)transaction; catching the error does
-  // not un-poison it, and `planFromArgs` turns `RECLASS_LINE_LOCKED` into a
+  // not un-poison it, and `planFromArgs` turns `RECLASS_LINE_LOCK_TIMEOUT` into a
   // toolError and RETURNS. The enclosing `withSavepoint` in `registry.call`
   // then issues `RELEASE SAVEPOINT` on its normal-return path, which raises
   // 25P02 — so the agent received GENERIC_FAILURE and the retry wording was

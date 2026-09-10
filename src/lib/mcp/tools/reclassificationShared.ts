@@ -116,7 +116,7 @@ export async function planFromArgs(
     // does.
     const code = typeof err === 'object' && err !== null
       ? (err as { code?: unknown }).code : undefined;
-    if (code === 'RECLASS_LINE_LOCKED' || code === 'GL_ACCOUNT_LOCK_TIMEOUT') {
+    if (code === 'RECLASS_LINE_LOCK_TIMEOUT' || code === 'GL_ACCOUNT_LOCK_TIMEOUT') {
       return toolError((err as Error).message);
     }
     throw err;

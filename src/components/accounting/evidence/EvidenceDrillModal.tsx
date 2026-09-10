@@ -8,38 +8,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Loader2, AlertCircle, FileText, ExternalLink } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
-export interface AccountEvidenceRow {
-  je_id: string;
-  entry_date: string;
-  entry_number: string | null;
-  description: string | null;
-  debit: number;
-  credit: number;
-  posting_agent: string | null;
-  extraction_confidence: number | null;
-  source_document_id: string | null;
-  document_vendor: string | null;
-  document_reference: string | null;
-  document_date: string | null;
-  document_thumbnail_url: string | null;
-}
-
-interface JEDetail {
-  je: Record<string, unknown>;
-  lines: Record<string, unknown>[];
-  document: {
-    vendor?: string | null;
-    reference?: string | null;
-    thumbnail_url?: string | null;
-    extraction_confidence?: number | null;
-  } | null;
-}
+import type { AccountEvidenceRow, JeEvidenceDetail } from '@/modules/accounting/services/core/evidenceGraphService';
 
 interface Props {
   accountId: string;
   accountName: string;
   periodStart: string;
   periodEnd: string;
+  costCentreId?: string;
+  businessUnitId?: string;
   onClose: () => void;
 }
 
@@ -69,7 +46,7 @@ function confidenceBadge(conf: number | null): ReactElement {
 }
 
 function JEDetailPanel({ jeId, onBack }: { jeId: string; onBack: () => void }) {
-  const [detail, setDetail] = useState<JEDetail | null>(null);
+  const [detail, setDetail] = useState<JeEvidenceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
 
@@ -96,17 +73,13 @@ function JEDetailPanel({ jeId, onBack }: { jeId: string; onBack: () => void }) {
           <p className="text-xs font-semibold text-[var(--ff-text-tertiary)] uppercase tracking-wide">Source Document</p>
           {doc ? (
             <>
-              {doc.thumbnail_url ? (
-                <img src={doc.thumbnail_url} alt="Document thumbnail" className="w-full max-h-40 object-contain rounded border border-[var(--ff-border-light)]" />
-              ) : (
-                <div className="flex items-center justify-center w-full h-24 rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <FileText className="h-8 w-8 text-[var(--ff-text-tertiary)]" />
-                </div>
-              )}
-              {doc.vendor && <p className="text-sm text-[var(--ff-text-primary)]"><span className="text-[var(--ff-text-tertiary)]">Vendor: </span>{doc.vendor}</p>}
-              {doc.reference && <p className="text-sm text-[var(--ff-text-primary)]"><span className="text-[var(--ff-text-tertiary)]">Ref: </span>{doc.reference}</p>}
-              {doc.extraction_confidence !== null && doc.extraction_confidence !== undefined && (
-                <p className="text-sm">Confidence: {confidenceBadge(doc.extraction_confidence)}</p>
+              <div className="flex items-center justify-center w-full h-24 rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
+                <FileText className="h-8 w-8 text-[var(--ff-text-tertiary)]" />
+              </div>
+              {doc.vendorName && <p className="text-sm text-[var(--ff-text-primary)]"><span className="text-[var(--ff-text-tertiary)]">Vendor: </span>{doc.vendorName}</p>}
+              {doc.referenceNumber && <p className="text-sm text-[var(--ff-text-primary)]"><span className="text-[var(--ff-text-tertiary)]">Ref: </span>{doc.referenceNumber}</p>}
+              {detail?.je.extractionConfidence !== null && detail?.je.extractionConfidence !== undefined && (
+                <p className="text-sm">Confidence: {confidenceBadge(detail?.je.extractionConfidence)}</p>
               )}
             </>
           ) : (
@@ -118,8 +91,8 @@ function JEDetailPanel({ jeId, onBack }: { jeId: string; onBack: () => void }) {
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {(detail?.lines ?? []).map((line, i) => (
               <div key={i} className="flex justify-between text-xs text-[var(--ff-text-secondary)]">
-                <span className="font-mono">{String((line as Record<string, unknown>).account_code ?? '')}</span>
-                <span>{fmt(Number((line as Record<string, unknown>).debit ?? 0))} / {fmt(Number((line as Record<string, unknown>).credit ?? 0))}</span>
+                <span className="font-mono">{line.glAccountName}</span>
+                <span>{fmt(line.debit)} / {fmt(line.credit)}</span>
               </div>
             ))}
           </div>
@@ -129,7 +102,7 @@ function JEDetailPanel({ jeId, onBack }: { jeId: string; onBack: () => void }) {
   );
 }
 
-export function EvidenceDrillModal({ accountId, accountName, periodStart, periodEnd, onClose }: Props) {
+export function EvidenceDrillModal({ accountId, accountName, periodStart, periodEnd, costCentreId, businessUnitId, onClose }: Props) {
   const [rows, setRows] = useState<AccountEvidenceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -138,12 +111,14 @@ export function EvidenceDrillModal({ accountId, accountName, periodStart, period
   const load = useCallback(async () => {
     setLoading(true); setErr('');
     const params = new URLSearchParams({ from: periodStart, to: periodEnd, limit: '200' });
+    if (costCentreId) params.set('cost_centre_id', costCentreId);
+    if (businessUnitId) params.set('business_unit_id', businessUnitId);
     apiFetch(`/api/accounting/evidence/trial-balance/${accountId}?${params}`)
       .then(r => r.json())
-      .then(json => { setRows(json.data ?? []); })
+      .then(json => { setRows(json.data?.rows ?? []); })
       .catch(() => setErr('Failed to load evidence'))
       .finally(() => setLoading(false));
-  }, [accountId, periodStart, periodEnd]);
+  }, [accountId, periodStart, periodEnd, costCentreId, businessUnitId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -186,24 +161,24 @@ export function EvidenceDrillModal({ accountId, accountName, periodStart, period
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(row => (
-                    <tr key={row.je_id} className="hover:bg-[var(--ff-bg-primary)]/40">
+                    <tr key={row.jeId} className="hover:bg-[var(--ff-bg-primary)]/40">
                       <td className="py-2 pr-3 font-mono text-xs text-[var(--ff-text-secondary)] whitespace-nowrap">
-                        {row.entry_date ? String(row.entry_date).substring(0, 10) : '—'}
+                        {row.entryDate ? String(row.entryDate).substring(0, 10) : '—'}
                       </td>
-                      <td className="py-2 pr-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{row.entry_number ?? '—'}</td>
+                      <td className="py-2 pr-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{row.entryNumber ?? '—'}</td>
                       <td className="py-2 pr-3 text-[var(--ff-text-primary)] max-w-xs truncate">{row.description ?? '—'}</td>
                       <td className="py-2 pr-3 text-right font-mono text-xs text-[var(--ff-text-primary)]">{row.debit > 0 ? fmt(row.debit) : '—'}</td>
                       <td className="py-2 pr-3 text-right font-mono text-xs text-[var(--ff-text-primary)]">{row.credit > 0 ? fmt(row.credit) : '—'}</td>
-                      <td className="py-2 pr-3">{agentBadge(row.posting_agent)}</td>
-                      <td className="py-2 pr-3 text-right">{confidenceBadge(row.extraction_confidence)}</td>
+                      <td className="py-2 pr-3">{agentBadge(row.postingAgent)}</td>
+                      <td className="py-2 pr-3 text-right">{confidenceBadge(row.extractionConfidence)}</td>
                       <td className="py-2">
-                        {row.source_document_id ? (
+                        {row.sourceDocumentId ? (
                           <button
-                            onClick={() => setDrillJeId(row.je_id)}
+                            onClick={() => setDrillJeId(row.jeId)}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25"
                           >
                             <ExternalLink className="h-3 w-3" />
-                            {row.document_vendor ?? row.document_reference ?? 'View'}
+                            {row.documentVendor ?? row.documentReference ?? 'View'}
                           </button>
                         ) : (
                           <span className="text-[var(--ff-text-tertiary)] text-xs">—</span>
