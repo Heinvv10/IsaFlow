@@ -28,6 +28,9 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlMock,
     withTransaction: vi.fn(),
+    // createQuote now inserts header AND lines inside insertWithReservedNumber's
+    // savepoint, so the helper's withSavepoint has to exist here.
+    withSavepoint: vi.fn(async (_name: string, fn: () => unknown) => fn()),
     // Minimal faithful fmtDate: mapQuote serializes pg DATE via fmtDate (P1.2).
     fmtDate: (d: unknown) =>
       d instanceof Date
@@ -143,8 +146,8 @@ describe('getQuote — reads real customer_quote_lines columns', () => {
 
 describe('createQuote — writes real customer_quote_lines columns', () => {
   it('inserts lines using sort_order/amount/gl_account_id, not line_number/line_total/account_id', async () => {
-    mockSql.mockResolvedValueOnce([]); // nextQuoteNumber — no existing quotes
-    mockSql.mockResolvedValueOnce([quoteHeaderRow()]); // INSERT customer_quotes RETURNING *
+    mockSql.mockResolvedValueOnce([{ used: 0, prefix: 'QUO', padding: 7 }]); // reserve from the company sequence
+    mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]); // INSERT customer_quotes RETURNING id
     mockSql.mockResolvedValueOnce([]); // INSERT line 1
     mockSql.mockResolvedValueOnce([]); // INSERT line 2
     mockSql.mockResolvedValueOnce([quoteHeaderRow()]); // getQuote header
@@ -187,8 +190,8 @@ describe('createQuote — writes real customer_quote_lines columns', () => {
   });
 
   it('computes amount as quantity * unitPrice, tax-exclusive (matches customer_invoice_items.amount semantics)', async () => {
-    mockSql.mockResolvedValueOnce([]);
-    mockSql.mockResolvedValueOnce([quoteHeaderRow()]);
+    mockSql.mockResolvedValueOnce([{ used: 0, prefix: 'QUO', padding: 7 }]);
+    mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]);
     mockSql.mockResolvedValueOnce([]); // capture this call's values below
     mockSql.mockResolvedValueOnce([quoteHeaderRow()]);
     mockSql.mockResolvedValueOnce([realQuoteLineRow()]);
@@ -214,8 +217,8 @@ describe('createQuote — writes real customer_quote_lines columns', () => {
   });
 
   it('passes sort_order as the 1-based line position', async () => {
-    mockSql.mockResolvedValueOnce([]);
-    mockSql.mockResolvedValueOnce([quoteHeaderRow()]);
+    mockSql.mockResolvedValueOnce([{ used: 0, prefix: 'QUO', padding: 7 }]);
+    mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]);
     mockSql.mockResolvedValueOnce([]);
     mockSql.mockResolvedValueOnce([]);
     mockSql.mockResolvedValueOnce([quoteHeaderRow()]);
