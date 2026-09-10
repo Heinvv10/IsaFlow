@@ -14,14 +14,38 @@ vi.mock('@/modules/accounting/services/afs/packAiSummaryService',()=>({
  generateExecutiveSummary:vi.fn(async()=>'Synthetic summary'),generateSectionCommentary:vi.fn(async()=>'Synthetic commentary')}));
 
 /**
- * A pack generated without review carries no signature and no reviewer. It is generated — a
- * person can open it — but it may not be DELIVERED until someone signs the document off. The
- * gate lives in deliverPack, the one place every caller passes through; the route's own check
- * is defence in depth.
+ * A pack generated with review SKIPPED (review_required=false) carries no signature and no
+ * reviewer. It is generated — a person can open it — but it may not be DELIVERED until someone
+ * signs the document off. The gate lives in deliverPack, the one place every caller passes
+ * through; the route's own check is defence in depth.
+ *
+ * A company that DOES require review delivers drafts to draft-tier recipients by design (the
+ * recipient schema, the config UI and the Deliver button all say so): the gate does not touch
+ * that, but every pack that is not signed off goes out watermarked as a draft.
  */
 let h:Awaited<ReturnType<typeof afsSectionHttpFixture>>;
-beforeAll(async()=>{h=await afsSectionHttpFixture();},30000);
-afterAll(async()=>{await h?.close();});
+const realFetch=globalThis.fetch;
+const WATERMARK='DRAFT — NOT FOR DISTRIBUTION';
+beforeAll(async()=>{
+ h=await afsSectionHttpFixture();
+ await h.brandProfile();
+ // The PDF sidecar, answered at the network edge: the "PDF" is the HTML it was asked to print,
+ // so the delivered attachment's bytes show exactly what the recipient would see.
+ process.env.WEASYPRINT_URL='http://weasyprint.synthetic.invalid';
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{
+  const url=typeof input==='string'?input:input instanceof URL?input.href:input.url;
+  if(!url.startsWith(process.env.WEASYPRINT_URL!))return realFetch(input,init);
+  return new Response(Buffer.from(JSON.parse(String(init?.body)).html as string,'utf8'),{status:200});
+ });
+},30000);
+afterAll(async()=>{vi.restoreAllMocks();await h?.close();});
+/** The bytes of the PDF attached to the last email sent. */
+const attached=()=>{
+ const call=vi.mocked(sendEmail).mock.calls.at(-1)?.[0] as {attachments?:{content:Buffer}[]}|undefined;
+ const pdf=call?.attachments?.[0]?.content;
+ expect(pdf,'no PDF was attached to the delivered pack').toBeTruthy();
+ return pdf!.toString('utf8');
+};
 beforeEach(()=>{vi.mocked(sendEmail).mockClear();});
 
 const config=(reviewRequired:boolean):ManagementPackConfig=>({id:randomUUID(),companyId:h.f.companyA,enabled:true,generationDay:1,deliveryDay:5,reviewRequired,
@@ -59,17 +83,21 @@ describe('delivering a management pack that skipped review',()=>{
   await h.pool.query("UPDATE afs_documents SET status='partner_review' WHERE company_id=$1 AND id=$2",[h.f.companyA,result.documentId]);
   await signOffDocument(h.f.companyA,result.documentId,h.f.u2.id);
   expect(await withheld(result.documentId),'signing off did not release the pack').toBeNull();
-  const audit=(await h.pool.query("SELECT action,entity_type,changes FROM audit_log WHERE company_id=$1 AND entity_id=$2",[h.f.companyA,result.documentId])).rows;
-  expect(JSON.stringify(audit),'the release was not recorded anywhere a reviewer reads').toContain('delivery_withheld_reason');
+  const audit=(await h.pool.query("SELECT action,entity_type,user_id,changes FROM audit_log WHERE company_id=$1 AND entity_id=$2 AND changes->'metadata'->>'event'='afs_pack_delivery_released'",[h.f.companyA,result.documentId])).rows;
+  expect(audit,'the release was not recorded anywhere a reviewer reads').toHaveLength(1);
+  expect(audit[0]).toMatchObject({action:'approve',entity_type:'afs_document',user_id:h.f.u2.id});
+  expect((audit[0]!.changes as {fields:unknown[]}).fields).toEqual([expect.objectContaining({field:'delivery_withheld_reason',new:null})]);
   const res=await deliver(result.documentId);
   expect(res.status,JSON.stringify(res.body)).toBe(200);
   expect(vi.mocked(sendEmail),'the released pack never reached its recipients').toHaveBeenCalled();
+  expect(attached(),'a signed-off pack went out marked as a draft').not.toContain(WATERMARK);
  });
 
- it('delivers a pack that was generated for review without any release step',async()=>{
+ it('delivers a draft to draft-tier recipients when the company requires review — by design — watermarked as a draft',async()=>{
   const result=await pack('2032-03',true);
   expect(await withheld(result.documentId)).toBeNull();
   expect((await deliver(result.documentId)).status).toBe(200);
   expect(vi.mocked(sendEmail)).toHaveBeenCalled();
+  expect(attached(),'an unreviewed draft went out looking final').toContain(WATERMARK);
  });
 });

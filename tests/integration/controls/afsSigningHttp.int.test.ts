@@ -144,7 +144,7 @@ describe('the signature webhook',()=>{
  it.each([
   ['content changed since it was sent',`UPDATE afs_sections SET content='{"title":"Changed","blocks":[]}'::jsonb WHERE company_id=$1 AND id=$2`],
   ['a section is no longer signed off',`UPDATE afs_sections SET status='reviewed',signed_off_by=NULL,signed_off_at=NULL WHERE company_id=$1 AND id=$2`],
- ])('refuses to sign off when %s, records why, and hands the document back',async(_why,change)=>{
+ ])('refuses to sign off when %s, records why, and hands the document back',async(why,change)=>{
   const {doc,sections:[a],contact}=await readyToSign();
   const signum=await send(doc,contact);
   await h.pool.query(change,[h.f.companyA,a]);
@@ -152,6 +152,7 @@ describe('the signature webhook',()=>{
   const row=await h.readDocument(doc);
   expect(row.status,'signed off content nobody signed').toBe('partner_review');
   expect(row.signing_refused_reason).toBeTruthy();
+  if(why.startsWith('content'))expect(String(row.signing_refused_reason)).toMatch(/section/i);
   // The signatories DID sign: the artifact is kept, out of the document's own path, and the
   // refusal is visible on the document a user opens.
   const quarantined=await readdir(`${h.storage}/afs-signed-quarantine/${h.f.companyA}`).catch(()=>[] as string[]);
@@ -173,34 +174,61 @@ describe('the signature webhook',()=>{
  });
 });
 
-describe('a document sent before the fingerprint existed',()=>{
- it('is grandfathered by the migration backfill rather than refused on arrival',async()=>{
-  const {doc,contact}=await readyToSign();
+describe('the migrations that stamp documents already out for signature',()=>{
+ const statement=async(file:string)=>{
+  const migration=await readFile(`scripts/migrations/sql/${file}`,'utf-8');
+  const found=migration.split(/;\s*\n/).find(part=>part.includes('UPDATE afs_documents'));
+  expect(found,`${file} carries no backfill`).toBeTruthy();
+  return `${found};`;
+ };
+ /** The state 681 leaves: out for signature, with no record of what was sent. */
+ async function sentBeforeTheFingerprint(){
+  const {doc,sections,contact}=await readyToSign();
   const signum=await send(doc,contact);
-  // The state migration 681 finds: out for signature, with no record of what was sent.
-  await h.pool.query('UPDATE afs_documents SET signing_content_fingerprint=NULL,signing_payload_sha256=NULL WHERE company_id=$1 AND id=$2',[h.f.companyA,doc]);
-  // Exactly what a deploy runs, in order: 682 stamps what it can, 683 re-stamps it with the
-  // formula the running code compares against.
-  for(const file of ['682_afs_signing_payload_fingerprint.sql','683_afs_pack_delivery_withheld.sql']){
-   const migration=await readFile(`scripts/migrations/sql/${file}`,'utf-8');
-   const statement=migration.split(/;\s*\n/).find(part=>part.includes('UPDATE afs_documents'));
-   expect(statement,`${file} carries no backfill`).toBeTruthy();
-   await h.pool.query(`${statement};`);
-  }
-  expect((await h.readDocument(doc)).signing_content_fingerprint,'the in-flight document was left with no record').toMatch(/^[0-9a-f]{64}$/);
+  await h.pool.query('UPDATE afs_documents SET signing_content_fingerprint=NULL,signing_payload_sha256=NULL,signing_input_digests=NULL WHERE company_id=$1 AND id=$2',[h.f.companyA,doc]);
+  return{doc,sections,signum};
+ }
+ const change=(id:string)=>h.pool.query(`UPDATE afs_sections SET content='{"title":"Changed","blocks":[]}'::jsonb WHERE company_id=$1 AND id=$2`,[h.f.companyA,id]);
+
+ it('re-stamps a document whose content is unchanged since the send, so its signature is accepted',async()=>{
+  const {doc,signum}=await sentBeforeTheFingerprint();
+  await h.pool.query(await statement('682_afs_signing_payload_fingerprint.sql'));
+  await h.pool.query(await statement('683_afs_pack_delivery_withheld.sql'));
   expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
   expect((await h.readDocument(doc)).status,'a signature already in flight was refused').toBe('signed_off');
+ });
+
+ it('leaves the old stamp on a document whose content changed after the send, so its signature is refused',async()=>{
+  const {doc,sections:[a],signum}=await sentBeforeTheFingerprint();
+  await h.pool.query(await statement('682_afs_signing_payload_fingerprint.sql'));
+  await change(a!);
+  await h.pool.query(await statement('683_afs_pack_delivery_withheld.sql'));
+  expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
+  expect((await h.readDocument(doc)).status,'683 laundered a post-send change').toBe('partner_review');
+ });
+
+ it('does not launder a change made after go-live when it is run a second time',async()=>{
+  const {doc,sections:[a],signum}=await sentBeforeTheFingerprint();
+  await h.pool.query(await statement('682_afs_signing_payload_fingerprint.sql'));
+  await h.pool.query(await statement('683_afs_pack_delivery_withheld.sql'));
+  const stamped=(await h.readDocument(doc)).signing_content_fingerprint;
+  await change(a!);
+  await h.pool.query(await statement('682_afs_signing_payload_fingerprint.sql'));
+  await h.pool.query(await statement('683_afs_pack_delivery_withheld.sql'));
+  expect((await h.readDocument(doc)).signing_content_fingerprint,'a re-run re-stamped a changed document').toBe(stamped);
+  expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
+  expect((await h.readDocument(doc)).status).toBe('partner_review');
  });
 });
 
 describe('the fingerprint covers every input the statements are rendered from',()=>{
  it.each([
-  ['the registered company name',"UPDATE companies SET name='Renamed After Signing' WHERE id=$1"],
-  ['the registration number',"UPDATE companies SET registration_number='2099/123456/07' WHERE id=$1"],
-  ['the fiscal year on the document',"UPDATE afs_documents SET fiscal_year=2099 WHERE company_id=$1 AND id=$2"],
-  ['the reporting framework',"UPDATE afs_documents SET reporting_framework='full_ifrs' WHERE company_id=$1 AND id=$2"],
-  ['the firm branding',"UPDATE brand_profiles SET primary_colour='#abcdef' WHERE company_id=$1"],
- ])('refuses the signature when %s changed after the send',async(_what,change)=>{
+  ['the registered company name',"UPDATE companies SET name='Renamed After Signing' WHERE id=$1",/registered company/i],
+  ['the registration number',"UPDATE companies SET registration_number='2099/123456/07' WHERE id=$1",/registered company/i],
+  ['the fiscal year on the document',"UPDATE afs_documents SET fiscal_year=2099 WHERE company_id=$1 AND id=$2",/document settings/i],
+  ['the reporting framework',"UPDATE afs_documents SET reporting_framework='full_ifrs' WHERE company_id=$1 AND id=$2",/document settings/i],
+  ['the firm branding',"UPDATE brand_profiles SET primary_colour='#abcdef' WHERE company_id=$1",/branding/i],
+ ])('refuses the signature when %s changed after the send, and names that input',async(_what,change,named)=>{
   const {doc,contact}=await readyToSign();
   const signum=await send(doc,contact);
   const before=(await h.pool.query('SELECT name,registration_number FROM companies WHERE id=$1',[h.f.companyA])).rows[0];
@@ -209,11 +237,57 @@ describe('the fingerprint covers every input the statements are rendered from',(
    expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
    const row=await h.readDocument(doc);
    expect(row.status,'the document was signed off over a render nobody saw').toBe('partner_review');
-   expect(row.signing_refused_reason).toBeTruthy();
+   expect(String(row.signing_refused_reason),'the refusal sends the operator to the wrong input').toMatch(named);
+   expect(String(row.signing_refused_reason),'the refusal blamed sections nobody touched').not.toMatch(/section content/i);
   }finally{
    await h.pool.query('UPDATE companies SET name=$2,registration_number=$3 WHERE id=$1',[h.f.companyA,before.name,before.registration_number]);
    await h.pool.query("UPDATE brand_profiles SET primary_colour='#123456' WHERE company_id=$1",[h.f.companyA]);
   }
+ });
+
+ it.each([
+  // concat_ws drops a NULL outright, so a cleared field and its neighbour's text can trade places:
+  ['a NULL registration',['Acme','1998/012345/07'],['Acme|1998/012345/07',null]],
+  // and it has no escaping, so the separator can move between two non-empty fields:
+  ['a shifted separator',['Acme|1998','012345/07'],['Acme','1998|012345/07']],
+ ] as const)('cannot be fooled by moving text between two fields (%s)',async(_case,sent,changed)=>{
+  const before=(await h.pool.query('SELECT name,registration_number FROM companies WHERE id=$1',[h.f.companyA])).rows[0];
+  await h.pool.query('UPDATE companies SET name=$2,registration_number=$3 WHERE id=$1',[h.f.companyA,...sent]);
+  try{
+   const {doc,contact}=await readyToSign();
+   const signum=await send(doc,contact);
+   await h.pool.query('UPDATE companies SET name=$2,registration_number=$3 WHERE id=$1',[h.f.companyA,...changed]);
+   expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
+   expect((await h.readDocument(doc)).status,'two different registrations hashed the same').toBe('partner_review');
+  }finally{
+   await h.pool.query('UPDATE companies SET name=$2,registration_number=$3 WHERE id=$1',[h.f.companyA,before.name,before.registration_number]);
+  }
+ });
+
+ it('refuses when a company that sent on the default branding saves a profile before the signature arrives',async()=>{
+  const {doc,contact}=await readyToSign();
+  await h.pool.query('DELETE FROM brand_profiles WHERE company_id=$1',[h.f.companyA]);
+  try{
+   const signum=await send(doc,contact);
+   await h.brandProfile();
+   expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
+   const row=await h.readDocument(doc);
+   expect(row.status,'the statements were signed on branding they no longer carry').toBe('partner_review');
+   expect(String(row.signing_refused_reason)).toMatch(/branding/i);
+  }finally{await h.brandProfile();}
+ });
+});
+
+describe('editing the inputs of a document out for signature',()=>{
+ it('is allowed, and each write path warns which signature it will invalidate',async()=>{
+  const {doc,contact}=await readyToSign();
+  await send(doc,contact);
+  const brand=await h.request('PUT','/api/accounting/afs/brand-profile',{primaryColour:'#123456',secondaryColour:'#654321',fontFamily:'professional',coverStyle:'classic'});
+  expect(brand.status,JSON.stringify(brand.body)).toBe(200);
+  expect(JSON.stringify(brand.body.data?.warnings),'the branding change gave no warning').toContain(doc);
+  const company=await h.request('PUT','/api/accounting/companies',{id:h.f.companyA,registrationNumber:'2024/000001/07'});
+  expect(company.status,JSON.stringify(company.body)).toBe(200);
+  expect(JSON.stringify(company.body.data?.warnings),'the company change gave no warning').toContain(doc);
  });
 });
 
