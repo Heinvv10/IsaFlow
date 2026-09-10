@@ -1,8 +1,13 @@
 /**
  * Client-home metric snapshot for the bureau Level 2 home.
  *
- * The query shapes are copied from pages/api/accounting/dashboard-stats.ts so
- * these numbers match the Trial Balance / aging reports. Reads on the
+ * The query shapes are copied from pages/api/accounting/dashboard-stats.ts, and
+ * each figure is exactly what that page shows: cash, revenue and expenses are
+ * GL balances, so they match the Trial Balance; AR and AP are TODAY's open
+ * balances on the LIVE open-status allowlists, which do NOT match the aging
+ * reports — the aging's population is wider (src/lib/constants/invoiceStatuses.ts
+ * lists the rows the two differ on). This header used to say they matched the
+ * aging reports (corrected in R-059 round 8). Reads on the
  * RLS-bypassing @/lib/neon pool — the CALLER must have already verified that the
  * companyId belongs to the authenticated user: either via getBureauClientForUser
  * (the firm/bureau path, /api/bureau/client/[companyId]) OR via withAuth's

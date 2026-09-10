@@ -42,14 +42,20 @@ export async function loadSupplierInvoices(
       -- still matches the supplier's statement lines for it.
       -- See shared/softDeleteLedgerPresence.
       AND ${documentInLedgerAsAtFragment('si', periodEnd ?? asAtTodayStr(), companyId)}
-      -- NOT the ageing's status rule (shared/documentPopulation), on purpose:
-      -- these are MATCH candidates for the supplier's statement lines, and a
-      -- bill we still hold as a draft is worth matching to the line the
-      -- supplier sent for it. The variance itself comes from the ageing
-      -- (getAPAgingDetail), so this rule never reaches a figure. It does drop a
-      -- NULL-status bill — one the variance counts but no line can match.
-      -- Registered with the R-059 round 7 census, not changed here.
-      AND si.status NOT IN ('cancelled')
+      -- MATCH candidates for the supplier's statement lines. Deliberately NOT
+      -- the ageing's rule (shared/documentPopulation), which also drops drafts:
+      -- a bill we still hold as a draft is worth matching to the line the
+      -- supplier sent for it, and the variance — which does come from the
+      -- ageing — still shows it is not yet owed. Only a cancelled bill is out.
+      --
+      -- This rule DOES reach figures: every line it fails to match counts in
+      -- missing_in_isaflow_count, and the page will not mark a statement
+      -- reconciled while that count is non-zero. The bare NOT IN was NULL for
+      -- a NULL-status bill, so a statement that tied to the cent on the
+      -- variance still read "missing in IsaFlow" and could not be reconciled.
+      -- COALESCE admits NULL, the same reading documentPopulation gives it
+      -- (R-059 round 8).
+      AND COALESCE(si.status, '') <> 'cancelled'
       AND (${periodStart}::date IS NULL OR si.invoice_date >= ${periodStart}::date)
       AND (${periodEnd}::date IS NULL OR si.invoice_date <= ${periodEnd}::date)
     ORDER BY si.invoice_date
