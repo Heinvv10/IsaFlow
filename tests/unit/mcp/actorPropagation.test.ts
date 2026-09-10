@@ -109,32 +109,10 @@ describe('the UI path records NOTHING rather than an unprovable human', () => {
 // journal until approval, so for the whole draft period the posting_agent on a
 // journal that does not exist yet is the only trace of who raised it. A credit
 // note is the instrument that reduces a customer's debt.
-describe('createCreditNote records the actor on the document itself', () => {
-  it('writes actor_type and actor_token_jti when the caller declares an actor', async () => {
-    const { sql } = await import('@/lib/neon');
-    const mod = await import('@/modules/accounting/services/ar/creditNoteService');
-    // Link validation reads the customer, then the INSERT returns the row.
-    vi.mocked(sql).mockResolvedValue([{ id: 'cn-1', type: 'customer' }] as never);
-
-    await mod.createCreditNote(
-      '11111111-1111-4111-8111-111111111111',
-      {
-        type: 'customer',
-        clientId: '55555555-5555-4555-8555-555555555555',
-        creditDate: '2026-09-03',
-        subtotal: 100,
-      } as never,
-      '44444444-4444-4444-8444-444444444444',
-      { actorType: 'agent', actorTokenJti: 'tok-abc' },
-    );
-
-    const insert = vi.mocked(sql).mock.calls
-      .map((c) => ({ text: (c[0] as unknown as TemplateStringsArray).join('?'), params: c.slice(1) }))
-      .find((c) => c.text.includes('INSERT INTO credit_notes'));
-    expect(insert).toBeDefined();
-    expect(insert!.text).toContain('actor_type');
-    expect(insert!.text).toContain('actor_token_jti');
-    expect(insert!.params).toContain('agent');
-    expect(insert!.params).toContain('tok-abc');
-  });
+// Document attribution is proven with real cookie/PAT/OAuth rows in arCiActor.int.test.ts.
+describe('draft credit-note authority',()=>{
+ it('requires an issued context before any draft insert',async()=>{
+  const {createCreditNote}=await import('@/modules/accounting/services/ar/creditNoteService');
+  await expect(createCreditNote('11111111-1111-4111-8111-111111111111',{type:'customer',creditDate:'2026-07-05',subtotal:100},'22222222-2222-4222-8222-222222222222')).rejects.toThrow('Authenticated');
+ });
 });
