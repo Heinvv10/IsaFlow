@@ -69,3 +69,21 @@ The fixture source annotations and captured-port correction do not change test
 assertions. Independent named review and clean transitive TypeScript remain
 required before integration. These results do not verify production, completed
 financial imports, source/import confinement, independent approval or the UI.
+
+## Concurrent authority lock-order contract
+
+Added a bounded same-company, same-person pair of actual authenticated HTTP
+requests. Both reach real target issuance before the fixture later acquires the
+existing `control-authority:<company>` transaction advisory lock and upgrades the
+same user row to FOR UPDATE. This reproduces the lock-order precondition of
+control_approval_authorities; it does not fabricate a valid persisted A2 approval.
+The SQL probe is explicitly lock-order proof, not an approval workflow.
+
+A barrier holds the first callback. Before release, the observer requires either
+both target callbacks entered (old ordering), or two distinct server PIDs with the
+second blocked on a real advisory lock (correct serialized ordering). It then
+releases the barrier and requires both requests to complete without refusal.
+Thus the corrected implementation can serialize before row locks without the
+fixture itself waiting forever for a second callback. Cleanup always releases
+and joins both requests. No concurrency test run is claimed at this checkpoint;
+root owns the source correction and the heavy-test lease.
