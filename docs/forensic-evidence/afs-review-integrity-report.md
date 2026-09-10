@@ -8,7 +8,7 @@ The rule the branch enforces: a section's review or sign-off is an attestation a
 
 | Suite | Files | Result |
 |---|---|---|
-| AFS integration (real routes, real PostgreSQL) | `tests/integration/controls/afs{SectionReviewIntegrityHttp,SectionWritesHttp,SigningHttp,SigningInputsHttp,DocumentTransitionRace,ManagementPackGate,PackDeliveryGate,RestoreReviewState}.int.test.ts` | 146 passed (+12 in the impersonation census) |
+| AFS integration (real routes, real PostgreSQL) | `tests/integration/controls/afs{SectionReviewIntegrityHttp,SectionWritesHttp,SigningHttp,SigningInputsHttp,DocumentTransitionRace,ManagementPackGate,PackDeliveryGate,RestoreReviewState}.int.test.ts` | 148 passed (+12 in the impersonation census) |
 | Unit | `bun run test:unit` | 10,949 passed; the 5 failures in `directPostBypassGuards` and `creditNoteService` fail identically at the base commit |
 
 Integration runs use the shared synthetic instance and `--no-file-parallelism`. The HTTP fixture clears the per-IP rate-limit counters at start: every run arrives from 127.0.0.1, and without that the second run of the day is answered 429 by the real limiter.
@@ -133,8 +133,8 @@ The field-boundary collision named in review ('Acme' + registration vs 'Acme|reg
 
 | # | Mutation | Result | First failing test |
 |---|---|---|---|
-| S1 | the send takes no FOR SHARE on the company and brand rows | killed (1) | cannot sign branding changed under the send |
-| S2 | the send compares no fingerprint before and after the render | killed (1) | refuses the send when a first brand profile is saved while it renders |
+| S1 | the send takes no FOR SHARE on the company and brand rows | killed (1) — *mechanism removed in round 7* | cannot sign branding changed under the send |
+| S2 | the send compares no fingerprint before and after the render | killed (1) — *mechanism removed in round 7* | refuses the send when a first brand profile is saved while it renders |
 | S3–S11 | the pre-image drops period / logo / cover style / font / secondary colour / overrides / data snapshot / note number / section type | each killed (1) | the per-input case for that field |
 | S12 | a document with no fingerprint is accepted | killed (1) | is refused at the webhook with a reason telling the operator to send it again |
 | S13 | the "not signed off" count is removed | killed (1) | refuses when a section becomes mandatory after the send and is not signed off |
@@ -146,6 +146,17 @@ The field-boundary collision named in review ('Acme' + registration vs 'Acme|reg
 | S19a/b | the admin rename warns always / never | killed (1 each) | tests/unit/api/adminCompanyRenameWarning.test.ts |
 
 **N18 withdrawn.** Its argument (the fingerprint subsumes section status) held only for documents stamped at send. The template registry is not in the fingerprint, so a section that becomes mandatory after the send, never signed off, matches the fingerprint and is caught only by the count; S13 is killed by exactly that case.
+
+### Round 7 — fingerprint what is rendered, lock nothing on the company
+
+Round 6's FOR SHARE on the `companies` row made every unrelated company write (logo, chase settings, PIS inputs, CIPC return, WhatsApp query number, the period-lock control, trials, admin edits, bulk actions, PAYG eligibility) wait up to the ~30s Signum timeout during a send. Round 7 removes both the locks and the before/after comparison: `snapshotRenderInputs` reads the company and brand inputs and fingerprints them in ONE statement, and the render uses those returned values instead of re-reading the tables.
+
+| # | Mutation | Result | First failing test |
+|---|---|---|---|
+| T1 | the render re-reads the brand table instead of using the snapshot | killed (2) | signs exactly what it fingerprinted when the branding is edited under it; signs on the default branding it saw when a first profile is saved under it |
+| T2 | the render re-reads the company row instead of using the snapshot | killed (1) | signs the registered name it fingerprinted when the company is renamed under it |
+| T3 | the send takes FOR SHARE on the company row again | killed (2) | … renamed under it; lets an unrelated company setting be saved during a send, promptly |
+| T4 | the send takes FOR SHARE on the brand row again | killed (1) | signs exactly what it fingerprinted when the branding is edited under it |
 
 ### Why the survivors are not gaps
 
@@ -163,6 +174,10 @@ No test was written to kill a redundant mutant.
 - Migrations 681 → 682 → 683 add columns only. **They back-fill nothing** (reversing the round-3 decision): "sent for signature before this deploy" is not a state the product can produce — the previous send read an HTML file nothing wrote and refused before the only writer of `signing_requested_at` could run — and the back-fills were the one mechanism that could launder a change. A hand-made in-flight document with no fingerprint is refused at the webhook and must be sent again.
 - **Rolling the CODE back with 683 applied fails open**: the previous `deliverPack` does not read `delivery_withheld_reason`, so a held pack becomes deliverable.
 - 681, 682 and 683 were edited in place during review. The branch is unpublished and they have been applied only to the synthetic fixture, which records no migration names, so no environment holds a checksum of the earlier text.
+
+## Open
+
+- The platform-admin company page (`pages/admin/companies/[id].tsx`) does not display the rename warning the admin PATCH now returns. The file is 606 lines, already over the 300-line limit, so it was not grown; displaying the warning there needs that page split first.
 
 ## Decisions worth naming
 
