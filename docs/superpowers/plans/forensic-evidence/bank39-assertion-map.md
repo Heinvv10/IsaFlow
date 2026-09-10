@@ -72,3 +72,5 @@ Counts above total53. Each economic assertion remains required even when helper 
 | Receipt eight validation messages and no allocation on refusal | Preserve existing nine meaningful validation bodies byte-for-byte. |
 
 Root resource queue after crash recovery: AP16 actual cases/static, comparison reader, then this worker's11 new PostgreSQL cases. No heavy operation started without renewed lease.
+
+The **14 currently passing callback bodies** are frozen before editing. TypeScript AST traversal in file order `bankAllocationRowLock.test.ts`, then `ar/receiptMatchConfirmService.test.ts`, selecting each direct `it` callback except the three first-read spies and the two failing confirmation cases, yields14 callbacks. Joined with one newline their SHA256 is `509e3d30fdad7442b15c4edd988d390d8c36e061b1519e64c3177ad6cf1fa5be`. Final verification must reproduce this exact hash. This includes the narrow company-bound payment lookup assertion; it is retained alongside real tenant integration proof.
