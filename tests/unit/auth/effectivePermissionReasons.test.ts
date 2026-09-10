@@ -17,7 +17,7 @@ beforeEach(() => { vi.clearAllMocks(); });
 describe('account-range and restriction refusals', () => {
   it('a constrained override on anything but a gl_account write is ENTITY_REQUIRED', async () => {
     state.load.mockResolvedValue({ role: 'admin', scopes: null, overrides: [override('banking', { restrictions: { only: 'x' } })] });
-    expect(await reason('write:bank-tx', {})).toBe('ENTITY_REQUIRED');
+    expect(await reason('write:bank-tx', { principal: { companyId: 'c', authMethod: 'cookie' } as ControlTx['principal'] })).toBe('ENTITY_REQUIRED');
   });
   it('an account checked and found outside the permitted range is ACCOUNT_OUT_OF_RANGE', async () => {
     state.load.mockResolvedValue({ role: 'admin', scopes: null, overrides: [override('accounts', { accountRangeFrom: '1000', accountRangeTo: '1999' })] });
@@ -35,7 +35,7 @@ describe('account-range and restriction refusals', () => {
   });
   it('a missing token scope is MISSING_SCOPE', async () => {
     state.load.mockResolvedValue({ role: 'admin', scopes: ['read:reports'], overrides: [] });
-    expect(await reason('write:bank-tx', {})).toBe('MISSING_SCOPE');
+    expect(await reason('write:bank-tx', { principal: { companyId: 'c', authMethod: 'cookie' } as ControlTx['principal'] })).toBe('MISSING_SCOPE');
   });
 });
 import { permissionRefusalMessage } from '@/lib/mcp/scopeRemediation';
