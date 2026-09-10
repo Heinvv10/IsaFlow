@@ -1613,7 +1613,7 @@
     },
     {
       "name": "close_fiscal_period",
-      "scope": "write:locks",
+      "scope": "write:journals",
       "write": true,
       "requires_post": true,
       "per_user_idempotency": false,
@@ -5304,7 +5304,7 @@
     },
     {
       "name": "reopen_fiscal_period",
-      "scope": "write:locks",
+      "scope": "write:journals",
       "write": true,
       "requires_post": true,
       "per_user_idempotency": false,
@@ -5712,7 +5712,7 @@
     },
     {
       "name": "settle_by_contra",
-      "scope": "write:bank-tx",
+      "scope": "write:invoices",
       "write": true,
       "requires_post": true,
       "per_user_idempotency": false,
@@ -6714,7 +6714,7 @@
     },
     {
       "name": "year_end_close",
-      "scope": "write:locks",
+      "scope": "write:journals",
       "write": true,
       "requires_post": true,
       "per_user_idempotency": false,
