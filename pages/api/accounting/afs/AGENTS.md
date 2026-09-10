@@ -61,7 +61,9 @@ Full AFS lifecycle: draft → review → partner_review → signed_off → filed
 - `generate` is async — enqueued via `afsGenerationJobService`; poll separately
 - `send-for-signing` reads rendered HTML from `afsStorage.afsHtmlPath()`; 400 if not yet generated; signer contacts must be `director` or `cfo`
 - Section override PUT snapshots version before apply
-- Section writes (overrides, versions POST, ai-narrative POST/PUT, regenerate, suppress) are bound to the URL's `documentId`: a section of another document is 404, a signed-off/filed document is 409 `CONFLICT`. Overrides, AI accept, restore, regenerate and suppress void the section's review (→ pending, reviewer/signatory cleared, `audit_log` row).
+- While `signing_requested_at` is set the document takes NO section write (409) — the signatories are signing the content as it stands. The Signum webhook signs off only from `partner_review` and only while the content fingerprint recorded at send still holds; otherwise it records `signing_refused_reason` and hands the document back. `send-for-signing` needs every mandatory section signed off (409).
+- `generate-pack` with `reviewRequired: false` is refused (409) until a published status exists.
+- Section writes (overrides, versions POST, ai-narrative POST/PUT, regenerate, suppress, reorder, comments) are bound to the URL's `documentId`: a section of another document is 404, a signed-off/filed document is 409 `CONFLICT`. Overrides, AI accept, restore, regenerate and suppress void the section's review (→ pending, reviewer/signatory cleared, `audit_log` row).
 - `export?format=caseware` returns manifest (names + sizes), not raw binaries
 - PIS flags `dataUnavailable` for stubbed input fields
 - `ReviewError` → HTTP 409 `CONFLICT`
@@ -70,6 +72,7 @@ Full AFS lifecycle: draft → review → partner_review → signed_off → filed
 - `src/modules/accounting/services/afs/` — document, sections, statements, overrides, versions, PIS, compliance, exports, signing, management-packs, generation-jobs, afsStorage
 
 ## Recent changes
+- 2026-09-10 (2): reorder and comments go through the write guard; a document out for signature takes no write; the signature webhook verifies the fingerprint and never moves a filed document; unreviewed packs refused; AI narrative generation works again (400 on a malformed id, 409 when the section changed under the model call)
 - 2026-09-10: section writes bound to the URL document, refused on locked documents, and void the section's review with an audit row
 - 2026-04-24: remediate pentest findings — 2 Critical + 11 High
 - 2026-04-24: payg phase 1 — flow wallet / metering / admin + tenant surfaces
