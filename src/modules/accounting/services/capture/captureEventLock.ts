@@ -60,13 +60,16 @@ export type CaptureEventStatus = (typeof CAPTURE_EVENT_STATUSES)[number];
  * discards a captured bill, the post route sees a status that is not
  * `'posted'`, and accrues it to payables anyway. No race needed.
  *
- * `'received'` / `'extracting'` stay postable because they always were. The
- * routes' `!extracted_data` refusal does NOT stop a still-extracting event —
- * `routeEvent` writes `captured_documents.extracted_data` in its own UPDATE
- * (`captureRouterService.ts` ~161) *before* it sets `capture_events.status =
- * 'extracted'` in a second, separate statement (~176), so a request that lands
- * between those two writes sees `status = 'extracting'` WITH data already
- * populated and both checks pass.
+ * `'received'` / `'extracting'` stay postable because they always were, and
+ * the routes' `!extracted_data` refusal does NOT stop such an event:
+ * `captured_documents.extracted_data` is `JSONB DEFAULT '{}'` (migration 233)
+ * and no ingest INSERT sets it, so the column is always truthy and that
+ * refusal never fires. Since `routeEvent` was reordered to claim the event
+ * transition BEFORE writing `captured_documents`, an `'extracting'` event
+ * carries only that empty default — so posting one produces a claim with no
+ * extraction behind it. Whether `'received'` / `'extracting'` should stay
+ * postable at all is **R-077**'s decision (refusing an empty extraction);
+ * it is not made here, and nothing in this file depends on the answer.
  *
  * That window used to be able to double-post: `routeEvent`'s later writes
  * (→ `'extracted'` on both branches, → `'failed'` on error) were themselves
