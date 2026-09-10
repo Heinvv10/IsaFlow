@@ -64,3 +64,16 @@ it('captures every old designation beyond a preview page and exposes real author
  await f.pool.query('INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,$3,false)',[f.f.companyA,f.f.u1.id,'reports']);
  try{await expect(read()).rejects.toThrow();}finally{await f.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key=$3',[f.f.companyA,f.f.u1.id,'reports']);}
 });
+it('serializes simultaneous settings and ordinary chart updates with consecutive exact images',async()=>{
+ const id=await f.account(),{saveDefaultAccounts}=await import('@/modules/accounting/services/gl/defaultAccountsControl'),{updateAccount}=await import('@/modules/accounting/services/gl/chartOfAccountsService');
+ await Promise.all([f.actor(ctx=>saveDefaultAccounts(ctx,{mappings:{primary_bank:id}})),f.actor(()=>updateAccount(f.f.companyA,id,{account_name:'Concurrent chart name'}))]);
+ const state=await f.state(),row=state.accounts.find((r:{id:string})=>r.id===id),events=await f.changes('gl_account',id);
+ expect(row).toMatchObject({account_name:'Concurrent chart name',account_subtype:'bank',is_system_account:true});expect(events).toHaveLength(2);
+ expect(events[0].values.after).toEqual(events[1].values.before);expect(events[1].values.after).toEqual(row);
+});
+it('requires issued context and detaches input before the first awaited authority read',async()=>{
+ const {saveDefaultAccounts}=await import('@/modules/accounting/services/gl/defaultAccountsControl'),id=await f.account(),input={mappings:{primary_bank:id}};
+ await expect(saveDefaultAccounts({} as Parameters<typeof saveDefaultAccounts>[0],input)).rejects.toThrow();
+ await f.actor(async ctx=>{const pending=saveDefaultAccounts(ctx,input);input.mappings.primary_bank='invalid';await pending;});
+ expect(JSON.parse((await f.state()).settings.value)).toEqual({primary_bank:id});
+});
