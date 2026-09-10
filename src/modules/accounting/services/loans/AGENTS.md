@@ -35,6 +35,8 @@ All numeric IO is `number` (2dp at output); internally the engine uses `decimal.
 - **`loan_payments`** (mig 400) — actual payment records linked to journal entries.
 
 ## Gotchas
+- **`glByCode` selects `account_code`, not `code`** (fixed 2026-09-10, K-107 r8). `gl_accounts` has no `code` column, so the 5700 / 1110 fallbacks in `resolveAccounts` raised 42703 on every call — and a caught-or-not SQL error poisons the whole request transaction, so a loan merely missing `interest_expense_account_id` failed the entire request with an opaque 500. `payroll/taxDirectivePaymentService` had the byte-identical helper and the same defect.
+- **`recordLoanPayment` is check-then-act on status** (registered, NOT fixed): it reads `loanRow.status !== 'active'` and SELECTs `loan_payments` for the period, then posts and INSERTs last. `idx_loan_payments_period_once` keeps the outcome safe — the loser 23505s into a 500 rather than duplicating — but the read is decorative under concurrency, and the `periodNumber`-omitted path skips the SELECT entirely.
 - **Portfolio summary reflects ACTUAL balances** via `loan_payments`, not schedule projection. Both values are returned (`totalOutstanding` vs `totalOutstandingProjected`).
 - **UTC date shift in consumers**: `loan_schedule_rows.date` comes back as a JS `Date` at midnight UTC. `toISOString().slice(0,10)` shifts first-of-month dates back by one day under SAST (UTC+2). Consumers must use local-date getters (`getFullYear/getMonth/getDate`) when formatting schedule dates — otherwise 2026-01-01 → 2025-12-31 (closed Dec period) and `postJournalEntry` rejects.
 - **NCA blocking** runs _before_ period lock check in `postPeriodJournals` — cleaner UX.

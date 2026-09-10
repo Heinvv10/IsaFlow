@@ -26,7 +26,10 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
 }));
 
 import { processSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentService';
-import { SupplierPaymentNotProcessableError } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {
+  SupplierPaymentNotFoundError,
+  SupplierPaymentNotProcessableError,
+} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import { approveWriteOff, WriteOffNotApprovableError } from '@/modules/accounting/services/ar/writeOffService';
 import { approveAdjustment, AdjustmentNotApprovableError } from '@/modules/accounting/services/items/adjustmentService';
 import paymentHandler from '../../../pages/api/accounting/supplier-payments-action';
@@ -75,6 +78,25 @@ describe('supplier-payments-action process', () => {
 
   it('propagates any other failure so the request transaction rolls back', async () => {
     const err = dbError();
+    mockPayment.mockRejectedValueOnce(err);
+    const res = makeRes();
+    await expect(paymentHandler(post({ action: 'process', paymentId: ID }) as never, res as never)).rejects.toBe(err);
+    expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for the PRE-write missing payment', async () => {
+    mockPayment.mockRejectedValueOnce(new SupplierPaymentNotFoundError(ID));
+    const res = makeRes();
+    await paymentHandler(post({ action: 'process', paymentId: ID }) as never, res as never);
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('does NOT answer 404 for the post-claim "Bank account not found"', async () => {
+    // The regex this replaced was `/not found$/`, which matched this message —
+    // thrown after the claim has already set the payment to 'processed'. The
+    // 404 it produced is a 4xx after a write, which withAuth COMMITs, so the
+    // payment was stranded 'processed' with no journal and no way to retry.
+    const err = new Error('Bank account not found');
     mockPayment.mockRejectedValueOnce(err);
     const res = makeRes();
     await expect(paymentHandler(post({ action: 'process', paymentId: ID }) as never, res as never)).rejects.toBe(err);

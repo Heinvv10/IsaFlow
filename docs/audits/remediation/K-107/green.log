@@ -286,3 +286,57 @@ MIGRATION 671, all three paths proven against the fixture DB:
   no-op    NOTICE 671: ... already enforces unique (company_id, adjustment_number)
   refuse   ERROR  Migration 671 refused: 1 duplicate (company_id, adjustment_number)
                   group(s) covering 2 adjustments ... (named, then ROLLBACK)
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 8 (2026-09-10) — HIGH-1 unanchored regex + the two un-walked directories
+════════════════════════════════════════════════════════════════════════════
+
+GREEN (fixture DB, bunx vitest --config vitest.integration.config.ts --no-file-parallelism):
+  k107-payroll-liability-double-post.int.test.ts   7 passed  (NEW)
+  k107-loan-payment-gl-fallback.int.test.ts        1 passed  (NEW)
+  k107-supplier-payment-double-post.int.test.ts    6 passed  (+1 new, 1 assertion strengthened)
+  => Test Files 3 passed (3) / Tests 14 passed (14)
+
+GREEN (unit, fixture env UNSET — the env leaking in fails 193 DB-touching unit tests):
+  env -u DATABASE_URL … bun run test:unit
+  => Test Files 831 passed | 40 skipped (871) / Tests 9867 passed | 244 skipped (10111)
+
+CI GATE (bash scripts/ci/run-ci.sh):
+  type-check PASS · lint PASS (0 errors, 11 pre-existing warnings) · agent-docs PASS ·
+  security-guards PASS · user-id-casts PASS · is-active-filters PASS · raw-transactions PASS ·
+  vat-guard-coverage PASS · self-defining-universe PASS · findings-numbering PASS ·
+  migration-rls PASS · migration-naming PASS
+  build: NODE_ENV=production bun run build PASS (run separately, after CI_SKIP_BUILD=1 in the gate
+    run; no process has its cwd in this worktree, so it cannot clobber a sibling dev server)
+  unit-tests / component-tests: FAIL *inside the gate only* — run-ci.sh inherits the sourced
+    fixture env, and DATABASE_URL reaching the unit runner fails 193 tests. Green with it unset,
+    above. Not caused by this round.
+
+FULL INTEGRATION SUITE — 16 failed / 1062 passed / 168 skipped (227 files).
+  All 16 are PRE-EXISTING. Proved, not argued: the 5 production files this round touches were
+  reverted to `git show HEAD:<path>` (file copies, restored and diffed clean afterwards) and the
+  11 failing files re-run at the branch tip 19bfaa290 —
+    BASELINE: Test Files 11 failed (11) / Tests 16 failed | 38 passed (54)
+    AFTER   : the identical 16 failures.
+  None of the 11 references supplierPayment / uifDeclaration / uifPayment / taxDirective /
+  loanPayment / supplier-payments-action. They are GoTrue-fixture, RLS, CSP, webhook and
+  Brightsphere-data-assumption failures that this branch neither caused nor repairs.
+
+MUTATION PROOF (file copies in <scratchpad>/agents/fix-k107j/backup; all restored and diffed clean)
+  M1  route classifier -> /not found$/          RED  approveActionsNo4xxAfterWrite
+                                                     "does NOT answer 404 for the post-claim
+                                                     Bank account not found"   1 failed / 7 passed
+  M2  SupplierPaymentNotFoundError -> Error     RED  k107-supplier-payment-double-post
+                                                     other-tenant toBeInstanceOf  1 failed / 5 passed
+  M3  UIF claim loses AND status='submitted'    RED  k107-payroll-liability-double-post
+                                                     sequential markPaid + draft refusal
+                                                                                2 failed / 5 passed
+  M4  directive claim loses ON CONFLICT…        RED  same file, both DIRECTIVE concurrency tests
+                                                                                2 failed / 5 passed
+  M5  loanPaymentService account_code -> code   RED  k107-loan-payment-gl-fallback
+                                                     column "code" does not exist  1 failed / 1
+  M6  taxDirective account_code -> code         RED  k107-payroll-liability-double-post
+                                                     all 3 DIRECTIVE tests, column "code" …
+
+MIGRATION: none. tax_directive_payments already carries UNIQUE (company_id, tax_directive_id)
+  from migration 403; uif_declarations is claimed on its own status column. No prefix reserved.

@@ -499,3 +499,171 @@ Nothing in `src/` or `pages/` imported it.
 
 Re-proved by outcome on the tree after the deletion (integration, `--no-file-parallelism`) — see the
 proof block below.
+
+---
+
+# Round 8 — the unanchored regex, and the two directories the census never walked
+
+Findings from the round-7 blind review (1 HIGH, plus the census gap). The review
+file itself was lost with `/tmp` when the server restarted; the HIGH and the
+census gap are reproduced from the task brief and were each re-confirmed in the
+source before being fixed. The remaining MEDIUMs and LOWs of that review could
+**not** be recovered — neither `fix.md` nor `green.log` records them, and
+nothing else in the tree does. They are not restated here rather than invented.
+
+## HIGH-1 — `/not found$/` also matched 'Bank account not found'
+
+`supplier-payments-action.ts` classified a not-found by matching the END of the
+message. `processSupplierPayment` throws `Payment <id> not found` BEFORE any
+write, but it also throws `'Bank account not found'` at line 104 — **after** the
+status-predicated claim at line 86 has already flipped the payment to
+'processed'. That message matched too, so the route answered 404, and `withAuth`
+COMMITs anything below 500: the payment was left `'processed'` with no journal
+and **no way to retry**, because every retry path is the claim it had already
+taken. The realistic trigger is not exotic — a `bankAccountId` belonging to
+another tenant is filtered out by the company-scoped lookup, which is exactly
+what `supplierPaymentWorkflowService.test.ts`'s "fails closed when the bank
+account does not belong to the company" already exercised.
+
+The two twins fixed in the same commit (`972870495`) used start-anchored
+regexes (`/^Adjustment not found/`, `/^Write-off not found/`). This one did not,
+inside that same commit.
+
+**Fix.** A typed `SupplierPaymentNotFoundError`, raised by `approveSupplierPayment`,
+`processSupplierPayment` and `voidSupplierPaymentInner` — all three before any
+write — and matched by the route with `instanceof`. Pattern matching is gone
+from that classifier entirely. 'Bank account not found' is now untyped, falls
+through to `throw err`, and `withErrorHandler` answers 500, which ROLLBACKs the
+claim with it.
+
+**Sweep of the branch for the same class.** Every `pages/**` and `src/**` file
+changed by this branch, scanned for a message-shaped classifier
+(`.test(`, `.match(`, `.includes(`, `startsWith(`, `endsWith(`, `new RegExp(`
+applied to an error message). Four hits, one of them the defect:
+
+| Site | Verdict |
+|---|---|
+| `supplier-payments-action.ts:63` `/not found$/` | **THE DEFECT — fixed** (typed). |
+| `supplier-payments-action.ts:68` `startsWith('Cannot approve payment with status')` | Start-anchored, and `approveSupplierPayment` raises it before its UPDATE. Left. |
+| `adjustments-action.ts:50` `/^Adjustment not found/` | Start-anchored. Left. |
+| `write-offs-action.ts:58` `/^Write-off not found/` | Start-anchored. Left. |
+| `documentNumberRetry.ts:56` | Matches an exact `constraint` NAME against an allowlist, not a message. Not this class. |
+| `apiDocumentLock.ts`, `api-error-handler.ts` | Already `instanceof` on the three typed lock classes. Not this class. |
+
+## The census: the set it looked at was the thing that was wrong
+
+The round-6 enumeration walked `services/{ap,ar,gl,items,core,expense,capture,reports,practice}`
+and missed `services/payroll` and `services/loans` entirely — so
+`applyTaxDirective` and `markUifDeclarationPaid` were absent from §A, not
+because they were classified as safe but because they were never read.
+
+**This run's method and its walk set.** Enumerated from the CONSUMERS — every
+file in `src/**` or `pages/**` calling `postJournalEntry(` — 39 of them, listed
+in `<scratchpad>/agents/fix-k107j/posters.txt`. That set was then classified by
+reading each file's status logic. The walk was over **all 155 directories
+containing a `.ts`/`.tsx` under `src/`** (`dirs-walked.txt`), which includes
+every service directory:
+
+> `afs · annotations · ap · ar · bank · capture · commentary · core · dashboard ·
+> expense · gl · items · loans · packs · payroll · practice · reconciliation ·
+> reports · share · shared · workbench`
+
+plus `src/lib/mcp/tools`, `src/modules/admin`, and `pages/api/accounting/**`.
+The 39 posters land in 8 service directories, 2 `pages/api` routes, 2 MCP tools.
+
+### Fixed in this round
+
+| File :: symbol | What it was |
+|---|---|
+| `payroll/uifPaymentService.ts` :: `markUifDeclarationPaid` | **HIGH.** Read `decl.status` in JS, posted DR 2150 UIF Payable / CR Bank, then rewrote `uif_declarations` with **no** status predicate and its row count discarded. `uif_declarations` carries no protection of its own. Two concurrent `markPaid` PATCHes both read 'submitted', both posted and **both COMMITted** — the bank credited twice for one UI-19, one journal id orphaned. Now takes a status-predicated claim under `claimUnderLockTimeout` before the first posting; the loser re-reads and stays idempotent when the winner already paid, and refuses otherwise. |
+| `payroll/taxDirectivePaymentService.ts` :: `applyTaxDirective` | **MEDIUM.** SELECTed `tax_directive_payments` for an existing row, then posted DR 5200 / CR 2140 / CR bank and INSERTed the payment **last**. The payment row now IS the claim (`ON CONFLICT (company_id, tax_directive_id) DO NOTHING`, rowcount checked), taken before the first posting, with `journal_entry_id` linked after. |
+| `payroll/taxDirectivePaymentService.ts` :: `glByCode`; `loans/loanPaymentService.ts` :: `glByCode` | **HIGH (dead route).** Both selected `gl_accounts WHERE ... code = $2`. There is no `code` column on `gl_accounts` — it is `account_code` — so every call raised 42703, which also poisons the request transaction. `applyTaxDirective` calls it unconditionally for GL 5200 and 2140: **the tax-directive apply route had never once succeeded.** In `loanPaymentService` it is only the fallback when the loan has no `interest_expense_account_id` or bank account, so it turned a recoverable configuration case into an opaque 500. Same class as the `stock_movements` `company_id` 42703 round 6 found. |
+
+**Correction to the review's premise on the directive.** The brief recorded
+"no unique index on `tax_directive_payments`". There is one: migration 403
+creates the table with `UNIQUE (company_id, tax_directive_id)`, confirmed on the
+fixture schema as
+`tax_directive_payments_company_id_tax_directive_id_key`. So the pre-fix code
+did **not** double-post under concurrency — the loser's 23505 aborted its
+transaction and unwound its own posted journal. What was wrong is what the fix
+addresses: the guard was decorative, the refusal arrived only after a journal
+had been posted, and the caller got an opaque 500 instead of a refusal raised
+before the first posting. The finding is upheld at MEDIUM, not HIGH, on measured
+evidence rather than on the stated premise.
+
+### New to the register, NOT fixed here
+
+Turned up by this run and absent from §A. Each was read in the source.
+
+| File :: symbol | Risk |
+|---|---|
+| `pages/api/accounting/capture/[id]/post-expense.ts` | **HIGH.** Reads `event.event_status === 'posted'` and answers 400, then creates and submits an expense claim (which posts), then sets `capture_events.status='posted'` with **no** status predicate. No row lock, no claim. Two concurrent posts of one captured document create two expense claims and two journals. The `withTransaction` hazard on those stamps was already fixed here; the check-then-act was not. |
+| `loans/loanPaymentService.ts` :: `recordLoanPayment` | **MEDIUM.** Reads `loanRow.status !== 'active'`, then SELECTs `loan_payments` for the period, then posts and INSERTs last — the same shape as `applyTaxDirective` before this round. `idx_loan_payments_period_once` (partial UNIQUE on `company_id, loan_id, period_number`) makes the outcome safe, so the loser 23505s into a 500 rather than duplicating; the read is decorative under concurrency. The `periodNumber`-omitted path skips the idempotency SELECT entirely and relies on the index alone. |
+| `bank/bankReconciliationService.ts` :: `completeReconciliation` | **MEDIUM.** Reads `recon.status === 'completed'`, then flips `bank_transactions` to 'reconciled' and `bank_reconciliations` to 'completed' — the header UPDATE has no status predicate and its row count is discarded. Both run inside `withTransaction`, a **separate pool client with its own COMMIT**, so they survive a rollback of the request transaction: the same hazard `post-expense.ts` carries a comment about having fixed. Two concurrent completes both pass the read and both stamp `completed_by` / `completed_at`. |
+| `gl/closeRun/closeRunService.ts` :: `completeCloseRun` | **LOW.** Reads `existing.run.status !== 'open'`, then `updateCloseRunStatus`. The repo UPDATE **is** predicated (`AND status = 'open'`, closeRunRepo:218) and every proposal transition is too (:171, :188), so nothing double-posts. What is unguarded is the row count: it is discarded, so a losing concurrent complete writes a second `close_run` audit row against a run it did not complete. Register, not a ledger risk. |
+| `expense/expenseClaimService.ts` :: `submitClaim` / `approveClaim` / `rejectClaim` | **LOW.** Read-then-unpredicated-UPDATE on `expense_claims.status`. None of the three posts to the ledger — `postClaimToGl` does, and that one is `FOR UPDATE`-protected — so a lost race changes a workflow status, not the books. |
+| `core/sageImportService.ts` | **LOW.** Selects `migration_status = 'pending'` and updates row by row with no predicate on the re-read. Two concurrent imports of one batch could import a line twice; it is an operator-run migration path, not a user route. |
+
+Re-confirmed **not** open on this pass, so the next census does not re-open them:
+`bankAllocationService` (`FOR UPDATE` at :103 before the status read),
+`bankRuleAutoPostLine` (`locked` row read `FOR UPDATE`),
+`creditNoteApproveService` (`FOR UPDATE` plus a `status='draft'` predicate on the flip),
+`recurringJournalService.generateJournalFromRecurring` (`FOR UPDATE` held, claim predicated — §A's MEDIUM stands only for the missing `company_id` on that UPDATE),
+`writeJournals`/`writeOpeningBalance` MCP tools (post through `postJournalEntry`, so they inherit §A's entry
+for it and add nothing new),
+`payrollJournalPostingService`, `loanGlPostingService`, `glImportExecuteService`,
+`openingBalancePostingService`, `reclassification/post`, `migrationApService`,
+`migrationImportService`, `migrationOpeningBalanceService`, `gatewayFeeService`,
+`drcVatService`, `journal-entries-action`, `receipt-to-journal` (no status
+check-then-act: they either post unconditionally from validated input or are
+guarded by a predicated UPDATE whose row count is checked).
+
+## Round 8 files
+
+- `pages/api/accounting/supplier-payments-action.ts` — typed classifier.
+- `src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts` — `SupplierPaymentNotFoundError`, thrown at all three pre-write sites.
+- `src/modules/accounting/services/payroll/uifPaymentService.ts` — **new**; `markUifDeclarationPaid` split out of `uifDeclarationService.ts`, which the claim would have pushed to 321 lines over the 300 ceiling. Not re-exported from there: that would be an import cycle, since the mapper and the result type still live in the declaration service, so `pages/api/payroll/uif/[id].ts` imports it directly. `mapDeclaration` is exported as `mapUifDeclaration`.
+- `src/modules/accounting/services/payroll/uifDeclarationService.ts` — 244 lines; the four imports the move orphaned are removed.
+- `src/modules/accounting/services/payroll/taxDirectivePaymentService.ts` — `TaxDirectiveAlreadyAppliedError`, the INSERT as claim, `account_code`.
+- `src/modules/accounting/services/loans/loanPaymentService.ts` — `account_code`.
+
+## Round 8 tests
+
+- `tests/integration/k107-payroll-liability-double-post.int.test.ts` (7) — UIF and directive, each under two interleaved pool clients AND two sequential attempts, measured on the **bank GL** rather than a journal count; plus the legitimate path (balanced, non-null `fiscal_period_id`), the draft refusal, and other-tenant isolation.
+- `tests/integration/k107-loan-payment-gl-fallback.int.test.ts` (1) — a loan with neither `interest_expense_account_id` nor `bank_account_id`, so both `glByCode` fallbacks are reached; asserts the journal lines land on 5700 and 1110, which is what the 42703 made impossible.
+- `tests/integration/k107-supplier-payment-double-post.int.test.ts` (+1, and one assertion strengthened) — the post-claim 'Bank account not found' forced with a foreign-tenant bank account: the payment is left `'approved'` with a null `gl_journal_entry_id` and a null `processed_at`, the bank GL unmoved, and **the same payment then processes on the retry**. The other-tenant test now asserts the typed class rather than matching `/not found/`.
+- `tests/unit/api/approveActionsNo4xxAfterWrite.test.ts` (+2) — the route answers 404 for the typed pre-write miss and **rethrows** 'Bank account not found'.
+
+## Round 8 mutation proof (file copies in `<scratchpad>/agents/fix-k107j/backup`, restored and diffed clean)
+
+| # | Production line reverted | Went RED |
+|---|---|---|
+| M1 | route classifier back to `/not found$/` | `approveActionsNo4xxAfterWrite` — "does NOT answer 404 for the post-claim Bank account not found" (1 failed / 7 passed) |
+| M2 | `SupplierPaymentNotFoundError` back to `new Error('Payment … not found')` | `k107-supplier-payment-double-post` — other-tenant `toBeInstanceOf` (1 failed / 5 passed) |
+| M3 | `AND status = 'submitted'` dropped from the UIF claim | `k107-payroll-liability-double-post` — sequential markPaid, and the draft refusal (2 failed / 5 passed) |
+| M4 | `ON CONFLICT … DO NOTHING` dropped from the directive claim | same file — both DIRECTIVE concurrency tests (2 failed / 5 passed) |
+| M5 | `loanPaymentService` `account_code` back to `code` | `k107-loan-payment-gl-fallback` — `column "code" does not exist` (1 failed / 1) |
+| M6 | `taxDirectivePaymentService` `account_code` back to `code` | `k107-payroll-liability-double-post` — all three DIRECTIVE tests, `column "code" does not exist` |
+
+## Round 8 migration
+
+**None.** Every table this round touches already carries the index the fix leans
+on: `tax_directive_payments_company_id_tax_directive_id_key` from migration 403,
+and `uif_declarations` is claimed on its own `status` column. No new prefix was
+reserved.
+
+## Round 8 historical impact
+
+- **Tax directives: nothing to correct.** `glByCode`'s 42703 means
+  `applyTaxDirective` has never completed on any tenant — `tax_directive_payments`
+  can only be empty, and no directive journal exists to be wrong. The fix
+  *enables* the route rather than correcting its output. Worth stating plainly:
+  the first successful apply in production will be the first ever.
+- **UIF declarations:** a double-post requires two concurrent `markPaid` PATCHes
+  on one declaration. Whether any tenant has a duplicated DR 2150 / CR bank pair
+  is a data question this branch does not answer and does not correct. The query
+  to settle it is `uif_declarations` joined to posted `auto_payroll` journals for
+  the same period with more than one match — **not run here.**
+- **Supplier payments stranded by HIGH-1:** a payment reading `'processed'` with
+  a NULL `gl_journal_entry_id` is the signature. **Not queried on production
+  here.** That census belongs with whoever runs the fix in prod.

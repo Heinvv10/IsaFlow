@@ -15,6 +15,7 @@ import {
   processSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
 import {
+  SupplierPaymentNotFoundError,
   SupplierPaymentNotProcessableError,
   voidSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
@@ -60,7 +61,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof SupplierPaymentNotProcessableError) {
       return apiResponse.conflict(res, err.message);
     }
-    if (err instanceof Error && /not found$/.test(err.message)) {
+    // Typed, not matched: `/not found$/` also matched 'Bank account not found',
+    // which processSupplierPayment throws AFTER it has claimed the payment. The
+    // 404 that produced was a 4xx after a write, so withAuth COMMITted the claim
+    // and the payment was stranded 'processed' with no journal and no retry —
+    // every retry hit the claim it had already taken. Anything not typed here
+    // falls through to the 500 below, which rolls the claim back with it.
+    if (err instanceof SupplierPaymentNotFoundError) {
       return apiResponse.notFound(res, 'Payment');
     }
     // approveSupplierPayment refuses a non-draft payment before it writes

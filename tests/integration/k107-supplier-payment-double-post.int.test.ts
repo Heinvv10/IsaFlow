@@ -20,6 +20,7 @@ import { als } from '../../src/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
   processSupplierPayment,
+  SupplierPaymentNotFoundError,
   SupplierPaymentNotProcessableError,
 } from '../../src/modules/accounting/services/ap/supplierPaymentWorkflowService';
 
@@ -213,12 +214,63 @@ it('will not process a payment belonging to another tenant', async () => {
     [theirs, otherCompany, otherSupplier, `K107R6-PAY-OTHER-${theirs.slice(0, 8)}`, user]);
 
   const err = await inTx(() => processSupplierPayment(company, theirs, user)).then(() => null, (e: unknown) => e);
-  expect.soft((err as Error).message).toMatch(/not found/);
+  // TYPED, not matched on the message: this is the only class the route answers
+  // 404, and it is raised before any write.
+  expect.soft(err).toBeInstanceOf(SupplierPaymentNotFoundError);
   const still = await pool.query('SELECT status, gl_journal_entry_id FROM supplier_payments WHERE id=$1', [theirs]);
   expect.soft(still.rows[0].status).toBe('approved');
   expect(still.rows[0].gl_journal_entry_id).toBeNull();
 
   await pool.query('DELETE FROM supplier_payments WHERE company_id=$1', [otherCompany]);
   await pool.query('DELETE FROM suppliers WHERE company_id=$1', [otherCompany]);
+  await pool.query('DELETE FROM companies WHERE id=$1', [otherCompany]);
+});
+
+it('leaves the payment RETRYABLE when the bank account resolves to nothing AFTER the claim', async () => {
+  // Round-7 HIGH-1. `processSupplierPayment` claims the payment ('approved' ->
+  // 'processed') and only then looks the bank account up scoped to the company.
+  // A bankAccountId belonging to another tenant therefore raises 'Bank account
+  // not found' AFTER the claim — and the route classified that with
+  // `/not found$/`, which matched it, answering 404. `withAuth` COMMITs below
+  // 500, so the claim stuck: the payment read 'processed' with no journal, and
+  // every retry hit the claim it had already taken.
+  //
+  // The route now keys off SupplierPaymentNotFoundError, which only the
+  // pre-write lookup raises, so this failure is untyped, rethrown, and answered
+  // 500 — which ROLLBACKs the claim with it. Asserted by outcome on both halves:
+  // nothing is left behind, and the same payment processes on the retry.
+  const otherCompany = crypto.randomUUID(), foreignBank = crypto.randomUUID();
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [otherCompany, 'K107 R7 foreign bank']);
+  await pool.query(
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active)
+     VALUES($1,$2,'1100','Their Bank','asset','bank','debit',true)`, [foreignBank, otherCompany]);
+
+  const { payment, invoice } = await seedPayment();
+  await pool.query('UPDATE supplier_payments SET bank_account_id=$1 WHERE id=$2', [foreignBank, payment]);
+  const before = await bankCredited();
+
+  const err = await inTx(() => processSupplierPayment(company, payment, user)).then(() => null, (e: unknown) => e);
+  expect.soft((err as Error).message).toBe('Bank account not found');
+  // The load-bearing link: the route maps ONLY this class to 404, and this is
+  // not it. Were it still matched, the 404 would COMMIT the claim below.
+  expect.soft(err).not.toBeInstanceOf(SupplierPaymentNotFoundError);
+
+  const after = await pool.query(
+    'SELECT status, gl_journal_entry_id, processed_at FROM supplier_payments WHERE id=$1', [payment]);
+  expect.soft(after.rows[0].status).toBe('approved');
+  expect.soft(after.rows[0].gl_journal_entry_id).toBeNull();
+  expect.soft(after.rows[0].processed_at).toBeNull();
+  expect.soft(await bankCredited()).toBeCloseTo(before, 2);
+  expect.soft(await amountPaid(invoice)).toBeCloseTo(0, 2);
+
+  // Retryable: point it at this company's bank account and it processes.
+  await pool.query('UPDATE supplier_payments SET bank_account_id=$1 WHERE id=$2', [bankAccount, payment]);
+  await inTx(() => processSupplierPayment(company, payment, user));
+  expect.soft(await bankCredited() - before).toBeCloseTo(1150, 2);
+  const retried = await pool.query('SELECT status, gl_journal_entry_id FROM supplier_payments WHERE id=$1', [payment]);
+  expect.soft(retried.rows[0].status).toBe('processed');
+  expect(retried.rows[0].gl_journal_entry_id).not.toBeNull();
+
+  await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [otherCompany]);
   await pool.query('DELETE FROM companies WHERE id=$1', [otherCompany]);
 });
