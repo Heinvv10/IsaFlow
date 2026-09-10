@@ -30,7 +30,7 @@ it('all inactive owned line accounts produce a typed actionable error listing ev
  const j=await f.journal();await f.pool.query('UPDATE gl_accounts SET is_active=false WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.f.companyA,j.accounts]);
  const error=await f.post(j.id).catch((error:unknown)=>error);expect(error).toBeInstanceOf(InactiveAccountError);expect(error).toBeInstanceOf(Error);
  expect(error).toMatchObject({accounts:expect.arrayContaining(j.accounts.map(id=>id.slice(0,12)))});
- expect((error as Error).message).toMatch(/reactivate.*recode/i);for(const id of j.accounts)expect((error as Error).message).toContain(id.slice(0,12));
+ expect((error as Error).message).toMatch(/reactivate.*recode/i);expect((error as Error).message).toContain('GL39 account 0');expect((error as Error).message).toContain('GL39 account 1');for(const id of j.accounts)expect((error as Error).message).toContain(id.slice(0,12));
  expect((await f.state(j.id)).status).toBe('draft');
  expect((await f.pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[f.f.companyA,j.id])).rows).toHaveLength(0);
 });
