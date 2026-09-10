@@ -22,7 +22,8 @@ type Row = DbRow;
  * Why a row was skipped — each has a different remedy for the user.
  * `reconciled`: unreconcile it first. `contended`: a peer holds it, retry.
  * `failed`: the reversal itself refused (a closed period, a row still marked
- * posted with nothing linked to reverse); the reason is in the log.
+ * posted with nothing linked to reverse, a provisional journal whose reversal
+ * was itself reversed); the reason is in the log.
  */
 export interface UndoSkips {
   reconciled: number;
@@ -60,17 +61,50 @@ const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
  * reverse is NOT already undone — clearing its tag would let the run read
  * "undone" over a line the books still show as allocated.
  */
-const POSTED_STATUSES = new Set(['allocated', 'matched', 'reconciled']);
+const POSTED_STATUSES = new Set(['provisional', 'allocated', 'matched', 'reconciled']);
 
-type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked';
+type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed';
 
-/** `reversed_at` is the reversal marker; the original keeps status 'posted'. */
-async function journalAlreadyReversed(companyId: string, journalEntryId: string): Promise<boolean> {
+/**
+ * `none`: nothing reverses the journal. `live`: a reversal stands, so the
+ * posting is off the books. `reReversed`: the reversal was itself reversed,
+ * so the ORIGINAL posting is back on the books.
+ */
+type ReversalState = 'none' | 'live' | 'reReversed';
+
+/**
+ * How the journal stands NOW, not what `reversed_at` says.
+ *
+ * `reversed_at` on the original cannot answer it. Reversing a contra is an
+ * ordinary permitted operation — `reverseJournalEntry` refuses only an entry
+ * that is not posted or already reversed, and a contra is posted with
+ * `reversed_at` NULL — and it does not clear the original's `reversed_at`. So
+ * original + contra + contra-of-contra nets back to the ORIGINAL posting while
+ * the original still reads "reversed", and reading the flag alone let the run
+ * be marked undone with the money still on the expense and the bank account.
+ *
+ * Walk the chain instead. Each POSTED contra flips the sign, so an odd number
+ * of them means the posting is off the books and an even number means it is
+ * still on them. `ux_gl_je_reversal_of` (migration 619) is unique on
+ * (company_id, reversal_of_id), so the chain is linear; the depth cap only
+ * bounds a cycle that constraint should already make impossible.
+ */
+async function journalReversalState(companyId: string, journalEntryId: string): Promise<ReversalState> {
   const rows = (await sql`
-    SELECT reversed_at FROM gl_journal_entries
-    WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
+    WITH RECURSIVE reversal_chain AS (
+      SELECT id, 0 AS depth FROM gl_journal_entries
+      WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
+      UNION ALL
+      SELECT c.id, rc.depth + 1
+      FROM gl_journal_entries c
+      JOIN reversal_chain rc ON c.reversal_of_id = rc.id
+      WHERE c.company_id = ${companyId}::UUID AND c.status = 'posted' AND rc.depth < 20
+    )
+    SELECT MAX(depth) AS depth FROM reversal_chain
   `) as Row[];
-  return rows.length > 0 && rows[0]!.reversed_at != null;
+  const depth = Number(rows[0]?.depth ?? 0);
+  if (depth === 0) return 'none';
+  return depth % 2 === 1 ? 'live' : 'reReversed';
 }
 
 async function undoRow(companyId: string, runId: string, userId: string, tx: Row): Promise<RowOutcome> {
@@ -87,11 +121,18 @@ async function undoRow(companyId: string, runId: string, userId: string, tx: Row
     await reverseReconciledTransaction(companyId, txId, userId);
     outcome = 'reversed';
   } else if (tx.provisional_je_id) {
+    const jeId = String(tx.provisional_je_id);
+    const state = await journalReversalState(companyId, jeId);
+    // The reversal was itself reversed, so the original posting is back on the
+    // books — and `reverseJournalEntry` would refuse it ("already reversed"),
+    // so this run has nothing it can do. Skip it: the tag stays, the run stays
+    // open, and the operator sees a row to fix rather than an undo that read
+    // "done" over money still in the GL.
+    if (state === 'reReversed') return 'reReversed';
     // Reversed by hand already: a second reversal would be refused ("already
     // reversed") on every retry and the run could never close. The journal
     // nets to zero, so finishing the line is all that is left to do.
-    const jeId = String(tx.provisional_je_id);
-    if (!(await journalAlreadyReversed(companyId, jeId))) {
+    if (state === 'none') {
       await reverseJournalEntry(companyId, jeId, userId);
       outcome = 'reversed';
     }
@@ -157,7 +198,9 @@ export async function undoRun(companyId: string, runId: string, userId: string):
       } else {
         skippedBy.failed += 1;
         log.error(
-          'Auto-post undo skipped a transaction marked posted with nothing linked to reverse — run stays open',
+          outcome === 'reReversed'
+            ? 'Auto-post undo skipped a transaction whose provisional journal reversal was itself reversed — the posting stands; run stays open'
+            : 'Auto-post undo skipped a transaction marked posted with nothing linked to reverse — run stays open',
           { companyId, runId, txId, status: String(tx.status) },
           'auto-post-undo',
         );
