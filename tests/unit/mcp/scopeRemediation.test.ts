@@ -14,7 +14,7 @@
  * words the person granting it will recognise from the consent screen.
  */
 import { describe, it, expect } from 'vitest';
-import { insufficientScopeMessage, SCOPE_REMEDIATION } from '@/lib/mcp/scopeRemediation';
+import { insufficientScopeMessage, SCOPE_REMEDIATION, permissionRefusalMessage } from '@/lib/mcp/scopeRemediation';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { PAT_SCOPES } from '@/lib/auth/patScopes';
 
@@ -36,6 +36,8 @@ describe('insufficientScopeMessage', () => {
     expect(message).toMatch(/admin/i);
     expect(message).toMatch(/manager/i);
     expect(message).toMatch(/locks module/i);
+    // An owner or admin whose own locks override is denied cannot use it either.
+    expect(message).toMatch(/override (that )?denies|denied/i);
   });
 
   it('TELLS A write:bank-tx CALLER TO RE-AUTHORISE with the bank transaction grant', () => {
@@ -43,6 +45,18 @@ describe('insufficientScopeMessage', () => {
     expect(message).toContain('write:bank-tx');
     expect(message).toMatch(/re-?authoris/i);
     expect(message).toMatch(/bank/i);
+    // An AP contra also approves the supplier payment, which needs write:invoices.
+    expect(message).toContain('write:invoices');
+  });
+
+  it('uses the re-authorise reply ONLY when the token lacks the scope', () => {
+    expect(permissionRefusalMessage('write:bank-tx', 'MISSING_SCOPE')).toBe(insufficientScopeMessage('write:bank-tx'));
+    for (const reason of ['ROLE_CEILING', 'MODULE_DENIED', 'ENTITY_REQUIRED'] as const) {
+      const message = permissionRefusalMessage('write:bank-tx', reason);
+      expect(message, reason).toContain('write:bank-tx');
+      expect(message, reason).not.toMatch(/re-?authoris/i);
+      expect(message, reason).toMatch(/owner or admin/i);
+    }
   });
 
   it('never answers a scope failure as a missing record', () => {
