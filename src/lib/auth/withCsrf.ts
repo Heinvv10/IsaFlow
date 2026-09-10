@@ -14,10 +14,13 @@ import type { NextApiHandler, NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { verifyCsrf } from './csrf';
 import type { CompanyAuthedRequest } from './withAuth';
+import type {PlatformAdminRequest} from './withPlatformAdmin';
 
 export type CompanyApiHandler = (req: CompanyAuthedRequest, res: NextApiResponse) => void | Promise<void>;
 
-export function withCsrf<T extends NextApiHandler | CompanyApiHandler>(handler: T): T {
+type PlatformAdminApiHandler=(req:PlatformAdminRequest,res:NextApiResponse)=>void|Promise<void>;
+
+export function withCsrf<T extends NextApiHandler | CompanyApiHandler | PlatformAdminApiHandler>(handler: T): T {
   return (async (req: Parameters<T>[0], res: NextApiResponse) => {
     const method = req.method?.toUpperCase();
     if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
