@@ -89,9 +89,11 @@ describe('K-076 r16 MEDIUM-2 — a payment rail the vocabulary does not know', (
 describe('K-076 r16 — nothing below the total block may be unexplained', () => {
   it('a VAT recap or a tax-analysis block IS explained by the net and the tax', () => {
     const recap = `${HDR('SPAR')}Milk 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00\nVAT @ 15% 15.00`;
-    expect(unreconciledFigure(recap, 115)).toBeNull();
+    // Round 18 (LOW-1): a summary line explains its figure only when the figure
+    // IS the net, the tax or the total — so the extracted amounts are passed.
+    expect(unreconciledFigure(recap, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
     const analysis = `${HDR('ACME')}Widget 1000.00\nSub Total 1000.00\nVAT 15% 150.00\nTOTAL 1150.00\nVAT SUMMARY\nRate Net VAT\n15% 1000.00 150.00`;
-    expect(unreconciledFigure(analysis, 1150)).toBeNull();
+    expect(unreconciledFigure(analysis, 1150, { subtotal: 1000, vatAmount: 150 })).toBeNull();
   });
 
   it('an amount-due box repeated in the header does not make the line items strays', () => {

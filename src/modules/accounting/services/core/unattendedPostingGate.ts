@@ -132,7 +132,7 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   // The WHITELIST: the whole document must reconcile against the total, not
   // the slice below it. A split tender printed ABOVE the total block, and a
   // charge printed BELOW the tender line, both evaded the slice.
-  const off = unreconciledFigure(doc.rawText ?? '', total);
+  const off = unreconciledFigure(doc.rawText ?? '', total, doc);
   if (off) return unreconciledReason(off);
 
   // The TOTAL was re-read; the VAT was not, and a stored net and VAT are a
@@ -188,7 +188,7 @@ export function isAmbiguousTotal(
   // nothing to compare the stored total against, and approving it approves a
   // figure the document never corroborated.
   if (printed.length === 0) return text.trim().length > 0;
-  const off = unreconciledFigure(text, printed[0]!);
+  const off = unreconciledFigure(text, printed[0]!, extractAmounts(text));
   return unexplainedLargerFigure(text, printed[0]!) !== null
     || adjustmentAfterTotal(text, printed[0]!) !== null
     || off !== null;
@@ -198,9 +198,15 @@ export function isAmbiguousTotal(
  * Does the document name a currency that is not the rand?
  *
  * `R`/`ZAR` are the rand. Anything else means the printed figures are not the
- * amounts this ledger would post, whatever the reader made of them.
+ * amounts this ledger would post, whatever the reader made of them. Round 17
+ * read a symbol only BEFORE the figure and a code only, so an EU reverse-charge
+ * invoice printing `Total 100,00 €` was auto-approved at R100. A bare `Pound`
+ * is deliberately absent (a weight); `Pounds Sterling` is not.
  */
 function namesForeignCurrency(text: string): boolean {
   return /(?<![A-Za-z])(?:USD|EUR|GBP|AUD|CAD|CHF|JPY|CNY|INR|NGN|KES|BWP|NAD|ZWL)(?![A-Za-z])/.test(text)
-    || /[$€£¥]\s*\d/.test(text);
+    // …before the figure or AFTER it, as EU invoices print it (`100,00 €`) …
+    || /[$€£¥]\s*\d|\d\s*[$€£¥]/.test(text)
+    // …or spelled out (`Total 115.00 (US Dollars)`, `Currency: Dollar`).
+    || /(?<![A-Za-z])(?:(?:US|American|Australian|Canadian)\s+)?(?:Dollars?|Euros?|Pounds?\s+Sterling|Sterling|Yen|Yuan|Renminbi|Naira)(?![A-Za-z])/i.test(text);
 }

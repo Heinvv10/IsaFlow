@@ -46,21 +46,23 @@ function ocrTolerant(word: string): string {
 }
 
 /**
- * Words that mean the document returns money rather than spends it. English
- * and Afrikaans, with the inflections each language prints. `CREDITOR` is
- * deliberately absent — a supplier statement heading is not a credit note.
+ * The STEMS of the words that mean the document returns money rather than
+ * spends it, English and Afrikaans. Each matches every inflection by prefix —
+ * `OMRUIL` reads `OMRUILING`, `TERUGBETA` reads `TERUGBETAAL`, `TERUGBETALING`
+ * and `TERUGBETAALDE`, `KREDIT` reads `KREDITNOTA` — because round 17 matched
+ * whole words and the review posted `OMRUILING` and `TERUGBETAALDE` for want of
+ * a listed form. No stem may be followed by `OR`: `CREDITOR` heads a supplier
+ * statement, which is not a credit note. `REVERS` takes its three verb forms
+ * only, since `REVERSE` is also "see reverse" and the reverse-charge VAT line.
  */
+const CREDIT_STEMS = [
+  'CREDIT', 'KREDIET', 'KREDIT', 'REFUND', 'TERUGBETA', 'TERUGGEBETAAL', 'TERUGGAWE',
+  'TERUGSTUUR', 'TERUGGESTUUR', 'RETURN', 'RETOER', 'RETOUR', 'VOID', 'CANCEL', 'KANSELL',
+  'EXCHANG', 'OMRUIL', 'KORREKSIE', 'STORNO', 'GUTSCHRIFT', 'AVOIR',
+];
 const CREDIT_WORDS = [
-  'CREDIT', 'CREDITS', 'CREDITED', 'CREDITNOTE',
-  'KREDIET', 'KREDIETNOTA', 'KREDIETNOTAS',
-  'REFUND', 'REFUNDS', 'REFUNDED', 'REFUNDING',
-  'TERUGBETAAL', 'TERUGBETALING', 'TERUGBETALINGS', 'TERUGGEBETAAL',
-  'RETURN', 'RETURNS', 'RETURNED', 'RETOER', 'RETOERE',
-  'VOID', 'VOIDED',
-  'REVERSAL', 'REVERSED', 'REVERSING',
-  'RETOUR', 'RETOURE',
-  'CANCELLED', 'CANCELED', 'CANCELLATION', 'KANSELLASIE', 'KANSELLEER',
-  'EXCHANGE', 'EXCHANGED',
+  ...CREDIT_STEMS.map((stem) => `${ocrTolerant(stem)}(?![O0]R)\\w*`),
+  `${ocrTolerant('REVERS')}(?:AL|ED|ING)`,
 ];
 
 /**
@@ -89,7 +91,8 @@ const CREDIT_WORDS = [
  * hand-spelling failure the mechanical map exists to prevent.
  */
 const CREDIT_MARKINGS = [
-  'CR NOTE', 'CRN', 'C N', 'K N', 'CR', 'RTN', 'CANX', 'R/A',
+  'CR NOTE', 'CRD NOTE', 'CRED NOTE', 'KRED NOTA', 'CRN', 'C N', 'K N', 'C R', 'CR', 'C/M',
+  'RTN', 'RTRN', 'RFND', 'RFD', 'RMA', 'CANX', 'CANC', 'CNCL', 'R/A',
   'ADJUSTMENT NOTE', 'DEBIT NOTE', 'ALLOWANCE NOTE', 'REBATE NOTE', 'REBATE',
   'CLAIM NOTE', 'CORRECTION SLIP', 'NEGATIVE SALE', 'MINUS SALE', 'NO SALE',
   'GOEDERE TERUG', 'OMRUIL', 'TERUGGAWE', 'TERUGSTUUR', 'KORREKSIE',
@@ -106,9 +109,25 @@ function ocrTolerantMarking(marking: string): string {
 }
 
 const CREDIT_WORD = new RegExp(
-  `(?<![A-Za-z0-9])(?:${[...CREDIT_WORDS.map(ocrTolerant), ...CREDIT_MARKINGS.map(ocrTolerantMarking)].join('|')})(?![A-Za-z0-9])`,
+  `(?<![A-Za-z0-9])(?:${[...CREDIT_WORDS, ...CREDIT_MARKINGS.map(ocrTolerantMarking)].join('|')})(?![A-Za-z0-9])`,
   'i',
 );
+
+/**
+ * The Sage/Pastel `CR` printed against its figure, with or without the space
+ * OCR so often drops: `TOTAL 499.00CR`, `R499.00 CR`. The lookbehind above
+ * refuses a marking glued to a digit, which is right for words and wrong for
+ * this one mark.
+ */
+const AMOUNT_CR = /\d\s*C[Rr](?![A-Za-z0-9])/;
+
+/**
+ * A credit memo or a reversal NUMBERED: `CM 0012`, `REV 0012`. Bare, both are
+ * everyday words on a purchase (`Ruler 30 CM 115.00`, `Rev B`), so they count
+ * only where a number follows AND none precedes on the line — a length is the
+ * number before it, and the price after it is not a document number.
+ */
+const NUMBERED_MARKING = /(?<![A-Za-z0-9])(?<!\d[ \t]*)(?:CM|REV)[\s#:.-]*\d/i;
 
 /** `TAX INVOICE (CR)` — the marker printed in brackets beside the type. */
 const BRACKETED_CREDIT = /\(\s*CR\s*\)/i;
@@ -135,7 +154,9 @@ const BENIGN_PHRASES: RegExp[] = [
   /acc(?:ount)?\.?\s*type\s*:?\s*(?:credit|debit)/gi,
   // ON ONE LINE. `[\s./-]` would cross the newline in `TOTAL 499.00 CR\nCARD
   // 499.00` and scrub the Pastel credit marking this phrase exists beside.
-  /(?:cr|dr)[ \t./-]*card/gi,
+  // …and never on a `CR` that follows a FIGURE on the same line: in `TOTAL
+  // 499.00 CR  CARD 499.00` the CR is the Pastel credit mark, not a card type.
+  /(?<!\d[ \t]*)(?:cr|dr)[ \t./-]*card/gi,
   /card[ \t./-]*(?:cr|dr)(?![A-Za-z0-9])/gi,
   /on\s+credit(?![A-Za-z])/gi,
   /(?:no|geen)\s+(?:cash\s+)?(?:refunds?|returns?|exchanges?|terugbetalings?)[^\n]*/gi,
@@ -172,7 +193,9 @@ function totalPrintedSigned(text: string, total: number): boolean {
     if (parseAmount(match[1]!) !== size) continue;
     const before = text.slice(Math.max(0, match.index - 6), match.index);
     const after = text.slice(match.index + match[0].length, match.index + match[0].length + 3);
-    if (/^-(?!\d)/.test(after) || /[-–](?:R|ZAR)?$/.test(before)) return true;
+    // `-R 499.00`: the minus is glued to the currency mark, not to the space
+    // after it — a spaced dash alone (`Total - 115.00`) is still a separator.
+    if (/^-(?!\d)/.test(after) || /[-–](?:(?:R|ZAR)\s?)?$/.test(before)) return true;
     if (/\(\s*(?:R|ZAR)?\s*$/.test(before) && /^\s*\)/.test(after)) return true;
   }
   return false;
@@ -203,5 +226,6 @@ export function hasCreditIndicator(
 ): boolean {
   const scrubbed = scrubBenign(scrubVendorIdentity(text, vendorIdentity));
   if (CREDIT_WORD.test(scrubbed) || BRACKETED_CREDIT.test(scrubbed)) return true;
+  if (AMOUNT_CR.test(scrubbed) || NUMBERED_MARKING.test(scrubbed)) return true;
   return total !== null && total !== undefined && total !== 0 && totalPrintedSigned(text, total);
 }

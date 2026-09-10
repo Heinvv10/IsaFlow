@@ -25,6 +25,7 @@
 import { parseAmount } from './ocrAmountParsing';
 import { UNRECONCILED_WARNING, totalPrintedEnd, totalPrintedLastEnd } from './ocrAmountReconciliation';
 import { printedFigures, type PrintedFigure } from './ocrPrintedFigures';
+import { SUMMARY_LINE_START } from './ocrAmountPatterns';
 
 /**
  * A figure printed NEGATIVE: a glued minus (`-23.00`, `-R23.00`, `R -23.00`),
@@ -75,26 +76,64 @@ export function unexplainedLargerFigure(text: string, total: number): number | n
 const RECAP_HEADER = /(?:VAT|BTW|TAX|BELASTING)[\s-]*(?:ANALYSIS|ANALISE|SUMMARY|OPSOMMING|BREAKDOWN|RECAP|DETAIL)/i;
 
 /**
- * The indexes, into `printedFigures(text, true)`, of the recap-block rows
- * that decompose `total` — or none, when the block's rows do not add up.
+ * What a recap ROW may be labelled: a rated band and its columns. A row
+ * carrying any other word is a charge sitting inside the block — `VAT
+ * ANALYSIS / Std Rated 207.00 / SERVICE 23.00` sums to the total as neatly as
+ * an honest recap does (round-17 review LOW-1). A single letter is a band code
+ * (`A 15.00% 100.00 15.00`). A spelling missing here only refuses.
  */
-function recapRows(text: string, figures: readonly PrintedFigure[], total: number): Set<number> {
-  const header = text.split(/\r?\n/).findIndex((line) => RECAP_HEADER.test(line));
+const BAND_WORD = /^(?:Std|Standard|Standaard|Zero|Nul|Exempt(?:ed)?|Vrygestel|Rated|Rate|Koers|Incl\w*|Excl\w*|Net|Nett|VAT|BTW|Tax|Gross|Amount|Band|Code|[A-Z])$/i;
+const BAND_NAMED = /(?<![A-Za-z])(?:Std|Standard|Standaard|Zero|Nul|Exempt(?:ed)?|Vrygestel)(?![A-Za-z])/i;
+
+/**
+ * The indexes, into `printedFigures(text)`, of the recap-block rows that
+ * decompose `total` — or none, when they do not. Three things make a block a
+ * recap and not a hiding place: its rows add up to the total within a cent;
+ * no row is labelled with anything but a band; and either a row NAMES a band
+ * (`Std Rated`, `Zero Rated`) or the block prints the tax itself. Unlabelled
+ * rows that merely sum (`TAX SUMMARY / 200.00 / 7.00 / 23.00`) are not a
+ * decomposition of anything.
+ */
+function recapRows(text: string, figures: readonly PrintedFigure[], total: number, vat: number | null): Set<number> {
+  const lines = text.split(/\r?\n/);
+  const header = lines.findIndex((line) => RECAP_HEADER.test(line));
   if (header < 0) return new Set();
-  const before = printedFigures(text.split(/\r?\n/).slice(0, header).join('\n'), true).length;
+  const before = printedFigures(lines.slice(0, header).join('\n')).length;
   const rows = figures.map((f, i) => ({ f, i }))
     .filter(({ f, i }) => i >= before && !f.isSummary && !f.isTender && !f.isChange && f.value !== 0);
   const sum = Math.round(rows.reduce((acc, { f }) => acc + f.value, 0) * 100) / 100;
-  return Math.abs(sum - total) <= 0.01 ? new Set(rows.map(({ i }) => i)) : new Set();
+  if (Math.abs(sum - total) > 0.01) return new Set();
+  const block = lines.slice(header + 1);
+  const labels = block.flatMap((line) => line.replace(/[\d.,%()@:*=/-]+/g, ' ').split(/\s+/).filter(Boolean));
+  if (labels.some((word) => !BAND_WORD.test(word))) return new Set();
+  const namesBand = block.some((line) => BAND_NAMED.test(line));
+  const printsTax = vat !== null && figures.slice(before).some((f) => f.value === vat);
+  return namesBand || printsTax ? new Set(rows.map(({ i }) => i)) : new Set();
 }
 
 /**
- * Rule 3 reads whole rands; rules 1 and 2 do not, and the asymmetry is
- * deliberate. Above the total a document prints its own numbers — invoice,
- * receipt, VAT, till, table, date — and reading those as money refused every
- * slip when it was tried. Below the total there is nothing left to print but
- * payments, recaps and charges, which is where the round-16 hole was.
+ * A whole number printed as a LINE ITEM, above the total block — `Waiter 23`
+ * over `Sub Total 200.00 / VAT 15% 30.00 / Total 230.00` (round-17 review,
+ * posted R230.00 against R253.00, with nothing paid on the slip). Nothing
+ * below the total mentions it, so rules 1 to 3 cannot see it. What can is the
+ * item column's own sum: the last
+ * figure of every item line must add up to the net or to the total. Checked
+ * only where an item line prints a whole number and nothing else, so a
+ * cents-only document is judged exactly as before; `Cappuccino 35 / Muffin
+ * 30 / TOTAL 65.00` adds up and passes.
  */
+function unexplainedItem(text: string, total: number, net: number | null): number | null {
+  const lines = text.split(/\r?\n/);
+  // The block starts at the first summary line that prints a FIGURE — the
+  // header's `VAT No 4123456789` opens with a summary word and prints none.
+  const block = lines.findIndex((line) => SUMMARY_LINE_START.test(line.trimStart()) && printedFigures(line).length > 0);
+  const items = (block < 0 ? lines : lines.slice(0, block)).map((line) => printedFigures(line));
+  const loose = items.find((row) => row.length === 1 && row[0]!.isUnroled);
+  if (!loose) return null;
+  const sum = Math.round(items.reduce((acc, row) => acc + (row[row.length - 1]?.value ?? 0), 0) * 100) / 100;
+  const adds = [total, net].some((target) => target !== null && Math.abs(sum - target) <= 0.01);
+  return adds ? null : loose[0]!.value;
+}
 
 /** Why a document's own figures do not reconcile against the total read. */
 export interface Unreconciled {
@@ -135,15 +174,26 @@ export interface Unreconciled {
  * unexplained, and the document refuses whether or not the rail was
  * recognised. The vocabulary now only ever buys back an ordinary slip.
  *
- * Rule 3 explains by ROLE, not by VALUE, and round 16 did the opposite: it
- * exempted any figure whose value equalled the extracted net, tax or total, so
- * a real charge that happened to coincide with one of them was waved through.
- * Measured on round 16: `TOTAL 115.00 / SERVICE 15.00` (the VAT), `/ Car Guard
- * 100.00` (the net) and `/ Second table 115.00` (the total) all auto-posted
- * 115.00 against payables of 130, 215 and 230. A 15% service charge on a slip
- * whose VAT is 15% of the same base is not a rare coincidence.
+ * Rule 3 explains by ROLE AND VALUE together. Round 16 used value alone, and a
+ * charge that coincided with the tax, the net or the total was waved through
+ * (`SERVICE 15.00`, `Car Guard 100.00`, `Second table 115.00`). Round 17 used
+ * role alone, and `Total Service 23.00` or `VAT on service 23.00` explained
+ * themselves by their first word. A summary line now explains its figure only
+ * when that figure IS the total, the net or the tax.
+ *
+ * All three rules read the same figures, whole rands included (see
+ * `ocrWholeFigures`): a whole-rand payment is summed by rule 1 and is larger
+ * than the total under rule 2 exactly as its cents twin is. A whole number no
+ * role claims — `Items 2`, `Table 12`, `Pump 5`, and equally `SERVICE 23` — is
+ * a COUNT only where rule 1 has proven what was paid and nothing else of money
+ * shares its line; with no payment on the document, or beside a cents figure,
+ * it refuses. Larger than the total, it always refuses.
  */
-export function unreconciledFigure(text: string, total: number): Unreconciled | null {
+export function unreconciledFigure(
+  text: string,
+  total: number,
+  known: { subtotal?: number | null; vatAmount?: number | null } = {},
+): Unreconciled | null {
   const figures = printedFigures(text);
   const tenders = figures.filter((f) => f.isTender && !f.isChange);
   // `settled` records that rule 1 RAN AND BALANCED, which is the only thing
@@ -162,14 +212,25 @@ export function unreconciledFigure(text: string, total: number): Unreconciled | 
 
   const larger = figures.find((f) => f.value > total && !(settled && (f.isTender || f.isChange)));
   if (larger) return { reason: 'larger', value: larger.value };
+  // The same licence rule 3 gives a count: where the payments PROVE the total
+  // was what was paid (`Car Guard 23 / … / VISA 230.00`), a whole number no
+  // role claims did not change the payable; where nothing proves it, the item
+  // column has to add up instead.
+  const item = settled ? null : unexplainedItem(text, total, known.subtotal ?? null);
+  if (item !== null) return { reason: 'stray', value: item };
 
   const end = totalPrintedLastEnd(text, total);
   if (end === null) return null;
   const below = text.slice(end);
-  const belowFigures = printedFigures(below, true);
-  const recap = recapRows(below, belowFigures, total);
-  const stray = belowFigures.find((f, i) => f.value !== 0 && !f.isTender && !f.isChange
-    && !f.isSummary && !recap.has(i));
+  const belowFigures = printedFigures(below);
+  const recap = recapRows(below, belowFigures, total, known.vatAmount ?? null);
+  const roleValues = new Set([0, total, known.subtotal ?? total, known.vatAmount ?? total]);
+  const stray = belowFigures.find((f, i) => {
+    if (f.value === 0 || f.isTender || f.isChange || recap.has(i)) return false;
+    if (f.isSummary) return !roleValues.has(f.value);
+    if (f.isUnroled) return !settled || f.besideMoney;
+    return true;
+  });
   return stray ? { reason: 'stray', value: stray.value } : null;
 }
 
