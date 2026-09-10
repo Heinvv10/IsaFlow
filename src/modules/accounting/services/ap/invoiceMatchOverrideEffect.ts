@@ -14,9 +14,9 @@ export async function executeInvoiceMatchOverrideEffect(ctx:ControlTx,intentId:s
   reason:state.intent.reason,evidenceRefs:state.evidence,status:'annotated' as const};
 }
 export async function executeInvoiceMatchOverride(ctx:ControlTx,inputIntentId:string,approvalId?:string){
+ await assertEffectivePermission(ctx,'write:invoices');
  // One spelling for the receipt read, the control ref and the recorded annotation.
  const intentId=canonicalIntentId(inputIntentId);
- await assertEffectivePermission(ctx,'write:invoices');
  return withInvoiceMatchSourceLocks(ctx,async()=>{
   const state=await loadInvoiceMatchOverride(ctx,intentId);
   if(state.intent.requester_person_id!==ctx.principal.personId)throw new Error('Invoice match override requester required');

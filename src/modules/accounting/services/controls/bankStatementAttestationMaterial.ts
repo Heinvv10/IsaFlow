@@ -10,8 +10,8 @@ export interface StatementIntent {
  period_start:string;period_end:string;source_count:number;opening_balance:string;closing_balance:string;currency:string;created_at:Date|string;
 }
 export async function loadBankStatementAttestation(ctx:ControlTx,inputId:string){
- const id=canonicalIntentId(inputId);
  await assertStatementRead(ctx);
+ const id=canonicalIntentId(inputId);
  const [intent]=await ctx.sql`SELECT id,requester_person_id,bank_account_id,source_document_id,expected_source_hash,source_fingerprint,
   period_start::text,period_end::text,source_count,opening_balance::text,closing_balance::text,currency,created_at
   FROM control_bank_statement_attestation_intents WHERE company_id=${ctx.principal.companyId}::uuid AND id=${id}::uuid` as StatementIntent[];

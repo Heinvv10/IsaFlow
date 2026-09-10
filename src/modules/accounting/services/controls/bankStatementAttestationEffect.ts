@@ -15,9 +15,9 @@ export async function executeBankStatementAttestationEffect(ctx:ControlTx,intent
 }
 /** A completed effect records an independent local review; it does not assert external bank authenticity. */
 export async function executeBankStatementAttestation(ctx:ControlTx,inputIntentId:string,approvalId?:string){
+ await assertEffectivePermission(ctx,'write:bank-tx');
  // One spelling for the receipt read, the control ref and the recorded result.
  const intentId=canonicalIntentId(inputIntentId);
- await assertEffectivePermission(ctx,'write:bank-tx');
  return withStatementSourceLocks(ctx,async()=>{
   const state=await loadBankStatementAttestation(ctx,intentId);
   if(state.intent.requester_person_id!==ctx.principal.personId)throw new Error('Statement attestation requester required');

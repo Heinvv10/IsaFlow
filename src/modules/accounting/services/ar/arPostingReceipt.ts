@@ -4,9 +4,9 @@ import {canonicalIntentId,loadIntentReceipt,sameIntentId} from '../controls/inte
 import type {ControlTx} from '../controls/contracts';
 /** An already posted invoice is an existing receipt, not a second accounting effect. */
 export async function readArInvoicePostingReceipt(ctx:ControlTx,inputId:string):Promise<Record<string,unknown>|null>{
- const id=canonicalIntentId(inputId);
  await assertEffectivePermission(ctx,'write:invoices');
  await assertEffectivePermission(ctx,'write:post');
+ const id=canonicalIntentId(inputId);
  const company=ctx.principal.companyId;
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${company}`},0))`;
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-ar:${company}`},0))`;
