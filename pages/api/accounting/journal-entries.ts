@@ -47,6 +47,23 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
       return apiResponse.badRequest(res, 'entryDate and lines (non-empty array) are required');
     }
 
+    // `source` names the SUBSYSTEM that produced the entry, and this route is
+    // the manual one. It used to pass whatever the body said straight into the
+    // INSERT, checked only by the table's CHECK constraint: with
+    // `source = 'auto_expense_receipt'` a hand-made journal lands inside
+    // `uq_gl_je_capture_source_document` (a 23505 whose raw Postgres text came
+    // back as a 400), and with any other `auto_*` value it creates a live
+    // journal against an already-claimed captured document, outside both the
+    // index and the posting claim — a second VAT-bearing entry for one receipt,
+    // reached by a route the capture fence does not know about. Every `auto_*`
+    // source belongs to the service that writes it; this route writes 'manual'.
+    if (source !== undefined && source !== null && source !== 'manual') {
+      return apiResponse.badRequest(
+        res,
+        `source '${String(source)}' is written by the subsystem that owns it — a journal created here is 'manual'`,
+      );
+    }
+
     // sourceDocumentId carries an FK to captured_documents (migration 409), so
     // an id that is not one aborts the INSERT — a 500 saying nothing, from a
     // caller error. Checked here, and scoped by company: an id belonging to

@@ -10,9 +10,12 @@ import {
   extractVatAmount,
   SUBTOTAL_PATTERNS,
   SUMMARY_LINE_START,
-  TOTAL_PATTERNS,
 } from './ocrAmountPatterns';
-import { reconcileNetAgainstTotal } from './ocrAmountReconciliation';
+import {
+  extractTotalCandidates,
+  reconcileNetAgainstTotal,
+  selectTotalAmount,
+} from './ocrAmountReconciliation';
 
 export interface ExtractedAmounts {
   subtotal: number | null;
@@ -156,10 +159,18 @@ export function extractReferenceNumber(text: string): string | null {
 export function extractAmounts(text: string): ExtractedAmounts {
   const result: ExtractedAmounts = { subtotal: null, vatAmount: null, totalAmount: null, warnings: [] };
 
-  for (const pattern of TOTAL_PATTERNS) {
-    const match = text.match(pattern);
-    if (match && match[1]) { result.totalAmount = parseAmount(match[1]); break; }
-  }
+  // EVERY figure that could be the total, not the leftmost one. `String.match`
+  // returned the first hit, so a sectioned till slip ("Food Total 200.00 / …
+  // TOTAL 287.50") posted its first section as the amount payable — see
+  // `extractTotalCandidates`. The choice between them needs the printed net and
+  // the VAT, so it is made below, once those are read.
+  const totalCandidates = extractTotalCandidates(text);
+  // The bottom-most candidate is the provisional total the VAT plausibility
+  // test uses: `isPlausibleVatAmount` rejects a candidate too large for the
+  // total, and a section subtotal in that role rejects the real VAT line.
+  const provisionalTotal = totalCandidates.length > 0
+    ? totalCandidates[totalCandidates.length - 1]!
+    : null;
 
   // Read the subtotal BEFORE the VAT: the VAT selection below cross-checks
   // candidates against it, so it has to exist by then.
@@ -168,7 +179,11 @@ export function extractAmounts(text: string): ExtractedAmounts {
     if (match && match[1]) { result.subtotal = parseAmount(match[1]); break; }
   }
 
-  result.vatAmount = extractVatAmount(text, result.subtotal, result.totalAmount);
+  result.vatAmount = extractVatAmount(text, result.subtotal, provisionalTotal);
+
+  const selectedTotal = selectTotalAmount(totalCandidates, result.subtotal, result.vatAmount);
+  result.totalAmount = selectedTotal.totalAmount;
+  if (selectedTotal.warning) result.warnings.push(selectedTotal.warning);
 
   if (result.totalAmount !== null && result.vatAmount !== null && result.subtotal === null) {
     const derived = Math.round((result.totalAmount - result.vatAmount) * 100) / 100;

@@ -21,16 +21,26 @@ CREATE INDEX IF NOT EXISTS idx_captured_documents_unposted
   ON captured_documents(company_id, status)
   WHERE posted_at IS NULL;
 
--- Backfill: a document that ALREADY produced a LIVE journal or supplier invoice
--- is posted, and must stay refused. Attachment-only documents (status 'matched'
--- from match_bank_tx, no ledger row) are deliberately left NULL — those are the
--- ones the old fence wrongly blocked. So are documents whose only journal was
--- reversed or whose only invoice was cancelled: the predicates here are exactly
--- the two NOT EXISTS clauses in `releaseCapturedDocumentPostingClaim`, because a
--- backfill that claims what the release would immediately hand back is a fence
--- disagreeing with its own undo. The `source`/`reversed_at` scoping also keeps
--- the evidence-attach and bank-allocation journals — which stamp
--- `source_document_id` without posting anything — from claiming a document.
+-- Backfill: a document that ALREADY produced a LIVE journal, supplier invoice
+-- or expense claim is posted, and must stay refused. Attachment-only documents
+-- (status 'matched' from match_bank_tx, no ledger row) are deliberately left
+-- NULL — those are the ones the old fence wrongly blocked. So are documents
+-- whose only journal was reversed, whose only invoice was cancelled or whose
+-- only claim was rejected.
+--
+-- The three predicates here are exactly the three NOT EXISTS clauses in
+-- `releaseCapturedDocumentPostingClaim` — and they have to be, because a
+-- backfill that claims what the release cannot hand back is a fence
+-- disagreeing with its own undo. A fourth disjunct, `cd.matched_invoice_id IS
+-- NOT NULL`, was in neither the release nor `refusalForPosting`, and nothing
+-- anywhere clears that column: every row it claimed was refused by all four
+-- posting routes and by confirm and reject, permanently. It is gone. Documents
+-- carrying `matched_invoice_id` from `ai-invoice-pipeline`'s duplicate branch
+-- produced NO invoice of their own and are correctly left postable.
+--
+-- The `source`/`reversed_at` scoping also keeps the evidence-attach and
+-- bank-allocation journals — which stamp `source_document_id` without posting
+-- anything — from claiming a document.
 UPDATE captured_documents cd
    SET posted_at = COALESCE(cd.updated_at, cd.created_at, NOW())
  WHERE cd.posted_at IS NULL
@@ -41,7 +51,10 @@ UPDATE captured_documents cd
      OR EXISTS (SELECT 1 FROM supplier_invoices si
                  WHERE si.source_document_id = cd.id AND si.company_id = cd.company_id
                    AND si.status <> 'cancelled')
-     OR cd.matched_invoice_id IS NOT NULL
+     OR EXISTS (SELECT 1 FROM expense_claim_lines ecl
+                  JOIN expense_claims ec ON ec.id = ecl.claim_id AND ec.company_id = ecl.company_id
+                 WHERE ecl.source_document_id = cd.id AND ecl.company_id = cd.company_id
+                   AND ec.status NOT IN ('rejected', 'cancelled'))
    );
 
 -- Behind the application fence: one LIVE posting journal per captured document,

@@ -14,6 +14,11 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { CapturedDocumentAction, CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
+import {
+  type LifecycleGate,
+  releaseClaimForLifecycleAction,
+} from '@/modules/accounting/services/capture/captureLifecycleGate';
+import { CaptureRowLockTimeoutError } from '@/modules/accounting/services/capture/captureRowLock';
 
 function mapRow(row: Record<string, unknown>): CapturedDocument {
   return {
@@ -68,6 +73,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    if (action === 'confirm' || action === 'reject') {
+      // A posting claim whose journal is still a DRAFT is not a posting. The
+      // routes claim the document before their first ledger write, and
+      // `receipt-to-journal` only POSTS what clears the auto-post gate — over
+      // R5 000, or below 0.85 confidence, it leaves a draft and the claim
+      // behind it. Both buttons then refused, the re-post refused, and
+      // `reverseJournalEntry` refuses a draft: the ordinary capture path had no
+      // way back at all. `releaseUnpostedCaptureClaim` discards that draft and
+      // hands the claim back; anything LIVE in the ledger still refuses, and
+      // refuses having written nothing.
+      let gate: LifecycleGate;
+      try {
+        gate = await releaseClaimForLifecycleAction(companyId, id);
+      } catch (err) {
+        if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
+      if (gate === 'missing') return apiResponse.notFound(res, 'Captured document', id);
+      if (gate === 'refused') {
+        return refusePosted(res, id, action === 'confirm' ? 'confirmed' : 'rejected');
+      }
+    }
+
     if (action === 'confirm') {
       return handleConfirm(res, id, companyId, data);
     }
@@ -204,10 +232,32 @@ async function handleReject(
 
 
 /**
+ * The document is in the ledger for real: a posted journal, an uncancelled
+ * supplier invoice, or a claim still in flight. The remedy named has to be one
+ * that exists — reversing a DRAFT throws, and the claim journal carries no
+ * source document, so rejecting the claim is the undo there.
+ */
+function refusePosted(
+  res: NextApiResponse,
+  id: string,
+  action: 'confirmed' | 'rejected',
+) {
+  log.info('Document lifecycle action refused — already posted', { id, action }, 'document-capture');
+  return apiResponse.badRequest(
+    res,
+    `Document is already posted to the ledger and cannot be ${action}. `
+    + 'Reverse the journal, cancel the supplier invoice, or reject the expense claim first.',
+  );
+}
+
+/**
  * Tell the two cases apart after a predicated UPDATE matched nothing: a
  * document belonging to another tenant (or gone) is a 404, one already posted
  * is a 400 that names the reason. Answering "not found" for both would send an
  * accountant looking for a document that is sitting in front of them.
+ *
+ * Reachable only when the row was re-claimed between the gate above and the
+ * UPDATE — which the document lock is there to prevent — or when it vanished.
  */
 async function refusePostedOrMissing(
   res: NextApiResponse,
@@ -221,12 +271,7 @@ async function refusePostedOrMissing(
   ` as Record<string, unknown>[];
 
   if (!existing) return apiResponse.notFound(res, 'Captured document', id);
-
-  log.info('Document lifecycle action refused — already posted', { id, action }, 'document-capture');
-  return apiResponse.badRequest(
-    res,
-    `Document is already posted to the ledger and cannot be ${action}. Reverse the journal or invoice first.`,
-  );
+  return refusePosted(res, id, action);
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

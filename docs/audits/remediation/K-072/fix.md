@@ -494,3 +494,164 @@ postable again. The unique index does not cover the supplier-invoice path — `c
 claim stops a second invoice there; a partial unique index on `supplier_invoices(company_id,
 source_document_id)` is the follow-up, deferred because its production duplicate risk has not been
 measured. `expenses/[id].tsx` is still over the 300-line cap.
+
+## Round 8 — the five findings of `review-k072-r5.md`
+
+### HIGH-1 — a section total was read as the payable total
+
+FIXED, and fixed as a CLASS. `TOTAL_PATTERNS[0]` is guarded by `NOT_A_SUBTOTAL`, a five-member
+DENYLIST of net-label stems, and `extractAmounts` took `text.match(...)` — the LEFTMOST hit. Any
+other noun in front of `Total` therefore won. Measured on `85e8baef9`:
+
+```
+Tashas Cafe / Food Total 200.00 / Drinks Total 50.00 / VAT 32.61 / TOTAL 287.50
+  → {subtotal: 167.39, vatAmount: 32.61, totalAmount: 200, warnings: []}   autoPost = true
+```
+
+R287.50 on the slip, R200.00 credited to the bank, silently: with no printed net the subtotal is
+DERIVED as `total − VAT`, so the entry balances by construction, the routes' balance pre-check
+passes and `shouldAutoPostReceipt` returns true. No downstream gate can see it.
+
+Widening the denylist is what produced the defect twice already, so the total is now chosen
+POSITIVELY. `extractTotalCandidates` (`ocrAmountReconciliation.ts`) collects EVERY candidate the
+first productive pattern yields; `selectTotalAmount` takes the single distinct value where there is
+one, else the candidate the document's own arithmetic endorses (`printed subtotal + VAT`), else the
+LAST one — a grand total is printed below the sections it sums — with the disagreement declared
+under the `UNRECONCILED_WARNING` prefix, which `shouldAutoPostReceipt` already refuses. Measured
+after the fix (same call, `{maxAmount: 5000, minConfidence: 0.85}`):
+
+| Document | total | warnings | autoPost |
+|---|---|---|---|
+| `Food Total 200 / Drinks Total 50 / VAT 32.61 / TOTAL 287.50` | **287.50** | 1 | false |
+| `Goods / Items / Line / Order / Deposit Total 250 …/ Total Due 1150` | **1150** | 1 | false |
+| `Beverage / Kitchen / Pharmacy / Workshop / Trolley Total …` (nouns in no denylist) | **1150** | 1 | false |
+| `Delivery Total 250 / Sub Total 1000 / VAT 150 / Total Due 1150` | **1150** | 0 | true |
+| `Sub Total 1000 / VAT 150 / Total Due 1150` | 1150 | 0 | true |
+| `TOTAL (VAT INCL) 1150.00 / Total Due 1150.00` | 1150 | 0 | true |
+
+The `Delivery Total` case IMPROVES: it used to warn and 400; the printed net now settles it on
+evidence. `tests/unit/services/k076-ocr-grand-total-selection.test.ts` asserts all of it, over ten
+section nouns, five of which appear in no list in this repo.
+
+### HIGH-2 — a draft receipt journal claimed the document permanently
+
+FIXED. `receipt-to-journal` claims before its first ledger write and only POSTS when the auto-post
+gate passes; over R5 000 or below 0.85 confidence — the majority — it left a DRAFT, and every exit
+was closed (confirm 400, reject 400, re-post 400, `reverseJournalEntry` throws on a draft, no JE
+delete route).
+
+`releaseUnpostedCaptureClaim` (`capturePostingClaimRelease.ts`) is the way back: it reads liveness
+FIRST — any unreversed non-draft capture journal, any uncancelled supplier invoice, any expense
+claim not rejected/cancelled — and refuses having written nothing, which is what makes the 400 safe
+under `withAuth`'s commit-on-4xx. Otherwise it DELETEs the draft capture journals (`AND status =
+'draft'`, lines cascade) and clears `posted_at`. `captureLifecycleGate.releaseClaimForLifecycleAction`
+takes the document lock first, so the release and the lifecycle UPDATE cannot be raced apart.
+
+The employee-claim branch is fixed at its own undo: `rejectClaim` and `cancelClaim` now call
+`releaseClaimDocuments`, because the claim journal carries `source_document_id = NULL` by design and
+the reversal release can never reach those documents. `releaseCapturedDocumentPostingClaim` gained a
+third NOT EXISTS for live claims so no caller can hand back a slip another claim still holds.
+
+Measured end to end through the real routes (`k072-draft-claim-release.int.test.ts`):
+
+```
+receipt (confidence 0.5) → 200, journal 'draft', posted_at stamped
+confirm                  → 200, posted_at NULL, draft journal GONE, no orphan lines
+re-post                  → 200, exactly one journal
+reject (second document) → 200, posted_at NULL; the next post refuses on 'rejected'
+receipt (confidence .95) → posted; confirm 400, journal untouched; reverse → confirm 200
+post-expense claim       → claimed; confirm 400 while submitted; reject claim → posted_at NULL
+reversed + re-drafted    → confirm 200, the reversed POSTED entry still standing
+invoice/claim + draft    → confirm 400 and the draft still there (refusal writes nothing)
+```
+
+### MEDIUM-1 — migration 672 backfilled on a predicate no code shares
+
+FIXED. `OR cd.matched_invoice_id IS NOT NULL` is gone: it appeared in neither
+`refusalForPosting` nor the release, and nothing clears that column, so every row it claimed was
+refused by all four posting routes and by both lifecycle buttons forever. The backfill now carries
+exactly the three NOT EXISTS predicates of `releaseCapturedDocumentPostingClaim` (journal, invoice,
+live claim) and the comment says what the code does. The test runs the REAL migration file inside a
+rolled-back transaction (the fixture database is shared) and asserts both directions: a document
+with `matched_invoice_id` and no ledger row stays postable, a document with a live posting journal
+is claimed.
+
+`ai-invoice-pipeline`'s duplicate branch still writes `status='matched', matched_invoice_id` before
+its 409 — DISPUTED as a defect. That row records a true fact (this slip duplicates that invoice) and
+with the disjunct dropped it is no longer a dead end: measured, such a document confirms, rejects
+and posts normally.
+
+### LOW-1 — the claim's own `posted_at` predicate is now pinned
+
+`claimCapturedDocumentForPosting` is called twice directly, with no lock held, in
+`k072-draft-claim-release.int.test.ts`. Deleting `AND posted_at IS NULL` makes the second call
+succeed and the test red (M1 below).
+
+### LOW-2 — the manual journal route, and the census re-run
+
+`pages/api/accounting/journal-entries.ts` took `source` from the body unvalidated. It now refuses
+anything but `'manual'` (the only value any caller in the repo sends — `pages/accounting/journal-entries/new.tsx`
+and the close-agent E2E specs), so a hand-made journal can no longer land inside
+`uq_gl_je_capture_source_document` nor create a live journal against a claimed document outside the
+fence.
+
+**Census re-run, by consumer, with the directories walked listed.** Enumerated from the TABLE
+(`INSERT INTO gl_journal_entries`, callers of `createJournalEntry`) and from the ARGUMENT (every
+`sourceDocumentId` / `source_document_id` occurrence), not from the guard.
+
+Directories walked in full: `pages/api/**` (every route, not only `accounting/`), `pages/accounting/**`,
+`src/lib/mcp/tools/**`, `src/modules/accounting/services/{afs,annotations,ap,ar,bank,capture,commentary,core,dashboard,expense,gl,items,loans,packs,payroll,practice,reconciliation,reports,share,shared,workbench}`,
+`src/modules/{admin,analytics,billing,bureau,onboarding}/services/**`, `scripts/**`,
+`scripts/migrations/sql/**`.
+
+| Writer | Stamps a captured document? | Covered by |
+|---|---|---|
+| `receipt-to-journal.ts` | yes (`documentId`) | claim + unique index |
+| `capture/[id]/post-expense.ts` (both branches) | yes | claim (+ index on the journal branch) |
+| `capture/[id]/post.ts` | yes (supplier invoice) | claim |
+| `ai-invoice-pipeline.ts` | yes (supplier invoice) | claim |
+| `journal-entries.ts` (manual POST) | body-supplied, ownership-checked | `source` restricted to `'manual'` (this round) |
+| `evidenceAttachmentService`, `provisional/[jeId]/attach` | stamps an EXISTING journal | not a posting; index scoped to `auto_expense_receipt` |
+| `bankAllocationService` | copies an invoice's document id | not a posting; source is `auto_payment` |
+| `expenseClaimService` (claim lines) | yes (`expense_claim_lines.source_document_id`) | claim + release on reject/cancel (this round) |
+| `src/lib/mcp/tools/writeJournals.ts`, `writeOpeningBalance.ts` | no — passes neither `source` nor `sourceDocumentId` | defaults to `'manual'` |
+| every other `createJournalEntry` caller (35 files) | no — each states why, most because the FK is to `captured_documents` | n/a |
+| `scripts/**` one-off + seed scripts, `assetDepreciationPosting`, `yearEndCloseService`, `bank-transfers.ts` | raw INSERTs, no `source_document_id` | n/a |
+
+### Mutations, round 8 (file copies, restored and byte-compared)
+
+| # | Mutation | Outcome |
+|---|---|---|
+| M1 | drop `AND posted_at IS NULL` from `claimCapturedDocumentForPosting` | RED (1 int) |
+| M2 | delete the claim in `ai-invoice-pipeline.ts` | RED (3 int) |
+| M4 | revert `NET_LABEL` to `S[./]Total` | RED (6 unit) |
+| M5 | stop `reverseJournalEntry` releasing the claim | RED (4 int) |
+| M6 | empty `TAX_NOUN` | RED (13 unit) |
+| M7 | take the FIRST total candidate | RED (12 unit) |
+| M8 | drop the ambiguity warning | RED (11 unit) |
+| M9 | skip the lifecycle gate | RED (2 int) |
+| M10 | release ignores its liveness read | RED (1 int) |
+| M11 | claim rejection releases nothing | RED (1 int) |
+| M12 | manual route trusts the body's `source` | RED (1 int) |
+| M13 | re-add the `matched_invoice_id` disjunct to the backfill | RED (1 int) |
+| M14 | drop `AND status = 'draft'` from the release's DELETE | RED (1 int) |
+| M15 | drop the live-claim clause from `releaseCapturedDocumentPostingClaim` | RED (1 int) |
+| M16 | drop the live-claim clause from the liveness read | RED (1 int) |
+| M17 | selection ignores the arithmetic endorsement | RED (1 unit) |
+| M18 | selection takes the first candidate instead of the last | RED (11 unit) |
+
+M10, M14, M15 and M16 survived their first run and are red only because a test was then written
+for the state each protects — the supplier-invoice-plus-draft and live-claim-plus-draft rows are
+written directly, because no route can build them now.
+
+### Round-8 limits, disclosed
+
+- **M3 (dropping `AND posted_at IS NULL` from the confirm/reject UPDATEs) now SURVIVES.** Measured:
+  49 integration tests stay green. The lifecycle gate refuses or releases first, while holding the
+  document's `FOR UPDATE`, so the statement-level predicate can no longer be reached as a fence. It
+  is kept as the last line of defence and the layer that decides is pinned by M9. Same shape as
+  round 7's LOW-1, with the outer layer pinned this time.
+- **`expenseClaimService.ts` is 548 lines** (538 before this round) and `document-capture-action.ts`
+  is 277. The lifecycle gate was extracted to `captureLifecycleGate.ts` rather than pushing the
+  route over the cap; splitting `expenseClaimService` is a refactor no finding named.
+- The supplier-invoice unique index and the hard-DELETE residual carry over from round 7 unchanged.
