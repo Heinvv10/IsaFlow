@@ -1,28 +1,6 @@
-/**
- * receiptMatchConfirmService — allocating an imported bank line to the customer
- * invoices it settles.
- *
- * Moved here from receiptMatchService.test.ts when the write half was split out
- * and WIDENED from one invoice to many. One receipt routinely pays several
- * invoices, and the single-invoice form left the rest of the bank line sitting
- * on the AR control account with nothing recording what it was for.
- *
- * What is pinned:
- *
- *  - **Every refusal happens BEFORE allocateTransaction.** That is what lets an
- *    MCP handler answer with a `toolError` while nothing has been written; a
- *    refusal returned after the journal posted would free the idempotency key
- *    for a retry that posts a second one.
- *  - **The journal is the FULL bank line, and allocating less is allowed.** The
- *    remainder is a real unapplied receipt, not an error — allocating MORE is
- *    refused, because the invoices would be credited with cash the journal
- *    never received.
- *  - **An already-allocated bank line is refused**, not allocated twice.
- *  - **A missing customer_payments row THROWS.** allocateTransaction skips its
- *    payment INSERT when it cannot resolve a uuid-shaped user; without that row
- *    the receipt would post to the control account and attach to nothing, which
- *    is the exact state this service exists to prevent.
- */
+/** Receipt pre-write refusal and exact immutable parent-dispatch contracts.
+ * Real journals, child applications, rollback and current tenant identity are
+ * covered by bank39Receipt.int.test.ts; this file isolates read/dispatch errors. */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', async () => {
@@ -241,6 +219,20 @@ describe('confirmReceiptMatch', () => {
     expect(applyReceiptPlan).not.toHaveBeenCalled();
     expect(result.journalEntryId).toBe('je-1');
     expect(result.unappliedRemainder).toBe(400);
+  });
+
+  it.each([undefined, 'mcp:explicit:v1'])('preserves legacy label unless explicit postingOpts overrides it (%s)', async (explicit) => {
+    primeValid();
+    vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: 'je-1' } as never);
+    sqlMock.mockResolvedValueOnce([{ id: PAYMENT, status: 'confirmed' }]);
+    await confirmReceiptMatch(COMPANY, {
+      bankTxId: TX, userId: USER, allocations: [{ invoiceId: INV_A, amount: 600 }],
+      postingAgent: 'mcp:legacy:v1', postingOpts: { postingAgent: explicit },
+    });
+    expect(vi.mocked(allocateTransaction).mock.calls[0]![12]).toMatchObject({
+      postingAgent: explicit ?? 'mcp:legacy:v1', autoApply: false,
+      applications: [{ invoiceId: INV_A, amount: '600' }],
+    });
   });
 
   it('DOES NOT ALLOCATE when validation refuses', async () => {

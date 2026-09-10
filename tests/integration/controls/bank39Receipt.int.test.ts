@@ -11,14 +11,14 @@ beforeAll(async()=>{
  b=await bank39Fixture();
  for(const [type,role] of [['revenue','default_revenue'],['liability','vat_output']])await b.pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level) VALUES($1,$2,left($1::uuid::text,20),$3,$4,$3,'credit',true,true,3)",[randomUUID(),b.f.companyA,role,type]);
 });afterAll(async()=>{await b?.close();});
-async function preparedReceipt(){
+async function preparedReceipt(legacyLabel?:string){
  const invoice=randomUUID(),tx=await b.source('1000');
  await b.pool.query("INSERT INTO customer_invoices(id,company_id,customer_id,client_id,invoice_number,invoice_date,subtotal,total_amount,currency_code,exchange_rate,functional_total,created_by) VALUES($1,$2,$3,$3,$1::uuid::text,'2026-03-01',1000,1000,'ZAR',1,1000,$4)",[invoice,b.f.companyA,b.customer,b.f.u1.id]);
  await b.pool.query("INSERT INTO customer_invoice_items(invoice_id,description,quantity,unit_price,amount,tax_rate) VALUES($1,'BANK39 service',1,1000,1000,0)",[invoice]);
  await b.actor(()=>approveCustomerInvoice(b.f.companyA,invoice,b.f.u1.id));
  const p=await b.prepare({version:1,kind:'customer',bankTransactionId:tx,description:'Matched customer receipt',partyId:b.customer,applications:[{invoiceId:invoice,amount:'600'}]});
- const postingOpts={intentId:p.intentId,approvalId:p.approvalId,postingAgent:'mcp:match_receipt:v1'};
- const run=()=>confirmReceiptMatch(b.f.companyA,{bankTxId:tx,userId:b.f.u1.id,allocations:[{invoiceId:invoice,amount:600}],postingOpts});
+ const postingOpts={intentId:p.intentId,approvalId:p.approvalId,...(legacyLabel?{}:{postingAgent:'mcp:match_receipt:v1'})};
+ const run=()=>confirmReceiptMatch(b.f.companyA,{bankTxId:tx,userId:b.f.u1.id,allocations:[{invoiceId:invoice,amount:600}],postingAgent:legacyLabel,postingOpts});
  return{invoice,tx,p,run};
 }
 it('actual confirmation posts one full-line journal and one owned child with exact selected application and remainder',async()=>{
@@ -50,4 +50,11 @@ it('a real missing child INSERT aborts confirmation and unwinds journal and appr
 it('failure-injection helper rolls back its DDL even on unexpected callback success',async()=>{
  expect(await withBank39MissingPayment(b.pool,b.f,async()=>42)).toBe(42);
  expect((await b.pool.query("SELECT oid FROM pg_trigger WHERE tgname='bank39_drop_payment'")).rows).toEqual([]);
+});
+
+for(const pat of [true,false])it(`legacy receipt label preserves issued ${pat?'PAT token':'human'} authority`,async()=>{
+ const r=await preparedReceipt('mcp:legacy_receipt:v1'),result=await b.actor(r.run,'u1',pat);
+ const row=(await b.pool.query('SELECT actor_type,actor_token_jti,posting_agent FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[b.f.companyA,result.journalEntryId])).rows[0];
+ expect(row.actor_type).toBe(pat?'agent':'human');expect(row.actor_token_jti).toBe(pat?b.f.u1.tokens[0]!.id:null);
+ expect(row.posting_agent).toBe(pat?'mcp:legacy_receipt:v1':`human:${b.f.u1.id}`);
 });
