@@ -293,6 +293,13 @@ from `approved_at`. Moving it into a bucket would change today's buckets.
   every date. It adds the invoice day itself (1500, current, 2 rows) and S's payment day itself
   (1100, 31-60, 2 rows). It now has 17 tests, up from 13.
 - The WIP test asserts the approval, billing, invoice and write-off days themselves.
+- `r059-aging-route-equals-service-every-day` (4 tests), adapted from the reviewer's probe: route ==
+  service (total and buckets) and route rows == route summary on EVERY day from −105 to today, AR
+  and AP. The fixture covers a payment, an applied credit note, a write-off and a credit note
+  cancelled since, and the true balance is asserted on each day that changes it. The cancellation
+  day itself (R-074) and a cancelled payment (agingRewind limitation 1) are deliberately not
+  truth-asserted. Mutations, all red: SW1 AR route rewind window emptied (1/4), SW2 AR rows back on
+  today's amount_paid (1/4), SW3 AP summary counting a bill raised after the as-at date (2/4).
 
 ## LOW-6: K-050 and supplierStatementReconService
 
