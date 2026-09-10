@@ -24,17 +24,24 @@ interface AutoPostRunsResponse {
 /** `undoRun`'s result. `undone` is false whenever a line was skipped. */
 interface UndoResult {
   reversed: number;
-  skipped: number;
+  skippedBy: { reconciled: number; contended: number; failed: number };
   undone: boolean;
 }
 
 /**
  * What the user needs to know about a partial undo: the run stays listed, and
- * pressing Undo again changes nothing until the skipped lines are dealt with.
+ * each skip reason has its own remedy — pressing Undo again changes nothing
+ * for a reconciled or failed line until it is dealt with.
  */
-function partialUndoMessage({ reversed, skipped }: UndoResult): string {
-  return `Reversed ${reversed} line${reversed === 1 ? '' : 's'}; ${skipped} could not be undone `
-    + 'because they are reconciled or still in use. Unreconcile those lines, then undo the run again.';
+function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
+  const reasons = [
+    skippedBy.reconciled > 0 ? `${skippedBy.reconciled} reconciled — unreconcile them first` : null,
+    skippedBy.contended > 0 ? `${skippedBy.contended} in use by another request — try again in a moment` : null,
+    skippedBy.failed > 0
+      ? `${skippedBy.failed} could not be reversed (for example, a closed period) — check those lines`
+      : null,
+  ].filter((r): r is string => r !== null);
+  return `Reversed ${reversed} line${reversed === 1 ? '' : 's'}. Not undone: ${reasons.join('; ')}.`;
 }
 
 export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {

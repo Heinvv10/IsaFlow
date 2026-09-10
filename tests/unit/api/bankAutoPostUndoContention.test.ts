@@ -70,7 +70,9 @@ describe('POST /api/accounting/bank-auto-post (undo)', () => {
   // K-071 r19: once a row is reversed the counts are the answer — a 4xx here
   // would COMMIT that reversal under a failure status.
   it('answers a partly-undone run 200 with the counts', async () => {
-    vi.mocked(undoRun).mockResolvedValue({ reversed: 1, skipped: 1, alreadyUndone: 0, undone: false });
+    vi.mocked(undoRun).mockResolvedValue({
+      reversed: 1, skipped: 1, skippedBy: { reconciled: 0, contended: 1, failed: 0 }, alreadyUndone: 0, undone: false,
+    });
     const { req, res } = mockReqRes();
     await (handler as (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>)(req, res);
 

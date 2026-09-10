@@ -114,7 +114,9 @@ describeIfDb('K-140 M-5 one failed row must not abort the whole undo', () => {
     }
 
     // The blocked row is the only casualty; nothing else is lost to 25P02.
-    expect(result!).toEqual({ reversed: 0, skipped: 1, alreadyUndone: 1, undone: false });
+    expect(result!).toEqual({
+      reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 1, failed: 0 }, alreadyUndone: 1, undone: false,
+    });
 
     // Not undone: the blocked row still carries the run — read after COMMIT.
     const run = await admin.query(
@@ -150,6 +152,8 @@ describeIfDb('K-140 M-5 one failed row must not abort the whole undo', () => {
       req.release();
     }
 
-    expect(result!).toEqual({ reversed: 0, skipped: 0, alreadyUndone: 2, undone: true });
+    expect(result!).toEqual({
+      reversed: 0, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 2, undone: true,
+    });
   }, 60000);
 });
