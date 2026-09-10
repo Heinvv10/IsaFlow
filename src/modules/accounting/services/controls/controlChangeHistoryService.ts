@@ -24,16 +24,17 @@ export async function readControlEntityHistory(ctx:ControlTx,input:HistoryInput)
  const cursor=options.cursor?openHistoryCursor(options.cursor):null;
  // A retained spelling is a lineage. Two lineages are never merged into one answer: the caller is told they exist
  // and reads each by name, and every page and cursor is bound to exactly one of them.
- const lineages=await ctx.sql`SELECT entity_id,count(*) FILTER(WHERE event)::int AS "eventCount",max(version)::text AS version FROM (
+ const lineages=await ctx.sql`SELECT entity_id,count(*) FILTER(WHERE event)::int AS "eventCount",max(version)::text AS version,max(version) FILTER(WHERE NOT event)::text AS "storedVersion" FROM (
    SELECT entity_id,version,false AS event FROM control_entity_versions WHERE company_id=${company}::uuid AND entity_type=${entityType} AND lower(entity_id)=lower(${entityId})
    UNION ALL SELECT entity_id,new_version,true FROM control_change_events WHERE company_id=${company}::uuid AND entity_type=${entityType} AND lower(entity_id)=lower(${entityId})
-  ) retained GROUP BY entity_id ORDER BY entity_id COLLATE "C" LIMIT 11` as {entity_id:string;eventCount:number;version:string|null}[];
+  ) retained GROUP BY entity_id ORDER BY entity_id COLLATE "C" LIMIT 11` as {entity_id:string;eventCount:number;version:string|null;storedVersion:string|null}[];
  // An explicit lineage must be a spelling of this entity; on an entity with nothing retained it reads as untracked.
  if(options.lineage!==undefined&&(options.lineage.toLowerCase()!==entityId.toLowerCase()||(lineages.length>0&&!lineages.some(row=>row.entity_id===options.lineage))))throw new Error('History lineage is not retained for this entity');
  const lineage=options.lineage??(lineages.length>1?null:lineages[0]?.entity_id??entityId);
- const writer=lineageChoice(lineages.filter(row=>row.version!==null).map(row=>({entity_id:row.entity_id,version:row.version!})),entityId);
+ // Writers choose from control_entity_versions alone, so the lineage named for them is chosen from the same rows.
+ const writer=lineageChoice(lineages.filter(row=>row.storedVersion!==null).map(row=>({entity_id:row.entity_id,version:row.storedVersion!})),entityId);
  if(lineage===null)return{available:false as const,code:'FORKED_LINEAGE' as const,entity:{entityType,entityId},items:[],nextCursor:null,
-  writerLineage:writer.row?.entity_id??null,lineages:lineages.map(row=>({entityId:row.entity_id,eventCount:row.eventCount,version:row.version===null?null:integer(row.version)}))};
+  writerLineage:writer.row?.entity_id??null,lineageTieUnresolvable:writer.ambiguous,lineages:lineages.map(row=>({entityId:row.entity_id,eventCount:row.eventCount,version:row.version===null?null:integer(row.version)}))};
  if(cursor&&cursor.lineage===undefined&&lineages.length>1)throw new Error('History cursor predates lineage selection; restart the read for one lineage');
  if(cursor&&(cursor.companyId!==company||cursor.entityType!==entityType||cursor.entityId!==entityId||(cursor.lineage??cursor.entityId)!==lineage||cursor.permissionsHash!==permissionsHash))throw new Error('History cursor no longer matches authorized query');
  const [latest]=await ctx.sql`SELECT
