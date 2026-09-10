@@ -24,6 +24,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // These tests isolate status/PDF behavior; real authority and rollback run in arSharedWriters.int.test.ts.
 vi.mock('@/modules/accounting/services/ar/arControlBoundary',()=>({
+ requireArControl:vi.fn(),
  runArControlled:async(_company:string,_person:string,_ref:unknown,_options:unknown,effect:(permit:unknown)=>Promise<unknown>)=>effect({accountingDate:'2026-09-09'}),
 }));
 vi.mock('@/lib/logger', () => ({

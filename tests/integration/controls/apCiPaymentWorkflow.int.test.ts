@@ -35,3 +35,17 @@ it('rolls back journal and invoice changes when final payment cancellation fails
  }finally{await f.pool.query('DROP TRIGGER IF EXISTS synthetic_ap_ci_void_failure ON supplier_payments');await f.pool.query('DROP FUNCTION public.synthetic_ap_ci_void_failure()');}
  expect((await f.voidPayment(payment,approvalId)).status).toBe('cancelled');
 });
+/**
+ * paymentInvoiceSource reads the settlement receipt with an ambiguity refusal rather than picking
+ * the one matching the current journal, which is only safe if a payment cannot hold two process
+ * receipts. Processing requires status 'approved', voiding leaves 'cancelled', and nothing returns a
+ * supplier payment to 'approved' — changeBatchStatus is the sole writer of it and demands 'draft'.
+ */
+it('cannot re-process a voided payment, so one payment never holds two process receipts',async()=>{
+ const invoice=await f.invoice();await f.post(invoice);const payment=await f.payment(invoice);await f.process(payment);
+ const approvalId=await f.approve(f.ref('supplier_payment.void',payment));
+ expect((await f.voidPayment(payment,approvalId)).status).toBe('cancelled');
+ await expect(f.process(payment)).rejects.toThrow('must be approved before processing');
+ expect((await f.pool.query(`SELECT id FROM control_operation_effects WHERE company_id=$1
+  AND entity_type='supplier_payment' AND operation='supplier_payment.process' AND lower(entity_id)=lower($2)`,[f.f.companyA,payment])).rows).toHaveLength(1);
+});
