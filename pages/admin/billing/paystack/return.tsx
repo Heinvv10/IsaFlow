@@ -16,6 +16,8 @@ type State = 'verifying' | 'active' | 'failed' | 'cancelled' | 'error';
 interface VerifyResponse {
   status: 'active' | 'pending' | 'failed';
   mandateId: string | null;
+  /** Set when the payment completed but attached to no mandate. */
+  failureReason?: string;
   bankName?: string;
   cardLast4?: string;
   cardBrand?: string;
@@ -112,13 +114,19 @@ export default function PaystackMandateReturn() {
               <XCircle className="w-14 h-14 text-rose-600 mx-auto" />
               <h1 className="mt-4 text-2xl font-semibold text-slate-900">Authorisation failed</h1>
               <p className="mt-2 text-slate-600">
-                The card or bank declined the authorisation. No mandate is in place.
+                {data?.failureReason?.startsWith('authorisation_')
+                  ? 'Your card was charged but the mandate could not be activated. Please contact support with this reference before trying again.'
+                  : 'The card or bank declined the authorisation. No mandate is in place.'}
               </p>
               <Link
                 href="/admin/billing"
                 className="mt-6 inline-block rounded-lg bg-indigo-600 px-5 py-2.5 text-white text-sm font-medium hover:bg-indigo-700"
               >
-                Try again
+                {/* A charged-but-unattached authorisation usually means the
+                    company already HAS an active mandate, and the create route
+                    answers 400 until it is revoked — so don't invite a retry
+                    that cannot succeed. */}
+                {data?.failureReason?.startsWith('authorisation_') ? 'Back to billing' : 'Try again'}
               </Link>
             </div>
           )}

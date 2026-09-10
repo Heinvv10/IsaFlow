@@ -1,0 +1,34 @@
+K-048 / K-049 — GREEN evidence (branch fix/audit-k048-k049-recurring-journal-guards, off origin/master 0f16391e)
+
+RED (baseline, before the fix) — docs/audits/remediation/K-048/red-fixer.log
+  Test Files  2 failed (2)
+       Tests  3 failed (3)
+
+GREEN (after the fix), real Postgres fixture:
+  bun run test:integration -- k048-...int.test.ts k049-...int.test.ts k048-k049-...adjacent.int.test.ts
+  Test Files  3 passed (3)
+       Tests  10 passed (10)
+
+MUTATION CHECKS (production change reverted one guard at a time, then restored):
+  M1  due-date guard disabled                    -> k048: 2 failed        RED
+  M2  claim predicate dropped from the UPDATE     -> k048+adjacent: 1 failed  RED
+  M3  fiscal-period pre-check disabled            -> adjacent: 1 failed    RED
+  M4  route maps every throw to 400 again         -> adjacent: 1 failed    RED
+  M5  FOR UPDATE removed from the template SELECT -> adjacent: 7 passed    STILL GREEN
+      M5 is expected and is stated in the code and in fix.md: the claim UPDATE,
+      not the lock, is what makes generation idempotent. The lock only turns a
+      lost claim into a block inside a request transaction, which no test pins.
+
+FULL UNIT SUITE (no fixture env; DATABASE_URL unset):
+  with the fix     Test Files  4 failed | 788 passed | 36 skipped (828)
+                        Tests  9 failed | 9425 passed | 234 skipped (9668)
+  baseline (same  Test Files  7 failed | 785 passed | 36 skipped (828)
+  files reverted)       Tests 13 failed | 9421 passed | 234 skipped (9668)
+  The failures are pre-existing and unrelated (bankAllocation*, cashFlowReport,
+  trackerExclusion, withAuth-commit-order) — 10s timeout flakes under parallel
+  load on this box. All four files pass in isolation both with and without the
+  fix: Test Files 4 passed (4), Tests 24 passed (24), each way.
+  No recurring-journal unit test exists to regress.
+
+bunx tsc --noEmit   exit 0
+bunx eslint src/modules/accounting/services/gl/recurringJournalService.ts pages/api/accounting/recurring-journals-action.ts   exit 0
