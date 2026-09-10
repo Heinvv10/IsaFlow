@@ -19,6 +19,16 @@
  *   AFS notes 5, 8, 9, 19, 20, 21, 22                    token spellings
  *   gross profit / EBITDA       getKpiScorecard          cost_of_sales, depreciation
  *   VAT201 settlement leg       getVat201Report          credit_card, other_current_liability
+ *   note 20 vs expenseBand      generateNote20...        THE WHOLE EXPENSE BOOK
+ *
+ * Round 7 review, HIGH-1: note 20 and `expenseBand` disagreed about income tax
+ * and other expenses — one statutory pack reporting the same R158,412.82 both
+ * below the operating line and inside "Operating Expenses by Nature". Nothing
+ * here caught it because the note tenant seeded no account with either token
+ * and the note assertion only checked that finance costs were EXCLUDED, never
+ * that the note and the income statement partition the expense book the same
+ * way. `bandCo` below now seeds one account per spelling of EVERY expense token
+ * and asserts exact agreement in both directions.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -30,6 +40,7 @@ import {
   canonicalSubtype,
   rawSubtypesFor,
 } from '../../src/modules/accounting/services/gl/accountSubtypes';
+import { expenseBand } from '../../src/modules/accounting/services/gl/accountClassification';
 import { getKpiScorecard } from '../../src/modules/accounting/services/afs/afsKpiService';
 import { generateNote27GoingConcern } from '../../src/modules/accounting/services/afs/noteGenerators/notes26to30';
 import { arSubLedgerCheck } from '../../src/modules/accounting/services/gl/closeReadinessChecks/arSubLedgerCheck';
@@ -48,6 +59,21 @@ const ratioCo = crypto.randomUUID();
 const gateCo = crypto.randomUUID();
 const noteCo = crypto.randomUUID();
 const vatCo = crypto.randomUUID();
+const bandCo = crypto.randomUUID();
+
+/**
+ * Every canonical token an expense account can carry. Listed rather than
+ * derived because `CanonicalSubtype` spans all five account types and nothing
+ * in the vocabulary records which side a token belongs to — see the limits
+ * section of docs/audits/remediation/K-091/fix.md.
+ */
+const EXPENSE_TOKENS = [
+  'cost_of_sales', 'operating_expense', 'admin_expense', 'depreciation_expense',
+  'insurance_expense', 'payroll_expense', 'finance_cost', 'tax_expense', 'other_expense',
+] as const;
+
+/** spelling → posted amount, one account per spelling of every expense token. */
+const bandAccounts = new Map<string, number>();
 
 /** Inside fiscal 2026 for the schema-default March year start (2025-03-01..2026-02-28). */
 const POSTED_ON = '2026-01-15';
@@ -174,10 +200,23 @@ beforeAll(async () => {
       { account: settle, debit: 0, credit: 1150 },
     ], 'auto_supplier_invoice');
   }
+
+  // ── band tenant: one expense account per spelling of every expense token ──
+  await pool.query('INSERT INTO companies(id,name,is_active) VALUES($1,$2,true)', [bandCo, 'K091d bands']);
+  const bEquity = await account(bandCo, 'equity', 'equity', 'credit');
+  let bandAmount = 0;
+  for (const token of EXPENSE_TOKENS) {
+    for (const spelling of rawSubtypesFor(token)) {
+      bandAmount += 13;
+      const id = await account(bandCo, 'expense', spelling, 'debit');
+      await post(bandCo, [{ account: id, debit: bandAmount, credit: 0 }, { account: bEquity, debit: 0, credit: bandAmount }]);
+      bandAccounts.set(spelling, bandAmount);
+    }
+  }
 });
 
 afterAll(async () => {
-  const ids = [ratioCo, gateCo, noteCo, vatCo];
+  const ids = [ratioCo, gateCo, noteCo, vatCo, bandCo];
   try {
     // One statement per table across all four tenants: four round trips, not
     // sixteen, so a slow box cannot cut the cleanup off half done.
@@ -334,6 +373,36 @@ it('note 20 excludes every finance-cost spelling it must not double-count', asyn
   // The employee-benefit accounts are operating expenses and DO belong here,
   // so the exclusion is not simply swallowing the whole expense book.
   expect(subtypes).toContain(rawSubtypesFor('payroll_expense')[0]);
+});
+
+it('note 20 and expenseBand partition the expense book identically', async () => {
+  const note = await generateNote20OperatingExpenses(bandCo, 2026);
+  const rows = (note.dataSnapshot.operatingExpenses ?? []) as Array<Record<string, unknown>>;
+  const printed = rows.map((r) => String(r.account_subtype ?? '')).sort();
+
+  const operating = [...bandAccounts.keys()]
+    .filter((spelling) => expenseBand(spelling) === 'operating_expense').sort();
+
+  // Both directions. Set equality alone would pass on an empty note if the
+  // fixture were empty, so the count and the money are asserted too.
+  expect(printed).toEqual(operating);
+  expect(operating.length).toBeGreaterThan(5);
+  for (const spelling of bandAccounts.keys()) {
+    if (expenseBand(spelling) === 'operating_expense') continue;
+    expect(printed).not.toContain(spelling);
+  }
+  const footed = rows.reduce((sum, r) => sum + Number(r.net_amount ?? 0), 0);
+  expect(footed).toBeCloseTo(operating.reduce((sum, sp) => sum + bandAccounts.get(sp)!, 0), 2);
+});
+
+it('every expense spelling in the vocabulary is under test', () => {
+  const covered = new Set(EXPENSE_TOKENS.flatMap((t) => rawSubtypesFor(t)));
+  for (const spelling of bandAccounts.keys()) expect(covered.has(spelling)).toBe(true);
+  // Income tax by any spelling is below the operating line, not inside note 20.
+  for (const spelling of rawSubtypesFor('tax_expense')) {
+    expect(expenseBand(spelling)).toBe('other_expense');
+    expect(bandAccounts.has(spelling)).toBe(true);
+  }
 });
 
 // ── the VAT201 settlement leg ────────────────────────────────────────────────

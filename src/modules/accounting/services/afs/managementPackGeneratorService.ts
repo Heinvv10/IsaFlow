@@ -2,10 +2,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { NON_CURRENT_SUBTYPES, rawSubtypesFor } from '../gl/accountSubtypes';
+import { rawSubtypesFor } from '../gl/accountSubtypes';
 import { createAfsDocument } from './afsDocumentService';
 import { createAfsSection, updateAfsSection } from './afsSectionService';
-import { getKpiScorecard } from './afsKpiService';
+import { fetchBalanceSnapshot, getKpiScorecard } from './afsKpiService';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
 import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
@@ -104,26 +104,6 @@ async function fetchIncomeAgg(companyId: string, start: string, end: string): Pr
   return (rows[0] ?? {}) as Record<string, unknown>;
 }
 
-async function fetchBalanceAgg(companyId: string, end: string): Promise<Record<string, unknown>> {
-  const rows = (await sql`
-    SELECT
-      -- Same current/non-current split as afsKpiService.fetchBalanceSnapshot,
-      -- on the shared vocabulary rather than the singular literal.
-      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND COALESCE(ga.account_subtype, '') <> ALL(${NON_CURRENT_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' AND COALESCE(ga.account_subtype, '') <> ALL(${NON_CURRENT_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'equity' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
-      AND je.entry_date <= ${end}::date
-  `) as Row[];
-  return (rows[0] ?? {}) as Record<string, unknown>;
-}
-
 async function fetchTopMover(companyId: string, start: string, end: string, type: 'revenue' | 'expense'): Promise<{ name: string; amount: number }> {
   const rows = (await sql`
     SELECT ga.account_name,
@@ -195,7 +175,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const [income, balance, priorIncome, kpiScorecard, companyName, topRevenue, topExpense] =
     await Promise.all([
       fetchIncomeAgg(companyId, start, end),
-      fetchBalanceAgg(companyId, end),
+      fetchBalanceSnapshot(companyId, end),
       fetchIncomeAgg(companyId, priorStart, priorEnd),
       getKpiScorecard(companyId, period),
       fetchCompanyName(companyId),

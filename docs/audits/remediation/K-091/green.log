@@ -204,3 +204,26 @@ Allow-list honesty check: the lint was run once with ALLOWED emptied. Only 4
 hits are actually suppressed (vatBoxBasisQuery:92, vatReturnService:103,
 classificationCoverageService:73 x2); the entries that suppressed nothing were
 deleted rather than left as decoration.
+
+=== ROUND 8 (round-7 review: 1 HIGH, 4 MEDIUM, 2 LOW) ===
+
+bunx vitest run tests/unit/services/bankCashSubtypeCensus.test.ts
+  1 file, 1 test PASS
+
+bunx vitest run --config vitest.integration.config.ts \
+  k091 k091b k091c k091d k091-cash-flow k093 k126 k126b k126c
+  Test Files  8 passed (8)
+  Tests      69 passed (69)      (k091d 11 -> 13)
+
+bunx tsc --noEmit                          clean
+bunx eslint <8 changed src/pages files>    clean
+
+env -u DATABASE_URL bunx vitest run        (FULL unit suite, no fixture env)
+  Test Files  806 passed | 40 skipped (846)
+  Tests      9590 passed | 243 skipped (9833)
+
+MUTATION PROOF (round 8)
+| M30 | note 20 exclusion reverted to the round-7 hand-list | k091d "note 20 and expenseBand partition the expense book identically" FAILED: expected 34 subtypes, got 24 (1 failed / 12 passed) |
+| M31 | extended-ratios tax back to IN ('income_tax_expense','deferred_tax_expense') AND VAT_LEGITIMATE list back to the hand-list | lint FAILED with 6 offenders (2 pass-1, 4 pass-3) |
+| M32 | extended-ratios tax to a spelling outside the vocabulary, 'prior_year_tax_expense' | lint FAILED: "compares a subtype against 'prior_year_tax_expense', which names 'tax_expense'" — pass 2 alone |
+All three restored; the suite above is the restored tree.

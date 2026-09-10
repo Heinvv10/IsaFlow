@@ -180,6 +180,13 @@ const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   tax: 'tax_expense',
   tax_expense: 'tax_expense',
   income_tax: 'tax_expense',
+  // The AFS note generators' own spellings. Absent from this map they
+  // canonicalised to NULL, so `expenseBand` reported an income-tax account as an
+  // OPERATING expense while AFS note 20 excluded it — the same statutory pack
+  // disagreeing with itself. Note 17 still splits current from deferred by the
+  // raw spelling; that split lives inside this one canonical token.
+  income_tax_expense: 'tax_expense',
+  deferred_tax_expense: 'tax_expense',
   other_expense: 'other_expense',
   other_expenses: 'other_expense',
 };

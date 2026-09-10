@@ -611,3 +611,113 @@ and calls the AI summary service, which is not something to run in this suite.
 The fixed-asset register's `'fixed_assets'` partition remains deferred and named
 above. `vatBoxBasis.ts` remains 93 lines over the cap and its split remains an
 open item.
+
+---
+
+## Round 8 — the round-7 review
+
+**H1. AFS note 20 reported income tax and other expenses as OPERATING expenses.**
+Note 20's exclusion list was a hand-list (`income_tax_expense`,
+`deferred_tax_expense`, finance-cost spellings). `expenseBand` bands
+`tax`/`tax_expense`/`income_tax`/`other_expense`/`other_expenses` BELOW the
+operating line, so the same statutory pack reported those five spellings twice
+over. Fixed at the source: `income_tax_expense` and `deferred_tax_expense` are
+now aliases of `tax_expense` in `SUBTYPE_ALIASES`, and note 20 excludes
+`NON_OPERATING_EXPENSE_SUBTYPES` — derived from the SAME `OTHER_EXPENSE` set
+`expenseBand` reads, plus cost of sales — so the note foots to the income
+statement's Operating Expenses line by construction. Cost of sales leaving the
+note is a deliberate consequence: it is not an operating expense on either
+surface. Note 17's current/deferred split stays a raw one inside that one token
+and now carries an `account_type = 'expense'` guard.
+
+**M1. `reports-extended-ratios` reported R0.00 tax expense.** `tax_expense` now
+`= ANY(TAX_EXPENSE_SUBTYPES)` with an `account_type = 'expense'` guard, which is
+what keeps the raw `tax` a VAT control account carries out of an income-tax
+figure. Note 17's tax note carried the identical gap and is fixed with it.
+
+**M2. `VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES` was a partial-vocabulary list.**
+Now `[...rawSubtypesFor('fixed_asset','inventory','other_current_asset')]` plus
+the three raw VAT-control tokens. `property_plant_equipment`, `stock` and
+`other_current_assets` stop being reported as exceptions they are not.
+
+**M3. The census lint claimed more than it enforced.** Two passes added:
+*near-miss* (a literal outside the vocabulary that CONTAINS a multi-word
+canonical token — `income_tax_expense` names `tax_expense`; this is the shape
+H1/M1 had) and *partial named set* (a constant named `*SUBTYPE(S)` whose literal
+initialiser is a partial vocabulary set, however it is later used — this reaches
+`.includes()`, `switch` and identifier-indirected sites pass 1 cannot see). The
+docstring now states what the mechanism proves and, explicitly, what it does not.
+
+### What the census lint covers, and what it does not
+
+| Shape | Covered |
+|---|---|
+| `account_subtype`/`accountSubtype` `= / <> / IN / NOT IN / IS DISTINCT FROM` a literal, SQL or TS, multi-line, through `COALESCE`/`LOWER`/`::TEXT` | pass 1 |
+| the same against a literal outside the vocabulary naming a multi-word token | pass 2 |
+| a `*SUBTYPE(S)`-named constant holding a partial set — array or scalar — anywhere | pass 3 |
+| `'bank' = ga.account_subtype` (operand order reversed) | **NO** |
+| `account_subtype LIKE 'fixed_asset%'` | **NO** |
+| a literal reached through a local NOT named `*subtype(s)` | **NO** |
+| `['bank','cash'].includes(row.account_subtype)` where the array is inline and unnamed | **NO** |
+| `switch (row.account_subtype) { case 'bank': }` | **NO** |
+| a single-word token as a near-miss stem (`vat_payable` vs `payable`) | **NO** — `bank` would match `bank_loan` |
+| which account TYPE a token belongs to (nothing in the vocabulary records it) | **NO** |
+
+`k091d` covers by OUTCOME what the passes cannot reach by shape: the new
+`bandCo` tenant seeds one expense account per spelling of every expense token
+and asserts note 20 and `expenseBand` partition the book identically in both
+directions, with the money footed. That assertion fails on the round-7 code.
+
+**Allow-list (5 files → 8).** Added: `notes16to20.ts` (`deferred_tax_expense` —
+note 17's split inside one token), `vatBoxBasis.ts` and
+`vatBalanceSheetExceptions.ts` (`tax` — the raw VAT-control token),
+`leafAccountValidator.ts` and `fixedAssetReconciliationQueries.ts` (**OPEN,
+deferred — M4 below**), `types/glAccountSubtypes.ts` (write-side offerable
+subtypes and system-account roles).
+
+**M4 — the fixed-asset register partition. STILL OPEN, now declared.**
+`ASSET_COST_SUBTYPE = 'fixed_assets'` and `FIXED_ASSET_SUBTYPES` miss
+`fixed_asset` and `property_plant_equipment`. It is a two-way partition mirrored
+between SQL, TypeScript and a WRITE gate; widening one side alone IS the
+disagreement. It moves in its own change with a register-to-GL fixture. It is
+now an allow-list entry with that reason rather than an omission.
+
+**L1. The management pack's balance aggregate is no longer a copy.**
+`fetchBalanceSnapshot` is exported from `afsKpiService` and the management pack
+calls it; `fetchBalanceAgg` is deleted. Identical is now the same function, so
+k091d's current/quick-ratio assertions cover both surfaces. The pack's Balance
+Sheet section JSON therefore carries camelCase keys and the snapshot's extra
+fields.
+
+**L2. File sizes.** No file this round crosses the cap that did not already:
+`notes16to20.ts` 238→258, `accountClassification.ts` 222→249,
+`afsKpiService.ts` 279→285, `managementPackGeneratorService.ts` 281→260 (down),
+`vatBoxBasis.ts` 393→393. `vatBoxBasis.ts` and the seven files listed in the
+round-7 review remain over the cap, pre-existing and untouched.
+
+**Migration / rollback (round 8).** None. Revert the commit.
+
+**Historical-data impact (round 8).** Read-only; no stored row changes. Figures
+that move: AFS note 20 (income tax, other expenses and cost of sales leave it),
+AFS note 17 (current tax now sees every tax spelling), the extended-ratio
+`taxExpense` block, and the VAT-on-balance-sheet exceptions report (three
+spellings stop being flagged). `expenseBand` also moves accounts spelled
+`income_tax_expense`/`deferred_tax_expense` from operating expenses to other
+expenses on the income statement, and out of `unclassifiedCount`. Sizing, not
+run against production:
+
+```sql
+SELECT ga.company_id, ga.account_type, ga.account_subtype, COUNT(*) AS accounts
+FROM   gl_accounts ga
+WHERE  ga.account_subtype IN ('tax','tax_expense','income_tax','income_tax_expense',
+                              'deferred_tax_expense','other_expense','other_expenses',
+                              'property_plant_equipment','stock','other_current_assets')
+GROUP  BY ga.company_id, ga.account_type, ga.account_subtype
+ORDER  BY accounts DESC;
+```
+
+**Limits (round 8).** `EXPENSE_TOKENS` in k091d is listed, not derived: nothing
+in the vocabulary records which account type a token belongs to, so a new
+expense alias added to `SUBTYPE_ALIASES` outside those nine tokens is seeded by
+no fixture. The lint's three "NO" rows above are real gaps, not theoretical
+ones. `k091d` is 417 lines, over the 300-line cap, as it was at 348.

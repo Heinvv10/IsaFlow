@@ -7,6 +7,18 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
+import {
+  NON_OPERATING_EXPENSE_SUBTYPES,
+  TAX_EXPENSE_SUBTYPES,
+} from '@/modules/accounting/services/gl/accountClassification';
+
+/**
+ * Note 17 splits income tax into current and deferred. Both spellings
+ * canonicalise to `tax_expense`, so the split is a RAW one inside a single
+ * token — the only place in this file a raw spelling is the right comparison.
+ */
+const DEFERRED_TAX_SUBTYPE = 'deferred_tax_expense';
+const CURRENT_TAX_SUBTYPES = TAX_EXPENSE_SUBTYPES.filter((s) => s !== DEFERRED_TAX_SUBTYPE);
 
 type DbRow = Record<string, unknown>;
 
@@ -71,8 +83,13 @@ export async function generateNote17IncomeTax(
 
   const [taxProvision, deferredBalance] = await Promise.all([
     sql`SELECT
-        SUM(gjl.debit) FILTER (WHERE ga.account_subtype = 'income_tax_expense') AS current_tax,
-        SUM(gjl.debit) FILTER (WHERE ga.account_subtype = 'deferred_tax_expense') AS deferred_tax
+        SUM(gjl.debit) FILTER (
+          WHERE ga.account_type = 'expense'
+            AND ga.account_subtype = ANY(${CURRENT_TAX_SUBTYPES as string[]}::TEXT[])
+        ) AS current_tax,
+        SUM(gjl.debit) FILTER (
+          WHERE ga.account_type = 'expense' AND ga.account_subtype = ${DEFERRED_TAX_SUBTYPE}
+        ) AS deferred_tax
       FROM gl_journal_lines gjl
       JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
@@ -210,11 +227,15 @@ export async function generateNote20OperatingExpenses(
     WHERE gjl.company_id = ${companyId}
       AND ga.account_type = 'expense'
       -- COALESCE: NOT IN is NULL for a NULL subtype, which dropped every
-      -- unclassified expense out of the note. 'finance_costs' (plural) was
-      -- not excluded and appeared here AND in note 21.
-      AND COALESCE(ga.account_subtype, '') <> ALL(${[
-        'income_tax_expense', 'deferred_tax_expense', ...rawSubtypesFor('finance_cost'),
-      ]}::TEXT[])
+      -- unclassified expense out of the note. The excluded set is derived from
+      -- the SAME bands expenseBand reads, so this note prints exactly what
+      -- the income statement in the same pack calls an operating expense. A
+      -- hand-list here named income tax by two spellings of its own and other
+      -- expenses by none, so five spellings were reported below the operating
+      -- line by the income statement and inside this note simultaneously.
+      AND COALESCE(ga.account_subtype, '') <> ALL(
+        ${NON_OPERATING_EXPENSE_SUBTYPES as string[]}::TEXT[]
+      )
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
     GROUP BY ga.account_name, ga.account_subtype
     HAVING SUM(gjl.debit - gjl.credit) > 0
