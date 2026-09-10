@@ -8,6 +8,8 @@ vi.mock('@/lib/auth/withCsrf',()=>({withCsrf:(x:unknown)=>x}));
 vi.mock('@/lib/api-error-handler',()=>({withErrorHandler:(x:unknown)=>x}));
 vi.mock('@/lib/billing/withFlowMeter',()=>({withFlowMeter:()=>((handler:(...args:unknown[])=>unknown)=>(...args:unknown[])=>{metered();return handler(...args);})}));
 vi.mock('@/modules/billing/services/flowOperationCatalog',()=>({getFlowCost:()=>0}));
+const logger=vi.hoisted(()=>({info:vi.fn(),warn:vi.fn(),error:vi.fn(),debug:vi.fn()}));
+vi.mock('@/lib/logger',()=>({log:logger}));
 import handler from '../../../../pages/api/accounting/year-end';
 it('forwards an explicit approval reference and preview flag to the shared financial close',async()=>{
  const approvalId='11111111-1111-1111-1111-111111111111';
@@ -47,4 +49,28 @@ it('answers an unusable supplied approval with a caller error, not a 500',async(
  await handler(req,res as unknown as NextApiResponse);
  expect(res.status).toHaveBeenCalledWith(409);
  expect(JSON.stringify(res.json.mock.calls)).toMatch(/Approval not found/);
+});
+const post=async(body:Record<string,unknown>)=>{
+ const req={method:'POST',companyId:'company',user:{id:'person'},body:{action:'close',yearLabel:'2025',...body}} as unknown as NextApiRequest;
+ const res={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};res.status.mockReturnValue(res);
+ await handler(req,res as unknown as NextApiResponse);return res;
+};
+it('answers the refusal shape the control functions actually raise, and logs it',async()=>{
+ // What migration 627 raises: SQLSTATE 42501 preserved, carrying the marker.
+ logger.warn.mockClear();
+ close.mockRejectedValueOnce(Object.assign(new Error('Approval authorities unavailable'),{code:'42501',suppliedApprovalRefusal:true}));
+ const res=await post({dryRun:true,approvalId:'11111111-1111-1111-1111-111111111111'});
+ expect(res.status).toHaveBeenCalledWith(409);
+ expect(JSON.stringify(res.json.mock.calls)).toMatch(/cannot be used/);
+ expect(logger.warn).toHaveBeenCalled();
+});
+it('does NOT answer a stored-approval integrity failure as a caller error',async()=>{
+ // 'Approval material is invalid' is a tamper/canonicalisation detector: it must
+ // stay a server failure that monitoring sees, not a 409 quoting it back.
+ logger.error.mockClear();
+ close.mockRejectedValueOnce(new Error('Approval material is invalid'));
+ const res=await post({dryRun:true,approvalId:'11111111-1111-1111-1111-111111111111'});
+ expect(res.status).toHaveBeenCalledWith(500);
+ expect(JSON.stringify(res.json.mock.calls)).not.toMatch(/Approval material is invalid/);
+ expect(logger.error).toHaveBeenCalled();
 });
