@@ -709,3 +709,84 @@ Its day (`g % 240`) and person (`g % 50`) assignments cycle together every 1 200
 (day, person) that split every threshold: the 100k run carried exactly `maxFindings`. It is the worst case for the
 findings path, not a realistic mix, and the evidence says so. Decorrelating it would change what the recorded run
 measured, so it stays as committed.
+
+
+---
+
+# v10 amendments (blind review of `f5f09286d..2b851aa7b`: no P1, three P2, six P3)
+
+Evidence in `forensic-evidence/check-run-t2e-evidence.md`, `check-run-journals-100k.json` and `check-run-storage.json`.
+
+## A39 A run's findings are held as hashes, not findings — A27's heap figures did not bound the findings path
+
+The phase kept every full finding for the whole run and, while verifying the re-read, built a second decrypted copy.
+`maxFindings` is a count, and a message reaches 8 663 characters (A31), so 100 000 worst-case findings exhausted the
+1 536 MiB heap before any bound refused. Measured through the real worker at that heap: the `2b851aa7b` build died by
+SIGABRT after 79 s with no reply and its lease held — reclaimed and aborted again until RETRY_EXHAUSTED, never
+`unknown`. Now the phase keeps `{key, itemHash, amount, currency}` per finding, and each re-read page is compared with
+`staged[ordinal]`; nothing builds a map. The same worst case publishes in 77.6 s at 280 MiB VmHWM; the mixed 100k run
+fell from 673 MiB to 287 MiB. A27's 15.2 KiB per held row remains a slab-only figure.
+
+## A40 Storage is measured, the cap is not changed, and a per-member share sits beneath it
+
+Bytes per finding row, heap plus both indexes plus TOAST, from `pg_total_relation_size` deltas after CHECKPOINT around
+real worker runs: **2 359** at a typical 122-character message, **21 018** at the 8 663-character worst case. At
+`maxFindings` that is 0.24 GB and 2.1 GB per run, and **23.6 GB and 210 GB per company per day at the 100/24 h cap**.
+The cap stays at 100 per company per 24 h — tightening it is Hein's decision with these numbers. Beneath it, one member
+may enqueue at most 40 in the same window (`AUDIT_CHECK_RUN_QUOTA.maxJobsPerPrincipal`), so one principal cannot deny
+colleagues for a day. A28's dependency stands: nothing bounds growth until retention exists.
+
+## A41 Snapshot, export and comparison enqueues take `write:audit`, each with a rate — A29's out-of-slice note, closed
+
+`audit_snapshot`, `export_audit_evidence` and `compare_audit_snapshots` now declare `write:audit` on MCP, and the three
+services assert it inside the writing transaction, so REST is gated too. Every audit job kind is bounded by
+`AUDIT_ENQUEUE_QUOTAS` — one shared `assertAuditEnqueueQuota`, an advisory lock per (kind, company), a rolling window on
+the database clock, a company cap and a per-member share: snapshot 50/20, export 50/20, comparison 100/40, check run
+100/40, all per 24 h. Reads stay on `read:reports`. The `write:audit` consent copy in `consentScopeLabels.ts` and
+`patScopeMeta.ts` now names all four kinds of work, and a unit test ties the copy to the enforced tool list.
+
+## A42 Reader statuses, completed — supersedes part of A30
+
+A requester's own `failed` run is its own reason, `failed`, carrying the error code (REST 422 "Check run failed and
+will not publish (CODE)"), not `not_ready`: a client polling for readiness would otherwise loop forever. An enqueue
+refused by a rate is REST 429 on both enqueue routes, and on MCP a tool error carrying the quota message rather than
+the registry's generic "operation failed" — both added here, beyond the review's ask, because the new quotas made a
+refusal reachable on every enqueue and a generic failure invites the retry loop the rate exists to stop.
+
+## A43 A31's currency bound is 16 384 characters, and still a bound
+
+The seal's currency allowance rose from 1 024 to 16 384 characters, the most that fits beside the longest message and
+amount inside the table's 64 KiB envelope CHECK (unit-proved with one more character throwing). `default_currency` is
+unbounded TEXT, so a longer one is still refused by the stream where sync would accept it. The comment and test no
+longer claim "any currency"; the residual is stated in the evidence.
+
+## A44 Measurements are scripts; opt-in suites skip
+
+The deadline measurement is `scripts/forensic/measure-check-run-deadline.ts` and the storage measurement
+`measure-check-run-storage.ts`: they record observations and refuse only on a broken product contract.
+`auditCheckRunDeadline.int.test.ts` is deleted. `auditCheckRunScale.int.test.ts` follows the repo's
+`describe.skipIf(!enabled)` convention from `forensic-invocations.int.test.ts` — skipped without opt-in, a
+misconfiguration throws once opted in — rather than `auditJobScale`'s throw-in-`beforeAll`, which stays as it was.
+
+## A45 Eligibility is gated, not proven by reading
+
+Every regular fixture had exactly one usable threshold, where `some` and `every` agree. Two gates now kill that mutant:
+a slab under two usable rules where a row can join one group only, and a slab under no usable rule past a tightened
+bound. The rate window is pinned the same way: 99 seeded five minutes inside the window admit the 100th and refuse the
+next; 100 seeded five minutes outside admit.
+
+## A46 A26's survivor, accepted on the reviewer's stronger argument
+
+The phase takes `FOR SHARE OF j` on the job at its start and the claim uses `FOR UPDATE SKIP LOCKED`, so no second
+generation can be claimed until the phase transaction ends, and nothing renews a lease. Expiry inside the phase is only
+a clock fact: a gap between the success UPDATE and COMMIT exists with the predicate too, and removing it only widens
+that gap by the header INSERT's duration, with no reclaimer able to act inside it. For the same reason the
+`success_pointer` fence branch is effectively unreachable under repeatable read. Both stay as depth.
+
+## A47 The re-read's money re-total is deleted as inert — a deviation from the review's literal fix
+
+The review suggested folding totals incrementally during the re-read. Each re-read row's amount and currency are
+already compared with `staged[ordinal]`, from which the published totals are computed, so a re-total from the same
+values could never disagree: removing it survived every gate (mutant M13). It was deleted rather than kept as an
+untestable check. A corrupted retained amount is still caught — by the per-item comparison, and with that removed too,
+by A20's differential.
