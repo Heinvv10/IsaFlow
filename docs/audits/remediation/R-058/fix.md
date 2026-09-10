@@ -371,3 +371,114 @@ Test Files  1 passed (1)
      Tests  18 passed (18)
 EXIT=0
 ```
+
+## Round 4 — R-071 fixed here: routeEvent could silently revert a posted event
+
+Blind review of `9b4853823`: 0 HIGH · 1 MEDIUM · 0 LOW. The round-3 comment was still
+false — the `!extracted_data` / window argument was correct about *why* the
+window exists, but wrong that racing it was harmless. `routeEvent`'s writes
+AFTER extraction (`captureRouterService.ts` — the two `'extracted'` branches
+and the `'failed'` branch) were themselves UNPREDICATED
+(`WHERE id AND company_id` only). If a post landed and completed INSIDE the
+window (status still `'extracting'`, `extracted_data` already written —
+exactly what the round-3 comment described), `routeEvent` finishing afterwards
+silently reverted the event from `'posted'` back to `'extracted'` — postable
+again, per the allow-list — and a SECOND post went through with no race needed
+on the second call. The reviewer measured this on a FIRST extraction (no
+re-extract endpoint required), so `fix.md`'s earlier "reachability NEGATIVE"
+for `captureRouterService.ts:138` (re-running extraction on an *existing*
+event) did not cover this — this is a different write, in the SAME function
+call, racing a post rather than racing a second `routeEvent` invocation.
+Employee-claim path: measured 1 → 2 claims, no DB backstop on
+`expense_claim_lines`.
+
+### Fix
+
+`captureRouterService.ts`'s three post-extraction writes (`'extracted'` with
+data, `'extracted'` without data, `'failed'`) now carry `AND status =
+'extracting'` and `RETURNING id`, and check the row count. Zero rows means a
+post (or a concurrent `routeEvent`) already moved the event on — the result is
+dropped with a `log.warn`, not silently written over. The FIRST write ("mark
+as extracting") is NOT predicated: it is reachable only from `routeEvent`'s own
+initial SELECT, immediately after an INSERT the caller just made in the same
+function (see the round-2 census below — no re-extract/retry endpoint exists),
+and a post cannot race it because `!extracted_data` always refuses before that
+first write has any data to expose.
+
+### Census — every `routeEvent` caller, and what status each write can legitimately start from
+
+Every caller (`grep -rln routeEvent pages src`, excluding tests): `upload.ts:173`,
+`inbound-email.ts:51` (via `inboundEmailService`), `imapMirrorService.ts:266`,
+`whatsAppInboundService.ts:234`. All four INSERT a NEW `capture_events` row at
+`status='received'` and call `routeEvent` on that same id in the same function
+— none re-invoke it on an existing event. No retry-of-`'failed'` or
+re-extraction endpoint exists anywhere in the repo (confirmed again this
+round). So the only legitimate transition into `'extracting'` is
+`'received' → 'extracting'` (the unpredicated first write), and the only
+legitimate transition OUT of `'extracting'` is to `'extracted'` or `'failed'`
+(the three now-predicated writes) — both hold under the new predicate, so no
+legitimate path became a no-op. Confirmed by the unit suite
+(`captureRouterService.test.ts`, 22 tests, all still pass unmodified — the
+predicate/RETURNING change does not add or remove a `sql` call, only changes
+what the mocked empty-array return means) and the new integration test's
+"legitimate routeEvent, no race" case.
+
+### Test — `tests/integration/r058-capture-router-post-race.int.test.ts` (new file, 2 tests)
+
+Same interleave technique as `k122b-portal-token-race.int.test.ts`: `vi.mock('@/lib/neon')`
+wraps the real `sql` and, on ONE specific call (the `'extracted'`-with-data
+UPDATE), pauses before it runs, lets a real `post-expense` call complete in
+the window, then releases it — a genuine interleave of the real code, not a
+replay of the statement.
+
+1. `a legitimate routeEvent (no race) still transitions the event to extracted
+   with data` — no interception armed; proves the fix doesn't strand ordinary
+   extractions.
+2. `a post that lands and completes inside routeEvent's extracting window is
+   not undone when routeEvent finishes afterwards` — the regression pin. Post
+   inside the window → 200, 1 claim, event `'posted'`. `routeEvent`'s delayed
+   write then runs and must be a no-op: event stays `'posted'`, claims stay 1,
+   a second post attempt is refused 400 with claims still 1.
+
+### Mutation (file copy, restored, `git diff` = the edits only)
+
+| Mutation | Result |
+|---|---|
+| Drop `AND status = 'extracting'` from the `'extracted'`-with-data write (leave `RETURNING id` / row-count check) | 1 failed — the regression test: event reverted to `'extracted'`, second post succeeded, claims 2 |
+| restored | 2 passed |
+
+### Round 4 gates (foreground)
+
+```
+env -u DATABASE_URL bun run ci
+[ci] build PASS
+[ci] all checks passed
+EXIT=0
+
+source fixture.env && bunx vitest run --config vitest.integration.config.ts --no-file-parallelism \
+  tests/integration/r058-capture-router-post-race.int.test.ts tests/integration/r058-capture-post-double-post.int.test.ts
+Test Files  2 passed (2)
+     Tests  20 passed (20)
+EXIT=0
+```
+
+Unit: `tests/unit/services/capture/captureRouterService.test.ts` — 22/22 passed, unmodified.
+
+### R-071 — now FIXED by this branch (was registered, not fixed, in round 2)
+
+Round 2's `fix.md` registered R-071 as "reachability NEGATIVE" for the
+`captureRouterService.ts:138` re-extraction case; that disposition stands for
+THAT write (still unpredicated, still reachable only from `routeEvent`'s own
+first statement, immediately after an INSERT — no external caller can re-run
+it on an existing event). What round 3's review found and this round fixes is
+a DIFFERENT write in the same function racing a POST rather than a second
+`routeEvent` call. R-071 is closed by this commit.
+
+### Out of scope, not fixed (registered R-075 by the round-3 reviewer)
+
+`routeEvent` is fired unawaited from `upload.ts:173` / `inbound-email.ts:51`
+inside `withAuth`'s `als.run`, and its statements after the extraction
+`await` still resolve `als.getStore()?.client` — by then `withAuth` may have
+already released that client back to the pool, so `routeEvent`'s writes can
+run on a connection serving another request's transaction, under that
+request's GUCs. Not measured or fixed here.

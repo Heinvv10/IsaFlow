@@ -171,19 +171,37 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
         WHERE id = ${documentId}::uuid AND company_id = ${companyId}
       `;
 
-      await sql`
+      const extractedRows = await sql`
         UPDATE capture_events
         SET status            = 'extracted',
             document_category = ${category},
             updated_at        = NOW()
         WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-      `;
+          AND status = 'extracting'
+        RETURNING id
+      ` as Row[];
+      if (extractedRows.length === 0) {
+        log.warn('routeEvent: event left \'extracting\' before extraction finished — a post or a '
+          + 'concurrent routeEvent already moved it on, so this result is dropped', {
+          captureEventId, companyId,
+        }, 'capture-router');
+        return;
+      }
     } else {
-      await sql`
+      const extractedRows = await sql`
         UPDATE capture_events
         SET status = 'extracted', updated_at = NOW()
         WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-      `;
+          AND status = 'extracting'
+        RETURNING id
+      ` as Row[];
+      if (extractedRows.length === 0) {
+        log.warn('routeEvent: event left \'extracting\' before extraction finished — a post or a '
+          + 'concurrent routeEvent already moved it on, so this result is dropped', {
+          captureEventId, companyId,
+        }, 'capture-router');
+        return;
+      }
     }
 
     log.info('routeEvent: extraction complete', { captureEventId, hasExtracted: !!extracted }, 'capture-router');
@@ -191,11 +209,19 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
     const msg = err instanceof Error ? err.message : String(err);
     log.error('routeEvent: extraction failed', { captureEventId, error: msg }, 'capture-router');
 
-    await sql`
+    const failedRows = await sql`
       UPDATE capture_events
       SET status = 'failed', error = ${msg}, updated_at = NOW()
       WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-    `;
+        AND status = 'extracting'
+      RETURNING id
+    ` as Row[];
+    if (failedRows.length === 0) {
+      log.warn('routeEvent: event left \'extracting\' before the extraction error was recorded — '
+        + 'a post or a concurrent routeEvent already moved it on, so this failure is dropped', {
+        captureEventId, companyId,
+      }, 'capture-router');
+    }
   }
 }
 
