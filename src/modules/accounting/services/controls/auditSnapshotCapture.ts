@@ -55,6 +55,8 @@ export async function captureAuditSnapshot(ctx:ControlTx,input:{snapshotId:strin
     const record={source:source.source,...row,version};retainedBytes+=Buffer.byteLength(canonicalJson(record));
     if(retainedBytes>100*1024*1024)throw new Error('Snapshot byte resource limit');result.records.push(record);captured++;
     if(row.version===null)result.missingSources.push(`${source.source}:historical_entity_versions_unavailable`);
+    // A forked record reports its canonical lineage; the sibling lineage exists and the snapshot says so.
+    if(row.data.control_lineage_forked===true)result.coverage.push(`forked_lineage:${source.source}`);
     for(const [key,value] of Object.entries(row.data)){
      if(key.endsWith('_unavailable')&&value===true)result.missingSources.push(`${source.source}:${key}`);
      if(moneyFields.has(key)&&typeof value==='string'){

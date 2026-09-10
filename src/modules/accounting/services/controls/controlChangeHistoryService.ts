@@ -27,10 +27,12 @@ export async function readControlEntityHistory(ctx:ControlTx,input:HistoryInput)
    SELECT entity_id,version,false AS event FROM control_entity_versions WHERE company_id=${company}::uuid AND entity_type=${entityType} AND lower(entity_id)=lower(${entityId})
    UNION ALL SELECT entity_id,new_version,true FROM control_change_events WHERE company_id=${company}::uuid AND entity_type=${entityType} AND lower(entity_id)=lower(${entityId})
   ) retained GROUP BY entity_id ORDER BY entity_id COLLATE "C" LIMIT 11` as {entity_id:string;eventCount:number;version:string|null}[];
- if(options.lineage!==undefined&&!lineages.some(row=>row.entity_id===options.lineage))throw new Error('History lineage is not retained for this entity');
+ // An explicit lineage must be a spelling of this entity; on an entity with nothing retained it reads as untracked.
+ if(options.lineage!==undefined&&(options.lineage.toLowerCase()!==entityId.toLowerCase()||(lineages.length>0&&!lineages.some(row=>row.entity_id===options.lineage))))throw new Error('History lineage is not retained for this entity');
  const lineage=options.lineage??(lineages.length>1?null:lineages[0]?.entity_id??entityId);
  if(lineage===null)return{available:false as const,code:'FORKED_LINEAGE' as const,entity:{entityType,entityId},items:[],nextCursor:null,
   lineages:lineages.map(row=>({entityId:row.entity_id,eventCount:row.eventCount,version:row.version===null?null:integer(row.version)}))};
+ if(cursor&&cursor.lineage===undefined&&lineages.length>1)throw new Error('History cursor predates lineage selection; restart the read for one lineage');
  if(cursor&&(cursor.companyId!==company||cursor.entityType!==entityType||cursor.entityId!==entityId||(cursor.lineage??cursor.entityId)!==lineage||cursor.permissionsHash!==permissionsHash))throw new Error('History cursor no longer matches authorized query');
  const [latest]=await ctx.sql`SELECT
   (SELECT version FROM control_entity_versions WHERE company_id=${company}::uuid AND entity_type=${entityType} AND entity_id=${lineage}) AS version,

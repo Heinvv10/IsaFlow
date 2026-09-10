@@ -31,9 +31,9 @@ export async function loadJournalRiskPopulation(ctx:ControlTx,cutoff:string|null
     WHERE e.company_id=j.company_id AND e.entity_type='fiscal_period' AND p.id=j.fiscal_period_id
      AND e.action IN ('fiscal_period.close','fiscal_period.lock','fiscal_period.reopen','year_closed_period')
      AND e.occurred_at<=x.occurred_at ORDER BY e.occurred_at DESC,e.id DESC LIMIT 1) history ON true
-   WHERE x.company_id=j.company_id AND x.entity_type='journal_entry' AND lower(x.entity_id)=j.id::text
+   WHERE x.company_id=j.company_id AND x.entity_type='journal_entry' AND x.entity_id=COALESCE(v.entity_id,j.id::text)
     AND x.action NOT IN ('baseline_observed','journal.post') ORDER BY x.occurred_at,x.id LIMIT 101) f) AS facts
-   FROM control_change_events n WHERE n.company_id=j.company_id AND n.entity_type='journal_entry' AND lower(n.entity_id)=j.id::text
+   FROM control_change_events n WHERE n.company_id=j.company_id AND n.entity_type='journal_entry' AND n.entity_id=COALESCE(v.entity_id,j.id::text)
     AND n.action NOT IN ('baseline_observed','journal.post')) changes ON true
  LEFT JOIN LATERAL(SELECT e.id,e.new_version,e.action,e.occurred_at FROM control_change_events e
    JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=lower(e.entity_id)
