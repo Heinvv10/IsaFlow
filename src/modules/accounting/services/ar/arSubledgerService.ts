@@ -82,7 +82,13 @@ export async function getARSubledger(
         ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}::UUID
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so the
+        -- bare form dropped null-status documents. The ageing keeps them, and
+        -- this population is the ageing's exactly (see the header) — leaving
+        -- the two spellings apart booked the difference as reconcile_subledger's
+        -- aged_unexplained_difference residual, i.e. a reconciliation that
+        -- invents a difference out of a spelling.
+        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
         -- Same population as arAgingService, deliberately: a soft-deleted
         -- document leaves that report when its delete reversal reaches the
         -- ledger, and two populations would make reconcile_subledger's

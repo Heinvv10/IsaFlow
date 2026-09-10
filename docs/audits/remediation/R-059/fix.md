@@ -598,7 +598,12 @@ conflict, so it would have merged with nobody resolving it.
 **Census by the arithmetic, not the spelling.** I enumerated every
 `status`-comparison line this branch WROTE (diff of `ad1fe6937..HEAD`, filtered
 to invoice aliases), then widened to whatever the branch's own pinned
-invariants force to move with it. Fifteen sites, all now
+invariants force to move with it.
+
+**CORRECTED IN ROUND 5 (r4 LOW-2): the count is 16 occurrences across 10 files,
+not fifteen — 10 written by this branch and 6 pre-existing (arAgingService x2,
+apAgingService x2, transactionReportingService x2). Round 5 adds the two
+subledger services, taking it to 18 across 12 files.** All now
 `COALESCE(<alias>.status, '') NOT IN ('draft', 'cancelled')`:
 
 | File | Sites | Written by this branch? |
@@ -614,7 +619,8 @@ invariants force to move with it. Fifteen sites, all now
 | `ap/apAgingService.ts` | 2 | **no — same** |
 | `reports/transactionReportingService.ts` | 2 | **no — same** |
 
-**Why three pre-existing files moved.** Fixing only the branch-written half
+**Why five pre-existing sites moved** (three files; the subledger pair joined
+them in round 5)**.** Fixing only the branch-written half
 would have BROKEN two things this branch itself pins:
 
 - `r059-aging-route-equals-service-every-day` and
@@ -735,4 +741,178 @@ resolution itself is pinned:
   Windows host that cannot see this box's dev server. The rendered-DOM suite
   stands in its place, with its stated limit: `AppLayout` and `next/link` are
   mocked, so it does not prove the page mounts under the real company context.
+- R-074, R-078 and K-050 remain out of scope, untouched.
+
+---
+
+# Round 5 — the two siblings the branch asserted agreement with
+
+## MEDIUM-1: the subledger kept the NULL-unsafe predicate while the ageing went NULL-safe. FIXED — the predicates, not the doc comment.
+
+Round 4 left `arSubledgerService.ts` and `apSubledgerService.ts` on the bare
+`status NOT IN ('draft','cancelled')` and called it a K-091 follow-up. That was
+wrong, for a reason round 4 had in front of it: `arSubledgerService.ts:15-17`
+states the invariant as the file's own design rule —
+
+> "The population is master's aging population exactly, and deliberately so:
+> `reconcile_subledger` reports the aged total beside the subledger total, and
+> two populations would make that comparison meaningless."
+
+— and round 4's own change broke it on exactly a null-status document. The
+review measured the consequence: ageing 3,108.33 against subledger 2,108.33 on
+one null-status R1,000 invoice, with the R1,000 landing in
+`reconcilingItemBuilders`'s residual `aged_unexplained_difference`. That
+residual is the figure `reconcileSubledger`'s own tool description promises is
+zero when the decomposition is complete, so the round-4 state made
+`reconcile_subledger` INVENT a difference out of a spelling — strictly worse
+than the defect being corrected.
+
+The choice offered was "fix the predicates or correct the doc". The predicates
+are correct and the doc is right about why, so both subledger predicates are
+now `COALESCE(<alias>.status, '') NOT IN ('draft', 'cancelled')`. The header
+needs no change: it now describes what the code does again.
+
+**Pinned by a new file**, `r059-subledger-population-equals-ageing.int.test.ts`:
+R 1000 with a real status and N 700 with `status` NULL, on each side, unpaid,
+raised before the as-at. It asserts the ageing total and `subledgerTotal` are
+both 1700 at a past date and today — and that the DOCUMENT SETS are identical,
+because a total can agree by luck and a set cannot.
+
+## MEDIUM-2: `getCustomerReport` was not K-093-scoped while claiming equality with `sales-by-customer`. FIXED, and the fixture that hid it fixed too.
+
+`transactionReportingService.ts` joined `ci.client_id = c.id`. The merge
+correctly kept master's `COALESCE(ci.client_id, ci.customer_id)` on
+`sales-by-customer` (K-093: both columns exist and an invoice may carry only
+`customer_id`), and round 4 then wrote a comment claiming the two are "asserted
+equal by r059-period-reports-as-at-period-end". They were not: measured 2,608.33
+against 2,108.33 on one `customer_id`-only invoice.
+
+The join is now `COALESCE(ci.client_id, ci.customer_id) = c.id`.
+
+**The test could not have caught it**, which is the more important half: the
+fixture set BOTH ids to the same customer on every row — the shape that makes an
+assertion decorative. It now seeds **K**, a real invoice of 400 with
+`client_id` NULL and `customer_id` set, plus a line so `sales-by-item` sees it.
+Both AR surfaces read 1700 where the two AP surfaces read 1300, and a premise
+test asserts K really is one-sided.
+
+**The mirror row cannot be seeded, and that is the schema, not an omission.**
+`customer_invoices.customer_id` is `NOT NULL` (asserted in the test against
+`information_schema`), so "client_id only" is unrepresentable. Suppliers carry
+one key, so there is nothing to mirror on AP at all.
+
+**One difference deliberately NOT closed, and the comment now says so.**
+`getCustomerReport` reads `FROM customers`, so an invoice pointing at no
+customer row has no line in it, while `sales-by-customer` gives that invoice its
+own "Unknown customer (id)" row. The two therefore still differ on an invoice
+with a dangling customer reference. That is a data defect neither report
+creates, and closing it means changing which report is the sales-by-customer
+shape — out of R-059's scope. The equality claim in the comment is now qualified
+to "over invoices whose customer row exists".
+
+## LOW-1: treating a NULL status as issued debt is a JUDGEMENT. Stated.
+
+`status` is nullable on both invoice tables **and carries `DEFAULT 'draft'`**.
+So a NULL is not "no information": it is a value someone wrote explicitly over a
+default that means draft. Reading it as issued debt is a convention, not a fact
+the schema settles.
+
+**The convention this branch adopts, and why.** A NULL status is treated as a
+document that is neither a draft nor cancelled, i.e. as outstanding. Reasons, in
+order of weight:
+
+1. **Consistency with the precedent already on master.** K-091 landed
+   `COALESCE(ci.status,'') <> 'cancelled'` on `sales-by-customer` — `''` is not
+   `'draft'`, so master already counts nulls as real. Choosing differently here
+   would put two conventions in one report family, which is the failure this
+   whole round is about.
+2. A row that reaches NULL has had its default overwritten. `'draft'` is what
+   you get by omitting the column; NULL is what you get by naming it.
+3. It is the conservative direction for a receivable: over-stating what is owed
+   is visible and gets investigated, under-stating it is silent — which is
+   exactly how R-059 and K-091 were both missed.
+
+**The alternative reading, stated fairly.** `COALESCE(status, 'draft')` would
+exclude these rows, on the argument that the schema's declared meaning for an
+unset status is `draft`. If such a row is genuinely an unissued draft it has
+posted no GL journal, so counting it INFLATES the ageing against the control
+account instead of reconciling to it — the opposite of what R-059 is for. That
+is a real cost, and it is why this is worth a decision rather than an
+inheritance.
+
+**Nothing decides it but the data, and the data is not measured.**
+`isaflow_dev` has **0** null-status rows on both ledgers (0/3188 AR, 0/1215 AP),
+so the convention is latent there and no test can settle it. **Production NOT
+measured — not queried, per the standing rule.** For Hein, before merge:
+
+```sql
+SELECT 'AR' AS side,
+       COUNT(*) FILTER (WHERE status IS NULL) AS null_status,
+       COALESCE(SUM(total_amount) FILTER (WHERE status IS NULL), 0) AS value,
+       COUNT(*) FILTER (WHERE status IS NULL AND gl_journal_entry_id IS NOT NULL) AS posted_to_gl
+FROM customer_invoices WHERE deleted_at IS NULL
+UNION ALL
+SELECT 'AP',
+       COUNT(*) FILTER (WHERE status IS NULL),
+       COALESCE(SUM(total_amount) FILTER (WHERE status IS NULL), 0),
+       COUNT(*) FILTER (WHERE status IS NULL AND gl_journal_entry_id IS NOT NULL)
+FROM supplier_invoices WHERE deleted_at IS NULL;
+```
+
+`posted_to_gl` is the column that answers it: a null-status document with an
+approval journal is issued debt and belongs in the ageing; one with none is an
+unissued draft and does not. **If the count is non-zero, choose
+`COALESCE(status,'')` or `COALESCE(status,'draft')` explicitly** — and apply the
+same choice to all 18 sites, master's `sales-by-customer` line included.
+
+## LOW-2: the census count. CORRECTED.
+
+Round 4's prose said "Fifteen sites … the other five". The correct figure is
+**16 occurrences across 10 files** — 10 written by this branch, 6 pre-existing
+(`arAgingService` x2, `apAgingService` x2, `transactionReportingService` x2).
+Round 5's two subledger predicates take it to **18 across 12 files**. The
+round-4 section is corrected in place rather than left standing beside this one.
+Every one of the 18 is mutation-pinned, so this was accuracy of the record, not
+coverage.
+
+## Round 5 tests and mutations
+
+| Test | Pins |
+|---|---|
+| `r059-subledger-population-equals-ageing` (NEW, 7 tests) | ageing total == `subledgerTotal` == 1700 on AR and AP, at a past date and today, with identical document sets |
+| `r059-period-reports-as-at-period-end` (K seeded, +1 test) | `sales-by-customer` == `getCustomerReport` == `sales-by-item` on a `customer_id`-only invoice |
+
+| # | Mutation | Red |
+|---|---|---|
+| T1 | `getCustomerReport` join back to `ci.client_id = c.id` | period reports FAIL |
+| T2 | `arSubledgerService` COALESCE dropped | subledger population FAIL |
+| T3 | `apSubledgerService` COALESCE dropped | subledger population FAIL |
+
+Each restored from a file copy and `cmp`-verified; both files green again after.
+
+## Round 5 — one green gate that was not green
+
+The first `bun run ci` of this round came back **`[ci] unit-tests FAIL`, exit 1**,
+on `tests/unit/mcp/w2/subledgerSnapshot.test.ts`: a SOURCE-TEXT assertion pinning
+the subledger query's old spelling, `ci.status NOT IN ('draft','cancelled')`.
+The MEDIUM-1 fix changed the text it was matching. Updated to the COALESCE form,
+with a comment saying why the population is the wider one and that the real
+proof is by outcome in the new integration file. Reported because the round's own
+change broke a test the branch relies on, and a report that says "all green"
+without pasting the step lines would have hidden it.
+
+Swept for siblings of that spelling in `tests/`. Three remain, all correctly
+untouched: `unpostedDocuments.test.ts:144` pins `unpostedDocumentService`, which
+this branch does not change; `subledgerTiesToAging.integration.test.ts:57` and
+`reconcileSubledger.integration.test.ts:42` use the phrase only to CHOOSE which
+companies to sample, not to compute an expected figure — rewriting them would
+change the sample, not fix anything.
+
+## Round 5 — not done, stated
+
+- The dangling-customer difference between `getCustomerReport` and
+  `sales-by-customer` (above) — documented in the code, not closed.
+- The NULL-status convention is a decision awaiting one production count (LOW-1).
+- The browser check remains not done; the rendered-DOM suite stands, with
+  `AppLayout` and `next/link` mocked.
 - R-074, R-078 and K-050 remain out of scope, untouched.

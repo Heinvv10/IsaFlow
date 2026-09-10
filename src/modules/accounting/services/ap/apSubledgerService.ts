@@ -50,7 +50,13 @@ export async function getAPSubledger(
         ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ap' })}
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
-        AND si.status NOT IN ('draft', 'cancelled')
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so the
+        -- bare form dropped null-status documents. The ageing keeps them, and
+        -- this population is the ageing's exactly (see the header) — leaving
+        -- the two spellings apart booked the difference as reconcile_subledger's
+        -- aged_unexplained_difference residual, i.e. a reconciliation that
+        -- invents a difference out of a spelling.
+        AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
         -- Same population as apAgingService — see arSubledgerService.
         AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
         AND COALESCE(si.invoice_date, si.created_at::date) <= ${asAtDate}::DATE

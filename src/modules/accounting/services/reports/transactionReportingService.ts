@@ -51,14 +51,21 @@ export async function getCustomerReport(
         COALESCE(SUM(ci.total_amount), 0) AS total_invoiced,
         COALESCE(SUM(${sql.unsafe(effectivePaidExpr('ar'))}), 0) AS total_paid
       FROM customers c
-      LEFT JOIN customer_invoices ci ON ci.client_id = c.id
+      -- COALESCE(client_id, customer_id), the K-093 key: both columns exist and
+      -- an invoice may carry only customer_id, so joining on client_id alone
+      -- DROPPED those invoices entirely while sales-by-customer counted them.
+      LEFT JOIN customer_invoices ci ON COALESCE(ci.client_id, ci.customer_id) = c.id
         AND ci.company_id = ${companyId}::UUID
         AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}
         -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so
         -- the bare form dropped null-status invoices this report's own
         -- sibling (sales-by-customer) keeps (K-091). The two are asserted
-        -- equal by r059-period-reports-as-at-period-end.
+        -- equal by r059-period-reports-as-at-period-end, over invoices whose
+        -- customer row EXISTS: this report reads FROM customers, so an invoice
+        -- pointing at no customer row has no line here at all, while sales-by-
+        -- customer gives it its own Unknown customer row. That remaining
+        -- difference is a data defect neither report creates.
         AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
         -- AS AT the period end: the invoices raised in the period and what
         -- had been paid on them by periodEnd, so the balance is the ageing at
