@@ -17,7 +17,8 @@ export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledE
   assertControlTx(ctx);
   const issued = permits.get(permit);
   if (issued) assertControlTx(issued);
-  if (!issued || issued.principal !== ctx.principal || permit.operation !== canonicalOperationRef(parent).operation || permit.entityType !== parent.entityType || permit.entityId !== parent.entityId) {
+  const ref = canonicalOperationRef(parent);
+  if (!issued || issued.principal !== ctx.principal || permit.operation !== ref.operation || permit.entityType !== ref.entityType || permit.entityId !== ref.entityId) {
     throw new Error('Controlled effect permission is not valid');
   }
 }
