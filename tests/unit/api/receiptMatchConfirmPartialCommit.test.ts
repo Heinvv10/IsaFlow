@@ -98,6 +98,24 @@ describe('POST /api/accounting/ar/receipt-match/confirm', () => {
     expect(confirmReceiptMatch).not.toHaveBeenCalled();
   });
 
+  // The OTHER direction of the same classifier: contention is not the caller's
+  // mistake, so it is 409 and not the 400 this route answered it. Still
+  // pre-write — the validation only reads — so nothing has been committed
+  // either way.
+  it('A CONTENDED INVOICE IS A 409, not the 400 a books refusal gets', async () => {
+    vi.mocked(validateBankReceiptApplication).mockRejectedValue(
+      new ReceiptRefusal(
+        'Another request is applying cash to one of these invoices — retry in a moment.',
+        { retryable: true },
+      ),
+    );
+    const { req, res } = mockReqRes(BODY);
+    await handler(req, res);
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['a race that reads as not found', `Invoice ${INV_A} not found`],
     ['a race that reads as already allocated', 'This receipt is already allocated against invoice INV0001.'],

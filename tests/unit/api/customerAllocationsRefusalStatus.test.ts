@@ -104,6 +104,24 @@ describe('POST /api/accounting/customer-allocations', () => {
     expect(applyReceiptPlan).not.toHaveBeenCalled();
   });
 
+  // The half this route used to contradict itself on: a contended INVOICE is
+  // raised one call deeper, as a ReceiptRefusal carrying `retryable: true`, and
+  // fell through to the 400 four lines below the payment lock's 409.
+  it('answers a contended INVOICE 409 too, not just a contended payment', async () => {
+    vi.mocked(planReceiptApplication).mockRejectedValue(
+      new ReceiptRefusal(
+        'Another request is applying cash to one of these invoices — retry in a moment.',
+        { retryable: true },
+      ),
+    );
+    const { req, res } = mockReqRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
+    expect(applyReceiptPlan).not.toHaveBeenCalled();
+  });
+
   it('RETHROWS a driver error rather than answering 400 with its text', async () => {
     const pgErr = Object.assign(
       new Error('column "amount_paid" of relation "customer_invoices" does not exist'),

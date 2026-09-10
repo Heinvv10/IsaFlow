@@ -50,7 +50,10 @@ import {
   confirmReceiptMatch,
   validateBankReceiptApplication,
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
-import { isReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
+import {
+  isReceiptRefusal,
+  isRetryableReceiptRefusal,
+} from '@/modules/accounting/services/ar/receiptRefusal';
 
 const Amount = z.union([z.number(), z.string()])
   .transform(v => Number(v))
@@ -87,6 +90,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   try {
     await validateBankReceiptApplication(companyId, bankTxId, allocations);
   } catch (err) {
+    // CONTENTION is answered 409, the way `bank-match-confirm` answers the
+    // parallel event: a peer holding an invoice row is not the caller's
+    // mistake, and 400 is the status this codebase reserves for that and
+    // monitors as such. Still pre-write — the reads above have written
+    // nothing — so the 4xx `withAuth` COMMITs commits nothing either.
+    if (isRetryableReceiptRefusal(err)) {
+      apiResponse.conflict(res, (err as Error).message);
+      return;
+    }
     if (isReceiptRefusal(err)) {
       apiResponse.badRequest(res, err.message);
       return;

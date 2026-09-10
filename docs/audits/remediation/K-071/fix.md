@@ -459,3 +459,81 @@ reversing the two UPDATEs in `evidenceAttachmentService.ts` fails the new order 
 them in the attach route fails the new route test; removing `{ retryable: true }` from both
 contention sites fails both confirm-arm tests; replacing the route's `contended` branch with
 `badRequest` fails the 409 case.
+
+---
+
+## Round 11 — review of `7841b7e9b`
+
+### HIGH-1 — round 10 changed the status and never re-ran the branch's own outcome tests (test)
+
+The round classified contention as 409 and validated it against the NEW unit tests only.
+`tests/integration/k071-bill-lock-concurrency.int.test.ts:100` and
+`k071-invoice-lock-concurrency.int.test.ts:110` — both added by THIS branch, both pinning exactly
+the event that was re-classified — still asserted `400`, so `bun run ci` exited 1 with
+`[ci] integration-tests FAIL` behind a report of "passed end to end".
+
+The tests were the stale side: 409 for contention is the deliberate change, and the reviewer's own
+mutation of `apiResponse.conflict` → `badRequest` proves the code direction. Both assertions and the
+comment beside them now read 409; the `/retry in a moment/` and wrote-nothing assertions are
+unchanged, because those are what make it a contention answer rather than a bare status swap.
+
+Grepped the branch's whole test set for the old value: every other `400` in the K-071/K-074 files is
+a BOOKS refusal (an over-allocation, a sign mismatch, a malformed body) and correctly stays 400.
+`k071-lock-order-deadlock.int.test.ts:195` already asserted 409 and `k071-void-lock-order.int.test.ts:199`
+asserts `< 500` plus the wording, so neither moved.
+
+### MEDIUM-1 — the 409 rule reached 2 of the 4 routes that answer this event (code)
+
+Enumerated by CONSUMER, not by grepping for the predicate: every caller of
+`plan{Receipt,SupplierPayment}Application` and `validateBank{ReceiptApplication,SupplierPayment}`
+that can answer HTTP. Four, not two:
+
+| Route | Before | Now |
+|---|---|---|
+| `bank-match-confirm.ts` (both confirm arms) | 409 | unchanged |
+| `ar/receipt-match/confirm.ts:90` | 400 | 409 for `isRetryableReceiptRefusal`, tested first |
+| `customer-allocations.ts:110/126` | 409 payment / **400 invoice** | 409 for both |
+| `supplier-allocations.ts:123` | 400 for everything | 409 / 400 / re-throw |
+
+`customer-allocations.ts` contradicted itself four lines apart: the contended RECEIPT row raised
+`PaymentLockTimeoutError` and answered 409, while the contended INVOICE — the same instant of
+contention, raised one call deeper by `planAllocationLines` as a `ReceiptRefusal` carrying
+`retryable: true` — fell through to the 400 branch.
+
+**Both directions proved.** The 400 direction is not swept into 409: `retryable` is false on every
+books refusal, and each route keeps a case asserting 400 for one (`supplierAllocationsPartialCommit`
+"different supplier", `customerAllocationsRefusalStatus` "cancelled", `receiptMatchConfirmPartialCommit`
+"not found"). A new `it.each` in `supplierPaymentApplicationService.test.ts` asserts
+`retryable === false` on all five plan refusals, so a future `{ retryable: true }` pasted onto a
+books refusal goes red rather than silently inviting a retry.
+
+**Every classification is PRE-write.** `validateBank*` is read-only; `plan*` takes its row lock and
+runs guards without writing; the apply call is outside the try in both allocation routes. So the
+4xx `withAuth` COMMITs commits an empty transaction — asserted at each site by
+`expect(apply*).not.toHaveBeenCalled()`.
+
+### LOW-1 — `supplier-allocations.ts` caught everything and answered 400 with raw pg text (code)
+
+Fixed rather than documented away, because `bank/.claude.md:16` — added by this branch — said it was
+already true. The fix is two changes that only work together: `planSupplierPaymentApplication` threw
+bare `Error`s for its four refusals (its AR twin has thrown `ReceiptRefusal` all along), so
+narrowing the route's catch to `isSupplierPaymentRefusal` alone would have turned "Cannot apply a
+cancelled payment" into a 500. Those four throws are now typed, and the route classifies exactly as
+`customer-allocations.ts` does: 409 for `isPaymentLockTimeout` or `isRetryableSupplierPaymentRefusal`,
+400 with `log.info` for a typed refusal, re-throw for everything else. A `42703` and a `TypeError`
+each now reach `withErrorHandler` as a 5xx — pinned in both new cases — instead of handing the user
+schema and column names on a status that COMMITs.
+
+Widening `planSupplierPaymentApplication`'s throws to a subclass of `Error` cannot narrow any
+caller: `supplierAutoAllocate` and `supplierBankPaymentService` do not catch it, and the MCP tool's
+`safeErrorText` surfaces `SUPPLIER_PAYMENT_REFUSED` verbatim (it was already in `REFUSAL_CODES`), so
+the agent now reads the remedy where it previously got the generic fallback.
+
+**Mutation-proved this round** (file copies, restored after each; never `git checkout --`):
+
+| Mutation | Red |
+|---|---|
+| delete the `isRetryableReceiptRefusal` arm from `ar/receipt-match/confirm.ts` | `receiptMatchConfirmPartialCommit.test.ts` — 1 failed / 10 passed |
+| drop `\|\| isRetryableReceiptRefusal(err)` from `customer-allocations.ts` | `customerAllocationsRefusalStatus.test.ts` — 1 failed / 5 passed |
+| restore the catch-all `badRequest(message)` in `supplier-allocations.ts` | `supplierAllocationsPartialCommit.test.ts` — 5 failed / 6 passed |
+| untype one `SupplierPaymentRefusal` back to `Error` in `planSupplierPaymentApplication` | `supplierPaymentApplicationService.test.ts` — 1 failed / 28 passed |
