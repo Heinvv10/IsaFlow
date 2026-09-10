@@ -8,12 +8,17 @@ type AnalysisDimensions = Pick<JournalLineInput, 'cc1Id' | 'cc2Id' | 'buId'>;
 type CostCentreRow = { id: string; cc_type: string | null; is_active: boolean | null };
 type BusinessUnitRow = { id: string; is_active: boolean | null };
 
-const present = (values: readonly (string | null | undefined)[]): string[] =>
-  [...new Set(values.filter((id): id is string => typeof id === 'string' && id !== '')
-    .map((id) => id.toLowerCase()))];
-
-const assertValidIds = (ids: readonly string[], message: string): void => {
-  if (ids.some((id) => !UUID_RE.test(id))) throw new Error(message);
+const suppliedIds = (
+  values: readonly unknown[],
+  message: string,
+): string[] => {
+  const ids: string[] = [];
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value !== 'string' || !UUID_RE.test(value)) throw new Error(message);
+    ids.push(value.toLowerCase());
+  }
+  return [...new Set(ids)];
 };
 
 /**
@@ -27,15 +32,12 @@ export async function assertJournalAnalysisDimensions(
   lines: readonly AnalysisDimensions[],
   mode: DimensionAssignmentMode = 'new-assignment',
 ): Promise<void> {
-  const cc1Ids = present(lines.map((line) => line.cc1Id));
-  const cc2Ids = present(lines.map((line) => line.cc2Id));
-  const buIds = present(lines.map((line) => line.buId));
   const cc1Message = 'CC1 must name an active CC1 cost centre in this company';
   const cc2Message = 'CC2 must name an active CC2 cost centre in this company';
   const buMessage = 'Business unit must be active and belong to this company';
-  assertValidIds(cc1Ids, cc1Message);
-  assertValidIds(cc2Ids, cc2Message);
-  assertValidIds(buIds, buMessage);
+  const cc1Ids = suppliedIds(lines.map((line) => line.cc1Id), cc1Message);
+  const cc2Ids = suppliedIds(lines.map((line) => line.cc2Id), cc2Message);
+  const buIds = suppliedIds(lines.map((line) => line.buId), buMessage);
 
   const costCentreIds = [...new Set([...cc1Ids, ...cc2Ids])];
   let costCentres = new Map<string, CostCentreRow>();

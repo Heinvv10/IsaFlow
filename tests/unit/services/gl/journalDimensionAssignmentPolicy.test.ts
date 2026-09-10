@@ -43,6 +43,14 @@ describe('journal analysis-dimension assignment policy', () => {
       .rejects.toThrow('Business unit must be active and belong to this company');
   });
 
+  it.each([0, false])('refuses malformed falsy CC1 input (%j)', async (cc1Id) => {
+    await expect(assertJournalAnalysisDimensions(
+      COMPANY,
+      line({ cc1Id: cc1Id as unknown as string }),
+    )).rejects.toThrow('CC1 must name an active CC1 cost centre in this company');
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
   it('preserves owned inactive references in historical-copy mode', async () => {
     mockSql
       .mockResolvedValueOnce([
