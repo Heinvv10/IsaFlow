@@ -16,3 +16,11 @@ it('releases a private metadata client when the read-only transaction cannot sta
  await expect(readAccessReviewMetadata({principal:{companyId:'11111111-1111-4111-8111-111111111111'}} as ControlTx,{kind:'pat',limit:1,dormantDays:90,after:null})).rejects.toThrow('Synthetic BEGIN failure');
  expect(release).toHaveBeenCalledOnce();
 });
+it('destroys a client whose rollback fails instead of returning an unusable transaction to the pool',async()=>{
+ mocks.permission.mockResolvedValue(undefined);const release=vi.fn();
+ const query=vi.fn().mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[]})
+  .mockRejectedValueOnce(new Error('Synthetic read failure')).mockRejectedValueOnce(new Error('Synthetic rollback failure'));
+ mocks.connect.mockResolvedValue({query,release});
+ await expect(readAccessReviewMetadata({principal:{companyId:'11111111-1111-4111-8111-111111111111'}} as ControlTx,{kind:'pat',limit:1,dormantDays:90,after:null})).rejects.toThrow('Access metadata rollback failed');
+ expect(release).toHaveBeenCalledWith(true);
+});
