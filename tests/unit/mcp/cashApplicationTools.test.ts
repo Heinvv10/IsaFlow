@@ -38,6 +38,10 @@ vi.mock('@/modules/accounting/services/core/contraSettlementService', () => ({
 }));
 vi.mock('@/modules/accounting/services/controls/approvalExecutionService', () => ({
   assertControlledOperationAuthority: vi.fn(),
+  controlledOperationApprovalRequiredForAmount: vi.fn(async () => false),
+}));
+vi.mock('@/modules/accounting/services/controls/context', () => ({
+  requireControlTx: vi.fn(() => ({ synthetic: 'control-tx' })),
 }));
 vi.mock('@/modules/accounting/services/ap/apControlBoundary', () => ({
   requireApControl: vi.fn(() => ({ synthetic: 'ap-control' })),
@@ -188,36 +192,12 @@ describe('apply_payment_to_supplier_invoice', () => {
       .toMatch(/exactly one of payment_id or bank_transaction_id/i);
   });
 
-  it('applies a processed payment and reports payment_matched per bill', async () => {
-    vi.mocked(planSupplierPaymentApplication).mockResolvedValue(apPlan());
-    vi.mocked(applySupplierPaymentPlan).mockResolvedValue(apPlan());
-    const out = parseOk(await applyPaymentToSupplierInvoiceTool.handler(
-      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT }, ctx(),
-    ));
-    expect(out.journal_posted).toBe(false);
-    expect(out.applied_now).toBe(600);
-    expect(out.unapplied_remainder).toBe(400);
-    expect((out.invoices as Array<Record<string, unknown>>)[0]!.payment_matched).toBe(true);
-    expect(vi.mocked(planSupplierPaymentApplication).mock.calls[0]![0]).toBe(COMPANY);
-  });
-
-  it('a payment_id dry run refuses up front: the live call needs a prepared intent', async () => {
+  it.each([true, false])('a payment_id call refuses up front, before any read (dry_run=%s)', async (dryRun) => {
     const r = await applyPaymentToSupplierInvoiceTool.handler(
-      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true }, ctx(),
+      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT, ...(dryRun ? { dry_run: true } : {}) }, ctx(),
     );
     expect(errText(r)).toMatch(/prepared cash application intent and independent approval are required/i);
     expect(planSupplierPaymentApplication).not.toHaveBeenCalled();
-    expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
-  });
-
-  it('the live call still refuses where its plan refuses, and writes nothing', async () => {
-    vi.mocked(planSupplierPaymentApplication).mockRejectedValue(
-      new Error('This payment has not been processed (status "draft")'),
-    );
-    const r = await applyPaymentToSupplierInvoiceTool.handler(
-      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT }, ctx(),
-    );
-    expect(errText(r)).toMatch(/has not been processed/);
     expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
   });
 
@@ -235,13 +215,6 @@ describe('apply_payment_to_supplier_invoice', () => {
     expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
   });
 
-  it('RETHROWS a post-write failure rather than returning it', async () => {
-    vi.mocked(planSupplierPaymentApplication).mockResolvedValue(apPlan());
-    vi.mocked(applySupplierPaymentPlan).mockRejectedValue(new Error('deadlock detected'));
-    await expect(applyPaymentToSupplierInvoiceTool.handler(
-      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT }, ctx(),
-    )).rejects.toThrow(/deadlock/);
-  });
 });
 
 describe('settle_by_contra', () => {
