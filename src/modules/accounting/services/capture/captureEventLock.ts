@@ -66,14 +66,21 @@ export type CaptureEventStatus = (typeof CAPTURE_EVENT_STATUSES)[number];
  * (`captureRouterService.ts` ~161) *before* it sets `capture_events.status =
  * 'extracted'` in a second, separate statement (~176), so a request that lands
  * between those two writes sees `status = 'extracting'` WITH data already
- * populated and both checks pass. What keeps that window survivable is that
- * `routeEvent` still runs to completion and flips the status forward — a
- * request racing it does not itself corrupt anything. Only an unpredicated
- * writer that could revert a `'posted'` event back to `'extracting'` would
- * turn this into a second post; that is R-071, tracked separately, not fixed
- * here. `'failed'` stays postable because it is a RETRY state, not a terminal
- * one — `post.ts` itself parks a duplicate there, and `routeEvent` parks an
- * extraction error there.
+ * populated and both checks pass.
+ *
+ * That window used to be able to double-post: `routeEvent`'s later writes
+ * (→ `'extracted'` on both branches, → `'failed'` on error) were themselves
+ * UNPREDICATED, so if a post landed and completed inside the window,
+ * `routeEvent` finishing afterwards silently reverted the event from
+ * `'posted'` back to `'extracted'`/`'failed'` — both postable — and a second
+ * post went through with no race needed on the second call (R-071, measured:
+ * an employee expense claim went 1 → 2). Fixed in the same commit as this
+ * comment: those three writes now carry `AND status = 'extracting'` and check
+ * their row count, so a `routeEvent` that loses the race to a post is a no-op
+ * on `capture_events` (logged, not silently swallowed) instead of a
+ * `'posted'`-overwrite. `'failed'` stays postable because it is a RETRY
+ * state, not a terminal one — `post.ts` itself parks a duplicate there, and
+ * `routeEvent` parks an extraction error there.
  *
  * Anything outside the vocabulary fails CLOSED: a status added to the CHECK
  * constraint tomorrow is not postable until someone decides here that it is.
