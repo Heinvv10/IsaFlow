@@ -158,3 +158,37 @@ Only the Postgres IF-NOT-EXISTS chatter is dropped; the migration's own NOTICE a
 
 Shared fixture end state (L5): schema_migrations has no 65% row (621/622/624 only);
 loan_reclass_postings and loan_reclass_backfill_refusals exist with 0 rows.
+
+=== Round 5 (M1 renamed-reference hole, M2 645 re-run, L1/L2/L3) ===
+k081-loan-close-concurrency, k081-loan-close-ordering, k081-loan-reclass-backfill,
+k081-loan-reclass-movement, k081-loan-reclass-refusal-sweep, k081-loan-reclass-rename-hole (new),
+k081-loan-lock-keyspace (new), k082-loan-arrears-staging, k083-loan-period-journal-idempotency,
+k083-loan-post-lock-timeout  ->  Test Files 10 passed (10) / Tests 49 passed (49)
+tests/unit/scripts/migrationNoticeListener.test.ts (new) -> 7 passed
+Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files 797 passed | 36 skipped (833)
+  Tests      9476 passed | 234 skipped (9710)
+bun run type-check          -> clean
+eslint src/modules/accounting/services/loans/ src/lib/amortisation/engine.ts -> clean
+bun run agent-docs:check    -> OK: 74 agent document mirror(s) match canonical sources
+bun scripts/ci/check-migration-rls.ts -> OK
+
+Mutation proof (each applied, run, restored; git diff byte-identical afterwards):
+  1. 659: drop `AND t.loan_id NOT IN (SELECT loan_id FROM tmp_k081_tainted)`
+       -> rename-hole: Tests 4 failed | 3 passed (7)
+  2. 659: drop the unattributable-journal taint INSERT entirely
+       -> rename-hole: Tests 4 failed | 3 passed (7)
+  3. 659: taint WHERE narrowed from `NOT t.parsed OR t.n_loans = 0` to `t.n_loans = 0`
+       -> rename-hole: Tests 1 failed | 6 passed (7)  [the unparsed-hole case]
+  4. 645: remove the `IF EXISTS (… column_name = 'source') … RETURN` guard
+       -> rename-hole: Tests 1 failed | 6 passed (7)  [the M2 case]
+  5. migrationNoticeListener: filter back to `(n.code ?? '00000') !== '00000'`
+       -> unit: 2 failed | 5 passed (7)  [truncated-identifier + own-ERRCODE cases]
+  6. loanPostingGuards.ts: hashtextextended(companyId,621) -> hashtext(companyId)::bigint
+       -> k081-loan-lock-keyspace: 1 failed, `canceling statement due to statement timeout`
+
+Shared fixture reconciled (round-5 M2): schema_migrations now carries
+644_loan_gl_postings_period_once.sql, 645_loan_reclass_postings.sql and
+659_loan_reclass_postings_backfill_rebuild.sql with their file checksums, so the runner cannot
+re-apply 645 there. Every probe ran inside BEGIN … ROLLBACK; no lock held across a statement batch.

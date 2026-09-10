@@ -71,15 +71,32 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON loan_reclass_postings TO app_user;
 -- written by the running application always win over a reconstructed figure.
 -- Safe to re-run after a partial failure.
 --
--- A loan whose reference was renamed after a close will not match and gets no
--- row for that month; its next close then reclassifies from the last month that
--- did match. Detection SQL is in docs/audits/remediation/K-081/fix.md.
+-- SUPERSEDED: this reconstruction identifies a loan by REBUILDING ITS
+-- NARRATIVE STRING, and neither half of that key is unique. Migration 659
+-- deletes every row written here and rebuilds them by resolving the key out of
+-- the narrative instead. Do not read the paragraph above as current behaviour;
+-- 659's header is.
 DO $$
 DECLARE
   target_company UUID;
   inserted_rows  BIGINT;
   total_rows     BIGINT := 0;
 BEGIN
+  -- Round-5 M2. A database that has run 659 but lost its schema_migrations
+  -- rows (a fixture restored from a dump, a hand-rolled clone) re-runs this
+  -- file. 659 leaves `loan_reclass_postings.source` DEFAULTing to 'app', so
+  -- the defective rows below would come back stamped as though the running
+  -- application had written them — and 659 only ever deletes its own
+  -- ('backfill') rows, so nothing would clear them again. The presence of the
+  -- column is the fact that matters, not the tracking row: skip.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'loan_reclass_postings' AND column_name = 'source'
+  ) THEN
+    RAISE NOTICE 'loan_reclass_postings backfill skipped: migration 659 has already rebuilt this table';
+    RETURN;
+  END IF;
+
   FOR target_company IN
     SELECT DISTINCT company_id FROM loans
   LOOP

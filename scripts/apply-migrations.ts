@@ -15,6 +15,7 @@ import { createHash } from 'crypto';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import pg from 'pg';
+import { makeNoticeListener } from './migrationNoticeListener';
 
 const ADVISORY_LOCK_KEY = 73014132;
 const MIGRATIONS_DIR = join(process.cwd(), 'scripts', 'migrations', 'sql');
@@ -164,26 +165,9 @@ async function main(): Promise<void> {
   });
 
   const client = await pool.connect();
-  // Migrations report per-tenant refusals and reconstructed row counts with
-  // RAISE WARNING / RAISE NOTICE. node-postgres DISCARDS both unless a `notice`
-  // listener is registered, so without this the operator running a deploy sees
-  // nothing at all — only RAISE EXCEPTION surfaces, because errors travel as
-  // errors. Printing them is the whole reason a migration is allowed to refuse
-  // a row instead of guessing at it.
-  //
-  // Review L2. Postgres itself raises a NOTICE for every `IF NOT EXISTS` that
-  // skips ("relation ... already exists, skipping"), and the corpus carries
-  // thousands of them — enough to bury the WARNING lines above. Those carry a
-  // real SQLSTATE (42P07, 42710, 42704 ...); a plain `RAISE NOTICE` from a
-  // migration defaults to `successful_completion` (00000). Keep the latter,
-  // drop the former. WARNING and above are never filtered.
-  const noticeListener = (n: { severity?: string; code?: string; message?: string }) => {
-    const severity = n.severity ?? 'NOTICE';
-    if (severity === 'NOTICE' && (n.code ?? '00000') !== '00000') return;
-    for (const line of String(n.message ?? '').split('\n')) {
-      console.log(`  [${severity}] ${line}`);
-    }
-  };
+  // See scripts/migrationNoticeListener.ts: without a listener node-postgres
+  // discards every RAISE WARNING / RAISE NOTICE a migration emits.
+  const noticeListener = makeNoticeListener();
   client.on('notice', noticeListener);
   try {
     // Bootstrap: ensure tracking table exists with canonical schema even if

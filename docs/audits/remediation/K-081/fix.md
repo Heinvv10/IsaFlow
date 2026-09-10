@@ -315,3 +315,79 @@ restart, so 645 and 659 land before any code reads `source`. The first close aft
 correcting movement per loan; re-running compliance moves loans into stages 2/3; and a loan 659
 REFUSED gets no `loan_reclass_postings` row, so its next close reclassifies the full current
 portion — overstating the current / non-current split until its refusal is resolved and 659 re-run.
+
+---
+
+## Round 5 review (0 HIGH, 2 MEDIUM, 3 LOW) — dispositions
+
+**M1 — fixed.** 659 resolved a loan per JOURNAL, so a loan whose `reference` changed between two
+closes had its earlier journals refused ("no loan carries this reference") while its later ones
+reconstructed: the running sum started at the rename and the recorded prior was lower than the
+current-portion account held. Reproduced (GL 192 000, row 92 000). 659 now carries each refusal
+from the journal to the LOAN via a `tmp_k081_tainted` temp table: any journal that could not be
+attributed to a loan — unparsed, or a key no loan carries — taints every loan whose
+`current_portion_account_id` that journal moved, and a tainted loan is refused rather than
+reconstructed from the part of its history that resolved. `n_loans > 1` needs no taint rule: a
+loan's key is the single-valued `COALESCE(reference, id::text)`, so an ambiguous loan's every
+journal carries that same ambiguous key and is already excluded. Refusal is scoped by ACCOUNT, not
+by company — a loan on its own current-portion account, or one an ambiguous key names but an orphan
+never touched, still reconstructs. 659's and 645's stale headers ("gets no row for that month; its
+next close then reclassifies from the last month that did match") are corrected.
+
+**M2 — fixed.** 645's backfill now returns early when `loan_reclass_postings.source` exists, i.e.
+when 659 has already rebuilt the table. Without it, a database that ran 659 and then lost its
+`schema_migrations` rows (a restored dump, a hand-rolled clone — and the shared fixture was exactly
+in that state) re-ran 645's defective narrative rebuild, and because 659 leaves the column
+DEFAULTing to `'app'` the fabricated rows came back stamped as application writes that 659's
+`DELETE … WHERE source = 'backfill'` can never remove. The guard keys off the schema, not the
+tracking row, so it holds on any database. The fixture's tracking rows for 644/645/659 were also
+recorded with their file checksums.
+
+**L1 — fixed.** The notice filter dropped every NOTICE with a non-zero SQLSTATE, which also
+swallowed `identifier "…" will be truncated` (42622 — an object created under a different name than
+written) and any migration's own `RAISE NOTICE … USING ERRCODE`. It now filters exactly 42P07,
+42710 and 42701 (the `IF NOT EXISTS` chatter). The comment's claim that 42704 was filtered was
+wrong — `DROP … IF EXISTS` notices carry 00000 and always printed — and is gone.
+
+**L2 — fixed.** `scripts/apply-migrations.ts` was 306 lines, over the 300-line cap. The notice
+listener and its rationale moved to `scripts/migrationNoticeListener.ts` (46 lines); the runner is
+back to 290 and the filter is now unit-testable.
+
+**L3 — fixed.** The M4 ordering case proves the close waits on a peer holding the same key, but its
+holder hard-codes `hashtextextended(…, 621)`, so the `hashtext` mutation went red only because the
+two sides stopped agreeing — the property L1 actually addresses (a 2^32 collision with
+`shareLinkService` / `mcp/audit`) was untested. New
+`tests/integration/k081-loan-lock-keyspace.int.test.ts` asserts it by outcome: a foreign
+`hashtext(company)::bigint` lock held on the SAME company must not hold the close up. Under the
+mutation it fails with `canceling statement due to statement timeout`.
+
+**Round-5 files.** `scripts/migrations/sql/659_…sql`, `scripts/migrations/sql/645_…sql`,
+`scripts/apply-migrations.ts`, new `scripts/migrationNoticeListener.ts`, new
+`tests/integration/k081-loan-reclass-rename-hole.int.test.ts`, new
+`tests/integration/k081-loan-lock-keyspace.int.test.ts`, new
+`tests/unit/scripts/migrationNoticeListener.test.ts`.
+
+**Round-5 tests.** k081-loan-reclass-rename-hole — 7 passed; k081-loan-lock-keyspace — 1 passed;
+migrationNoticeListener unit — 7 passed. All ten k081/k082/k083 integration files: 49 passed. Full
+unit suite with the fixture env unset: **9476 passed / 234 skipped, 0 failed** (833 files).
+`bun run type-check` clean; `eslint` clean on the changed `src` files; `agent-docs:check` OK (74
+mirrors); `check-migration-rls` OK.
+
+**Round-5 mutation proof.** Each applied, run, restored byte-identical. (1) tainted-loan exclusion
+removed from the posting INSERT → 4 of 7 rename-hole cases red. (2) the unattributable-journal taint
+INSERT removed → 4 red. (3) the taint narrowed to `n_loans = 0`, ignoring unparsed journals → the
+unparsed-hole case red. (4) 645's `IF EXISTS … RETURN` guard removed → the M2 case red. (5) the
+notice filter reverted to "any non-00000 NOTICE" → the two L1 unit cases red. (6)
+`hashtextextended` → `hashtext` in `loanPostingGuards.ts` → the key-space case red with
+`canceling statement due to statement timeout`.
+
+**Historical impact (unchanged).** `origin/master` still carries no 644/645/659, so production has
+never applied them and no `loan_reclass_postings` row exists anywhere but a fixture. After deploy,
+review what the rebuild refused before trusting any close:
+`SELECT company_id, loan_key, yyyymm, reason FROM loan_reclass_backfill_refusals ORDER BY 1,3;`
+A refused loan reclassifies its full current portion at its next close — visible and correctable —
+until the underlying journal is repaired and 659 re-run.
+
+**Limits.** Taint is per current-portion account, so one unattributable journal on an account shared
+by many loans refuses all of them. That is deliberate: the alternative is reconstructing a prior
+that may be missing a movement. The refusals table names the offending journal in every case.
