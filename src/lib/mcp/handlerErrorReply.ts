@@ -12,6 +12,7 @@ import { MissingSystemAccountError, missingSystemAccountText } from '@/modules/a
 import { EffectivePermissionError } from '@/lib/auth/effectivePermissions';
 import { permissionRefusalMessage } from './scopeRemediation';
 import { approvalRequiredReply } from './approvalReply';
+import { isSuppliedApprovalRefusal, suppliedApprovalRefusalText } from '@/modules/accounting/services/controls/suppliedApprovalRefusal';
 
 export const GENERIC_FAILURE = 'The operation failed. Please try again or contact support.';
 
@@ -31,6 +32,14 @@ export function handlerErrorReply(tool: Pick<McpTool, 'name' | 'inputSchema'>, e
   // carry an approval at all.
   if (typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'OPERATION_APPROVAL_REQUIRED') {
     return errorResult(approvalRequiredReply(tool));
+  }
+  // A caller-supplied approval that cannot be used is the caller's to fix, and
+  // the refusal text is written by the control kernel, never by pg. Anything
+  // else in that region (a stored-approval integrity trip, a programming fault)
+  // stays generic on purpose.
+  if (isSuppliedApprovalRefusal(err)) {
+    return errorResult(`The approval supplied with this call cannot be used: ${suppliedApprovalRefusalText(err)}. `
+      + 'Nothing was posted. Request an approval for this exact operation with request_operation_approval and retry with its approval_id.');
   }
   // A domain permission refusal names the grant, worded by what blocks the caller.
   if (err instanceof EffectivePermissionError && err.permission) {

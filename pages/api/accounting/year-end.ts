@@ -15,7 +15,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
-import { isSuppliedApprovalRefusal } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { isSuppliedApprovalRefusal, suppliedApprovalRefusalText } from '@/modules/accounting/services/controls/suppliedApprovalRefusal';
 
 /**
  * Postgres "undefined_table" / "undefined_column" SQLSTATEs. Schema-not-ready
@@ -139,9 +139,13 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     // A supplied approvalId this close cannot use is the caller's mistake, and
     // the control message says which mistake it is.
     if (isSuppliedApprovalRefusal(err)) {
+      // Logged even though it is answered 4xx: an approval refusal is worth
+      // seeing, and 42501 also covers a request context that is broken.
+      log.warn('Year-end close refused the supplied approval',
+        { yearLabel, reason: suppliedApprovalRefusalText(err), module: 'accounting' }, 'accounting');
       return apiResponse.conflict(res,
         `The approval supplied for financial year ${String(yearLabel)} cannot be used to close it ` +
-          `(${err instanceof Error ? err.message : 'approval unusable'}). Nothing was closed. Request an approval for ` +
+          `(${suppliedApprovalRefusalText(err)}). Nothing was closed. Request an approval for ` +
           'this exact close and retry with its approvalId.');
     }
     log.error('Failed to process year-end', { error: err, yearLabel, module: 'accounting' });

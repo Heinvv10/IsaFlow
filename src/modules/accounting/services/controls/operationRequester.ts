@@ -1,5 +1,6 @@
 import type {ControlTx,OperationRef} from './contracts';
 import {assertControlTx} from './context';
+import {SuppliedApprovalRefusal} from './suppliedApprovalRefusal';
 /** Immutable preparation identity cannot be replaced by a proxy approval requester. */
 export async function assertOperationRequester(ctx:ControlTx,ref:OperationRef,requesterPersonId:string):Promise<void>{
  assertControlTx(ctx);let rows:unknown[];
@@ -29,5 +30,5 @@ export async function assertOperationRequester(ctx:ControlTx,ref:OperationRef,re
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
  else return;
  const row=rows[0] as {requester_person_id:string}|undefined;
- if(rows.length!==1||!row||row.requester_person_id!==requesterPersonId)throw new Error('Original intent requester must request approval');
+ if(rows.length!==1||!row||row.requester_person_id!==requesterPersonId)throw new SuppliedApprovalRefusal('Original intent requester must request approval');
 }

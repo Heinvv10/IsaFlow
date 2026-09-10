@@ -7,6 +7,8 @@ import { assertControlTx } from './context';
 import { canonicalJson } from './canonical';
 import { approvalAuthorities, approvalDecisions, assertRequesterAuthority, lockApproval, validateDecisions, type ApprovalRow, type AuthorityRow } from './approvalQueries';
 import { canonicalOperationRef, loadOperationMaterial, materializeOperation, reserveOperationExposure } from './operationMaterializer';
+import { SuppliedApprovalRefusal, isSuppliedApprovalRefusal } from './suppliedApprovalRefusal';
+export { isSuppliedApprovalRefusal, SuppliedApprovalRefusal } from './suppliedApprovalRefusal';
 
 import { initializeOperationObservations } from './approvalRequestService';
 
@@ -37,32 +39,31 @@ export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledE
  * as a conflict rather than a server failure; the code is carried by both the
  * live execution and its preview, because they run the same checks.
  */
-export const SUPPLIED_APPROVAL_NOT_EXECUTABLE = 'OPERATION_APPROVAL_NOT_EXECUTABLE';
 /**
- * SQLSTATEs the control functions RAISE deliberately (627/628 use 42501). A
- * transport fault — a deadlock, a serialization failure, a constraint — keeps
- * its own code and stays a server failure.
+ * SQLSTATEs the control functions RAISE deliberately (627/628 raise 42501 for
+ * an approval outside the caller's company, or a caller who is not a member).
+ * A transport fault — a deadlock, a serialization failure, a constraint — keeps
+ * its own code and stays a server failure. Nothing else is marked: a plain
+ * Error in this region is an integrity or programming failure, not a refusal.
  */
 const CONTROL_REFUSAL_SQLSTATES = new Set(['P0001', '42501']);
 async function markSuppliedApprovalFailure<T>(run: () => Promise<T>): Promise<T> {
   try { return await run(); } catch (error) {
     const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
-    if (error instanceof Error && (code === undefined || (typeof code === 'string' && CONTROL_REFUSAL_SQLSTATES.has(code)))) {
-      // The SQLSTATE is kept; the marker is what a transport reads.
-      Object.assign(error, { suppliedApprovalRefusal: true, ...(code === undefined ? { code: SUPPLIED_APPROVAL_NOT_EXECUTABLE } : {}) });
+    if (error instanceof Error && typeof code === 'string' && CONTROL_REFUSAL_SQLSTATES.has(code)) {
+      // The SQLSTATE is kept; the marker is what a transport reads. Logged
+      // because 42501 also covers a broken request context, which is a server
+      // fault wearing a caller error's clothes (see gl/.claude.md).
+      Object.assign(error, { suppliedApprovalRefusal: true });
+      const { log } = await import('@/lib/logger');
+      log.warn('Supplied approval refused by a control function', { sqlstate: code, reason: error.message }, 'controls');
     }
     throw error;
   }
 }
-/** True when a caller-supplied approval, not the server, is what failed. */
-export function isSuppliedApprovalRefusal(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const marked = error as { suppliedApprovalRefusal?: unknown; code?: unknown };
-  return marked.suppliedApprovalRefusal === true || marked.code === SUPPLIED_APPROVAL_NOT_EXECUTABLE;
-}
 export function assertApprovalExecutable(row: ApprovalRow, currentHash: string): void {
-  if (row.status !== 'approved' || !row.unexpired) throw new Error('Approval is not executable');
-  if (row.binding_hash !== currentHash) throw new Error('Approval material changed');
+  if (row.status !== 'approved' || !row.unexpired) throw new SuppliedApprovalRefusal('Approval is not executable');
+  if (row.binding_hash !== currentHash) throw new SuppliedApprovalRefusal('Approval material changed');
 }
 
 /**
