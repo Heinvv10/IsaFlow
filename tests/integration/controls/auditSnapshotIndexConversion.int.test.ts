@@ -26,7 +26,8 @@ async function prepared(){
  const comparison=await actor('u2',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:original.id,secondSnapshotId:original.id,idempotencyKey:randomUUID()}));
  const lease=await actor('u2',()=>claimAuditJob(requireControlTx(),comparison.id));if(!lease)throw new Error('Missing comparison lease');
  const retained=(await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,original.id])).rows[0];
- return{id:original.id,lease,retained};
+ const artifacts=(await pool.query('SELECT artifact_id,protected_artifact FROM control_audit_snapshot_artifacts WHERE company_id=$1 AND snapshot_id=$2 ORDER BY artifact_id',[f.companyA,original.id])).rows;
+ return{id:original.id,lease,retained,artifacts};
 }
 async function removeIndex(id:string){
  await pool.query('DELETE FROM control_audit_snapshot_index_chunks WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,id]);
@@ -39,7 +40,7 @@ async function convert(lease:AuditJobLease,id:string){
  store=>withControlJobRequest(store,lease,()=>ensureOriginalSnapshotIndex(requireControlTx(),lease,id)));
 }
 it('converts a genuine original for a second authorized requester and preserves every original protected byte',async()=>{
- const {id,lease,retained}=await prepared();await removeIndex(id);
+ const {id,lease,retained,artifacts}=await prepared();await removeIndex(id);
  const header=await convert(lease,id);expect(header.canonicalHash).toBe(retained.canonical_hash);expect(header.counts.records).toBe(206);
  const positions:number[]=[];let cursor:string|undefined;
  do{const page=await actor('u2',()=>getAuditSnapshotPage(requireControlTx(),{snapshotId:id,section:'records',limit:100,...cursor?{cursor}:{}}));positions.push(...page.items.map(item=>item.ordinal));cursor=page.nextCursor??undefined;}while(cursor);
@@ -47,6 +48,7 @@ it('converts a genuine original for a second authorized requester and preserves 
  const chunk=await actor('u2',()=>readAuditSnapshotChunk(requireControlTx(),{snapshotId:id,section:'records',ordinal:0,chunkOrdinal:0}));
  expect(['journal_entry','bank_transaction']).toContain(JSON.parse(Buffer.from(chunk.bytes).toString()).source);
  expect((await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,id])).rows[0]).toEqual(retained);
+ expect((await pool.query('SELECT artifact_id,protected_artifact FROM control_audit_snapshot_artifacts WHERE company_id=$1 AND snapshot_id=$2 ORDER BY artifact_id',[f.companyA,id])).rows).toEqual(artifacts);
  expect((await pool.query('SELECT build_job_id,build_generation,build_lease_id FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,id])).rows).toEqual([{build_job_id:lease.jobId,build_generation:String(lease.generation),build_lease_id:lease.leaseId}]);
 });
 it('refuses corrupt originals without publishing a replacement index',async()=>{
