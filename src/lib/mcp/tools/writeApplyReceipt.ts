@@ -91,7 +91,8 @@ export const applyReceiptToInvoiceTool: McpTool = {
     if (!paymentId === !bankTxId) {
       return toolError(
         'Name the cash with exactly one of payment_id or bank_transaction_id. '
-        + 'payment_id applies a receipt already in the ledger (no journal posts); '
+        + 'payment_id (an existing payment) is refused today — it needs a prepared, approved cash '
+        + 'application intent this connector cannot prepare; '
         + 'bank_transaction_id allocates an imported bank line (one journal posts).',
       );
     }
