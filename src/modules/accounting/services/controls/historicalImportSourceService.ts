@@ -50,7 +50,7 @@ export async function storeHistoricalImportSource(ctx:ControlTx,input:{bytes:Buf
   await ctx.sql`INSERT INTO control_historical_import_sources(company_id,id,requester_person_id,payload_envelope,content_hash,normalized_hash,mime_type,byte_length,record_count)
    VALUES(${ctx.principal.companyId}::uuid,${id}::uuid,${ctx.principal.personId},${JSON.stringify(envelope)}::jsonb,${contentHash},${normalizedHash},${input.mimeType},${bytes.length},${normalized.records.length})`;
   await recordCommittedChange(ctx,{entityType:'historical_import_source',entityId:id,previousVersion:null,newVersion:1,action:'historical_import.source_staged',accountingDate:normalized.accountingDate,
-   before:null,after:{sourceId:id,contentHash,normalizedHash,recordCount:normalized.records.length,byteLength:bytes.length},bindingHash:null,protectedEvidenceRef:null});
+   before:null,after:{sourceId:id,contentHash,normalizedHash,kind:normalized.kind,sourceCompanyId:ctx.principal.companyId,sourceEnvelopeHash:historicalHash(envelope.ciphertext),sourceEnvelopeKeyId:envelope.keyId,sourceEnvelopeVersion:envelope.version,recordCount:normalized.records.length,byteLength:bytes.length},bindingHash:null,protectedEvidenceRef:null});
   return{sourceId:id,contentHash,normalizedHash,recordCount:normalized.records.length};
  });
 }

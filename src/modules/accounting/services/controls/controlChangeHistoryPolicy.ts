@@ -2,6 +2,7 @@ import {UUID_RE,isRealCalendarDate} from '@/lib/validation';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import type {ControlTx} from './contracts';
 import {approvalOperationNames,operationPermission} from './operationPermissions';
+import {readHistoricalImportSourceKind} from './historicalImportSourceKind';
 import {hasHistoryParent} from './controlChangeHistoryParents';
 const domains:Record<string,string>={
  supplier:'read:contacts',customer:'read:contacts',beneficiary_supplier:'read:contacts',beneficiary_supplier_proposal:'read:contacts',
@@ -25,6 +26,10 @@ export async function assertHistoryEntity(ctx:ControlTx,type:string,id:string){
  if(type==='historical_import'||type==='historical_import_source'){
   const rows=await ctx.sql`SELECT DISTINCT kind FROM control_historical_imports WHERE company_id=${c}::uuid
    AND ((${type}='historical_import' AND id::text=${id}) OR (${type}='historical_import_source' AND source_id::text=${id})) LIMIT 5` as {kind:string}[];
+  if(type==='historical_import_source'){
+   const kind=await readHistoricalImportSourceKind(ctx,id);
+   if(kind)rows.push({kind});
+  }
   if(!rows.length)throw new Error('History domain metadata unavailable');
   for(const row of rows){if(!['gl','opening_balance','customer_invoice','supplier_invoice'].includes(row.kind))throw new Error('Unsupported import history');await assertEffectivePermission(ctx,['gl','opening_balance'].includes(row.kind)?'read:reports':'read:invoices');}
  }

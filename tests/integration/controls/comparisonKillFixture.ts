@@ -1,5 +1,7 @@
 import {readdir,readFile} from 'node:fs/promises';
-import {auditUnitProperties,auditSystemctl} from '@/modules/accounting/services/controls/auditJobSystemd';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {auditUnitProperties} from '@/modules/accounting/services/controls/auditJobSystemd';
 /** Discover only a systemd-run child of THIS test process, and verify the exact artifact before signaling. */
 export async function killOwnedComparisonWorker(entryPath:string){
  const matches:{unit:string;pid:number}[]=[];
@@ -16,10 +18,10 @@ export async function killOwnedComparisonWorker(entryPath:string){
  }
  if(matches.length!==1)throw new Error('Exactly one owned comparison subprocess required');
  const owned=matches[0]!;
- const properties=await auditUnitProperties(owned.unit),pid=Number(properties.MainPID);
+ const properties=await auditUnitProperties(owned.unit).catch(error=>{throw new Error('Owned worker property lookup failed',{cause:error});}),pid=Number(properties.MainPID);
  if(properties.LoadState!=='loaded'||!Number.isSafeInteger(pid)||pid<1)throw new Error('Owned comparison unit not running');
  const args=(await readFile(`/proc/${pid}/cmdline`)).toString().split('\0');
  if(!args.includes(entryPath)||!args.includes('--max-old-space-size=4096'))throw new Error('Owned comparison executable identity changed');
- await auditSystemctl(['kill','--kill-whom=all','--signal=SIGKILL',owned.unit]);
+ await promisify(execFile)('/usr/bin/systemctl',['--user','--no-pager','kill','--kill-whom=main','--signal=SIGKILL',owned.unit],{timeout:2000,maxBuffer:8192}).catch(error=>{throw new Error('Owned worker SIGKILL command failed: '+String(error.stderr),{cause:error});});
  return owned.unit;
 }
