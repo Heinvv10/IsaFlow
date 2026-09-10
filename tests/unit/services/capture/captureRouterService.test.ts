@@ -91,7 +91,7 @@ describe('routeEvent', () => {
     // SELECT event+doc row
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);
     // UPDATE status → 'extracting'
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
     // fetchRawBytes SELECT → returns empty (no raw_bytes), so extraction is skipped
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     // UPDATE status → 'extracted' (no doc UPDATE because extracted===null when bytes missing)
@@ -105,7 +105,7 @@ describe('routeEvent', () => {
 
   it('transitions status received → extracting → extracted for an image/jpeg event', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow({ file_type: 'jpg' })] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never); // fetchRawBytes SELECT (empty)
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
@@ -116,7 +116,7 @@ describe('routeEvent', () => {
 
   it('transitions status received → extracting → extracted for a png event', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow({ file_type: 'png' })] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never); // fetchRawBytes SELECT (empty)
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
@@ -128,7 +128,7 @@ describe('routeEvent', () => {
   it('skips the captured_documents UPDATE when extraction returns null', async () => {
     // When fetchRawBytes returns no row, resolveExtraction returns null → no doc UPDATE.
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never); // → extracting
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never); // → extracting
     vi.mocked(sql).mockResolvedValueOnce([] as never); // fetchRawBytes SELECT (empty)
     vi.mocked(sql).mockResolvedValueOnce([] as never); // → extracted
 
@@ -166,7 +166,7 @@ describe('routeEvent', () => {
     } as never);
 
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);                            // SELECT event+doc
-    vi.mocked(sql).mockResolvedValueOnce([] as never);                                           // extracting UPDATE
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);                              // extracting UPDATE
     vi.mocked(sql).mockResolvedValueOnce([{                                                     // fetchRawBytes SELECT
       storage_bucket: 'captured-documents',
       storage_path: 'co/doc',
@@ -174,13 +174,16 @@ describe('routeEvent', () => {
       raw_bytes_size: 14,
       file_type: 'pdf',
     }] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);                                           // captured_documents UPDATE (extraction non-null)
-    vi.mocked(sql).mockResolvedValueOnce([] as never);                                           // extracted UPDATE
+    // Event transition is claimed FIRST (routeEvent reorders this — see
+    // captureRouterService.ts LOW-2), so the "extracted" event UPDATE is the
+    // 4th call and the captured_documents UPDATE is the 5th.
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);                           // extracted UPDATE (event)
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                                           // captured_documents UPDATE
 
     await routeEvent(EVENT_ID, COMPANY_ID);
 
     expect(vi.mocked(extractFromPdf)).toHaveBeenCalledTimes(1);
-    // 5 sql calls: SELECT + extracting + fetchRawBytes + doc UPDATE + extracted
+    // 5 sql calls: SELECT + extracting + fetchRawBytes + extracted (event) + doc UPDATE
     expect(vi.mocked(sql)).toHaveBeenCalledTimes(5);
   });
 
@@ -188,7 +191,7 @@ describe('routeEvent', () => {
 
   it('transitions to failed when a downstream sql call throws', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never); // SELECT
-    vi.mocked(sql).mockResolvedValueOnce([] as never);               // → extracting UPDATE succeeds
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);  // → extracting UPDATE succeeds
     // Simulated error during the "extracted" UPDATE (e.g. constraint violation)
     vi.mocked(sql).mockRejectedValueOnce(new Error('deadlock detected') as never);
     // The catch block issues the failed UPDATE
@@ -202,7 +205,7 @@ describe('routeEvent', () => {
 
   it('records the error message on the failed update', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never); // extracting
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never); // extracting
     vi.mocked(sql).mockRejectedValueOnce(new Error('VLM unavailable') as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never); // failed
 
@@ -217,7 +220,7 @@ describe('routeEvent', () => {
 
   it('propagates error when the failed-status UPDATE itself errors', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never); // → extracting
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never); // → extracting
     vi.mocked(sql).mockRejectedValueOnce(new Error('primary error') as never);
     // failed-status UPDATE also fails — service propagates the secondary error
     vi.mocked(sql).mockRejectedValueOnce(new Error('secondary DB error') as never);
@@ -229,7 +232,7 @@ describe('routeEvent', () => {
 
   it('still transitions to extracted for unsupported mime (no extraction attempted)', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow({ file_type: 'docx' })] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never); // extracting
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never); // extracting
     vi.mocked(sql).mockResolvedValueOnce([] as never); // extracted (null data)
 
     await routeEvent(EVENT_ID, COMPANY_ID);

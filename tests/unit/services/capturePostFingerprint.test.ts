@@ -25,6 +25,17 @@ vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
   withWriteAccess: (fn: unknown) => fn,
 }));
+// The capture posting routes now read the event through
+// `captureEventLock.lockCaptureEventForPosting`, which takes a `FOR UPDATE`
+// row lock and refuses to run outside a request transaction. These tests drive
+// the handler directly, with no `withAuth`, so stand in a client whose only job
+// is to accept the `SET LOCAL lock_timeout`. The SELECT itself still reaches
+// sqlMock, so the stubbing below is unchanged.
+vi.mock('@/lib/als', () => ({
+  als: { getStore: () => ({ client: { query: async () => undefined } }) },
+  assertTxUsable: () => undefined,
+}));
+
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 vi.mock('@/lib/apiResponse', () => ({
@@ -112,7 +123,9 @@ function stubDb(supplierVat: string | null = SUPPLIER_VAT) {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
     if (text.includes('FROM capture_events')) {
       return Promise.resolve([{
-        event_id: EVENT_ID, event_status: 'pending', captured_document_id: DOC_ID,
+        // 'pending' is not in the capture_events CHECK vocabulary — see
+        // captureEventLock.CAPTURE_EVENT_STATUSES.
+        event_id: EVENT_ID, event_status: 'extracted', captured_document_id: DOC_ID,
         extracted_data: { vendorName: 'ACME', vendorVatNumber: DOCUMENT_VAT },
       }]);
     }
