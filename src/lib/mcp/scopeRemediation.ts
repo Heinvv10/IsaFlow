@@ -18,6 +18,7 @@
  * about whether any data exists.
  */
 import type { PatScope } from '@/lib/auth/patScopes';
+import type { PermissionReason } from '@/lib/auth/effectivePermissionPolicy';
 
 /**
  * Scopes whose absence needs more than the generic line — in practice, any
@@ -46,30 +47,42 @@ export const SCOPE_REMEDIATION: Partial<Record<PatScope, string>> = {
 };
 
 /**
- * The reply for a domain permission refusal. Only a missing TOKEN scope is
- * fixed by re-authorising; a role ceiling, a module override or an account
- * range is set by a company owner or admin, and re-consent would strip the scope
- * again (attenuateGrantedScopes), so telling that caller to re-authorise sends
- * them round in a loop.
+ * The reply for a domain permission refusal. Only a missing TOKEN scope is fixed
+ * by granting the connection again. A role ceiling, a module permission or an
+ * account-range/restriction constraint is set per person by a company owner or
+ * admin, and re-granting the connection changes none of them — so that caller
+ * must not be told to re-authorise. A caller missing both a scope and a module
+ * grant gets the scope reply first and, once re-authorised, this one.
  */
-export function permissionRefusalMessage(permission: string,
-  reason?: 'UNKNOWN_PERMISSION' | 'ROLE_CEILING' | 'MISSING_SCOPE' | 'MODULE_DENIED' | 'ENTITY_REQUIRED'): string {
+export function permissionRefusalMessage(permission: string, reason?: PermissionReason): string {
   if (reason === 'MISSING_SCOPE') return insufficientScopeMessage(permission);
   if (reason === 'ROLE_CEILING') {
     return `Your role in this company does not allow ${permission}. Granting this connection again `
       + 'will not change that: a company owner or admin must perform the operation or change your role.';
   }
   if (reason === 'MODULE_DENIED') {
-    return `A company owner or admin has restricted your access to this area, so ${permission} is `
-      + 'denied to you even though this connection holds it. Ask an owner or admin to change your '
-      + 'module permissions; granting the connection again will not.';
+    // Either an explicit override denies it or, for a permission a manager
+    // needs granted explicitly, none was ever given: both are "not granted".
+    return `${permission} has not been granted to you in this company's module permissions, even though `
+      + 'this connection holds the scope. Ask a company owner or admin to grant it to you; granting the '
+      + 'connection again will not.';
   }
   if (reason === 'ENTITY_REQUIRED') {
-    return `Your ${permission} access is limited to specific accounts by a company owner or admin, `
-      + 'and this operation falls outside them. Ask an owner or admin to widen that range.';
+    // A constrained override (account range or any other restriction) refuses
+    // every operation it cannot check entity by entity, so widening it does not
+    // help: only removing it does.
+    return `Your ${permission} access carries an account-range or other restriction set by a company `
+      + 'owner or admin, and this operation cannot be checked against it. Ask an owner or admin to '
+      + 'remove that restriction for you.';
   }
   return `Current permissions do not allow this operation (${permission}).`;
 }
+
+/** The reply to any approval-required refusal, preview or live. */
+export const OPERATION_APPROVAL_REQUIRED_REPLY =
+  'An independent approval is required for this operation under the company\'s approval policy. '
+  + 'Request one with request_operation_approval, then retry with its approval once it is decided. '
+  + 'Nothing was posted.';
 
 /**
  * The reply for a scope the token does not hold. Names the scope so an operator
