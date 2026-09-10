@@ -47,3 +47,12 @@ it('refuses inactive posting and ordinary closed-period posting without leaving 
  try{const before=await f.state();const {approveSupplierInvoice}=await import('@/modules/accounting/services/ap/supplierInvoiceWorkflowService');await expect(f.actor(()=>approveSupplierInvoice(f.f.companyA,closed,f.f.u1.id,{approvalId}))).rejects.toThrow();expect(await f.state()).toEqual(before);}
  finally{await f.pool.query("UPDATE fiscal_periods SET status='open' WHERE company_id=$1 AND period_number=9 AND fiscal_year=2026",[f.f.companyA]);}
 });
+it('waits for the actual owned invoice row lock before attempting any inverse',async()=>{
+ const id=await f.invoice();await f.post(id);const approvalId=await f.approve(f.ref('supplier_invoice.cancel',id)),before=await f.state(),locker=await f.pool.connect();
+ try{await locker.query('BEGIN');await locker.query('SET LOCAL ROLE app_user');
+  await locker.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify({sub:f.f.u2.id,company_id:f.f.companyA,role:'authenticated'}),f.f.companyA]);
+  await locker.query('SELECT id FROM supplier_invoices WHERE company_id=$1 AND id=$2 FOR UPDATE',[f.f.companyA,id]);
+  await expect(f.actor(async ctx=>{await ctx.sql`SET LOCAL lock_timeout='250ms'`;const {cancelSupplierInvoice}=await import('@/modules/accounting/services/ap/supplierInvoiceWorkflowService');return cancelSupplierInvoice(f.f.companyA,id,f.f.u1.id,{approvalId});})).rejects.toMatchObject({code:'55P03'});
+ }finally{await locker.query('ROLLBACK');locker.release();}
+ expect(await f.state()).toEqual(before);expect((await f.cancel(id,approvalId)).status).toBe('cancelled');
+});
