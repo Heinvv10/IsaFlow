@@ -75,6 +75,7 @@ import { getVatReconciliation } from '@/modules/accounting/services/reports/vatR
 import { getAgingBreakdown } from '@/modules/accounting/services/reports/kpiChartsService';
 import { getUpcomingReceivablesAndPayables } from '@/modules/accounting/services/reports/cashFlowForecastDataService';
 import { loadSupplierInvoices } from '@/modules/accounting/services/capture/supplierStatementReconDb';
+import { getCustomerReport, getSupplierReport } from '@/modules/accounting/services/reports/transactionReportingService';
 import { documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -86,6 +87,7 @@ import customerStatementDetailRoute from '../../pages/api/accounting/customer-st
 import customerStatementsRoute from '../../pages/api/accounting/customer-statements';
 import salesByCustomerRoute from '../../pages/api/accounting/reports/sales-by-customer';
 import purchasesBySupplierRoute from '../../pages/api/accounting/reports/purchases-by-supplier';
+import salesByItemRoute from '../../pages/api/accounting/reports/sales-by-item';
 import dashboardStatsRoute from '../../pages/api/accounting/dashboard-stats';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
@@ -245,6 +247,12 @@ describeIfDb('K-053 every AR/AP figure surface ties to the GL at the same as-at 
       INSERT INTO supplier_invoice_items (supplier_invoice_id, description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id)
       VALUES (${apInvoice}::UUID, ${'K053 line'}, 1, ${SUB}, 15, ${VAT}, ${SUB}, ${expense}::UUID),
              (${legacyApInvoice}::UUID, ${'K053 legacy line'}, 1, ${LEG_SUB}, 15, ${LEG_VAT}, ${LEG_SUB}, ${expense}::UUID)`;
+    // The AR lines exist so `sales-by-item` has a population to aggregate:
+    // without them that report returns nothing and its predicate is decorative.
+    await sql`
+      INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, amount, tax_rate, gl_account_id)
+      VALUES (${arInvoice}::UUID, ${'K053 AR line'}, 1, ${SUB}, ${SUB}, 15, ${revenue}::UUID),
+             (${legacyArInvoice}::UUID, ${'K053 legacy AR line'}, 1, ${LEG_SUB}, ${LEG_SUB}, 15, ${revenue}::UUID)`;
 
     await inTx(() => postCustomerInvoiceToGL(COMPANY, arInvoice, USER));
     await inTx(() => postSupplierInvoiceToGL(COMPANY, apInvoice, USER));
@@ -487,6 +495,37 @@ describeIfDb('K-053 every AR/AP figure surface ties to the GL at the same as-at 
     const purchAfter = await callRoute<PurchRow[]>(purchasesBySupplierRoute, { from: RANGE_FROM, to: TODAY });
     expect(purchAfter.reduce((s, r) => s + r.outstanding, 0))
       .toBeCloseTo(-(await controlBalance(payable, TODAY)), 2);
+  });
+
+  /**
+   * Round 10. `transactionReportingService` reports a per-counterparty
+   * `balance` over a date range from the same columns as sales-by-customer and
+   * carried NO soft-delete filter at all, so a deleted document stayed in that
+   * balance for ever. `sales-by-item` aggregates the LINES of the same
+   * population and had none either, so once its sibling was dated the two
+   * reports disagreed over any range spanning the reversal.
+   */
+  it('the transaction reports and sales-by-item draw the period they are asked for', async () => {
+    for (const asAt of [AS_AT_BEFORE, TODAY]) {
+      const custRows = await getCustomerReport(COMPANY, RANGE_FROM, asAt);
+      expect(custRows.reduce((s, r) => s + r.balance, 0))
+        .toBeCloseTo(await controlBalance(receivable, asAt), 2);
+
+      const suppRows = await getSupplierReport(COMPANY, RANGE_FROM, asAt);
+      expect(suppRows.reduce((s, r) => s + r.balance, 0))
+        .toBeCloseTo(-(await controlBalance(payable, asAt)), 2);
+    }
+
+    // The line-level report reads the same population as sales-by-customer:
+    // both documents before the reversal, only the legacy one after it.
+    type ItemRow = { totalRevenue: number };
+    const itemsBefore = await callRoute<ItemRow[]>(salesByItemRoute, {
+      from: RANGE_FROM, to: AS_AT_BEFORE,
+    });
+    expect(itemsBefore.reduce((s, r) => s + r.totalRevenue, 0)).toBeCloseTo(SUB + LEG_SUB, 2);
+
+    const itemsAfter = await callRoute<ItemRow[]>(salesByItemRoute, { from: RANGE_FROM, to: TODAY });
+    expect(itemsAfter.reduce((s, r) => s + r.totalRevenue, 0)).toBeCloseTo(LEG_SUB, 2);
   });
 
   it('the dashboard ageing chart and the cash-flow horizon read as at today', async () => {

@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 
 // Re-export ledger reports for backward compatibility
 export type {
@@ -53,6 +54,13 @@ export async function getCustomerReport(
         AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}
         AND ci.status NOT IN ('draft', 'cancelled')
+        -- Dated to the period end this report is drawn to, so the balance
+        -- agrees with the ageing, with sales-by-customer over the same range
+        -- and with the control account. Before this the query had no
+        -- soft-delete filter at all, so a deleted document's gross value stayed
+        -- in the balance for ever while the GL had netted it to zero.
+        -- See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', periodEnd, companyId)}
       WHERE c.company_id = ${companyId}::UUID
       GROUP BY c.id, c.name
       HAVING COUNT(ci.id) > 0
@@ -103,6 +111,8 @@ export async function getSupplierReport(
         AND si.invoice_date >= ${periodStart}
         AND si.invoice_date <= ${periodEnd}
         AND si.status NOT IN ('draft', 'cancelled')
+        -- Same as the customer report above; see shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('si', periodEnd, companyId)}
       WHERE s.company_id = ${companyId}::UUID
       GROUP BY s.id, s.company_name, s.name
       HAVING COUNT(si.id) > 0

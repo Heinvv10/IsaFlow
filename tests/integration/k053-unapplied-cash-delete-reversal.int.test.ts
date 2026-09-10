@@ -13,6 +13,16 @@
  * control account: the delete's reversal, which must NOT be reported, and a
  * bare journal that credits the debtor with no document behind it — mechanism
  * 2's original reason for existing (FINDINGS B24) — which must still be.
+ *
+ * Round 10 adds the direction round 8 asserted but never exercised: the UNDO.
+ * `reinstateInvoiceJournal` DELETEs the `soft_delete_journal_reversals` row and
+ * posts R2 reversing R, so after a delete/undo round trip neither R nor R2 is
+ * claimed by a document or by an sdjr row and both passed every `NOT EXISTS` —
+ * two phantom orphans for the document's full gross value each, on a document
+ * that is restored and perfectly reconciled. `dropCancelledReversalPairs`
+ * (reconciliation/orphanReversalPairs) drops them, and the third shape in this
+ * fixture proves it does not over-reach: a bare journal reversed by hand LATER,
+ * which must still be reported at an as-at date that sees only its first leg.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -22,7 +32,7 @@ import { sql, getPoolForTests } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { getUnappliedControlCash } from '@/modules/accounting/services/reconciliation/unappliedCashService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
-import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
+import { softDelete, undoDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -47,10 +57,16 @@ const AS_AT_BEFORE = shift(-90);
 /** The bare journal sits in the closed period too, so both dates see it. */
 const ORPHAN_DATE = shift(-100);
 
+/** The hand-reversed pair: the credit sits before both as-at dates... */
+const PAIR_DATE = shift(-101);
+/** ...and its reversal after the earlier one, so only TODAY sees the pair. */
+const PAIR_REV_DATE = shift(-5);
+
 const SUB = 1000;
 const VAT = 150;
 const GROSS = SUB + VAT;
 const ORPHAN = 500;
+const PAIR = 700;
 
 const receivable = randomUUID();
 const revenue = randomUUID();
@@ -60,6 +76,8 @@ const bank = randomUUID();
 let customer: string;
 let invoice: string;
 let orphanEntry: string;
+let pairEntry: string;
+let pairReversal: string;
 
 async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   const client: PoolClient = await getPoolForTests().connect();
@@ -123,6 +141,31 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
       VALUES (${COMPANY}::UUID, ${orphanEntry}::UUID, ${bank}::UUID, ${ORPHAN}, 0, ${'receipt'}),
              (${COMPANY}::UUID, ${orphanEntry}::UUID, ${receivable}::UUID, 0, ${ORPHAN}, ${'receipt'})`;
 
+    // A bare control movement that IS cancelled, by a reversal dated later.
+    // At AS_AT_BEFORE only its first leg exists, so it must still be reported;
+    // at TODAY the pair nets to nothing and neither leg is a reconciling item.
+    pairEntry = randomUUID();
+    pairReversal = randomUUID();
+    await sql`
+      INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description,
+        status, source, created_by)
+      VALUES (${pairEntry}::UUID, ${COMPANY}::UUID, ${'JE-PAIR-' + TAG}, ${PAIR_DATE}::date,
+        ${'Receipt later reversed by hand ' + TAG}, 'posted', 'manual', ${USER}::UUID)`;
+    await sql`
+      INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+      VALUES (${COMPANY}::UUID, ${pairEntry}::UUID, ${bank}::UUID, ${PAIR}, 0, ${'receipt'}),
+             (${COMPANY}::UUID, ${pairEntry}::UUID, ${receivable}::UUID, 0, ${PAIR}, ${'receipt'})`;
+    await sql`
+      INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description,
+        status, source, created_by, reversal_of_id)
+      VALUES (${pairReversal}::UUID, ${COMPANY}::UUID, ${'JE-PAIRREV-' + TAG}, ${PAIR_REV_DATE}::date,
+        ${'Reversal of the bare receipt ' + TAG}, 'posted', 'manual', ${USER}::UUID,
+        ${pairEntry}::UUID)`;
+    await sql`
+      INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+      VALUES (${COMPANY}::UUID, ${pairReversal}::UUID, ${bank}::UUID, 0, ${PAIR}, ${'reversal'}),
+             (${COMPANY}::UUID, ${pairReversal}::UUID, ${receivable}::UUID, ${PAIR}, 0, ${'reversal'})`;
+
     await sql`UPDATE fiscal_periods SET status = 'closed'
               WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
     await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
@@ -161,13 +204,43 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
   });
 
   it('reports the bare journal and NOT the delete reversal, at both dates', async () => {
-    for (const asAt of [AS_AT_BEFORE, TODAY]) {
-      const cash = await getUnappliedControlCash(COMPANY, 'ar', asAt, [receivable]);
-      // Both directions in one assertion: the genuine orphan is still found...
-      expect(cash.withoutPaymentRecord.map((i) => i.id)).toEqual([orphanEntry]);
-      expect(cash.withoutPaymentRecord[0]!.amount).toBeCloseTo(ORPHAN, 2);
-      // ...and the reversal, worth the whole document, never appears.
-      expect(cash.total).toBeCloseTo(ORPHAN, 2);
-    }
+    // Earlier date: the hand-reversed pair has only its first leg posted, so it
+    // is a genuine reconciling item and must be reported alongside the orphan.
+    const before = await getUnappliedControlCash(COMPANY, 'ar', AS_AT_BEFORE, [receivable]);
+    expect(before.withoutPaymentRecord.map((i) => i.id)).toEqual([pairEntry, orphanEntry]);
+    expect(before.total).toBeCloseTo(PAIR + ORPHAN, 2);
+
+    // Today: the pair has netted to nothing and drops out; the orphan, which
+    // nothing reverses, is still found; and the delete's reversal, worth the
+    // whole document, never appears at either date.
+    const today = await getUnappliedControlCash(COMPANY, 'ar', TODAY, [receivable]);
+    expect(today.withoutPaymentRecord.map((i) => i.id)).toEqual([orphanEntry]);
+    expect(today.withoutPaymentRecord[0]!.amount).toBeCloseTo(ORPHAN, 2);
+    expect(today.total).toBeCloseTo(ORPHAN, 2);
+  });
+
+  it('after a delete/undo round trip neither leg is a reconciling item', async () => {
+    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER));
+
+    // The premise: the undo removed the sdjr row that had been excluding R, and
+    // posted R2, so BOTH now pass every NOT EXISTS the query makes.
+    const sdjr = (await sql`
+      SELECT COUNT(*)::int AS n FROM soft_delete_journal_reversals
+      WHERE company_id = ${COMPANY}::UUID
+    `) as { n: number }[];
+    expect(sdjr[0]!.n).toBe(0);
+    const chain = (await sql`
+      SELECT COUNT(*)::int AS n FROM gl_journal_entries je
+      WHERE je.company_id = ${COMPANY}::UUID AND je.status = 'posted'
+        AND je.reversal_of_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM customer_invoices d
+                        WHERE d.company_id = ${COMPANY}::UUID AND d.gl_journal_entry_id = je.id)
+    `) as { n: number }[];
+    // R, R2 and the hand-built pair reversal.
+    expect(chain[0]!.n).toBe(3);
+
+    const cash = await getUnappliedControlCash(COMPANY, 'ar', TODAY, [receivable]);
+    expect(cash.withoutPaymentRecord.map((i) => i.id)).toEqual([orphanEntry]);
+    expect(cash.total).toBeCloseTo(ORPHAN, 2);
   });
 });
