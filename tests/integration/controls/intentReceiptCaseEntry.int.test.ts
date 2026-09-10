@@ -16,6 +16,9 @@ import {openHistoryCursor,sealHistoryCursor} from '@/modules/accounting/services
 import {recordPaymentStatusApproval} from '@/modules/accounting/services/ap/supplierPaymentStatusControl';
 import {invoiceSnapshotSources} from '@/modules/accounting/services/controls/auditSnapshotInvoiceQueries';
 import {inspectTransactionEvidence} from '@/modules/accounting/services/controls/transactionEvidenceService';
+import {runPayrollCalculation} from '@/modules/accounting/services/payroll/payrollCalculationBoundary';
+import {loadJournalRiskPopulation} from '@/modules/accounting/services/controls/journalRiskQueries';
+import {analyseJournalRisks} from '@/modules/accounting/services/controls/journalRiskAnalysis';
 import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
 import {appendEntityVersion,effectRows,entityVersions,eventSpellings,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
 async function approved(ref:OperationRef){const approval=await actor(()=>requestOperationApproval(requireControlTx(),ref));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');return approval.id;}
@@ -80,7 +83,7 @@ it('a rule change extends the lineage retained under a legacy spelling instead o
  expect((await eventSpellings(pool,fixture.companyA,'bank_categorisation_rule',rule)).events).toEqual([rule.toUpperCase()]);
 });
 type Lineage={entityId:string;eventCount:number};
-type HistoryPage={available:boolean;code?:string;lineages?:Lineage[];entity:{lineage?:string};items:{newVersion:number;eventId:string}[];nextCursor:string|null};
+type HistoryPage={available:boolean;code?:string;lineages?:Lineage[];writerLineage?:string|null;entity:{lineage?:string};items:{newVersion:number;eventId:string}[];nextCursor:string|null};
 const history=(entityId:string,extra:Record<string,unknown>={})=>actor(()=>readControlEntityHistory(requireControlTx(),{entityType:'bank_transaction',entityId,...extra})) as Promise<unknown> as Promise<HistoryPage>;
 it('a forked history is two named lineages, never a merge, and each pages without losing a sibling',async()=>{
  const tx=randomUUID();
@@ -89,8 +92,8 @@ it('a forked history is two named lineages, never a merge, and each pages withou
  const p=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
  const allocationApproval=await approved(p.operation);
  await actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId:allocationApproval}));
- // A canonical lineage appears beside the legacy one; the reversal then extends the caller-spelled lineage.
- await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_transaction',tx);
+ // A more advanced canonical lineage appears beside the legacy one; writers now extend it.
+ await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_transaction',tx,5);
  const r=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:p.intentId,reversalDate:'2026-09-11',reason:'Synthetic forked history inverse'}));
  const reversalApproval=await approved(r.operation);
  await actor(()=>executeBankAllocationReversal(requireControlTx(),r.intentId,{approvalId:reversalApproval}));
@@ -100,6 +103,8 @@ it('a forked history is two named lineages, never a merge, and each pages withou
  const fork=await history(tx);
  expect(fork).toMatchObject({available:false,code:'FORKED_LINEAGE',items:[],nextCursor:null});
  expect(fork.lineages!.map(row=>row.entityId).sort()).toEqual([tx,tx.toUpperCase()].sort());
+ // Which lineage the next write extends, so an agent takes expected_version from the right one.
+ expect(fork.writerLineage).toBe(tx);
  for(const lineage of [tx,tx.toUpperCase()]){
   const seen:string[]=[];let cursor:string|null=null;
   do{const page:HistoryPage=await history(tx,{lineage,limit:1,...(cursor?{cursor}:{})});
@@ -123,7 +128,7 @@ it('an explicit lineage on an entity with no retained history reads as untracked
  const page=await history(tx,{lineage:tx}) as HistoryPage&{coverage:{historical:string}};
  expect(page.available).toBe(true);expect(page.items).toEqual([]);expect(page.coverage.historical).toBe('untracked');
 });
-it('a raw uppercase id extends the lineage the projections report, not a sibling',async()=>{
+it('a raw id writer and the snapshot both follow the most advanced lineage of a fork',async()=>{
  const supplier=randomUUID(),payment=randomUUID(),ident={id:fixture.u1.id,companyId:fixture.companyA};
  await pool.query("INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,'Synthetic lineage supplier')",[supplier,fixture.companyA]);
  await pool.query("INSERT INTO supplier_payments(id,company_id,supplier_id,payment_date,total_amount,created_by) VALUES($1,$2,$3,'2026-09-09',10,$4)",[payment,fixture.companyA,supplier,fixture.u1.id]);
@@ -131,10 +136,10 @@ it('a raw uppercase id extends the lineage the projections report, not a sibling
  await appendEntityVersion(pool,ident,'supplier_payment',payment.toUpperCase(),7);
  await actor(()=>recordPaymentStatusApproval(fixture.companyA,payment.toUpperCase(),fixture.u1.id,async()=>undefined));
  const versions=Object.fromEntries((await entityVersions(pool,fixture.companyA,'supplier_payment',payment)).map(row=>[row.entity_id,row.version]));
- expect(versions).toEqual({[payment]:2,[payment.toUpperCase()]:7});
+ expect(versions).toEqual({[payment]:1,[payment.toUpperCase()]:8});
  const source=invoiceSnapshotSources.find(row=>row.source==='supplier_payment')!;
  const rows=await actor(()=>source.page(requireControlTx(),'2026-12-31',null));
- expect(Number(rows.find(row=>row.id===payment)!.version)).toBe(2);
+ expect(Number(rows.find(row=>row.id===payment)!.version)).toBe(8);
 });
 it('evidence records a lineage it cannot choose as a gap instead of failing the traversal',async()=>{
  const tx=randomUUID(),ident={id:fixture.u1.id,companyId:fixture.companyA};
@@ -142,7 +147,8 @@ it('evidence records a lineage it cannot choose as a gap instead of failing the 
  for(const spelling of [tx.toUpperCase(),`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`])await appendEntityVersion(pool,ident,'bank_transaction',spelling);
  const evidence=await actor(()=>inspectTransactionEvidence(requireControlTx(),{entityType:'bank_transaction',entityId:tx}));
  const root=evidence.nodes.find(node=>node.entityType==='bank_transaction'&&node.entityId===tx)!;
- expect(root.version).toBeNull();expect(root.flags).toContain('ambiguous');
+ expect(root.version).toBeNull();expect(root.flags).toContain('forked');expect(root.flags).not.toContain('ambiguous');
+ expect(evidence.coverage.gaps).toContainEqual({source:{entityType:'bank_transaction',entityId:tx},reason:'CONTROL_LINEAGE_AMBIGUOUS'});
 });
 it('two retained spellings and no canonical lineage fail closed instead of forking a third',async()=>{
  const tx=randomUUID(),mixed=`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`;
@@ -165,4 +171,45 @@ it('cash reversal refuses a case-variant twin receipt without another effect or 
  const before={effects:await effectRows(pool,fixture.companyA),ledger:await ledgerRows(pool,fixture.companyA)};
  for(const id of [r.intentId,r.intentId.toUpperCase()])await expect(actor(()=>executeCashApplicationReversal(requireControlTx(),id))).rejects.toThrow('Ambiguous operation receipt');
  expect({effects:await effectRows(pool,fixture.companyA),ledger:await ledgerRows(pool,fixture.companyA)}).toEqual(before);
+});
+type Ident={id:string;companyId:string};
+const ident=():Ident=>({id:fixture.u1.id,companyId:fixture.companyA});
+it('a forked payroll run recalculates on the lineage its calculation versions live in',async()=>{
+ const run=randomUUID(),hash='b'.repeat(64);
+ await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,9,2026,'draft')",[run,fixture.companyA]);
+ // A DB-sourced writer baselined v1 under the canonical spelling; six real calculations ran through an uppercase route id.
+ await appendEntityVersion(pool,ident(),'payroll_run',run,1);
+ await appendEntityVersion(pool,ident(),'payroll_run',run.toUpperCase(),7);
+ for(let v=2;v<=7;v++)await pool.query('INSERT INTO control_payroll_calculations(company_id,run_id,calculation_version,input_hash,output_hash,created_by) VALUES($1,$2,$3,$4,$4,$5)',[fixture.companyA,run,v,hash,fixture.u1.id]);
+ await actor(()=>runPayrollCalculation(run,fixture.companyA,async()=>undefined));
+ const versions=Object.fromEntries((await entityVersions(pool,fixture.companyA,'payroll_run',run)).map(row=>[row.entity_id,row.version]));
+ expect(versions).toEqual({[run]:1,[run.toUpperCase()]:8});
+ expect((await pool.query('SELECT max(calculation_version)::int AS v FROM control_payroll_calculations WHERE company_id=$1 AND run_id=$2',[fixture.companyA,run])).rows[0].v).toBe(8);
+});
+/** Appends a change event and its evidence as legacy source recorded them, copied from a real retained event. */
+async function appendEvent(templateId:string,entityType:string,entityId:string,action:string){
+ await pool.query(`WITH ev AS (INSERT INTO control_protected_evidence(company_id,id,entity_type,entity_id,key_id,envelope_version,ciphertext)
+   SELECT p.company_id,gen_random_uuid(),$2,$3,p.key_id,p.envelope_version,p.ciphertext FROM control_change_events t
+   JOIN control_protected_evidence p ON p.company_id=t.company_id AND p.id=t.protected_evidence_id WHERE t.company_id=$1 AND t.id=$5 RETURNING id)
+  INSERT INTO control_change_events(company_id,id,person_id,connection_id,grant_id,acting_firm_id,request_id,operation_id,provenance,entity_type,entity_id,
+   previous_version,new_version,action,accounting_date,before_values,after_values,binding_hash,protected_evidence_id)
+  SELECT t.company_id,gen_random_uuid(),t.person_id,t.connection_id,t.grant_id,t.acting_firm_id,t.request_id,gen_random_uuid(),t.provenance,$2,$3,
+   last.v,COALESCE(last.v,0)+1,$4,t.accounting_date,t.before_values,t.after_values,NULL,ev.id
+  FROM control_change_events t,ev,(SELECT max(new_version) AS v FROM control_change_events WHERE company_id=$1 AND entity_type=$2 AND entity_id=$3) last
+  WHERE t.company_id=$1 AND t.id=$5`,
+  [fixture.companyA,entityType,entityId,action,templateId]);
+}
+it('a post-close edit retained under a non-canonical spelling still fires the journal signal, and the fork is flagged',async()=>{
+ const {posted}=await postedCash(),journal=String(posted.journalEntryId);
+ const [entry]=(await pool.query('SELECT fiscal_period_id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,journal])).rows;
+ const [template]=(await pool.query("SELECT id FROM control_change_events WHERE company_id=$1 AND entity_type='journal_entry' AND entity_id=$2 ORDER BY new_version LIMIT 1",[fixture.companyA,journal])).rows;
+ // The canonical lineage stays the one a lineage-picking reader would choose; the edit lives only in the other spelling.
+ if(!(await entityVersions(pool,fixture.companyA,'journal_entry',journal)).some(row=>row.entity_id===journal))await appendEntityVersion(pool,ident(),'journal_entry',journal,1);
+ await appendEntityVersion(pool,ident(),'journal_entry',journal.toUpperCase(),1);
+ await appendEvent(template.id,'fiscal_period',String(entry.fiscal_period_id),'fiscal_period.close');
+ await appendEvent(template.id,'journal_entry',journal.toUpperCase(),'journal.memo_changed');
+ const population=await actor(()=>loadJournalRiskPopulation(requireControlTx(),null));
+ const finding=analyseJournalRisks(population.rows,[]).find(row=>row.row.id===journal);
+ expect(finding?.reasons).toContain('change_after_recorded_period_close');
+ expect(finding?.reasons).toContain('change_history_lineage_forked');
 });

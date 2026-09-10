@@ -17,10 +17,10 @@ const hash='a'.repeat(64),cutoff='2026-12-31';
 beforeAll(async()=>{fixture=await provisionForensicFixture(config);user={id:fixture.u1.id,companyId:fixture.companyA};});
 afterAll(async()=>{await pool.end();});
 /** Appends a receipt spelled as legacy source spelled it; no retained row is edited. */
-async function appendEffect(entityType:string,entityId:string,operation:string){
+async function appendEffect(entityType:string,entityId:string,operation:string,result:Record<string,unknown>={}){
  const id=randomUUID();
  await pool.query(`INSERT INTO control_operation_effects(company_id,id,operation_id,operation,entity_type,entity_id,binding_hash,result,committed_at)
-  VALUES($1,$2,gen_random_uuid(),$3,$4,$5,$6,'{}'::jsonb,clock_timestamp())`,[fixture.companyA,id,operation,entityType,entityId,hash]);
+  VALUES($1,$2,gen_random_uuid(),$3,$4,$5,$6,$7::jsonb,clock_timestamp())`,[fixture.companyA,id,operation,entityType,entityId,hash,JSON.stringify(result)]);
  return id;
 }
 const source=(name:string)=>[...ledgerSnapshotSources,...invoiceSnapshotSources].find(row=>row.source===name)!;
@@ -67,7 +67,7 @@ async function wholeSource(name:string){
  }
  return{rows,count:(await actorAs(pool,user,ctx=>source(name).counts(ctx,cutoff))).count};
 }
-it('a forked bank transaction is one snapshot row and binds its canonical lineage',async()=>{
+it('a forked bank transaction is one snapshot row reporting its most advanced lineage',async()=>{
  const account=await bankAccount(),tx=randomUUID();
  await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',10,'Synthetic forked bank line','imported')",[tx,fixture.companyA,account]);
  await fork('bank_transaction',tx,1,7);
@@ -75,9 +75,9 @@ it('a forked bank transaction is one snapshot row and binds its canonical lineag
  expect(rows.filter(row=>row.id===tx)).toHaveLength(1);
  expect(rows).toHaveLength(count);
  expect(new Set(rows.map(row=>row.id)).size).toBe(rows.length);
- expect(Number(rows.find(row=>row.id===tx)!.version)).toBe(1);
+ expect(Number(rows.find(row=>row.id===tx)!.version)).toBe(7);
 });
-it('a forked attestation with twin receipts is one snapshot row naming its canonical receipt',async()=>{
+it('a forked attestation with twin receipts is one flagged snapshot row naming its canonical receipt',async()=>{
  const intent=randomUUID(),account=await bankAccount(),document=randomUUID();
  await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type) VALUES($1,$2,'synthetic-fork.csv','text/csv')",[document,fixture.companyA]);
  await pool.query(`INSERT INTO control_bank_statement_attestation_intents(company_id,id,requester_person_id,bank_account_id,source_document_id,
@@ -89,8 +89,10 @@ it('a forked attestation with twin receipts is one snapshot row naming its canon
  const {rows,count}=await wholeSource('bank_statement_attestation_intent');
  const mine=rows.filter(row=>row.id===intent);
  expect(mine).toHaveLength(1);expect(rows).toHaveLength(count);
- expect(Number(mine[0]!.version)).toBe(2);
+ expect(Number(mine[0]!.version)).toBe(5);
  expect((mine[0]!.data as Record<string,unknown>).execution_effect_id).toBe(canonical);
+ // A twin receipt is evidence of a second execution: the record says so rather than silently deduping it.
+ expect((mine[0]!.data as Record<string,unknown>).control_receipt_twinned).toBe(true);
 });
 it('a forked supplier invoice is one snapshot row and one risk population member',async()=>{
  const supplier=randomUUID(),invoice=randomUUID();
@@ -102,8 +104,16 @@ it('a forked supplier invoice is one snapshot row and one risk population member
  const risk=await actorAs(pool,user,ctx=>loadInvoiceRiskPopulation(ctx,null));
  expect(risk.rows.filter(row=>row.id===invoice)).toHaveLength(1);
  expect(risk.populationCount).toBe(risk.rows.length);
- expect(Number(risk.rows.find(row=>row.id===invoice)!.version)).toBe(1);
+ expect(Number(risk.rows.find(row=>row.id===invoice)!.version)).toBe(6);
 });
+/** Records an approval consumed by one named receipt, as the kernel does when that receipt executes. */
+async function consumeApproval(entityType:string,entityId:string,operation:string,effectId:string){
+ const [effect]=(await pool.query('SELECT operation_id,binding_hash FROM control_operation_effects WHERE company_id=$1 AND id=$2',[fixture.companyA,effectId])).rows;
+ await pool.query(`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,
+  binding,binding_hash,status,requested_at,expires_at,consumed_at,consumed_effect_id)
+  VALUES($1,$2,$3,$4,$5,$6,'cookie','{}'::jsonb,$7,'consumed',clock_timestamp(),clock_timestamp()+interval '1 day',clock_timestamp(),$8)`,
+  [fixture.companyA,effect.operation_id,operation,entityType,entityId,fixture.u1.id,effect.binding_hash,effectId]);
+}
 async function attestation(period:string){
  const intent=randomUUID(),account=await bankAccount(),document=randomUUID();
  await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type) VALUES($1,$2,'synthetic-twin.csv','text/csv')",[document,fixture.companyA]);
@@ -112,13 +122,18 @@ async function attestation(period:string){
   VALUES($1,$2,$3,$4,$5,$6,$6,$7::date,($7::date+interval '27 days')::date,3,0,100,'ZAR')`,[fixture.companyA,intent,fixture.u1.id,account,document,hash,period]);
  return intent;
 }
-it('statement completeness reviews an attestation with twin receipts once',async()=>{
- const intent=await attestation('2026-05-01');
- await appendEffect('bank_statement_attestation_intent',intent,'bank_statement.attest');
- await appendEffect('bank_statement_attestation_intent',intent.toUpperCase(),'bank_statement.attest');
+it('statement completeness reviews an attestation with twin receipts once, through the receipt that consumed its approval, and flags the twin',async()=>{
+ const intent=await attestation('2026-05-01'),plain=await attestation('2026-04-01');
+ await appendEffect('bank_statement_attestation_intent',intent,'bank_statement.attest',{twin:'unconsumed'});
+ const consumed=await appendEffect('bank_statement_attestation_intent',intent.toUpperCase(),'bank_statement.attest',{twin:'consumed'});
+ await appendEffect('bank_statement_attestation_intent',plain,'bank_statement.attest');
+ await consumeApproval('bank_statement_attestation_intent',intent,'bank_statement.attest',consumed);
  const completeness=await actorAs(pool,user,ctx=>loadBankStatementCompleteness(ctx,null));
- expect(completeness.rows.filter(row=>row.id===intent)).toHaveLength(1);
- expect(completeness.populationCount).toBe(completeness.rows.length);
+ const mine=completeness.rows.filter(row=>row.id===intent);
+ expect(mine).toHaveLength(1);expect(completeness.populationCount).toBe(completeness.rows.length);
+ expect((mine[0] as unknown as {review_result:{twin:string}}).review_result.twin).toBe('consumed');
+ expect((mine[0] as unknown as {receiptTwinned?:boolean}).receiptTwinned).toBe(true);
+ expect('receiptTwinned' in completeness.rows.find(row=>row.id===plain)!).toBe(false);
 });
 it('a captured snapshot flags only forked records and names the forked sources in coverage',async()=>{
  const account=await bankAccount(),plain=randomUUID(),forked=randomUUID();
@@ -128,7 +143,7 @@ it('a captured snapshot flags only forked records and names the forked sources i
  const snapshot=await actorAs(pool,user,ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),
   request:{cutoff,sources:['bank'],checks:[],idempotencyKey:`fork-flag-${randomUUID()}`}}),'repeatable read');
  const record=(id:string)=>snapshot.records.find(row=>row.source==='bank_transaction'&&row.id===id)!;
- expect(record(forked).data.control_lineage_forked).toBe(true);expect(record(forked).version).toBe(1);
+ expect(record(forked).data.control_lineage_forked).toBe(true);expect(record(forked).version).toBe(7);
  expect('control_lineage_forked' in record(plain).data).toBe(false);expect(record(plain).version).toBe(2);
  expect(snapshot.coverage).toContain('forked_lineage:bank_transaction');
 });
