@@ -80,8 +80,8 @@ it('a real child of either class returns not_claimed for an out-of-class job and
 it('a child started without a valid class variable exits non-zero before claiming',async()=>{
  const snap=await snapshot(),before=await row(snap);
  for(const value of [undefined,'admin']){
-  const env=Object.fromEntries(Object.entries({PATH:process.env.PATH,NODE_ENV:'production',ISAFLOW_AUDIT_WORKER_DATABASE_URL:target.connectionString,DATABASE_SSL:'disable',
-   ENCRYPTION_KEY:process.env.ENCRYPTION_KEY,PGPASSWORD:process.env.PGPASSWORD,ISAFLOW_AUDIT_WORKER_CLASS:value}).filter(([,entry])=>entry!==undefined));
+  const env:NodeJS.ProcessEnv={NODE_ENV:'production',ISAFLOW_AUDIT_WORKER_DATABASE_URL:target.connectionString,DATABASE_SSL:'disable'};
+  for(const [name,entry] of Object.entries({PATH:process.env.PATH,ENCRYPTION_KEY:process.env.ENCRYPTION_KEY,PGPASSWORD:process.env.PGPASSWORD,ISAFLOW_AUDIT_WORKER_CLASS:value}))if(entry!==undefined)env[name]=entry;
   const child=spawn(process.execPath,[resolve(artifact!)],{env,stdio:['pipe','pipe','pipe']});let stdout='',stderr='',pipe:string|null=null;
   child.stdout.on('data',(chunk:Buffer)=>{stdout+=chunk.toString();});child.stderr.on('data',(chunk:Buffer)=>{stderr+=chunk.toString();});
   child.stdin.on('error',(error:Error)=>{pipe=error.message;});

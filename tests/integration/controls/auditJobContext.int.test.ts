@@ -5,6 +5,7 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,withControlJobRequest,requireControlTx,makeControlPrincipal} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditSnapshot} from '@/modules/accounting/services/controls/auditJobService';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {claimAuditJob,claimAuditJobForWorker,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {openProtectedChange,protectChangeValues} from '@/modules/accounting/services/controls/changeProtection';
@@ -107,7 +108,7 @@ async function coldClaim(jobId:string,person:'u1'|'u3'='u1',catchPermissionFailu
   const claims={sub:user.id,role:'authenticated',company_id:user.companyId};
   await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
   let lease:AuditJobLease|null=null;
-  try{lease=await claimAuditJobForWorker({client,userId:user.id,companyId:user.companyId,claims},jobId);}
+  try{lease=await claimAuditJobForWorker({client,userId:user.id,companyId:user.companyId,claims},jobId,AUDIT_WORKER_CLASS_KINDS.audit);}
   catch(error){if(!catchPermissionFailure)throw error;expect(error).toHaveProperty('message','Current permissions do not allow this operation.');}
   await client.query('COMMIT');return lease;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}

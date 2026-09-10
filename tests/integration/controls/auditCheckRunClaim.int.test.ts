@@ -7,7 +7,7 @@ import {withControlRequest,requireControlTx} from '@/modules/accounting/services
 import {enqueueAuditSnapshot,getAuditJob} from '@/modules/accounting/services/controls/auditJobService';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
 import {claimAuditJob,claimAuditJobForWorker} from '@/modules/accounting/services/controls/auditJobLease';
-import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
+import {AUDIT_WORKER_CLASS_KINDS,type AuditJobKind} from '@/modules/accounting/services/controls/auditJobContract';
 import {runAuditJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {createAuditJobPoller} from '@/modules/accounting/services/controls/auditJobPoller';
 import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls/auditWorkerTransaction';
@@ -81,7 +81,7 @@ it('observes a <=5 s claim timeout, the class work timeout and the per-class idl
 });
 it('each poller class discovers only its own kinds',async()=>{
  const check=await checkRun(),snap=await snapshot();
- const discovered=async(kinds:readonly string[])=>{
+ const discovered=async(kinds:readonly AuditJobKind[])=>{
   const executeJob=vi.fn(async()=>({state:'not_claimed' as const}));
   const poller=createAuditJobPoller({companyIds:[fixture.companyA],kinds:[...kinds],batchSize:10},{pool,executeJob});
   while((await poller.pollOnce()).attempted>0);
