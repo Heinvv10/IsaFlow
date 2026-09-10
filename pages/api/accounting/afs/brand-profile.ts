@@ -8,7 +8,7 @@ import { BrandPrimaryError } from '@/lib/brand/contrast';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { signingInvalidationWarnings } from '@/modules/accounting/services/afs/afsSigningIntegrity';
+import { withSignatureImpactWarnings } from '@/modules/accounting/services/afs/afsSigningIntegrity';
 import { checkPublicUrl } from '@/lib/safeFetch';
 import {
   getBrandProfile,
@@ -61,25 +61,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // mapped to a 400 here, so any other failure still reaches withErrorHandler
     // and is reported as the 500 it is.
     try {
-      const previous = await getBrandProfile(companyId);
-      const profile = await upsertBrandProfile(companyId, {
-        primaryColour: parsed.data.primaryColour ?? '#000000',
-        secondaryColour: parsed.data.secondaryColour ?? '#000000',
-        fontFamily: parsed.data.fontFamily ?? 'professional',
-        coverStyle: parsed.data.coverStyle ?? 'classic',
-        logoUrl: parsed.data.logoUrl ?? null,
-        reportFooterText: parsed.data.reportFooterText ?? null,
-      });
       // Allowed while a document is out for signature — blocking a company's own branding for
-      // a whole signing round would be the mirror defect — but the change voids that signature,
-      // so say so where the person making it will see it.
-      const signedFieldsChanged = !previous
-        || previous.logoUrl !== profile.logoUrl || previous.primaryColour !== profile.primaryColour
-        || previous.secondaryColour !== profile.secondaryColour || previous.fontFamily !== profile.fontFamily
-        || previous.coverStyle !== profile.coverStyle || previous.reportFooterText !== profile.reportFooterText;
-      const warnings = signedFieldsChanged
-        ? await signingInvalidationWarnings(sql, companyId, 'the firm branding')
-        : [];
+      // a whole signing round would be the mirror defect — but where the change voids that
+      // signature, say so where the person making it will see it. Which documents it voids is
+      // decided by their fingerprints, not by a list of fields kept here.
+      const { result: profile, warnings } = await withSignatureImpactWarnings(sql, companyId, () =>
+        upsertBrandProfile(companyId, {
+          primaryColour: parsed.data.primaryColour ?? '#000000',
+          secondaryColour: parsed.data.secondaryColour ?? '#000000',
+          fontFamily: parsed.data.fontFamily ?? 'professional',
+          coverStyle: parsed.data.coverStyle ?? 'classic',
+          logoUrl: parsed.data.logoUrl ?? null,
+          reportFooterText: parsed.data.reportFooterText ?? null,
+        }));
       return apiResponse.success(res, { ...profile, warnings });
     } catch (err) {
       if (err instanceof BrandPrimaryError) {

@@ -30,11 +30,16 @@ const INPUT_LABELS: Record<keyof SigningInputDigests, string> = {
  * sha256 over EXACTLY the values the statements are rendered from — no more, no less: the
  * period (or fiscal year) on the cover, the registered company name and number, the branding
  * the CSS and cover use (or the marker for the documented default when a company has saved
- * none), and each section's id, type (it picks the chart), note number, content, overrides and
- * chart data. Anything the render never prints — the footer text, the document type and
+ * none), and each section's id, type (it picks the chart), content, overrides and chart data,
+ * plus its sort_order — the render prints sections in that ORDER; it prints no number. Anything the render never prints — the footer text, the document type and
  * framework, review status, a draft AI narrative — is left out, so changing it cannot void a
- * signature over identical bytes. Sections are aggregated in the render's own order (note
- * number, then id). One digest per input lets a refusal say which moved. The pre-image is
+ * signature over identical bytes. Sections are aggregated in the render's own order
+ * (sort_order, then id).
+ *
+ * Two accepted over-inclusions, both reachable only out of band (every section write is refused
+ * while a document is out for signature): the sort_order VALUES are hashed, so a renumber that
+ * keeps the order voids a signature over identical bytes; and `overrides` is hashed whole,
+ * though a title-only override with empty blocks is not rendered. One digest per input lets a refusal say which moved. The pre-image is
  * jsonb text: NULL stays distinct from '' and every string is quoted, so no two different
  * inputs can produce the same bytes. This is the only copy of the expression.
  *
@@ -175,18 +180,44 @@ export async function signatureRefusalReason(
     : 'The statements changed after the document was sent for signature';
 }
 
-/** Documents of this company whose signature an edit to its settings or branding will void. */
-export async function signingInvalidationWarnings(q: Query, companyId: string, what: string): Promise<string[]> {
-  const rows = (await q`
+/**
+ * Runs `write` and reports which documents out for signature it voids — decided by the
+ * fingerprint itself, never by a list of fields: each such document's per-input digests are
+ * taken before the write and again after it, in the same transaction (the write's own changes
+ * are visible to the second read), and a warning is returned for exactly the documents whose
+ * company or brand digest changed. A save that touches only what the statements never print
+ * (the footer, an unrelated company setting) warns nothing, because nothing it signs changed.
+ */
+export async function withSignatureImpactWarnings<T>(
+  q: Query,
+  companyId: string,
+  write: () => Promise<T>,
+): Promise<{ result: T; warnings: string[] }> {
+  const outForSignature = (await q`
     SELECT id, fiscal_year, period FROM afs_documents
     WHERE company_id = ${companyId}::UUID
       AND status = 'partner_review'
       AND signing_requested_at IS NOT NULL
     ORDER BY signing_requested_at
   `) as Array<{ id: string; fiscal_year: number | null; period: string | null }>;
-  return rows.map(row =>
-    `AFS document ${row.id} (${row.fiscal_year ?? row.period ?? 'undated'}) is out for signature: `
-    + `this change to ${what} will cause its signature to be refused, and it will have to be sent again.`);
+  const before = new Map<string, SigningInputDigests>();
+  for (const doc of outForSignature) {
+    before.set(doc.id, (await snapshotRenderInputs(q, companyId, doc.id)).digests);
+  }
+
+  const result = await write();
+
+  const warnings: string[] = [];
+  for (const doc of outForSignature) {
+    const now = (await snapshotRenderInputs(q, companyId, doc.id)).digests;
+    const was = before.get(doc.id);
+    const changed = (['company', 'brand'] as const).filter(key => was?.[key] !== now[key]).map(key => INPUT_LABELS[key]);
+    if (changed.length > 0) {
+      warnings.push(`AFS document ${doc.id} (${doc.fiscal_year ?? doc.period ?? 'undated'}) is out for signature: `
+        + `this change to ${changed.join(' and ')} will cause its signature to be refused, and it will have to be sent again.`);
+    }
+  }
+  return { result, warnings };
 }
 
 /**

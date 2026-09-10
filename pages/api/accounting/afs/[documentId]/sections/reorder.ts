@@ -35,9 +35,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { sections } = parsed.data;
 
-  // Note order is note numbering — the number the statements print and the notes cross-refer
-  // to — so a reorder goes through the same guard as any other section write, and voids the
-  // review of every section whose number changes.
+  // Section order is the order the statements print the notes in, so a reorder goes through the
+  // same guard as any other section write, and voids the review of every section whose position
+  // value (sort_order) changes.
   //
   // The payload must renumber the WHOLE document: a partial one leaves two notes sharing a
   // number. Ids are compared lowercased (the schema accepts either case) so two clients
