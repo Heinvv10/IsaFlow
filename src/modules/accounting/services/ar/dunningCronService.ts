@@ -113,7 +113,11 @@ export async function runDunningCron(options: {
             ON cdo.company_id = ci.company_id AND cdo.customer_id = cust.id
          WHERE ci.company_id = ${companyId}::uuid
            AND ci.status NOT IN ('cancelled', 'paid')
-           -- A deleted invoice is out of aging, so it must not be chased.
+           -- A deleted invoice is not chased. Undated on purpose, and NOT an
+           -- appeal to aging: the dated predicate deliberately KEEPS an invoice
+           -- deleted before this change, whose journal was never reversed, so
+           -- "out of aging" is no longer the reason. Chasing a customer for a
+           -- document the business has deleted is wrong however the GL reads.
            AND ci.deleted_at IS NULL
            AND ci.due_date IS NOT NULL
            AND ci.due_date < CURRENT_DATE

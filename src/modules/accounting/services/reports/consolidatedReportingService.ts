@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { getGroupMembers } from './consolidatedTrialBalanceService';
 import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
@@ -91,6 +92,8 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
     const yearStart = `${currentYear}-01-01`; const yearEnd = `${currentYear}-12-31`;
 
     const companyIds = members.map(m => m.companyId);
+    // K-053: AR/AP below are "as at now". See shared/softDeleteLedgerPresence.
+    const groupAsAtStr = asAtTodayStr();
 
     // Batch all 4 queries using company_id = ANY(...) instead of N loops
     const [cashRows, arRows, apRows, plRows] = await Promise.all([
@@ -117,15 +120,17 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
       // shared constants the aging reports use ('partial' was never a legal
       // status, and supplier_invoices has no 'overdue').
       sql`SELECT company_id, COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) AS ar
-          FROM customer_invoices
-          WHERE company_id = ANY(${companyIds}::UUID[])
-            AND status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-          GROUP BY company_id` as Promise<DbRow[]>,
+          FROM customer_invoices ci
+          WHERE ci.company_id = ANY(${companyIds}::UUID[])
+            AND ${documentInLedgerAsAtFragmentForRowTenant('ci', groupAsAtStr)}
+            AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+          GROUP BY ci.company_id` as Promise<DbRow[]>,
       sql`SELECT company_id, COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) AS ap
-          FROM supplier_invoices
-          WHERE company_id = ANY(${companyIds}::UUID[])
-            AND status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-          GROUP BY company_id` as Promise<DbRow[]>,
+          FROM supplier_invoices si
+          WHERE si.company_id = ANY(${companyIds}::UUID[])
+            AND ${documentInLedgerAsAtFragmentForRowTenant('si', groupAsAtStr)}
+            AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
+          GROUP BY si.company_id` as Promise<DbRow[]>,
       sql`SELECT je.company_id, ga.account_type, COALESCE(SUM(jl.debit),0) AS total_debit, COALESCE(SUM(jl.credit),0) AS total_credit
           FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id=jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id=jl.gl_account_id
