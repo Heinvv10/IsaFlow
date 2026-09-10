@@ -1,5 +1,4 @@
 import {als} from '@/lib/als';
-import {log} from '@/lib/logger';
 import {isPlatformAdminRequest} from '@/lib/auth/platformImportAuthority';
 import type {ControlPrincipal} from './contracts';
 import {IMPERSONATION_UNVERIFIED} from '@/lib/auth/impersonationState';
@@ -36,21 +35,15 @@ export function assertIndependentRequestReview(requesterPersonId:string|null=nul
  // this codebase - the platform-admin request, invite and extension tokens, MCP
  // invocation persistence, the audit-worker poller and lease, the portfolio workbench -
  // either issues its own fixed SQL or serves a flow that records no approver, so none of
- // them needs to be allowed through here - except the platform-admin request, below, for
- // a reason that is recorded there. Anything else that reaches this line without a
+ // them needs to be allowed through here. Anything that reaches this line without a
  // principal is either one of those (which should not be approving) or a new path nobody
  // has weighed, and both must fail visibly rather than approve quietly.
  if(!store.controlPrincipal){
-  // A verified global-administrator request is the one principal-less context that still
-  // gets through, and only because the Sage migration commit has no other route today:
-  // withPlatformImportTarget cannot carry it (its ceiling grants no write:invoices and its
-  // confinement admits only historical_import.post), so refusing here would fail every AP
-  // invoice of a migration into a counts summary. It is recorded at error level on every
-  // call, and impersonatedApproverCensus.int.test.ts fails the day the refusal lands.
-  if(isPlatformAdminRequest(store)){
-   log.error('platform administrator recorded an approver of record on a tenant ledger',{},'controls');
-   return;
-  }
+  // A verified global-administrator request is named in the refusal: it is the one
+  // principal-less context an operator is likely to meet, and plain-SQL approver writes
+  // (AFS sign-off and lock, tax directives, leave, commentary) have nothing downstream
+  // that would stop it. The Sage migration commit needs its own confined route.
+  if(isPlatformAdminRequest(store))throw new Error('A platform administrator is not an independent reviewer');
   throw new Error('This request context cannot record an independent review');
  }
  assertIndependentHumanReview(store.controlPrincipal,requesterPersonId);
