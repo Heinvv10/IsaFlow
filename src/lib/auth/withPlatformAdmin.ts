@@ -1,10 +1,11 @@
 import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
+import {withPlatformImportRequest,type PlatformImportRequestCapability} from './platformImportAuthority';
 // src/lib/auth/withPlatformAdmin.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
-import { als, type RequestContext } from '@/lib/als';
+import { type RequestContext } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getAppPool, getPlatformAdminPool } from './withPlatformAdmin.pools';
@@ -12,6 +13,7 @@ import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } fro
 
 export interface PlatformAdminRequest extends NextApiRequest {
   user: { id: string; email?: string; claims: Record<string, unknown> };
+  platformImportCapability:PlatformImportRequestCapability;
   // Note: no companyId, no companyRole — admin is global.
 }
 
@@ -134,7 +136,10 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
         claims: claims as Record<string, unknown>,
       };
       const runHandler = async () =>
-        als.run(ctx, async () => { await handler(req, res); });
+        withPlatformImportRequest(ctx,async capability=>{
+          (req as PlatformAdminRequest).platformImportCapability=capability;
+          await handler(req,res);
+        });
 
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
