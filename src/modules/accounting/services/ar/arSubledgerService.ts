@@ -37,6 +37,7 @@ import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence
 import { getOpenDisputeTotals } from './disputeService';
 import type { SubledgerDocument, SubledgerSnapshot } from './subledgerTypes';
 import { buildSnapshot, toDocument } from './subledgerShared';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 export interface ARSubledgerSnapshot extends SubledgerSnapshot {
   /** Open-dispute amount per document id. AR only. */
@@ -82,13 +83,8 @@ export async function getARSubledger(
         ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}::UUID
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so the
-        -- bare form dropped null-status documents. The ageing keeps them, and
-        -- this population is the ageing's exactly (see the header) — leaving
-        -- the two spellings apart booked the difference as reconcile_subledger's
-        -- aged_unexplained_difference residual, i.e. a reconciliation that
-        -- invents a difference out of a spelling.
-        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- Same population as arAgingService, deliberately: a soft-deleted
         -- document leaves that report when its delete reversal reaches the
         -- ledger, and two populations would make reconcile_subledger's

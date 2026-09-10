@@ -12,6 +12,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult, type IntegritySampleRow } from './types';
 import { documentInLedgerAsAtFragment } from '../../shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '../../shared/agingRewind';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 function sample(rows: DbRow[]): IntegritySampleRow[] {
   return rows.map((r) => ({
@@ -49,10 +50,8 @@ export async function invoicesNullDueDate(ctx: IntegrityCheckContext): Promise<I
       AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
       AND ci.due_date IS NULL
       AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${ctx.asAt}::DATE
-      -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
-      -- so the bare comparison silently DROPPED every null-status invoice —
-      -- the under-reporting K-091 fixed on sales-by-customer.
-      AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+      -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       AND (ci.total_amount - ${sql.unsafe(paid)}) > 0`;
 
   const totals = (await sql`

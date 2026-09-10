@@ -879,7 +879,7 @@ coverage.
 
 | Test | Pins |
 |---|---|
-| `r059-subledger-population-equals-ageing` (NEW, 7 tests) | ageing total == `subledgerTotal` == 1700 on AR and AP, at a past date and today, with identical document sets |
+| `r059-subledger-population-equals-ageing` (NEW, **6** tests — corrected in round 6, it said 7) | ageing total == `subledgerTotal` == 1700 on AR and AP, at a past date and today. Round 5's "sets" test compared the subledger with the TABLE, not the ageing; round 6 compares it with the ageing's own detail readers |
 | `r059-period-reports-as-at-period-end` (K seeded, +1 test) | `sales-by-customer` == `getCustomerReport` == `sales-by-item` on a `customer_id`-only invoice |
 
 | # | Mutation | Red |
@@ -916,3 +916,236 @@ change the sample, not fix anything.
 - The browser check remains not done; the rendered-DOM suite stands, with
   `AppLayout` and `next/link` mocked.
 - R-074, R-078 and K-050 remain out of scope, untouched.
+
+---
+
+# Round 6 — the population rule in ONE place
+
+Three rounds running, the NULL-status spelling was fixed in some sites and
+missed in a sibling that claimed the same population, and each miss surfaced as
+a residual the reconciliation could not explain. Every one of those misses was a
+**census by predicate**: I grepped for the spelling I had just changed, which
+cannot find a site still using the old one. This round stops patching sites.
+
+## The shared rule
+
+`src/modules/accounting/services/shared/documentPopulation.ts` —
+`documentInPopulationExpr(alias: 'ci' | 'si'): string` returns
+`COALESCE(<alias>.status, '') NOT IN ('draft', 'cancelled')`. It sits beside
+the other population fragments (`softDeleteLedgerPresence`, `agingRewind`) and
+takes the same shape as `effectivePaidExpr`: an expression string, spliced with
+`${sql.unsafe(...)}`, because one caller (`unpostedDocumentService`) builds its
+predicate as a string and every other caller puts it in a WHERE. No existing
+helper fitted — `src/lib/constants/invoiceStatuses.ts` is the LIVE open-status
+set, which the ageing is deliberately exempt from — so one was written, not two.
+
+It owns ONLY the status half. The as-at cutoff and the dated soft-delete leg are
+applied differently by different callers (row filter, CASE, correlated EXISTS),
+so they stay where they are. The NULL convention (round 5 LOW-1) is documented
+in the helper, which is now the one place to change it.
+
+**Routed through it: 23 sites in 15 files**, and no inline spelling of the rule
+survives anywhere in `src/` or `pages/` (`grep` for
+`COALESCE([cs]i.status, '') NOT IN` outside the helper: 0).
+
+## Census by CLAIM, by BRIDGE and by CONSUMER — not by predicate
+
+### A. By claim — every comment that says a site shares the population
+
+Searched for "same population", "population is", "aging/ageing population",
+"status rule", "subledger's rule/population", "matches/agrees with the ageing",
+"same as ap/arAgingService", "same rule as" across `src/` and `pages/`.
+
+| Site | Claim | Disposition |
+|---|---|---|
+| `ar/arSubledgerService.ts:15` | "population is master's aging population exactly" | ROUTED (was COALESCE in r5) |
+| `ap/apSubledgerService.ts:5,60` | "same population as arSubledgerService / apAgingService" | ROUTED |
+| `reconciliation/unpostedDocumentService.ts:77` | "same population and the same status rule" as the snapshot | **ROUTED — MEDIUM-1**, was bare |
+| `reconciliation/settlementFlagService.ts:29` | "the subledger's population exactly — same status rule" | **ROUTED — LOW-1**, was bare |
+| `ap/supplierStatementBalancesService.ts:25,41` | "Same population as apAgingService" | **ROUTED — MEDIUM-2**, was bare, both legs |
+| `gl/integrityChecks/documentChecks.ts:47` | "same population the ageing does" | ROUTED |
+| `reports/transactionReportingService.ts` | "asserted equal" to sales-by-customer | ROUTED; comment corrected (LOW-2) |
+| `ap/supplierStatementService.ts:125` | "Same population as apAgingService" | **CLAIM CORRECTED, NOT ROUTED — see below** |
+| `ar/statementEmailService.ts:95` | "same DATED question arAgingService asks" | **CLAIM CORRECTED, NOT ROUTED — see below** |
+| `ar/customerLedgerService.ts:90` | "same status rules as the statement" | not an ageing claim — it follows the statement, and stays with it |
+| `gl/closeReadinessChecks/apSubLedgerCheck.ts:45` | "same rule as arSubLedgerCheck" | a soft-delete claim on the LIVE close check, not the population; K-050's branch |
+| `practice/wipAsOf.ts:46`, `items/depreciationRunService.ts:81`, `practice/practiceReportsService.ts:204` | "population" of time entries / assets | different populations entirely |
+| the flowMetering / MCP / bureau / reclassification / yearEndClose hits | "same rule as" | unrelated rules (pricing, dates, dimensions) |
+
+**Why the two statements are not routed.** The supplier statement is, in its own
+header, "the deliberate mirror of `ar/statementEmailService`... a supplier
+statement that disagreed with the customer one about what counts would be worse
+than none". The customer one is the statement we EMAIL to customers. Routing
+them would remove draft invoices from a document customers receive and change
+the balance printed on it. That is a change to outbound customer communication,
+which the standing rules put behind Hein, not behind a refactor. So their claims
+now say precisely what is shared (the dated soft-delete question) and what is
+not (the status rule: they keep drafts, and the bare `!=` drops null-status
+rows). **Registered, not fixed — R-id TBA: "customer and supplier statements
+include draft invoices and drop null-status ones, so the emailed balance can
+differ from the ageing".** Decision for Hein.
+
+### B. By bridge — every function `reconcileSubledger` calls
+
+| Function | Population it applies | Disposition |
+|---|---|---|
+| `getControlAccountBalances` | GL lines on control accounts | no document population |
+| `readSubledger` → `getARSubledger` / `getAPSubledger` | the document population | ROUTED |
+| `getAgedReportTotal` → `getARAging` / `getAPAging` | the document population | ROUTED (the services) |
+| `getSettlementFlagged` | the subledger's, filtered to `payment_matched` | **ROUTED (LOW-1)** |
+| `getLedgerPostedThrough` | journal dates | no document population |
+| `getUnappliedControlCash` | payments, and journals NO document claims | see the write-off finding below |
+| `getUnpostedSubledgerDocuments` | the document population, per document | **ROUTED (MEDIUM-1)** + two missing legs, below |
+| `buildAgedBridgeItems` / `reconcilingItemBuilders` | arithmetic on the above | no query of its own |
+| `orphanReversalPairs` | reversal journals | no document population |
+
+### C. By consumer — everything that reads the ageing or the subledger
+
+Walked through intermediaries (`agedReportTotal`, `agedBucketTotals`,
+`agingReportService`, `subledgerReconciliationService`, the `ar/` and `ap/`
+barrels), not just direct importers. Directories walked: `src/modules/**`,
+`src/lib/mcp/**`, `pages/api/**`.
+
+| Consumer | Own status predicate beside the delegated one? | Disposition |
+|---|---|---|
+| `ar-aging`, `ap-aging`, both `-export`s, MCP `reportsAging` | no | inherit through the services |
+| AFS notes 10/16, disclosure notes 3/4 (via `agedBucketTotals`) | no | inherit |
+| `agedReportTotal`, `agingReportService`, `monthEndWorkbenchService` | no (workbench counts `status='draft'` for a tile, not a population) | inherit |
+| `capture/supplierStatementReconService` | no (`status='reconciled'` is an UPDATE) | inherit |
+| `supplier-statement-balances` route → `supplierStatementBalancesService` | **yes, two** | **ROUTED (MEDIUM-2)** |
+| MCP `reconcileSubledger` → `subledgerReconciliationService` | through its bridges (table B) | ROUTED |
+
+**Out of this rule, stated.** Payments and credit notes carry their own nullable
+`status` (verified: `customer_payments`, `supplier_payments`, `credit_notes` are
+all `is_nullable=YES`, `DEFAULT 'draft'`). `agingRewind` filters payments with
+the bare `NOT IN ('draft','cancelled')` and `unappliedCashService` with
+`<> 'cancelled'`. That is the FUNDS population — a different rule, not a claim
+of the document population — and moving it changes every as-at figure's
+settlement rewind. **Registered, not fixed — R-id TBA: "null-status payments are
+dropped from the settlement rewind, and the rewind and unapplied cash disagree
+on draft payments".**
+
+## MEDIUM-1 — FIXED, and the test the round asked for found two more legs missing
+
+The unposted-document bridge now takes the shared rule, so a null-status
+document counts the same number on both partitions. `unpostedDocuments.test.ts:144`,
+the source-text pin that stayed green while asserting the spelling that made the
+two differ, is gone; its comment points at the behavioural test instead.
+
+**The mixed-set reconciliation test** (`r059-reconciliation-mixed-population`,
+6 tests) drives every document through the REAL posting services —
+`postCustomerInvoiceToGL`, `postSupplierInvoiceToGL`, `confirmCustomerPayment`,
+`processSupplierPayment`, `approveCreditNote`, `createWriteOff` +
+`approveWriteOff` — so each journal is linked by the columns production writes.
+Per side: issued, null-status, draft, cancelled, credit-noted, part-paid, and on
+AR written-off. It asserts at a past date and today that aged == subledger ==
+control, difference 0, unexplained 0, and **`reconcilingItems` is `[]`** — empty,
+not merely summing to zero.
+
+With the status rule routed, it still failed, on two settlement legs the bridge
+never counted:
+
+| Side | Document | False items (before) |
+|---|---|---|
+| AR | written off 150 | `document_not_on_control_account −150` + `posting_with_no_document +150` |
+| AP | credit-noted 230 | `document_not_on_control_account −230` + `unexplained_difference +230` |
+
+**Both are pre-existing on master — measured, not assumed**: the same test on a
+clean `git archive origin/master` gives the same −150/+150 and −230/+230, alongside
+the null-status items this branch removes. The bridge's own contract is that the
+two partitions ("documents that claim a journal" and "journals no document
+claims") cover the control account exactly once each, and "counting one leg
+without the other drops exactly that much into the residual". It counted the
+payment and credit-note legs on AR but not the write-off; it counted the payment
+leg on AP but not the credit note. Fixed:
+
+- `unpostedDocumentService` AR: a write-off leg (`customer_write_offs.gl_journal_entry_id`, by `invoice_id`);
+- `unpostedDocumentService` AP: a credit-note leg (`credit_notes.gl_journal_entry_id`, by `supplier_invoice_id`), the mirror of the AR one;
+- `unappliedCashService` AR: journals claimed by a write-off are no longer "postings with no document".
+
+A write-off can only be cancelled in draft, before it has a journal, so no
+write-off reversal can exist to orphan. A cancelled supplier credit note's
+reversal is R-074's territory and behaves exactly as the existing AR leg does.
+
+## MEDIUM-2 — FIXED
+
+`supplierStatementBalancesService`'s two absorption legs take the shared rule.
+New file `r059-supplier-statement-balances-population` (4 tests): a null-status
+bill of 1000 with 400 paid by an allocated payment gives ageing 600, on-account
+0, net 600 — round 5 gave 400 and 200, the payment deducted twice. An
+`approved` control bill gives the same. A null-status bill with an applied
+supplier credit note of 100 gives 900 / 0 / 900 — added because mutating the
+credit-note leg alone **stayed green** until that row existed.
+
+The existing `supplierStatementBalances.int.test.ts` is red on master (R-076: its
+shadow tables lack `deleted_at`). I did not count it; that is why the case lives
+in its own file.
+
+## LOW-1 — FIXED
+
+`settlementFlagService` takes the shared rule. Pinned in the mixed-set test: the
+AP null-status bill is also `payment_matched`, and `settlementFlagged` must carry
+it (count 1, total 1150) at both dates.
+
+## LOW-2 — FIXED
+
+- `getCustomerReport`'s comment says "customer row exists IN THIS COMPANY": an
+  invoice whose `client_id` points at another company's customer — which the
+  column permits, having no FK — also has no line there.
+- The subledger "sets" test now compares with the AGEING's document set
+  (`getARAgingDetail` / `getAPAgingDetail`), not with the table — a table
+  comparison passes if both services drop the same row.
+- The round-5 file has **6** tests, not 7; corrected in place above.
+
+## Round 6 mutations (file copies, each restored and `cmp`-verified)
+
+**The routing proof — ONE mutation of the helper** (`documentInPopulationExpr`
+back to the bare `<alias>.status NOT IN (...)`), every consumer's test file:
+
+| Test file | Red |
+|---|---|
+| `r059-period-reports-as-at-period-end` | 10 of 12 |
+| `r059-aging-route-point-in-time` | 1 of 18 |
+| `r059-integrity-checks-as-at` | 5 of 5 |
+| `r059-subledger-population-equals-ageing` | 5 of 6 |
+| `r059-reconciliation-mixed-population` | 5 of 6 |
+| `r059-supplier-statement-balances-population` | 1 of 3 (the null case; the control and the premise stay green, as they should) |
+
+**Per-site bypasses** (one consumer re-typing the bare rule instead of calling the helper):
+
+| # | Mutation | Red |
+|---|---|---|
+| P1 / P2 | `unpostedDocumentService` AR / AP bare | mixed 2 of 6 (each) |
+| P3 | `supplierStatementBalancesService` payment leg bare | statement 1 of 3 |
+| P4 | `supplierStatementBalancesService` credit-note leg bare | **green at first** → row added → statement 1 of 4 |
+| P5 | `settlementFlagService` bare | mixed 1 of 6 |
+| L1 | write-off leg removed | mixed 1 of 6 |
+| L2 | AP credit-note leg neutralised | mixed 1 of 6 |
+| L3 | write-off exclusion removed from unapplied cash | mixed 1 of 6 |
+
+The 18 round-4/5 sites keep their per-site pins; they now reach the rule only
+through the helper, which the single mutation above shows.
+
+## Round 6 gates
+
+- `env -u DATABASE_URL bun run ci`: 15/15 PASS, unit 854 files / 10093 tests,
+  component 84 / 537, `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`: every `r059-*` (10 files), every
+  `k053-*`, `k091*`, `k093*` — **35 files / 234 tests passed**.
+- `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
+- `tests/unit/mcp/w2/{reconcileSubledger,subledgerTiesToAging,settlementFlags}.integration.test.ts`
+  are built for `isaflow_dev`'s busiest companies. On the fixture they fail 5
+  tests ("no company with >20 live customer invoices", plus two arithmetic
+  assertions over whichever fixture companies they sample). **They fail
+  identically — same 5 tests, same messages — on a clean `origin/master`
+  archive against the same database**, so the failure is the environment's, not
+  this branch's. Not counted as a pass.
+
+## Round 6 — not done, stated
+
+- Two statement surfaces keep their own status rule, claim corrected, decision
+  registered for Hein (R-id TBA) — it changes what customers are emailed.
+- The funds population (payments, credit notes) keeps its NULL-unsafe filters —
+  a separate rule, registered (R-id TBA).
+- `practiceReportsService.ts` is still 351 lines; R-074, R-078, K-050 untouched;
+  the browser check remains not done.

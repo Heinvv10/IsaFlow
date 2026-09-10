@@ -13,6 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -46,10 +47,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND ${documentInLedgerAsAtFragment('si', to ?? asAtTodayStr(), companyId)}
         AND si.invoice_date >= ${from}
         AND si.invoice_date <= ${to}
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
-        -- so the bare comparison silently DROPPED every null-status invoice —
-        -- the under-reporting K-091 fixed on sales-by-customer.
-        AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
       GROUP BY si.supplier_id, s.name, s.company_name
       ORDER BY total_purchases DESC
     `;

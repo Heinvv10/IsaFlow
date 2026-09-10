@@ -11,6 +11,7 @@ import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 type Row = DbRow;
 
 
@@ -86,10 +87,8 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
-        -- so the bare comparison silently DROPPED every null-status invoice —
-        -- the under-reporting K-091 fixed on sales-by-customer.
-        AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
         -- A soft-deleted bill leaves this report exactly when the delete's
         -- reversal reaches the ledger, and not one day earlier: the reversal is
         -- dated TODAY whenever the bill's own period is closed, so an undated
@@ -159,10 +158,8 @@ export async function getAPAgingDetail(companyId: string,
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
-        -- so the bare comparison silently DROPPED every null-status invoice —
-        -- the under-reporting K-091 fixed on sales-by-customer.
-        AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
         -- A soft-deleted bill leaves this report exactly when the delete's
         -- reversal reaches the ledger, and not one day earlier: the reversal is
         -- dated TODAY whenever the bill's own period is closed, so an undated

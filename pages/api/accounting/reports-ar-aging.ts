@@ -18,6 +18,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { parsePagination } from '@/lib/pagination';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -112,7 +113,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
         -- so the bare comparison silently DROPPED every null-status invoice —
         -- the under-reporting K-091 fixed on sales-by-customer.
-        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date), ci.id
@@ -157,10 +159,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
-        -- so the bare comparison silently DROPPED every null-status invoice —
-        -- the under-reporting K-091 fixed on sales-by-customer.
-        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
       GROUP BY bucket

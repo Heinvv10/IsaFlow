@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '../shared/agingRewind';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 // Re-export ledger reports for backward compatibility
 export type {
@@ -58,15 +59,15 @@ export async function getCustomerReport(
         AND ci.company_id = ${companyId}::UUID
         AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so
-        -- the bare form dropped null-status invoices this report's own
-        -- sibling (sales-by-customer) keeps (K-091). The two are asserted
-        -- equal by r059-period-reports-as-at-period-end, over invoices whose
-        -- customer row EXISTS: this report reads FROM customers, so an invoice
-        -- pointing at no customer row has no line here at all, while sales-by-
-        -- customer gives it its own Unknown customer row. That remaining
-        -- difference is a data defect neither report creates.
-        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        -- Asserted equal to sales-by-customer by r059-period-reports-as-at-
+        -- period-end, over invoices whose customer row EXISTS IN THIS COMPANY:
+        -- this report reads FROM customers WHERE c.company_id = the tenant, so
+        -- an invoice pointing at no customer row — or at another company's,
+        -- which client_id permits because it has no FK — has no line here,
+        -- while sales-by-customer gives it its own Unknown customer row. That
+        -- remaining difference is a data defect neither report creates.
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- AS AT the period end: the invoices raised in the period and what
         -- had been paid on them by periodEnd, so the balance is the ageing at
         -- periodEnd restricted to these invoices (not the ageing's total, which
@@ -127,11 +128,8 @@ export async function getSupplierReport(
         AND si.company_id = ${companyId}::UUID
         AND si.invoice_date >= ${periodStart}
         AND si.invoice_date <= ${periodEnd}
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so
-        -- the bare form dropped null-status invoices this report's own
-        -- sibling (sales-by-customer) keeps (K-091). The two are asserted
-        -- equal by r059-period-reports-as-at-period-end.
-        AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
         -- Same as the customer report above, as at the period end.
         AND ${documentInLedgerAsAtFragment('si', periodEnd, companyId)}
       LEFT JOIN LATERAL (

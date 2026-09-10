@@ -12,6 +12,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { getOpenDisputeTotals } from './disputeService';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 type Row = DbRow;
 
 
@@ -52,10 +53,8 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
-        -- so the bare comparison silently DROPPED every null-status invoice —
-        -- the under-reporting K-091 fixed on sales-by-customer.
-        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- A soft-deleted invoice leaves this report exactly when the delete's
         -- reversal reaches the ledger, and not one day earlier: the reversal is
         -- dated TODAY whenever the invoice's own period is closed, so an undated
@@ -183,10 +182,8 @@ export async function getARAgingDetail(companyId: string,
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
-        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
-        -- so the bare comparison silently DROPPED every null-status invoice —
-        -- the under-reporting K-091 fixed on sales-by-customer.
-        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- A soft-deleted invoice leaves this report exactly when the delete's
         -- reversal reaches the ledger, and not one day earlier: the reversal is
         -- dated TODAY whenever the invoice's own period is closed, so an undated
