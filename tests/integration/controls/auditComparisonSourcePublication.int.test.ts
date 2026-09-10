@@ -24,7 +24,7 @@ it('publishes authenticated comparison projections atomically through the real s
   for await(const row of iterateComparisonSourceItems(ctx,header,'records'))rows.push(row);return rows;});
  expect(records).toHaveLength(520);expect(new Set(records.map(row=>row.ordinal)).size).toBe(520);
  const source=(await pool.query('SELECT build_job_id,build_generation FROM control_audit_comparison_sources WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,job.id])).rows;
- expect(source).toEqual([{build_job_id:job.id,build_generation:1}]);
+ expect(source).toEqual([{build_job_id:job.id,build_generation:'1'}]);
 });
 it('refuses suppressed comparison item retention and rolls back the complete snapshot publication',async()=>{
  const job=await queued();
