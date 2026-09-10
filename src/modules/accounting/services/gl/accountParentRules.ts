@@ -17,6 +17,8 @@
  */
 
 import { sql } from '@/lib/neon';
+import { isSubjectToLeafRule } from './isReportVisibleLeaf';
+import { lockGlAccountsForUpdate } from './glAccountLock';
 
 /**
  * Mirrors `MAX_TREE_DEPTH` in accountReclassifyService, which caps the two
@@ -26,13 +28,6 @@ import { sql } from '@/lib/neon';
  * 3 levels, so this refuses nothing real.
  */
 const MAX_TREE_DEPTH = 32;
-
-/**
- * The level at and below which `balanceSheetService` includes an account
- * regardless of whether it has children (`ga.level >= 3 OR NOT EXISTS(child)`).
- * Above it, gaining a child removes the account from the statements.
- */
-const BALANCE_SHEET_LEAF_LEVEL = 3;
 
 export interface ParentCheckResult {
   /** `parent.level + 1` — the level the child must take. */
@@ -81,14 +76,51 @@ export async function assertParentUsable(
   // account at level 3 or deeper keeps its balance whether or not it has
   // children.
   //
+  // Type-scoped for the same reason the merge and reclassification guards are:
+  // only the balance sheet and the trend report carry the leaf rule, and both
+  // select `account_type IN ('asset','liability','equity')`. Refusing a used
+  // level-2 EXPENSE parent told the accountant its balance would leave the
+  // statements, which is false — the income statement has no level filter — and
+  // expense-chart tidying through the Add Account dialog is the commonest edit
+  // of the three.
+  //
   // The first version of this guard refused EVERY posted parent. That is the
   // safer-looking rule and the wrong one: converting a used level-3 account
   // into a header and posting to its children is ordinary chart maintenance
   // (Sage-imported charts arrive that way), and refusing it would have broken
-  // the Add Account dialog for a case that loses nothing. `validateLeafAccount`
-  // still stops anyone POSTING to the parent afterwards — that is an explicit
-  // refusal at post time, not silent loss, and it is the accountant's call.
-  if (Number(parent.level) < BALANCE_SHEET_LEAF_LEVEL) {
+  // the Add Account dialog for a case that loses nothing — the reports carry
+  // a level-3 account whether or not it has children, so nothing disappears.
+  // That is the whole justification. `validateLeafAccount` is NOT a second one:
+  // it runs on the expense-claim posting route and nowhere else, so a later
+  // post to the parent through any other path is not refused.
+  if (isSubjectToLeafRule(Number(parent.level), parent.account_type)) {
+    // LOCKED BEFORE THE READ, and this is what makes the verdict hold.
+    //
+    // The check and the INSERT/UPDATE sit in one request transaction, but the
+    // INSERT's own FOR KEY SHARE on the parent is taken AFTER the verdict is
+    // formed and this function never re-reads. So a reclassification that posts
+    // the parent's first lines can commit in between: the write blocks on the
+    // peer's FOR UPDATE, then proceeds on a verdict formed when the parent was
+    // still empty, and the parent becomes exactly the invisible header this
+    // guard exists to prevent. Taking the lock FIRST turns that into a wait —
+    // the read below runs on the settled row and refuses.
+    //
+    // The mirror of `admitReclassification`'s lock, on the same rows, in the
+    // same ascending-id idiom, and narrowed the same way: only a level 1-2
+    // asset/liability/equity parent can lose anything, so an expense chart edit
+    // still takes no lock. Both paths lock the ACCOUNT before any line lock, so
+    // the two cannot cycle. Requires a request transaction (`withAuth` or the
+    // MCP bearer pipeline) — every production caller of `createAccount` and
+    // `reclassifyAccount` runs inside one.
+    await lockGlAccountsForUpdate(companyId, [parentId]);
+    // `company_id` is LOAD-BEARING, not habit. Until migration 664 a journal
+    // line could name this company's account while carrying another company's
+    // `company_id` — `POST /api/accounting/journal-entries` wrote exactly that
+    // — and rows from before it still can. `balanceSheetService` filters
+    // `jl.company_id`, `ga.company_id` AND `je.company_id`, so such a line is
+    // invisible to the report this guard protects; reading it here would refuse
+    // a chart edit that loses nothing. Guard and reader must agree, and
+    // `k051-cross-company-journal-line.int.test.ts` is what pins that.
     const posted = (await sql`
       SELECT 1 FROM gl_journal_lines
        WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID
@@ -96,9 +128,11 @@ export async function assertParentUsable(
     `) as unknown[];
     if (posted.length > 0) {
       throw new ParentAccountError(
-        `Parent ${parent.account_code} is a level-${parent.level} account with journal lines ` +
-          'posted to it. Giving it a child would turn it into a header, and the balance sheet ' +
-          'excludes headers above level 3 — its own balance would disappear from the statements.',
+        `Parent ${parent.account_code} is a level-${parent.level} ${parent.account_type} ` +
+          'account with journal lines posted to it. Giving it a child would turn it into a ' +
+          'header, and the balance sheet and the trend report select an account only when its ' +
+          'level is 3 or higher or it has no children — its own balance would disappear from ' +
+          'both.',
       );
     }
   }

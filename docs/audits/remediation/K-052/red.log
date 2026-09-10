@@ -1,0 +1,36 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k052-reclassification-onto-header-account.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"warn","message":"Balance sheet equation violated: Assets ≠ Liabilities + Equity","timestamp":"2026-09-09T09:18:23.106Z","component":"accounting","data":{"asAtDate":"2026-03-31","totalAssets":1000,"totalLiabilities":0,"totalEquity":1400,"imbalance":400}}
+ ❯ tests/integration/k052-reclassification-onto-header-account.int.test.ts (2 tests | 1 failed) 223ms
+   × refuses a reclassification whose target is a parent header account 15ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k052-reclassification-onto-header-account.int.test.ts > refuses a reclassification whose target is a parent header account
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/k052-reclassification-onto-header-account.int.test.ts:76:31
+     74|     from: null, to: null, postingDate: '2026-03-31',
+     75|   });
+     76|   expect(isRefusal(admitted)).toBe(true);
+       |                               ^
+     77| });
+     78|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  11:18:20
+   Duration  2.31s (transform 640ms, setup 0ms, import 983ms, tests 223ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

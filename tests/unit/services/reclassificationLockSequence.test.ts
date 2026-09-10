@@ -42,7 +42,13 @@ vi.mock('@/modules/accounting/services/gl/reclassification/lineLock', () => ({
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   getAccountById: vi.fn(async (_c: string, id: string) => ({
     id, accountCode: id === 'src' ? '49775627' : '5100', accountName: 'Fixture',
-    accountType: 'expense', accountSubtype: null, isActive: true,
+    // LEVEL 3 is the load-bearing field: the header guard (K-052) bites only at
+    // level 1-2, so at 3 the guard asks no child query and takes no account
+    // lock, and this file can stay a pure call-order test. Drop it to 2 and
+    // every write-path case here fails on the lock's own missing-transaction
+    // error. The type is asset only because that is the realistic shape; at
+    // level 3 nothing in this file distinguishes it.
+    accountType: 'asset', accountSubtype: null, isActive: true, level: 3,
   })),
 }));
 vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({

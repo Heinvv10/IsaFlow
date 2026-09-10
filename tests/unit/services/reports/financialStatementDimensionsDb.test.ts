@@ -29,6 +29,9 @@ const legacy = '30000000-0000-4000-8000-000000000001';
 const cc1 = '30000000-0000-4000-8000-000000000002';
 const cc2 = '30000000-0000-4000-8000-000000000003';
 const project = '30000000-0000-4000-8000-000000000004';
+const selectedBu = '60000000-0000-4000-8000-000000000001';
+const otherBu = '60000000-0000-4000-8000-000000000002';
+const priorRevenue = '50000000-0000-4000-8000-000000000005';
 const accountIds = {
   asset: '50000000-0000-4000-8000-000000000001',
   revenue: '50000000-0000-4000-8000-000000000002',
@@ -49,7 +52,7 @@ async function withLedger(run: () => Promise<void>) {
         account_type text, account_subtype text, normal_balance text, level int, parent_account_id uuid) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_entries (id uuid, company_id uuid, status text, entry_date date) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid,
-        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, project_id uuid) ON COMMIT DROP`;
+        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, project_id uuid, bu_id uuid) ON COMMIT DROP`;
       await sql`INSERT INTO companies VALUES (${company}::uuid, 'Fixture')`;
       for (const [type, code] of [['asset', '1100'], ['revenue', '4000'], ['equity', '3000'], ['liability', '2000']] as const) {
         await sql`INSERT INTO gl_accounts VALUES (${accountIds[type]}::uuid, ${company}::uuid, ${code}, ${type},
@@ -68,11 +71,12 @@ async function withLedger(run: () => Promise<void>) {
       ] as const) {
         const id = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
         await sql`INSERT INTO gl_journal_entries VALUES (${id}::uuid, ${owner}::uuid, ${status}, ${date}::date)`;
+        const buId = n === 3 ? otherBu : selectedBu;
         for (const side of ['asset', type] as const) {
           await sql`INSERT INTO gl_journal_lines VALUES (${owner}::uuid, ${id}::uuid, ${accountIds[side]}::uuid,
             ${side === 'asset' ? amount : 0}, ${side === 'asset' ? 0 : amount},
             ${dimension === 'none' ? null : legacy}::uuid, ${dimension === 'explicit' ? cc1 : null}::uuid,
-            ${dimension === 'explicit' ? cc2 : null}::uuid, ${project}::uuid)`;
+            ${dimension === 'explicit' ? cc2 : null}::uuid, ${project}::uuid, ${buId}::uuid)`;
         }
       }
       await run();
@@ -95,6 +99,41 @@ describe('financial statement dimensions (Postgres)', async () => {
       }
       expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
         { costCentreId: cc2, projectId: foreign })).netProfit).toBe(0);
+    });
+  });
+  it.skipIf(!reachable)('combines canonical BU and independent cost-centre attribution with AND', async () => {
+    await withLedger(async () => {
+      const byBu = await getIncomeStatement(company, '2026-04-01', '2026-04-30',
+        { businessUnitId: selectedBu, projectId: project }, { start: '2026-02-01', end: '2026-02-28' });
+      expect(byBu).toMatchObject({ netProfit: 20, priorNetProfit: 11, businessUnitId: selectedBu });
+      expect(byBu.revenue[0]).toMatchObject({ amount: 20, priorAmount: 11 });
+
+      expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
+        { businessUnitId: selectedBu, costCentreId: cc2, projectId: project })).netProfit).toBe(17);
+      expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
+        { businessUnitId: selectedBu, costCentreId: legacy, projectId: project })).netProfit).toBe(20);
+      expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
+        { businessUnitId: otherBu, costCentreId: cc2, projectId: project })).netProfit).toBe(0);
+    });
+  });
+  it.skipIf(!reachable)('keeps prior-only BU accounts in comparative rows', async () => {
+    await withLedger(async () => {
+      const entry = '40000000-0000-4000-8000-000000000010';
+      await sql`INSERT INTO gl_accounts VALUES (${priorRevenue}::uuid, ${company}::uuid, '4100', 'Prior-only Sales',
+        'revenue', 'revenue', 'credit', 3, NULL)`;
+      await sql`INSERT INTO gl_journal_entries VALUES (${entry}::uuid, ${company}::uuid, 'posted', '2026-02-05'::date)`;
+      await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${entry}::uuid, ${accountIds.asset}::uuid,
+        13, 0, ${legacy}::uuid, ${cc1}::uuid, ${cc2}::uuid, ${project}::uuid, ${selectedBu}::uuid)`;
+      await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${entry}::uuid, ${priorRevenue}::uuid,
+        0, 13, ${legacy}::uuid, ${cc1}::uuid, ${cc2}::uuid, ${project}::uuid, ${selectedBu}::uuid)`;
+
+      const report = await getIncomeStatement(company, '2026-04-01', '2026-04-30',
+        { businessUnitId: selectedBu, costCentreId: cc2, projectId: project },
+        { start: '2026-02-01', end: '2026-02-28' });
+      expect(report.priorTotalRevenue).toBe(24);
+      expect(report.revenue.find(line => line.accountCode === '4100'))
+        .toMatchObject({amount:0, priorAmount:13, variance:-13});
+      expect(report.revenue.reduce((sum, line) => sum + (line.priorAmount ?? 0), 0)).toBe(24);
     });
   });
   it.skipIf(!reachable)('keeps current/prior balances, retained earnings and posted equity on the same centre', async () => {
@@ -122,7 +161,7 @@ describe('financial statement dimensions (Postgres)', async () => {
           chunks.push(Buffer.from(chunk)); done();
         } }), { setHeader: vi.fn(), status: () => res,
           send: (v: string | Buffer) => { body = v; }, json: vi.fn() });
-        const req = { method: 'GET', companyId: company, query: { cost_centre_id: cc2,
+        const req = { method: 'GET', companyId: company, query: { cost_centre_id: cc2, business_unit_id: selectedBu,
           period_start: '2026-04-01', period_end: '2026-04-30', as_at_date: '2026-04-30' } } as unknown as NextApiRequest;
         await handler(req as never, res as unknown as NextApiResponse);
         expect(res.json).not.toHaveBeenCalled();
