@@ -7,7 +7,7 @@ vi.mock('@/modules/accounting/services/controls/auditJobLease',()=>({assertAudit
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:auth.permission}));
 vi.mock('@/modules/accounting/services/controls/auditJobDelegation',()=>({loadStoredAuditJobDelegation:auth.saved}));
 const lease={companyId:'company',personId:'person',jobId:'builder',leaseId:'lease',generation:2} as AuditJobLease;
-const envelope={ciphertext:'a',iv:'b',tag:'c',authentication:'d',version:1};
+const envelope={ciphertext:'a',keyId:'current',authentication:'d',version:1 as const};
 function material(count=1):SnapshotIndexMaterial{return {header:{version:1,companyId:'company',snapshotId:'builder',canonicalHash:'a'.repeat(64),permissions:['read:reports'],counts:{records:count,checks:0,findings:0,evidence:0,gaps:0}},protectedHeader:envelope,items:Array.from({length:count},(_,ordinal)=>({section:'records',ordinal,protectedItem:envelope,chunks:[envelope]}))} as SnapshotIndexMaterial;}
 function context(suppress?:'header'|'item'|'chunk',wrong=false){
  const batches:number[]=[];
@@ -40,4 +40,23 @@ it('refuses a snapshot worker targeting another original before SQL',async()=>{
 it('refuses an unrelated comparison source before SQL',async()=>{
  auth.saved.mockResolvedValue({kind:'audit_compare',permissions:['read:reports'],request:{firstSnapshotId:'first',secondSnapshotId:'second'}});
  const {ctx,sql}=context();await expect((await writer())(ctx,lease,'builder',material())).rejects.toThrow();expect(sql).not.toHaveBeenCalled();
+});
+
+it('accepts an authenticated comparison source and still checks current saved permissions',async()=>{
+ auth.saved.mockResolvedValue({kind:'audit_compare',permissions:['read:reports','read:bank-tx'],request:{firstSnapshotId:'builder',secondSnapshotId:'second'}});
+ const {ctx}=context();await (await writer())(ctx,lease,'builder',material());
+ expect(auth.permission.mock.calls.map(call=>call[1])).toEqual(['read:reports','read:bank-tx']);
+});
+it('refuses current permission revocation before retaining a header',async()=>{
+ auth.permission.mockRejectedValueOnce(new Error('Permission revoked'));
+ const {ctx,sql}=context();await expect((await writer())(ctx,lease,'builder',material())).rejects.toThrow('Permission revoked');expect(sql).not.toHaveBeenCalled();
+});
+it('bounds encoded bytes independently of row count',async()=>{
+ const {ctx,batches}=context(),input=material(3);
+ for(const item of input.items)item.protectedItem={...envelope,ciphertext:'x'.repeat(1024*1024)};
+ await (await writer())(ctx,lease,'builder',input);expect(batches).toEqual([1,1,1,3]);
+});
+it('refuses a single over-budget item instead of truncating it',async()=>{
+ const {ctx}=context(),input=material();input.items[0]!.protectedItem={...envelope,ciphertext:'x'.repeat(2*1024*1024)};
+ await expect((await writer())(ctx,lease,'builder',input)).rejects.toThrow('resource limit');
 });
