@@ -58,6 +58,9 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  if(open.length)return{error:'open_periods',count:open.length,openPeriods:open.map(p=>({id:String(p.id),periodName:String(p.period_name),periodNumber:Number(p.period_number)}))};
  if(facts.periods.some(p=>p.status!=='closed'))throw new Error('Financial year contains locked periods');
  if(facts.closing.retained.is_active!==true)throw new Error('Retained earnings account is inactive');
+ // The kernel's own approval condition, already bound on this material: a
+ // preview must not show a close the live call refuses for want of an approval.
+ if(options.dryRun&&material.binding.policies.length)return{error:'approval_required'};
  if(options.dryRun)return{dryRun:true,netIncome:Number(facts.closing.netIncome),netIncomeExact:facts.closing.netIncome,preview:preview(yearLabel,facts)};
  return executeControlledOperation(ctx,parent,options.approvalId??null,async permit=>{
   if(await prior(ctx,yearLabel))throw new Error('Financial year already closed');

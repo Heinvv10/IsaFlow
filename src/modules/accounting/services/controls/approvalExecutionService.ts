@@ -10,6 +10,15 @@ import { canonicalOperationRef, loadOperationMaterial, materializeOperation, res
 
 import { initializeOperationObservations } from './approvalRequestService';
 
+/**
+ * The kernel's refusal when a company policy binds an operation and no approval
+ * was supplied. Same message as before, so boundaries that match on it keep
+ * working; the code lets the MCP transport answer with what to request.
+ */
+export class OperationApprovalRequiredError extends Error {
+  readonly code = 'OPERATION_APPROVAL_REQUIRED';
+  constructor() { super('Independent operation approval is required'); this.name = 'OperationApprovalRequiredError'; }
+}
 export interface ControlledEffectPermit { readonly operationId: string; readonly accountingDate: string; readonly amount: string | null; readonly currency: string | null; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }
 const permits = new WeakMap<ControlledEffectPermit, ControlTx>();
 const executing = new WeakSet<ControlTx['principal']>();
@@ -125,7 +134,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
       return committed.result;
     }
     const material = await loadOperationMaterial(ctx, ref);
-    if (material.binding.policies.length && !row) throw new Error('Independent operation approval is required');
+    if (material.binding.policies.length && !row) throw new OperationApprovalRequiredError();
     if (row) assertApprovalExecutable(row, material.bindingHash);
     const prior = await ctx.sql`
       SELECT id FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid

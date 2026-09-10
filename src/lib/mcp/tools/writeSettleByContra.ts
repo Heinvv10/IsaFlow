@@ -30,7 +30,9 @@ import {
   approveSupplierPayment,
   processSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
-import { assertControlledOperationAuthority } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { assertControlledOperationAuthority, controlledOperationApprovalRequiredForAmount } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { requireControlTx } from '@/modules/accounting/services/controls/context';
+import { OPERATION_APPROVAL_REQUIRED_REPLY } from '../scopeRemediation';
 import { requireApControl } from '@/modules/accounting/services/ap/apControlBoundary';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { fmtDate } from '@/lib/fmtDate';
@@ -158,6 +160,14 @@ export const settleByContraTool: McpTool = {
       : { id: contra.accountId, code: contra.accountCode, name: contra.accountName };
 
     if (args.dry_run === true) {
+      // The payment this settlement creates is confirmed (AR) or processed (AP)
+      // through the control kernel, which refuses it under a payment approval
+      // policy. The payment does not exist before the write, so the preview asks
+      // the policy question with the amount it holds.
+      const operation = subledger === 'ar' ? 'customer_payment.confirm' : 'supplier_payment.process';
+      if (await controlledOperationApprovalRequiredForAmount(requireControlTx(), operation, amount.toFixed(2))) {
+        return toolError(OPERATION_APPROVAL_REQUIRED_REPLY);
+      }
       const result: DryRunResult = {
         dryRun: true,
         journals: [{
