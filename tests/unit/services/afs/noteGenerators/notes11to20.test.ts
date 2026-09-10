@@ -1,7 +1,8 @@
 // tests/unit/services/afs/noteGenerators/notes11to20.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockUnsafe } from '../../../helpers/sqlFragmentMock';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: mockUnsafe }) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

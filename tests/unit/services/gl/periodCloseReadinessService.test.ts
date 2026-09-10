@@ -26,9 +26,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
+import { mockUnsafe } from '../../helpers/sqlFragmentMock';
 
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(),
+  // `unsafe` is part of the real client and the AR/AP sub-ledger checks splice
+  // a fragment through it (shared/softDeleteLedgerPresence — the as-at
+  // soft-delete predicate). It must NOT be the same spy as `sql`: a fragment
+  // build is not a query, and counting it as one consumes a queued
+  // mockResolvedValueOnce and shifts every row after it.
+  sql: Object.assign(vi.fn(), { unsafe: mockUnsafe }),
   // withSavepoint degrades to a plain fn() call when there is no request tx
   // (as in these unit tests and prod cron paths) — it just runs the check.
   withSavepoint: vi.fn((_name: string, fn: () => Promise<unknown>) => fn()),

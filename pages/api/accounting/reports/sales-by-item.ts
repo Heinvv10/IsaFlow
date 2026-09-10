@@ -11,6 +11,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -32,6 +33,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       JOIN customer_invoices ci ON ci.id = cii.invoice_id
       LEFT JOIN gl_accounts ga ON ga.id = cii.gl_account_id
       WHERE ci.company_id = ${companyId}
+        -- Dated to the period end, exactly as sales-by-customer over the same
+        -- range: without it the two reports disagree by a deleted document's
+        -- net for every range that spans its reversal.
+        -- See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
         AND ci.status != 'cancelled'
