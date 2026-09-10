@@ -197,24 +197,12 @@ export async function partitionDocuments(
   }
 
   // A preview must not report a document as one that would post when the live
-  // call would refuse it for want of an independent approval. Only a preview
-  // asks: the live path meets the same condition inside the control kernel,
-  // where it refuses the batch rather than silently dropping a document.
+  // call would refuse it for want of an independent approval.
   if (options?.preview === true && postable.length > 0) {
-    const { controlledOperationApprovalRequired } = await import('@/modules/accounting/services/controls/approvalExecutionService');
-    const { requireControlTx } = await import('@/modules/accounting/services/controls/context');
-    const bound: typeof postable = [];
-    for (const candidate of postable) {
-      const required = await controlledOperationApprovalRequired(requireControlTx(),
-        { entityType: adapter.entityType, entityId: candidate.id, operation: adapter.operation });
-      if (required) {
-        skipped.push({ index: candidate.index, document_id: candidate.id,
-          reason: 'an independent approval is required for this operation — request one with request_operation_approval, then retry' });
-      } else bound.push(candidate);
-    }
-    postable.length = 0;
-    postable.push(...bound);
-    skipped.sort((a, b) => a.index - b.index);
+    const { partitionApprovalBound } = await import('./bulkApprovePreviewApproval');
+    const bound = await partitionApprovalBound(postable, adapter);
+    postable.length = 0; postable.push(...bound.postable);
+    skipped.push(...bound.skipped); skipped.sort((a, b) => a.index - b.index);
   }
 
   return { postable, skipped, states };
