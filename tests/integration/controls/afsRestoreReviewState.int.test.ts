@@ -42,6 +42,28 @@ describe('AFS version restore and review state: actual PostgreSQL',()=>{
   expect(JSON.stringify(row.version_history)).toContain(`invalidated the section's prior ${status} review`);
  });
 
+ it('decides invalidation on the committed status when a review lands during the restore',async()=>{
+  const id=await section('pending');
+  await as(()=>saveVersion(h.f.companyA,id,h.f.u2.id));
+  // A reviewer's UPDATE is in flight and holds the row; the restore starts while the
+  // section still reads 'pending' to anyone not waiting for that lock.
+  const reviewer=await h.pool.connect();
+  let restore:Promise<unknown>|undefined;
+  try{
+   await reviewer.query('BEGIN');
+   await reviewer.query("UPDATE afs_sections SET status='reviewed',reviewed_by=$3 WHERE company_id=$1 AND id=$2",[h.f.companyA,id,h.f.u1.id]);
+   restore=as(()=>restoreVersion(h.f.companyA,id,1,h.f.u2.id));
+   await new Promise(resolve=>setTimeout(resolve,400));
+   await reviewer.query('COMMIT');
+  }finally{reviewer.release();}
+  await restore;
+  // The review committed first, so it covered the old content: the restore must drop it and
+  // say so, not carry 'reviewed' onto content nobody reviewed.
+  const row=await read(id);
+  expect(row.status).toBe('pending');
+  expect(JSON.stringify(row.version_history)).toContain("invalidated the section's prior reviewed review");
+ });
+
  it('refuses an impersonated restore that would change review state, and allows one that would not',async()=>{
   const reviewed=await section('reviewed');
   await as(()=>saveVersion(h.f.companyA,reviewed,h.f.u2.id));

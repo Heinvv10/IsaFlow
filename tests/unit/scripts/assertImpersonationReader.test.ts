@@ -8,7 +8,7 @@ import {runImpersonationReaderGate} from '@/lib/auth/sessionImpersonation';
 it('reports success only when the database answers that both readers are executable',async()=>{
  const out=vi.fn();
  await runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true}],out);
- expect(out).toHaveBeenCalledWith('impersonation readers present and executable by app_user\n');
+ expect(out).toHaveBeenCalledWith('impersonation readers present and executable by their calling roles\n');
 });
 it('fails the deploy when the login role cannot execute the liveness function',async()=>{
  await expect(runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:false,login_role:'app_login'}],vi.fn()))
