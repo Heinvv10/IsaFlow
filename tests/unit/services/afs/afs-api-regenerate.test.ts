@@ -150,7 +150,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/regenerate', () => {
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
     expect(generateSection).toHaveBeenCalledWith(
-      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2025, 'full_ifrs',
+      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2025, 'full_ifrs', '44444444-4444-4444-9444-444444444444',
     );
     expect(apiResponse.success).toHaveBeenCalledWith(res, { sectionId: SECTION_ID });
   });
@@ -161,7 +161,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/regenerate', () => {
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
     expect(generateSection).toHaveBeenCalledWith(
-      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2024, 'ifrs_smes',
+      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2024, 'ifrs_smes', '44444444-4444-4444-9444-444444444444',
     );
   });
 });
