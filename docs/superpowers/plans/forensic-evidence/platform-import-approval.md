@@ -129,3 +129,38 @@ Suites after this round: integration 165 passed over 14 files
 (`platform-import-fix-r2-int-green.log`), units under `tests/unit/{auth,scripts,services/controls}`
 1372 passed (`platform-import-fix-r2-unit-green.log`). Migration 675 re-applied twice, exit 0 both
 times.
+
+
+## Third round: approver-of-record workflows outside the controls kernel
+
+Five single-approver workflows recorded `approved_by` under an impersonated session and are now
+guarded the same way the kernel is - supplier invoice, credit note, customer write-off, VAT
+adjustment and expense claim approval. The guard sits at the very top of each entry point, before
+any row is read or written: these routes answer 4xx and withAuth COMMITS a 4xx, so a refusal taken
+after a partial write would persist that write. It reads the impersonating actor from the
+authenticated request context because these services take a `userId`, not a principal; a caller
+with no request context (script, background task) and any bearer/MCP caller is unaffected.
+
+All five are proven through their own real routes with a real impersonated session
+(`tests/integration/controls/impersonatedApproverOfRecord.int.test.ts`). Genuine RED: at
+97c0e7ba3's parent every case failed with an unrelated validation message
+(`platform-import-fix-r3-red.log`), which is why each assertion pins the refusal text - through the
+exposed message where the route surfaces it, and through the development-only detail where the
+route masks the cause - rather than the 400 alone. Mutations `m17`-`m22` (each guard removed, and
+the commentary record removed) turn exactly the matching case red.
+
+Commentary sign-off is deliberately not blocked: no ledger effect, and an administrator finishing a
+client's report is legitimate support. Migration 676 adds
+`report_commentary.approved_by_impersonator`; `approved_by` stays the member whose session signed
+and the new column names the administrator who drove it (or the unverified marker when the state
+could not be established). NULL means an ordinary sign-off. Applied twice to the synthetic
+database, idempotent.
+
+### Finding for later, not fixed in this pass
+
+`expenseClaimService.approveClaim` has a self-approval hole independent of impersonation: it checks
+only that the claim is `submitted` and never compares the approver with the employee or the
+submitter, so a claimant with write access can approve their own claim. The other four sites are
+single-approver by design too - none checks independence at all - so the impersonation guard closes
+"an administrator approving as a member", not "the maker approving their own work". Segregation of
+duties on these five paths is a separate piece of work.
