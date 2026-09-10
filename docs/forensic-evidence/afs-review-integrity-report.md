@@ -8,7 +8,7 @@ The rule the branch enforces: a section's review or sign-off is an attestation a
 
 | Suite | Files | Result |
 |---|---|---|
-| AFS integration (real routes, real PostgreSQL) | `tests/integration/controls/afs{SectionReviewIntegrityHttp,SectionWritesHttp,SigningHttp,DocumentTransitionRace,ManagementPackGate,RestoreReviewState}.int.test.ts` | 79 passed |
+| AFS integration (real routes, real PostgreSQL) | `tests/integration/controls/afs{SectionReviewIntegrityHttp,SectionWritesHttp,SigningHttp,DocumentTransitionRace,ManagementPackGate,PackDeliveryGate,RestoreReviewState}.int.test.ts` | 92 passed |
 | Unit | `bun run test:unit` | 10,949 passed; the 5 failures in `directPostBypassGuards` and `creditNoteService` fail identically at the base commit |
 
 Integration runs use the shared synthetic instance and `--no-file-parallelism`. The HTTP fixture clears the per-IP rate-limit counters at start: every run arrives from 127.0.0.1, and without that the second run of the day is answered 429 by the real limiter.
@@ -89,11 +89,34 @@ Each mutant was applied to the working tree, the AFS integration suites were run
 P8 initially survived — the mutant still answered 409, from the lock after the model call —
 so the assertion that the model is never called was added to the test, and the mutant then died.
 
-### Why the three survivors are not gaps
+### Round 4 — the delivery gate, the fingerprint's real inputs
+
+| # | Mutation | Result | First failing test |
+|---|---|---|---|
+| Q1 | `deliverPack` drops the withheld check | killed (1) | refused by deliverPack itself, so no caller can deliver around the route |
+| Q2 | the generator persists no withheld reason | killed (2) | is refused by the delivery route, and nothing is emailed |
+| Q3 | sign-off neither clears the hold nor audits it | killed (1) | goes out once a person has signed the document off |
+| Q4 | the delivery route drops its pre-check | **survived** | — |
+| Q5 | fingerprint drops the company name and number | killed (3) | (grandfather + company-name cases) |
+| Q6 | fingerprint drops the brand profile | killed (2) | (grandfather + branding cases) |
+| Q7 | fingerprint drops the document row | killed (3) | (grandfather + fiscal-year/framework cases) |
+| Q8 | the refusal always claims the copy was kept | killed (2) | refuses to sign off when content changed since it was sent |
+| Q9 | a cancelled request keeps the payload hash | killed (1) | clears the record of what was sent when the request is cancelled |
+| Q10 | reorder allows a duplicate id | killed (1) | refuses a payload that names the same section twice |
+| Q11 | reorder reads the section list before taking the locks | **survived** | — |
+| Q12 | signing requires a saved brand profile again | killed (1) | sends for a company with no brand profile of its own |
+
+Q1 and Q8 each survived their first run — Q1 because the delivery route's own pre-check
+caught it, Q8 because no test asserted the success wording. A service-level test of
+`deliverPack` and a "was kept" assertion were added, and both mutants then died.
+
+### Why the survivors are not gaps
 
 - **N2** — the `AND status = <from>` predicate on the transition UPDATE is redundant *while the row lock stands* (N1/N2b prove the lock is what the tests hold). It is kept as defence for a caller that runs outside a request transaction, where `FOR UPDATE` releases at once.
 - **N4 / N4b** — the webhook guards its state three times: before the download, inside the transaction under the row lock, and in the UPDATE's `WHERE`. Removing any one leaves the other two; removing all three (N4c) is caught. Each layer covers a different failure (a replay, a status change between read and lock, a concurrent transition).
 - **N18** — the "sections no longer signed off" count is subsumed by the content fingerprint, which includes each section's status. The count only produces a clearer refusal reason (`N mandatory section(s) are no longer signed off` rather than "content changed").
+- **Q4** — the delivery route's pre-check is deliberately redundant: the gate is inside `deliverPack`, which every delivery passes through (Q1 proves it refuses on its own). The route check only spares a round trip and gives the caller the reason without an exception.
+- **Q11** — reading the document's section list under the row locks rather than before them closes a window that no reachable defect currently walks through: an interleaving would have to renumber a section to exactly the value the payload requests (over-voiding, harmless) or add/remove a section mid-request (only generation does that, and it is guarded). It is kept because the count and the "which sections changed" decision should be taken on one state, not two.
 
 No test was written to kill a redundant mutant.
 
@@ -103,4 +126,7 @@ No test was written to kill a redundant mutant.
 - **Refused signatures.** The signatories did sign, so the PDF is downloaded and kept in `storage/afs-signed-quarantine/<company>/<document>-<timestamp>.pdf`, never as the document's signed copy. The Signum integration in this repo exposes only create and download, so there is no void/cancel call to make; the recorded reason tells a person to cancel the request at the provider. `signing_refused_at/reason` are returned by the document GET and shown on the review tab.
 - **Signing renders with `skipChecks: true`.** The bytes are derived from the current rows (that is the point); the pre-export blocker gate remains the export's own policy. Making it a send gate as well is a separate decision.
 - **Comments stay open while signatures are pending.** Review correspondence is not part of what is signed. Only the document's own lock (signed off, filed) closes it.
-- **Unreviewed management packs** are generated as drafts and NOT delivered, with `deliveryWithheldReason` on the result and `deliveriesWithheld` on the scheduler's summary.
+- **Unreviewed management packs** are generated as drafts and NOT delivered. The hold is a column on the document (`delivery_withheld_reason`, migration 683) enforced inside `deliverPack`; a document sign-off clears it and writes an `audit_log` row (`afs_pack_delivery_released`). Nothing else clears it. `deliveryWithheldReason` on the result and `deliveriesWithheld` on the scheduler summary are reporting, not the gate.
+- **`signing_payload_sha256` is evidence, not a control.** The provider returns a signed, annotated PDF that can never byte-match the HTML posted, so nothing verifies one against the other; it records what left this system. The control the webhook enforces is the row fingerprint.
+- **A brand profile is not guaranteed.** No company-creation path writes one (19,224 of 19,244 companies in the synthetic fixture have none), so the signing render falls back to `DEFAULT_BRAND_PROFILE` and the fingerprint records which was used. The PDF export still requires the firm's own branding.
+- **Scheduled delivery is dead code today**: `deliverPack` has exactly one caller (the deliver route), the scheduler never calls it, and `deliveryScheduled` is hardcoded false. Whether the scheduler should deliver is a product decision, not one this branch takes.
