@@ -66,14 +66,14 @@ bunx eslint --config ../mcp-forensic-artifacts-20260909/platform-import-authorit
 ```
 
 The fixture source annotations and captured-port correction do not change test
-assertions. Independent named review and clean transitive TypeScript remain
-required before integration. These results do not verify production, completed
+assertions. Independent named review remains required before integration. The initial
+transitive TypeScript failure was subsequently closed by root fixes below. These results do not verify production, completed
 financial imports, source/import confinement, independent approval or the UI.
 
 ## Concurrent authority lock-order contract
 
-Added a bounded same-company, same-person pair of actual authenticated HTTP
-requests. Both reach real target issuance before the fixture later acquires the
+Added bounded same-person pairs of actual authenticated HTTP requests, one
+pair sharing a company and another targeting two different companies. Both reach real target issuance before the fixture later acquires the
 existing `control-authority:<company>` transaction advisory lock and upgrades the
 same user row to FOR UPDATE. This reproduces the lock-order precondition of
 control_approval_authorities; it does not fabricate a valid persisted A2 approval.
@@ -81,9 +81,44 @@ The SQL probe is explicitly lock-order proof, not an approval workflow.
 
 A barrier holds the first callback. Before release, the observer requires either
 both target callbacks entered (old ordering), or two distinct server PIDs with the
-second blocked on a real advisory lock (correct serialized ordering). It then
+second blocked on a real advisory or row lock (correct serialized ordering). It then
 releases the barrier and requires both requests to complete without refusal.
 Thus the corrected implementation can serialize before row locks without the
 fixture itself waiting forever for a second callback. Cleanup always releases
-and joins both requests. No concurrency test run is claimed at this checkpoint;
-root owns the source correction and the heavy-test lease.
+and joins both requests. Root owns the source corrections and granted the heavy-test lease. Results follow.
+
+### Concurrent RED, corrections and final verification
+
+- Initial52069 failed one real request with an aborted-transaction error after
+  overlap. Original SQL error was obscured by target-context restoration failure.
+  Added fixture-only capture of the original SQL code before rethrow.
+- Runs36297,70004 and91875 timed out at the fixture overlap barrier, not product
+  verdicts. Actual withAdmin rate limiting holds its per-IP counter row until the
+  admin transaction completes; two localhost requests could serialize before
+  reaching the probe. Final fixture uses distinct TEST-NET proxy-added addresses
+  192.0.2.10/192.0.2.11, representing two sessions of the same administrator.
+  Real rate-limit/auth/CSRF code remains active and unmocked. An entry barrier
+  synchronizes both actual handler connections before target acquisition.
+- Same-company14236, terminal exit1: **one genuine RED**,18skipped,1.98seconds.
+  Original PostgreSQL error captured: code40P01, deadlock detected. Source still
+  had shared person locks before downstream authority serialization.
+  Log: `platform-import-authority-pg-lock-40p01-red.log`.
+- Cross-company5891, terminal exit1: **one genuine RED**,19skipped,2.82seconds.
+  The same global maker on two companies also produced actual40P01.
+  Log: `platform-import-authority-pg-cross-company-red.log`.
+- Root corrections `e6e212947` and `5a7eb4957` were applied as dependencies
+  `1e1daa92d` and `9efd2be7c`: advisory-before-standing and initial person
+  FOR UPDATE instead of a later shared-lock upgrade. Root also fixed the
+  withCsrf generic and refused privileged beneficiary/release paths.
+- **Final96669: all20 actual PostgreSQL/HTTP tests PASS**, terminal exit0,
+  2.14seconds, exact source/test state `9efd2be7c`.
+  Log: `platform-import-authority-pg-final-green.log`.
+- **Dedicated TypeScript22009 PASS**, terminal exit0; **typed ESLint56965 PASS**,
+  terminal exit0, zero warnings. Logs: `platform-import-authority-pg-final-static.log`
+  and `platform-import-authority-pg-final-lint.log`.
+
+No fixture assertion was weakened to accept refused concurrent requests. Both
+requests must overlap on distinct actual PostgreSQL backends and then succeed;
+correct serialization may block the second before entering its target callback.
+These two SQL probes establish the A2 lock-order precondition, not completion of
+persisted independent approval or historical invoice execution.
