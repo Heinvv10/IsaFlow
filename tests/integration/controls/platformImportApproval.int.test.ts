@@ -56,12 +56,15 @@ describe('platform historical import persisted maker and independent tenant appr
    expect(await h.noEffects(p.ref)).toEqual({journals:afterExecution?1:0,effects:afterExecution?1:0});
   }
  });
- it('invalidates approval after current account material or retained source changes',async()=>{
+ it.each(['account','source'] as const)('invalidates approval after independent %s material changes',async changed=>{
   const p=await h.prepared(),approval=await h.request(p.ref);await h.review(approval.id);
-  try{await h.pool.query("UPDATE gl_accounts SET account_name='Changed source account' WHERE company_id=$1 AND id=$2",[h.f.companyA,h.revenue]);await expect(h.execute(p.ref,approval.id)).rejects.toThrow(/changed/i);}
-  finally{await h.pool.query("UPDATE gl_accounts SET account_name='PI-R' WHERE company_id=$1 AND id=$2",[h.f.companyA,h.revenue]);}
-  try{await h.pool.query('UPDATE control_historical_import_sources SET content_hash=$3 WHERE company_id=$1 AND id=$2',[h.f.companyA,p.retained.sourceId,'a'.repeat(64)]);await expect(h.execute(p.ref,approval.id)).rejects.toThrow();}
-  finally{await h.pool.query('UPDATE control_historical_import_sources SET content_hash=$3 WHERE company_id=$1 AND id=$2',[h.f.companyA,p.retained.sourceId,p.retained.contentHash]);}
+  if(changed==='account'){
+   try{await h.pool.query("UPDATE gl_accounts SET account_name='Changed source account' WHERE company_id=$1 AND id=$2",[h.f.companyA,h.revenue]);await expect(h.execute(p.ref,approval.id)).rejects.toThrow(/changed/i);}
+   finally{await h.pool.query("UPDATE gl_accounts SET account_name='PI-R' WHERE company_id=$1 AND id=$2",[h.f.companyA,h.revenue]);}
+  }else{
+   try{await h.pool.query('UPDATE control_historical_import_sources SET content_hash=$3 WHERE company_id=$1 AND id=$2',[h.f.companyA,p.retained.sourceId,'a'.repeat(64)]);await expect(h.execute(p.ref,approval.id)).rejects.toThrow(/source.*changed/i);}
+   finally{await h.pool.query('UPDATE control_historical_import_sources SET content_hash=$3 WHERE company_id=$1 AND id=$2',[h.f.companyA,p.retained.sourceId,p.retained.contentHash]);}
+  }
   expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});
  });
  it('refuses replacing retained bytes under a different target hash',async()=>{
