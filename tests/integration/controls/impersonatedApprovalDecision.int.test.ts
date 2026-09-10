@@ -13,6 +13,9 @@ import {prepareHistoricalImport} from '@/modules/accounting/services/controls/hi
 import {requestOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 import {executeHistoricalImport} from '@/modules/accounting/services/controls/historicalImportExecution';
 import approvalsRoute from '../../../pages/api/accounting/control-approvals';
+import endImpersonationRoute from '../../../pages/api/auth/end-impersonation';
+import {ADMIN_STASH_COOKIE} from '@/lib/auth/impersonation-cookies';
+import {stashAdminTokens} from '@/modules/admin/services/userImpersonationService';
 import exceptionsRoute from '../../../pages/api/accounting/control-exceptions';
 import type {OperationRef} from '@/modules/accounting/services/controls/contracts';
 
@@ -172,6 +175,61 @@ describe('control approval decisions under actual impersonated sessions: actual 
   expect((await list(cookies)).status).toBe(401);
   await h.pool.query('DELETE FROM admin_impersonation_stash WHERE stash_id=$1',[stash]);
  });
+ /** The impersonation the admin route would have created, audit row included. */
+ async function liveImpersonation(){
+  const sessionId=`impersonation-${randomUUID()}`;
+  const stashId=await stashAdminTokens({adminUserId:h.admin,adminAccessToken:await session(h.admin,`admin-${randomUUID()}`,'aal2'),
+   adminRefreshToken:'admin-refresh',targetUserId:target});
+  await h.pool.query(`INSERT INTO admin_audit_log(admin_user_id,action,target_type,target_id,details)
+   VALUES($1::uuid,'impersonation_start','user',$2::uuid,$3::jsonb)`,
+   [h.admin,target,JSON.stringify({stash_id:stashId,target_session_id:sessionId})]);
+  const now=Math.floor(Date.now()/1000);
+  return {sessionId,stashId,cookies:{[ACCESS_COOKIE]:await session(target,sessionId,'aal1'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA,
+   [IMPERSONATION_PROOF_COOKIE]:await mintImpersonationProof({actorUserId:h.admin,targetUserId:target,
+    targetSessionId:sessionId,stashId,actorExpiresAt:now+3600,stashExpiresAt:now+3600})}};
+ }
+ async function endImpersonation(cookies:Record<string,string>,stashId:string,gotrue:number){
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response(null,{status:gotrue})));
+  try{
+   const jar={...cookies,[ADMIN_STASH_COOKIE]:stashId,isaflow_csrf:csrf};
+   const req={method:'POST',url:'/api/auth/end-impersonation',query:{},cookies:jar,body:{},
+    headers:{cookie:Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; '),'x-csrf-token':csrf},
+    socket:{remoteAddress:'127.0.0.91'}} as unknown as NextApiRequest;
+   const res=response();
+   await (endImpersonationRoute as unknown as Route)(req,res as unknown as NextApiResponse);
+   return {status:res.statusCode,body:res.body as {data?:{revokedScope?:string;warning?:string}}};
+  }finally{vi.unstubAllGlobals();}
+ }
+ const endRow=async(action:string,sessionId:string)=>(await h.pool.query(
+  `SELECT details->>'target_session_id' AS session FROM admin_audit_log WHERE action=$1 AND target_id=$2::uuid
+    AND details->>'target_session_id'=$3`,[action,target,sessionId])).rowCount;
+
+ it.each(['target','admin'] as const)('records the impersonated session, not the caller, when the %s ends it',async caller=>{
+  const {sessionId,stashId,cookies}=await liveImpersonation();
+  expect((await list(cookies)).status).toBe(200);
+  const callerCookies=caller==='target'?cookies
+   :{[ACCESS_COOKIE]:await session(h.admin,`admin-${randomUUID()}`,'aal2'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA};
+  const ended=await endImpersonation(callerCookies,stashId,204);
+  expect(ended.status).toBe(200);
+  expect(ended.body.data?.revokedScope).toBe(caller==='target'?'local':'global');
+  if(caller==='admin')expect(ended.body.data?.warning).toContain('every session');
+  // The evidence names the session that was impersonated, never the caller's own.
+  expect(await endRow('impersonation_end',sessionId)).toBe(1);
+  expect((await list(cookies)).status).toBe(401);
+ });
+
+ it('records a failed end and stops honouring the proof when GoTrue refuses',async()=>{
+  const {sessionId,stashId,cookies}=await liveImpersonation();
+  expect((await list(cookies)).status).toBe(200);
+  const failed=await endImpersonation(cookies,stashId,503);
+  expect(failed.status).toBe(502);
+  expect(await endRow('impersonation_end_failed',sessionId)).toBe(1);
+  // The stash is deliberately kept for the retry, so the recorded failure is what has to
+  // stop the copied cookies - otherwise the 502 path is the hole all over again.
+  expect((await h.pool.query('SELECT stash_id FROM admin_impersonation_stash WHERE stash_id=$1',[stashId])).rowCount).toBe(1);
+  expect((await list(cookies)).status).toBe(401);
+ });
+
  it('still lets the same tenant administrator approve and the maker post from an unimpersonated session',async()=>{
   const p=await h.prepared(),approval=await h.request(p.ref);
   const result=await decide(await ordinary(`ordinary-${randomUUID()}`),approval.id);
