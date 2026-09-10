@@ -6,7 +6,7 @@ import {openSnapshotIndexHeader} from './auditSnapshotIndexMaterial';
 import type {SnapshotIndexEnvelope} from './auditSnapshotIndexContract';
 /** Indexed metadata only. A missing historical index is explicit; reads never build it. */
 export async function readAuditSnapshotIndexHeader(ctx:ControlTx,snapshotId:string){
- assertControlTx(ctx);z.string().uuid().parse(snapshotId);await assertEffectivePermission(ctx,'read:reports');
+ assertControlTx(ctx);snapshotId=z.string().uuid().parse(snapshotId).toLowerCase();await assertEffectivePermission(ctx,'read:reports');
  const rows=await ctx.sql`SELECT x.protected_header,s.canonical_hash
   FROM control_audit_snapshot_indexes x JOIN control_audit_snapshots s ON s.company_id=x.company_id AND s.id=x.snapshot_id
   JOIN control_audit_jobs j ON j.company_id=s.company_id AND j.job_id=s.job_id AND j.state='succeeded' AND j.result_snapshot_id=s.id

@@ -8,6 +8,7 @@ import {parseAuditComparisonRequest} from '@/modules/accounting/services/control
 import {getAuditComparisonPage} from '@/modules/accounting/services/controls/auditComparisonPageService';
 import {COMPARISON_SECTIONS} from '@/modules/accounting/services/controls/auditSnapshotComparisonMaterial';
 import {enqueueAuditExport} from '@/modules/accounting/services/controls/auditExportJobService';
+import {readAuditSnapshotIntentMetadata} from '@/modules/accounting/services/controls/auditSnapshotIntentMetadata';
 import {readAuditSnapshotIndexHeader} from '@/modules/accounting/services/controls/auditSnapshotIndexRead';
 import {getAuditSnapshotPage,readAuditSnapshotChunk} from '@/modules/accounting/services/controls/auditSnapshotPageService';
 import {getAuditExportFiles,readAuditExportChunk} from '@/modules/accounting/services/controls/auditExportReadService';
@@ -67,8 +68,8 @@ comparison.authorize=async(args,ctx)=>{
  const input=writeInput(args,ctx.companyId);
  const parsed=z.object({first_snapshot_id:id,second_snapshot_id:id,idempotency_key:retry}).strict().parse(input);
  const request=parseAuditComparisonRequest({firstSnapshotId:parsed.first_snapshot_id,secondSnapshotId:parsed.second_snapshot_id,idempotencyKey:parsed.idempotency_key});
- await readAuditSnapshotIndexHeader(requireControlTx(),request.firstSnapshotId);
- await readAuditSnapshotIndexHeader(requireControlTx(),request.secondSnapshotId);
+ await readAuditSnapshotIntentMetadata(requireControlTx(),request.firstSnapshotId);
+ await readAuditSnapshotIntentMetadata(requireControlTx(),request.secondSnapshotId);
 };
 snapshot.perUserIdempotency=true;
 snapshot.authorize=async(args,ctx)=>{

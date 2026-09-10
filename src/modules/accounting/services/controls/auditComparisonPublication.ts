@@ -2,6 +2,8 @@ import {withSavepoint} from '@/lib/neon';
 import type {ControlTx} from './contracts';
 import {assertAuditJobLease,type AuditJobLease} from './auditJobLease';
 import {loadStoredAuditJobDelegation} from './auditJobDelegation';
+import {readComparisonIntentInputs} from './auditComparisonIntentInputs';
+import {ensureOriginalSnapshotIndex} from './auditSnapshotIndexConversion';
 import {readAuditComparisonInputs} from './auditComparisonInputs';
 import {ensureComparisonSource} from './auditComparisonSourcePublication';
 import {iterateComparisonSourceItems} from './auditComparisonSourceRead';
@@ -20,6 +22,11 @@ export async function publishAuditComparison(ctx:ControlTx,lease:AuditJobLease,o
  return withSavepoint('audit_comparison_publish',async()=>{
   const saved=await loadStoredAuditJobDelegation(ctx.sql,lease.companyId,lease.personId,lease);
   if(saved.kind!=='audit_compare')throw new Error('Comparison publication requires comparison job kind');
+  await readComparisonIntentInputs(ctx,saved.request);check();
+  const originalIds=[...new Set([saved.request.firstSnapshotId.toLowerCase(),saved.request.secondSnapshotId.toLowerCase()])].sort();
+  // Acquire every source lock in one stable order, including reversed and self comparisons.
+  for(const id of originalIds){await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`audit-index:${lease.companyId}:${id}`},0))`;check();}
+  for(const id of originalIds){await ensureOriginalSnapshotIndex(ctx,lease,id,options);check();}
   await readAuditComparisonInputs(ctx,saved.request);check();
   const first=await ensureComparisonSource(ctx,lease,saved.request.firstSnapshotId,options);
   const second=await ensureComparisonSource(ctx,lease,saved.request.secondSnapshotId,options);check();

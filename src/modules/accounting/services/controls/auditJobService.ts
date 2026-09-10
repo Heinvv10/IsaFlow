@@ -1,3 +1,4 @@
+import {readComparisonIntentInputs} from './auditComparisonIntentInputs';
 import {readAuditComparisonInputs} from './auditComparisonInputs';
 import {randomUUID} from 'node:crypto';
 import {withSavepoint} from '@/lib/neon';
@@ -31,7 +32,10 @@ export async function getAuditJob(ctx:ControlTx,id:string):Promise<AuditJobStatu
  const evidence=openAuditJobRequest(row);
  if(evidence.kind==='audit_snapshot')await authorize(ctx,evidence.request);
  else for(const permission of evidence.request.permissions)await assertEffectivePermission(ctx,permission);
- if(evidence.kind==='audit_compare')await readAuditComparisonInputs(ctx,evidence.request);
+ if(evidence.kind==='audit_compare'){
+  if('requestVersion'in evidence.request&&row.state!=='succeeded')await readComparisonIntentInputs(ctx,evidence.request);
+  else await readAuditComparisonInputs(ctx,evidence.request);
+ }
  if((evidence.kind!=='audit_snapshot'&&row.result_snapshot_id!==null)||(evidence.kind!=='audit_export'&&row.result_export_id!==null)
   ||(evidence.kind!=='audit_compare'&&row.result_comparison_id!==null))throw new Error('Audit job result kind changed');
  const status={id:row.id,state:row.state,attempts:row.attempts,createdAt:timestamp(row.created_at),

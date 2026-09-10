@@ -56,7 +56,8 @@ export async function ensureComparisonSource(ctx:ControlTx,lease:AuditJobLease,s
  const saved=await loadStoredAuditJobDelegation(ctx.sql,lease.companyId,lease.personId,lease);
  if(saved.kind!=='audit_compare')throw new Error('Comparison conversion requires comparison job kind');
  const inputs=await readAuditComparisonInputs(ctx,saved.request);
- const original=snapshotId===saved.request.firstSnapshotId?inputs.first:snapshotId===saved.request.secondSnapshotId?inputs.second:null;
+ snapshotId=snapshotId.toLowerCase();
+ const original=snapshotId===saved.request.firstSnapshotId.toLowerCase()?inputs.first:snapshotId===saved.request.secondSnapshotId.toLowerCase()?inputs.second:null;
  if(!original)throw new Error('Comparison conversion source differs from request');
  const existing=await ctx.sql`SELECT snapshot_id FROM control_audit_comparison_sources WHERE company_id=${lease.companyId}::uuid AND snapshot_id=${snapshotId}::uuid`;
  if(existing.length>1)throw new Error('Comparison source identity is ambiguous');
