@@ -236,9 +236,9 @@ describe('confirmReceiptMatch', () => {
     const call = vi.mocked(allocateTransaction).mock.calls[0]!;
     expect(call[5]).toBe('customer');
     expect(call[6]).toBe(CUSTOMER);
-    expect(call[11]).toBe(INV_A);
-    expect(call[12]).toEqual({ postingAgent: 'mcp:x:v1' });
-    expect(applyReceiptPlan).toHaveBeenCalledTimes(1);
+    expect(call[11]).toBeUndefined();
+    expect(call[12]).toEqual({ postingAgent: 'mcp:x:v1', autoApply: false, applications: [{ invoiceId: INV_A, amount: '600' }] });
+    expect(applyReceiptPlan).not.toHaveBeenCalled();
     expect(result.journalEntryId).toBe('je-1');
     expect(result.unappliedRemainder).toBe(400);
   });
@@ -262,7 +262,7 @@ describe('confirmReceiptMatch', () => {
       confirmReceiptMatch(COMPANY, {
         bankTxId: TX, userId: USER, allocations: [{ invoiceId: INV_A, amount: 600 }],
       }),
-    ).rejects.toThrow(/no customer payment record was created/i);
+    ).rejects.toThrow(/Controlled bank receipt association unavailable/);
     expect(applyReceiptPlan).not.toHaveBeenCalled();
   });
 
