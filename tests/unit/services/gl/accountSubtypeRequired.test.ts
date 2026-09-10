@@ -49,10 +49,10 @@ describe('missingSubtypeError', () => {
 });
 
 describe('createAccount', () => {
-  it('refuses an expense account with no subtype before touching the database', async () => {
+  it('refuses unissued account creation before SQL; actual subtype enforcement has issued PG coverage', async () => {
     await expect(createAccount(CO, {
       accountCode: '5999', accountName: 'Sundry', accountType: 'expense', normalBalance: 'debit',
-    })).rejects.toThrow(/subtype.*required/i);
+    })).rejects.toThrow('Authenticated control transaction required');
     expect(sql).not.toHaveBeenCalled();
   });
 });

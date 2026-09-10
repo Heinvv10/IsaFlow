@@ -26,7 +26,8 @@
  * because a guard deciding whether money exists is a safety property and
  * should not inherit an optimisation's failure modes.
  *
- * All DB calls are mocked — no real connection required.
+ * Query/pure helper tests stay local. Issued writer financial cases live in
+ * tests/integration/controls/glEightControl.int.test.ts using real posted journals.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -37,7 +38,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/cache', () => ({ cache: { invalidatePrefix: vi.fn(), get: vi.fn(), set: vi.fn() } }));
 
 import { updateAccount } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import { getPostedAccountBalance } from '@/modules/accounting/services/gl/glAccountBalance';
+import { getPostedAccountBalance, holdsMoney, formatAccountBalance } from '@/modules/accounting/services/gl/glAccountBalance';
 
 const COMPANY = 'aaaaaaaa-0000-0000-0000-000000000001';
 const ACCOUNT = 'bbbbbbbb-0000-0000-0000-000000000001';
@@ -96,62 +97,27 @@ describe('getPostedAccountBalance', () => {
   });
 });
 
-describe('updateAccount refuses to deactivate an account holding money', () => {
-  it('throws and names the balance', async () => {
-    seed({ debit: 130000, credit: 0 });
-
+describe('controlled account writer ingress', () => {
+  it('refuses an unissued update before any SQL, including a supplied company/account', async () => {
+    sqlMock.mockClear();
     await expect(updateAccount(COMPANY, ACCOUNT, { isActive: false }))
-      .rejects.toThrow(/Loan Account - Blitz Fibre/);
-    await expect(updateAccount(COMPANY, ACCOUNT, { isActive: false }))
-      .rejects.toThrow(/130000\.00/);
+      .rejects.toThrow('Authenticated control transaction required');
+    expect(sqlMock).not.toHaveBeenCalled();
   });
+});
 
-  it('refuses on a credit balance too, not just a debit one', async () => {
-    seed({ debit: 0, credit: 450 });
-
-    await expect(updateAccount(COMPANY, ACCOUNT, { isActive: false }))
-      .rejects.toThrow(/-450\.00/);
-  });
-
-  it('never runs the UPDATE when it refuses', async () => {
-    seed({ debit: 130000, credit: 0 });
-
-    await expect(updateAccount(COMPANY, ACCOUNT, { isActive: false })).rejects.toThrow();
-    expect(texts().filter((q) => /UPDATE gl_accounts/i.test(q))).toHaveLength(0);
-  });
-
-  it('allows deactivating an account reconciled back to zero', async () => {
-    seed({ debit: 5000, credit: 5000 });
-
-    await expect(updateAccount(COMPANY, ACCOUNT, { isActive: false })).resolves.toBeDefined();
-    expect(texts().some((q) => /UPDATE gl_accounts/i.test(q))).toBe(true);
-  });
-
-  it('tolerates sub-cent rounding dust rather than blocking on it', async () => {
-    seed({ debit: 1000, credit: 1000.004 });
-
-    await expect(updateAccount(COMPANY, ACCOUNT, { isActive: false })).resolves.toBeDefined();
-  });
-
-  it('never blocks REACTIVATION, even with a live balance', async () => {
-    seed({ debit: 130000, credit: 0 });
-
-    await expect(updateAccount(COMPANY, ACCOUNT, { isActive: true })).resolves.toBeDefined();
-    expect(balanceQueries()).toHaveLength(0);
-  });
-
-  it('does not run a balance query for an edit that leaves is_active alone', async () => {
-    seed({ debit: 130000, credit: 0 });
-
-    await expect(updateAccount(COMPANY, ACCOUNT, { accountName: 'Renamed' })).resolves.toBeDefined();
-    expect(balanceQueries()).toHaveLength(0);
-  });
-
-  it('still refuses to deactivate a system account, before looking at any balance', async () => {
-    sqlMock.mockReset();
-    sqlMock.mockResolvedValue([{ ...ACCOUNT_ROW, is_system_account: true }]);
-
-    await expect(updateAccount(COMPANY, ACCOUNT, { isActive: false }))
-      .rejects.toThrow(/system account/i);
+// Persisted GL amounts are cent-scaled. Keep the former sub-cent mock case
+// as a direct test of the real guard rather than inventing fractional PG money.
+describe('posted account balance tolerance', () => {
+  it('tolerates the original sub-cent rounding dust and both exact half-cent boundaries', () => {
+    expect(holdsMoney(1000 - 1000.004)).toBe(false);
+    for (const balance of [0, 0.004, -0.004, 0.005, -0.005]) {
+      expect(holdsMoney(balance)).toBe(false);
+    }
+    for (const balance of [0.005001, -0.005001, 130000, -450]) {
+      expect(holdsMoney(balance)).toBe(true);
+    }
+    expect(formatAccountBalance(130000)).toBe('130000.00');
+    expect(formatAccountBalance(-450)).toBe('-450.00');
   });
 });
