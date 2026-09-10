@@ -73,3 +73,10 @@ it('awaits failed output and closes inputs without returning successful counts',
  let closed=false;async function* rows(){try{yield item('a',0);yield item('b',1);}finally{closed=true;}}
  await expect(compareSnapshotStreams(synthetic(rows(),2),synthetic(stream([]),0),async()=>{throw new Error('sink failed');})).rejects.toThrow('sink failed');expect(closed).toBe(true);
 });
+it('closes the first acquired iterator when the second factory throws, preserving its failure',async()=>{
+ let closed=0;const failure=new Error('second factory failed');
+ const acquired:AsyncIterable<ComparisonItem>={[Symbol.asyncIterator]:()=>({next:async()=>({done:true,value:undefined}),return:async()=>{closed++;throw new Error('cleanup failed');}})};
+ const broken:AsyncIterable<ComparisonItem>={[Symbol.asyncIterator]:()=>{throw failure;}};
+ await expect(compareSnapshotStreams(synthetic(acquired,0),synthetic(broken,0),async()=>{})).rejects.toBe(failure);
+ expect(closed).toBe(1);
+});
