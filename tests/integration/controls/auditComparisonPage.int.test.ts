@@ -76,3 +76,15 @@ it('queued results remain unavailable without claiming or executing their jobs',
  await expect(actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId:job.id,section:'records'}))).rejects.toThrow(/unavailable/);
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'queued',attempts:0,resultComparisonId:null});
 });
+it('retains authorized reading after original delegation expiry and rejects oversized encrypted pages',async()=>{
+ const {openProtectedChange,protectChangeValues}=await import('@/modules/accounting/services/controls/changeProtection');
+ const intent=(await pool.query('SELECT protected_request FROM control_audit_job_intents WHERE company_id=$1 AND id=$2',[f.companyA,comparisonId])).rows[0];
+ const body=openProtectedChange(intent.protected_request).after;
+ if(!body)throw new Error('Expected genuine saved comparison request');
+ const expired=protectChangeValues('audit_job',null,{...body,delegationExpiresAt:'2020-01-01T00:00:00.000Z'}).protectedPayload;
+ await pool.query('UPDATE control_audit_job_intents SET protected_request=$3 WHERE company_id=$1 AND id=$2',[f.companyA,comparisonId,expired]);
+ try{expect((await actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId,section:'records',limit:1}),'u2')).items).toHaveLength(1);}
+ finally{await pool.query('UPDATE control_audit_job_intents SET protected_request=$3 WHERE company_id=$1 AND id=$2',[f.companyA,comparisonId,intent.protected_request]);}
+ await expect(pool.query("UPDATE control_audit_comparison_items SET protected_item=jsonb_build_object('oversized',repeat('x',2097153)) WHERE company_id=$1 AND job_id=$2 AND section='records' AND position=0",[f.companyA,comparisonId])).rejects.toMatchObject({code:'23514',constraint:'control_audit_comparison_items_protected_item_check'});
+ expect((await actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId,section:'records',limit:1}))).items).toHaveLength(1);
+});
