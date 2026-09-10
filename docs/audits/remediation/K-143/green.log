@@ -1,0 +1,26 @@
+K-143 — GREEN (branch fix/audit-k140-k145-bank-matching, merged origin/master @ 7749f3fab)
+
+RED (before the fix, this branch): 1 failed of 1.
+GREEN:
+  bun run test:integration -- tests/integration/k143-undo-counts-nothing-reversed.int.test.ts
+  Test Files  1 passed (1)   Tests  3 passed (3)
+  (1 validator test + 2 adjacent: a reconciled row still reported as skipped
+   rather than pushed into the new bucket, and another company's run refused.)
+  bunx vitest run tests/unit/services/bank/autoPostUndoService.test.ts — 3 passed.
+
+MUTATION PROOF: replaced `if (didReverse)` with `if (true as boolean)`, i.e. the
+old unconditional `reversed += 1`. Result: Tests 1 failed | 2 passed (3).
+Production change restored and re-run GREEN.
+
+FULL UNIT SUITE (DATABASE_URL unset):
+  Test Files  3 failed | 798 passed | 40 skipped (841)
+  Tests  6 failed | 9555 passed | 243 skipped (9804)
+The 3 failing files — bankAllocationService.test.ts, bank/bankAllocationUnwind.test.ts,
+cashFlowReport.test.ts — fail with "Test timed out in 10000ms" under a machine load
+average of 115-130 (many parallel agent sessions). Re-run on their own:
+  Test Files  3 passed (3)   Tests  21 passed (21)
+None of them is touched by this branch.
+
+tsc --noEmit: exit 0.
+eslint (6 changed src files): exit 0, no output.
+bun run agent-docs:check: OK: 74 agent document mirror(s) match canonical sources.

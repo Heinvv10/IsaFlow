@@ -1,6 +1,6 @@
 /**
  * Trial Balance Report API
- * GET /api/accounting/reports-trial-balance?fiscal_period_id=...
+ * GET /api/accounting/reports-trial-balance?fiscal_period_id=...&business_unit_id=...
  *
  * Response shape: `TrialBalanceReport` plus `comparePeriodId` —
  *   { fiscalPeriodId, periodStart, periodEnd, fiscalYearStart, rows,
@@ -26,6 +26,7 @@ import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { getTrialBalance, getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
+import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -33,23 +34,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  const fiscalPeriodId = req.query.fiscal_period_id;
+  const costCentreId = req.query.cost_centre_id;
+  const businessUnitId = req.query.business_unit_id;
+  const comparePeriodId = req.query.compare_period_id;
+  if (fiscalPeriodId === undefined) {
+    return apiResponse.badRequest(res, 'fiscal_period_id is required');
+  }
+  if (!isUuidParam(fiscalPeriodId)) {
+    return apiResponse.badRequest(res, 'fiscal_period_id must be a valid UUID');
+  }
+  if (costCentreId !== undefined && !isUuidParam(costCentreId)) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+  if (businessUnitId !== undefined && !isUuidParam(businessUnitId)) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
+  }
+  if (comparePeriodId !== undefined && !isUuidParam(comparePeriodId)) {
+    return apiResponse.badRequest(res, 'compare_period_id must be a valid UUID');
+  }
 
   try {
-    const fiscalPeriodId = req.query.fiscal_period_id as string;
-    const costCentreId = req.query.cost_centre_id as string | undefined;
-    const comparePeriodId = req.query.compare_period_id as string | undefined;
-    if (!fiscalPeriodId) {
-      return apiResponse.badRequest(res, 'fiscal_period_id is required');
-    }
-
     const includeZeroBalances = req.query.include_zero_balances === 'true';
     const report = await getTrialBalanceReport(companyId, fiscalPeriodId, {
       costCentreId: costCentreId || undefined,
+      businessUnitId,
       includeZeroBalances,
     });
 
     if (comparePeriodId) {
       const priorRows = await getTrialBalance(companyId, comparePeriodId, costCentreId || undefined, {
+        businessUnitId,
         includeZeroBalances,
       });
       const priorMap = new Map(priorRows.map(r => [r.accountCode, r]));

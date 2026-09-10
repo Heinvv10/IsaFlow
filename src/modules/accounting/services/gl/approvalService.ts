@@ -6,6 +6,21 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import {
+  assertMayDecide, isApproverRole, APPROVER_ROLES,
+  ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
+} from './approvalAuthority';
+import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
+import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
+import { lockApprovalRequestForUpdate } from './approvalRequestLock';
+
+// Re-exported so every existing import site keeps working after the
+// checkApproval/mapper split that kept this file under the 300-line ceiling.
+export { checkApproval, CONDITION_OPERATORS, isConditionOperator } from './approvalMatching';
+export type { ConditionOperator } from './approvalMatching';
+// requestApproval lives beside the document resolution it is built on; re-exported
+// so every existing import site keeps working.
+export { requestApproval } from './approvalDocuments';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,8 +42,16 @@ export interface ApprovalRule {
 
 export interface ApprovalRequest {
   id: string;
-  ruleId: string;
+  /** Nullable on the live schema; rows predating the scoped insert can carry NULL. */
+  ruleId: string | null;
   ruleName?: string;
+  /**
+   * The approver role this request was raised under, snapshot at raise time
+   * (migration 669). It ratchets up and never down, so lowering the bound rule
+   * — or rebinding the request to a laxer one — cannot weaken a pending request.
+   * NULL on rows raised before 669: those are governed by the live rule.
+   */
+  requiredRole: string | null;
   documentType: DocumentType;
   documentId: string;
   documentReference: string | null;
@@ -51,6 +74,71 @@ export interface ApprovalCheckResult {
 
 // ── Rule CRUD ────────────────────────────────────────────────────────────────
 
+export class ApprovalOperatorInvalidError extends Error {
+  constructor(operator: string) {
+    super(`conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')} (got ${operator})`);
+    this.name = 'ApprovalOperatorInvalidError';
+  }
+}
+
+/**
+ * The only two values `condition_field` may take.
+ *
+ * checkApproval matches on the resolved document amount and never reads this
+ * column, so both of these name the SAME number — the field is descriptive, not
+ * a selector. It was neither validated nor evaluated, which made it worse than
+ * decorative: the rules page renders `${conditionField} > ${conditionValue}`, so
+ * a rule authored as `vat` read as a VAT threshold while it governed the total.
+ */
+export const CONDITION_FIELDS = ['total', 'amount'] as const;
+
+export class ApprovalFieldInvalidError extends Error {
+  constructor(field: string) {
+    super(`conditionField must be one of: ${CONDITION_FIELDS.join(', ')} (got ${field})`);
+    this.name = 'ApprovalFieldInvalidError';
+  }
+}
+
+export class ApprovalRoleInvalidError extends Error {
+  constructor(role: string) {
+    super(`approverRole must be one of: ${APPROVER_ROLES.join(', ')} (got ${role})`);
+    this.name = 'ApprovalRoleInvalidError';
+  }
+}
+
+/**
+ * An approver_role the rank ladder does not know silently means 'admin', so a
+ * typed 'Owner' would quietly weaken an owner-only rule. Refuse it at the source.
+ */
+function assertApproverRole(role: string | undefined): void {
+  if (role !== undefined && !isApproverRole(role)) {
+    throw new ApprovalRoleInvalidError(role);
+  }
+}
+
+/**
+ * An operator checkApproval cannot evaluate now fails CLOSED, so writing one
+ * makes the rule demand approval on every document of its type. The route used
+ * to be the only thing stopping that; any other caller of this module — a
+ * script, an MCP tool, the `services/gl/index.ts` re-export — could still write
+ * it, and on a database where the CHECK has not landed the column takes it.
+ */
+function assertConditionOperator(operator: string | undefined): void {
+  if (operator !== undefined && !isConditionOperator(operator)) {
+    throw new ApprovalOperatorInvalidError(operator);
+  }
+}
+
+/**
+ * Both accepted values mean the document's resolved amount; the column records
+ * which word the author used, and nothing branches on it.
+ */
+function assertConditionField(field: string | undefined): void {
+  if (field !== undefined && !(CONDITION_FIELDS as readonly string[]).includes(field)) {
+    throw new ApprovalFieldInvalidError(field);
+  }
+}
+
 export async function listRules(companyId?: string): Promise<ApprovalRule[]> {
   if (!companyId) return [];
   const rows = (await sql`
@@ -66,7 +154,14 @@ export async function createRule(companyId: string, input: {
   conditionOperator?: string;
   conditionValue?: number;
   approverRole?: string;
-}): Promise<ApprovalRule> {
+}, actor: RuleActor): Promise<ApprovalRule> {
+  assertApproverRole(input.approverRole);
+  assertConditionOperator(input.conditionOperator);
+  assertConditionField(input.conditionField);
+  // The rank the NEW rule will demand, defaulted the same way the INSERT does.
+  // Without this an admin refused a weakening of the owner-only rule simply
+  // creates a manager-level rule beside it and the control is gone.
+  assertMayDemand(actor, input.approverRole || 'admin');
   const rows = (await sql`
     INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role)
     VALUES (
@@ -75,6 +170,7 @@ export async function createRule(companyId: string, input: {
       ${input.conditionValue || 0}, ${input.approverRole || 'admin'}
     ) RETURNING *
   `) as Record<string, unknown>[];
+  await auditRuleChange(companyId, actor, 'create', String(rows[0]!.id), null, rows[0]!);
   log.info('Created approval rule', { id: rows[0]!.id, name: input.name }, 'accounting');
   return mapRule(rows[0]!);
 }
@@ -86,7 +182,16 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
   conditionValue: number;
   approverRole: string;
   isActive: boolean;
-}>): Promise<ApprovalRule> {
+}>, actor: RuleActor): Promise<ApprovalRule> {
+  assertApproverRole(input.approverRole);
+  assertConditionOperator(input.conditionOperator);
+  assertConditionField(input.conditionField);
+  // Both ends: assertMayEditRule ranks the role the rule demands TODAY, this
+  // ranks the one it is being moved to. Ranking only the current role let an
+  // admin lower an admin-level rule to `viewer`.
+  assertMayDemand(actor, input.approverRole);
+  const before = await assertMayEditRule(companyId, id, actor);
+  if (!before) throw new ApprovalRuleNotFoundError(id);
   const rows = (await sql`
     UPDATE approval_rules SET
       name = COALESCE(${input.name ?? null}, name),
@@ -98,105 +203,24 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
       updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
   `) as Record<string, unknown>[];
-  if (!rows[0]) throw new Error(`Rule ${id} not found`);
+  if (!rows[0]) throw new ApprovalRuleNotFoundError(id);
+  await auditRuleChange(companyId, actor, 'update', id, before, rows[0]);
   return mapRule(rows[0]);
 }
 
-export async function deleteRule(companyId: string, id: string): Promise<void> {
-  await sql`DELETE FROM approval_rules WHERE id = ${id}::UUID AND company_id = ${companyId}`;
-}
-
-// ── Approval Check ───────────────────────────────────────────────────────────
-
-/** Check if a document requires approval based on active rules */
-export async function checkApproval(
-  companyId: string,
-  documentType: DocumentType,
-  documentId: string,
-  amount: number
-): Promise<ApprovalCheckResult> {
-  // Check for existing pending request
-  const existing = (await sql`
-    SELECT ar.*, rl.name AS rule_name
-    FROM approval_requests ar
-    LEFT JOIN approval_rules rl ON rl.id = ar.rule_id
-    WHERE ar.company_id = ${companyId}
-      AND ar.document_type = ${documentType}
-      AND ar.document_id = ${documentId}::UUID
-      AND ar.status = 'pending'
-    LIMIT 1
+/** False when the id names no rule this company owns — the route answers 404. */
+export async function deleteRule(companyId: string, id: string, actor: RuleActor): Promise<boolean> {
+  const before = await assertMayEditRule(companyId, id, actor);
+  if (!before) return false;
+  const rows = (await sql`
+    DELETE FROM approval_rules WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id
   `) as Record<string, unknown>[];
-
-  if (existing.length > 0) {
-    return {
-      requiresApproval: true,
-      matchedRule: null,
-      existingRequest: mapRequest(existing[0]!),
-    };
-  }
-
-  // Find matching active rules
-  const rules = (await sql`
-    SELECT * FROM approval_rules
-    WHERE company_id = ${companyId}
-      AND document_type = ${documentType}
-      AND is_active = true
-    ORDER BY priority ASC
-  `) as Record<string, unknown>[];
-
-  for (const rule of rules) {
-    const r = mapRule(rule);
-    let matches = false;
-
-    switch (r.conditionOperator) {
-      case 'any':
-        matches = true;
-        break;
-      case 'greater_than':
-        matches = amount > r.conditionValue;
-        break;
-      case 'greater_equal':
-        matches = amount >= r.conditionValue;
-        break;
-    }
-
-    if (matches) {
-      return {
-        requiresApproval: true,
-        matchedRule: r,
-        existingRequest: null,
-      };
-    }
-  }
-
-  return { requiresApproval: false, matchedRule: null, existingRequest: null };
+  if (!rows[0]) return false;
+  await auditRuleChange(companyId, actor, 'delete', id, before, null);
+  return true;
 }
 
 // ── Approval Requests ────────────────────────────────────────────────────────
-
-/** Create an approval request for a document */
-export async function requestApproval(companyId: string, input: {
-  ruleId: string;
-  documentType: DocumentType;
-  documentId: string;
-  documentReference?: string;
-  amount?: number;
-  requestedBy: string;
-}): Promise<ApprovalRequest> {
-  const rows = (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by)
-    VALUES (
-      ${companyId}, ${input.ruleId}::UUID, ${input.documentType}, ${input.documentId}::UUID,
-      ${input.documentReference || null}, ${input.amount || null}, ${input.requestedBy}::UUID
-    ) RETURNING *
-  `) as Record<string, unknown>[];
-  log.info('Approval requested', {
-    id: rows[0]!.id,
-    documentType: input.documentType,
-    documentId: input.documentId,
-  }, 'accounting');
-  return mapRequest(rows[0]!);
-}
 
 /** List approval requests with optional status filter */
 export async function listRequests(companyId: string, status?: ApprovalStatus): Promise<ApprovalRequest[]> {
@@ -206,7 +230,7 @@ export async function listRequests(companyId: string, status?: ApprovalStatus): 
                u1.first_name || ' ' || u1.last_name AS requested_by_name,
                u2.first_name || ' ' || u2.last_name AS decided_by_name
         FROM approval_requests ar
-        LEFT JOIN approval_rules rl ON rl.id = ar.rule_id
+        LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
         LEFT JOIN users u1 ON u1.id = ar.requested_by::TEXT
         LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
         WHERE ar.company_id = ${companyId} AND ar.status = ${status}
@@ -217,7 +241,7 @@ export async function listRequests(companyId: string, status?: ApprovalStatus): 
                u1.first_name || ' ' || u1.last_name AS requested_by_name,
                u2.first_name || ' ' || u2.last_name AS decided_by_name
         FROM approval_requests ar
-        LEFT JOIN approval_rules rl ON rl.id = ar.rule_id
+        LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
         LEFT JOIN users u1 ON u1.id = ar.requested_by::TEXT
         LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
         WHERE ar.company_id = ${companyId}
@@ -233,6 +257,11 @@ export async function decideRequest(companyId: string,
   decidedBy: string,
   notes?: string
 ): Promise<ApprovalRequest> {
+  // Lock BEFORE the authority is computed, so the row assertMayDecide reads is
+  // the row this UPDATE writes. A concurrent rebind can otherwise move the
+  // request onto a different rule between the two statements.
+  await lockApprovalRequestForUpdate(companyId, requestId);
+  await assertMayDecide(companyId, requestId, decidedBy, decision);
   const rows = (await sql`
     UPDATE approval_requests SET
       status = ${decision},
@@ -242,7 +271,7 @@ export async function decideRequest(companyId: string,
     WHERE id = ${requestId}::UUID AND company_id = ${companyId} AND status = 'pending'
     RETURNING *
   `) as Record<string, unknown>[];
-  if (!rows[0]) throw new Error(`Request ${requestId} not found or already decided`);
+  if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
   log.info('Approval decided', { id: requestId, decision }, 'accounting');
   return mapRequest(rows[0]);
 }
@@ -254,41 +283,4 @@ export async function getPendingCount(companyId?: string): Promise<number> {
     SELECT COUNT(*) AS count FROM approval_requests WHERE company_id = ${companyId} AND status = 'pending'
   `) as Record<string, unknown>[];
   return Number(rows[0]?.count ?? 0);
-}
-
-// ── Mappers ──────────────────────────────────────────────────────────────────
-
-function mapRule(r: Record<string, unknown>): ApprovalRule {
-  return {
-    id: String(r.id),
-    name: String(r.name),
-    documentType: String(r.document_type) as DocumentType,
-    conditionField: String(r.condition_field),
-    conditionOperator: String(r.condition_operator),
-    conditionValue: Number(r.condition_value),
-    approverRole: String(r.approver_role),
-    isActive: Boolean(r.is_active),
-    priority: Number(r.priority),
-    createdAt: String(r.created_at),
-  };
-}
-
-function mapRequest(r: Record<string, unknown>): ApprovalRequest {
-  return {
-    id: String(r.id),
-    ruleId: String(r.rule_id),
-    ruleName: r.rule_name ? String(r.rule_name) : undefined,
-    documentType: String(r.document_type) as DocumentType,
-    documentId: String(r.document_id),
-    documentReference: r.document_reference != null ? String(r.document_reference) : null,
-    amount: r.amount ? Number(r.amount) : null,
-    status: String(r.status) as ApprovalStatus,
-    requestedBy: String(r.requested_by),
-    requestedByName: r.requested_by_name ? String(r.requested_by_name) : undefined,
-    requestedAt: String(r.requested_at),
-    decidedBy: r.decided_by != null ? String(r.decided_by) : null,
-    decidedByName: r.decided_by_name ? String(r.decided_by_name) : undefined,
-    decidedAt: r.decided_at != null ? String(r.decided_at) : null,
-    decisionNotes: r.decision_notes != null ? String(r.decision_notes) : null,
-  };
 }

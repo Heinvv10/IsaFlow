@@ -1,0 +1,26 @@
+=== GREEN (fix in place) ===
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+=== MUTATION 1: restore the premature period advance in generateDueCharges ===
+     × must not roll the period forward while the debit is still unsettled 49ms
+     × advances the period onto the charge it settled 69ms
+     × settlement lifts the past_due raised by the earlier failed attempts 94ms
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+=== MUTATION 2: drop markPastDueIfExhausted from the declined path ===
+     × must stop granting the advanced period once every attempt has failed 78ms
+     × settlement lifts the past_due raised by the earlier failed attempts 72ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+=== MUTATION 3: drop advancePeriodForSettledCharge from the settled path ===
+     × advances the period onto the charge it settled 48ms
+     × does not advance twice when the webhook settles a charge the cron already settled 59ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+=== RESTORED ===
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+
+=== FULL UNIT SUITE (bunx vitest run, DATABASE_URL and PG* unset) ===
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9321 passed | 234 skipped (9555)

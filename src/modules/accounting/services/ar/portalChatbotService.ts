@@ -101,18 +101,100 @@ export function parseClientChatResponse(response: string): ChatResponse | null {
 // SANITIZATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-const INTERNAL_PATTERNS = [
-  /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN)\b[^.!?]*/gi,
-  /\b(customer_invoices|supplier_invoices|gl_accounts|bank_transactions|payslips|employees)\b/gi,
-  /\btable\s+\w+/gi,
-  /\bcolumn\s+\w+/gi,
-  /\bquery\b/gi,
+/**
+ * Replaces a reply that could not be made safe. Never return the raw text on
+ * failure: the case where stripping empties the string is exactly the case
+ * where the whole reply was internal SQL, and this output is customer-facing.
+ */
+export const SANITIZED_FALLBACK =
+  "I'm sorry — I can't answer that here. Please contact your accountant for help with this query.";
+
+/** Zero-width characters can be wedged inside a keyword to slip it past \b. */
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
+
+/**
+ * Statement keywords as a leaked query actually writes them — in caps.
+ *
+ * These fire ONLY on a sentence that also contains a lower-case letter.
+ * Shouty customer prose ("PLEASE UPDATE YOUR DETAILS AND SET UP A DEBIT
+ * ORDER.", "ORDER BY FRIDAY") is otherwise indistinguishable from SQL at this
+ * level, and a leaked query is embedded in lower-case identifiers anyway; a
+ * fully-upper-case query is still caught by the case-insensitive rules below.
+ */
+const CAPS_SQL_PATTERNS: RegExp[] = [
+  /\bSELECT\b[\s\S]{0,2000}?\bFROM\b/,
+  /\bINSERT\s+INTO\b/,
+  /\bUPDATE\b[\s\S]{0,200}?\bSET\b/,
+  /\bDELETE\s+FROM\b/,
+  /\bGROUP\s+BY\b|\bORDER\s+BY\b/,
+  /\bJOIN\b[\s\S]{0,200}?\bON\b/,
 ];
 
+/**
+ * A sentence matching any of these is dropped whole, never edited in place.
+ * Partial stripping is what leaked fragments verbatim — a column list longer
+ * than the bound, a quoted identifier, or a bare `WHERE company_id = '...'`
+ * survived the edit with the tenant id intact.
+ *
+ * The lower-case SELECT rules deliberately do NOT match plain prose: "Please
+ * select the invoice from the list below" is the most likely sentence on an
+ * invoice portal, so a lower-case select/from pair must also carry SQL
+ * structure — a star, a semicolon, a following clause keyword, a
+ * comma-separated column list, or a snake_case table name.
+ */
+const SQL_SENTENCE_PATTERNS: RegExp[] = [
+  /\bselect\b\s*\*/i,
+  /\bselect\b[\s\S]{0,2000}?\bfrom\b[\s\S]{0,400}?(?:\bwhere\b|\bjoin\b|\bgroup\s+by\b|\border\s+by\b|\blimit\b|[*;])/i,
+  // `select name, email from customers` — a comma-separated bare-identifier
+  // column list before FROM is SQL shape whatever the case, and carries no
+  // trailing clause to trip the rule above.
+  /\bselect\s+[a-z_][a-z0-9_.]*(?:\s*,\s*[a-z_][a-z0-9_.]*)+\s+from\s+[a-z_][a-z0-9_.]*/i,
+  // `select x from dunning_sends` — a snake_case FROM target is a table name,
+  // never the English noun a prose "from" introduces.
+  /\bselect\b[\s\S]{0,2000}?\bfrom\s+[a-z][a-z0-9]*_[a-z0-9_]*/i,
+  // `select balance from acct` — a whole sentence that is nothing BUT a
+  // select/from pair over bare identifiers is SQL whatever it names: prose
+  // ("Please select the invoice from the list below") always carries extra
+  // words, an article or a trailing clause, and so cannot match end-to-end.
+  // Without this the one shape that carries no star, no clause, no comma list
+  // and no snake_case reached the customer verbatim.
+  /^\s*select\s+[a-z_][a-z0-9_.]*(?:\s*,\s*[a-z_][a-z0-9_.]*)*\s+from\s+[a-z_][a-z0-9_.]*\s*[.;!?]?\s*$/i,
+  // `The result of select id from invoices is 5.` — the same bare select/from
+  // pair EMBEDDED in prose, which the anchored rule above cannot see. One
+  // identifier either side of FROM is SQL shape wherever it sits: prose puts an
+  // article or an adjective in between ("select the invoice from the list"), so
+  // it carries two or more words there and cannot match. The stop-word guards
+  // cover the one-word prose forms ("select one from the menu").
+  /\bselect\s+(?!(?:the|a|an|any|one|it|this|that|these|those|your|our|my|their|each|all|both|either|some)\b)[a-z_][a-z0-9_.]*\s+from\s+(?!(?:the|a|an|any|it|this|that|these|those|your|our|my|their|here|there|them|us|below|above)\b)[a-z_][a-z0-9_.]*\b/i,
+  // Predicates and internal identifiers, which leak tenant ids on their own.
+  // The WHERE rule requires a qualified or snake_case column: "your balance
+  // where applicable = 0" is prose, `where ci.company_id = '…'` is not.
+  /\bwhere\b[\s\S]{0,200}?(?:[a-z_]+\.[a-z_]+|[a-z]+_[a-z_]+)\s*=\s*(?:['"$]|\d)/i,
+  /\b\w+\s*\.\s*\w+\s*=\s*['"$]/,
+  /\b(?:customer_invoices|supplier_invoices|customer_invoice_disputes|gl_accounts|gl_journal_entries|gl_journal_lines|bank_transactions|dunning_sends|credit_notes|captured_documents)\b/i,
+  /\b(?:company_id|customer_id|client_id|invoice_id|supplier_id|deleted_at|amount_paid|total_amount|portal_token|created_by)\b/i,
+];
+
+const HAS_LOWERCASE = /[a-z]/;
+
+function isInternal(sentence: string): boolean {
+  if (SQL_SENTENCE_PATTERNS.some(p => p.test(sentence))) return true;
+  return HAS_LOWERCASE.test(sentence) && CAPS_SQL_PATTERNS.some(p => p.test(sentence));
+}
+
+/**
+ * Drop every sentence that looks like internal SQL or schema, keep the rest.
+ * Fails CLOSED: if nothing survives, the customer gets SANITIZED_FALLBACK,
+ * never the original text.
+ */
 export function sanitizeClientResponse(text: string): string {
-  let clean = text;
-  for (const pattern of INTERNAL_PATTERNS) {
-    clean = clean.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
-  }
-  return clean || text;
+  const normalized = text.replace(ZERO_WIDTH, '');
+  const kept = normalized
+    .split(/(?<=[.!?])(?=\s)/)
+    .filter(sentence => !isInternal(sentence))
+    .join('')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return kept || SANITIZED_FALLBACK;
 }

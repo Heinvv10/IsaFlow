@@ -6,6 +6,7 @@
  * (cumulative for balance-sheet accounts, year-to-date for income-statement
  * ones) — see trialBalanceService.ts. It used to export one period's turnover
  * under a "Debit"/"Credit" heading.
+ * Optional cost_centre_id and business_unit_id filters are cumulative.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,14 +17,27 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 import { csvVal } from '@/lib/csv';
+import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   const { companyId } = req as CompanyAuthedRequest;
-  const fiscalPeriodId = req.query.fiscal_period_id as string;
-  const costCentreId = req.query.cost_centre_id as string | undefined;
-  if (!fiscalPeriodId) return apiResponse.badRequest(res, 'fiscal_period_id is required');
+  const fiscalPeriodId = req.query.fiscal_period_id;
+  const costCentreId = req.query.cost_centre_id;
+  const businessUnitId = req.query.business_unit_id;
+  if (fiscalPeriodId === undefined) {
+    return apiResponse.badRequest(res, 'fiscal_period_id is required');
+  }
+  if (!isUuidParam(fiscalPeriodId)) {
+    return apiResponse.badRequest(res, 'fiscal_period_id must be a valid UUID');
+  }
+  if (costCentreId !== undefined && !isUuidParam(costCentreId)) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+  if (businessUnitId !== undefined && !isUuidParam(businessUnitId)) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
+  }
 
   try {
     type CompanyRow = { name: string };
@@ -33,7 +47,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<CompanyRow[]>,
         sql`SELECT period_name AS name, start_date, end_date FROM fiscal_periods WHERE id = ${fiscalPeriodId}::UUID AND company_id = ${companyId}::UUID LIMIT 1` as Promise<PeriodRow[]>,
       ]),
-      getTrialBalanceReport(companyId, fiscalPeriodId, { costCentreId: costCentreId || undefined }),
+      getTrialBalanceReport(companyId, fiscalPeriodId, {
+        costCentreId: costCentreId || undefined,
+        businessUnitId,
+      }),
     ]);
     const { rows, totalDebit, totalCredit, difference, balanced } = report;
     const companyName = companyRows[0]?.name ?? 'Company';

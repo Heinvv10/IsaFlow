@@ -3,7 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { sqlMock } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn() }),
 }));
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), transaction: vi.fn() }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  withTransaction: vi.fn(),
+  transaction: vi.fn(),
+  // Pass-through, matching the real helper's behaviour with no ALS client.
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 const reverseReconciledTransaction = vi.fn();
@@ -54,7 +60,7 @@ describe('undoRun', () => {
 
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
-    expect(r).toEqual({ reversed: 2, skipped: 1 });
+    expect(r).toEqual({ reversed: 2, skipped: 1, alreadyUndone: 0 });
     expect(reverseReconciledTransaction).toHaveBeenCalledWith('co-1', 't2', 'u-1');
     expect(reverseJournalEntry).toHaveBeenCalledWith('co-1', 'je-3', 'u-1');
     expect(reverseReconciledTransaction).not.toHaveBeenCalledWith('co-1', 't1', 'u-1');
