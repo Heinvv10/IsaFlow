@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { assertTxUsable } from '@/lib/als';
 import {
   updateRecurringStatus,
   generateInvoiceFromRecurring,
@@ -45,6 +46,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Recurring invoice action failed', { error: err }, 'accounting-api');
+    // A 4xx is COMMITted by withAuth. That is right for a refusal, which writes
+    // nothing — but not when the failure poisoned the request transaction, so
+    // let that one through as a 500 and be rolled back.
+    assertTxUsable();
     return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
 }

@@ -16,6 +16,7 @@
  */
 
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
+import { withCustomerInvoiceLock } from './customerInvoiceLock';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
@@ -79,7 +80,10 @@ export function assertAllocationShape(allocations: readonly ReceiptAllocationInp
 
 /**
  * Validate every allocation against the live invoice rows and return the lines
- * plus the customer they all belong to. Reads only.
+ * plus the customer they all belong to. Writes nothing, but LOCKS every
+ * candidate invoice row for the rest of the request — the guards below are
+ * check-then-act against `amount_paid`, so the plan has to be made on rows no
+ * other writer can move underneath it.
  *
  * @param paymentId When given, each invoice also reports what THIS payment has
  *   already been allocated against it, so a second application of one receipt
@@ -131,23 +135,42 @@ async function fetchInvoiceCandidates(
   paymentId: string | null,
   invoiceIds: readonly string[],
 ): Promise<Map<string, InvoiceCandidate>> {
-  const rows = (await sql`
-    SELECT ci.id,
-           ci.invoice_number,
-           COALESCE(ci.client_id, ci.customer_id) AS owner_id,
-           ci.total_amount,
-           ci.amount_paid,
-           ci.status,
-           COALESCE((
-             SELECT SUM(cpa.amount_allocated)
-             FROM customer_payment_allocations cpa
-             WHERE cpa.invoice_id = ci.id
-               AND cpa.payment_id = ${paymentId}::UUID
-           ), 0) AS already_allocated
-    FROM customer_invoices ci
-    WHERE ci.company_id = ${companyId}::UUID
-      AND ci.id = ANY(${[...invoiceIds]}::UUID[])
-  `) as InvoiceCandidate[];
+  // FOR UPDATE, not a plain read. `buildLine` refuses an allocation larger
+  // than the outstanding it computes from `amount_paid` here, and
+  // `applyLineToInvoice` then adds to that same column — a check-then-act. The
+  // other writer of `amount_paid` is a credit-note apply, which does hold an
+  // invoice row lock: without one on this side, a receipt that planned against
+  // a R200 outstanding still wrote its R200 on top of a credit note that
+  // committed R100 in between, leaving amount_paid at R300 on a R200 invoice.
+  // The payment (or bank line) is already locked by the caller, so the invoice
+  // stays the last lock taken and no ordering cycle appears.
+  //
+  // ORDER BY ci.id fixes the acquisition order across rows: two receipts
+  // touching an overlapping set of invoices would otherwise be free to take
+  // them in opposite orders and deadlock.
+  const rows = await withCustomerInvoiceLock(
+    'planAllocationLines',
+    invoiceIds.length === 1 ? `Invoice ${invoiceIds[0]}` : 'One of these invoices',
+    async () => (await sql`
+      SELECT ci.id,
+             ci.invoice_number,
+             COALESCE(ci.client_id, ci.customer_id) AS owner_id,
+             ci.total_amount,
+             ci.amount_paid,
+             ci.status,
+             COALESCE((
+               SELECT SUM(cpa.amount_allocated)
+               FROM customer_payment_allocations cpa
+               WHERE cpa.invoice_id = ci.id
+                 AND cpa.payment_id = ${paymentId}::UUID
+             ), 0) AS already_allocated
+      FROM customer_invoices ci
+      WHERE ci.company_id = ${companyId}::UUID
+        AND ci.id = ANY(${[...invoiceIds]}::UUID[])
+      ORDER BY ci.id
+      FOR UPDATE OF ci
+    `) as InvoiceCandidate[],
+  );
   return new Map(rows.map((r) => [String(r.id), r]));
 }
 

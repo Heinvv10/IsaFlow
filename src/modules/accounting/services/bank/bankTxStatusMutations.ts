@@ -15,12 +15,15 @@
  * `reverseReconciledTransaction`'s job, which posts the contra.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { BankTransaction } from '../../types/bank.types';
 import { mapTxRow } from './bankTxRowMapper';
-import { lockBankTransactionForUpdate } from './bankTxLock';
+import {
+  lockBankTransactionForUpdate, isLockNotAvailable, tableLockUnavailable, BankMatchUnavailableError,
+} from './bankTxLock';
+export { BankMatchUnavailableError } from './bankTxLock';
 
 type Row = DbRow;
 
@@ -53,6 +56,27 @@ export class BankTransactionAllocatedError extends Error {
 }
 
 /**
+ * Raised when a match names a target this company cannot use, or a journal line
+ * another bank transaction already holds.
+ *
+ * Typed rather than a bare `Error` because `autoMatchTransactions` rethrows
+ * everything it does not recognise, and `withAuth` COMMITs the 4xx the route
+ * then returns — so an escaping throw aborts the run with the matches it had
+ * already applied persisted. `LINE_CLAIMED` is exactly the race that loop was
+ * written to tolerate (the candidate query excludes claimed lines, so it can
+ * only fire when a peer binds the line in between), so the code is what lets
+ * the loop skip that one case and keep rethrowing the rest.
+ */
+export type BankMatchTargetCode = 'LINE_NOT_FOUND' | 'LINE_CLAIMED' | 'RECONCILIATION_NOT_FOUND';
+
+export class BankMatchTargetError extends Error {
+  constructor(readonly code: BankMatchTargetCode, message: string) {
+    super(message);
+    this.name = 'BankMatchTargetError';
+  }
+}
+
+/**
  * Lock the row, then refuse if it has already been allocated. `verb` is the
  * caller's own word for what it was about to do, so the message reads naturally.
  */
@@ -66,23 +90,127 @@ async function lockForStatusWrite(companyId: string, bankTxId: string, verb: str
   return row;
 }
 
+/**
+ * The journal line and reconciliation a match points at must belong to the
+ * caller's company, and the line must not already be claimed by another row.
+ *
+ * `lockForStatusWrite` above checks only the BANK row. The FK to
+ * `gl_journal_lines(id)` is not a tenant check — referential integrity is not
+ * subject to row-level security — so an id from another company was accepted
+ * and the row left `matched` against a line no query in this company can
+ * resolve. A non-existent id surfaced as a raw FK violation, which also poisons
+ * the request transaction instead of returning a clean 400. And one line bound
+ * to two bank transactions double-counts that line in the reconciled balance.
+ *
+ * The `bank_transfer` arm of `bank-match-confirm.ts` already looks its line up
+ * company-scoped before calling; the `journal_line` arm did not.
+ */
+async function assertMatchTargets(
+  companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string,
+): Promise<void> {
+  const line = (await sql`
+    SELECT id FROM gl_journal_lines
+    WHERE id = ${journalLineId}::UUID AND company_id = ${companyId}::UUID
+    LIMIT 1`) as Row[];
+  if (line.length === 0) {
+    throw new BankMatchTargetError('LINE_NOT_FOUND', `Journal line ${journalLineId} not found`);
+  }
+
+  const claimed = (await sql`
+    SELECT id FROM bank_transactions
+    WHERE matched_journal_line_id = ${journalLineId}::UUID
+      AND company_id = ${companyId}::UUID
+      AND id <> ${bankTxId}::UUID
+    LIMIT 1`) as Row[];
+  if (claimed.length > 0) {
+    throw new BankMatchTargetError(
+      'LINE_CLAIMED',
+      `Journal line ${journalLineId} is already matched to bank transaction ${String(claimed[0]!.id)}`,
+    );
+  }
+
+  if (reconciliationId) {
+    const rec = (await sql`
+      SELECT id FROM bank_reconciliations
+      WHERE id = ${reconciliationId}::UUID AND company_id = ${companyId}::UUID
+      LIMIT 1`) as Row[];
+    if (rec.length === 0) {
+      throw new BankMatchTargetError('RECONCILIATION_NOT_FOUND', `Reconciliation ${reconciliationId} not found`);
+    }
+  }
+}
+
+/** `withSavepoint` caps names at 31 characters; this one is 19. */
+const MATCH_WRITE_SAVEPOINT = 'bank_tx_match_write';
+
+/**
+ * Is this the partial unique index from migration 657 rejecting a second bank
+ * transaction for the same journal line? Matched by constraint name, not by the
+ * bare 23505: any other unique violation on this UPDATE is a real failure.
+ */
+function isMatchedLineUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string } | null;
+  return e?.code === '23505' && e?.constraint === 'uq_bank_tx_matched_line';
+}
+
 export async function matchTransaction(
   companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string
 ): Promise<BankTransaction> {
   try {
     await lockForStatusWrite(companyId, bankTxId, 'match');
+    await assertMatchTargets(companyId, bankTxId, journalLineId, reconciliationId);
+    // The claim check above cannot hold under concurrency: the two racing
+    // requests lock two DIFFERENT bank rows, so they never contend, and at READ
+    // COMMITTED neither claim SELECT sees the peer's uncommitted UPDATE. Both
+    // committed, and one journal line ended up bound to two bank transactions —
+    // double-counting that line in the reconciled balance. `uq_bank_tx_matched_line`
+    // (migration 657) is what actually stops it; the check above stays because it
+    // gives the clean 400 in the common case and names the other transaction.
+    //
+    // Under its own savepoint so the 23505 is recoverable: `autoMatchTransactions`
+    // skips this error and keeps going, which an aborted transaction (25P02 on
+    // every later row) would make impossible.
     let rows: Row[];
-    if (reconciliationId) {
-      rows = (await sql`
-        UPDATE bank_transactions
-        SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
-            reconciliation_id = ${reconciliationId}::UUID
-        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
-    } else {
-      rows = (await sql`
-        UPDATE bank_transactions
-        SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
-        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
+    try {
+      rows = await withSavepoint(MATCH_WRITE_SAVEPOINT, async (): Promise<Row[]> => {
+        try {
+          if (reconciliationId) {
+            return (await sql`
+              UPDATE bank_transactions
+              SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
+                  reconciliation_id = ${reconciliationId}::UUID
+              WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
+          }
+          return (await sql`
+            UPDATE bank_transactions
+            SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
+            WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
+        } catch (writeErr) {
+          if (isMatchedLineUniqueViolation(writeErr)) {
+            throw new BankMatchTargetError(
+              'LINE_CLAIMED',
+              `Journal line ${journalLineId} is already matched to another bank transaction`,
+            );
+          }
+          throw writeErr;
+        }
+      });
+    } catch (writeErr) {
+      // The same race, seen slowly: before migration 657 the two racers locked
+      // different bank rows and never blocked; the unique index makes them
+      // block on the INDEX instead, and that wait is bounded by the 5s
+      // lock_timeout, so a peer holding its transaction longer hands this
+      // UPDATE a raw 55P03 rather than the 23505 above. Unmapped it escapes as
+      // a bare pg error, the run does not recognise it, the route 400s and
+      // withAuth COMMITs the partial run. But the same 55P03 is what a locked
+      // TABLE produces, and that is not a claim on the line — see
+      // `tableLockUnavailable`.
+      if (!isLockNotAvailable(writeErr)) throw writeErr;
+      if (await tableLockUnavailable()) throw new BankMatchUnavailableError(bankTxId);
+      throw new BankMatchTargetError(
+        'LINE_CLAIMED',
+        `Journal line ${journalLineId} is already matched to another bank transaction`,
+      );
     }
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     log.info('Matched bank transaction', { bankTxId, journalLineId }, 'accounting');

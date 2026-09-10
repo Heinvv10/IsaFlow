@@ -19,6 +19,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendDunning } from '@/modules/accounting/services/ar/dunningService';
+import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
 import { log } from '@/lib/logger';
 
 const BodySchema = z.object({
@@ -61,20 +62,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     }
     apiResponse.success(res, result);
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : '';
-    if (/Invoice .* not found/i.test(errMsg)) {
-      apiResponse.notFound(res, 'Invoice', invoiceId);
-      return;
-    }
-    if (/Template .* not found/i.test(errMsg)) {
-      apiResponse.notFound(res, 'Template', templateId);
-      return;
-    }
-    if (
-      /no outstanding balance/i.test(errMsg) ||
-      /cancelled invoice/i.test(errMsg) ||
-      /no email address/i.test(errMsg)
-    ) {
+    // Classify by TYPE, never by message text: a 4xx here is COMMITted by
+    // withAuth, so anything that is not sendDunning's own refusal must reach it
+    // as a 5xx and roll back. See src/modules/accounting/services/ar/arErrors.ts.
+    if (err instanceof ArRequestError) {
+      if (err.code === 'DUNNING_INVOICE_NOT_FOUND') {
+        apiResponse.notFound(res, 'Invoice', invoiceId);
+        return;
+      }
+      if (err.code === 'DUNNING_TEMPLATE_NOT_FOUND') {
+        apiResponse.notFound(res, 'Template', templateId);
+        return;
+      }
       apiResponse.badRequestFromError(res, err, 'Failed to send dunning notices');
       return;
     }

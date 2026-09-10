@@ -4,6 +4,7 @@ import { log } from '@/lib/logger';
 import { listPayrollEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
+import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
 import { isPayrollRunLocked, PayrollRunLockedError } from './payrollRunLock';
@@ -15,11 +16,8 @@ import {
   yearsOfService,
   type TerminationReason,
 } from './payrollTerminationService';
-import {
-  applyLoanToRun,
-  listActiveLoansForRun,
-  type ApplyLoanResult,
-} from './payrollLoanService';
+import type { ApplyLoanResult } from './payrollLoanService';
+import { applyRunLoans } from './payrollRunLoanApplication';
 
 
 type Row = DbRow;
@@ -37,6 +35,8 @@ export interface PayrollRunSummary {
   totalEti: number;
   totalNet: number;
   employeeCount: number;
+  /** The GL entry posted at approval, still set after reopenPayrollRun. */
+  journalEntryId: string | null;
 }
 
 export function mapRunRow(r: Row): PayrollRunSummary {
@@ -53,6 +53,7 @@ export function mapRunRow(r: Row): PayrollRunSummary {
     totalEti: Number(r.total_eti) || 0,
     totalNet: Number(r.total_net) || 0,
     employeeCount: Number(r.employee_count) || 0,
+    journalEntryId: r.journal_entry_id == null ? null : String(r.journal_entry_id),
   };
 }
 
@@ -136,31 +137,33 @@ export async function calculatePayrollRun(
   let totalPaye = 0;
   let totalUifEmployee = 0;
   let totalUifEmployer = 0;
-  let totalSdl = 0;
   let totalEti = 0;
   let totalNet = 0;
-
-  const annualPayrollEstimate = employees.length * 25_000 * 12;
 
   // Build all line inserts in memory before touching the DB
   type LineInsert = {
     employeeId: string;
     grossPay: number; taxableIncome: number; paye: number;
-    uifEmployee: number; uifEmployer: number; sdl: number;
+    uifEmployee: number; uifEmployer: number;
+    sdl: number; sdlLeviable: number;
     eti: number; netPay: number;
     componentBreakdown: string; validationResults: string;
   };
 
   const lineInserts: LineInsert[] = [];
 
-  const activeLoans = await listActiveLoansForRun(companyId, period.year, period.month);
-  const loansByEmployee = new Map<string, string[]>();
-  for (const row of activeLoans) {
-    const list = loansByEmployee.get(row.employeeId) ?? [];
-    list.push(row.loanId);
-    loansByEmployee.set(row.employeeId, list);
-  }
-  const officialRate = Number(process.env.SARS_OFFICIAL_RATE ?? 0.085);
+  // Undo the loan deductions THIS run already applied, then re-apply the
+  // instalments due — one locked transaction, so a recalculation reproduces
+  // the same payslip instead of dropping the deduction while keeping the
+  // reduced balance. See payrollRunLoanApplication.ts.
+  const loansByEmployee = await applyRunLoans({
+    companyId,
+    runId,
+    periodYear: period.year,
+    periodMonth: period.month,
+    officialRate: Number(process.env.SARS_OFFICIAL_RATE ?? 0.085),
+    journalEntryId: run.journal_entry_id == null ? null : String(run.journal_entry_id),
+  });
 
   for (const employee of employees) {
     const components = await getEmployeeComponents(employee.id, companyId, periodDate);
@@ -171,19 +174,7 @@ export async function calculatePayrollRun(
       period,
     );
 
-    const loanIds = loansByEmployee.get(employee.id) ?? [];
-    const loanApplications: ApplyLoanResult[] = [];
-    for (const loanId of loanIds) {
-      const applied = await applyLoanToRun({
-        loanId,
-        companyId,
-        runId,
-        periodYear: period.year,
-        periodMonth: period.month,
-        officialRate,
-      });
-      if (applied) loanApplications.push(applied);
-    }
+    const loanApplications: ApplyLoanResult[] = loansByEmployee.get(employee.id) ?? [];
     const componentsWithLoans = await appendLoanComponents(
       companyId,
       componentsWithTermination,
@@ -195,7 +186,7 @@ export async function calculatePayrollRun(
       components: componentsWithLoans,
       period,
       taxYear,
-      annualPayrollEstimate,
+      annualPayrollEstimate: 'defer',
     });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
@@ -213,7 +204,8 @@ export async function calculatePayrollRun(
       paye: line.paye.monthlyPaye,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,
-      sdl: line.sdl,
+      sdl: 0, // set below, once the run's own leviable total decides leviability
+      sdlLeviable: line.sdlLeviable,
       eti: line.eti.monthlyEti,
       netPay: line.netPay,
       componentBreakdown: JSON.stringify(line.componentBreakdown),
@@ -226,12 +218,22 @@ export async function calculatePayrollRun(
     totalPaye += line.paye.monthlyPaye;
     totalUifEmployee += line.uif.employeeContribution;
     totalUifEmployer += line.uif.employerContribution;
-    totalSdl += line.sdl;
     totalEti += line.eti.monthlyEti;
     totalNet += line.netPay;
   }
 
   const r = (n: number) => Math.round(n * 100) / 100;
+
+  // SDL leviability belongs to the employer, not to one employee, and is
+  // decided on twelve months of remuneration — see sdlLeviabilityService for
+  // the basis. The levy itself is still charged per line on that line's own
+  // leviable amount. The previous headcount x R25 000 x 12 decided the
+  // threshold by employee count alone, exempting any single employee however
+  // much they earned and levying any two however little.
+  const annualRemuneration = await estimateAnnualRemuneration(
+    companyId, period, r(totalGross), runId,
+  );
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 
   // All DB mutations in one transaction so a partial failure cannot corrupt
   // state — but via `withTransaction`, NEVER raw BEGIN/COMMIT.

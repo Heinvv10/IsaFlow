@@ -1,0 +1,21 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k013-recurring-invoice-no-lines-no-gl.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-013
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  05:48:35
+   Duration  622ms (transform 153ms, setup 0ms, import 221ms, tests 274ms, environment 0ms)
+
+
+=== Mutation check (production code reverted, test re-run) ===
+M1  whole file reverted to origin/master      -> 3 failed | 1 passed
+M2  withSavepoint replaced by a bare IIFE     -> 2 failed | 2 passed
+M3  empty-line-items guard disabled           -> 1 failed | 3 passed
+Restored after each; final run 4 passed (above).
+
+Not mutation-covered: the `AND company_id` added to the recurring_invoices
+UPDATE. `id` is the primary key and the preceding SELECT is already scoped by
+company, so the predicate cannot change the outcome — it is rule compliance
+(multi-tenant), not a behavioural fix, and no test can distinguish it.

@@ -1,0 +1,50 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-035
+
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  05:51:56
+   Duration  1.52s (transform 275ms, setup 0ms, import 502ms, tests 855ms, environment 0ms)
+
+
+--- Mutation check ---
+Reverted pages/api/webhooks/paystack.ts and pages/api/portal/payments/paystack/verify.ts
+to their state at dd4f854c (the K-035 commit, which still carries the bare
+`UPDATE customer_invoices` in both), re-ran the same file: Tests 6 failed (6).
+Both production files then restored; K-035's own suite re-run green (6 passed).
+
+--- Historical impact ---
+The impact SQL lives in fix.md. It was executed read-only against the production
+`isaflow` database once, BEFORE the instruction arrived not to query production at
+all; the result is recorded in fix.md and disclosed to the team lead. No further
+production queries were made and no data was written or repaired.
+
+--- Full unit suite (DATABASE_URL unset: `env -u DATABASE_URL bunx vitest run`) ---
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+
+--- After the blind-review remediation ---
+bun run test:integration -- k-035 + k-036 + public-route-tx  ->  3 files, 23 passed
+Mutation: reverting the five source files to 9e2fcd95 turns all 8 new cases red
+(2 files failed, 8 failed / 9 passed).
+Full unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run --testTimeout=60000
+--maxWorkers=4):  784 files passed | 36 skipped; 9320 tests passed | 234 skipped.
+tsc --noEmit clean; eslint clean on all five source files; migration-naming, migration-rls
+and agent-docs gates all OK. Migration 620 applied to the fixture DB.
+
+--- After the follow-up review (N1-N7) ---
+bun run test:integration -- k-035 + k-036 + public-route-tx  ->  3 files, 29 passed
+Mutation: reverting the three source files to 7179f208 turns 5 of the 6 new cases red
+(5 failed / 14 passed).
+tsc --noEmit clean; eslint clean on all six source files; migration-naming (338 files),
+migration-rls and agent-docs gates all OK. Migration 620 dropped and re-applied on the
+fixture DB after the IS DISTINCT FROM change. Production was NOT queried.
+
+--- After the round-3 review (R1-R3) ---
+bun run test:integration -- k-035 + k-036 + public-route-tx  ->  3 files, 31 passed
+Mutation: reverting gatewayFeeService.ts to cffa35e4 turns both new cases red
+(2 failed / 19 passed).
+tsc --noEmit clean; eslint clean; migration-naming and agent-docs gates OK.
+Production was NOT queried.
