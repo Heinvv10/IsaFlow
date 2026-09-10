@@ -28,7 +28,7 @@ beforeAll(async()=>{
  }
  [first,second]=ids as [string,string];
  const job=await actor(()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:first,secondSnapshotId:second,idempotencyKey:randomUUID()}));comparisonId=job.id;
- expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:comparisonId},{pool})).toMatchObject({state:'succeeded',comparisonId});
+ expect(await runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId:comparisonId},{pool,workerClass:'audit'})).toMatchObject({state:'succeeded',comparisonId});
  // Readers must not load the original full seals, which are deliberately unavailable in this synthetic fixture.
  await pool.query("UPDATE control_audit_snapshots SET protected_snapshot='{}' WHERE company_id=$1 AND id=ANY($2::uuid[])",[f.companyA,ids]);
 });

@@ -41,6 +41,6 @@ export async function auditComparisonRestFixture(){
   const response=await fetch(`http://127.0.0.1:${port}/api/accounting/audit-comparisons${method==='GET'?`?${query}`:''}`,{method,redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${user.companyId}; isaflow_csrf=${csrf}`,'x-csrf-token':validCsrf?csrf:'invalid'},...(method==='POST'?{body:JSON.stringify(input)}:{})});
   return{status:response.status,body:await response.json()};
  }
- return{f,pool,records,first:snapshots[0]!,second:snapshots[1]!,request,run:(jobId:string)=>runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId},{pool}),close};
+ return{f,pool,records,first:snapshots[0]!,second:snapshots[1]!,request,run:(jobId:string)=>runAuditJob({companyId:f.companyA,personId:f.u1.id,jobId},{pool,workerClass:'audit'}),close};
  }catch(error){try{await close();}catch(cleanup){throw new AggregateError([error,cleanup],'Synthetic comparison setup failed');}throw error;}
 }

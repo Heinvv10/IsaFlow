@@ -36,7 +36,7 @@ beforeAll(async()=>{
 afterAll(async()=>{if(storage)await storage.close();if(pool)await pool.end();if(directory)await rm(directory,{recursive:true,force:true});});
 it('retains and exports exact 100 MiB originals, then atomically refuses one excess byte',async()=>{
  expect(originals.reduce((sum,item)=>sum+item.byteLength,0)).toBe(100*1024*1024);
- const runner=createIsolatedAuditJobRunner({nodePath:process.execPath,entryPath:process.env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT!});
+ const runner=createIsolatedAuditJobRunner({nodePath:process.execPath,entryPath:process.env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT!,workerClass:'audit'});
  const snapshotJob=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['bank'],checks:[],idempotencyKey:randomUUID()}));
  for(let n=0;n<2;n++)expect(await actor(()=>getAuditJob(requireControlTx(),snapshotJob.id))).toMatchObject({state:'queued',attempts:0});
  expect(storage.requests).toBe(0);

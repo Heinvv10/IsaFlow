@@ -12,7 +12,7 @@ const retry=randomUUID();
 beforeAll(async()=>{f=await auditDeliveryFixture();
  const make=async(sources:string[])=>{
   const job=await f.call<Job>('audit_snapshot',{cutoff:'2026-09-09',sources,checks:[],idempotency_key:randomUUID()});
-  expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool})).toMatchObject({state:'succeeded'});return job.id;
+  expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool,workerClass:'audit'})).toMatchObject({state:'succeeded'});return job.id;
  };
  first=await make(['journals','payroll']);
  // Synthetic change after retaining the original; complete approved correction workflow is tested separately.
@@ -26,7 +26,7 @@ it('actual default MCP HTTP enqueues once, publishes ordered changes and deliver
  expect(a.id).toBe(b.id);comparison=a.id;
  expect(await f.call<Job>('audit_job_status',{job_id:comparison})).toMatchObject({state:'queued',attempts:0});
  expect((await f.rpc('audit_comparison_items',{comparison_id:comparison,section:'records'})).result?.isError).toBe(true);
- expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:comparison},{pool:f.pool})).toMatchObject({state:'succeeded',comparisonId:comparison});
+ expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:comparison},{pool:f.pool,workerClass:'audit'})).toMatchObject({state:'succeeded',comparisonId:comparison});
  expect(await f.call<Job>('audit_job_status',{job_id:comparison})).toMatchObject({state:'succeeded',resultComparisonId:comparison});
  const digest=createHash('sha256').update('isaflow.audit-comparison-result.v1\n'),changes:ComparisonChange[]=[];let footer:Page|undefined;
  for(const section of COMPARISON_SECTIONS){let cursor:string|undefined,position=0;
@@ -40,7 +40,7 @@ it('actual default MCP HTTP enqueues once, publishes ordered changes and deliver
  digest.update(canonicalJson({version,companyId,comparisonRuleVersion,first:before,second:after,permissions,counts,populationChanged,coverageChanged})+'\n');
  expect(digest.digest('hex')).toBe(footer!.canonicalHash);
  expect(changes).toContainEqual(expect.objectContaining({section:'records',kind:'changed',identity:{source:'journal_entry',id:f.journal}}));
- expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:comparison},{pool:f.pool})).toEqual({state:'not_claimed'});
+ expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:comparison},{pool:f.pool,workerClass:'audit'})).toEqual({state:'not_claimed'});
 },30000);
 it('rechecks both source domains before successful MCP retry and retained result reads',async()=>{
  for(const module of ['payroll','banking']){
@@ -62,7 +62,7 @@ it('queues genuine indexless originals through MCP without foreground conversion
  const ids:string[]=[];
  for(const sources of [['journals','payroll'],['journals','bank']]){
   const job=await f.call<Job>('audit_snapshot',{cutoff:'2026-09-09',sources,checks:[],idempotency_key:randomUUID()});ids.push(job.id);
-  expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool})).toMatchObject({state:'succeeded'});
+  expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool,workerClass:'audit'})).toMatchObject({state:'succeeded'});
  }
  const originals=(await f.pool.query('SELECT id,canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=ANY($2::uuid[]) ORDER BY id',[f.fixture.companyA,ids])).rows;
  for(const table of ['control_audit_snapshot_index_chunks','control_audit_snapshot_index_items','control_audit_snapshot_indexes','control_audit_comparison_source_items','control_audit_comparison_sources'])
@@ -72,7 +72,7 @@ it('queues genuine indexless originals through MCP without foreground conversion
  expect(await f.call<Job>('audit_job_status',{job_id:job.id})).toMatchObject({state:'queued',attempts:0});
  expect((await f.pool.query('SELECT snapshot_id FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=ANY($2::uuid[])',[f.fixture.companyA,ids])).rows).toEqual([]);
  expect((await f.call<Job>('compare_audit_snapshots',args)).id).toBe(job.id);
- expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool})).toMatchObject({state:'succeeded',comparisonId:job.id});
+ expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool,workerClass:'audit'})).toMatchObject({state:'succeeded',comparisonId:job.id});
  const page=await f.call<Page>('audit_comparison_items',{comparison_id:job.id,section:'records'});expect(page.first.id).toBe(ids[0]);expect(page.second.id).toBe(ids[1]);
  expect((await f.call<Job>('compare_audit_snapshots',args)).id).toBe(job.id);
  expect((await f.pool.query('SELECT id,canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=ANY($2::uuid[]) ORDER BY id',[f.fixture.companyA,ids])).rows).toEqual(originals);
