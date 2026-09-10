@@ -44,6 +44,20 @@
 --   * Refuses a loan whose current-portion account holds no line on one of its
 --     own reclass journals — that is a re-pointed account and the running sum
 --     would be missing a period (L3).
+--   * Refuses a loan whose history a refusal has PUNCHED A HOLE IN (round-5
+--     M1). Resolution is per journal, so a loan could be refused for its
+--     202602 journal and reconstructed from its 202603 one — the running sum
+--     then starts mid-history and the recorded prior is lower than what the
+--     current-portion account actually holds. `updateLoan` writes
+--     `reference = COALESCE(…, reference)`, so a rename between two closes is
+--     reachable from the API and produces exactly that. Two ways a hole
+--     reaches a loan, both refused rather than reconstructed:
+--     A hole reaches a loan when a journal that could not be attributed to ANY
+--     loan (unparsed, or a key no loan carries) moved THIS loan's
+--     current-portion account: a renamed reference is indistinguishable from a
+--     foreign journal, so the conservative reading is that the movement was
+--     this loan's. Refusing costs an overstatement at the next close that a
+--     human can see; reconstructing costs a fabricated movement nobody can.
 --   * Ignores reversed entries (L4).
 --   * company_id is bound as a plpgsql variable and repeated on EVERY join and
 --     predicate of every statement, DELETE included.
@@ -128,6 +142,14 @@ BEGIN
       current_user;
   END IF;
 
+  -- Round-5 M1. Loans whose reconstructed history has a hole in it. Refusal is
+  -- decided per JOURNAL above; this carries the consequence to the LOAN, so a
+  -- loan can never be rebuilt from only the part of its history that resolved.
+  CREATE TEMP TABLE tmp_k081_tainted (
+    loan_id UUID PRIMARY KEY,
+    reason  TEXT NOT NULL
+  );
+
   CREATE TEMP TABLE tmp_k081_journals (
     je_id       UUID,
     created_at  TIMESTAMPTZ,
@@ -153,6 +175,7 @@ BEGIN
     SELECT company_id FROM loan_reclass_backfill_refusals
   LOOP
     TRUNCATE tmp_k081_journals;
+    TRUNCATE tmp_k081_tainted;
 
     -- Candidate journals on the LOOSE pattern, with the loan key read OUT of
     -- the narrative rather than a narrative rebuilt from a loan.
@@ -214,6 +237,36 @@ BEGIN
       ) a
      WHERE a.je_id = t.je_id;
 
+    -- ── Round-5 M1: carry each refusal from the journal to the loan ────────
+    -- Insertion order is the reason precedence: the first reason recorded for
+    -- a loan wins, and the re-pointed account is the most specific of them.
+    INSERT INTO tmp_k081_tainted (loan_id, reason)
+    SELECT DISTINCT t.loan_id, 'current-portion account was re-pointed after the close'
+      FROM tmp_k081_journals t
+     WHERE t.n_loans = 1 AND COALESCE(t.cp_lines, 0) = 0
+    ON CONFLICT (loan_id) DO NOTHING;
+
+    -- A key naming several loans needs no entry here: a loan's key is the
+    -- single-valued COALESCE(reference, id::text), so every journal of an
+    -- ambiguous loan carries that same ambiguous key and is already excluded
+    -- by n_loans <> 1. A loan cannot be ambiguous under one key and resolvable
+    -- under another.
+    --
+    -- A journal that belongs to no loan we can name, on a loan's OWN
+    -- current-portion account. A reference renamed between two closes lands
+    -- here, and is indistinguishable from a foreign journal.
+    INSERT INTO tmp_k081_tainted (loan_id, reason)
+    SELECT DISTINCT l.id,
+           'an unattributable reclass journal moved this loan''s current-portion account, so its reconstructed prior would start mid-history'
+      FROM tmp_k081_journals t
+      JOIN gl_journal_lines jl
+        ON jl.journal_entry_id = t.je_id AND jl.company_id = target_company
+      JOIN loans l
+        ON l.company_id = target_company
+       AND l.current_portion_account_id = jl.gl_account_id
+     WHERE NOT t.parsed OR t.n_loans = 0
+    ON CONFLICT (loan_id) DO NOTHING;
+
     -- Durable refusal record, rebuilt for this tenant on every run so it can
     -- never disagree with the rows that were (not) reconstructed.
     DELETE FROM loan_reclass_backfill_refusals WHERE company_id = target_company;
@@ -224,12 +277,12 @@ BEGIN
            CASE WHEN NOT t.parsed  THEN 'description does not parse into a loan key and period'
                 WHEN t.n_loans = 0 THEN 'no loan carries this reference'
                 WHEN t.n_loans > 1 THEN 'reference is shared by ' || t.n_loans || ' loans'
-                ELSE 'current-portion account was re-pointed after the close' END
+                ELSE tt.reason END
       FROM tmp_k081_journals t
+      LEFT JOIN tmp_k081_tainted tt ON tt.loan_id = t.loan_id
      WHERE NOT t.parsed
         OR t.n_loans <> 1
-        OR t.loan_id IN (SELECT loan_id FROM tmp_k081_journals
-                          WHERE n_loans = 1 AND COALESCE(cp_lines, 0) = 0);
+        OR tt.loan_id IS NOT NULL;
 
     -- Round-4 L3. DISTINCT bounds this by distinct loan keys rather than by
     -- journals, but a tenant with thousands of unresolvable references would
@@ -277,10 +330,7 @@ BEGIN
           FROM tmp_k081_journals t
          WHERE t.parsed
            AND t.n_loans = 1
-           AND t.loan_id NOT IN (
-                 SELECT loan_id FROM tmp_k081_journals
-                  WHERE n_loans = 1 AND COALESCE(cp_lines, 0) = 0
-               )
+           AND t.loan_id NOT IN (SELECT loan_id FROM tmp_k081_tainted)
          GROUP BY t.loan_id, t.yyyymm
       ) per_month
     ON CONFLICT (company_id, loan_id, yyyymm) DO NOTHING;
@@ -290,6 +340,7 @@ BEGIN
   END LOOP;
 
   DROP TABLE tmp_k081_journals;
+  DROP TABLE tmp_k081_tainted;
 
   RAISE NOTICE 'loan_reclass_postings rebuilt: % row(s) reconstructed from posted reclass journals', total_rows;
   RAISE NOTICE 'refusals recorded: SELECT * FROM loan_reclass_backfill_refusals ORDER BY company_id, yyyymm;';
