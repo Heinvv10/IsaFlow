@@ -18,6 +18,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { admitReclassification } from '../../src/modules/accounting/services/gl/reclassification/planGuards';
 import { isRefusal } from '../../src/modules/accounting/services/gl/reclassification/planGuards';
 import { getBalanceSheet } from '../../src/modules/accounting/services/reports/balanceSheetService';
+import { getTrialBalance } from '../../src/modules/accounting/services/gl/trialBalanceService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -31,6 +32,7 @@ const expenseHeader = crypto.randomUUID(), expenseHeaderChild = crypto.randomUUI
 const nullLevel = crypto.randomUUID(), nullLevelChild = crypto.randomUUID();
 const raceTarget = crypto.randomUUID(), raceIntruder = crypto.randomUUID();
 const AS_AT = '2026-03-31';
+let periodId = '';
 
 /**
  * The WRITE path: the guard takes `FOR UPDATE` on a leaf-rule target, which
@@ -104,9 +106,10 @@ beforeAll(async () => {
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active,parent_account_id)
      VALUES($1,$2,'K052-9900','K052 foreign child','asset','debit',3,true,$3)`,
     [foreignChild, otherCompany, flatLeaf]);
-  await pool.query(
+  const { rows: fp } = await pool.query(
     `INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-     VALUES($1,'K052 Mar 2026',3,2026,'2026-03-01','2026-03-31','open')`, [company]);
+     VALUES($1,'K052 Mar 2026',3,2026,'2026-03-01','2026-03-31','open') RETURNING id`, [company]);
+  periodId = String(fp[0].id);
 
   const { rows } = await pool.query(
     `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,source,status,created_by,posted_at)
@@ -135,6 +138,25 @@ it('the balance sheet already ignores a level-2 account that has children', asyn
   // Supporting fact, not the defect: R400 sits on the header and never appears.
   const bs = await getBalanceSheet(company, AS_AT);
   expect(bs.totalAssets).toBeCloseTo(1000, 2);
+});
+
+it('and the trial balance still carries that R400 and still foots', async () => {
+  // The OTHER half of this file's opening claim, which until now was asserted in
+  // prose and never run: the amount is not lost from the ledger, it is lost from
+  // ONE report. `getTrialBalance` joins `gl_accounts` without any level or
+  // parent predicate, so the header is on it at its full balance while the
+  // balance sheet above is R400 short. That difference is the whole defect, and
+  // it is what makes the discrepancy invisible to a reconciliation that only
+  // checks whether the trial balance foots.
+  const tb = await getTrialBalance(company, periodId);
+  const headerRow = tb.find((r) => r.accountCode === 'K052-1100');
+  expect(headerRow).toBeDefined();
+  expect(headerRow!.debitBalance - headerRow!.creditBalance).toBeCloseTo(400, 2);
+
+  const debits = tb.reduce((t, r) => t + r.debitBalance, 0);
+  const credits = tb.reduce((t, r) => t + r.creditBalance, 0);
+  expect(debits).toBeCloseTo(credits, 2);
+  expect(debits).toBeCloseTo(1400, 2);
 });
 
 it('refuses a reclassification whose target is a parent header account', async () => {

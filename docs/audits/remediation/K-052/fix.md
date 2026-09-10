@@ -141,3 +141,15 @@ with `current transaction is aborted`.
   a level-2 asset account with a child — and returned **1 row**. Recorded with the other three
   branch censuses in `docs/audits/remediation/K-051/fix.md` under **Census claims, verified by
   execution (round 10)**. No code change.
+
+## Round-11
+
+- **The "trial balance still footed" half of the opening claim was executed.** Until now this file
+  asserted in prose that lines on a header account leave the balance sheet while the trial balance
+  is unaffected, and only the balance-sheet half was run. `k052-reclassification-onto-header-account.int.test.ts`
+  gains a case reading `getTrialBalance` over the same fixture: the header `K052-1100` carries its
+  full **R400** there, the statement foots at R1,400 debit = R1,400 credit, and `getBalanceSheet`
+  in the case above it reads total assets of **R1,000**. That R400 gap is the defect, and it is why
+  a reconciliation that only checks whether the trial balance foots cannot see it. Recorded with
+  the other where-it-surfaces claims in `docs/audits/remediation/K-051/fix.md` under **Round-11**.
+  No code change.

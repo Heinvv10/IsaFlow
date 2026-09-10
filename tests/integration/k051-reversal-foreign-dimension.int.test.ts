@@ -26,6 +26,8 @@ import { getPoolForTests } from '../../src/lib/neon';
 import { createJournalEntry } from '../../src/modules/accounting/services/gl/journalEntryCrudService';
 import { reverseJournalEntry } from '../../src/modules/accounting/services/gl/journalEntryPostingService';
 import { reverseJournalEntryTool } from '../../src/lib/mcp/tools/writeJournalReverse';
+import { getProjectProfitability } from '../../src/modules/accounting/services/reports/projectProfitabilityService';
+import { getTrialBalance } from '../../src/modules/accounting/services/gl/trialBalanceService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -188,6 +190,48 @@ it('reverses a journal carrying another company\'s dimensions, dropping only tho
   expect(seen.originalLine.project_id).toBe(foreignProject);
   expect(seen.originalLine.cost_center_id).toBe(foreignCc);
   expect(seen.originalLine.bu_id).toBe(foreignBu);
+}, 60_000);
+
+it('leaves the foreign project bucket at its full amount while the trial balance zeroes', async () => {
+  // The round-9 **Limits** bullet, executed rather than asserted. A reversal
+  // writes only the CONTRA, and the contra loses the foreign tag — so the
+  // untagged-line exclusion in `getProjectProfitability` keeps the ORIGINAL's
+  // cost in its unnamed bucket with nothing offsetting it, while the trial
+  // balance, which reads no dimension at all, takes the account down by the
+  // full R1,000. Both numbers are read from the same transaction, before and
+  // after the same reversal, so the contrast is a measurement.
+  const seen = await inRequestTx(async () => {
+    const expenseOnTb = async () => {
+      const tb = await getTrialBalance(company, periodId);
+      const row = tb.find((r) => r.accountCode === 'K051R-6000');
+      return row ? row.debitBalance - row.creditBalance : 0;
+    };
+    const foreignBucket = async () => {
+      const reports = await getProjectProfitability(company, '2026-03-01', '2026-03-31');
+      return reports.find((r) => r.projectId === foreignProject) ?? null;
+    };
+
+    const tbBefore = await expenseOnTb();
+    const bucketBefore = await foreignBucket();
+    await reverseJournalEntry(company, mixedEntry, user);
+    return {
+      tbBefore, bucketBefore,
+      tbAfter: await expenseOnTb(),
+      bucketAfter: await foreignBucket(),
+    };
+  });
+
+  // Two seeded entries carry the foreign project; only one is reversed here.
+  expect(seen.tbBefore).toBeCloseTo(3000, 2);
+  expect(seen.tbAfter).toBeCloseTo(2000, 2);
+
+  // The report never names the other tenant's project (the scoped LEFT JOIN),
+  // and the bucket does not move: the reversal is invisible to it.
+  expect(seen.bucketBefore).not.toBeNull();
+  expect(seen.bucketBefore!.projectName).toBe('Unknown Project');
+  expect(seen.bucketBefore!.costs).toBeCloseTo(2000, 2);
+  expect(seen.bucketAfter).not.toBeNull();
+  expect(seen.bucketAfter!.costs).toBeCloseTo(2000, 2);
 }, 60_000);
 
 it('carries an OWN dimension forward untouched, and reports nothing dropped', async () => {

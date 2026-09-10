@@ -259,3 +259,35 @@ $ bunx tsc --noEmit                            clean
 $ bunx eslint <branch src files>               0 errors (14 pre-existing warnings, all "file ignored")
 $ bun run agent-docs:check                     OK: 74 mirrors match
 No production code changed this round, so the round-9 mutation proofs above still stand unmodified.
+
+ROUND 11 (merged tree, tip 01f4bcaf5 — the MEDIUM was a FALSE claim about a report)
+$ bunx vitest run --config vitest.integration.config.ts --no-file-parallelism <10 files>
+  k051/k052 (7) + k021-reversal-atomicity + k021-failed-reversal-commits-unwind
+  + k110-cost-centre-guard-coverage
+  Test Files 10 passed (10) / Tests 60 passed (60)      [was 50 + 7 pre-round]
+  new: k051-cross-company  9 -> 10 · k051-reversal  5 -> 6 · k052-onto-header 12 -> 13
+
+  WHERE-IT-SURFACES CLAIMS, EXECUTED (previously prose):
+    cross-company line on either tenant's TRIAL BALANCE ....... absent from BOTH
+    cross-company line on either tenant's BALANCE SHEET ....... R0 and R0
+    the census over the same row ............................. 1 row
+    header account on the TRIAL BALANCE ...................... R400, foots 1400=1400
+    the same header on the BALANCE SHEET ..................... omitted (assets R1,000)
+    foreign project bucket across a reversal ................. R2,000 -> R2,000 (unnamed)
+    the same account on the TRIAL BALANCE .................... R3,000 -> R2,000
+
+MUTATION PROOF (file copies, restored; 0 MUTANT markers left):
+  1. trialBalanceService.ts:136 drops `AND ga.company_id = jl.company_id`:
+     × shows the cross-tenant line on NO standard statement, for EITHER tenant
+       (expected [ 'K051X-2100' ] to not include 'K051X-2100')  -> 1 failed | 9 passed
+  2. reversalLines.ts:99 copies l.projectId raw:
+     × 3 of 6 in k051-reversal-foreign-dimension, the new case included — via the
+       reversal throwing "project outside this company", i.e. it proves the DROP.
+       The R2,000/R3,000 figures are a MEASUREMENT of the residual, not a guard.
+
+$ bun run ci                                   FAILED: vat-guard-coverage
+  Stale allowlist entry for journalEntryPostingService.ts — round 8 moved
+  `vatType: l.vatType` into gl/reversalLines.ts, which posts nothing. Entry
+  removed; hole recorded in vatGuardRules.ts KNOWN LIMITS. origin/master passes,
+  so the failure is this branch's, and ten rounds of per-gate runs never saw it.
+$ bun run ci                                   all 15 steps PASS (end to end)
