@@ -1,5 +1,11 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {z} from 'zod';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
@@ -14,8 +20,8 @@ process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3,statement_timeout:10000});
 let fixture:ForensicFixture;
-async function actor<T>(person:'u1'|'u2',fn:(ctx:ControlTx)=>Promise<T>){
- const client=await pool.connect(),user=fixture[person];
+async function actor<T>(person:'u1'|'u2',fn:(ctx:ControlTx)=>Promise<T>,identity?:{id:string;companyId:string}){
+ const client=await pool.connect(),user=identity??fixture[person];
  try{
   await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
   const claims={sub:user.id,company_id:user.companyId,role:'authenticated'};
@@ -49,10 +55,10 @@ async function approved(ref:OperationRef){
  await actor('u2',ctx=>decideOperationApproval(ctx,approval.id,'approved'));
  return approval.id;
 }
-async function exactPopulation(id:string){
- const journals=await pool.query("SELECT id,entry_number,status FROM gl_journal_entries WHERE company_id=$1 AND source='auto_gl_import' AND source_record_id=$2::uuid ORDER BY entry_number",[fixture.companyA,id]);
- const totals=await pool.query("SELECT COALESCE(sum(l.debit),0)::text AS debit,COALESCE(sum(l.credit),0)::text AS credit FROM gl_journal_lines l JOIN gl_journal_entries j ON j.company_id=l.company_id AND j.id=l.journal_entry_id WHERE j.company_id=$1 AND j.source='auto_gl_import' AND j.source_record_id=$2::uuid AND j.status='posted'",[fixture.companyA,id]);
- const effects=await pool.query("SELECT id,entity_id,result FROM control_operation_effects WHERE company_id=$1 AND entity_type='historical_import' AND operation='historical_import.post' AND lower(entity_id)=$2",[fixture.companyA,id]);
+async function exactPopulation(id:string,company=fixture.companyA){
+ const journals=await pool.query("SELECT id,entry_number,status FROM gl_journal_entries WHERE company_id=$1 AND source='auto_gl_import' AND source_record_id=$2::uuid ORDER BY entry_number",[company,id]);
+ const totals=await pool.query("SELECT COALESCE(sum(l.debit),0)::text AS debit,COALESCE(sum(l.credit),0)::text AS credit FROM gl_journal_lines l JOIN gl_journal_entries j ON j.company_id=l.company_id AND j.id=l.journal_entry_id WHERE j.company_id=$1 AND j.source='auto_gl_import' AND j.source_record_id=$2::uuid AND j.status='posted'",[company,id]);
+ const effects=await pool.query("SELECT id,entity_id,result FROM control_operation_effects WHERE company_id=$1 AND entity_type='historical_import' AND operation='historical_import.post' AND lower(entity_id)=$2",[company,id]);
  return{journals:journals.rows,totals:totals.rows[0],effects:effects.rows};
 }
 it('cannot post one persisted GL import twice through independently approved UUID case variants in an open period',async()=>{
@@ -73,4 +79,57 @@ it('returns the original receipt for uppercase UUID retries without another appr
  const first=await actor('u1',ctx=>executeHistoricalImport(ctx,ref,approval));
  await expect(actor('u1',ctx=>executeHistoricalImport(ctx,{...ref,entityId:ref.entityId.toUpperCase()}))).resolves.toEqual(first);
  expect((await exactPopulation(ref.entityId)).journals).toHaveLength(1);
+});
+
+it('replays a consumed approval through uppercase UUID identity without another financial effect',async()=>{
+ const ref=await prepared(),approval=await approved(ref);
+ const first=await actor('u1',ctx=>executeHistoricalImport(ctx,ref,approval));
+ await expect(actor('u1',ctx=>executeHistoricalImport(ctx,{...ref,entityId:ref.entityId.toUpperCase()},approval))).resolves.toEqual(first);
+ const population=await exactPopulation(ref.entityId);
+ expect(population.journals).toHaveLength(1);expect(population.effects).toHaveLength(1);
+ expect(population.totals).toEqual({debit:'10.00',credit:'10.00'});
+});
+it('serializes concurrently executed independently approved lower and uppercase references to one financial effect',async()=>{
+ const ref=await prepared(),upper={...ref,entityId:ref.entityId.toUpperCase()};
+ const lowerApproval=await approved(ref),upperApproval=await approved(upper);
+ const outcomes=await Promise.allSettled([
+  actor('u1',ctx=>executeHistoricalImport(ctx,ref,lowerApproval)),
+  actor('u1',ctx=>executeHistoricalImport(ctx,upper,upperApproval)),
+ ]);
+ expect(outcomes.filter(outcome=>outcome.status==='fulfilled')).toHaveLength(1);
+ const population=await exactPopulation(ref.entityId);
+ expect(population.journals).toHaveLength(1);expect(population.effects).toHaveLength(1);
+ expect(population.totals).toEqual({debit:'10.00',credit:'10.00'});
+});
+
+it('preserves one effect when fixed execution encounters a genuine baseline uppercase-first import',async()=>{
+ const baseline=process.env.ISAFLOW_HISTORICAL_CASE_BASELINE;
+ if(!baseline)throw new Error('Set ISAFLOW_HISTORICAL_CASE_BASELINE to the isolated fad0f57f7 worktree containing the legacy fixture runner');
+ const run=promisify(execFile),directory=await mkdtemp(path.join(tmpdir(),'isaflow-case-legacy-')),artifact=path.join(directory,'seed.json');
+ const priorKeys={encryption:process.env.ENCRYPTION_KEY,fingerprint:process.env.CONTROL_FINGERPRINT_KEY};
+ try{
+  const head=await run('git',['rev-parse','--short=9','HEAD'],{cwd:baseline});expect(head.stdout.trim()).toBe('fad0f57f7');
+  await run('git',['diff','--exit-code','fad0f57f7','--','src','scripts/migrations/sql'],{cwd:baseline});
+  await run('bun',['tests/integration/controls/historicalImportLegacyCaseFixture.ts',artifact],{cwd:baseline,timeout:30000,maxBuffer:1024*1024});
+  const identity=z.object({id:z.string().uuid(),companyId:z.string().uuid()});
+  const seed=z.object({fixture:z.object({companyA:z.string().uuid(),u1:identity,u2:identity}),
+   ref:z.object({entityType:z.literal('historical_import'),entityId:z.string().uuid(),operation:z.literal('historical_import.post')}),
+   result:z.object({importId:z.string(),journalEntryId:z.string().uuid()}).passthrough(),approval:z.string().uuid(),
+   keys:z.object({encryption:z.string(),fingerprint:z.string()})}).parse(JSON.parse(await readFile(artifact,'utf8')));
+  process.env.ENCRYPTION_KEY=seed.keys.encryption;process.env.CONTROL_FINGERPRINT_KEY=seed.keys.fingerprint;
+  const original=await exactPopulation(seed.ref.entityId,seed.fixture.companyA);
+  expect(original.journals).toHaveLength(1);expect(original.effects).toHaveLength(1);
+  expect(original.effects[0].entity_id).toBe(seed.ref.entityId.toUpperCase());
+  const approval=await actor('u1',ctx=>requestOperationApproval(ctx,seed.ref),seed.fixture.u1);
+  await actor('u2',ctx=>decideOperationApproval(ctx,approval.id,'approved'),seed.fixture.u2);
+  let result:HistoricalImportEffect|undefined,refusal:unknown;
+  try{result=await actor('u1',ctx=>executeHistoricalImport(ctx,seed.ref,approval.id),seed.fixture.u1);}catch(error){refusal=error;}
+  const after=await exactPopulation(seed.ref.entityId,seed.fixture.companyA);
+  expect(after.journals).toHaveLength(1);expect(after.effects).toHaveLength(1);
+  expect(after.totals).toEqual({debit:'10.00',credit:'10.00'});
+  if(result)expect(result.journalEntryId).toBe(seed.result.journalEntryId);else expect(refusal).toBeInstanceOf(Error);
+ }finally{
+  process.env.ENCRYPTION_KEY=priorKeys.encryption;process.env.CONTROL_FINGERPRINT_KEY=priorKeys.fingerprint;
+  await rm(directory,{recursive:true,force:true});
+ }
 });
