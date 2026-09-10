@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
+import { assertCustomerInCompany } from './contactDirectoryService';
 
 
 export interface RecurringTemplate {
@@ -167,6 +168,9 @@ export async function executeRecurring(
     const periodCI = new Date().toISOString().slice(0, 7).replace('-', '');
     const invoiceNumberCI = `RINV-${slugCI}-${periodCI}`;
     const clientIdCI = data.clientId ? String(data.clientId) : null;
+    // R-067: templateData is opaque JSON supplied when the template was saved,
+    // so the id is caller-supplied however company-scoped the template row is.
+    await assertCustomerInCompany(companyId, clientIdCI);
     const ciRows = (await sql`
       INSERT INTO customer_invoices (
         company_id, invoice_number, client_id, customer_id, invoice_date, due_date,
