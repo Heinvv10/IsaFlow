@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
   createDraftCustomerInvoice,
   InvoiceLineValidationError,
@@ -37,6 +38,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.created(res, { id: invoiceId, invoiceNumber });
   } catch (err) {
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);
+    if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
     const msg = err instanceof Error ? err.message : String(err);
     log.error('Invoice create failed', { error: msg });
     const clientMessage = process.env.NODE_ENV === 'development' ? msg : 'Failed to create invoice';

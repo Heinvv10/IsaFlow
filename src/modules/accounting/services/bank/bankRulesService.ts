@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../../types/bank.types';
@@ -34,6 +35,9 @@ export async function createRule(
   input: RuleCreateInput,
   userId: string
 ): Promise<BankCategorisationRule> {
+  // R-067: the rule's client_id is copied onto every matching bank line as
+  // suggested_client_id, and both are read back with the customer name joined.
+  await assertCustomerInCompany(companyId, input.clientId);
   const vatCode = input.vatCode || 'none';
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -60,6 +64,7 @@ export async function updateRule(
   // Use ?? not || so legitimately-zero priorities and false booleans are not
   // dropped by COALESCE. Fields with min(1) (ruleName, matchPattern) and enums
   // can't be empty strings, so ?? matches the schema invariants.
+  await assertCustomerInCompany(companyId, input.clientId);
   const rows = (await sql`
     UPDATE bank_categorisation_rules SET
       rule_name = COALESCE(${input.ruleName ?? null}, rule_name),

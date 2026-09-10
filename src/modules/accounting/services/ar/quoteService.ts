@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 
 type Row = DbRow;
@@ -188,6 +189,9 @@ export async function getQuote(companyId: string, id: string): Promise<Quote | n
 }
 
 export async function createQuote(companyId: string, input: QuoteInput, userId?: string): Promise<Quote> {
+  // R-067: before insertWithReservedNumber, which writes the company's counter.
+  // convertToInvoice copies this client_id onto the invoice verbatim.
+  await assertCustomerInCompany(companyId, input.clientId);
   assertValidLines(input.lines);
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
   const qd = input.quoteDate || fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
@@ -225,6 +229,7 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
 export async function updateQuote(companyId: string, id: string, input: QuoteInput): Promise<Quote | null> {
   const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
+  await assertCustomerInCompany(companyId, input.clientId);
   assertValidLines(input.lines);
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
 
