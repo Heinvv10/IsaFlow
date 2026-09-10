@@ -1,4 +1,5 @@
 import {log} from '@/lib/logger';
+import * as Sentry from '@sentry/nextjs';
 import {recordBatchEntity} from './batchPaymentWriteService';
 import {Pool} from 'pg';
 import {UUID_RE} from '@/lib/validation';
@@ -89,13 +90,17 @@ export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId
  * would have written is the one that failed: a claim that never ran leaves 'ready', and an
  * unacknowledged provider result leaves 'attempting' with the money already gone. The state-transition
  * trigger refuses any UPDATE that does not advance the state, so the durable trace is a change event
- * on the outbox — whose version lineage nothing binds, unlike the intent's, which the release approval
- * binding hashes and which a bump would brick.
+ * on the outbox — whose version lineage nothing binds (the release binding's sourceVersions are
+ * payment_preparation, supplier and payment_release_intent), unlike the intent's, which the release
+ * approval binding hashes and which a bump would brick.
  *
  * The recorded status is the state actually observed under FOR UPDATE, never the one this attempt
- * expected. That is what keeps the record true when a concurrent dispatcher already advanced the row:
- * a failure reported against 'attempting' says an attempt lost the race, not that the release was
- * never dispatched. Reporting nothing at all would leave that one outcome with no trace whatsoever.
+ * expected, which is what keeps the record true when a concurrent dispatcher already advanced the row.
+ * RECONCILIATION MUST KEY OFF status, NOT action: a loser delayed past a winner's transmit and
+ * completion writes action='payment_release.dispatch_failed' with status already at a terminal
+ * 'accepted', 'unknown', 'failed' or 'exported'. That is a true observation of a lost race, not a
+ * failed release; only status='ready' means nothing was dispatched, and status='attempting' means an
+ * attempt is outstanding.
  */
 async function recordFailedDispatch(identity:Identity,intentId:string,action:string,error:unknown,
  provider?:{state:string;code:string}):Promise<void>{
@@ -103,6 +108,14 @@ async function recordFailedDispatch(identity:Identity,intentId:string,action:str
  const reason=provider?`${detail} after provider outcome ${provider.state} (${provider.code})`:detail;
  try{
   await transaction(identity,async ctx=>{
+   // LAST-RESORT BUDGET. recordCommittedChange writes control_entity_versions, and
+   // withInvoiceMatchSourceLocks holds LOCK TABLE control_entity_versions IN SHARE ROW EXCLUSIVE from
+   // the moment it is taken until that transaction COMMITs — its own lock_timeout bounds acquisition
+   // only, and it then runs a full three-way-match materialization with no upper bound. So the wait
+   // here is the holder's whole transaction, against the dispatch pool's 5s statement_timeout. A 30s
+   // tail on the observer of an already-failed dispatch is far cheaper than losing the forensic
+   // record of a payment that may already have left; the success path never reaches this function.
+   await ctx.sql`SET LOCAL statement_timeout='30000ms'`;
    // FOR UPDATE, so a concurrent claim cannot advance the row between this read and the record.
    const [outbox]=await ctx.sql`SELECT *,intent_id AS id FROM control_payment_release_outbox
     WHERE company_id=${ctx.principal.companyId}::uuid AND intent_id=${intentId}::uuid FOR UPDATE` as Array<Record<string,unknown>>;
@@ -110,16 +123,27 @@ async function recordFailedDispatch(identity:Identity,intentId:string,action:str
    await recordBatchEntity(ctx,'payment_release_outbox',outbox,{...outbox,status:String(outbox.state),reason},action);
   });
  }catch(recordError){
-  // KNOWN DEGRADATION, deliberately loud. recordCommittedChange writes control_entity_versions, and
-  // withInvoiceMatchSourceLocks holds LOCK TABLE control_entity_versions IN SHARE ROW EXCLUSIVE for
-  // its transaction, which conflicts with this independent transaction's ROW EXCLUSIVE. No deadlock
-  // cycle exists — this transaction takes no other lock — but the dispatch pool's 5s
-  // statement_timeout can elapse first and lose the record exactly when a release needs it. Closing
-  // it properly needs an append-only release-event table with no version lineage, which is a
-  // migration this change does not carry; until then the loss is reported, never silent.
+  // KNOWN DEGRADATION, deliberately loud. This transaction takes the outbox row lock before the
+  // version table, the same order claimPaymentRelease takes them and an order
+  // withInvoiceMatchSourceLocks cannot invert because it never touches the outbox, so there is no
+  // deadlock cycle — but the version-table wait above can still exhaust even the 30s budget. An
+  // operator greps 57014 (statement_timeout), not 55P03: the dispatch pool sets no lock_timeout.
+  // Closing the window properly needs an append-only release-event table with no version lineage,
+  // which is a migration this change does not carry; until then the loss is reported, never silent.
   log.error('Release dispatch failure could not be recorded; queued release requires reconciliation',
    {intentId,action,reason,error:recordError instanceof Error?recordError.message:'unknown',
     code:typeof (recordError as {code?:unknown})?.code==='string'?(recordError as {code:string}).code:null},'payment-release');
+  // Money may already have left with no record of it, so this must reach the error tracker rather
+  // than stopping at journald. Same gate and shape as withAuth's finalize failure.
+  if(process.env.SENTRY_ENABLED==='true'&&recordError instanceof Error){
+   Sentry.withScope(scope=>{
+    scope.setTag('company_id',identity.companyId);
+    scope.setTag('payment_release_intent_id',intentId);
+    scope.setTag('payment_release_action',action);
+    scope.setLevel('fatal');
+    Sentry.captureException(recordError);
+   });
+  }
  }
 }
 /** Only the lexical committed-claim transport continuation may acknowledge a provider result. */
