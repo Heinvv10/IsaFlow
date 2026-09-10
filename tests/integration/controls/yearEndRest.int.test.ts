@@ -87,7 +87,7 @@ it('an approvalId the close cannot use is a caller error, not a 500, live or pre
  for(const dryRun of [true,false]){
   const reply=await close('2022',{...(dryRun?{dryRun}:{}),approvalId:randomUUID()});
   expect(reply.status,`dryRun=${dryRun} ${JSON.stringify(reply.body)}`).toBe(409);
-  expect(reply.body.error?.message).toMatch(/approval/i);
+  expect(reply.body.error?.message).toMatch(/cannot be used/);
  }
  expect(await untouched('2022')).toEqual({periodsLocked:false,effects:0,journals:0});
 });
