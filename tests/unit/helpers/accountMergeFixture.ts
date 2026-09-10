@@ -172,12 +172,15 @@ export async function createMergeFixture(client: PoolClient): Promise<MergeFixtu
   const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
   const contraId = await insertAccount(client, companyId, `ZC-${suffix}`, 'liability');
   const sourceId = await insertAccount(client, companyId, `ZS-${suffix}`, 'asset', { level: 1 });
-  const targetId = await insertAccount(client, companyId, `ZT-${suffix}`, 'asset', { level: 2 });
+  // A level-3 account remains report-visible when it carries children. This
+  // general merge fixture must exercise a valid target; dedicated guard tests
+  // own the level-2 header refusal.
+  const targetId = await insertAccount(client, companyId, `ZT-${suffix}`, 'asset', { level: 3 });
   const childId = await insertAccount(client, companyId, `ZH-${suffix}`, 'asset', { parent: sourceId, level: 2 });
   const grandchildId = await insertAccount(client, companyId, `ZG-${suffix}`, 'asset', { parent: childId, level: 3 });
   const systemId = await insertAccount(client, companyId, `ZY-${suffix}`, 'asset', { system: true });
   const cleanSourceId = await insertAccount(client, companyId, `ZK-${suffix}`, 'asset', { level: 1 });
-  const targetChildId = await insertAccount(client, companyId, `ZX-${suffix}`, 'asset', { parent: targetId, level: 3 });
+  const targetChildId = await insertAccount(client, companyId, `ZX-${suffix}`, 'asset', { parent: targetId, level: 4 });
   const vatInputId = await insertAccount(client, companyId, `ZV-${suffix}`, 'asset', { subtype: 'vat_input' });
   const taxSourceId = await insertAccount(client, companyId, `ZP-${suffix}`, 'liability', { subtype: 'tax' });
   const bankSourceId = await insertAccount(client, companyId, `ZB-${suffix}`, 'asset', { subtype: 'bank' });
