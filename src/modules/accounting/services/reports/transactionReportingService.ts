@@ -55,7 +55,11 @@ export async function getCustomerReport(
         AND ci.company_id = ${companyId}::UUID
         AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so
+        -- the bare form dropped null-status invoices this report's own
+        -- sibling (sales-by-customer) keeps (K-091). The two are asserted
+        -- equal by r059-period-reports-as-at-period-end.
+        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
         -- AS AT the period end: the invoices raised in the period and what
         -- had been paid on them by periodEnd, so the balance is the ageing at
         -- periodEnd restricted to these invoices (not the ageing's total, which
@@ -116,7 +120,11 @@ export async function getSupplierReport(
         AND si.company_id = ${companyId}::UUID
         AND si.invoice_date >= ${periodStart}
         AND si.invoice_date <= ${periodEnd}
-        AND si.status NOT IN ('draft', 'cancelled')
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, so
+        -- the bare form dropped null-status invoices this report's own
+        -- sibling (sales-by-customer) keeps (K-091). The two are asserted
+        -- equal by r059-period-reports-as-at-period-end.
+        AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
         -- Same as the customer report above, as at the period end.
         AND ${documentInLedgerAsAtFragment('si', periodEnd, companyId)}
       LEFT JOIN LATERAL (

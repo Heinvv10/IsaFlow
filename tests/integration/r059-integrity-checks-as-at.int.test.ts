@@ -18,6 +18,13 @@
  *   as_at today: 0 / 0; test records 0
  * Before the fix: −70 gave 0 / 0 and 200 + 80; today gave 0 and 200 + 80.
  *
+ * ROUND 4 adds a NULL-status leg. `status` is nullable on both invoice tables
+ * and `NULL NOT IN ('draft','cancelled')` is NULL, not TRUE, so the bare
+ * comparison these checks were given in round 2 dropped a null-status document
+ * — while the very ageing they claim to quote keeps it. An AR invoice of 700
+ * with no due date and a supplier bill of 250, both unpaid and null-status,
+ * are counted at BOTH dates, which is what the COALESCE buys.
+ *
  * ROUND 3 (LOW-3) adds the soft-delete leg, which nothing pinned: deleting
  * either `documentInLedgerAsAtFragment` line from testRecordsInProduction left
  * the file green. A soft-deleted AR invoice of 500 and AP bill of 300 are
@@ -90,6 +97,19 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
     await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
               VALUES (${sp!.id}::UUID, ${bill!.id}::UUID, 400)`;
 
+    // The null-status pair. Not drafts, not cancelled — real debt, and the
+    // only thing that kept it out of both checks was NULL-propagation.
+    await sql`
+      INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
+        due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
+      VALUES (${COMPANY}::UUID, ${cu!.id}::UUID, ${cu!.id}::UUID, ${TAG + '-NULLST'}, ${shift(-100)}::date,
+        NULL, NULL, 700, 0, 0, 700, 0, ${USER}::UUID)`;
+    await sql`
+      INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
+        status, subtotal, tax_amount, total_amount, amount_paid, created_by)
+      VALUES (${COMPANY}::UUID, ${su!.id}::UUID, ${TAG + '-NULLSB'}, ${shift(-100)}::date, ${shift(-90)}::date,
+        NULL, 250, 0, 250, 0, ${USER}::UUID)`;
+
     // The soft-deleted pair. The chain is built directly because no service
     // can post a reversal into a fixture this thin; the fragment walks
     // gl_journal_entries only, so no lines are needed.
@@ -143,27 +163,30 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
 
   it('null due date at a past as_at: the invoice owed then, paid since, is counted', async () => {
     const r = await invoicesNullDueDate(ctx(PAST));
-    expect(r.count).toBe(1);
-    expect(r.amount).toBeCloseTo(1000, 2);
-    expect(r.sample.map(s => s.amount)).toEqual([1000]);
+    // I 1000, owed then and settled since, plus the null-STATUS invoice of 700
+    // which also has no due date and is owed at every date.
+    expect(r.count).toBe(2);
+    expect(r.amount).toBeCloseTo(1700, 2);
+    expect(r.sample.map(s => s.amount).sort((a, b) => Number(b) - Number(a))).toEqual([1000, 700]);
   });
 
-  it('null due date today: settled, and the draft was never owed', async () => {
+  it('null due date today: settled, and the draft was never owed — but a null STATUS still is', async () => {
     const r = await invoicesNullDueDate(ctx(TODAY));
-    expect(r.count).toBe(0);
-    expect(r.amount).toBeCloseTo(0, 2);
+    expect(r.count).toBe(1);
+    expect(r.amount).toBeCloseTo(700, 2);
   });
 
   it('test records at a past as_at carry the ageing balance then', async () => {
     const r = await testRecordsInProduction(ctx(PAST));
     expect(r.count).toBe(2);
-    expect(r.amount).toBeCloseTo(1400, 2);
+    // 1000 + 400 settled since, plus the null-status 700 + 250.
+    expect(r.amount).toBeCloseTo(2350, 2);
   });
 
-  it('test records today carry nothing — no draft counted', async () => {
+  it('test records today carry only the null-status debt — no draft counted', async () => {
     const r = await testRecordsInProduction(ctx(TODAY));
     expect(r.count).toBe(2);
-    expect(r.amount).toBeCloseTo(0, 2);
+    expect(r.amount).toBeCloseTo(950, 2);
   });
 
   // The soft-deleted pair is unpaid and raised before both dates, so the ONLY
@@ -176,8 +199,8 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
       testRecordsInProduction(ctx(TODAY)),
     ]);
     // AR would add 500, AP 300; both legs gone would add 800.
-    expect(past.amount).toBeCloseTo(1400, 2);
-    expect(today.amount).toBeCloseTo(0, 2);
+    expect(past.amount).toBeCloseTo(2350, 2);
+    expect(today.amount).toBeCloseTo(950, 2);
     const deleted = (await sql`
       SELECT (SELECT COUNT(*)::INT FROM customer_invoices
               WHERE company_id = ${COMPANY}::UUID AND deleted_at IS NOT NULL) AS ar,

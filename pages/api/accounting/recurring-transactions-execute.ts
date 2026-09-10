@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
 import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -50,6 +51,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // against its lines before they touch anything. 400 rather than a 500,
     // because the operator has to re-save the template — it is not a bug.
     if (err instanceof RecurringTemplateTotalsMismatchError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    // R-067, also pre-write: the template's clientId is not a customer of this
+    // company (or not a UUID at all). The operator has to re-pick the customer.
+    if (err instanceof CustomerNotInCompanyError) {
       return apiResponse.badRequest(res, err.message);
     }
     throw err;

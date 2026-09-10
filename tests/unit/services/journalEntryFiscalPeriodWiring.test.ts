@@ -27,6 +27,9 @@ vi.mock('@/lib/neon', () => ({
   withTransaction: vi.fn(),
   fmtDate: (v: unknown) => String(v ?? ''),
 }));
+vi.mock('@/lib/alsTransaction', () => ({
+  withAlsTransaction: (_actor: unknown, fn: () => unknown) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));

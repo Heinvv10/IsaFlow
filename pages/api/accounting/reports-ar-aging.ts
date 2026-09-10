@@ -109,7 +109,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         -- service cannot drift apart again. 'paid' leaves the status filter for
         -- the same reason: an invoice settled TODAY was outstanding then, and
         -- excluding it is what erased settled debt from historical ageing.
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
+        -- so the bare comparison silently DROPPED every null-status invoice —
+        -- the under-reporting K-091 fixed on sales-by-customer.
+        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date), ci.id
@@ -154,7 +157,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
+        -- so the bare comparison silently DROPPED every null-status invoice —
+        -- the under-reporting K-091 fixed on sales-by-customer.
+        AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
       GROUP BY bucket

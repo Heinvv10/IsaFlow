@@ -49,7 +49,10 @@ export async function invoicesNullDueDate(ctx: IntegrityCheckContext): Promise<I
       AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
       AND ci.due_date IS NULL
       AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${ctx.asAt}::DATE
-      AND ci.status NOT IN ('draft', 'cancelled')
+      -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
+      -- so the bare comparison silently DROPPED every null-status invoice —
+      -- the under-reporting K-091 fixed on sales-by-customer.
+      AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
       AND (ci.total_amount - ${sql.unsafe(paid)}) > 0`;
 
   const totals = (await sql`

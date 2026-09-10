@@ -18,6 +18,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, signExtensionToken } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { log } from '@/lib/logger';
 import { createBankFeedConnection } from '@/modules/accounting/services/bank/openBankingConnectionService';
 import type { DbRow } from '@/types/db';
@@ -52,7 +53,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     SELECT id FROM gl_accounts
      WHERE id = ${bankAccountId}::UUID
        AND company_id = ${companyId}::UUID
-       AND account_subtype = 'bank'
+       AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
      LIMIT 1
   `) as DbRow[];
   if (acct.length === 0) {

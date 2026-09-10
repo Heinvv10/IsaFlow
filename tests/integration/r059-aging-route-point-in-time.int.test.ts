@@ -95,7 +95,7 @@ function svcBuckets(bs: AgingBucket[]): Record<string, number> {
   return out;
 }
 
-async function arInvoice(n: string, gross: number, paid: number, status: string): Promise<string> {
+async function arInvoice(n: string, gross: number, paid: number, status: string | null): Promise<string> {
   return ((await sql`
     INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
       due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
@@ -103,7 +103,7 @@ async function arInvoice(n: string, gross: number, paid: number, status: string)
       ${DUE_DATE}::date, ${status}, ${gross}, 0, 0, ${gross}, ${paid}, ${USER}::UUID)
     RETURNING id`) as { id: string }[])[0]!.id;
 }
-async function apInvoice(n: string, gross: number, paid: number, status: string): Promise<string> {
+async function apInvoice(n: string, gross: number, paid: number, status: string | null): Promise<string> {
   return ((await sql`
     INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
       status, subtotal, tax_amount, total_amount, amount_paid, created_by)
@@ -217,6 +217,37 @@ describeIfDb('R-059 the ageing routes are point-in-time and agree with the servi
       expect(total(body)).toBeCloseTo(600, 2);
     });
   }
+
+  // ROUND 4. `status` is nullable on both invoice tables, and
+  // `NULL NOT IN ('draft','cancelled')` is NULL, not TRUE — so the bare
+  // comparison DROPPED a null-status invoice from the route AND the service,
+  // silently, at every date. It is a real debt: it is not a draft and not
+  // cancelled. Route and service both had to be made NULL-safe together, or
+  // the two would disagree on exactly this row.
+  it('a null-status invoice is a debt: route and service both age it', async () => {
+    const ar = await arInvoice('-AR-N', 300, 0, null);
+    const ap = await apInvoice('-AP-N', 300, 0, null);
+    try {
+      const [chk] = (await sql`
+        SELECT (SELECT COUNT(*)::INT FROM customer_invoices
+                WHERE company_id = ${COMPANY}::UUID AND status IS NULL) AS ar,
+               (SELECT COUNT(*)::INT FROM supplier_invoices
+                WHERE company_id = ${COMPANY}::UUID AND status IS NULL) AS ap
+      `) as { ar: number; ap: number }[];
+      expect(chk).toEqual({ ar: 1, ap: 1 });
+      for (const side of SIDES) {
+        // 600 (S's remaining balance) + 300.
+        expect(total(await callRoute(side.route, TODAY))).toBeCloseTo(900, 2);
+        expect(svcTotal(await side.service(TODAY))).toBeCloseTo(900, 2);
+        // And at a past date, before either payment: 1500 + 300.
+        expect(total(await callRoute(side.route, BETWEEN))).toBeCloseTo(1800, 2);
+        expect(svcTotal(await side.service(BETWEEN))).toBeCloseTo(1800, 2);
+      }
+    } finally {
+      await sql`DELETE FROM customer_invoices WHERE id = ${ar}::UUID AND company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM supplier_invoices WHERE id = ${ap}::UUID AND company_id = ${COMPANY}::UUID`;
+    }
+  });
 
   it('the one change at today: a status=paid document still carrying a balance is aged, as the service always did', async () => {
     const ar = await arInvoice('-AR-R', 300, 100, 'paid');

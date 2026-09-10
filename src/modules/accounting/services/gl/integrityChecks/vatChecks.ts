@@ -95,7 +95,9 @@ export async function testRecordsInProduction(ctx: IntegrityCheckContext): Promi
                AND COALESCE(ci.client_id, ci.customer_id) = cu.id
                AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
                AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${ctx.asAt}::DATE
-               AND ci.status NOT IN ('draft', 'cancelled')
+               -- COALESCE: status is NULLABLE, so the bare form dropped
+               -- null-status documents the ageing itself keeps (K-091).
+               AND COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')
                AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
            ), 0) AS amount
     FROM customers cu
@@ -111,7 +113,9 @@ export async function testRecordsInProduction(ctx: IntegrityCheckContext): Promi
              WHERE si.company_id = s.company_id AND si.supplier_id = s.id
                AND ${documentInLedgerAsAtFragment('si', ctx.asAt, ctx.companyId)}
                AND si.invoice_date <= ${ctx.asAt}::DATE
-               AND si.status NOT IN ('draft', 'cancelled')
+               -- COALESCE: status is NULLABLE, so the bare form dropped
+               -- null-status documents the ageing itself keeps (K-091).
+               AND COALESCE(si.status, '') NOT IN ('draft', 'cancelled')
                AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
            ), 0)
     FROM suppliers s

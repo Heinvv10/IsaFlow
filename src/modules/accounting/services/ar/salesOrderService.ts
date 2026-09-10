@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { LineValidationError } from './quoteService';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 
 // Re-export workflow functions for backward compatibility
 export { confirmSalesOrder, convertSalesOrderToInvoice } from './salesOrderWorkflowService';
@@ -220,6 +221,9 @@ export async function getSalesOrder(companyId: string, id: string): Promise<Sale
 }
 
 export async function createSalesOrder(companyId: string, input: SalesOrderInput, userId?: string): Promise<SalesOrder> {
+  // R-067: before nextOrderNumber(), which writes the company's counter.
+  // convertSalesOrderToInvoice copies this customer_id onto the invoice.
+  await assertCustomerInCompany(companyId, input.customer_id);
   const orderNumber = await nextOrderNumber(companyId);
   const { subtotal, taxAmount, totalAmount } = calcTotals(input.items);
   const orderDate = input.order_date || new Date().toISOString().split('T')[0];
@@ -261,6 +265,7 @@ export async function updateSalesOrder(
 ): Promise<SalesOrder | null> {
   const existing = await getSalesOrder(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
+  await assertCustomerInCompany(companyId, input.customer_id);
   const { subtotal, taxAmount, totalAmount } = calcTotals(input.items);
 
   // The row count decides whether the lines may be rewritten. The header UPDATE
