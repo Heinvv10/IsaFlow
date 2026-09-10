@@ -151,7 +151,7 @@ if sudo test -f "$PROD_ENV"; then
     GATE_OUT=$(DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/assert-impersonation-reader.ts")
     echo "$GATE_OUT"
     # An exit status alone is not proof the gate ran: require its success line.
-    echo "$GATE_OUT" | grep -q '^impersonation readers present and executable by app_user$' \
+    echo "$GATE_OUT" | grep -q '^impersonation readers present and executable by their calling roles$' \
       || { echo "ERROR: impersonation reader gate did not confirm success"; exit 1; }
 
     echo "Running schema-drift audit..."
