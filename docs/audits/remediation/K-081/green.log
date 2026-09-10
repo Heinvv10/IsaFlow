@@ -192,3 +192,23 @@ Shared fixture reconciled (round-5 M2): schema_migrations now carries
 644_loan_gl_postings_period_once.sql, 645_loan_reclass_postings.sql and
 659_loan_reclass_postings_backfill_rebuild.sql with their file checksums, so the runner cannot
 re-apply 645 there. Every probe ran inside BEGIN … ROLLBACK; no lock held across a statement batch.
+
+── Round 8 (closing round; fixture rebuilt after the 2026-09-10 host reboot, new ports) ──
+tests/integration/k08{1,2,3}-*.int.test.ts, --no-file-parallelism
+  -> Test Files 12 passed (12) / Tests 56 passed (56)
+Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u MIGRATION_ADMIN_DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files 799 passed | 36 skipped (835)
+  Tests      9476 passed | 234 skipped (9710)
+bun run type-check                       -> clean
+tsc -p <scratch>/tsconfig.scripts.json (scripts/simulate-fy2026-*.ts, noUnusedLocals) -> clean
+npx tsx import probe of scripts/simulate-fy2026-loans.ts -> '@/lib/als' resolves, exports present
+bun run agent-docs:check                 -> OK: 74 agent document mirror(s) match canonical sources
+bun scripts/ci/check-migration-rls.ts    -> OK
+eslint scripts/simulate-fy2026-*.ts      -> not parseable: scripts/** is outside the eslint project
+                                            service, as tests/** is. No src/ file changed this round.
+
+Mutation proof (file copy taken, mutation applied, test run, copy restored; git diff unchanged):
+  1. 659: exact schedule confirmation reverted to `ABS(COALESCE(lsr.st_liability,0) - r.st_liability) <= 0.01`
+       -> k081-loan-reclass-key-swap: Tests 1 failed | 6 passed (7) — the failure is the new
+          one-cent swap case; the six pre-existing cases stayed green.

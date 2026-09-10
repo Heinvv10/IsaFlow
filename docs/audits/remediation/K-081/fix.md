@@ -476,3 +476,58 @@ round 5 did:
 run of the loan is accepted, so a reconstruction that coincidentally equals a stale figure of the
 SAME loan is accepted too. It cannot be corroborated across loans, which is the property that
 matters here. Loans with no cached schedule for a closed month are refused rather than guessed.
+
+## Round 8 review (0 HIGH, 0 MEDIUM, 3 LOW) — dispositions
+
+**The reviewer's text for this round did not survive.** The host rebooted mid-round and cleared
+`/tmp`, taking the review file with it; the round's work survived only as an uncommitted diff. The
+three dispositions below are reconstructed from that diff. L1 the previous session had labelled in
+the code itself, so it is certain; L2 and L3 are inferred from what the diff changed and are
+recorded here as inferences, not as quotations of a finding. A fresh blind review will re-find
+anything this reconstruction missed. (fix.md's section numbering skips 7: the round-7 pass produced
+no separate section, and the code comments already say "Round-8".)
+
+**L1 — fixed (certain; the code carried the label).** The schedule confirmation accepted a
+reconstructed prior that agreed with the loan's own `loan_schedule_rows.st_liability` to within
+`0.01`. Both columns are `numeric(18,2)` (`390_loans_schema.sql:106`, `645_…sql:31`, and
+`tmp_k081_recon.st_liability` in 659), and the reconstruction is a running sum of 2-dp GL amounts,
+so one cent is the smallest difference that exists there — the tolerance spanned exactly the
+distinguishable cases. Two loans whose current portions differ by a cent, with their references
+swapped, each confirmed against the OTHER loan's schedule and both figures were recorded against the
+wrong loan. The comparison is now exact. Covered by a new case in
+`k081-loan-reclass-key-swap.int.test.ts` (a 100 000.00 / 100 000.01 swap: nothing recorded, both
+loans refused UNCONFIRMED).
+
+**L2 — fixed (inferred).** `scripts/simulate-fy2026-workflows.ts` had grown to 360 lines, over the
+300-line cap. Split with no behaviour change into `scripts/simulate-fy2026-context.ts` (27 — the
+connection, the ids and the date helpers) and `scripts/simulate-fy2026-loans.ts` (104 — the ALS
+request-transaction wrapper, `runLoansClose`, `runLoanPayments`), leaving the entry point at 259.
+`scripts/**` is excluded from the repo tsconfig and from eslint's project service, so the split was
+type-checked against a tsconfig that includes those three files with `noUnusedLocals` (clean), and
+the runtime resolution of `@/lib/als` through tsx was probed by importing the new loans module.
+
+**L3 — fixed (inferred).** The batch preflight named no post-deploy step for the refusals, so a
+refused loan was silent to the operator: it gets no reconstructed prior, and its next
+`closeLoanPeriod` therefore reclassifies its whole current portion as one movement and reports
+nothing unusual. `docs/audits/remediation/releases/2026-09-09-batch2/preflight.md` now requires the
+refusals query to be run and its rows recorded after deploy, names the per-loan remedy (hand-insert
+the true prior with `source='app'`, which the rebuild never deletes), and requires the migration's
+`[WARNING]` block to be captured from the deploy output.
+
+**Round-8 files.** `scripts/migrations/sql/659_…sql`, `tests/integration/k081-loan-reclass-key-swap.int.test.ts`,
+`scripts/simulate-fy2026-workflows.ts`, new `scripts/simulate-fy2026-context.ts`, new
+`scripts/simulate-fy2026-loans.ts`, `docs/audits/remediation/releases/2026-09-09-batch2/preflight.md`.
+No `src/` change this round.
+
+**Round-8 tests.** All twelve k081/k082/k083 integration files together with
+`--no-file-parallelism`: **12 files, 56 passed** (55 before, plus the new one-cent case). Full unit
+suite with the fixture env unset: **799 files passed / 36 skipped, 9476 passed / 234 skipped, 0
+failed**. `bun run type-check` clean; the three scripts type-check clean under `noUnusedLocals`;
+`bun run agent-docs:check` OK (74 mirrors); `bun scripts/ci/check-migration-rls.ts` OK. Run in
+parallel these integration suites still interfere on the one shared fixture database (R-036) — do
+not read a parallel run as a regression.
+
+**Round-8 mutation proof.** 659's exact comparison reverted to `ABS(… ) <= 0.01` via a file copy →
+`k081-loan-reclass-key-swap` 1 failed / 6 passed, the failure being exactly the new one-cent case,
+and the six earlier cases still green (the guard fails in both directions). File restored
+byte-identical.
