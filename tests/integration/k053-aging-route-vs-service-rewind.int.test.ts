@@ -25,7 +25,7 @@
  *   as-at date (services/shared/agingRewind); `reports-ar-aging` and
  *   `reports-ap-aging` do neither, so at the earlier date they include L and
  *   they take S's later payment off. That is a real defect in the two routes,
- *   registered as R-056; it predates this branch and is not a soft-delete
+ *   registered as R-059; it predates this branch and is not a soft-delete
  *   question. When it is fixed the deltas below become zero and this file goes
  *   red on the two assertions that name it — which is the point.
  */
@@ -293,7 +293,7 @@ describeIfDb('K-053 the ageing routes and services on a book with settlements an
   });
 
   /**
-   * R-056, measured. The routes and the services are not the same report at any
+   * R-059, measured. The routes and the services are not the same report at any
    * as-at date in the past: the route includes documents raised since, and
    * takes off settlements made since. Both are zero at TODAY, which is why no
    * earlier fixture could see them.
