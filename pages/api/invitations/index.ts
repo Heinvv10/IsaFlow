@@ -3,6 +3,8 @@ import type { NextApiHandler } from 'next';
 import crypto from 'node:crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { adminCreateUser } from '@/lib/auth/gotrue';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -40,13 +42,32 @@ const createInvitation: NextApiHandler = async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
+  // The raw token goes in the email; only its digest is stored. The other
+  // invitation system (userInvitationService) has always stored the digest, and
+  // UNIQUE(company_id, email) makes both write the same row — so one encoding.
   const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashInviteToken(token);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  // 1. Insert invitation row
+  // 1. Insert invitation row. UNIQUE(company_id, email) means a resend — or a
+  //    re-invite of someone who accepted and was later removed — collides with
+  //    the row already there, which used to escape as a 500. Refresh it in
+  //    place instead: a new token, a new expiry, the role just chosen, and the
+  //    accepted/error state cleared. That is the resend the 502 branch below
+  //    already promises. The old link stops working, which is what a resend
+  //    means. Tenant-scoped by the conflict target, so this can never touch
+  //    another company's invitation for the same address.
   const inv = await sql<{ id: string }>`
     INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
-    VALUES (${companyId}::uuid, ${cleanEmail}, ${role}, ${user.id}, ${token}, ${expiresAt})
+    VALUES (${companyId}::uuid, ${cleanEmail}, ${role}, ${user.id}, ${tokenHash}, ${expiresAt})
+    ON CONFLICT (company_id, email) DO UPDATE SET
+      role = EXCLUDED.role,
+      invited_by = EXCLUDED.invited_by,
+      token = EXCLUDED.token,
+      expires_at = EXCLUDED.expires_at,
+      accepted_at = NULL,
+      email_sent_at = NULL,
+      email_error = NULL
     RETURNING id
   `;
 
@@ -69,9 +90,18 @@ const createInvitation: NextApiHandler = async (req, res) => {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
   const acceptUrl = `${appUrl}/accept-invite?token=${token}`;
 
-  // 5. Send our own email (Postmark-via-emailService)
+  // 5. Send our own email (Postmark-via-emailService).
+  //    A delivery failure does NOT throw: sendEmail returns
+  //    { success: false, error } from its "SMTP not configured" branch and from
+  //    its own catch (emailService.ts). A try/catch alone therefore never fired
+  //    on the failure this code exists for — the row was stamped email_sent_at
+  //    and the caller was told emailSent: true for mail no SMTP server ever
+  //    accepted. Branch on the returned result, and keep the catch for a
+  //    genuine throw. Same shape as
+  //    pages/api/accounting/company-invitations.ts.
+  let emailError: string | null = null;
   try {
-    await sendEmail({
+    const emailResult = await sendEmail({
       to: cleanEmail,
       subject: `You've been invited to ${company?.name ?? 'IsaFlow'}`,
       html: `<p>You've been invited to join <strong>${company?.name ?? 'IsaFlow'}</strong> on IsaFlow.</p>
@@ -79,15 +109,25 @@ const createInvitation: NextApiHandler = async (req, res) => {
              <p>This link expires in 7 days.</p>`,
       _log: { companyId, emailType: 'invite' },
     });
-    await sql`UPDATE company_invitations SET email_sent_at = now() WHERE id = ${inv[0]!.id}::uuid`;
+    if (!emailResult.success) emailError = emailResult.error ?? 'Unknown email error';
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn('invite email send failed', { inviteId: inv[0]!.id, message: msg }, 'Invitations');
-    await sql`UPDATE company_invitations SET email_error = ${msg} WHERE id = ${inv[0]!.id}::uuid`;
-    return res.status(502).json({ success: false, error: { code: 'EMAIL_FAILED', message: 'Invitation created but email delivery failed. You can resend.' } });
+    emailError = err instanceof Error ? err.message : String(err);
   }
 
-  return res.status(201).json({ success: true, data: { id: inv[0]!.id, email: cleanEmail, role, expiresAt } });
+  if (emailError !== null) {
+    log.warn('invite email send failed', { inviteId: inv[0]!.id, message: emailError }, 'Invitations');
+    await sql`UPDATE company_invitations SET email_error = ${emailError} WHERE id = ${inv[0]!.id}::uuid`;
+    // 201, not 502: withAuth ROLLBACKs the request transaction on any status
+    // >= 500, so the 502 this used to return discarded the invitation row, the
+    // gotrue_user_id and the email_error it had just written — and then told the
+    // caller to resend an invitation that no longer existed. Reporting the
+    // failure in the body keeps the row and matches what
+    // pages/api/accounting/company-invitations.ts already does.
+    return res.status(201).json({ success: true, data: { id: inv[0]!.id, email: cleanEmail, role, expiresAt, emailSent: false, emailError } });
+  }
+
+  await sql`UPDATE company_invitations SET email_sent_at = now() WHERE id = ${inv[0]!.id}::uuid`;
+  return res.status(201).json({ success: true, data: { id: inv[0]!.id, email: cleanEmail, role, expiresAt, emailSent: true } });
 };
 
 const handler: NextApiHandler = async (req, res) => {
@@ -96,4 +136,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'GET or POST' } });
 };
 
-export default withAuth(withCsrf(handler));
+export default withAuth(withErrorHandler(withCsrf(handler)));
