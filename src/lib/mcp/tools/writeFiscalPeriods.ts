@@ -40,7 +40,9 @@ export const closeFiscalPeriodTool: McpTool = {
     + 'Also refuses a period that is locked, already closed, or has an open period before it. '
     + 'Run period_close_checklist or dry_run first: a dry run applies every one of these guards and '
     + 'writes nothing. Requires the write:post permission.',
-  scope: 'write:journals',
+  // The close, reopen and year-end all run through the period control, whose
+  // authority is write:locks — declaring write:journals left the refusal generic.
+  scope: 'write:locks',
   write: true,
   requiresPost: true,
   inputSchema: {
@@ -100,7 +102,9 @@ export const reopenFiscalPeriodTool: McpTool = {
     + 'period is refused rather than reported as a change that did not happen. '
     + 'This weakens a control: everything dated inside the period becomes writable again, including '
     + 'by other agents. Reopen for a specific correction and close again. Requires write:post.',
-  scope: 'write:journals',
+  // The close, reopen and year-end all run through the period control, whose
+  // authority is write:locks — declaring write:journals left the refusal generic.
+  scope: 'write:locks',
   write: true,
   requiresPost: true,
   inputSchema: {
@@ -165,7 +169,9 @@ export const yearEndCloseTool: McpTool = {
     + 'retained earnings with no journal lines behind it, so equity is a computed residual; running '
     + 'this is how that stops being true, and it is worth reading the preview first. '
     + 'Requires the write:post permission.',
-  scope: 'write:journals',
+  // The close, reopen and year-end all run through the period control, whose
+  // authority is write:locks — declaring write:journals left the refusal generic.
+  scope: 'write:locks',
   write: true,
   requiresPost: true,
   inputSchema: {
