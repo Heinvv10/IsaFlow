@@ -5,6 +5,9 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,withControlJobRequest,requireControlTx,makeControlPrincipal} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditSnapshot} from '@/modules/accounting/services/controls/auditJobService';
+import {enqueueAuditExport} from '@/modules/accounting/services/controls/auditExportJobService';
+import {enqueueAuditComparison} from '@/modules/accounting/services/controls/auditComparisonJobService';
+import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
 import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {claimAuditJob,claimAuditJobForWorker,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -141,4 +144,15 @@ it('serializes cold claims and fences an expired worker after takeover',async()=
  const next=await coldClaim(job.id);expect(next!.generation).toBe(leases[0]!.generation+1);
  await expect(actor(leases[0]!,async()=>undefined)).rejects.toThrow(/lease/);
  await actor(next!,async()=>{expect(requireControlTx().principal.provenance).toBe('job');});
+});
+it('refuses every audit enqueue from a job principal: a worker delegates no new work, whatever it holds',async()=>{
+ const lease=await leased(),other=randomUUID(),count=async()=>(await pool.query('SELECT count(*)::int AS n FROM control_audit_job_intents WHERE company_id=$1',[fixture.companyA])).rows[0].n as number;
+ const before=await count();
+ for(const [kind,enqueue] of [['snapshot',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()})],
+  ['export',()=>enqueueAuditExport(requireControlTx(),{snapshotId:other,idempotencyKey:randomUUID()})],
+  ['comparison',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:other,secondSnapshotId:randomUUID(),idempotencyKey:randomUUID()})],
+  ['check-run',()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff:'2026-09-09',checks:['journal_risk_checks'],idempotencyKey:randomUUID()})]] as const)
+  // The refusal is named: a write:audit or source-permission refusal would only hold while the saved delegation lacks them.
+  await expect(actor(lease,enqueue),`a job principal enqueued ${kind} work`).rejects.toThrow(`An authenticated request is required to delegate ${kind} work`);
+ expect(await count()).toBe(before);
 });
