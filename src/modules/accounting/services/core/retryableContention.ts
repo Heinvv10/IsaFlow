@@ -26,8 +26,8 @@
  *   1. ABORTED — raised on the request transaction itself. 55P03/40P01 abort
  *      it, the COMMIT degrades to a rollback, and nothing survives however
  *      much the request wrote first (`bank-transactions-action` →
-      `reverseReconciledTransaction`, whose bank-line lock precedes its own
-      savepoint).
+ *      `reverseReconciledTransaction`, whose bank-line lock precedes its own
+ *      savepoint).
  *   2. CONFINED — raised inside a `withSavepoint` whose ROLLBACK TO succeeded.
  *      The request transaction is LIVE, and everything written before that
  *      savepoint COMMITs behind the 4xx. Safe only when nothing was written

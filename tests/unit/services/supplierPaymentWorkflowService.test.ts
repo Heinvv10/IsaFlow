@@ -68,7 +68,9 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
 
 import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
-import { processSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {
+  processSupplierPayment, SupplierPaymentNotFoundError,
+} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 
 const COMPANY_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const COMPANY_B = 'bbbbbbbb-0000-0000-0000-000000000002';
@@ -169,6 +171,18 @@ describe('processSupplierPayment — bank account tenant isolation', () => {
     const invoices = texts.findIndex((t) => /UPDATE supplier_invoices/i.test(t));
     expect(lock).toBeGreaterThanOrEqual(0);
     expect(invoices).toBeGreaterThan(lock);
+  });
+
+  // K-107: the only class `supplier-payments-action` answers 404. The payment
+  // lock is the first statement now, so ITS refusal is the one a foreign id
+  // meets — a bare Error there is a 500 for a pre-write not-found.
+  it('refuses a payment that is not this tenant\'s with the typed not-found, before any write', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+
+    await expect(inRequestTx(() => processSupplierPayment(COMPANY_A, PAYMENT_ID, USER_ID)))
+      .rejects.toBeInstanceOf(SupplierPaymentNotFoundError);
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(getSupplierPaymentById).not.toHaveBeenCalled();
   });
 
   it('fails closed when the bank account does not belong to the company', async () => {
