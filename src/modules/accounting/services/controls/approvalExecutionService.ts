@@ -49,7 +49,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     const operationId = row?.operation_id ?? ctx.principal.operationId;
     const [committed] = await ctx.sql`
       SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND entity_id=${ref.entityId}
+        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND lower(entity_id)=${ref.entityId}
         AND operation_id=${operationId}::uuid
     ` as Array<{ id: string; result: T }>;
     if (committed) {
@@ -61,7 +61,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     if (row) assertApprovalExecutable(row, material.bindingHash);
     const prior = await ctx.sql`
       SELECT id FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND entity_id=${ref.entityId}
+        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND lower(entity_id)=${ref.entityId}
         AND binding_hash=${material.bindingHash}
     `;
     if (prior.length) throw new Error('Operation effect already committed');
