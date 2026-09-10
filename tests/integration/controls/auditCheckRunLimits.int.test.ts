@@ -5,7 +5,7 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,withControlJobRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
-import {claimAuditJobForWorker,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
+import {claimAuditJobForWorker,failAuditJobForWorker,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
 import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls/auditWorkerTransaction';
 import {runAuditCheckRunPhase} from '@/modules/accounting/services/controls/auditCheckRunPhase';
@@ -60,25 +60,35 @@ function phase(lease:AuditJobLease,limits:Partial<typeof PRODUCTION>){
   {idleInTransactionMs:AUDIT_PROCESS_LIMITS.check_run.idleInTransactionMs});
 }
 const refusal=(reason:string)=>expect.objectContaining({name:'CheckRunResourceLimitError',reason});
+/**
+ * A refused phase, followed by what the runner does after one: record the failure under the same lease, through the
+ * production path, so the job stops counting as active. Without it, every refusal here would hold an active slot.
+ */
+async function refused(lease:AuditJobLease,limits:Partial<typeof PRODUCTION>):Promise<unknown>{
+ const error=await phase(lease,limits).then(()=>null,(caught:unknown)=>caught);
+ await withAuditWorkerTransaction(pool,{companyId:lease.companyId,personId:lease.personId,jobId:lease.jobId},'read committed',Date.now()+5000,undefined,
+  store=>failAuditJobForWorker(store,lease,'RESOURCE_LIMIT',false));
+ return error;
+}
 it('counts only rows that can join a threshold group, and accepts a slab at exactly the bound',async()=>{
  // Positive control: a bound one below the groupable count must refuse, or the tightened limit is being ignored and
  // the acceptance below proves nothing.
- await expect(phase(await leased(slab,NARROW),{maxSlabRows:2}),'the tightened slab bound was not applied').rejects.toEqual(refusal('slab_rows_exceed_limit'));
+ expect(await refused(await leased(slab,NARROW),{maxSlabRows:2}),'the tightened slab bound was not applied').toEqual(refusal('slab_rows_exceed_limit'));
  const lease=await leased(slab,NARROW);
  expect(await phase(lease,{maxSlabRows:3}),'three groupable rows among nine refused a bound of three').toMatchObject({checkRunId:lease.jobId});
  expect(await actor(slab,()=>getAuditCheckRunSummary(requireControlTx(),{checkRunId:lease.jobId}))).toMatchObject({status:'fail',populationCount:9,findingCount:9});
 });
 it('refuses the first groupable row past the slab bound',async()=>{
- await expect(phase(await leased(slab,WIDE),{maxSlabRows:3})).rejects.toEqual(refusal('slab_rows_exceed_limit'));
+ expect(await refused(await leased(slab,WIDE),{maxSlabRows:3})).toEqual(refusal('slab_rows_exceed_limit'));
 });
 it('accepts exactly maxFindings and refuses the first finding past it',async()=>{
  const at=await leased(slab,NARROW);
  expect(await phase(at,{maxFindings:9}),'exactly maxFindings findings was refused').toMatchObject({checkRunId:at.jobId});
- await expect(phase(await leased(slab,WIDE),{maxFindings:9})).rejects.toEqual(refusal('findings_exceed_limit'));
+ expect(await refused(await leased(slab,WIDE),{maxFindings:9})).toEqual(refusal('findings_exceed_limit'));
 });
 it('lets a caller tighten the limits but never widen one',async()=>{
  for(const widened of [{maxSlabRows:PRODUCTION.maxSlabRows+1},{maxFindings:PRODUCTION.maxFindings+1},{fetchRows:PRODUCTION.fetchRows+1}])
-  await expect(phase(await leased(slab,NARROW),widened),`${Object.keys(widened)[0]} was widened`).rejects.toThrow(/may only tighten/i);
+  expect(await refused(await leased(slab,NARROW),widened),`${Object.keys(widened)[0]} was widened`).toEqual(expect.objectContaining({message:expect.stringMatching(/may only tighten/i)}));
 });
 it('publishes unknown with a recounted population in a fresh transaction under the same lease after a limit',async()=>{
  const lease=await leased(slab,WIDE);
