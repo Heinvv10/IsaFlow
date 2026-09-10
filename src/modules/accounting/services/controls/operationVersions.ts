@@ -1,6 +1,17 @@
 import type { ControlTx, EntityRef } from './contracts';
 import { assertControlTx } from './context';
 
+/** The lineage an entity is read and extended under: the caller's own spelling when it was retained, else the only
+ * retained spelling. Two retained spellings, neither the caller's, are two lineages and refuse. Every version reader
+ * and recordCommittedChange choose through this, so the version read and the row extended are the same lineage. */
+export function retainedLineage<T extends { entity_id: string }>(rows: readonly T[], entityId: string): T | undefined {
+  const matches = rows.filter(row => row.entity_id.toLowerCase() === entityId.toLowerCase());
+  const exact = matches.find(row => row.entity_id === entityId);
+  if (exact) return exact;
+  if (matches.length > 1) throw new Error('Ambiguous control entity version');
+  return matches[0];
+}
+
 /** Null means untracked history; this read never invents or persists a baseline. */
 export async function readControlEntityVersion(ctx: ControlTx, ref: EntityRef): Promise<{
   version: number; materialHash: string;
@@ -12,9 +23,9 @@ export async function readControlEntityVersion(ctx: ControlTx, ref: EntityRef): 
     WHERE company_id=${ctx.principal.companyId}::uuid AND entity_type=${ref.entityType}
       AND lower(entity_id)=lower(${ref.entityId}) ORDER BY (entity_id=${ref.entityId}) DESC,entity_id LIMIT 2`) as
     { entity_id: string; version: string | number; material_hash: string }[];
-  if (rows.length > 1 && rows[0]!.entity_id !== ref.entityId) throw new Error('Ambiguous control entity version');
-  if (!rows[0]) return null;
-  const version = Number(rows[0].version);
+  const row = retainedLineage(rows, ref.entityId);
+  if (!row) return null;
+  const version = Number(row.version);
   if (!Number.isSafeInteger(version) || version < 1) throw new Error('Invalid stored control version');
-  return { version, materialHash: rows[0].material_hash };
+  return { version, materialHash: row.material_hash };
 }

@@ -7,8 +7,10 @@
 -- or build the same indexes by hand with CONCURRENTLY first and let these become no-ops.
 CREATE INDEX IF NOT EXISTS control_entity_versions_canonical_idx
  ON control_entity_versions(company_id,entity_type,lower(entity_id));
+-- The journal risk population reads each journal's retained changes and its period's latest event by
+-- lower(entity_id) ordered by occurred_at,id; the trailing columns let both be read in index order.
 CREATE INDEX IF NOT EXISTS control_change_events_canonical_idx
- ON control_change_events(company_id,entity_type,lower(entity_id));
+ ON control_change_events(company_id,entity_type,lower(entity_id),occurred_at DESC,id DESC);
 CREATE INDEX IF NOT EXISTS control_protected_evidence_canonical_idx
  ON control_protected_evidence(company_id,entity_type,lower(entity_id));
 CREATE INDEX IF NOT EXISTS control_operation_approvals_canonical_idx

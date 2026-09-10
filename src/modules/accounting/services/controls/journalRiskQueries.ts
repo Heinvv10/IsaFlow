@@ -17,7 +17,7 @@ export async function loadJournalRiskPopulation(ctx:ControlTx,cutoff:string|null
   v.version,COUNT(*) OVER()::text AS population,COALESCE(lines.count,0)::int AS "lineCount",COALESCE(lines.facts,'[]'::jsonb) AS lines,
   (j.reversal_of_id IS NULL OR EXISTS(SELECT 1 FROM gl_journal_entries original WHERE original.company_id=j.company_id AND original.id=j.reversal_of_id)) AS "reversalOwned"
  FROM gl_journal_entries j JOIN companies c ON c.id=j.company_id
- LEFT JOIN control_entity_versions v ON v.company_id=j.company_id AND v.entity_type='journal_entry' AND lower(v.entity_id)=j.id::text
+ LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=j.company_id AND cv.entity_type='journal_entry' AND lower(cv.entity_id)=j.id::text ORDER BY (cv.entity_id=j.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
  LEFT JOIN LATERAL(SELECT SUM(l.debit) AS amount,COUNT(*) AS count,
    (SELECT jsonb_agg(f) FROM(SELECT x.id,x.gl_account_id,x.debit::text,x.credit::text FROM gl_journal_lines x
     WHERE x.company_id=j.company_id AND x.journal_entry_id=j.id ORDER BY x.id LIMIT 101) f) AS facts

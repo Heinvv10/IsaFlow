@@ -18,7 +18,7 @@ export const sageInvoiceSnapshotSources:SnapshotSource[]=[{
    'owned_native_within_cutoff',i.id IS NOT NULL AND i.invoice_date<=${cutoff}::date,
    'staging_population_not_additive_to_native',true) AS data
    FROM sage_supplier_invoices s LEFT JOIN supplier_invoices i ON i.company_id=s.company_id AND i.id=s.gl_supplier_invoice_id
-   LEFT JOIN control_entity_versions v ON v.company_id=s.company_id AND v.entity_type='sage_supplier_invoice' AND v.entity_id=s.id::text
+   LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=s.company_id AND cv.entity_type='sage_supplier_invoice' AND lower(cv.entity_id)=s.id::text ORDER BY (cv.entity_id=s.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
    WHERE s.company_id=${ctx.principal.companyId}::uuid AND (s.invoice_date IS NULL OR s.invoice_date<=${cutoff}::date)
     AND (${after}::uuid IS NULL OR s.id>${after}::uuid) ORDER BY s.id LIMIT 1000` as SnapshotRow[];
  }
