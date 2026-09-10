@@ -16,10 +16,17 @@
  * Write paths ONLY — never call this from a list/query service.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { isLockContention } from '../core/lockContention';
+
+/**
+ * Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row.
+ * Kept local to the table-lock probe below: `isLockContention` is what the
+ * WRITE path classifies on, and it covers the deadlock SQLSTATE too.
+ */
+const LOCK_NOT_AVAILABLE = '55P03';
 
 /**
  * Raised when another request holds the row longer than the 5s `lock_timeout`,
@@ -112,7 +119,86 @@ export async function lockBankTransactionForUpdate(
     await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
+    // Classified with `isLockContention`, not the 55P03 check alone: a DEADLOCK
+    // (40P01) is the same answer to the caller — the row was never acquired,
+    // nothing was written, retrying is the remedy — and left unmapped it
+    // reaches `withAuth` as a 500 on the money path.
+    //
+    // A 55P03 here has the same two readings the match UPDATE has — a peer
+    // holding the row, or DDL holding the TABLE — and this branch reports both
+    // as the first: the message says "being allocated by another request" and
+    // `autoMatchTransactions` counts it in `skippedRaced`. `tableLockUnavailable`
+    // is deliberately NOT consulted, because it cannot run here: this SELECT is
+    // outside a savepoint, so its 55P03 aborts the transaction and the probe's
+    // LOCK TABLE comes back 25P02 "current transaction is aborted", masking the
+    // real error instead of classifying it (verified against pg on the schema
+    // fixture). Discriminating at this call site means wrapping the SELECT in
+    // its own savepoint on every bank write path — deferred, and recorded in
+    // docs/audits/remediation/K-140/fix.md.
+    //
+    // The window is narrower than the UPDATE's. `FOR UPDATE` takes ROW SHARE,
+    // which does not conflict with the SHARE a non-CONCURRENTLY `CREATE INDEX`
+    // holds, so migration 657 — the case that motivated the match fix — is
+    // GRANTED here rather than refused. Only an EXCLUSIVE or ACCESS EXCLUSIVE
+    // holder (`ALTER TABLE`, `VACUUM FULL`, `TRUNCATE`) reaches this branch, and
+    // the wording it raises is at least retryable in either reading.
     if (isLockContention(err)) throw new BankTransactionLockTimeoutError(bankTxId);
     throw err;
+  }
+}
+
+/** Is this the `lock_timeout` firing, on any statement in the request? */
+export function isLockNotAvailable(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === LOCK_NOT_AVAILABLE;
+}
+
+/**
+ * Raised when the match could not be attempted because `bank_transactions`
+ * itself was locked — DDL, `VACUUM FULL`, or migration 657's own
+ * `CREATE UNIQUE INDEX`, which holds SHARE on the table for the length of the
+ * build. Nothing is known about the journal line, so the wording claims
+ * nothing about it. Retryable: the caller should try again, not reverse
+ * anything.
+ */
+export class BankMatchUnavailableError extends Error {
+  readonly code = 'BANK_MATCH_UNAVAILABLE';
+  constructor(bankTxId: string) {
+    super(`Bank transaction ${bankTxId} could not be matched right now — retry in a moment.`);
+    this.name = 'BankMatchUnavailableError';
+  }
+}
+
+/** `withSavepoint` caps names at 31 characters; this one is 24. */
+const MATCH_LOCK_PROBE_SAVEPOINT = 'bank_tx_match_lock_probe';
+
+/**
+ * Did the failed UPDATE wait on the TABLE, or on the row?
+ *
+ * `lockBankTransactionForUpdate` issues `SET LOCAL lock_timeout = '5s'`, which
+ * bounds EVERY lock wait for the rest of the request — not only the row and
+ * index waits. So a raw 55P03 out of the match UPDATE has two readings: a peer
+ * holding the journal line's index entry past 5s (genuine contention), or a
+ * relation-level lock held by DDL (infrastructure). Reported as one, an index
+ * build tells every user mid-deploy that their line is "already matched to
+ * another bank transaction" — a specific claim that is false.
+ *
+ * `ROW EXCLUSIVE` is the mode the UPDATE itself takes, so asking for it NOWAIT
+ * separates the two: it conflicts with SHARE / EXCLUSIVE / ACCESS EXCLUSIVE —
+ * every lock a DDL statement takes — and with nothing a concurrent writer
+ * holds. Granted means the table was free and the wait was on the row; refused
+ * means the table is not.
+ *
+ * Runs after the write savepoint has rolled back, so the connection is usable,
+ * and under its own savepoint so a refusal does not poison the request.
+ */
+export async function tableLockUnavailable(): Promise<boolean> {
+  try {
+    await withSavepoint(MATCH_LOCK_PROBE_SAVEPOINT, async (): Promise<void> => {
+      await sql`LOCK TABLE bank_transactions IN ROW EXCLUSIVE MODE NOWAIT`;
+    });
+    return false;
+  } catch (probeErr) {
+    if (isLockNotAvailable(probeErr)) return true;
+    throw probeErr;
   }
 }

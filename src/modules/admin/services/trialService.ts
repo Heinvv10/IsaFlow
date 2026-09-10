@@ -224,16 +224,17 @@ export async function markAsConverted(
 
 /** Extend multiple companies' trials by N days. */
 export async function bulkExtendTrials(companyIds: string[], days: number): Promise<number> {
-  // Use unnest for a single UPDATE across all IDs
-  const result = await sql`
+  // RETURNING id, not .count: a tagged-template result has no .count, and the
+  // 'deleted' predicate means the rows updated are not the ids that were asked for.
+  const rows = (await sql`
     UPDATE companies
     SET trial_ends_at = COALESCE(trial_ends_at, NOW()) + (${days} || ' days')::interval,
         updated_at    = NOW()
     WHERE id = ANY(${companyIds}::uuid[])
       AND status IS DISTINCT FROM 'deleted'
-  `;
+    RETURNING id
+  `) as Record<string, unknown>[];
 
-  const count = (result as unknown as { count: number }).count ?? companyIds.length;
-  log.info('Bulk trial extension applied', { companyIds: companyIds.length, days }, 'trialService');
-  return typeof count === 'number' ? count : companyIds.length;
+  log.info('Bulk trial extension applied', { requested: companyIds.length, extended: rows.length, days }, 'trialService');
+  return rows.length;
 }

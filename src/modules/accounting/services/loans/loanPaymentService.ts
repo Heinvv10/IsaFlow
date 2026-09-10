@@ -70,7 +70,7 @@ function mapPaymentRow(r: Row): LoanPayment {
 
 async function glByCode(companyId: string, code: string): Promise<string | null> {
   const rows = (await sql`
-    SELECT id FROM gl_accounts WHERE company_id = ${companyId} AND code = ${code} LIMIT 1
+    SELECT id FROM gl_accounts WHERE company_id = ${companyId} AND account_code = ${code} LIMIT 1
   `) as Row[];
   return rows.length > 0 ? String(rows[0]!.id) : null;
 }

@@ -8,7 +8,8 @@ import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/li
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validatePurchaseOrder, calculatePOTotals, generatePONumber } from '@/modules/accounting/services/ap/procurementService';
+import { validatePurchaseOrder, calculatePOTotals } from '@/modules/accounting/services/ap/procurementService';
+import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
 type Row = Record<string, unknown>;
@@ -35,14 +36,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
 
     const totals = calculatePOTotals(body.items);
-    const countRes = await sql`SELECT COUNT(*) as cnt FROM purchase_orders WHERE company_id = ${companyId}::UUID` as Row[];
-    const poNumber = generatePONumber(Number(countRes[0]?.cnt ?? 0));
 
-    const inserted = await sql`
-      INSERT INTO purchase_orders (company_id, po_number, supplier_id, order_date, expected_delivery_date, subtotal, tax_amount, total, notes, reference, created_by)
-      VALUES (${companyId || null}, ${poNumber}, ${body.supplierId}, ${body.orderDate || new Date().toISOString().split('T')[0]}, ${body.expectedDeliveryDate || null}, ${totals.subtotal}, ${totals.taxAmount}, ${totals.total}, ${body.notes || null}, ${body.reference || null}, ${String(req.user.id)})
-      RETURNING *
-    ` as Row[];
+    // The number comes from the company's `purchase_order` sequence. What this
+    // replaced was COUNT(*)+1 against a UNIQUE(company_id, po_number): count is
+    // not max, so after a single PO was deleted every later create re-issued a
+    // number that already existed and 23505'd — permanently, since the count
+    // never caught up — with no savepoint and no retry, wedging PO creation for
+    // that company until someone renumbered by hand.
+    const inserted = await insertWithReservedNumber(
+      companyId, 'purchase_order', 'po_insert_', 'purchase_orders_company_id_po_number_key',
+      async (poNumber) => (await sql`
+        INSERT INTO purchase_orders (company_id, po_number, supplier_id, order_date, expected_delivery_date, subtotal, tax_amount, total, notes, reference, created_by)
+        VALUES (${companyId || null}, ${poNumber}, ${body.supplierId}, ${body.orderDate || new Date().toISOString().split('T')[0]}, ${body.expectedDeliveryDate || null}, ${totals.subtotal}, ${totals.taxAmount}, ${totals.total}, ${body.notes || null}, ${body.reference || null}, ${String(req.user.id)})
+        RETURNING *
+      ` as Row[]),
+    );
+    const poNumber = String(inserted[0]?.po_number);
 
     const poId = String(inserted[0]?.id);
     for (let i = 0; i < body.items.length; i++) {

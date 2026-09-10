@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
 
-const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+export const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
 type CompanyRole = (typeof VALID_ROLES)[number];
 
 // ── Types ─────────────────────────────────────────────────────────────────────

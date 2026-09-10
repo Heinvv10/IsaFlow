@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
+import Link from 'next/link';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -41,6 +42,10 @@ interface AccountDrillDownProps {
   accountCode: string;
   periodStart: string;
   periodEnd: string;
+  costCentreId?: string;
+  businessUnitId?: string;
+  source?: 'tb' | 'bs' | 'is';
+  returnTo?: string;
   /** Render inside a <table> (uses <tr>/<td>) vs standalone (uses <div>) */
   asTableRow?: boolean;
   /** Column span when rendered as table row */
@@ -51,12 +56,22 @@ export function AccountDrillDown({
   accountCode,
   periodStart,
   periodEnd,
+  costCentreId,
+  businessUnitId,
+  source,
+  returnTo,
   asTableRow,
   colSpan = 5,
 }: AccountDrillDownProps) {
   const [data, setData] = useState<DrillDownData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const detailParams = new URLSearchParams({ from: periodStart, to: periodEnd });
+  if (source) detailParams.set('source', source);
+  if (costCentreId) detailParams.set('cost_centre_id', costCentreId);
+  if (businessUnitId) detailParams.set('business_unit_id', businessUnitId);
+  if (returnTo) detailParams.set('return_to', returnTo);
+  const detailHref = `/accounting/reports/account-detail/${encodeURIComponent(accountCode)}?${detailParams}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -69,11 +84,19 @@ export function AccountDrillDown({
       period_end: periodEnd,
     });
 
+    if (costCentreId) params.set('cost_centre_id', costCentreId);
+    if (businessUnitId) params.set('business_unit_id', businessUnitId);
+
     apiFetch(`/api/accounting/reports-account-transactions?${params}`)
-      .then(r => r.json())
+      .then(async r => {
+        const json = await r.json();
+        if (!r.ok) throw new Error('Failed to load transactions');
+        return json;
+      })
       .then(json => {
         if (cancelled) return;
         const d = json.data || json;
+        if (!d || !Array.isArray(d.transactions)) throw new Error('Invalid transaction response');
         setData(d);
       })
       .catch(() => {
@@ -84,10 +107,13 @@ export function AccountDrillDown({
       });
 
     return () => { cancelled = true; };
-  }, [accountCode, periodStart, periodEnd]);
+  }, [accountCode, periodStart, periodEnd, costCentreId, businessUnitId]);
 
   const content = (
     <div className="bg-[var(--ff-bg-primary)] border-t border-[var(--ff-border-light)]">
+      {source && <div className="px-4 py-2 text-right border-b border-[var(--ff-border-light)]">
+        <Link href={detailHref} className="text-xs text-indigo-400 hover:underline">Open full ledger</Link>
+      </div>}
       {loading ? (
         <div className="flex items-center justify-center py-4">
           <Loader2 className="h-4 w-4 animate-spin text-[var(--ff-text-tertiary)]" />

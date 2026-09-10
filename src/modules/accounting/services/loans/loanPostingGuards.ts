@@ -1,0 +1,142 @@
+/**
+ * Guards shared by the two loan paths that write to the general ledger:
+ * `closeLoanPeriod` (the current-portion reclass) and `postPeriodJournals`
+ * (the contractual instalment journal).
+ */
+
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { als, assertTxUsable } from '@/lib/als';
+
+type Row = DbRow;
+
+/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
+const LOCK_NOT_AVAILABLE = '55P03';
+
+/** Raised when another request holds the loan row past the 5s `lock_timeout`. */
+export class LoanPostLockTimeoutError extends Error {
+  readonly code = 'LOAN_POST_LOCK_TIMEOUT';
+  constructor(loanId: string) {
+    super(`Loan ${loanId} is being posted by another request — retry in a moment.`);
+    this.name = 'LoanPostLockTimeoutError';
+  }
+}
+
+/**
+ * Read one loan for a company and hold a row lock on it for the rest of the
+ * request transaction, so two concurrent posts of the same period serialise
+ * and the second sees the first's committed `loan_gl_postings` rows.
+ *
+ * Bounded, per `bankTxLock.ts`: an unbounded `FOR UPDATE` behind a peer that
+ * is wedged pins the connection until the HTTP/pool timeout. `SET LOCAL` is
+ * subtransaction-aware and reverts to `0` on `ROLLBACK TO SAVEPOINT`, so it is
+ * re-issued on every call rather than memoised. Returns `null` when the loan
+ * does not exist or belongs to another tenant.
+ */
+export async function lockLoanForUpdate(
+  companyId: string,
+  loanId: string,
+): Promise<Row | null> {
+  // Review L3. Without a request transaction there is no session to bound and
+  // no rollback either: the FOR UPDATE would run unbounded on a pooled
+  // connection, which is the exact failure the bound was added for. A GL write
+  // path outside withAuth is a caller bug, so say so instead of degrading.
+  const client = als.getStore()?.client;
+  if (!client) {
+    throw new Error(
+      'lockLoanForUpdate requires a request transaction (withAuth) — an unbounded FOR UPDATE '
+      + 'on a pooled connection cannot be rolled back or timed out',
+    );
+  }
+  assertTxUsable();
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  try {
+    const rows = (await sql`
+      SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId} FOR UPDATE
+    `) as Row[];
+    // Review L2. SET LOCAL lives to the end of the request transaction, so
+    // without this every later statement in the request inherits the 5s bound
+    // and an unrelated 55P03 surfaces as a raw 500 rather than a named error.
+    // Only on the success path: any error above has already aborted the
+    // transaction, and a reset there would raise 25P02 over the real cause.
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
+    return rows[0] ?? null;
+  } catch (err) {
+    if (typeof err === 'object' && err !== null
+      && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE) {
+      throw new LoanPostLockTimeoutError(loanId);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Review M2. The reclass journals only the MOVEMENT since the previous close,
+ * and `fetchPriorReclass` reads the latest EARLIER record, never a later one.
+ * Closing a month after a later month has already closed therefore reads a
+ * prior of 0, posts the FULL current portion, and no subsequent close unwinds
+ * it — the account stays permanently over by that amount. The invariant "the
+ * current-portion account holds the last recorded st_liability" only holds
+ * while months close in ascending order, so refuse the out-of-order close
+ * rather than silently breaking it.
+ */
+export async function assertClosesInOrder(companyId: string, yyyymm: string): Promise<void> {
+  // Round-4 M1. `pg_advisory_xact_lock` is released at the end of the
+  // transaction it is taken in. Outside a request transaction `sql` runs the
+  // statement on a pooled connection in its own implicit transaction, so the
+  // lock is released the instant it is taken and every close reads the
+  // later-lock set concurrently again — the M4 defect, with a guard that looks
+  // present. Take the same line as `lockLoanForUpdate` above and say so.
+  if (!als.getStore()?.client) {
+    throw new Error(
+      'assertClosesInOrder requires a request transaction (withAuth) — pg_advisory_xact_lock '
+      + 'taken on a pooled connection is released immediately and serialises nothing',
+    );
+  }
+  // Review M4. The read below and the loan_period_locks INSERT that satisfies
+  // it are ~60 lines and several journal posts apart, and the table's PK
+  // (company_id, yyyymm) only stops the SAME month twice. Two concurrent
+  // closes of 202603 and 202604 would both read an empty later-lock set and
+  // both proceed. Serialise every close of a company behind one transaction
+  // advisory lock, taken before the read, released at COMMIT.
+  //
+  // Round-4 L1. `hashtext` is int4, so the key would share a 2^32 space with
+  // every other `hashtext` advisory lock in the codebase (shareLinkService,
+  // mcp/audit) and a collision would serialise two unrelated operations. The
+  // two-argument `hashtextextended(x, tag)` is what the rest of the module
+  // uses (617/619/620) for exactly that reason; 621 is this feature's tag.
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId}::text, 621))`;
+  const later = (await sql`
+    SELECT yyyymm FROM loan_period_locks
+    WHERE company_id = ${companyId} AND yyyymm > ${yyyymm}
+    ORDER BY yyyymm ASC LIMIT 1
+  `) as Row[];
+  if (later.length > 0) {
+    throw new Error(
+      `Period ${yyyymm} cannot be closed after ${String(later[0]!.yyyymm).trim()} — `
+      + 'loan periods must be closed in ascending order',
+    );
+  }
+}
+
+/**
+ * Review L6. `createJournalEntry` falls back to a NULL `fiscal_period_id` when
+ * the entry date lies outside the auto-create window (10 years back, 2 years
+ * forward), and `postJournalEntry` guards its closed-period check behind
+ * `if (entry.fiscalPeriodId)`. A long loan's schedule runs well past +2 years,
+ * and the close route accepts any six digits, so both paths could post a
+ * journal that never appears in the trial balance, VAT201 or the AFS. Refuse
+ * instead — the throw rolls the request transaction back, so nothing posts.
+ */
+export function assertFiscalPeriodResolved(
+  fiscalPeriodId: string | undefined,
+  entryDate: string,
+  narrative: string,
+): void {
+  if (!fiscalPeriodId) {
+    throw new Error(
+      `${narrative}: ${entryDate} falls outside every fiscal period and none could be created `
+      + '— open the fiscal year before posting, or the entry would sit outside every report',
+    );
+  }
+}

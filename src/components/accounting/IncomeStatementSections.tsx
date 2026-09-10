@@ -20,11 +20,14 @@ import { comparativeOnlyColumns } from '@/modules/accounting/services/reports/st
 
 export function IncomeStatementSections({
   report, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative, onEvidence,
-  columns, applyComparators = rows => rows,
+  costCentreId, businessUnitId, returnTo, columns, applyComparators = rows => rows,
 }: {
   report: IncomeStatementReport;
   periodStart: string;
   periodEnd: string;
+  costCentreId?: string;
+  businessUnitId?: string;
+  returnTo?: string;
   expandedAccount: string | null;
   onToggleAccount: (code: string) => void;
   showComparative: boolean;
@@ -54,7 +57,8 @@ export function IncomeStatementSections({
         onEvidence={code => onEvidence(code, nameOf(code))}
         cents
         renderDrill={code => (
-          <AccountDrillDown accountCode={code} periodStart={periodStart} periodEnd={periodEnd} asTableRow={false} />
+          <AccountDrillDown accountCode={code} periodStart={periodStart} periodEnd={periodEnd}
+            costCentreId={costCentreId} businessUnitId={businessUnitId} source="is" returnTo={returnTo} asTableRow={false} />
         )}
       />
 

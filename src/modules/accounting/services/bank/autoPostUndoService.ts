@@ -5,7 +5,7 @@
  * still marked undone, with the skip count returned.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseReconciledTransaction } from './bankAllocationService';
@@ -17,7 +17,24 @@ type Row = DbRow;
 export interface UndoResult {
   reversed: number;
   skipped: number;
+  /**
+   * Rows carrying the run's tag that had nothing left to reverse — neither a
+   * matched journal line nor a provisional JE. The product makes them:
+   * `unmatchTransaction` and `reverseReconciledTransaction` both clear
+   * `matched_journal_line_id` and leave `auto_post_run_id` set, so a user who
+   * undoes one line by hand and then undoes the run has one of these. All the
+   * undo does for such a row is clear the stale tag, which is not a reversal
+   * and must not be counted as one — `reversed` is the number the operator
+   * reconciles against.
+   */
+  alreadyUndone: number;
 }
+
+/**
+ * Savepoint name for one row of the undo. `withSavepoint` caps names at 31
+ * characters, so this is a constant rather than an interpolation.
+ */
+const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
 
 export async function undoRun(companyId: string, runId: string, userId: string): Promise<UndoResult> {
   const runRows = (await sql`
@@ -36,6 +53,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
 
   let reversed = 0;
   let skipped = 0;
+  let alreadyUndone = 0;
 
   for (const tx of txRows) {
     const txId = String(tx.id);
@@ -44,28 +62,51 @@ export async function undoRun(companyId: string, runId: string, userId: string):
       continue;
     }
     try {
-      if (tx.matched_journal_line_id && tx.provisional_je_id) {
-        log.warn(
-          'Auto-post tx has both matched line and provisional JE — reversing matched line only',
+      // Under its own savepoint, like the sibling sweep in autoPostGateService.
+      // The body posts contra journals and takes row locks under a 5s
+      // lock_timeout, so a contended or constraint-violating row raises a REAL
+      // Postgres error inside the request transaction. Bare, the catch below
+      // swallowed it while the transaction stayed aborted: every later row then
+      // failed 25P02 and the trailing `undone` UPDATE threw — so the catch's own
+      // "run will still be marked undone" was false in exactly the case it
+      // describes. A savepoint makes one failed row roll back alone.
+      const didReverse = await withSavepoint(UNDO_ROW_SAVEPOINT, async (): Promise<boolean> => {
+        if (tx.matched_journal_line_id && tx.provisional_je_id) {
+          log.warn(
+            'Auto-post tx has both matched line and provisional JE — reversing matched line only',
+            { companyId, runId, txId },
+            'auto-post-undo',
+          );
+        }
+        let reversedHere = false;
+        if (tx.matched_journal_line_id) {
+          await reverseReconciledTransaction(companyId, txId, userId);
+          reversedHere = true;
+        } else if (tx.provisional_je_id) {
+          await reverseJournalEntry(companyId, String(tx.provisional_je_id), userId);
+          await sql`
+            UPDATE bank_transactions
+            SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
+            WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
+          `;
+          reversedHere = true;
+        }
+        await sql`
+          UPDATE bank_transactions SET auto_post_run_id = NULL
+          WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
+        `;
+        return reversedHere;
+      });
+      if (didReverse) {
+        reversed += 1;
+      } else {
+        alreadyUndone += 1;
+        log.info(
+          'Auto-post undo found a tagged transaction with nothing to reverse — clearing the stale run tag only',
           { companyId, runId, txId },
           'auto-post-undo',
         );
       }
-      if (tx.matched_journal_line_id) {
-        await reverseReconciledTransaction(companyId, txId, userId);
-      } else if (tx.provisional_je_id) {
-        await reverseJournalEntry(companyId, String(tx.provisional_je_id), userId);
-        await sql`
-          UPDATE bank_transactions
-          SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
-          WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
-        `;
-      }
-      await sql`
-        UPDATE bank_transactions SET auto_post_run_id = NULL
-        WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
-      `;
-      reversed += 1;
     } catch (err) {
       // Contention ends the undo instead of being logged as a failure. The one
       // member this loop can raise is `reverseReconciledTransaction`'s bank-line
@@ -91,6 +132,6 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  log.info('Auto-post run undone', { companyId, runId, reversed, skipped }, 'auto-post-undo');
-  return { reversed, skipped };
+  log.info('Auto-post run undone', { companyId, runId, reversed, skipped, alreadyUndone }, 'auto-post-undo');
+  return { reversed, skipped, alreadyUndone };
 }

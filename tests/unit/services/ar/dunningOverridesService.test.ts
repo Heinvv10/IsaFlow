@@ -21,6 +21,7 @@ vi.mock('@/lib/neon', () => {
 });
 
 import { sql } from '@/lib/neon';
+import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
 import {
   getOverride,
   setOverride,
@@ -82,6 +83,21 @@ describe('setOverride', () => {
     await expect(
       setOverride(COMPANY_ID, CUSTOMER_ID, { template_id_override: TEMPLATE_ID }),
     ).rejects.toThrow(/Template .* not found/);
+  });
+
+  // Round-5 LOW-1: the route used to read this refusal off the message text and
+  // fall back to a catch-all 400 for everything else, which withAuth COMMITs.
+  // The refusal must be TYPED so the route can tell it from a PG error.
+  it('raises the missing template as a typed 404 ArRequestError', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([]);
+    const thrown = await setOverride(COMPANY_ID, CUSTOMER_ID, {
+      template_id_override: TEMPLATE_ID,
+    }).then(() => null, (e: unknown) => e);
+
+    expect(thrown).toBeInstanceOf(ArRequestError);
+    expect((thrown as ArRequestError).status).toBe(404);
+    expect((thrown as ArRequestError).code).toBe('DUNNING_TEMPLATE_NOT_FOUND');
   });
 
   it('allows clearing template_id_override by passing null', async () => {

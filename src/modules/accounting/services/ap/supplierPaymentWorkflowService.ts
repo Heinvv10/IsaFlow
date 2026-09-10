@@ -8,6 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
@@ -33,7 +34,7 @@ export async function approveSupplierPayment(
 ): Promise<SupplierPayment> {
   try {
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
     if (payment.status !== 'draft') throw new Error(`Cannot approve payment with status: ${payment.status}`);
 
     const rows = (await sql`
@@ -47,6 +48,38 @@ export async function approveSupplierPayment(
   } catch (err) {
     log.error('Failed to approve supplier payment', { id, error: err }, 'accounting');
     throw err;
+  }
+}
+
+/**
+ * Raised when the payment id does not resolve inside this company. Raised by
+ * approve, process and void BEFORE any write, so a route may answer it 404.
+ *
+ * Typed rather than matched on the message: the route classified it with
+ * `/not found$/`, which also matched 'Bank account not found' — thrown AFTER
+ * `processSupplierPayment` has claimed the payment. That answered 404, and
+ * `withAuth` COMMITs below 500, so the payment stayed 'processed' with no
+ * journal and no path back: every retry hit the claim it had already taken.
+ */
+export class SupplierPaymentNotFoundError extends Error {
+  readonly code = 'SUPPLIER_PAYMENT_NOT_FOUND';
+  constructor(readonly paymentId: string) {
+    super(`Payment ${paymentId} not found`);
+    this.name = 'SupplierPaymentNotFoundError';
+  }
+}
+
+/**
+ * Raised when the payment is not 'approved' when the claim runs — because it
+ * never was, or because a concurrent request has already processed it. Raised
+ * BEFORE the journal is created, so a route may answer it with a 4xx without
+ * `withAuth` committing a half-processed payment.
+ */
+export class SupplierPaymentNotProcessableError extends Error {
+  readonly code = 'SUPPLIER_PAYMENT_NOT_PROCESSABLE';
+  constructor(readonly paymentStatus: string) {
+    super(`Payment is ${paymentStatus}, not approved — it cannot be processed.`);
+    this.name = 'SupplierPaymentNotProcessableError';
   }
 }
 
@@ -74,8 +107,32 @@ export async function processSupplierPayment(
       throw new Error(`Payment ${id} not found`);
     }
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
-    if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
+
+    // CLAIM the payment before anything is posted — the singular twin of
+    // batchPaymentService.processBatch, which carried the identical defect.
+    // What this replaced read `payment.status !== 'approved'` and then created
+    // and POSTED DR AP / CR Bank for the full amount and incremented
+    // `amount_paid` on every allocated bill, with the payment's own row
+    // rewritten unconditionally: two concurrent "process" clicks credited the
+    // bank twice and overstated the supplier ledger, and only one journal id
+    // survived on the payment to show for it. The status-predicated UPDATE is
+    // the guard — the loser matches zero rows and stops here, before the first
+    // posting — and it also moves the first blocking point off the per-company
+    // entry_number trigger, where two interleaved callers used to park on each
+    // other with no lock_timeout at all.
+    const claimed = await claimUnderLockTimeout('supplier payment', async () => (await sql`
+      UPDATE supplier_payments
+      SET status = 'processed', processed_at = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
+      RETURNING id
+    `) as Row[]);
+    if (claimed.length === 0) {
+      // Re-read rather than trusting the row read before the UPDATE: the loser
+      // of a double-click needs the status the winner left behind.
+      const now = await getSupplierPaymentById(companyId, id);
+      throw new SupplierPaymentNotProcessableError(now?.status ?? 'missing');
+    }
 
     const apAccount = await getSystemAccount('payable', companyId);
     const bankAccount = payment.bankAccountId
@@ -125,10 +182,11 @@ export async function processSupplierPayment(
       `;
     }
 
+    // Only the journal link is left to write — the status and timestamp were
+    // set by the claim above.
     const updatedRows = (await sql`
       UPDATE supplier_payments
-      SET status = 'processed', processed_at = NOW(),
-          gl_journal_entry_id = ${journalEntry.id}::UUID
+      SET gl_journal_entry_id = ${journalEntry.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
@@ -177,7 +235,7 @@ async function voidSupplierPaymentInner(
       throw new Error(`Payment ${id} not found`);
     }
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
     if (payment.status === 'reconciled') {
       throw new Error('Cannot void a reconciled payment — remove it from the bank reconciliation first');
     }

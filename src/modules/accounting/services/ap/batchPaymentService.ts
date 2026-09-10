@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -119,10 +120,44 @@ export async function approveBatch(companyId: string, id: string, _userId: strin
   log.info('Approved batch', { id }, 'accounting');
 }
 
+/**
+ * Raised when the batch is not in 'approved' when the claim runs — because it
+ * never was, or because a concurrent request has already processed it. Raised
+ * BEFORE the journal is created, so a route may answer it with a 4xx without
+ * `withAuth` committing a half-processed batch.
+ */
+export class BatchNotProcessableError extends Error {
+  readonly code = 'BATCH_NOT_PROCESSABLE';
+  constructor(readonly batchStatus: string) {
+    super(`Batch is ${batchStatus}, not approved — it cannot be processed.`);
+    this.name = 'BatchNotProcessableError';
+  }
+}
+
 export async function processBatch(companyId: string, id: string, userId: string): Promise<void> {
   const batch = await getBatchById(companyId, id);
   if (!batch) throw new Error('Batch not found');
-  if (batch.status !== 'approved') throw new Error('Batch must be approved first');
+
+  // CLAIM the batch before anything is posted. What this replaced read
+  // `batch.status !== 'approved'` and then created and POSTED a journal, so two
+  // concurrent "process" clicks both passed the read and both posted DR AP / CR
+  // Bank for the full batch, and both incremented `amount_paid` on every
+  // invoice in it — the bank credited twice and the supplier ledger overstated,
+  // with the batch's own row rewritten unconditionally so only one journal id
+  // survived to show for it. The status-predicated UPDATE is the guard: the
+  // loser matches zero rows and stops here, before the first posting.
+  const claimed = await claimUnderLockTimeout('payment batch', async () => (await sql`
+    UPDATE supplier_payment_batches
+    SET status = 'processed', processed_by = ${userId}::UUID, processed_at = NOW(), updated_at = NOW()
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
+    RETURNING id
+  `) as Row[]);
+  if (claimed.length === 0) {
+    // Re-read rather than trusting the row read before the UPDATE: the loser of
+    // a double-click needs the status the winner left behind.
+    const now = await getBatchById(companyId, id);
+    throw new BatchNotProcessableError(now?.status ?? 'missing');
+  }
 
   const totalAmount = batch.totalAmount;
 
@@ -174,11 +209,13 @@ export async function processBatch(companyId: string, id: string, userId: string
 
     await tx`UPDATE supplier_payments SET status = 'processed' WHERE batch_id = ${id}::UUID
       AND batch_id IN (SELECT id FROM supplier_payment_batches WHERE company_id = ${companyId}::UUID)`;
+    // Only the journal link is left to write — the status, processor and
+    // timestamp were set by the claim above. `company_id` is on the predicate
+    // because every query in this codebase carries it, claim or no claim.
     await tx`
       UPDATE supplier_payment_batches
-      SET status = 'processed', processed_by = ${userId}::UUID, processed_at = NOW(),
-          gl_journal_entry_id = ${je.id}::UUID
-      WHERE id = ${id}
+      SET gl_journal_entry_id = ${je.id}::UUID, updated_at = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     `;
   });
 

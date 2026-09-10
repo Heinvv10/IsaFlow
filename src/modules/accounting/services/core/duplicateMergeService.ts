@@ -9,9 +9,6 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
- 
-type SqlResult = { rowCount?: number };
-
 export interface MergeResult {
   reassignedTransactions: number;
 }
@@ -58,8 +55,9 @@ async function mergeCustomers(companyId: string, primaryId: string, duplicateId:
   const r1 = await sql`
     UPDATE customer_payments SET client_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND client_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r1.rowCount ?? 0);
+    RETURNING id
+  `;
+  count += r1.length;
 
   // customer_invoices has both customer_id and client_id
   const r2 = await sql`
@@ -67,26 +65,30 @@ async function mergeCustomers(companyId: string, primaryId: string, duplicateId:
     SET customer_id = ${primaryId}::UUID, client_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID
       AND (customer_id = ${duplicateId}::UUID OR client_id = ${duplicateId}::UUID)
-  ` as unknown as SqlResult;
-  count += Number(r2.rowCount ?? 0);
+    RETURNING id
+  `;
+  count += r2.length;
 
   const r3 = await sql`
     UPDATE credit_notes SET client_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND client_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r3.rowCount ?? 0);
+    RETURNING id
+  `;
+  count += r3.length;
 
   const r4 = await sql`
     UPDATE customer_sales_orders SET customer_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND customer_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r4.rowCount ?? 0);
+    RETURNING id
+  `;
+  count += r4.length;
 
   const r5 = await sql`
     UPDATE customer_quotes SET client_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND client_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r5.rowCount ?? 0);
+    RETURNING id
+  `;
+  count += r5.length;
 
   await sql`
     UPDATE customers SET deleted_at = NOW()
@@ -115,20 +117,23 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   const r1 = await sql`
     UPDATE supplier_payments SET supplier_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r1.rowCount ?? 0);
+    RETURNING id
+  `;
+  count += r1.length;
 
   const r2 = await sql`
     UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r2.rowCount ?? 0);
+    RETURNING id
+  `;
+  count += r2.length;
 
   const r3 = await sql`
     UPDATE supplier_purchase_orders SET supplier_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r3.rowCount ?? 0);
+    RETURNING id
+  `;
+  count += r3.length;
 
   await sql`
     UPDATE suppliers SET deleted_at = NOW()
@@ -158,8 +163,9 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
     WHERE cii.invoice_id = ci.id
       AND ci.company_id = ${companyId}::UUID
       AND cii.item_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r1.rowCount ?? 0);
+    RETURNING cii.id
+  `;
+  count += r1.length;
 
   const r2 = await sql`
     UPDATE supplier_purchase_order_items spoi SET item_id = ${primaryId}::UUID
@@ -167,8 +173,9 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
     WHERE spoi.purchase_order_id = spo.id
       AND spo.company_id = ${companyId}::UUID
       AND spoi.item_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r2.rowCount ?? 0);
+    RETURNING spoi.id
+  `;
+  count += r2.length;
 
   const r3 = await sql`
     UPDATE customer_sales_order_items csoi SET item_id = ${primaryId}::UUID
@@ -176,8 +183,9 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
     WHERE csoi.sales_order_id = cso.id
       AND cso.company_id = ${companyId}::UUID
       AND csoi.item_id = ${duplicateId}::UUID
-  ` as unknown as SqlResult;
-  count += Number(r3.rowCount ?? 0);
+    RETURNING csoi.id
+  `;
+  count += r3.length;
 
   await sql`
     UPDATE items SET deleted_at = NOW()
