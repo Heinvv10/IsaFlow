@@ -39,11 +39,12 @@ export async function runAuditSnapshotJob(input:AuditWorkerIdentity,options:{poo
  return executeAuditJob(input,options,'audit',true);
 }
 /** Dispatch is derived from authenticated stored intent, never a caller-selected business operation. The class is server configuration. */
-export async function runAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal;workerClass:AuditWorkerClass}):Promise<AuditWorkerResult>{
+export async function runAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal;workerClass:AuditWorkerClass;startedAt?:number}):Promise<AuditWorkerResult>{
  if(!isAuditWorkerClass(options?.workerClass))throw new Error('Explicit audit worker class required');
+ if(options.startedAt!==undefined&&(!Number.isSafeInteger(options.startedAt)||options.startedAt>Date.now()+1000))throw new Error('Invalid audit worker spawn timestamp');
  return executeAuditJob(input,options,options.workerClass,false);
 }
-async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal},workerClass:AuditWorkerClass,snapshotOnly:boolean):Promise<AuditWorkerResult>{
+async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;signal?:AbortSignal;startedAt?:number},workerClass:AuditWorkerClass,snapshotOnly:boolean):Promise<AuditWorkerResult>{
  if(als.getStore())throw new Error('Audit runner cannot execute inside an HTTP transaction');
  const identity=identitySchema.parse(JSON.parse(canonicalJson(input)));
  if(running)return{state:'busy'};
@@ -51,9 +52,10 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
  const session={idleInTransactionMs:limits.idleInTransactionMs};
  const pool=options.pool??getAuthPool(),controller=new AbortController();
  running=true;let timedOut=false,lease:AuditJobLease|null=null;
- // The class timer and the work transaction share one deadline; the claim keeps its own short bound (plan v6 A7).
- const started=Date.now(),deadlineAt=started+limits.workDeadlineMs,claimDeadlineAt=Math.min(started+limits.claimDeadlineMs,deadlineAt);
- const timer=setTimeout(()=>{timedOut=true;controller.abort(new Error('Audit worker resource deadline'));},limits.workDeadlineMs);
+ // The class timer and the work transaction share one deadline, anchored at the parent's spawn when it is known; the claim
+ // keeps its own short bound from now (plan v6 A7), never beyond that deadline.
+ const deadlineAt=(options.startedAt??Date.now())+limits.workDeadlineMs,claimDeadlineAt=Math.min(Date.now()+limits.claimDeadlineMs,deadlineAt);
+ const timer=setTimeout(()=>{timedOut=true;controller.abort(new Error('Audit worker resource deadline'));},Math.max(0,deadlineAt-Date.now()));
  const signal=AbortSignal.any([controller.signal,...options.signal?[options.signal]:[]]);
  try{
   lease=await withAuditWorkerTransaction(pool,identity,'read committed',claimDeadlineAt,signal,store=>claimAuditJobForWorker(store,identity.jobId,kinds),session);

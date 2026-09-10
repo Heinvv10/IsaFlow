@@ -26,18 +26,21 @@ export const AUDIT_PROCESS_ENV=['ISAFLOW_AUDIT_WORKER_DATABASE_URL','PGPASSWORD'
  'CONTROL_SNAPSHOT_KEY_ID','CONTROL_ENCRYPTION_KEY_ID','SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_CAPTURED_DOCS_BUCKET','VF_STORAGE_URL'] as const;
 /** Set only as a literal by the parent; deliberately absent from AUDIT_PROCESS_ENV so it is never inherited. */
 export const AUDIT_WORKER_CLASS_ENV='ISAFLOW_AUDIT_WORKER_CLASS';
+/** The parent's spawn time (epoch ms), also a literal: every child budget is anchored to it, not to child start-up. */
+export const AUDIT_WORKER_STARTED_AT_ENV='ISAFLOW_AUDIT_WORKER_STARTED_AT';
 /** A class may only report success for its own kinds. */
 export function auditResultPermittedForClass(result:AuditWorkerResult,workerClass:AuditWorkerClass):boolean{
  if(result.state!=='succeeded')return true;
  return workerClass==='check_run'?'checkRunId'in result:!('checkRunId'in result);
 }
-export function auditProcessArguments(config:AuditProcessConfig,unitName:string):string[]{
+export function auditProcessArguments(config:AuditProcessConfig,unitName:string,startedAt:number):string[]{
  if(!/^isaflow-audit-[a-f0-9-]{36}\.service$/.test(unitName))throw new Error('Invalid dedicated audit unit');
  if(!isAuditWorkerClass(config.workerClass))throw new Error('Invalid audit worker class');
+ if(!Number.isSafeInteger(startedAt)||startedAt<1)throw new Error('Invalid audit worker spawn timestamp');
  const limits=AUDIT_PROCESS_LIMITS[config.workerClass];
  return['--user','--quiet','--wait','--pipe','--no-ask-password',`--unit=${unitName}`,'--property=Type=exec',
   `--property=MemoryMax=${limits.memoryMaxBytes}`,'--property=MemorySwapMax=0','--property=MemoryAccounting=yes',
   '--property=OOMPolicy=kill','--property=TasksMax=64',`--property=RuntimeMaxSec=${limits.runtimeMaxSec}s`,'--property=TimeoutStopSec=2s','--property=KillMode=control-group',
   '--property=SendSIGKILL=yes','--setenv=NODE_ENV=production',...AUDIT_PROCESS_ENV.filter(name=>process.env[name]!==undefined).map(name=>`--setenv=${name}`),
-  `--setenv=${AUDIT_WORKER_CLASS_ENV}=${config.workerClass}`,config.nodePath,`--max-old-space-size=${limits.maxOldSpaceMb}`,config.entryPath];
+  `--setenv=${AUDIT_WORKER_CLASS_ENV}=${config.workerClass}`,`--setenv=${AUDIT_WORKER_STARTED_AT_ENV}=${startedAt}`,config.nodePath,`--max-old-space-size=${limits.maxOldSpaceMb}`,config.entryPath];
 }

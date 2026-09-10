@@ -1,22 +1,37 @@
+# NOT DEPLOYABLE YET. No deploy step installs this worker; installing it is the owner's decision.
+#
+# /home/velo/isaflow is the Next.js standalone build, rsynced with --delete from .next/standalone
+# (scripts/deploy.sh). It contains neither scripts/forensic/run-audit-worker.ts nor a tsconfig to
+# resolve the @/ imports, and anything placed there that is not excluded is deleted on the next deploy.
+# This unit therefore runs from its own directory, which a deploy step must create. That step must:
+#   1. install a source checkout of the deployed commit (scripts/, src/, tsconfig.json, package.json,
+#      bun.lock) and its production node_modules at /home/velo/isaflow-audit-worker, outside every
+#      rsync --delete target, replacing it atomically (build beside it, then rename);
+#   2. build the child artifact there: bun scripts/forensic/build-audit-job.ts
+#      --outfile /home/velo/isaflow-audit-worker/dist/run-audit-job.cjs;
+#   3. never write /home/velo/.config/isaflow/audit-check-run-worker.env (owner-managed, mode 0600);
+#   4. stop this unit before migrations touching control_audit_* and restart it after (plan v6 §4).
+#
+# A user unit under velo's own systemd manager (loginctl enable-linger velo): each job runs in a
+# transient `systemd-run --user` unit with the check_run class RuntimeMaxSec/MemoryMax, so this
+# poller must share that manager. Install: ~/.config/systemd/user/, then
+# `systemctl --user enable --now isaflow-audit-check-run-worker`. The legacy audit class is a
+# separate instance; the two never claim each other's kinds.
 [Unit]
 Description=IsaFlow — forensic check-run queue worker (audit_check_run jobs only)
-# A user unit under velo's own systemd manager (linger enabled): each job runs in a
-# transient `systemd-run --user` unit whose RuntimeMaxSec/MemoryMax come from the
-# check_run class limits, so this poller must share that manager and its cgroup tree.
-# The legacy audit-class worker is a separate instance; the two never claim each other's kinds.
-# Install: ~/.config/systemd/user/, then `systemctl --user enable --now isaflow-audit-check-run-worker`.
-# Drain (stop) this unit before applying migrations that touch control_audit_* tables.
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/velo/isaflow
-# Must provide ISAFLOW_AUDIT_WORKER_DATABASE_URL, ISAFLOW_AUDIT_WORKER_NODE_PATH,
-# ISAFLOW_AUDIT_WORKER_ENTRY_PATH (the built run-audit-job artifact), the control
-# encryption/signing keys, and ISAFLOW_CHECK_RUN_COMPANY_ARGS="--company <uuid> [--company <uuid>...]".
-EnvironmentFile=/home/velo/isaflow/.env.audit-worker
-ExecStart=/usr/bin/env bun scripts/forensic/run-audit-worker.ts --class check_run $ISAFLOW_CHECK_RUN_COMPANY_ARGS
+WorkingDirectory=/home/velo/isaflow-audit-worker
+# Provides ISAFLOW_AUDIT_WORKER_DATABASE_URL, ISAFLOW_AUDIT_WORKER_NODE_PATH,
+# ISAFLOW_AUDIT_WORKER_ENTRY_PATH=/home/velo/isaflow-audit-worker/dist/run-audit-job.cjs, the control
+# encryption/signing keys, and ISAFLOW_CHECK_RUN_COMPANIES=<uuid>[,<uuid>...].
+EnvironmentFile=/home/velo/.config/isaflow/audit-check-run-worker.env
+# ${ISAFLOW_CHECK_RUN_COMPANIES} (braced) is passed as a single argument, so the env file can supply
+# company ids only; the CLI also refuses any repeated option.
+ExecStart=/home/velo/.bun/bin/bun scripts/forensic/run-audit-worker.ts --class check_run --companies=${ISAFLOW_CHECK_RUN_COMPANIES}
 Restart=on-failure
 RestartSec=30
 # The poller only discovers and dispatches; work and its memory live in the per-job units.

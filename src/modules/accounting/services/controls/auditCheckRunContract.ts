@@ -36,7 +36,11 @@ export function parseAuditCheckRunRequest(input:unknown):AuditCheckRunRequest{
  const parsed=publicSchema.parse(JSON.parse(canonicalJson(input)));
  return{...parsed,checks:[...new Set(parsed.checks)].sort()};
 }
-/** Every derived field must equal its derivation from the rest, so a stored intent cannot widen itself. */
+/**
+ * The key and permissions must equal their derivation from checkId and userKey, so a stored intent cannot widen itself.
+ * runGroupId is not re-derived here (company and person are not in the request): it is bound by the authenticated
+ * ciphertext and the request hash, like every other stored field.
+ */
 export function parseStoredAuditCheckRunRequest(input:unknown):StoredAuditCheckRunRequest{
  const parsed=storedSchema.parse(JSON.parse(canonicalJson(input)));
  const checks=[...new Set(parsed.checks)].sort();

@@ -23,7 +23,7 @@ export function createIsolatedAuditJobRunner(input:AuditProcessConfig){
   const unitName=`isaflow-audit-${randomUUID()}.service`,started=Date.now();
   const env:NodeJS.ProcessEnv={NODE_ENV:'production'};
   for(const name of [...AUDIT_PROCESS_ENV,'XDG_RUNTIME_DIR','DBUS_SESSION_BUS_ADDRESS','HOME','USER','LANG'])if(process.env[name]!==undefined)env[name]=process.env[name];
-  const child=spawn('/usr/bin/systemd-run',auditProcessArguments(config,unitName),{env,stdio:['pipe','pipe','pipe']});
+  const child=spawn('/usr/bin/systemd-run',auditProcessArguments(config,unitName,started),{env,stdio:['pipe','pipe','pipe']});
   let output=Buffer.alloc(0),diagnosticBytes=0,invalid=false,timedOut=false,finished=false,memoryPeakBytes:number|null=null,peakRssBytes:number|null=null,oomKilled=false;
   let reply:AuditWorkerResult|undefined,properties:Record<string,string>={},caps:AuditUnitCaps|null=null;
   const observe=async()=>{try{
