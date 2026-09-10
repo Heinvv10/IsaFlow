@@ -9,6 +9,7 @@ export function useBalanceSheetFilters() {
   const ready = router.isReady !== false;
   const [asAtDate, setAsAtDate] = useState('');
   const [costCentreId, setCostCentreId] = useState('');
+  const [businessUnitId, setBusinessUnitId] = useState('');
   const [resolvedKey, setResolvedKey] = useState('');
 
   useEffect(() => {
@@ -18,6 +19,7 @@ export function useBalanceSheetFilters() {
     const date = queryText(query, 'as_at_date');
     const today = new Date().toISOString().slice(0, 10);
     setCostCentreId(queryText(query, 'cost_centre_id'));
+    setBusinessUnitId(queryText(query, 'business_unit_id'));
     if (date) { setAsAtDate(date); setResolvedKey(queryKey); return; }
     apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
       .then(r => r.json())
@@ -31,6 +33,7 @@ export function useBalanceSheetFilters() {
     return () => { cancelled = true; };
   }, [ready, queryKey]);
 
-  return { asAtDate, setAsAtDate, costCentreId, setCostCentreId, queryKey,
+  return { asAtDate, setAsAtDate, costCentreId, setCostCentreId,
+    businessUnitId, setBusinessUnitId, queryKey,
     periodResolved: ready && resolvedKey === queryKey };
 }

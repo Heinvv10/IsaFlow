@@ -5,6 +5,7 @@
  * Query params:
  *   as_at_date     YYYY-MM-DD  required
  *   cost_centre_id UUID        optional
+ *   business_unit_id UUID      optional
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -15,20 +16,28 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/financialReportingService';
 import { csvVal } from '@/lib/csv';
+import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   const { companyId } = req as CompanyAuthedRequest;
   const asAtDate = req.query.as_at_date as string;
-  const costCentreId = req.query.cost_centre_id as string | undefined;
+  const costCentreId = req.query.cost_centre_id;
+  const businessUnitId = req.query.business_unit_id;
 
   if (!asAtDate) return apiResponse.badRequest(res, 'as_at_date is required');
+  if (costCentreId !== undefined && !isUuidParam(costCentreId)) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+  if (businessUnitId !== undefined && !isUuidParam(businessUnitId)) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
+  }
 
   try {
     const [companyRows, report] = await Promise.all([
       sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<{name: string}[]>,
-      getBalanceSheet(companyId, asAtDate, costCentreId || undefined),
+      getBalanceSheet(companyId, asAtDate, costCentreId || undefined, undefined, businessUnitId),
     ]);
     const companyName = (companyRows as {name: string}[])[0]?.name ?? 'Company';
 

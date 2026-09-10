@@ -20,6 +20,7 @@ interface BalanceSheetBodyProps {
   drillDownStart: string;
   drillDownEnd: string;
   costCentreId?: string;
+  businessUnitId?: string;
   returnTo?: string;
   onEvidence: (accountId: string, accountName: string) => void;
   /** Which comparator columns to print. Omitted, the prior-year checkbox alone
@@ -31,7 +32,7 @@ interface BalanceSheetBodyProps {
 
 export function BalanceSheetBody({
   report, showComparative, expandedAccount, onToggleAccount, drillDownStart, drillDownEnd, onEvidence,
-  costCentreId, returnTo, columns: columnsProp, applyComparators = rows => rows,
+  costCentreId, businessUnitId, returnTo, columns: columnsProp, applyComparators = rows => rows,
 }: BalanceSheetBodyProps) {
   // The account-detail route master's BalanceSheetRow linked every account
   // name to. The migration to StatementGrid dropped it; the row model now
@@ -40,6 +41,7 @@ export function BalanceSheetBody({
     `/accounting/reports/account-detail/${encodeURIComponent(code)}` +
     `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs` +
     (costCentreId ? `&cost_centre_id=${encodeURIComponent(costCentreId)}` : '') +
+    (businessUnitId ? `&business_unit_id=${encodeURIComponent(businessUnitId)}` : '') +
     (returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : '');
   const built = toBalanceSheetRows(report, { comparative: showComparative, detailHref });
   const assets = applyComparators(built.assets);
@@ -50,7 +52,9 @@ export function BalanceSheetBody({
     [...report.assets, ...report.liabilities, ...report.equity].find(a => a.accountCode === code)?.accountName ?? code;
   const evidence = (code: string) => onEvidence(code, nameOf(code));
   const drill = (code: string) => (
-    <AccountDrillDown accountCode={code} periodStart={drillDownStart} periodEnd={drillDownEnd} costCentreId={costCentreId} asTableRow={false} />
+    <AccountDrillDown accountCode={code} periodStart={drillDownStart} periodEnd={drillDownEnd}
+      costCentreId={costCentreId} businessUnitId={businessUnitId} source="bs" returnTo={returnTo}
+      asTableRow={false} />
   );
 
   return (

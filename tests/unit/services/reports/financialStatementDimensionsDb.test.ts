@@ -149,6 +149,49 @@ describe('financial statement dimensions (Postgres)', async () => {
       }
     });
   });
+  it.skipIf(!reachable)('filters every balance-sheet basis by canonical BU and combines centre with AND', async () => {
+    await withLedger(async () => {
+      const byBu = await getBalanceSheet(company, '2026-04-30', undefined, '2026-02-28', selectedBu);
+      expect(byBu).toMatchObject({
+        businessUnitId: selectedBu,
+        totalAssets: 43, totalLiabilities: 7, totalEquity: 36,
+        priorTotalAssets: 11, priorTotalLiabilities: 0, priorTotalEquity: 11,
+      });
+      expect(byBu.equity.find(r => r.accountCode === '3100'))
+        .toMatchObject({balance:31, priorBalance:11});
+      expect(await getEquityBases(company, '2026-04-30', undefined, selectedBu))
+        .toEqual({posted:5, derivedRetainedEarnings:31});
+
+      const byBoth = await getBalanceSheet(company, '2026-04-30', cc2, undefined, selectedBu);
+      expect(byBoth).toMatchObject({totalAssets:40, totalLiabilities:7, totalEquity:33});
+      expect(await getEquityBases(company, '2026-04-30', cc2, selectedBu))
+        .toEqual({posted:5, derivedRetainedEarnings:28});
+      expect((await getBalanceSheet(company, '2026-04-30', cc2, undefined, otherBu)).totalAssets).toBe(0);
+    });
+  });
+  it.skipIf(!reachable)('keeps prior-only BU balance accounts in comparative rows', async () => {
+    await withLedger(async () => {
+      const priorAsset = '50000000-0000-4000-8000-000000000006';
+      await sql`INSERT INTO gl_accounts VALUES (${priorAsset}::uuid, ${company}::uuid, '1200', 'Prior-only asset',
+        'asset', 'asset', 'debit', 3, NULL)`;
+      for (const [n, date, debit, credit] of [
+        [10, '2026-02-05', 13, 0], [11, '2026-03-05', 0, 13],
+      ] as const) {
+        const entry = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+        await sql`INSERT INTO gl_journal_entries VALUES (${entry}::uuid, ${company}::uuid, 'posted', ${date}::date)`;
+        await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${entry}::uuid, ${priorAsset}::uuid,
+          ${debit}, ${credit}, ${legacy}::uuid, ${cc1}::uuid, ${cc2}::uuid, ${project}::uuid, ${selectedBu}::uuid)`;
+        await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${entry}::uuid, ${accountIds.liability}::uuid,
+          ${credit}, ${debit}, ${legacy}::uuid, ${cc1}::uuid, ${cc2}::uuid, ${project}::uuid, ${selectedBu}::uuid)`;
+      }
+
+      const report = await getBalanceSheet(company, '2026-04-30', cc2, '2026-02-28', selectedBu);
+      expect(report.assets.find(line => line.accountCode === '1200'))
+        .toMatchObject({balance:0, priorBalance:13, variance:-13});
+      expect(report.assets.reduce((sum, line) => sum + (line.priorBalance ?? 0), 0))
+        .toBe(report.priorTotalAssets);
+    });
+  });
   it.skipIf(!reachable)('exports only selected CC2 amounts through both CSV and Excel routes', async () => {
     await withLedger(async () => {
       for (const [handler, kind, format] of [
