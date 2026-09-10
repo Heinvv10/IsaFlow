@@ -9,16 +9,16 @@ vi.mock('@/modules/accounting/services/controls/auditJobDelegation',()=>({loadSt
 const lease={companyId:'company',personId:'person',jobId:'builder',leaseId:'lease',generation:2} as AuditJobLease;
 const envelope={ciphertext:'a',keyId:'current',authentication:'d',version:1 as const};
 function material(count=1):SnapshotIndexMaterial{return {header:{version:1,companyId:'company',snapshotId:'builder',canonicalHash:'a'.repeat(64),permissions:['read:reports'],counts:{records:count,checks:0,findings:0,evidence:0,gaps:0}},protectedHeader:envelope,items:Array.from({length:count},(_,ordinal)=>({section:'records',ordinal,protectedItem:envelope,chunks:[envelope]}))} as SnapshotIndexMaterial;}
-function context(suppress?:'header'|'item'|'chunk',wrong=false){
+function context(suppress?:'header'|'item'|'chunk',wrong=false,target='builder'){
  const batches:number[]=[];
  const sql=vi.fn(async(strings:TemplateStringsArray,...values:unknown[])=>{
   const query=strings.join('?');
-  if(query.includes('INSERT INTO control_audit_snapshot_indexes'))return suppress==='header'?[]:[{company_id:'company',snapshot_id:'builder',build_job_id:'builder',build_generation:2,build_lease_id:'lease'}];
+  if(query.includes('INSERT INTO control_audit_snapshot_indexes'))return suppress==='header'?[]:[{company_id:'company',snapshot_id:target,build_job_id:'builder',build_generation:2,build_lease_id:'lease'}];
   const kind=query.includes('index_items')?'item':'chunk';
   const encoded=values.find(value=>typeof value==='string'&&value.startsWith('[')) as string;
   const rows=JSON.parse(encoded) as {section:string;ordinal:number;chunk_ordinal?:number}[];batches.push(rows.length);
   if(suppress===kind)return [];
-  return rows.map(row=>({company_id:'company',snapshot_id:wrong?'foreign':'builder',section:row.section,ordinal:row.ordinal,...kind==='chunk'?{chunk_ordinal:row.chunk_ordinal}:{}}));
+  return rows.map(row=>({company_id:'company',snapshot_id:wrong?'foreign':target,section:row.section,ordinal:row.ordinal,...kind==='chunk'?{chunk_ordinal:row.chunk_ordinal}:{}}));
  });
  return {ctx:{sql,principal:{companyId:'company',personId:'person',authMethod:'job',jobId:'builder',jobLeaseId:'lease',jobGeneration:2}} as unknown as ControlTx,batches,sql};
 }
@@ -59,4 +59,11 @@ it('bounds encoded bytes independently of row count',async()=>{
 it('refuses a single over-budget item instead of truncating it',async()=>{
  const {ctx}=context(),input=material();input.items[0]!.protectedItem={...envelope,ciphertext:'x'.repeat(2*1024*1024)};
  await expect((await writer())(ctx,lease,'builder',input)).rejects.toThrow('resource limit');
+});
+
+it.each([false,true])('retains a v1 mixed-case UUID source with uppercase target=%s',async uppercaseTarget=>{
+ const id='abcdefab-cdef-4abc-8def-abcdefabcdef';
+ auth.saved.mockResolvedValue({kind:'audit_compare',permissions:['read:reports'],request:{firstSnapshotId:id.toUpperCase(),secondSnapshotId:'second'}});
+ const {ctx}=context(undefined,false,id),input=material();input.header.snapshotId=id;
+ expect(await (await writer())(ctx,lease,uppercaseTarget?id.toUpperCase():id,input)).toBe(input.header);
 });
