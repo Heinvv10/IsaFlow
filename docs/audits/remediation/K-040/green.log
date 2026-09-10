@@ -1,0 +1,137 @@
+K-040 GREEN — 2026-09-09T10:16:46+02:00 — branch fix/audit-k040-wip-run-lock
+
+== integration (real Postgres fixture, two/three pool clients) ==
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-040
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  10:16:46
+   Duration  5.84s (transform 166ms, setup 0ms, import 277ms, tests 5.37s, environment 0ms)
+
+
+== unit (practiceWipService) ==
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+
+== full unit suite, DATABASE_URL unset ==
+ Test Files  790 passed | 36 skipped (826)
+      Tests  9393 passed | 234 skipped (9627)
+
+== tsc / eslint ==
+tsc --noEmit: clean
+eslint: clean
+
+== mutation checks (production change reverted, test re-run, then restored) ==
+1. `FOR UPDATE OF te` deleted from wipEntryLock.ts:
+   Tests 2 failed | 2 passed (4)
+   × bills a time entry on exactly one invoice when two runs overlap
+     AssertionError: expected [Function] to throw error matching
+     /no eligible approved time entries/ but got 'current transaction is aborted...'
+   × refuses the run rather than half-billing when the lock cannot be taken
+     AssertionError: expected /being invoiced by another request/ but got
+     'canceling statement due to lock timeout'
+   Note, honestly: without the lock the losing run is not serialised, races on to
+   its invoice INSERT and dies on uq_customer_invoices_company_number — the
+   accidental guard the validator documented. The realised double-bill on master
+   is recorded in red.log (validator's run), not reproduced by this ordering.
+2. `if (marked !== eligibleIds.length)` disabled in practiceWipService.ts:
+   Tests 1 failed | 7 passed (8)
+   × throws when fewer entries were marked billed than were selected
+Both changes restored; suites re-run green (above).
+
+================================================================
+Review round 2 — 091900c5 findings (2 MEDIUM, 5 LOW) all addressed
+================================================================
+== integration: overlapping runs (6 tests) ==
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+
+== integration: billed-count savepoint rollback ==
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+== unit (practiceWipService) ==
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+
+== full unit suite, DATABASE_URL unset ==
+ Test Files  790 passed | 36 skipped (826)
+      Tests  9394 passed | 234 skipped (9628)
+
+== tsc / eslint / agent-docs ==
+tsc --noEmit: clean
+
+/home/hein/Workspace/IsaFlow/.worktrees/fix-K-040/scripts/simulate-fy2026-workflows.ts
+  0:0  error  Parsing error: /home/hein/Workspace/IsaFlow/.worktrees/fix-K-040/scripts/simulate-fy2026-workflows.ts was not found by the project service. Consider either including it in the tsconfig.json or including it in allowDefaultProject
+
+✖ 1 problem (1 error, 0 warnings)
+
+OK: 74 agent document mirror(s) match canonical sources.
+
+== mutation checks, round 2 ==
+3. per-attempt savepoint removed from the invoice-number retry loop:
+   Tests 1 failed | 5 passed (6)
+   × retries the invoice number when a peer in the same company took it first
+4. withSavepoint('wip_invoice_build') removed from the invoice build:
+   Tests 1 failed (1) — expected 1 to be +0
+   × rolls the invoice back and leaves the transaction usable when a peer took an entry
+Both restored; suites re-run green (above).
+Not mutation-tested, reasoned only: the 40P01 mapping is covered by a unit test that
+rejects the eligibility read with that code, but a real deadlock is plan-dependent and
+is not provoked deterministically here. The company_id predicates added to the two
+LEFT JOINs are guarded by the existing foreign keys, so no test distinguishes them.
+
+Note on the eslint line above: eslint's project service covers `src` and `pages` only, so
+tests/** and scripts/** report a parsing error rather than being linted — pre-existing, and the
+reason `bun run lint` is scoped to `eslint src pages`. Repo-wide gate:
+  bun run lint -> exit 0, 11 problems (0 errors, 11 warnings), none in the files changed here.
+  bunx tsc --noEmit -> clean (it does cover scripts/ and tests/).
+  bun run agent-docs:check -> OK: 74 mirrors match.
+
+================================================================
+Review round 3 — a3afc4b4 follow-up: LOW A (gapped invoice number)
+and LOW B (service file at 290/300 lines)
+================================================================
+LOW A: the invoice number is now MAX + 1 on every attempt. The re-read after the
+per-attempt savepoint rollback already sees the peer's committed number, so the
+old `+ attempt` offset skipped one. Confirmed live in the fixture run:
+  warn  Invoice number collision, retrying   {"attempt":0,"invoiceNumber":"INV-00001"}
+  info  Generated WIP invoice                {"invoiceNumber":"INV-00002"}   (was INV-00003)
+LOW B: the header INSERT + retry moved to wipInvoiceNumber.ts.
+  practiceWipService.ts 290 -> 246 lines; wipInvoiceNumber.ts 88 lines.
+
+== integration (real Postgres fixture) ==
+ tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts +
+ tests/integration/k-040-wip-billed-count-rollback.int.test.ts
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+== unit ==
+ tests/unit/services/practice/wipInvoiceNumber.test.ts     5 passed
+ tests/unit/services/practice/practiceWipService.test.ts   9 passed
+
+== full unit suite, DATABASE_URL unset ==
+ Test Files  791 passed | 36 skipped (827)
+      Tests  9399 passed | 234 skipped (9633)
+
+== tsc / eslint / agent-docs ==
+bunx tsc --noEmit: clean (exit 0)
+bunx eslint src/.../wipInvoiceNumber.ts src/.../practiceWipService.ts: clean (exit 0)
+bun run agent-docs:check: OK: 74 mirrors match.
+
+== mutation check 5 (the `+ attempt` offset restored, tests re-run, then reverted) ==
+ unit  tests/unit/services/practice/wipInvoiceNumber.test.ts
+   Tests 2 failed | 3 passed (5)
+   × takes the number immediately after the peer's, leaving no gap in the sequence
+   × stays contiguous across two consecutive collisions
+ integration  k-040-wip-overlapping-runs-double-bill.int.test.ts
+   Tests 1 failed | 5 passed (6)
+   × retries the invoice number when a peer in the same company took it first
+     AssertionError: expected 'INV-00003' to be 'INV-00002'
+ Reverted; both suites re-run green (above).
+The extraction itself is a move, not a behaviour change: it is covered by the nine
+existing practiceWipService tests and the two integration files, all unchanged
+except the INV-00002 assertion.

@@ -63,6 +63,13 @@ import {
   validateBankReceiptApplication,
   confirmReceiptMatch,
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
+import { enterFakeRequestCtx } from '../../helpers/requestCtx';
+
+// `planAllocationLines` now takes a `FOR UPDATE` lock on every candidate
+// invoice, which refuses to run outside a request transaction. These tests
+// mock `sql`, so the ALS client is never actually used — it only has to be
+// present.
+beforeEach(() => enterFakeRequestCtx());
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const CUSTOMER = '22222222-2222-4222-8222-222222222222';
