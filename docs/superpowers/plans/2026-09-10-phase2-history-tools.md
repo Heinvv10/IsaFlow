@@ -54,7 +54,7 @@ The envelope authenticates ciphertext; its payload does not embed company/entity
 - [ ] Existing invocation unknown outcomes must remain unknown; graph partial and inaccessible-link gaps must survive adapter output unchanged. Do not label graph population counts global totals.
 - [ ] Request leases for actual PG and source TypeScript. Light adapter units and read-only source audit can run independently. Root integrates registry/discovery/meters and owns actual MCP transport acceptance.
 
-No implementation or performance acceptance claimed. The graph traversal budget needs explicit foreground evaluation in a later integration gate; bounded query count alone is not a latency result.
+Implementation verification is recorded below. The graph traversal budget still needs explicit foreground evaluation in a later integration gate; bounded query count alone is not a latency result.
 
 ## Source-backed family and capability inventory
 
@@ -74,3 +74,20 @@ Future supported bank-rule mutations must record exact shared changes; only hist
 - Tests FIRST: actual create, update, toggle, delete and multi-delete exact before/after; owned/foreign and revoked rights; real issued cookie/PAT/job attribution; original input detachment; concurrent update version integrity; injected evidence failure rolls back both mutation and event; ordinary API/MCP calls use central capture. Separate legacy tests for delete/restore/purge and no current context. No bulk test may waive partial failure by only counting resulting rows.
 
 GL classification ordinary mutation capture also remains required: named `gl/accountReclassifyService.ts`, `gl/chartOfAccountsService.ts`, imports and merge writers mutate accounts without directly calling the shared event writer. The history reader can preserve existing observed GL material; it cannot itself close those future write-path capture gaps.
+
+
+## Implemented reader and verification (2026-09-10)
+
+The three tools delegate to issued-context services. The new entity reader authenticates version cursors, checks current audit/domain rights, joins exact owned protected evidence, decrypts faithful before/after values, and reports explicit secret redaction paths and recorded actor provenance. The invocation and evidence-chain tools preserve existing bounded readers and their coverage; no registry or transport integration is claimed here.
+
+Foreground protected ciphertext is limited to 2 MiB per page, checked through SQL octet_length before fetching ciphertext. Pagination returns fewer complete events when necessary, with the next cursor at the last actual event. A single oversized event returns typed RESOURCE_LIMIT, available=false, requiredDelivery=async. **Actual bounded asynchronous/chunked oversized-event delivery remains required programme work; there is no implemented endpoint or completion claim for that case.**
+
+Mixed-operation authority is projected in SQL into a finite DISTINCT operation/entity-family vocabulary. Full sourceVersions/beneficiary arrays never cross the query boundary. There is no arbitrary source-reference or approval-row cap. Import references resolve current owned import kinds before decryption; missing dynamic metadata and nested approval references without supported authority adapters refuse explicitly. Historical staged sources without owned import-kind metadata remain a required capability follow-up, not permission to decrypt using imports alone.
+
+Tests-first commits: 5f191928d (missing modules), 5bfd916f2 (initial actual PG), 85cdff9a1 (bounds/mixed domains), 848ba18ba and cc921f629 (1,001 real GL references and missing dynamic import metadata). Genuine mixed-authority resource-response RED 319816 was corrected by checking source rights before any resource-limit metadata response. The 1,001-reference actual RED reproduced History source metadata unavailable before the SQL projection correction. Schema fixture column/cast setup errors were corrected separately and are not business failures.
+
+Final actual PostgreSQL run 71649 terminal 0: all 11 cases passed and fixture afterAll closed its pool. It covers 105 recorded events, append-stable 100+5 pagination, current rights, tenant/cursor/tamper, exact nested payroll/rules/classification, missing protected parents, rollback, byte-budget pagination, preflight-before-ciphertext, mixed rights before oversized responses, and 1,001 source references. These events use the real writer and issued cookie/PAT contexts. Synthetic approval/effect rows exercise metadata policy; they do not claim approval producer or HTTP workflow proof.
+
+Measured first 100-event page: 1302.84 ms, process RSS 77,844,480 -> 82,038,784 bytes. Full test runner 4.11 s and peak 150,132 KiB RSS. This does not establish a general foreground latency SLA. Artifacts: phase2-history-pg.log, phase2-history-metrics.json, phase2-history-authority-cap-red.log in the shared forensic artifacts tree.
+
+Final 14394 terminal 0: full source TypeScript and dedicated owned-test TypeScript. Final 61578 terminal 0: 8 focused units and scoped source ESLint. All owned files are below 300 lines. Compatibility-only 2e9fe10bc copies the three already-reviewed UI files exactly from cde8f18ab; root must skip that commit when integrating this history stack because those versions are already integrated.
