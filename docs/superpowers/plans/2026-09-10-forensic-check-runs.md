@@ -572,3 +572,105 @@ whoever runs the production read, and this plan does not answer it.
   transaction is streaming — the only way a run can cross expiry, since it holds `FOR SHARE` on the job row
   and no competitor can shorten the lease under it. Any evidence document for this slice must say so in these
   terms; a summary that reports the gate as "finishes inside grace: PASS" without the emulation is wrong.
+
+
+---
+
+# v8 amendments (blind review of T2c+T2d, `bcf5aab53..f5f09286d`: no P1, three P2, six P3)
+
+Nothing above is rewritten; where an earlier entry is wrong, the entry here says so and supersedes it.
+
+## A26 G3 did not reach the fence — A25's "genuine half" was false
+
+A25 said the crossing-expiry gate "lets the lease expire while the transaction is streaming". It did not. The gate
+set the lease to now+3 s and then ran a 10 s `pg_sleep` *before* calling the phase, so the phase's opening lease check
+(`auditCheckRunPhase.ts`, the first `loadStoredAuditJobDelegation`) already saw an expired lease and refused — and the
+gate's `/lease expired or was replaced/` matched that message as readily as the publication fence's. Deleting the
+lease predicate from both the post-stream re-check and the success UPDATE left it green.
+
+Rebuilt (`e1c911a87`, `68d6fffe0`): the gate holds a lock the phase first needs at `DECLARE`, proves the phase is
+blocked there with the lease still live (so the opening check passed and expiry lands after it), waits for expiry on
+the database clock, releases, and demands `CheckRunPublicationFenceError` with `stage:'recheck'`. The tenant has no
+journals, so no finding INSERT — whose RLS also checks the lease — runs first. The reviewer's exact mutant now fails
+with "the publication fence did not refuse; got Error: Audit job lease expired or was replaced".
+
+What no gate can isolate, stated rather than hidden: the success UPDATE's own `lease_expires_at` predicate. For it to
+be the refusing check, expiry must land between the result-row INSERT (whose RLS already demands a live lease) and
+the UPDATE, a window of microseconds with no lock to widen it. Removing that predicate alone survives. It is depth
+behind the RLS, like T2d's layered permission checks, and it stays.
+
+## A27 `maxSlabRows` counted the wrong rows and rested on a false premise
+
+v6 set `maxSlabRows 1000` because "real slabs ≤6 rows". That premise is false: the reviewer measured one user's
+927 posted journals in a single (SAST day, person, currency) slab on isaflow_dev (2026-07-05), with others at 670 and
+387 — dev data, not production, which nobody queries from here. Worse, the bound counted every row, including rows
+that can never join a threshold group, and the population is cumulative to the cutoff: one historical day of more than
+1 000 postings by one user made every later run `unknown`, permanently.
+
+Now: only rows that can join a threshold group are held and counted. A row that can join none has a result that
+depends on no other row, so it is analysed at once, alone, by the same detector. The eligibility predicate
+(`journalRiskThresholdGroup`) is extracted from `analyseJournalRisks`, not copied. The per-row array copy that made
+one group quadratic is gone — same node harness, one group, typical history: 10 000 rows 472 ms → 133 ms, 20 000
+5.6 s → 0.24 s, 40 000 33.8 s → 0.48 s. The bound was then set by
+measurement on the fixed detector, under node with the worker's 1 536 MiB heap:
+
+| rows held | analyse (3 facts) | analyse (101 facts) | heap held (101 facts) |
+|---|---|---|---|
+| 10 000 | 133 ms | 136 ms | 149 MiB |
+| 20 000 | 244 ms | 295 ms | 298 MiB |
+| 40 000 | 481 ms | 550 ms | 595 MiB |
+
+A held row costs 0.7 KiB with typical history and 15.2 KiB at the 101-change-fact worst case; the unfixed detector
+exhausted the heap at 80 000 worst-case rows. **`maxSlabRows = 25 000` groupable rows**: at most ≈371 MiB held and
+≈0.36 s of analysis, 27× the largest dev slab. A 2 500-journal dev-shaped slab publishes at production limits.
+
+Residual, stated: a single (day, person, currency) with more than 25 000 journals that can join a threshold group
+still makes that run `unknown`, and so does every later run whose cutoff includes that day, until retention or a
+different algorithm exists. The exact edge of both bounds is now gated through a tighten-only limits parameter.
+
+## A28 The absolute run cap was a permanent lockout; it is now a rate — and storage has no bound
+
+`maxPublishedJobs = 100` counted every succeeded run, `unknown` included, with no retention: the 101st run was
+refused forever, and a read-only token or a looping agent could reach it. It is replaced by **at most 100 enqueued per
+company in any trailing 24 hours** (plus the unchanged 6 active), on the database clock, so old runs stop counting.
+
+**Dependency Hein must see:** with a rate instead of a count, check-run results and findings now grow without bound
+until retention exists. The cap no longer hides that; nothing else bounds it either.
+
+## A29 Enqueueing takes `write:audit`
+
+`run_control_checks` was `write:true` but gated on `read:reports`. It now requires the existing opt-in `write:audit`
+scope: the MCP tool declares it (so the tool boundary refuses legibly), and `enqueueAuditCheckRuns` asserts it inside
+the transaction that writes — the only layer REST has. Reads stay on `read:reports`. The worker's stored delegation is
+unchanged (`read:reports`): enqueue authority and execution authority are separate. Out of this slice, noted:
+`audit_snapshot`, `export_audit_evidence` and `compare_audit_snapshots` share the old write-under-`read:reports` shape.
+
+## A30 Reader statuses
+
+An absent run and another tenant's are indistinguishable `not_found` (REST 404); the requester's own unpublished run
+is `not_ready` (REST 409) — told only to the person who enqueued it, matching `getAuditJob`'s audience. A succeeded job
+without its result row stays a server fault. None of these is a 500.
+
+## A31 The seal never refuses what the synchronous detector accepts
+
+The 4 096-character message cap refused a journal carrying about 60 threshold reasons, which sync publishes. The
+detector's maximum is now proven at the database's type bounds (100 thresholds of uuid id and bigint version, six
+signals): **8 663 characters**, built through the real detector in a unit test. The cap is 9 216; currency and amount,
+unbounded text on the sync path, get 1 024 each, and the envelope still fits the table's 64 KiB CHECK.
+
+## A32 Permission asserted once before `DECLARE` — accepted, with the reason
+
+The worker asserts `read:reports` once, before the cursor. A re-check inside the repeatable-read snapshot could not
+see a revocation anyway, and per-row assertion would reload and decrypt the delegation 100 000 times (spike M5).
+Readers re-authorise against their own current permissions on every read. This is accepted, not an oversight.
+
+## A33 What the A20 differential does and does not prove
+
+The run and the sync oracle share `journalRiskPopulationSql` on both sides, so the A20 differential proves the
+stream, slab assembly, writer, seal and reader — not the population SQL itself. The shared layer is covered by A15:
+the vendored pre-seam reference compared byte for byte against today's sync detector. Evidence must say this.
+
+## A34 A run past the 300 s deadline is `failed`, never `unknown` — T2e measures where that begins
+
+The contract stays: a timeout records `RESOURCE_LIMIT` failure, so a population too large to stream in 300 s can
+never publish anything. T2e must measure the largest population that fits and put the number in the evidence doc.
