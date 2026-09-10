@@ -82,9 +82,13 @@ it('verifies dynamic requirements and identity isolation plus real read defaults
 it('aggregates only matching verified case IDs and reports missing shards honestly',async()=>{
  const {aggregateCoverage}=await import('./contractCases');
  const planned=[{id:'a',tool:'one',phase:'fields'},{id:'b',tool:'two',phase:'scope'}];
- const report={planHash:'hash',executed:[{...planned[0],committedRefusal:true}]};
+ const build={commit:'c4b2c9859d15e295447ad1691d5d7d1c47b76d05',buildId:'named-build',worktree:'/local/build',processId:123,verification:'local-process-cwd-artifact'};
+ const report={outcome:'passed',build,planHash:'hash',executed:[{...planned[0],committedRefusal:true}]};
  expect(aggregateCoverage(planned,'hash',[report])).toMatchObject({complete:false,remainingCaseIds:['b']});
  expect(()=>aggregateCoverage(planned,'hash',[{...report,planHash:'old'}])).toThrow();
+ expect(()=>aggregateCoverage(planned,'hash',[report,{...report,build:{...build,buildId:'other'}}])).toThrow();
+ expect(()=>aggregateCoverage(planned,'hash',[{...report,build:undefined}])).toThrow();
+ expect(()=>aggregateCoverage(planned,'hash',[{...report,outcome:'running'}])).toThrow();
  expect(()=>aggregateCoverage(planned,'hash',[{...report,executed:[{...planned[0],tool:'wrong',committedRefusal:true}]}])).toThrow();
- expect(aggregateCoverage(planned,'hash',[report,{planHash:'hash',executed:[{...planned[1],committedRefusal:true}]}])).toMatchObject({complete:true,remainingCaseIds:[]});
+ expect(aggregateCoverage(planned,'hash',[report,{outcome:'passed',build,planHash:'hash',executed:[{...planned[1],committedRefusal:true}]}])).toMatchObject({complete:true,remainingCaseIds:[]});
 });

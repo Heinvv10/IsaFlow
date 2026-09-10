@@ -1,3 +1,4 @@
+import type {LocalBuild} from './client';
 import {MCP_INPUT_COMPATIBILITY} from '@/lib/mcp/inputCompatibility';
 import {contractSample,sample,type Contract,type Schema} from './contractSamples';
 export interface ContractCase {id:string;args:Record<string,unknown>;kind:'refusal'|'compatibility';expected:string}
@@ -81,11 +82,15 @@ export function selectShard<T>(cases:T[],shard:number,size:number):T[]{
 }
 interface CaseIdentity {id:string;tool:string;phase:string}
 export function aggregateCoverage(planned:CaseIdentity[],planHash:string,reports:unknown[]){
- const expected=new Map(planned.map(row=>[row.id,row])),seen=new Set<string>();
+ const expected=new Map(planned.map(row=>[row.id,row])),seen=new Set<string>(),builds:LocalBuild[]=[];
  if(expected.size!==planned.length)throw new Error('Duplicate planned case IDs');
  for(const value of reports){
-  const report=value as {planHash?:string;executed?:Array<CaseIdentity&{committedRefusal?:boolean}>};
-  if(!report||report.planHash!==planHash||!Array.isArray(report.executed))throw new Error('Aggregate plan mismatch');
+  const report=value as {outcome?:string;build?:LocalBuild;planHash?:string;executed?:Array<CaseIdentity&{committedRefusal?:boolean}>};
+  if(!report||report.outcome!=='passed'||report.planHash!==planHash||!Array.isArray(report.executed))throw new Error('Aggregate plan mismatch');
+  const build=report.build;
+  if(!build||!/^[a-f0-9]{40}$/.test(build.commit)||!build.buildId||build.verification!=='local-process-cwd-artifact')throw new Error('Missing explicit build provenance');
+  if(builds.some(prior=>prior.commit!==build.commit||prior.buildId!==build.buildId))throw new Error('Mixed-build aggregate');
+  builds.push(build);
   for(const row of report.executed){
    const match=expected.get(row.id);
    if(!match||row.tool!==match.tool||row.phase!==match.phase||row.committedRefusal!==true)throw new Error('Unverified or mismatched aggregate case');
@@ -93,6 +98,6 @@ export function aggregateCoverage(planned:CaseIdentity[],planHash:string,reports
   }
  }
  const remainingCaseIds=planned.filter(row=>!seen.has(row.id)).map(row=>row.id);
- return{planHash,plannedCaseCount:planned.length,executedCaseIds:planned.filter(row=>seen.has(row.id)).map(row=>row.id),remainingCaseIds,
+ return{planHash,buildProvenance:builds,plannedCaseCount:planned.length,executedCaseIds:planned.filter(row=>seen.has(row.id)).map(row=>row.id),remainingCaseIds,
   complete:remainingCaseIds.length===0,limitations:['Aggregate covers refusal gates only; safe read defaults and financial workflows are separate','No production verification']};
 }

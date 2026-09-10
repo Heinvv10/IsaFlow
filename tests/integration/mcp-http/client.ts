@@ -1,3 +1,5 @@
+import {readFile,readlink,realpath} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
 export function validateMcpHttpOrigin(value:string|undefined):string{
  if(!value)throw new Error('Explicit local MCP HTTP origin required');
  const url=new URL(value);
@@ -38,4 +40,17 @@ export function mcpHttpClient(origin:string){
    return reply;
   },
  };
+}
+
+export interface LocalBuild {commit:string;buildId:string;worktree:string;processId:number;verification:'local-process-cwd-artifact'}
+/** External local provenance only; the HTTP server does not sign or attest this identity. */
+export async function verifyLocalMcpBuild(env:NodeJS.ProcessEnv):Promise<LocalBuild>{
+ const expected=env.ISAFLOW_FORENSIC_HTTP_BUILD_COMMIT,selected=env.ISAFLOW_FORENSIC_HTTP_BUILD_WORKTREE,pid=Number(env.ISAFLOW_FORENSIC_HTTP_SERVER_PID);
+ if(!expected||!/^[a-f0-9]{40}$/.test(expected)||!selected||!Number.isSafeInteger(pid)||pid<1)throw new Error('Explicit local build/process identity required');
+ const worktree=await realpath(selected),cwd=await readlink(`/proc/${pid}/cwd`),comm=await readFile(`/proc/${pid}/comm`,'utf8');
+ if(cwd!==worktree||!comm.startsWith('next-server'))throw new Error('Selected server process does not own the build worktree');
+ const commit=execFileSync('git',['rev-parse','HEAD'],{cwd:worktree,encoding:'utf8',timeout:3000}).trim();
+ const buildId=(await readFile(`${worktree}/.next/BUILD_ID`,'utf8')).trim();
+ if(commit!==expected||!buildId||buildId.length>200)throw new Error('Selected built artifact identity mismatch');
+ return{commit,buildId,worktree,processId:pid,verification:'local-process-cwd-artifact'};
 }

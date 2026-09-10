@@ -9,7 +9,7 @@ import {provisionForensicFixture,validateFixtureTarget} from '../forensic-fixtur
 import {validateToolArguments} from '@/lib/mcp/inputValidation';
 import {COMPANY_ASSERT_PROPERTY} from '@/lib/mcp/companyAssert';
 import type {McpTool} from '@/lib/mcp/types';
-import {mcpHttpClient,validateMcpHttpOrigin,type RpcReply} from './client';
+import {mcpHttpClient,validateMcpHttpOrigin,verifyLocalMcpBuild,type RpcReply} from './client';
 import type {Contract} from './contractSamples';
 export {sample} from './contractSamples';
 export interface AcceptanceOptions {phase?:GatePhase;shard?:number;size?:number;onProgress?:(evidence:unknown)=>Promise<void>}
@@ -22,7 +22,7 @@ function refusal(reply:RpcReply,expected:string,name:string,exact:boolean){
 /** Actual refusal gates only; success, defaults and financial workflows are separate evidence. */
 export async function runMcpHttpAcceptance(env:NodeJS.ProcessEnv,options:AcceptanceOptions={}){
  const origin=validateMcpHttpOrigin(env.ISAFLOW_FORENSIC_HTTP_ORIGIN),config=fixtureConfigFromEnv(env);
- const target=validateFixtureTarget(config);
+ const target=validateFixtureTarget(config),build=await verifyLocalMcpBuild(env);
  const inventory=JSON.parse(await readFile(new URL('../../../docs/superpowers/plans/forensic-evidence/tool-contract-current.json',import.meta.url),'utf8')) as {tools:Contract[]};
  const names=inventory.tools.map(row=>row.name).sort();
  if(!names.length||new Set(names).size!==names.length)throw new Error('Invalid explicit tool contract inventory');
@@ -58,10 +58,10 @@ export async function runMcpHttpAcceptance(env:NodeJS.ProcessEnv,options:Accepta
    if(!same(actual.inputSchema,expected))throw new Error(`${tool.name}: manifest schema drift`);
   }
   const executed:Array<{id:string;tool:string;phase:GatePhase;committedRefusal:true}>=[];
-  const progress=()=>({version:2,origin,planHash,toolCount:names.length,fixtureRunId:fixture.runId,
+  const progress=(outcome:'running'|'passed'='running')=>({outcome,version:2,origin,build,planHash,toolCount:names.length,fixtureRunId:fixture.runId,
    phase:options.phase??'all',shard:options.shard??0,size:options.size??500,plannedCaseCount:allCases.length,
    selectedCaseIds:cases.map(row=>row.id),executed,remainingCaseIds:allCases.filter(row=>!executed.some(done=>done.id===row.id)).map(row=>row.id),
-   complete:executed.length===allCases.length,
+   complete:outcome==='passed'&&executed.length===allCases.length,
    limitations:['No valid financial execution coverage','Dynamic approval and identity cases reported separately','Compatible-input runtime defaults remain separate','No production verification']});
   let narrowMode='scope';
   for(const row of cases){
@@ -84,7 +84,7 @@ export async function runMcpHttpAcceptance(env:NodeJS.ProcessEnv,options:Accepta
   }
   const unchanged=await pool.query('SELECT scopes FROM personal_access_tokens WHERE company_id=$1 AND user_id=$2 AND id=$3',[fixture.companyA,fixture.u2.id,revoked.id]);
   if(!same([...unchanged.rows[0].scopes].sort(),[...PAT_SCOPES].sort()))throw new Error('Current-rights test changed broad token scopes');
-  return progress();
+  return progress('passed');
  }finally{await pool.end();}
 }
 
@@ -96,6 +96,7 @@ function dto<T>(reply:RpcReply):T{
 /** Synthetic unposted source data only: no claim of controlled journal creation. */
 export async function runMcpReadAcceptance(env:NodeJS.ProcessEnv){
  const origin=validateMcpHttpOrigin(env.ISAFLOW_FORENSIC_HTTP_ORIGIN),config=fixtureConfigFromEnv(env),target=validateFixtureTarget(config);
+ const build=await verifyLocalMcpBuild(env);
  const fixture=await provisionForensicFixture(config),pool=new Pool({connectionString:target.connectionString,ssl:false,max:1,connectionTimeoutMillis:3000,statement_timeout:10000,application_name:'isaflow-mcp-contract-acceptance'});
  try{
   await pool.query("INSERT INTO feature_flags(code,name,is_global) VALUES('mcp_connector','MCP Connector (AI agents)',false) ON CONFLICT(code) DO NOTHING");
@@ -139,7 +140,7 @@ export async function runMcpReadAcceptance(env:NodeJS.ProcessEnv){
   if(proof.rows[0].effects!==0||proof.rows[0].approvals!==0||proof.rows[0].status!=='draft'||!same([...proof.rows[0].scopes].sort(),[...PAT_SCOPES].sort()))throw new Error('Read-only dynamic control changed effects or token scopes');
   await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[fixture.companyA,fixture.u1.id]);
   for(const name of ['company_profile','list_companies'])await client.expectedHttp(403,token.raw,{jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:{}}});
-  return{version:1,origin,fixtureRunId:fixture.runId,identityRevocation:'verified',identityTools:['company_profile','list_companies'],dynamicRevocation:'verified',effects:0,
+  return{outcome:'passed',version:1,origin,build,fixtureRunId:fixture.runId,identityRevocation:'verified',identityTools:['company_profile','list_companies'],dynamicRevocation:'verified',effects:0,
    defaultRead:{tool:'list_gl_accounts',defaultRows:200,total:201,includingInactive:202,numericStringRows:3},
    limitations:['Draft journal and accounts are synthetic source fixtures, not controlled creation/posting proof','Dynamic refusal is a generic public handler envelope with successful before/after controls','No financial execution or production verification']};
  }finally{await pool.end();}
