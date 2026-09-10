@@ -45,15 +45,25 @@ export async function resolveImpersonatingActor(client: PoolClient, claims: GoTr
   return recorded.rows[0]?.actor ?? null;
 }
 
+const LIVENESS = 'public.impersonation_delegation_live(uuid,text,text,text)';
+interface ReaderState { reader: boolean; liveness: boolean; reader_exec: boolean | null; liveness_exec: boolean | null }
+/** Existence of both functions and app_user's EXECUTE on each, in one statement. */
+export const IMPERSONATION_READER_GATE_SQL = `SELECT
+  to_regprocedure('${READER}') IS NOT NULL AS reader,
+  to_regprocedure('${LIVENESS}') IS NOT NULL AS liveness,
+  has_function_privilege('app_user', to_regprocedure('${READER}'), 'EXECUTE') AS reader_exec,
+  has_function_privilege('app_user', to_regprocedure('${LIVENESS}'), 'EXECUTE') AS liveness_exec`;
+
 /**
- * Deploy gate. The reader function decides whether an impersonated session can be seen at
- * all, so a deployment whose database lacks it must fail here rather than refuse every
- * approval in every tenant at runtime.
+ * Deploy gate. Without the reader every approval is refused at runtime (the request path
+ * fails closed); without EXECUTE for app_user on either function every authenticated
+ * request 500s. Both must fail the deploy instead.
  */
 export async function assertImpersonationReaderDeployed(
-  query: (text: string) => Promise<Array<{ available: boolean }>>): Promise<void> {
-  const rows = await query(`SELECT to_regprocedure('${READER}') IS NOT NULL AS available`);
-  if (rows[0]?.available !== true) {
-    throw new Error(`${READER} is not deployed: apply migration 675 before serving requests`);
-  }
+  query: (text: string) => Promise<ReaderState[]>): Promise<void> {
+  const row = (await query(IMPERSONATION_READER_GATE_SQL))[0];
+  if (row?.reader !== true) throw new Error(`${READER} is not deployed: apply migration 675 before serving requests`);
+  if (row.liveness !== true) throw new Error(`${LIVENESS} is not deployed: apply migration 677 before serving requests`);
+  if (row.reader_exec !== true) throw new Error(`app_user cannot EXECUTE ${READER}`);
+  if (row.liveness_exec !== true) throw new Error(`app_user cannot EXECUTE ${LIVENESS}`);
 }

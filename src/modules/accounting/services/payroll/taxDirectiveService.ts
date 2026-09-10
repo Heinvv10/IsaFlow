@@ -168,7 +168,8 @@ export async function updateTaxDirectiveStatus(
   status: DirectiveStatus,
   approvedByUserId?: string,
 ): Promise<TaxDirective | null> {
-  if (approvedByUserId) assertIndependentRequestReview();
+  // Keyed on the transition: approving without naming an approver is still approving.
+  if (status === 'approved') assertIndependentRequestReview();
   log.info('updateTaxDirectiveStatus', { companyId, id, status });
 
   const rows = await sql`

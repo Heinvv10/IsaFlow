@@ -102,15 +102,31 @@ const handler: NextApiHandler = async (req, res) => {
   const targetSessionId = started[0]?.target_session_id ?? null;
 
   const revocationScope = callerId === stash.target_user_id ? 'local' : 'global';
+
+  // The end is recorded BEFORE GoTrue is asked to revoke. That row is what stops the
+  // delegation proof; if it were written after, a revocation that succeeded followed by a
+  // failed INSERT would leave a revoked session whose still-valid access token keeps
+  // passing the proof branch for up to an hour. If this INSERT fails, nothing has been
+  // revoked and the impersonation simply continues - the pre-exit state, retryable.
+  await sql`
+    INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+    VALUES (
+      ${stash.admin_user_id},
+      'impersonation_end',
+      'user',
+      ${stash.target_user_id},
+      ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope })}::jsonb
+    )
+  `;
+
   try {
     if (revocationScope === 'local') await logout(accessToken, 'local');
     else await adminRevokeAllUserSessions(stash.target_user_id);
   } catch (revokeErr) {
     log.error('end-impersonation: impersonated session revocation failed',
       { stashId, message: revokeErr instanceof Error ? revokeErr.message : String(revokeErr) }, 'Admin');
-    // The attempt is recorded even though it failed: the session id it names is what
-    // stops the delegation proof from being honoured, so a GoTrue outage cannot leave a
-    // live impersonated session with nothing on record. The stash stays for the retry.
+    // The end is already on record (above), so the proof is dead; this row says the
+    // revocation itself did not happen. The stash stays for the retry.
     await sql`
       INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
       VALUES (${stash.admin_user_id}, 'impersonation_end_failed', 'user', ${stash.target_user_id},
@@ -136,17 +152,6 @@ const handler: NextApiHandler = async (req, res) => {
   if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
 
   clearImpersonationCookies(res);
-
-  await sql`
-    INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
-    VALUES (
-      ${stash.admin_user_id},
-      'impersonation_end',
-      'user',
-      ${stash.target_user_id},
-      ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope })}::jsonb
-    )
-  `;
 
   await deleteStash(stashId);
 
