@@ -84,7 +84,7 @@ describe('SharedPackView', () => {
 
   it('renders the balance sheet with its detail lines', () => {
     expect(html).toContain('Total Assets');
-    expect(html).toContain('Total Liabilities and Equity');
+    expect(html).toContain('Total Equity and Liabilities');
     expect(html).toContain('Accounts Receivable');
   });
 
