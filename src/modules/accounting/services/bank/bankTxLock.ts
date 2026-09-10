@@ -88,6 +88,24 @@ export async function lockBankTransactionForUpdate(
       FOR UPDATE`) as DbRow[];
     return rows[0] ?? null;
   } catch (err) {
+    // A 55P03 here has the same two readings the match UPDATE has — a peer
+    // holding the row, or DDL holding the TABLE — and this branch reports both
+    // as the first: the message says "being allocated by another request" and
+    // `autoMatchTransactions` counts it in `skippedRaced`. `tableLockUnavailable`
+    // is deliberately NOT consulted, because it cannot run here: this SELECT is
+    // outside a savepoint, so its 55P03 aborts the transaction and the probe's
+    // LOCK TABLE comes back 25P02 "current transaction is aborted", masking the
+    // real error instead of classifying it (verified against pg on the schema
+    // fixture). Discriminating at this call site means wrapping the SELECT in
+    // its own savepoint on every bank write path — deferred, and recorded in
+    // docs/audits/remediation/K-140/fix.md.
+    //
+    // The window is narrower than the UPDATE's. `FOR UPDATE` takes ROW SHARE,
+    // which does not conflict with the SHARE a non-CONCURRENTLY `CREATE INDEX`
+    // holds, so migration 657 — the case that motivated the match fix — is
+    // GRANTED here rather than refused. Only an EXCLUSIVE or ACCESS EXCLUSIVE
+    // holder (`ALTER TABLE`, `VACUUM FULL`, `TRUNCATE`) reaches this branch, and
+    // the wording it raises is at least retryable in either reading.
     if (isLockNotAvailable(err)) throw new BankTransactionLockTimeoutError(bankTxId);
     throw err;
   }

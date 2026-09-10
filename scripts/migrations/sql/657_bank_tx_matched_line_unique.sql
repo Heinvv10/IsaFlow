@@ -96,8 +96,9 @@ WHERE bt.id = ranked.id
 -- Not CONCURRENTLY: the release pass above must run in the same transaction as
 -- the build, or a row bound between the two makes the build fail — and
 -- CREATE INDEX CONCURRENTLY cannot run inside a transaction block. The trade is
--- an ACCESS EXCLUSIVE lock on bank_transactions for the duration of the build,
--- so this migration is a maintenance-window deploy.
+-- a SHARE lock on bank_transactions for the duration of the build: readers and
+-- SELECT … FOR UPDATE still pass, but every write blocks, so this migration is
+-- a maintenance-window deploy.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bank_tx_matched_line
   ON bank_transactions (company_id, matched_journal_line_id)
   WHERE matched_journal_line_id IS NOT NULL;
