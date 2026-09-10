@@ -32,17 +32,40 @@ checks rollback, avoiding response-before-COMMIT races. These are deterministic
 flag-propagation probes, not reproductions of a real audit-storage or failed
 ROLLBACK TO SAVEPOINT fault.
 
-## Execution status
+## Execution evidence
 
-Tests authored before running; heavy lease has not been granted. No pass or RED
-claim, database mutation or static-test result is recorded yet. Proposed command
-after root grants the serialized lease and local fixture environment is sourced:
+- Test-first commit `e9445bcfc`, exact source `b303e6321`.
+- Root granted the serialized PostgreSQL/static lease before any run.
+- Targeted pre-fix run81575, terminal exit1: **one genuine RED**,17skipped,
+  1.84seconds. The detached child had already changed the customer name and the
+  outer middleware COMMITTED it: observed Escaped authority witness instead of
+  Authority witness. Cleanup released the child and restored the synthetic row.
+  Log: `platform-import-authority-pg-detached-red.log` in the sibling artifacts tree.
+- Applied root-owned source correction `45ba99b2e` as dependency `b8d79ecc3`:
+  unfinished target poisons/refuses outer completion before middleware rollback.
+  This worker did not author or alter that source correction.
+- Full suite60368, terminal exit0: **18 actual PostgreSQL/HTTP tests passed**,
+  2.09seconds. Log: `platform-import-authority-pg-green.log`.
+- Dedicated TypeScript initially lacked the external config's typeRoots; corrected
+  only config. Then corrected fixture-only callback annotations and captured port
+  narrowing. Run86009 still reports three transitive production diagnostics in
+  `sage-commit.ts:82` (two withCsrf generic errors) and `beneficiaryService.ts:50`
+  (new auth kind not narrowed). No remaining diagnostic names either new test file.
+  Root owns those source corrections; full dedicated TypeScript is NOT passing yet.
+- Typed ESLint50180, terminal exit0, both owned TypeScript files, zero warnings.
+  Log: `platform-import-authority-pg-lint.log`. Dedicated config/log retained in
+  sibling artifacts under `platform-import-authority-pg-*`.
+
+Commands used after selecting Node22.23.1 and sourcing the validated local fixture:
 
 ```
+bunx vitest run --config vitest.integration.config.ts --no-file-parallelism tests/integration/controls/platformImportAuthority.int.test.ts -t 'already-written detached'
 bunx vitest run --config vitest.integration.config.ts --no-file-parallelism tests/integration/controls/platformImportAuthority.int.test.ts
+bunx tsc --noEmit --project ../mcp-forensic-artifacts-20260909/platform-import-authority-pg-tsconfig.json
+bunx eslint --config ../mcp-forensic-artifacts-20260909/platform-import-authority-pg-eslint.mjs tests/integration/controls/platformImportAuthorityFixture.ts tests/integration/controls/platformImportAuthority.int.test.ts --max-warnings 0
 ```
 
-Root reviews this test contract at its named commit before the first run.
-Current-source behavior remains unverified by these new tests until terminal
-results and any fixture corrections are recorded here. No production behavior
-is verified.
+The fixture source annotations and captured-port correction do not change test
+assertions. Independent named review and clean transitive TypeScript remain
+required before integration. These results do not verify production, completed
+financial imports, source/import confinement, independent approval or the UI.
