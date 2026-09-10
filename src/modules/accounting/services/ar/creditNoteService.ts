@@ -88,13 +88,7 @@ export async function getCreditNoteById(companyId: string, id: string): Promise<
   return rows.length > 0 ? mapRow(rows[0]!) : null;
 }
 
-/**
- * @param actor Who raised it (migration 531). Omitted by the REST route, which
- *   leaves both columns NULL — resolved from the approval journal's
- *   posting_agent at read time and reported as DERIVED, never as recorded.
- *   The MCP tool passes an actor, so an agent-raised note is provable for the
- *   whole draft period, before any journal exists to carry the stamp.
- */
+/** Legacy actor options remain callable; persisted provenance always comes from the issued principal. */
 export async function createCreditNote(companyId: string, 
   input: CreditNoteCreateInput,
   userId: string,
@@ -102,6 +96,11 @@ export async function createCreditNote(companyId: string,
 ): Promise<CreditNote> {
   try {
   const ctx=requireArControl(companyId,userId);
+  void actor;
+  const principal=ctx.principal;
+  const actorType=principal.authMethod==='cookie'?'human':principal.authMethod==='job'?'system':'agent';
+  const actorTokenJti=principal.authMethod==='pat'?principal.connectionId:principal.authMethod==='oauth'?principal.grantId:null;
+  if(actorType==='agent'&&!actorTokenJti)throw new Error('Credit note agent credential provenance required');
   await assertEffectivePermission(ctx,'write:invoices');
   const {ledgerCurrency}=await resolveArAccounts(ctx,[]);
     // The tenant + counterparty fence lives HERE, not in a caller. None of
@@ -140,7 +139,7 @@ export async function createCreditNote(companyId: string,
         ${input.creditDate}, ${input.reason || null},
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
         ${input.projectId || null}, ${userId}::UUID,
-        ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}, ${ledgerCurrency}
+        ${actorType}, ${actorTokenJti}, ${ledgerCurrency}
       ) RETURNING *
     `) as Record<string, unknown>[];
 
