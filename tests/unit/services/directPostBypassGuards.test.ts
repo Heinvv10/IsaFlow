@@ -106,30 +106,7 @@ beforeEach(() => {
   });
 });
 
-describe('postCustomerInvoiceToGL routes through postJournalEntry', () => {
-  it('posts via postJournalEntry, not a direct status UPDATE', async () => {
-    await postCustomerInvoiceToGL(COMPANY, INVOICE, USER);
-
-    expect(postJournalEntry).toHaveBeenCalledWith(COMPANY, 'je-1', USER);
-    expect(directPostWrites()).toHaveLength(0);
-  });
-
-  it('refuses a closed period BEFORE creating the journal, so nothing partial commits', async () => {
-    getPeriodStatusForDate.mockResolvedValue('closed');
-
-    await expect(postCustomerInvoiceToGL(COMPANY, INVOICE, USER)).rejects.toThrow(/closed/i);
-    // The route answers 400 on any throw and withAuth only ROLLBACKs on >= 500,
-    // so a draft entry created before the refusal would be COMMITted.
-    expect(createJournalEntry).not.toHaveBeenCalled();
-    expect(directPostWrites()).toHaveLength(0);
-  });
-
-  it('still links the invoice to the journal on success', async () => {
-    await postCustomerInvoiceToGL(COMPANY, INVOICE, USER);
-
-    expect(texts().some((q) => /UPDATE customer_invoices SET gl_journal_entry_id/i.test(q))).toBe(true);
-  });
-});
+// AR03–05 actual controlled posting/link/retry/closed rollback: arCiPosting.int.test.ts.
 
 describe('historicalImport opt-out — Sage migration only', () => {
   it('allows a closed period, because migrating 2022-2024 invoices is the point', async () => {

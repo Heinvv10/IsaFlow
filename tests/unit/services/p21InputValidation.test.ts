@@ -58,10 +58,7 @@ import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccount
 import { createJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
-import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
-import { approveCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';
 
-import { lockCreditNoteForUpdate } from '@/modules/accounting/services/ar/creditNoteLock';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 
@@ -71,7 +68,8 @@ const USER_ID = 'ffffffff-0000-4000-8000-ffffffffffff';
 
 /** Text-keyed sql mock. */
 function mockByText(routes: Record<string, unknown[] | Error>) {
-  mockSql.mockImplementation((strings: TemplateStringsArray) => {
+  mockSql.mockImplementation((strings: unknown) => {
+    if(!Array.isArray(strings)||strings.some(value=>typeof value!=='string'))throw new Error('Expected SQL template');
     const text = (strings as unknown as string[]).join('?');
     for (const [pattern, result] of Object.entries(routes)) {
       if (new RegExp(pattern, 'i').test(text)) {
@@ -154,92 +152,4 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
   });
 });
 
-// ── W3: draft over-allocation ────────────────────────────────────────────────
-
-describe('W3 — draft payment allocations count pending drafts', () => {
-  it('rejects an allocation when balance is consumed by another draft payment', async () => {
-    // invoice: total 115, confirmed paid 0 — but another DRAFT payment
-    // already allocates the full 115.
-    mockByText({
-      'SELECT total_amount, amount_paid': [{ total_amount: '115.00', amount_paid: '0.00' }],
-      'customer_payment_allocations': [{ pending: '115.00' }],
-    });
-
-    await expect(
-      createCustomerPayment(COMPANY_ID, {
-        clientId: ENTITY_ID,
-        paymentDate: '2026-07-05',
-        totalAmount: 115,
-        allocations: [{ invoiceId: ENTITY_ID, amount: 115 }],
-      } as never, USER_ID),
-    ).rejects.toThrow(/pending|draft|exceeds/i);
-  });
-});
-
-// ── N6: credit-note double application ──────────────────────────────────────
-
-describe('N6 — linked credit note cannot be applied twice', () => {
-  it('approve of a LINKED credit note ends status=applied (not approved)', async () => {
-    const cnRow = {
-      id: ENTITY_ID,
-      credit_note_number: 'CN-1',
-      type: 'customer',
-      status: 'draft',
-      credit_date: new Date(2026, 6, 5),
-      subtotal: '100.00',
-      tax_amount: '15.00',
-      total_amount: '115.00',
-      customer_invoice_id: 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb',
-      client_id: ENTITY_ID,
-    };
-    const updates: Array<{ text: string; values: unknown[] }> = [];
-    mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
-      const text = (strings as unknown as string[]).join('?');
-      if (/SELECT \* FROM credit_notes/i.test(text)) return Promise.resolve([cnRow]);
-      // Approve now READS the linked invoice to cap the applied amount at its
-      // outstanding balance, so the mock has to answer that lookup. Outstanding
-      // here (1150 - 0) exceeds the note's 115, so the full amount applies and
-      // the note still lands in 'applied' — which is what this test is about.
-      if (/SELECT total_amount, amount_paid FROM customer_invoices/i.test(text)) {
-        return Promise.resolve([{ total_amount: '1150.00', amount_paid: '0.00' }]);
-      }
-      if (/UPDATE customer_invoices SET amount_paid/i.test(text)) {
-        return Promise.resolve([{ id: 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb' }]);
-      }
-      if (/UPDATE credit_notes SET status/i.test(text)) {
-        updates.push({ text, values });
-        return Promise.resolve([{ ...cnRow, status: 'applied' }]);
-      }
-      return Promise.resolve([]);
-    });
-
-    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(cnRow as never);
-
-    await approveCreditNote(COMPANY_ID, ENTITY_ID, USER_ID);
-
-    expect(updates).toHaveLength(1);
-    // The status written for a LINKED note must be 'applied' (literal or
-    // bound parameter) so the separate apply action can never double-credit.
-    const wroteApplied =
-      /'applied'/.test(updates[0]!.text) || updates[0]!.values.includes('applied');
-    expect(wroteApplied).toBe(true);
-    expect(updates[0]!.values).not.toContain('approved');
-  });
-
-  it('applyCreditNoteToInvoice rejects an already-applied note', async () => {
-    mockByText({
-      'SELECT \\* FROM credit_notes': [
-        { id: ENTITY_ID, status: 'applied', type: 'customer', total_amount: '115.00' },
-      ],
-    });
-
-    // apply reads the note through the row lock now, not through `sql`.
-    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(
-      { id: ENTITY_ID, status: 'applied', type: 'customer', total_amount: '115.00' } as never,
-    );
-
-    await expect(
-      applyCreditNoteToInvoice(COMPANY_ID, ENTITY_ID, 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb', USER_ID),
-    ).rejects.toThrow(/approved|applied/i);
-  });
-});
+// W3/N6 actual pending draft balance and linked credit-note exactly-once: arCiCreditPayment.int.test.ts.
