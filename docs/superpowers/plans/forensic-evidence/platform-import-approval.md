@@ -445,7 +445,9 @@ What this branch changes, end to end:
 4. **Ending impersonation ends it.** The delegation proof names its stash row and is honoured only
    while that row lives and no end is recorded for its session (migration 677, SECURITY DEFINER,
    indexed). The end is recorded before GoTrue is asked to revoke, from the impersonation start record,
-   never the caller; failures are recorded; the revocation has its own row.
+   never the caller; a failed revocation is recorded as `impersonation_end_failed`. A successful
+   revocation is recorded as `impersonation_revoked` on a best-effort basis: if that INSERT fails the
+   only record is a log line, and the end row still says `revoked:false`.
 5. **Operational gates.** The deploy stops unless both reader functions exist and their calling roles
    may execute them. The pre-change population of impersonated sessions is handled by
    `scripts/revoke-legacy-impersonation-sessions.ts` - an operator step at deploy, dry-run first.
