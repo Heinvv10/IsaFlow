@@ -68,6 +68,7 @@ it('requires write:audit to enqueue but not to read',async()=>{
  try{
   const refused=await f.request('POST',{...body(),idempotencyKey:randomUUID()});
   expect(refused.status,'a member without write:audit enqueued a check run').toBe(403);
+  expect(refused.body.error?.message,'the 403 did not name the missing permission').toBe('Current permission denied: write:audit is required');
   expect((await f.request('GET',{checkRunId})).status,'write:audit was demanded for a read').toBe(200);
  }finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='audit'",[f.f.companyA,f.f.u1.id]);}
 },60000);
@@ -76,6 +77,7 @@ it('forbids the page read with 403 once current read:reports is revoked',async()
  try{
   const refused=await f.request('GET',{checkRunId});
   expect(refused.status,'a reader without current read:reports was served a findings page').toBe(403);
+  expect(refused.body.error?.message,'the 403 did not name the missing permission').toBe('Current permission denied: read:reports is required');
   const before=(await f.pool.query("SELECT count(*)::int AS n FROM control_audit_job_intents WHERE company_id=$1 AND kind='audit_check_run'",[f.f.companyA])).rows[0].n;
   expect((await f.request('POST',{...body(),idempotencyKey:randomUUID()})).status).toBe(403);
   // A 403 is a 4xx, and withAuth COMMITs the transaction on 4xx. The refusal must therefore land BEFORE the
