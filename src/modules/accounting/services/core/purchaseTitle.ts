@@ -26,8 +26,18 @@
  *     voucher, and the credit, discount, settlement, short-delivery and claim
  *     notes a supplier sends to REDUCE an invoice. Each entry names a
  *     DOCUMENT: a bare `Discount` heads a price column on an ordinary invoice,
- *     so it counts only as `DISCOUNT NOTE`/`SLIP`/…. This list only ever
+ *     so it counts only as `DISCOUNT NOTE`/`SLIP`/…. A FIELD citing another
+ *     document (`Purchase Order No: PO4411`, `Delivery Note No DN12`, `Quote
+ *     No: Q22`, `Statement date:`, `Note:`, `Settlement:`) names it, it is not
+ *     it, and does not disqualify (round 23) — a GRV field still does: a
+ *     RECEIPT beside a GRV is the buyer's own voucher. This list only ever
  *     refuses; the title rule is what fails closed for the word it lacks.
+ *  3. A REPRINT marker on ANY line refuses (`** REPRINT **` in the footer,
+ *     `DUPLICATE RECEIPT`, `KOPIE`, `HERDRUK`, `DUPLIKAAT`, `AFSKRIF`): nothing
+ *     downstream of receipt-to-journal or petty cash checks for a duplicate.
+ *     `CUSTOMER COPY` / `MERCHANT COPY` is NOT one — a card machine prints both
+ *     copies of every ORIGINAL slip, and a reprint says REPRINT or DUPLICATE.
+ *     A TRAINING MODE slip records no sale at all, and refuses the same way.
  *
  * The supplier's own name and address are blanked first (`Copy Shop
  * Rosebank`, `Discount Tyres`), as the credit rule does. The header is every
@@ -44,7 +54,12 @@ const TITLE_LINE = new RegExp(
   String.raw`^[\s*=#-]*${ONE_TITLE}(?:\s*[/|&-]?\s*${ONE_TITLE})*(?:\s*\(?ORIGINAL\)?)?(?:\s*Page\s+\d+\s+of\s+\d+)?[\s*=#-]*$`,
   'i',
 );
-const NOT_A_PURCHASE = new RegExp(String.raw`(?<![A-Za-z])(?:COPY|RE-?PRINT\w*|DUPLICAT\w*|PRO[\s-]*FORMA|QUOT(?:E|ATION)|KWOTASIE|ESTIMATE|STATEMENT|STAAT|NOTE|NOTA|ORDER\s+CONFIRMATION|PURCHASE\s+ORDER|GRV|GRN|GOODS\s+RECEIVED|DISCOUNT\s+(?:SLIP|VOUCHER|ADVICE|MEMO)|SETTLEMENT|SHORT\s+(?:DELIVER|SUPPL|SHIP)\w*|SHORTAGE|CLAIM|DAMAGES?|ADJUSTMENT|ALLOWANCE|INCENTIVE|BONUS|REBATE|SWOP|SWAP|EXCH\w*|ACCEPTED\s+BACK)(?![A-Za-z])`, 'i');
+const NOT_A_PURCHASE = new RegExp(String.raw`(?<![A-Za-z])(?:COPY|RE-?PRINT\w*|DUPLICAT\w*|PRO[\s-]*FORMA|QUOT(?:E|ATION)|KWOTASIE|ESTIMATE|STATEMENT|STAAT|NOTE|NOTA|ORDER\s+CONFIRMATION|PURCHASE\s+ORDER|GRV|GRN|GOODS\s+RECEIVED|DISCOUNT\s+(?:SLIP|VOUCHER|ADVICE|MEMO)|SETTLEMENT|SHORT\s+(?:DELIVER|SUPPL|SHIP)\w*|SHORTAGE|CLAIM|DAMAGES?|ADJUSTMENT|ALLOWANCE|INCENTIVE|BONUS|REBATE|SWOP|SWAP|EXCH\w*|ACCEPTED\s+BACK|LAY[\s-]?BY\w*|SALES\s+ORDER|JOB\s+CARD|REMITTANCE)(?![A-Za-z])`, 'i');
+/** A field citing another document by number or date, or a prose/terms label. */
+const FIELD = new RegExp(String.raw`(?<![A-Za-z])(?:(?:DELIVERY\s+NOTE|(?:PURCHASE\s+|SALES\s+|YOUR\s+|CUSTOMER\s+)?ORDER|JOB\s+CARD|QUOT(?:E|ATION)|KWOTASIE|STATEMENT)\s*(?:(?:No|Nr|Number|Ref(?:erence)?|Date|Datum)\.?\s*[:#.]?|[:#])\s*[A-Z0-9]\S*|^\s*(?:Note|Nota|Settlement(?:\s+(?:terms|discount))?)\s*:)`, 'gi');
+/** Which of a card machine's two ORIGINAL prints this is — never a reprint. */
+const CARD_COPY = /(?<![A-Za-z])(?:CUSTOMER|MERCHANT|CARDHOLDER|CLIENT|KLI[EË]NT|KLANT|HANDELAAR)\s+(?:COPY|KOPIE)(?![A-Za-z])/gi;
+const REPRINT = /(?<![A-Za-z])(?:RE[\s-]?PRINT\w*|RE[\s-]?ISSUE\w*|DUPLICAT\w*|DUPLIKAAT|HERDRUK\w*|KOPIE|AFSKRIF|C[\s.]O[\s.]P[\s.]Y|TRAINING\s+MODE|COPY(?=[\s*)\]=-]*$)|COPY\s+OF|IS\s+A\s+COPY)(?![A-Za-z])/im;
 const MONEY_FIGURE = /\d[.,]\d{2}(?!\d)/;
 /** A date, a time printed after a date, or a labelled time — never the first money figure. */
 function stripDateTime(line: string): string {
@@ -57,10 +72,12 @@ export function identifiesAsPurchase(
   doc: Pick<ExtractedDocument, 'rawText' | 'documentType'>
     & Partial<Pick<ExtractedDocument, 'vendorName' | 'vendorAddress'>>,
 ): boolean {
-  const text = scrubVendorIdentity(doc.rawText ?? '', [doc.vendorName, doc.vendorAddress]);
+  const text = scrubVendorIdentity(doc.rawText ?? '', [doc.vendorName, doc.vendorAddress]).replace(CARD_COPY, (m) => ' '.repeat(m.length));
   if (text.trim().length === 0) return doc.documentType === 'invoice' || doc.documentType === 'receipt';
   const lines = text.split(/\r?\n/);
+  if (lines.some((line) => REPRINT.test(line))) return false;
   const firstMoney = lines.findIndex((line) => MONEY_FIGURE.test(stripDateTime(line)));
   const header = firstMoney < 0 ? lines : lines.slice(0, firstMoney);
-  return header.some((line) => TITLE_LINE.test(line)) && !header.some((line) => NOT_A_PURCHASE.test(line));
+  return header.some((line) => TITLE_LINE.test(line))
+    && !header.some((line) => NOT_A_PURCHASE.test(line.replace(FIELD, (m) => ' '.repeat(m.length))));
 }

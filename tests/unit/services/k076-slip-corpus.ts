@@ -164,7 +164,9 @@ export const SLIPS: Slip[] = [
   // balance and a loyalty balance must not become the payable.
   { name: 'P1 paid invoice, Balance Due 0.00', text: `${WALTONS}Sub Total 1000.00\nVAT 150.00\nTotal 1150.00\nAmount Paid 1150.00\nBalance Due 0.00`, payable: 1150, outcome: 'post' },
   { name: 'P2 till slip ending BALANCE 0.00', text: `${RECEIPT('Spar Rivonia', '100321')}Bread 1 23.00 23.00\nSub Total 20.00\nVAT 3.00\nTOTAL 23.00\nCARD 23.00\nBALANCE 0.00`, payable: 23, outcome: 'post' },
-  { name: 'P3 balance brought forward above the invoice', text: `${WALTONS}Balance 500.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'post' },
+  // Round 23: the item rows (1000 + 500) exceed both the net and the total. A
+  // bare `Balance` may be owed on top, so only a NAMED prior balance is left out.
+  { name: 'P3 balance brought forward above the invoice', text: `${WALTONS}Balance 500.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'refuse' },
   { name: 'P4 Smart Shopper Balance larger than the total', text: `${RECEIPT('Pick n Pay Norwood', '100322')}Bread 1 23.00 23.00\nSub Total 20.00\nVAT 3.00\nTOTAL 23.00\nCARD 23.00\nSmart Shopper Balance 45.00`, payable: 23, outcome: 'refuse' },
 
   // Round 13 — what measuring amounts costs honest slips, pinned so the cost
@@ -210,9 +212,9 @@ export const SLIPS: Slip[] = [
   { name: 'R24 parking, cash and change', text: `${RECEIPT('Sandton City Parking', '100224')}Parking 3h 1 30.00 30.00\nSub Total 26.09\nVAT 3.91\nTotal 30.00\nCASH 50.00\nCHANGE 20.00`, payable: 30, outcome: 'post' },
   { name: 'R25 Takealot with a delivery line', text: `${INVOICE('Takealot', 'TA771')}Headphones 1 499.00 499.00\nDelivery 1 60.00 60.00\nSub Total 486.09\nVAT 72.91\nTotal 559.00`, payable: 559, outcome: 'post' },
   { name: 'R26 Vodacom invoice with a due date', text: `${INVOICE('Vodacom', 'VC5512')}Contract 1 449.00 449.00\nSub Total 390.43\nVAT 58.57\nTotal Due 449.00\nPayment due by 2026-09-15`, payable: 449, outcome: 'post' },
-  // Round 22: on an unpaid invoice a bare number beside a count noun is money,
-  // and `Branch 250655` is one — the stated cost of the counter decision.
-  { name: 'R27 supplier invoice with bank details', text: `${INVOICE('Acme Supplies', 'AC9001')}Widgets 10 100.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nBank: FNB Acc 62123456789 Branch 250655`, payable: 1150, outcome: 'refuse' },
+  // Round 22 refused this row (a count noun on an unpaid invoice); round 23
+  // reads six digits after `Branch` as a bank branch code — a reference.
+  { name: 'R27 supplier invoice with bank details', text: `${INVOICE('Acme Supplies', 'AC9001')}Widgets 10 100.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nBank: FNB Acc 62123456789 Branch 250655`, payable: 1150, outcome: 'post' },
   // Refuses on the pre-existing reconciliation rule (net + VAT is 38.00 of
   // 43.00), not on round 13: a tip inside the total is not in the net.
   { name: 'R28 coffee, tip included in the total', text: `${RECEIPT('Seattle Coffee', '100228')}Latte 1 38.00 38.00\nSub Total 33.04\nVAT 4.96\nTip 5.00\nTotal 43.00\nCARD 43.00`, payable: 43, outcome: 'refuse' },

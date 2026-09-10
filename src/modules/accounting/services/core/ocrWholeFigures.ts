@@ -119,6 +119,12 @@ const REFERENCE_LABEL = new RegExp(
 );
 /** A bare COUNT: a count noun and nothing else — a candidate only (see `COUNT_NOUN`). */
 const COUNT_LABEL = new RegExp(String.raw`^[\s:#.=,*-]*${COUNT_HEAD}[\s:.=-]*$`, 'i');
+/**
+ * A bank BRANCH CODE: six digits after `Branch`/`Br` (`Branch Code: 250655`).
+ * Six digits is at least R100 000, so it can only hide a figure larger than
+ * the total — and no document prints its six-figure payable as a branch code.
+ */
+const BRANCH_CODE = /(?<![A-Za-z])(?:Branch|Br)\.?(?:\s+(?:Code|No\.?))?[\s:#.=-]*$/i;
 /** A year after "since"/"est." — `Est. 1967`, `…with us since 1967`. */
 const YEAR_LABEL = /(?<![A-Za-z])(?:since|sedert|est\.?|established)\s*$/i;
 
@@ -138,6 +144,7 @@ export function counterLabel(segment: string, value: number): 'reference' | 'cou
   // `Ref: TIP-350` and `Receipt No: CASH-1500` are a tip and a payment.
   if (new RegExp(`${CODE_PREFIX}[\\s]*$`).test(label) && value < 10000) return null;
   if (REFERENCE_LABEL.test(label)) return 'reference';
+  if (BRANCH_CODE.test(label) && value >= 100000 && value <= 999999) return 'reference';
   if (COUNT_LABEL.test(label)) return 'count';
   return value >= 1900 && value <= 2099 && YEAR_LABEL.test(label) ? 'reference' : null;
 }

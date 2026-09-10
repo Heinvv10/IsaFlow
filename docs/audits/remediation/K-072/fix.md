@@ -2205,3 +2205,44 @@ not declarations (1) · C5 `Curr` matches `Current` (1) · R1 new refund stems (
 R3 Afrikaans exchange-policy phrase (1) · R4 `Exch rate` not benign (1) · H1/H2 each refusal code removed (1
 each). **T6 (`STATEMENT` a title again) stays GREEN — an equivalent mutant: `NOT_A_PURCHASE` refuses STATEMENT
 on the same line.**
+
+---
+
+## Round 23 — the item column over-sums, reprints anywhere, branch codes, citing fields
+
+Review: `review-k072-r22.md` (1H/1M/2L, all pre-existing, no regressions; the reviewer accepted the 24
+number-word references as unrealistic charges). Harness as in round 22 plus the reviewer's `w22.json` (84
+probes): 2 304 rows.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 item rows that do not reconcile posted the lower total (`Labour 1000.00 / Delivery 350.00 / Sub Total 1000.00 / TOTAL 1150.00`, `Hire 1 day 450`) | FIXED with the reviewer's rule (`unexplainedItem`): with no loose whole number, the item rows' last figures must not sum to MORE than both the total and the net. Under-summing rows (a dropped line, `40.00L` on a fuel slip) leave the printed total the payable and pass. Payment/change rows are not items; a NAMED prior balance (`Balance brought forward`, `b/f`, `Previous/Opening balance`, `Vorige saldo`) is left out, because it belongs to a prior document. A bare `Balance 500.00` is NOT left out — it may be owed on top of this document — so corpus `P3` now refuses (pinned, annotated). All 8 rows refuse (h-item 6 → 0, d-dur wrong 8 → 6). |
+| MEDIUM-1 a reprint marked in the footer, or in Afrikaans, posted twice | FIXED. `REPRINT` is checked on EVERY line: `RE-PRINT/REPRINTED/RE PRINT`, `RE-ISSUED`, `DUPLICATE…`, `DUPLIKAAT`, `HERDRUK`, `KOPIE`, `AFSKRIF`, a spaced `C O P Y`, `COPY` ending a line (`*** COPY ***`), `COPY OF`, `IS A COPY`, and `TRAINING MODE` (no sale at all). Nothing downstream of receipt-to-journal or petty cash checks for a duplicate, so this is the only net. `LAY-BY`, `SALES ORDER`, `JOB CARD` and `REMITTANCE` join the header disqualifiers (the reviewer's w-title probes; cost 0). w-title wrong 20 → 0. |
+| MEDIUM-1, `Customer Copy` — decided | **Not a reprint marker.** `CUSTOMER/MERCHANT/CARDHOLDER/CLIENT COPY` (and `KLANT/KLIËNT KOPIE`) names which of a card machine's two prints this is, and both are printed on every ORIGINAL slip; a reprint says REPRINT or DUPLICATE, which refuses on any line of the same slip. The phrase is blanked before either check, so it neither disqualifies the header nor counts as `COPY`. Recorded risk: a device that marks a reprint ONLY with "CUSTOMER COPY" would pass — none in any probe set does. |
+| LOW-1 `Branch 250655` refused every supplier invoice | FIXED (`counterLabel`): a label ending `Branch`/`Br` (with `Code`/`No`) on exactly six digits, 100 000–999 999, is a reference. Six digits is at least R100 000, so it can only hide a figure LARGER than the total, and no document prints its payable as a branch code. Recovers R27, O7, Q6, R9, U4 and 16 of the reviewer's 20 bank rows (`Branch Code: 250655`, `Br Code 632005`, `Branch Code: 250 655` included); `Branch 350` and `Branch 25065` stay money. |
+| LOW-2 header fields citing another document refused ordinary B2B invoices | FIXED (`FIELD`): `Delivery Note`, `Purchase/Sales/Your/Customer Order`, `Job Card`, `Quote/Quotation`, `Kwotasie` and `Statement` followed by a number word/date and a value, or a colon/`#` and a value, plus a `Note:`/`Settlement:` label, are blanked before the disqualifier runs. A field NAMES another document; the title rule still requires this one to be a purchase. `DELIVERY NOTE`, `PURCHASE ORDER`, `QUOTATION`, `STATEMENT`, `SETTLEMENT DISCOUNT` and `ORDER CONFIRMATION No: 55` as lines still refuse. **GRV/GRN fields are deliberately NOT carved out**: a RECEIPT beside a GRV is the buyer's own voucher (round 21), so `GRV No:` keeps refusing. w-hcost 2 → 9 of 11 pass (`Our Ref: Quotation 2231` and `GRN: 5521` still refuse). |
+
+### Re-measured — head vs `440adf223`, 2 304 rows
+
+| | `13a26ba1e` | `8caf5cf19` | `440adf223` | **head** |
+|---|---|---|---|---|
+| unattended / WRONG, all rows | 700 / 433 | 673 / 393 | 281 / 63 | **279 / 35** |
+| h-item + d-dur (36) | 27 / 23 | 26 / 22 | 18 / 14 | **10 / 6** |
+| w-title reprints (26) | 25 / 25 | 25 / 25 | 20 / 20 | **0 / 0** |
+| w-bank (20) | 8 / 0 | 8 / 0 | 2 / 0 | **18 / 0** |
+| w-hcost (11) | 9 / 0 | 9 / 0 | 2 / 0 | **9 / 0** |
+
+Newly correct: 28 (the 5 bank documents, 16 bank rows, 7 citing fields). Newly refused: **2** — corpus `P3`
+(bare `Balance 500.00` above the items) and m-title's `Time 14.32` above the title, read as a figure. **Newly
+wrong: 0.** The 35 WRONG left: 24 number-word references (accepted by the reviewer), 6 glued hours (accepted),
+2 w-cnt probes with no payable label that post the correct total (`CARD 1915.00 / Store Card 85` on R2 000;
+`Paid 2000.00 / Units 50 COD`), and the 3 known artefacts.
+
+### Mutations — 12 new, all RED; the round-22 title set re-run on the changed file
+
+X1 no over-sum check (2) · X2 prior balance summed (1) · X3 payment rows summed (2) · X4 reprint header-only
+(1) · X5 Afrikaans reprint words gone (1) · X6 card copy not blanked (1) · X7 no field carve-out (1) · X8 no
+branch code (5) · X9 branch code any size (3) · X10 GRV fields carved out (3) · X11 spaced `C O P Y` gone (1) ·
+X12 lay-by/sales order/job card/remittance gone (1). X11 and X12 were GREEN on the first run — the probes put the
+word on the title line, where the title rule refused first — and the test was changed to print the word on its
+own line under a pure title. Round-22 T1–T5 re-run: all RED; T6 still equivalent.
