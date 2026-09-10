@@ -30,6 +30,14 @@ it('allows only known income-statement controls in a return URL', () => {
   expect(returnTo).toBe(`/accounting/reports/income-statement?period_start=2026-04-01&period_end=2026-04-30&cost_centre_id=${cc}&business_unit_id=${bu}`);
   expect(accountReportBackHref({source:'is', return_to:returnTo})).toBe(returnTo);
 });
+it('allows the balance-sheet business unit in a return URL', () => {
+  const returnTo = reportHref('bs', {
+    as_at_date:'2026-04-30', cost_centre_id:cc, business_unit_id:bu,
+    prior:'true', hostile:'drop-me',
+  });
+  expect(returnTo).toBe(`/accounting/reports/balance-sheet?as_at_date=2026-04-30&cost_centre_id=${cc}&business_unit_id=${bu}&prior=true`);
+  expect(accountReportBackHref({source:'bs', return_to:returnTo})).toBe(returnTo);
+});
 beforeEach(() => {
   route.query = {}; route.isReady = true;
   vi.mocked(apiFetch).mockReset().mockImplementation(async url => {
@@ -82,11 +90,12 @@ it('waits for router hydration before fetching restored TB state and responds to
   expect(screen.getByDisplayValue('All Cost Centres')).toBeInTheDocument();
 });
 
-it('restores the actual BS link round trip with date, centre and comparator choices', async () => {
+it('restores the actual BS link round trip with date, centre, business unit and comparator choices', async () => {
   route.query = {as_at_date:'2026-04-30'};
   let view = render(<BalanceSheetPage />);
   await screen.findByRole('link', {name:'Bank'});
   fireEvent.change(screen.getByDisplayValue('All Cost Centres'), {target:{value:cc}});
+  fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:bu}});
   fireEvent.click(screen.getByRole('checkbox', {name:'Prior period'}));
   await waitFor(() => expect(params('reports-balance-sheet').at(-1)?.get('compare_date')).toBe('2025-04-30'));
   navigate((await screen.findByRole('link', {name:'Bank'})).getAttribute('href')!);
@@ -95,9 +104,11 @@ it('restores the actual BS link round trip with date, centre and comparator choi
   view.unmount(); render(<BalanceSheetPage />);
   await screen.findByRole('link', {name:'Bank'});
   expect(screen.getByDisplayValue('CC2 — Project')).toBeInTheDocument();
+  expect(screen.getByDisplayValue('OPS — Operations')).toBeInTheDocument();
   expect(screen.getByDisplayValue('2026-04-30')).toBeInTheDocument();
   expect(screen.getByRole('checkbox', {name:'Prior period'})).toBeChecked();
   expect(params('reports-balance-sheet').at(-1)?.get('compare_date')).toBe('2025-04-30');
+  expect(params('reports-balance-sheet').at(-1)?.get('business_unit_id')).toBe(bu);
 });
 
 it('retains centre and matches the fiscal period for older TB ledger URLs', async () => {
