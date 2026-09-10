@@ -50,7 +50,8 @@ it.each([
  ['reader missing',{reader:false,liveness:true,reader_exec:null,liveness_exec:true},/control_session_impersonator\(\) is not deployed/],
  ['liveness missing',{reader:true,liveness:false,reader_exec:true,liveness_exec:null},/impersonation_delegation_live\(.*\) is not deployed/],
  ['app_user cannot execute the reader',{reader:true,liveness:true,reader_exec:false,liveness_exec:true},/app_user.*control_session_impersonator/],
- ['app_user cannot execute liveness',{reader:true,liveness:true,reader_exec:true,liveness_exec:false},/app_user.*impersonation_delegation_live/],
+ // Liveness runs from verifyToken on the DATABASE_URL login role, not as app_user.
+ ['the login role cannot execute liveness',{reader:true,liveness:true,reader_exec:true,liveness_exec:false,login_role:'app_login'},/app_login cannot EXECUTE .*impersonation_delegation_live/],
 ] as const)('fails the deploy gate when %s',async(_name,row,message)=>{
  const {assertImpersonationReaderDeployed}=await import('@/lib/auth/sessionImpersonation');
  // Missing EXECUTE would make every authenticated request 500 while an existence check passed.
