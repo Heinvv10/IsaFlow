@@ -83,3 +83,7 @@ The **14 currently passing callback bodies** are frozen before editing. TypeScri
 - All14 retained passing callback bodies reproduce the frozen SHA256 exactly after edits.
 - Initial corrected focused24 units passed, but source audit caught a lost original diagnostic assertion: `confirmReceiptMatch` documents legacy `params.postingAgent` yet forwards only `params.postingOpts`. Restored that old label expectation alongside the new exact applications. Now **one focused genuine RED /11 PASS** in receipt suite: expected `postingAgent: mcp:x:v1` is absent. Raw `/tmp/isaflow-bank39-legacy-label-red.log`. Root notified; no production edit authorized yet. Token/person authority remains separately protected and is not inferred from the caller label.
 - PG/heavy lease explicitly released before further edits; root publication/seal tests and AP correction next. Dedicated/source TS and lint pending.
+
+### Authorized label restoration
+
+Root confirmed the documented legacy-label compatibility gap and allocated only the adapter options forwarding. Test checkpoint `e6d3171de`: two actual unit REDs /12 PASS; explicit option precedence was already respected, but legacy fallback was lost. One-line forwarding correction now uses `postingOpts.postingAgent ?? postingAgent`; issued person/token authority remains exclusively downstream. Focused26 units passed (`74720`, terminal0). Two new actual PAT/human confirmation tests are authored but await the next PG lease. No claim of final verification yet.
