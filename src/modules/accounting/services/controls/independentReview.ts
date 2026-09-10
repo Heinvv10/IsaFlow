@@ -1,4 +1,5 @@
 import {als} from '@/lib/als';
+import {isPlatformAdminRequest} from '@/lib/auth/platformImportAuthority';
 import type {ControlPrincipal} from './contracts';
 import {IMPERSONATION_UNVERIFIED} from '@/lib/auth/impersonationState';
 export {IMPERSONATION_UNVERIFIED};
@@ -28,10 +29,14 @@ export function assertIndependentRequestReview(requesterPersonId:string|null=nul
  const store=als.getStore();
  // No request context at all is a script or a background task, not a browser session.
  if(!store)return;
- // A request context with no tenant principal is a platform-admin request: a global
- // administrator acting directly on a tenant's ledger, which is what the confined
- // platform-import path exists to replace. It is not an independent tenant review.
- if(!store.controlPrincipal)throw new Error('A platform administrator is not an independent reviewer');
+ if(!store.controlPrincipal){
+  // A verified global-administrator request acting directly on a tenant's ledger is what
+  // the confined platform-import path exists to replace; it is not a tenant review.
+  // Other principal-less contexts (invite/extension tokens, audit workers) are not
+  // browser sessions and are left alone.
+  if(isPlatformAdminRequest(store))throw new Error('A platform administrator is not an independent reviewer');
+  return;
+ }
  assertIndependentHumanReview(store.controlPrincipal,requesterPersonId);
 }
 /** The actor to record next to an approver who is not blocked from signing. */

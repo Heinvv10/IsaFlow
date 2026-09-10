@@ -42,6 +42,8 @@ export async function withPlatformImportRequest<T>(store:RequestContext,handler:
   finally{life.active=false;registered.delete(store);}
  });
 }
+/** True while a verified global-administrator request is open on this store. */
+export function isPlatformAdminRequest(store:RequestContext):boolean{return registered.has(store);}
 /** Context issuance and every later context use must retain this private target association. */
 export function assertPlatformImportPrincipal(principal:ControlPrincipal,store:RequestContext):void{
  const life=principals.get(principal);
