@@ -228,11 +228,17 @@ async function recordClearingResidual(sessionId: string, companyId: string): Pro
     JOIN migration_sessions s ON s.id = ${sessionId}::UUID AND s.company_id = ${companyId}::UUID
     WHERE l.company_id = ${companyId}::UUID
       AND a.account_subtype = 'opening_balance_equity'
-      -- The same three predicates getSystemAccountId resolves the clearing
-      -- account by. A chart with a second, non-system OBE account otherwise
-      -- pulls lines the take-on never posted to into the residual.
+      -- is_system_account IDENTIFIES the clearing account: a chart with a
+      -- second, non-system OBE account otherwise pulls lines the take-on never
+      -- posted to into the residual. Its only mutation path, the COA re-import's
+      -- demotion, clears account_subtype in the same statement, so a demoted row
+      -- leaves this query by subtype and the flag hides nothing on its own.
+      --
+      -- is_active is NOT here, deliberately. It is a picker flag: it decides
+      -- what a dropdown offers, not what an account holds. Deactivating the
+      -- clearing account after the take-on posted would have dropped every one
+      -- of its lines and reported a zero residual over a real one.
       AND a.is_system_account = true
-      AND a.is_active = true
       AND e.status = 'posted'
       AND e.source = 'auto_migration'
       AND e.created_at >= s.started_at
