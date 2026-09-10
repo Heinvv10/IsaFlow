@@ -1,5 +1,5 @@
 /**
- * The three database reads the depreciation run makes. Every other decision in
+ * The four database reads the depreciation run makes. Every other decision in
  * `depreciationRunPlan.ts` is pure, so keeping the SQL here leaves the planner
  * testable without a database and the planner under the 300-line cap.
  */
@@ -18,7 +18,6 @@ export async function loadDepreciationAssets(companyId: string): Promise<DbRow[]
       a.depreciation_method,
       COALESCE(a.below_threshold, false)            AS below_threshold,
       COALESCE(a.accumulated_depreciation, 0)       AS policy_acc_dep,
-      COALESCE(a.tax_accumulated_depreciation, 0)   AS tax_acc_dep,
       COALESCE(a.tax_opening_acc_dep, 0)            AS tax_opening_acc_dep,
       COALESCE(a.deferred_tax_rate, 0.27)           AS deferred_tax_rate,
       a.disposal_date,
@@ -42,6 +41,20 @@ export async function alreadyPosted(companyId: string, numbers: string[]): Promi
       AND reversed_at IS NULL
   `) as DbRow[];
   return new Set(rows.map((r) => String(r.entry_number)));
+}
+
+/**
+ * Assets already holding an `asset_period_ledger` row — the run's ON CONFLICT
+ * key. `alreadyPosted` misses these: the GL post returns early on a policy charge
+ * of zero, so an asset at policy 0 with tax still running takes no entry number
+ * and would re-run for ever off the balance the last run wrote.
+ */
+export async function alreadyInSubledger(companyId: string, yyyymm: string): Promise<Set<string>> {
+  const rows = (await sql`
+    SELECT asset_id FROM asset_period_ledger
+    WHERE company_id = ${companyId}::UUID AND yyyymm = ${yyyymm}
+  `) as DbRow[];
+  return new Set(rows.map((r) => String(r.asset_id)));
 }
 
 /**

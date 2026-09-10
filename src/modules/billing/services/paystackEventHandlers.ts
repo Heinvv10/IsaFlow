@@ -16,6 +16,7 @@ import {
   noteAuthorisationNotAttached,
   resolveAuthorisedMandate,
 } from './paystackMandateActivation';
+import { settleSubscriptionCharge } from './subscriptionPeriod';
 
 export interface PaystackWebhookEvent {
   event: string;
@@ -220,13 +221,8 @@ async function handleChargeSuccess(
   }
 
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
-    await sql`
-      UPDATE subscription_charges
-      SET status = 'settled',
-          settled_at = COALESCE(settled_at, now()),
-          updated_at = now()
-      WHERE id = ${pr.subscription_charge_id} AND company_id = ${pr.company_id}
-    `;
+    // The paid-up period only moves once the money has actually arrived.
+    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id);
   }
 }
 

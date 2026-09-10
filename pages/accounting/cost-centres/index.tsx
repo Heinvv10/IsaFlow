@@ -17,6 +17,11 @@ interface CostCentre {
   description?: string; department?: string; ccType: CcType; isActive: boolean;
 }
 
+/** apiResponse.error() nests the message under `error`; older routes send it flat. */
+function apiMessage(json: { error?: { message?: string }; message?: string }, fallback: string): string {
+  return json.error?.message || json.message || fallback;
+}
+
 const TAB_META: Record<CcType, { label: string; description: string }> = {
   cc1: { label: 'CC1 — Client', description: 'Client-level cost centres' },
   cc2: { label: 'CC2 — Project', description: 'Project-level cost centres' },
@@ -37,8 +42,9 @@ export default function CostCentresPage() {
     setLoading(true);
     const res = await apiFetch(`/api/accounting/cost-centres?cc_type=${activeTab}`, { credentials: 'include' });
     const json = await res.json();
-    setItems(json.data?.items || []);
     setLoading(false);
+    if (!res.ok) throw new Error(apiMessage(json, 'Failed to load cost centres'));
+    setItems(json.data?.items || []);
   }, [activeTab]);
 
   useEffect(() => {
@@ -59,7 +65,7 @@ export default function CostCentresPage() {
           body: JSON.stringify({ action: 'update', id: editId, ...form }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed');
+        if (!res.ok) throw new Error(apiMessage(json, 'Failed'));
       } else {
         const res = await apiFetch('/api/accounting/cost-centres', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -67,7 +73,7 @@ export default function CostCentresPage() {
           body: JSON.stringify({ ...form, ccType: activeTab }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed');
+        if (!res.ok) throw new Error(apiMessage(json, 'Failed'));
       }
       setShowForm(false); setEditId(null);
       setForm({ code: '', name: '', description: '', department: '' });
@@ -87,15 +93,18 @@ export default function CostCentresPage() {
   );
 
   const doAction = async (action: string, id: string, extra?: Record<string, unknown>) => {
-    setBusy(id);
+    setError(''); setBusy(id);
     try {
-      await apiFetch('/api/accounting/cost-centres-action', {
+      // apiFetch resolves on 4xx, so the refusal only surfaces if res.ok is read.
+      const res = await apiFetch('/api/accounting/cost-centres-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, id, ...extra }),
       });
+      const json = await res.json();
+      if (!res.ok) throw new Error(apiMessage(json, 'Failed'));
       await load();
-    } catch { /* ignore */ }
-    setBusy('');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    finally { setBusy(''); }
   };
 
   const switchTab = (tab: CcType) => {
