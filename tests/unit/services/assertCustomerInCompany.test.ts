@@ -49,13 +49,19 @@ describe('assertCustomerInCompany', () => {
       .rejects.toBeInstanceOf(CustomerNotInCompanyError);
   });
 
-  it('scopes the read by company_id and excludes soft-deleted customers', async () => {
+  it('scopes the read by company_id and asks nothing about deleted_at', async () => {
+    // A TENANT fence, not a lifecycle one. Four of its call sites are updates or
+    // an execute that take the id from a row the company already owns, and a
+    // customer can be soft-deleted while those documents are open — refusing
+    // them would break saves that worked, and closes no cross-tenant exposure.
+    // `customer-invoices-detail.ts:104-110`, the guard this fix mirrors, is the
+    // same shape.
     mockSql.mockResolvedValueOnce([{ '?column?': 1 }]);
     await assertCustomerInCompany(COMPANY, CUSTOMER);
     const text = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
     expect(text).toContain('FROM customers');
     expect(text).toContain('company_id');
-    expect(text).toContain('deleted_at IS NULL');
+    expect(text).not.toContain('deleted_at');
     expect(mockSql.mock.calls[0]!.slice(1)).toEqual([CUSTOMER, COMPANY]);
   });
 

@@ -62,6 +62,23 @@ Three properties matter:
    company); every other error propagates, so a connection failure is never
    reported as "not found". Same pattern as `customerInvoiceCreateService.ts:96`.
 
+4. **It asks about the tenant, not about `deleted_at`.** Round 1 filtered
+   `deleted_at IS NULL` (inherited from `customerBelongsToCompany`). That made the
+   fence stricter than the guard it cites as its precedent,
+   `customer-invoices-detail.ts:104-110`, which has no such clause — and four of the
+   call sites are updates or an execute that take the id from a row the company
+   ALREADY owns, while `softDeleteService.ts:69-73` soft-deletes a customer with no
+   check for open documents. Measured on `isaflow_dev`, driven end to end: with the
+   clause, `updateQuote` on a draft quote whose own-company customer had been
+   soft-deleted raised `CustomerNotInCompanyError` — a save that worked before this
+   fix existed, refused for a reason that closes no cross-tenant exposure. The fence
+   now runs its own tenant-only read; `customerBelongsToCompany` /
+   `customersBelongToCompany` keep their `deleted_at` filter, because the MCP write
+   tools use them to decide whether a NEW document may name a customer, which is a
+   different question. `tests/integration/customer-ownership-fence.int.test.ts` pins
+   both halves: the soft-deleted own customer still saves, company B's is still
+   refused on the same update path.
+
 Routes map the typed error to a 400 the caller can act on.
 
 ## Census
@@ -101,7 +118,78 @@ back to where the id first enters. Directories walked: `services/ar`,
 | 20 | `core/duplicateMergeService.ts:50` | merge target id | **exempt** — validates **both** ids against `customers WHERE company_id` first (`:36-43`) |
 | 21 | `pages/api/accounting/customer-merge.ts:56` | merge target id | **exempt** — same check inside the tx (`:43-51`) |
 | 22 | `mcp/writeBulkCustomerInvoices.ts`, `writeInvoices.ts`, `bankRuleShared.ts`, `writeContacts.ts` | MCP args | **exempt** — already call `customerBelongsToCompany`; the service-level assert is now a second, unavoidable fence |
-| 23 | `ar/gatewayInvoiceReceiptService.ts:157`, `bank/bankAllocationService.ts:425` | derived from an invoice/transaction already read company-scoped | **exempt** — no caller-supplied id |
+| 23 | `bank/bankAllocationService.ts:425` (`allocateTransaction`, customer arm) | request body `entityId` — **NOT** derived from anything company-scoped | **FIXED (round 2)** — the round-1 exemption was wrong; see below |
+| 23b | `ar/gatewayInvoiceReceiptService.ts:157` | `customer_invoices.client_id` of an invoice read `WHERE company_id` | **exempt** — id produced by a company-scoped read |
+
+### Row 23 was wrong, and it cost a measured cross-tenant write
+
+`entityId` is a plain parameter of `allocateTransaction` and arrives straight from
+the request body: `pages/api/accounting/bank-transactions-action.ts:40` validates it
+as `UUID.optional()` and `:118` passes `body.entityId` through unchanged. The only
+customer read on the path (`:283`) fetches a NAME and, on a miss, falls back to
+`` `Customer #${entityId}` `` and continues; the id then lands in
+`INSERT INTO customer_payments (company_id, client_id, …)`.
+
+Measured on `isaflow_dev` by removing the new fence from a file copy and driving the
+service end to end — company A allocating a +R115 receipt with company B's customer:
+
+```
+customer_payments: company_id=…f0671 (A)  client_id=…f0674 (B)
+                   customer_company_id=…f0672 (B)  total_amount=115.00
+```
+
+With the fence in place the same call raises `CustomerNotInCompanyError`, no journal
+is posted, no payment row is written and the bank transaction stays `imported`.
+
+The fence sits in `allocateTransaction` itself, immediately after the row lock and
+before `createJournalEntry`: every caller reaches the write through this one function
+— `bank-transactions-action.ts`, `bank-transactions-manual.ts`, `bank-match-confirm.ts`,
+`ar/receipt-match/confirm.ts`, `autoPostGateService.sweep`, `bankRuleAutoPostLine`,
+`receiptMatchConfirmService`, and the MCP `allocate_bank_transaction` /
+`bulk_allocate_bank_transactions` tools through `allocationLine.postAllocationLine`.
+The MCP layer was **not** in fact unguarded: `writeBankAllocate.ts:60` and
+`bulkAllocationPrepare.ts:107` call `checkLinesOwnership`, which calls
+`customersBelongToCompany` — the plural spelling is why a search for
+`customerBelongsToCompany` missed it. The HTTP routes had nothing.
+
+### Round 2 — every exemption re-derived BY OUTCOME
+
+Round 1 argued its exemptions from reading, and one of them was wrong. Each row below
+was re-run against `isaflow_dev` with two throwaway companies, feeding company B's
+customer id into company A's call and reading the database afterwards. The probe
+(kept out of the branch) drove the real HTTP handlers through `withAuth` for the route
+rows and the real services for the rest. All fixtures were deleted afterwards; the
+`isaflow` production database was never touched.
+
+| # | What was run | Outcome |
+|---|---|---|
+| 10 | `customer-invoices-detail` PUT through the handler, `clientId` = B's customer, on a draft invoice owned by A | **HTTP 422**; `client_id` unchanged (still A's customer) |
+| 11 | `time-entries-invoice` POST through the handler, `customerId` = B's customer | **HTTP 400**; 0 new invoices carrying B |
+| 12 | `createCreditNote(A, { clientId: B })` | **refused** — `Error: Not found` from `validateCreditNoteLinks`; no `credit_notes` row |
+| 13 | `convertToInvoice` on a quote whose `client_id` was PLANTED as B's | **carried through** — the new invoice's `client_id` is B's |
+| 14 | `convertSalesOrderToInvoice` on an order whose `customer_id` was PLANTED as B's | **carried through** |
+| 15 | `generateWipInvoice` on a practice client whose `link_customer_id` was PLANTED as B's | **carried through** |
+| 16 | `generateInvoiceFromRecurring` on a template whose `client_id` was PLANTED as B's | **carried through** |
+| 17 | `matchContact('Census Cust B', <rows read WHERE company_id = A>)` | returned **A's own** customer id — the row set it chooses from is company-scoped, so no foreign id is reachable |
+| 18 | the `resolveCustomerId` query, company A + a name that exists only under B | **0 rows** → `Customer not found`, nothing inserted |
+| 19 | `sage_customer_invoices` staging | no `INSERT` into that table exists anywhere in the repo (`grep -rn sage_customer_invoices src pages scripts chrome-extension`) — the rows come from the external Sage sync, so no request body reaches `client_id` here. **Not measurable in-repo; stated as such rather than argued.** |
+| 20 | `mergeEntities(A, 'customer', A's customer, B's customer)` | **refused** — `One or both customers not found for this company` |
+| 21 | `customer-merge` POST through the handler, `source_id` = B's customer | **HTTP 400** — `One or both customers not found or do not belong to this company` |
+| 22 | `create_draft_invoice` MCP tool, `customer_id` = B's customer | **`isError: true`, "Not found"**; 0 new invoices carrying B |
+| 23 | `allocateTransaction(A, …, 'customer', B's customer)` | round 1: **wrote the cross-tenant row** (above). Round 2: **refused**, nothing posted |
+
+**Rows 13–16 are the honest result and they are not a refusal.** Those four paths copy
+a customer id out of a row company A already owns and write it onto a new document
+with no re-check. Nothing a caller sends today can plant a foreign id in those source
+rows — every entry point that writes them is fenced at #2–#9, which is what the
+mutation table below proves — but a row planted BEFORE this commit still propagates.
+That is exactly what the historical-impact query at the end of this document is for:
+it lists the source rows as well as the documents, and each must be corrected at the
+source row, not only on the invoice the conversion produced.
+
+`time-entries-invoice.ts:45-49` keeps its own `deleted_at IS NULL`; that guard is
+pre-existing and untouched here, and it is a create path, where refusing a deleted
+customer is the same call `customerBelongsToCompany` makes.
 
 ### Reserved, not fixed here
 
@@ -111,6 +199,15 @@ one company-scoped read above it (`:134`) fetches `vat_number` for the duplicate
 fingerprint and a miss yields `NULL`, not a refusal. `pages/api/accounting/purchase-orders.ts:42`
 does the same with `body.supplierId`. `supplierBelongsToCompany` exists and, again,
 only the MCP tools call it. Out of scope here per the brief.
+
+**R-068 also owns `bankAllocationService.ts:246-249`** — the supplier arm of
+`allocateTransaction`, identical in shape to the customer arm fixed above:
+`entityId` from the request body, a name lookup that falls back to
+`` `Supplier #${entityId}` ``, and a `supplier_payments` document created against
+this company for another tenant's creditor. The MCP callers are covered
+(`checkLinesOwnership` → `suppliersBelongToCompany`); the HTTP routes are not. One
+line, `assertSupplierInCompany`-shaped, in the same place — registered rather than
+taken here because the supplier twin is R-068's scope.
 
 ### Noted, not fixed (pre-existing, unrelated to this finding)
 
@@ -125,12 +222,20 @@ path that runs as a superuser.
 | File | What it pins |
 |---|---|
 | `tests/unit/services/assertCustomerInCompany.test.ts` (7) | the fence itself: owned passes, foreign refuses, absent id issues **no query**, the read is company-scoped + `deleted_at IS NULL`, savepoint name ≤31 chars, 22P02 → refusal, any other error propagates |
-| `tests/unit/services/customerOwnershipFence.test.ts` (16) | per call site, **by outcome**: a foreign id is refused and the ownership SELECT is the *only* statement that ran (no INSERT/UPDATE/DELETE); an own-tenant id gets past the fence into the rest of the path |
-| `tests/integration/customer-ownership-fence.int.test.ts` (3) | against a real database, because the hole *is* the schema: company B's customer is refused and `customer_invoices` is left empty; company A's own customer still creates the invoice with both columns set; a non-UUID is refused and the connection stays usable |
+| `tests/unit/services/customerOwnershipFence.test.ts` (19) | per call site, **by outcome**: a foreign id is refused and the ownership SELECT is the *only* statement that ran (no INSERT/UPDATE/DELETE); an own-tenant id gets past the fence into the rest of the path |
+| `tests/integration/customer-ownership-fence.int.test.ts` (6) | against a real database, because the hole *is* the schema: company B's customer is refused and `customer_invoices` is left empty; company A's own customer still creates the invoice with both columns set; a non-UUID is refused **inside a real `als.run` request transaction** which then stays usable; a soft-deleted own customer still edits its draft quote while B's is still refused; a bank receipt allocated to B's customer posts nothing and the same receipt against A's customer allocates |
 
 Two existing suites (`customerInvoiceCreateRetry`, `customerPaymentService`) now stub
 `assertCustomerInCompany` — they pin behaviour *after* the fence and their `sql`
 mock queues would otherwise shift by one call.
+
+Round 2 adds the same accommodation to the three bank suites the new fence sits in
+front of: `bankAllocationSign`, `bank/bankAllocationDateShift` and
+`bank/supplierBankLineDocument` gain a `withSavepoint` passthrough in their `@/lib/neon`
+mock (it was absent, so the fence's savepoint call was `undefined`), and the two whose
+`sql` queue is positional get one ownership row in the customer arm's position. No
+assertion in any of them was removed or loosened — and both of those queues stay
+mutation-sensitive: reverting the fence line shifts them back and turns them red.
 
 ## Mutations
 
@@ -150,6 +255,14 @@ Every guard line reverted one at a time from file copies, gates re-run, line res
 | `practiceClientService.ts:183` (update) | 1 failed |
 | `contactDirectoryService.ts` — the `throw` disabled | 12 failed |
 | `customerInvoiceCreateService.ts:62`, **integration** | 2 failed — and the cross-tenant invoice **was actually written**, which is the direct proof of the defect |
+
+### Round 2 mutations
+
+| Mutation (file copy, restored) | Result |
+|---|---|
+| `bankAllocationService.ts:123` — the fence line commented out | integration **1 failed**; a witness probe on the same mutation printed the row that was written: `company_id=…f0671 (A) client_id=…f0674 (B) customer_company_id=…f0672 (B) total_amount=115.00` |
+| `assertCustomerInCompany` — `withSavepoint(...)` replaced by a plain call | integration **1 failed** — the malformed-id case now sees the raw 22P02 escape and the request transaction abort. Under the round-1 test (no ALS store) the same mutation left all 3 tests green, which is the LOW the reviewer raised |
+| `assertCustomerInCompany` — `AND deleted_at IS NULL` put back | integration **1 failed** — `CustomerNotInCompanyError` on a draft quote whose own-company customer was soft-deleted. This is the end-to-end measurement behind property 4 |
 
 ## Historical impact — for Hein to run
 
