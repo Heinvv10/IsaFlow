@@ -8,6 +8,7 @@ import {assertControlTx,withControlRequest,requireControlTx} from '../controls/c
 import {observeControlTransaction,settleControlTransaction} from '../controls/transactionObservers';
 import type {ControlPrincipal,ControlTx} from '../controls/contracts';
 import {claimPaymentRelease,type ReleaseClaim} from './paymentReleaseClaim';
+import {canonicalIntentId} from '../controls/intentIdentity';
 import {paymentReleaseAmount} from './paymentReleaseValidation';
 import {renderReleasedEft} from './paymentReleaseFile';
 let pool:Pool|undefined;
@@ -55,8 +56,10 @@ async function transmit(claim:ReleaseClaim):Promise<{state:'accepted'|'unknown'|
  finally{clearTimeout(timer);}
 }
 /** Register during the authenticated request; no escaped ctx, body identity, or recoverable fake cookie. */
-export async function schedulePaymentReleaseDispatch(ctx:ControlTx,intentId:string):Promise<void>{
- assertControlTx(ctx);if(!UUID_RE.test(intentId)||(ctx.principal.authMethod==='job'||ctx.principal.authMethod==='platform_import'))throw new Error('Authenticated fixed release required');
+export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId:string):Promise<void>{
+ assertControlTx(ctx);if(!UUID_RE.test(inputIntentId)||(ctx.principal.authMethod==='job'||ctx.principal.authMethod==='platform_import'))throw new Error('Authenticated fixed release required');
+ // The post-commit claim runs outside the caller's error path, so bind it to one spelling here.
+ const intentId=canonicalIntentId(inputIntentId);
  await assertEffectivePermission(ctx,'write:release');
  const [intent]=await ctx.sql`SELECT requester_person_id FROM control_payment_release_intents
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${intentId}::uuid` as Array<{requester_person_id:string}>;
