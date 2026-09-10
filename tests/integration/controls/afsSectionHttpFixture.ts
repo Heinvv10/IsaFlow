@@ -1,5 +1,8 @@
 import {createServer,type IncomingMessage} from 'node:http';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {createHmac,randomBytes,randomUUID} from 'node:crypto';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {Pool} from 'pg';
 import {SignJWT} from 'jose';
 import {apiResolver} from 'next/dist/server/api-utils/node/api-resolver';
@@ -7,46 +10,73 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget} from '../forensic-fixture';
 
 /**
- * The AFS section routes served over real HTTP through withAuth, withCsrf and the request
- * transaction, against the synthetic PostgreSQL fixture. Routes are resolved from the URL the
- * way Next.js resolves them, so a test names the document and section exactly as a browser does.
+ * The AFS routes served over real HTTP through withAuth, withCsrf and the request transaction,
+ * against the synthetic PostgreSQL fixture. Routes are resolved from the URL the way Next.js
+ * resolves them, so a test names the document and section exactly as a browser does.
  */
-const SECTION_ROUTES=['overrides','versions','ai-narrative','regenerate','suppress'] as const;
+const AFS='../../../pages/api/accounting/afs/[documentId]';
+const ROUTES:[RegExp,string,string[]][]=[
+ [/^\/api\/webhooks\/signum$/,'../../../pages/api/webhooks/signum',[]],
+ [/^\/api\/accounting\/afs\/([^/]+)\/sections\/reorder$/,`${AFS}/sections/reorder`,['documentId']],
+ [/^\/api\/accounting\/afs\/([^/]+)\/sections\/([^/]+)\/comments\/([^/]+)\/resolve$/,`${AFS}/sections/[sectionId]/comments/[commentId]/resolve`,['documentId','sectionId','commentId']],
+ [/^\/api\/accounting\/afs\/([^/]+)\/sections\/([^/]+)\/(overrides|versions|ai-narrative|regenerate|suppress|comments|review|sign-off)$/,`${AFS}/sections/[sectionId]/$3`,['documentId','sectionId']],
+ [/^\/api\/accounting\/afs\/([^/]+)\/(submit-for-review|send-for-signing|sign-off)$/,`${AFS}/$2`,['documentId']],
+];
 type Person='u1'|'u2';
-export interface SeedSection{status?:string;reviewedBy?:Person|null;signedOffBy?:Person|null;overrides?:unknown;aiNarrative?:string|null;history?:boolean}
+type Module={default:unknown;config?:unknown};
+export interface SeedSection{status?:string;reviewedBy?:Person|null;signedOffBy?:Person|null;overrides?:unknown;aiNarrative?:string|null;history?:boolean;
+ content?:unknown;sectionType?:string}
 export async function afsSectionHttpFixture(){
  const target=validateFixtureTarget(fixtureConfigFromEnv(process.env));
- process.env.DATABASE_URL=target.connectionString;process.env.DATABASE_SSL='disable';
- process.env.JWT_SECRET=randomBytes(32).toString('hex');
+ const storage=await mkdtemp(join(tmpdir(),'afs-http-fixture-'));
+ Object.assign(process.env,{DATABASE_URL:target.connectionString,DATABASE_SSL:'disable',JWT_SECRET:randomBytes(32).toString('hex'),AFS_STORAGE_ROOT:storage,
+  SIGNUM_API_URL:'http://signum.synthetic.invalid',SIGNUM_API_KEY:'synthetic',SIGNUM_CALLBACK_BASE_URL:'http://signum.synthetic.invalid/sign',SIGNUM_WEBHOOK_SECRET:randomBytes(16).toString('hex')});
  const pool=new Pool({connectionString:target.connectionString,ssl:false,max:4,statement_timeout:10000});
- const f=await provisionForensicFixture(fixtureConfigFromEnv(process.env)),csrf=randomBytes(32).toString('hex');
- const handlers:Record<string,unknown>={};
- for(const name of SECTION_ROUTES)handlers[name]=(await import(`../../../pages/api/accounting/afs/[documentId]/sections/[sectionId]/${name}`)).default;
- handlers['submit-for-review']=(await import('../../../pages/api/accounting/afs/[documentId]/submit-for-review')).default;
- function resolve(req:IncomingMessage){
+ const f=await provisionForensicFixture(fixtureConfigFromEnv(process.env)),csrf=randomBytes(32).toString('hex'),admin=randomUUID();
+ await pool.query("INSERT INTO users(id,email,role,is_active,status) VALUES($1,$2,'super_admin',true,'active')",[admin,`${admin}@forensic.invalid`]);
+ const modules=new Map<string,Module>();
+ async function resolve(req:IncomingMessage){
   const path=new URL(req.url??'/','http://synthetic').pathname;
-  const section=/^\/api\/accounting\/afs\/([^/]+)\/sections\/([^/]+)\/([^/]+)$/.exec(path);
-  if(section)return{handler:handlers[section[3]!],query:{documentId:section[1]!,sectionId:section[2]!}};
-  const doc=/^\/api\/accounting\/afs\/([^/]+)\/([^/]+)$/.exec(path);
-  return doc?{handler:handlers[doc[2]!],query:{documentId:doc[1]!}}:{handler:undefined,query:{}};
+  for(const [pattern,file,names] of ROUTES){
+   const match=pattern.exec(path);if(!match)continue;
+   const modulePath=path.replace(pattern,file);
+   if(!modules.has(modulePath))modules.set(modulePath,await import(modulePath) as Module);
+   return{module:modules.get(modulePath)!,query:Object.fromEntries(names.map((name,i)=>[name,match[i+1]!]))};
+  }
+  return null;
  }
  const server=createServer((req,res)=>{
-  const {handler,query}=resolve(req);
-  if(!handler){res.statusCode=404;res.end('No synthetic AFS route');return;}
-  void apiResolver(req,res,query,{default:handler},{previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,req.url)
-   .catch(()=>{res.statusCode=500;res.end('Synthetic AFS HTTP failure');});
+  void resolve(req).then(route=>{
+   if(!route){res.statusCode=404;res.end('No synthetic AFS route');return;}
+   return apiResolver(req,res,route.query,route.module,{previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,req.url);
+  }).catch(()=>{res.statusCode=500;res.end('Synthetic AFS HTTP failure');});
  });
  await new Promise<void>(done=>server.listen(0,'127.0.0.1',done));
  const address=server.address();if(!address||typeof address==='string')throw new Error('Synthetic AFS server unavailable');
  const origin=`http://127.0.0.1:${address.port}`;
- async function request(method:string,path:string,body?:unknown,person:Person='u1'){
-  const token=await new SignJWT({role:'authenticated',aal:'aal2'}).setProtectedHeader({alg:'HS256'}).setSubject(f[person].id).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(process.env.JWT_SECRET));
-  const response=await fetch(`${origin}${path}`,{method,redirect:'error',signal:AbortSignal.timeout(30000),
-   headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${f.companyA}; isaflow_csrf=${csrf}`,'x-csrf-token':csrf},
-   ...(body===undefined?{}:{body:JSON.stringify(body)})});
+ async function parse(response:Response){
   const text=await response.text();let json:unknown=null;
   try{json=JSON.parse(text);}catch(error){json={unparsed:text,error:String(error)};}
-  return{status:response.status,body:json as {success?:boolean;error?:{code?:string;message?:string};data?:Record<string,unknown>}};
+  return{status:response.status,body:json as {success?:boolean;error?:{code?:string;message?:string};data?:Record<string,unknown>;message?:string}};
+ }
+ /** An impersonated session: the administrator's impersonation_start row names this JWT session. */
+ async function impersonatedSession(person:Person){
+  const sessionId=randomUUID();
+  await pool.query("INSERT INTO admin_audit_log(id,admin_user_id,action,target_type,target_id,details) VALUES($1,$2,'impersonation_start','user',$3,$4::jsonb)",
+   [randomUUID(),admin,f[person].id,JSON.stringify({target_session_id:sessionId})]);
+  return sessionId;
+ }
+ async function request(method:string,path:string,body?:unknown,person:Person='u1',sessionId?:string){
+  const token=await new SignJWT({role:'authenticated',aal:'aal2',...(sessionId?{session_id:sessionId}:{})}).setProtectedHeader({alg:'HS256'}).setSubject(f[person].id).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  return parse(await fetch(`${origin}${path}`,{method,redirect:'error',signal:AbortSignal.timeout(30000),
+   headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${f.companyA}; isaflow_csrf=${csrf}`,'x-csrf-token':csrf},
+   ...(body===undefined?{}:{body:JSON.stringify(body)})}));
+ }
+ /** A Signum webhook delivery, signed with the configured secret. */
+ async function webhook(payload:Record<string,unknown>){
+  const raw=JSON.stringify(payload),signature=createHmac('sha256',process.env.SIGNUM_WEBHOOK_SECRET!).update(raw).digest('hex');
+  return parse(await fetch(`${origin}/api/webhooks/signum`,{method:'POST',body:raw,signal:AbortSignal.timeout(30000),
+   headers:{'content-type':'application/json','x-signum-signature':`sha256=${signature}`}}));
  }
  const sectionPath=(documentId:string,sectionId:string,route:string)=>`/api/accounting/afs/${documentId}/sections/${sectionId}/${route}`;
  async function document(status='draft'){
@@ -60,17 +90,21 @@ export async function afsSectionHttpFixture(){
   const reviewer=seed.reviewedBy===undefined?(['reviewed','signed_off'].includes(status)?'u2':null):seed.reviewedBy;
   const signer=seed.signedOffBy===undefined?(status==='signed_off'?'u2':null):seed.signedOffBy;
   const history=seed.history?[{version:1,savedAt:'2024-03-01T00:00:00.000Z',savedBy:f.u1.id,content:{title:'Earlier',blocks:[]}}]:[];
+  const content=seed.content===undefined?{title:'Reviewed',blocks:[]}:seed.content;
   await pool.query(`INSERT INTO afs_sections(id,document_id,company_id,section_type,status,content,overrides,ai_narrative,reviewed_by,reviewed_at,signed_off_by,signed_off_at,version_history)
-   VALUES($1,$2,$3,$10,$4,'{"title":"Reviewed","blocks":[]}'::jsonb,$5::jsonb,$6,$7,CASE WHEN $7::text IS NULL THEN NULL ELSE now() END,$8,CASE WHEN $8::text IS NULL THEN NULL ELSE now() END,$9::jsonb)`,
-   [id,documentId,f.companyA,status,seed.overrides===undefined?null:JSON.stringify(seed.overrides),seed.aiNarrative??null,reviewer?f[reviewer].id:null,signer?f[signer].id:null,JSON.stringify(history),`synthetic_${id.slice(0,8)}`]);
+   VALUES($1,$2,$3,$10,$4,$11::jsonb,$5::jsonb,$6,$7,CASE WHEN $7::text IS NULL THEN NULL ELSE now() END,$8,CASE WHEN $8::text IS NULL THEN NULL ELSE now() END,$9::jsonb)`,
+   [id,documentId,f.companyA,status,seed.overrides===undefined?null:JSON.stringify(seed.overrides),seed.aiNarrative??null,reviewer?f[reviewer].id:null,signer?f[signer].id:null,
+    JSON.stringify(history),seed.sectionType??`synthetic_${id.slice(0,8)}`,content===null?null:JSON.stringify(content)]);
   return id;
  }
- const read=async(id:string)=>(await pool.query(`SELECT status,content,overrides,ai_narrative,reviewed_by,reviewed_at,signed_off_by,signed_off_at,version_history
+ const read=async(id:string)=>(await pool.query(`SELECT status,content,overrides,ai_narrative,reviewed_by,reviewed_at,signed_off_by,signed_off_at,version_history,sort_order,data_snapshot
   FROM afs_sections WHERE company_id=$1 AND id=$2`,[f.companyA,id])).rows[0] as Record<string,unknown>;
+ const readDocument=async(id:string)=>(await pool.query(`SELECT status,signum_document_id,signing_requested_at,signing_content_fingerprint,signing_refused_reason,signed_pdf_path
+  FROM afs_documents WHERE company_id=$1 AND id=$2`,[f.companyA,id])).rows[0] as Record<string,unknown>;
  const audits=async(id:string)=>(await pool.query(`SELECT user_id,action,entity_type,entity_ref,changes FROM audit_log WHERE company_id=$1 AND entity_id=$2 ORDER BY created_at`,[f.companyA,id])).rows as Record<string,unknown>[];
  async function close(){
   try{await new Promise<void>((done,fail)=>{server.close(error=>error?fail(error):done());server.closeAllConnections();});}
-  finally{await pool.end();await(await import('@/lib/auth/authPool')).getAuthPool().end();await(await import('@/lib/neon')).getPoolForTests().end();}
+  finally{await pool.end();await(await import('@/lib/auth/authPool')).getAuthPool().end();await(await import('@/lib/neon')).getPoolForTests().end();await rm(storage,{recursive:true,force:true});}
  }
- return{pool,f,request,sectionPath,document,section,read,audits,close};
+ return{pool,f,storage,request,webhook,impersonatedSession,sectionPath,document,section,read,readDocument,audits,close};
 }
