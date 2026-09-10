@@ -24,18 +24,22 @@ function actor<T>(person:'u1'|'u2',action:()=>Promise<T>){return withAuditWorker
 async function prepared(uppercase=false){
  const original=await actor('u1',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals','bank'],checks:[],idempotencyKey:randomUUID()}));
  expect(await runAuditSnapshotJob({companyId:f.companyA,personId:f.u1.id,jobId:original.id},{pool})).toMatchObject({state:'succeeded'});
- // Enqueue before synthetic removal deliberately exercises the immutable v1 pinned hash too.
+ // Genuine current enqueue precedes removal; the uppercase case explicitly retains a legacy v1 representation.
  const comparison=await actor('u2',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:original.id,secondSnapshotId:original.id,idempotencyKey:randomUUID()}));
  const lease=await actor('u2',()=>claimAuditJob(requireControlTx(),comparison.id));if(!lease)throw new Error('Missing comparison lease');
+ const retained=(await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,original.id])).rows[0];
  if(uppercase){
   // Local compatibility fixture: authenticate a valid legacy v1 representation after claiming its real job.
   const row=(await pool.query('SELECT protected_request FROM control_audit_job_intents WHERE company_id=$1 AND id=$2',[f.companyA,comparison.id])).rows[0];
   const body=openProtectedChange(row.protected_request).after!;
-  const request={...(body.request as Record<string,unknown>),firstSnapshotId:original.id.toUpperCase(),secondSnapshotId:original.id.toUpperCase()};
+  const originalRequest=body.request as Record<string,unknown>;
+  const request={firstSnapshotId:original.id.toUpperCase(),secondSnapshotId:original.id.toUpperCase(),
+   firstCanonicalHash:retained.canonical_hash,secondCanonicalHash:retained.canonical_hash,
+   permissions:originalRequest.permissions,idempotencyKey:originalRequest.idempotencyKey,comparisonRuleVersion:1};
   const protectedRequest=protectChangeValues('audit_job',null,{...body,request}).protectedPayload;
   await pool.query('UPDATE control_audit_job_intents SET request_hash=$3,protected_request=$4::jsonb WHERE company_id=$1 AND id=$2',[f.companyA,comparison.id,auditRequestHash(request),JSON.stringify(protectedRequest)]);
  }
- const retained=(await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,original.id])).rows[0];
+
  const artifacts=(await pool.query('SELECT artifact_id,protected_artifact FROM control_audit_snapshot_artifacts WHERE company_id=$1 AND snapshot_id=$2 ORDER BY artifact_id',[f.companyA,original.id])).rows;
  return{id:original.id,lease,retained,artifacts};
 }
