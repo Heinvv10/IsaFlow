@@ -13,6 +13,7 @@ async function checkpoint(evidence:unknown){
  const temporary=`${target}.partial`;await writeFile(temporary,`${JSON.stringify(evidence,null,2)}\n`,{mode:0o600});await rename(temporary,target);
 }
 let result:unknown;
+if(phase!=='aggregate')await checkpoint({outcome:'running',complete:false,executed:[],note:'No acceptance checks completed in this invocation yet'});
 if(phase==='aggregate'){
  const inventory=JSON.parse(await readFile('docs/superpowers/plans/forensic-evidence/tool-contract-current.json','utf8')) as {tools:Contract[]};
  const cases=acceptanceCases(inventory.tools),hash=createHash('sha256').update(JSON.stringify(cases)).digest('hex');
