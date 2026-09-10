@@ -18,7 +18,7 @@ import {
   MissingSystemAccountError,
   missingSystemAccountText,
 } from '@/modules/accounting/services/gl/systemAccountKeys';
-import { insufficientScopeMessage, permissionRefusalMessage } from './scopeRemediation';
+import { insufficientScopeMessage, permissionRefusalMessage, OPERATION_APPROVAL_REQUIRED_REPLY } from './scopeRemediation';
 import { EffectivePermissionError } from '@/lib/auth/effectivePermissions';
 import { assertCurrentToolAuthority } from './currentToolAuthority';
 import { validateToolArguments } from './inputValidation';
@@ -271,6 +271,12 @@ export class McpRegistry {
       // guard the tool's declared scope does not cover — write:bank-tx behind a
       // write:invoices tool — reads as "the operation failed", which is the one
       // reply an agent cannot act on. Same remediation text the scope fence uses.
+      // Every approval-required refusal carries this code — the kernel's own and
+      // the AP/AR boundary wrappers alike. It is the one refusal an agent can act
+      // on by itself, so say how.
+      if (typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'OPERATION_APPROVAL_REQUIRED') {
+        return errorResult(OPERATION_APPROVAL_REQUIRED_REPLY);
+      }
       if (err instanceof EffectivePermissionError && err.permission) {
         return errorResult(permissionRefusalMessage(err.permission, err.reason));
       }

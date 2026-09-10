@@ -36,6 +36,8 @@
 import { log } from '@/lib/logger';
 import { closePeriod, getFiscalPeriodById } from './fiscalPeriodService';
 import { assertPeriodControlAuthority } from '../controls/periodControl';
+import { controlledOperationApprovalRequiredForPreview } from '../controls/approvalExecutionService';
+import { requireControlTx } from '../controls/context';
 import {
   getCloseReadiness,
   type ChecklistItem,
@@ -127,6 +129,18 @@ export async function closePeriodWithReadiness(
   const warnings = readiness.items.filter((i) => i.status !== 'pass');
 
   if (dryRun) {
+    // The live close runs through the period control, which refuses under a
+    // fiscal_period approval policy; the preview asks the same question.
+    const answer = await controlledOperationApprovalRequiredForPreview(requireControlTx(),
+      { entityType: 'fiscal_period', entityId: periodId, operation: 'fiscal_period.close' });
+    if (answer.kind === 'answered' && answer.required) {
+      throw new PeriodNotCloseableError(`An independent approval is required to close ${period.periodName}. `
+        + 'Request one with request_operation_approval, then retry. Nothing was closed');
+    }
+    if (answer.kind === 'unavailable' && answer.policiesExist) {
+      throw new PeriodNotCloseableError(`${period.periodName} could not be previewed — its close material `
+        + 'could not be built; an approval may also be required. Nothing was closed');
+    }
     return { period, closed: false, dryRun: true, checklist: readiness.items, warnings };
   }
 
