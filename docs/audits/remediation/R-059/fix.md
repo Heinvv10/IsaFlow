@@ -1141,6 +1141,32 @@ through the helper, which the single mutation above shows.
   archive against the same database**, so the failure is the environment's, not
   this branch's. Not counted as a pass.
 
+**Addendum — those three files on a database that HAS `soft_delete_journal_reversals`.**
+isaflow_dev lacks the K-053 table, so they cannot run there, and no migration
+was applied to it (it is shared). The schema fixture (`isaflow_schema_fixture`,
+migration-built) has the table — verified with `to_regclass` — so they were run
+there, with `--reporter=verbose`, on this branch and on the clean master archive:
+
+| Test | Branch | Master | Why |
+|---|---|---|---|
+| reconcileSubledger: closes at a HISTORICAL date, no document named twice | pass | pass | — |
+| reconcileSubledger: GL side + stated reason for an uncomparable subledger | pass | pass | — |
+| settlementFlags: names the flagged bill | pass | pass | — |
+| settlementFlags: nothing for AR | pass | pass | — |
+| reconcileSubledger: closes its own arithmetic at 2026-09-03 | **fail** | **fail** | residual −1150 on two leftover `K053ID-…` companies (orphans of interrupted `k053-soft-delete-undo-identity` runs on 2026-09-09: a deleted invoice, a manual journal, an unposted invoice with an allocation). Every document there is `approved` — no null, draft or cancelled status — so the status rule cannot reach it |
+| settlementFlags: does NOT change the difference or the residual | **fail** | **fail** | `subledgerTotal` after seeding reads 0 against an expected +5000, on whichever fixture company has the most bills |
+| subledgerTiesToAging × 3 | **fail** | **fail** | cannot start: "no company with >20 live customer invoices" — the fixture has no company that busy |
+
+So: **4 of 9 run and pass; 5 fail identically on master**. The
+`subledgerTiesToAging` file cannot run its premise on EITHER database available
+(isaflow_dev has the volume but not the table; the fixture has the table but not
+the volume). **None of the five is counted as a pass.** The two assertion
+failures are on fixture data this branch did not create and on shapes the status
+rule does not touch; the −1150 on the K053ID shape may be a real reconciliation
+gap, pre-existing and outside R-059, and is noted for whoever owns K-053's
+leftovers. What round 6 changed is proved instead by the four purpose-built
+files above, each of which creates, reconciles and deletes its own books.
+
 ## Round 6 — not done, stated
 
 - Two statement surfaces keep their own status rule, claim corrected, decision
