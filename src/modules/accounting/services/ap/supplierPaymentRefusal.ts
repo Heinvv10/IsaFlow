@@ -18,9 +18,18 @@
 export class SupplierPaymentRefusal extends Error {
   readonly code = 'SUPPLIER_PAYMENT_REFUSED';
 
-  constructor(message: string) {
+  /**
+   * TRUE only for lock contention — the caller did nothing wrong and the same
+   * request will succeed on a retry. Every other refusal is about the books and
+   * retrying unchanged repeats it, so it stays FALSE. The AP mirror of
+   * `ReceiptRefusal.retryable`; see there for what answering it 400 cost.
+   */
+  readonly retryable: boolean;
+
+  constructor(message: string, opts?: { retryable?: boolean }) {
     super(message);
     this.name = 'SupplierPaymentRefusal';
+    this.retryable = opts?.retryable === true;
   }
 }
 
@@ -32,4 +41,9 @@ export class SupplierPaymentRefusal extends Error {
 export function isSupplierPaymentRefusal(err: unknown): err is SupplierPaymentRefusal {
   return err instanceof Error
     && (err as { code?: unknown }).code === 'SUPPLIER_PAYMENT_REFUSED';
+}
+
+/** A refusal the caller should answer 409-and-retry rather than 400. */
+export function isRetryableSupplierPaymentRefusal(err: unknown): boolean {
+  return isSupplierPaymentRefusal(err) && (err as { retryable?: unknown }).retryable === true;
 }

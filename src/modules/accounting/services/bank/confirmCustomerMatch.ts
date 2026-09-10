@@ -37,12 +37,13 @@ import {
   validateBankReceiptApplication,
 } from '../ar/receiptMatchConfirmService';
 import { EPS, round2 } from '../ar/receiptAllocationLines';
-import { isReceiptRefusal } from '../ar/receiptRefusal';
+import { isReceiptRefusal, isRetryableReceiptRefusal } from '../ar/receiptRefusal';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 
 export type ConfirmCustomerMatchOutcome =
   | { ok: false; kind: 'not_found' }
   | { ok: false; kind: 'refused'; message: string }
+  | { ok: false; kind: 'contended'; message: string }
   | { ok: true; customerPaymentId: string; allocated: number };
 
 /**
@@ -127,6 +128,10 @@ export async function confirmCustomerInvoiceMatch(
     // user verbatim as a 400 — a status `withAuth` COMMITs, monitored as their
     // mistake rather than as the fault it is.
     if (!isReceiptRefusal(refusal)) throw refusal;
+    // Contention is not a mis-match — the AP arm's comment applies verbatim.
+    if (isRetryableReceiptRefusal(refusal)) {
+      return { ok: false, kind: 'contended', message: refusal.message };
+    }
     return { ok: false, kind: 'refused', message: refusal.message };
   }
 

@@ -359,3 +359,103 @@ what archive covers is a scope change, not a lock fix. The `evidenceAttachmentSe
 `duplicateMergeService` reorders are proved by the census and by `tsc`/the unit suite, not by an
 interleaved-client deadlock test of their own; the outcome measurements this round are on the
 supplier void and on the archive path.
+
+---
+
+## Round 10 — the three MEDIUMs and three LOWs from `review-k071-r9.md`
+
+The round-9 review re-ran the census independently and confirmed it (same 14 files, all four
+structural exemptions genuine INSERT-in-this-transaction cases). No HIGH. The lock-order work is
+untouched this round.
+
+### MEDIUM-1 — the archive's "FK-safe in both directions" claim was false (doc + test)
+
+`bank/.claude.md` asserted that the canonical lock order is also the FK-safe one, with the only open
+item named as `gl_journal_entries` ← `{customer,supplier}_payments`. The reviewer measured
+`23503 customer_payment_allocations_invoice_id_fkey` at the step-6 invoice delete, and
+`pg_constraint` lists **38 NO ACTION FKs** into the five relations step 6 touches. Both corrected in
+the module doc: the reorder fixed the bank ↔ GL edge and that edge alone; the residual is now
+recorded at its real size as **R-053**, with the eight relations blocking the invoice delete named.
+
+The bigger half of this finding was the test. `k071-archive-delete-order.int.test.ts` seeded no
+invoice and no payment — its own log said `invoicesArchived: 0` — so `runs === ['completed']` passed
+on the only shape that has no FK to violate: a fixture that cannot fail, certifying "we verified"
+where the truth was "we did not check". Both halves fixed:
+
+- the first test is renamed to what it actually exercises (`bank ↔ GL edge only`), and the file
+  header now says the `completed` run says nothing about the rest;
+- a second test, **`R-053 residual`**, seeds the settled shape (a pre-cutoff PAID
+  `customer_invoices` row with the `customer_payment_allocations` row that made it paid) and asserts
+  the failure BY OUTCOME: `code === '23503'`, `constraint === 'customer_payment_allocations_invoice_id_fkey'`,
+  and the invoice still live after the savepoint rollback. It is expected-fail-shaped on purpose,
+  and its first assertion carries the message `the archive completed — R-053 may be fixed; rewrite
+  this test`. Measured, not argued: the log line is in the run output for this round.
+
+Keeping the 42703 fix on this branch was ruled right by the reviewer; unchanged.
+
+### MEDIUM-2 — contention on the invoice/bill answered 400 (code)
+
+`fetchInvoiceCandidates` / `fetchBillCandidates` raise their lock timeout as
+`ReceiptRefusal` / `SupplierPaymentRefusal`, the same classes that carry every refusal ABOUT THE
+BOOKS, so the confirm arms could not tell them apart and the route answered both
+`apiResponse.badRequest`. On one screen, at one instant, contention answered 409 when the peer held
+the bank line and 400 when it held the invoice — 400 being the status this codebase reserves for the
+user's own mistake and monitors as such. Fixed in the code, as the brief preferred:
+
+- both refusal classes take `{ retryable?: boolean }` and expose `retryable`; the two contention
+  sites are the only places that set it;
+- `isRetryable{Receipt,SupplierPayment}Refusal` predicates, structural like their siblings;
+- `confirm{Customer,Supplier}Match` return the new `kind: 'contended'` for those, and
+  `bank-match-confirm` answers it `apiResponse.conflict`. Every one of these is still decided
+  pre-write, so the 4xx `withAuth` COMMITs commits nothing.
+
+Pinned by three new unit cases, all of which run the REAL `plan{,Supplier}AllocationLines` with only
+the DB read stubbed — with the `55P03` Postgres raises on our own 5s budget, so the flag's own site
+is exercised rather than a mocked rejection: `confirmSupplierMatch.test.ts`,
+`confirmCustomerMatch.test.ts`, and both directions at the route in
+`bankMatchConfirmRefusalStatus.test.ts` (409 for contention, 400 kept for a books refusal of the
+same class).
+
+### MEDIUM-3 — the evidence-attach reorder was pinned by nothing (test)
+
+`evidenceAttachmentService.test.ts`'s docblock still described the OLD order (3 = GL, 4 = bank)
+after the service had been reordered — an instruction to the next author to put the deadlock back —
+and both mocked returns were `[]`, so nothing detected a swap. Docblock corrected, and the order is
+now asserted off `sqlMock.mock.calls`. Its twin,
+`POST /api/accounting/provisional/[jeId]/attach`, was pinned by nothing at all; new
+`tests/unit/services/capture/provisionalAttachRouteLockOrder.test.ts` covers the route the same way.
+
+### LOW-1 — `lockBankTransactionForUpdate` never restored `lock_timeout` (code)
+
+Added `SET LOCAL lock_timeout = DEFAULT` on the success path, not in a `finally` — the same shape
+and the same reasoning as `paymentLock`, `receiptAllocationLines` and `supplierAllocationLines`.
+This round moved that call to the FRONT of both confirm arms and of `voidPaymentDocument`, so the 5s
+budget was leaking over everything after it.
+
+Every one of those siblings pins its restore in BOTH directions and this one shipped pinned by
+nothing, so `tests/unit/services/bankAllocationRowLock.test.ts` — the file that already covers the
+helper's other guarantees — now asserts the restore on the success path and its ABSENCE after a
+55P03, the second being what stops a future author moving it into a `finally` where it would raise
+25P02 over the typed error.
+
+### LOW-2 — the deadlock test's readiness probe was not scoped to its own backend (test)
+
+`pg_stat_activity` matched on statement text alone matches ANY session in the cluster blocked on
+that statement, and this fixture database is shared with the other branches: a false positive
+returns the probe early, the peer takes the document before the confirm reaches it, and the test
+passes on the defect. Both pools now stamp a unique `application_name` (`<test>-<pid>`) and both
+probes filter `datname = current_database() AND application_name = $1 AND pid <> pg_backend_pid()`.
+Fixed in `k071-void-lock-order.int.test.ts` as well as the file the review named — same defect, same
+class.
+
+### LOW-3 — duplicated and contradictory rows in the canonical table (doc)
+
+Deleted the superseded `cancelCustomerInvoice, cancelSupplierInvoiceInner` row, and split
+`bankRuleAutoPostLine` out of the two rows that gave it two different answers into one row naming
+its `DELETE FROM gl_journal_entries` and why that leg is exempt.
+
+**Mutation-proved this round** (file copies, restored after each; never `git checkout --`):
+reversing the two UPDATEs in `evidenceAttachmentService.ts` fails the new order assertion; reversing
+them in the attach route fails the new route test; removing `{ retryable: true }` from both
+contention sites fails both confirm-arm tests; replacing the route's `contended` branch with
+`badRequest` fails the 409 case.

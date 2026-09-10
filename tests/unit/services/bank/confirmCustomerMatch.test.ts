@@ -45,6 +45,10 @@ vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
 
 import { confirmCustomerInvoiceMatch } from '@/modules/accounting/services/bank/confirmCustomerMatch';
 import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
+import {
+  planAllocationLines,
+  type ReceiptAllocationInput,
+} from '@/modules/accounting/services/ar/receiptAllocationLines';
 
 const COMPANY = 'company-1';
 const TX = 'tx-1';
@@ -175,6 +179,31 @@ describe('confirmCustomerInvoiceMatch', () => {
   // failure as the user's fault: the route answers a refusal with
   // `apiResponse.badRequest`, which passes the message straight to the client,
   // so raw Postgres text would reach the browser on a status `withAuth` COMMITs.
+  // MEDIUM-2 (round 9), the AR twin. Contention on the INVOICE was answered 400
+  // while the same instant of contention on the bank LINE answered 409 —
+  // because `fetchInvoiceCandidates` raises its lock timeout as a
+  // `ReceiptRefusal`, the same class every books refusal uses. `retryable`
+  // separates them; `kind:'contended'` is what the route answers 409.
+  //
+  // The real `planAllocationLines` runs and the DB read is stubbed with the
+  // 55P03 our own 5s budget produces, so the flag's own site is exercised.
+  it('reports lock contention on the invoice as contended, not as a refusal', async () => {
+    invoice(1000);
+    validateBankReceiptApplication.mockImplementationOnce(
+      (async (companyId: string, _txId: string, allocations: ReceiptAllocationInput[]) =>
+        planAllocationLines(companyId, allocations, { paymentId: null, customerId: null })
+      ) as unknown as () => Promise<unknown>,
+    );
+    sqlMock.mockRejectedValueOnce(Object.assign(
+      new Error('canceling statement due to lock timeout'), { code: '55P03' },
+    ));
+
+    const outcome = await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600);
+    expect(outcome).toMatchObject({ ok: false, kind: 'contended' });
+    expect((outcome as { message: string }).message).toMatch(/retry in a moment/i);
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
+  });
+
   it('re-throws an infrastructure failure instead of reporting it as a refusal', async () => {
     invoice(600);
     validateBankReceiptApplication.mockRejectedValueOnce(Object.assign(

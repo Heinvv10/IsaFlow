@@ -20,6 +20,17 @@
  * three rows move. With the old order restored, Postgres raises
  * `23503 bank_transactions_matched_journal_line_id_fkey` and the whole archive
  * rolls back to its savepoint — the run marked failed, nothing archived.
+ *
+ * SCOPE — READ THIS BEFORE QUOTING THE FIRST TEST AS "THE ARCHIVE WORKS".
+ * The first test covers the bank ↔ GL edge and NOTHING else: it seeds no
+ * invoice and no payment, so `invoicesArchived` is 0 and its `completed` run is
+ * true only of that shape. The reorder did not make `executeArchive` runnable —
+ * `pg_constraint` lists 38 NO ACTION FKs into the five relations step 6 deletes,
+ * and a PAID invoice carries an allocation row by construction. The second test
+ * pins that residual BY OUTCOME (R-053): it seeds the settled shape, and
+ * asserts the 23503 the archive still raises. It is expected-fail-shaped on
+ * purpose — when R-053 is fixed this test goes red and must be rewritten to
+ * assert the archive completes.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -38,6 +49,12 @@ let bankAccount: string;
 let journal: string;
 let journalLine: string;
 let bankTx: string;
+
+/** The settled-invoice shape lives in its own company — see the second test. */
+let settledCompany: string;
+let settledCustomer: string;
+let settledInvoice: string;
+let settledPayment: string;
 
 beforeAll(async () => {
   company = crypto.randomUUID();
@@ -80,6 +97,35 @@ beforeAll(async () => {
      VALUES($1,$2,$3,$4,100,'archive order probe','reconciled',$5)`,
     [bankTx, company, bankAccount, OLD_DAY, journalLine],
   );
+
+  // ── the settled shape, in its OWN company (same reason as above) ──────────
+  settledCompany = crypto.randomUUID();
+  settledCustomer = crypto.randomUUID();
+  settledInvoice = crypto.randomUUID();
+  settledPayment = crypto.randomUUID();
+
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)',
+    [settledCompany, 'K071 archive settled company']);
+  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)',
+    [settledCustomer, settledCompany, 'K071 archive customer']);
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,created_by,
+       invoice_date,total_amount,amount_paid,status)
+     VALUES($1,$2,'K071-ARCH-INV-1',$3,$4,$5,100,100,'paid')`,
+    [settledInvoice, settledCompany, settledCustomer, user, OLD_DAY],
+  );
+  await pool.query(
+    `INSERT INTO customer_payments(id,company_id,client_id,payment_date,total_amount,created_by)
+     VALUES($1,$2,$3,$4,100,$5)`,
+    [settledPayment, settledCompany, settledCustomer, OLD_DAY, user],
+  );
+  // The load-bearing row. A PAID invoice has one by construction, which is the
+  // whole point: the shape step 6 selects is the shape it cannot delete.
+  await pool.query(
+    `INSERT INTO customer_payment_allocations(id,payment_id,invoice_id,amount_allocated)
+     VALUES($1,$2,$3,100)`,
+    [crypto.randomUUID(), settledPayment, settledInvoice],
+  );
 });
 
 afterAll(async () => {
@@ -95,13 +141,23 @@ afterAll(async () => {
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=$1', [company]);
+
+    await pool.query('DELETE FROM archive_runs WHERE company_id=$1', [settledCompany]);
+    await pool.query('DELETE FROM archive_customer_invoices WHERE company_id=$1', [settledCompany]);
+    await pool.query(
+      'DELETE FROM customer_payment_allocations WHERE payment_id=$1', [settledPayment]);
+    await pool.query('DELETE FROM customer_payments WHERE company_id=$1', [settledCompany]);
+    await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [settledCompany]);
+    await pool.query('DELETE FROM customers WHERE company_id=$1', [settledCompany]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [settledCompany]);
+
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally {
     await pool.end();
   }
 });
 
-it('archives a bank line that references a pre-cutoff journal line', async () => {
+it('bank ↔ GL edge only: archives a bank line that references a pre-cutoff journal line', async () => {
   const { als } = await import('@/lib/als');
   const { executeArchive } = await import(
     '@/modules/accounting/services/core/archiveExecutionService'
@@ -145,4 +201,53 @@ it('archives a bank line that references a pre-cutoff journal line', async () =>
     'SELECT status FROM archive_runs WHERE company_id=$1', [company],
   );
   expect(runs.rows.map((r) => r.status)).toEqual(['completed']);
+}, 40000);
+
+/**
+ * R-053, pinned by OUTCOME rather than by a doc line.
+ *
+ * `executeArchive` step 6 deletes `customer_invoices` with
+ * `status IN ('paid','cancelled')`. Every PAID invoice carries a
+ * `customer_payment_allocations` row — that is what made it paid — and that FK
+ * is NO ACTION, one of the 38 NO ACTION FKs `pg_constraint` lists into the five
+ * relations step 6 touches. So the archive cannot complete for any company with
+ * settled data, whatever order it deletes in. The round-9 reorder fixed the
+ * bank ↔ GL edge and this edge was never in reach of it.
+ *
+ * Asserting the failure is the honest version: the alternative was a fixture
+ * with no invoice in it, which certifies "the archive completes" on the only
+ * shape that can pass. When R-053 is fixed — by widening what archive covers,
+ * a data-retention design question, not a lock fix — this test goes red and is
+ * rewritten to assert the archive completes.
+ */
+it('R-053 residual: a settled invoice still blocks the archive on 23503', async () => {
+  const { als } = await import('@/lib/als');
+  const { executeArchive } = await import(
+    '@/modules/accounting/services/core/archiveExecutionService'
+  );
+
+  const client = await pool.connect();
+  let code: string | undefined;
+  let constraint: string | undefined;
+  try {
+    await client.query('BEGIN');
+    await als.run({ client, userId: user, companyId: settledCompany, claims: {} }, () =>
+      executeArchive(settledCompany, CUTOFF, user),
+    );
+  } catch (err) {
+    code = (err as { code?: string }).code;
+    constraint = (err as { constraint?: string }).constraint;
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+
+  expect(code, 'the archive completed — R-053 may be fixed; rewrite this test').toBe('23503');
+  expect(constraint).toBe('customer_payment_allocations_invoice_id_fkey');
+
+  // Nothing moved: the savepoint rollback took the whole run with it.
+  const live = await pool.query(
+    'SELECT count(*)::int AS n FROM customer_invoices WHERE company_id=$1', [settledCompany],
+  );
+  expect(live.rows[0].n).toBe(1);
 }, 40000);

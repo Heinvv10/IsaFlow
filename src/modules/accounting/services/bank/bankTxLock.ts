@@ -101,6 +101,14 @@ export async function lockBankTransactionForUpdate(
       SELECT * FROM bank_transactions
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE`) as DbRow[];
+    // Restore the default on the SUCCESS path only. `SET LOCAL` lasts to the end
+    // of the TRANSACTION, so without this the 5s budget silently governs every
+    // lock taken afterwards in the same request — and both confirm arms and
+    // `voidPaymentDocument` now call this FIRST, so that is every lock they
+    // take. Deliberately NOT in a `finally`: after a timeout the transaction is
+    // aborted and this statement would itself throw 25P02, replacing the typed
+    // error with an opaque one. The shape and the reasoning are `paymentLock`'s.
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
     if (isLockContention(err)) throw new BankTransactionLockTimeoutError(bankTxId);

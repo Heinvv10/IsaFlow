@@ -24,9 +24,23 @@
 export class ReceiptRefusal extends Error {
   readonly code = 'RECEIPT_REFUSED';
 
-  constructor(message: string) {
+  /**
+   * TRUE only for lock contention — the caller did nothing wrong and the same
+   * request will succeed on a retry. Every other refusal is about the books and
+   * retrying unchanged repeats it, so it stays FALSE.
+   *
+   * The flag exists because the two are indistinguishable at the confirm arm
+   * otherwise, and `bank-match-confirm` answered contention with 400: the
+   * status this codebase reserves for the user's own mistake, monitored as
+   * such. The same instant of contention answered 409 when the peer held the
+   * bank line and 400 when it held the invoice.
+   */
+  readonly retryable: boolean;
+
+  constructor(message: string, opts?: { retryable?: boolean }) {
     super(message);
     this.name = 'ReceiptRefusal';
+    this.retryable = opts?.retryable === true;
   }
 }
 
@@ -37,4 +51,9 @@ export class ReceiptRefusal extends Error {
  */
 export function isReceiptRefusal(err: unknown): err is ReceiptRefusal {
   return err instanceof Error && (err as { code?: unknown }).code === 'RECEIPT_REFUSED';
+}
+
+/** A refusal the caller should answer 409-and-retry rather than 400. */
+export function isRetryableReceiptRefusal(err: unknown): boolean {
+  return isReceiptRefusal(err) && (err as { retryable?: unknown }).retryable === true;
 }

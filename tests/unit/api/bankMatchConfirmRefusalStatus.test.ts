@@ -59,6 +59,8 @@ import { allocateTransaction } from '@/modules/accounting/services/bank/bankReco
 import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
 import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
+import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
+import { validateBankReceiptApplication } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import handler from '../../../pages/api/accounting/bank-match-confirm';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -69,6 +71,7 @@ type SqlMock = ReturnType<typeof vi.fn>;
 const mockSql = sql as unknown as SqlMock;
 const allocate = allocateTransaction as unknown as ReturnType<typeof vi.fn>;
 const confirmReceipt = confirmReceiptMatch as unknown as ReturnType<typeof vi.fn>;
+const validateReceipt = validateBankReceiptApplication as unknown as ReturnType<typeof vi.fn>;
 
 /** A money-OUT line against a purchase order: the direction agrees, so the
  *  route reaches `allocateTransaction` DIRECTLY and the catch is what decides.
@@ -125,6 +128,8 @@ beforeEach(() => {
   mockSql.mockReset();
   allocate.mockReset();
   confirmReceipt.mockReset();
+  validateReceipt.mockReset();
+  validateReceipt.mockResolvedValue({});
   mockSql.mockResolvedValueOnce([{ amount: -1000 }]).mockResolvedValueOnce([PO]).mockResolvedValue([]);
 });
 
@@ -181,6 +186,51 @@ describe('bank-match-confirm — the status code the trailing catch answers', ()
 
     expect(res.statusCode).toBe(409);
     expect(JSON.stringify(res.sent)).toMatch(/retry/i);
+    expect(writeCount()).toBe(0);
+  });
+
+  // MEDIUM-2 (round 9). Contention on the INVOICE is the same event as
+  // contention on the LINE and gets the same answer. It did not: the invoice
+  // lock's timeout is raised as a `ReceiptRefusal` — the class every refusal
+  // ABOUT THE BOOKS also uses — so the arm reported `kind:'refused'` and the
+  // route answered 400. On one screen, at one instant, 409 if the peer held the
+  // line and 400 if it held the invoice; and 400 is what this route reserves
+  // for the user's own mistake and monitors as such.
+  it('answers 409, not 400, when the peer holds the INVOICE rather than the line', async () => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValueOnce([{ amount: 1000 }])
+      .mockResolvedValueOnce([{ id: BANK_TX, status: 'imported' }])
+      .mockResolvedValueOnce([INVOICE]).mockResolvedValue([]);
+    validateReceipt.mockRejectedValueOnce(new ReceiptRefusal(
+      'Another request is applying cash to one of these invoices — retry in a moment.',
+      { retryable: true },
+    ));
+
+    const { req, res } = mockReqRes('customer_invoice');
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
+    expect(writeCount()).toBe(0);
+  });
+
+  // The mirror, and the reason `retryable` is a flag rather than a new class:
+  // a refusal ABOUT THE BOOKS keeps its 400, because retrying it unchanged
+  // repeats it.
+  it('keeps 400 for a books refusal from the same class', async () => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValueOnce([{ amount: 1000 }])
+      .mockResolvedValueOnce([{ id: BANK_TX, status: 'imported' }])
+      .mockResolvedValueOnce([INVOICE]).mockResolvedValue([]);
+    validateReceipt.mockRejectedValueOnce(
+      new ReceiptRefusal('Invoice INV-9 is cancelled.'),
+    );
+
+    const { req, res } = mockReqRes('customer_invoice');
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.sent)).toMatch(/cancelled/);
     expect(writeCount()).toBe(0);
   });
 

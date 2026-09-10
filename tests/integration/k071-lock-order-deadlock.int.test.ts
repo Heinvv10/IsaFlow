@@ -37,7 +37,16 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 
 assertDisposable();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+/**
+ * A name unique to THIS test process, stamped on every connection this pool
+ * hands out, so the readiness probe below can tell its own backends apart from
+ * the other branches sharing this fixture database.
+ */
+const APP_NAME = `k071-lock-order-${process.pid}`;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  application_name: APP_NAME,
+});
 let fx: K074Fixture;
 
 beforeAll(async () => { fx = await seedK074(pool); });
@@ -56,16 +65,26 @@ const wait = (ms: number) => new Promise((r) => { setTimeout(r, ms); });
  * a peer that reaches for the document too early finds it free and the test
  * passes on a defect. Waiting for the confirm's own `FOR UPDATE` on
  * `bank_transactions` to show up as blocked makes the cycle deterministic in
- * both directions — matched on the statement text so a peer session on the same
- * fixture database cannot be mistaken for it.
+ * both directions.
+ *
+ * SCOPED TO THIS PROCESS'S OWN BACKENDS (`application_name = APP_NAME`). The
+ * statement text alone matches ANY session in the cluster blocked on that
+ * statement, and this fixture database is shared with the other branches — one
+ * of theirs would return the probe early, the peer would take the document
+ * before the confirm reached it, and the test would pass on the defect. A false
+ * GREEN, not a flake.
  */
 async function waitForConfirmParkedOnBankLine(): Promise<void> {
   for (let i = 0; i < 80; i += 1) {
     const { rows } = await pool.query(
       `SELECT count(*)::int AS n FROM pg_stat_activity
        WHERE wait_event_type = 'Lock'
+         AND datname = current_database()
+         AND application_name = $1
+         AND pid <> pg_backend_pid()
          AND query ILIKE '%FROM bank_transactions%'
          AND query ILIKE '%FOR UPDATE%'`,
+      [APP_NAME],
     );
     if (rows[0].n > 0) return;
     await wait(50);
