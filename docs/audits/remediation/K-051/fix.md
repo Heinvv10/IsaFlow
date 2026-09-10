@@ -115,7 +115,19 @@ WHERE ga.company_id <> jl.company_id
 GROUP BY 1, 2 ORDER BY gross DESC;
 ```
 
-Such a row is a cross-tenant ledger line: the other company's account carries a balance it did not post, and this company's trial balance names an account it does not own. `balanceSheetService` filters all three of `jl.company_id`, `ga.company_id` and `je.company_id`, so neither balance sheet shows it — the trial balance and any single-filter report are where it surfaces.
+Such a row is a cross-tenant ledger line: one company's journal names an account another company
+owns. **It appears on no standard statement, for either tenant.** `balanceSheetService` filters all
+three of `jl.company_id`, `ga.company_id` and `je.company_id`; `trialBalanceService.ts:136` joins
+`gl_accounts ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id`, and the row satisfies
+that join from neither side — the line's owner reads a `gl_accounts` row belonging to someone else,
+and the account's owner has no line of its own to read. Executed, not asserted: with the row seeded,
+**both** trial balances and **both** balance sheets return it zero times, while the census above
+returns it once (the table under **Round-11** records the run).
+
+So the census is not one way of finding this population — it is the ONLY way. An operator who goes
+looking for it on a report will read a clean set of statements and conclude the database is clean.
+That is a stronger statement about what 664 prevents than the earlier wording, which pointed at the
+trial balance and would have sent that operator to a report showing nothing.
 
 **Blast radius of 664 — four fixtures outside this item.** Four integration tests deliberately build the cross-company row to prove some OTHER guard ignores it (`k019-import-autolink`, `k019-transfer-relink`, `opening-balances-postgres`, `k020-reconciled-balance-recompute`). They are still correct — 664 is NOT VALID, so those rows survive in production — but the fixture can no longer be written normally. Each now goes through `tests/integration/helpers/preConstraintRow.ts`, which suppresses the FK trigger for one transaction. No production code was changed for them. The whole integration suite was swept afterwards: zero `gl_journal_lines_account_company_fk` violations.
 
@@ -234,3 +246,53 @@ each was executed:
 Negative control for the MEDIUM: with the foreign-GL-ACCOUNT line seeded and **no** foreign
 dimension anywhere, the dimension census returns **0** rows and the 664 census returns **1** — which
 is the defect the reviewer named, reproduced.
+
+## Round-11 dispositions (blind re-review of the merged tree, 0 HIGH / 1 MEDIUM / 2 LOW)
+
+This branch was merged with `origin/master` at `01f4bcaf5` first; see that merge's adjudications
+(one call site for both ownership guards, and `cc1_id`/`cc2_id` resolved through `ownedOrNull`
+against the same owned set as `cost_center_id`). Nothing below changes production code.
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 — the fourth false documentation claim about data on this branch: "the trial balance … is where it surfaces" is not true, and a reviewer executed it to 0 rows for BOTH tenants | **Fixed, and the discipline extended.** Corrected under **Historical-data impact of 664** above, and — because the correction is itself a claim about a report — executed. The stronger true statement is now recorded there: a cross-company line is invisible on **every** standard statement, so the census is the only instrument that finds it. |
+| LOW-1, LOW-2 | **Not reconstructed.** Their text was lost when the scratchpad was cleared, and nothing in `fix.md` or `green.log` is left open by them. No finding is invented to fill the gap; a fresh blind review will re-find whatever remains. |
+
+**Where-it-surfaces claims, verified by execution (round 11).** Round 10 executed the four census
+("how do you find it") claims. This round extends the same rule to the "where does it show up"
+claims, which were still prose. Each is now read from the report SERVICE, in a rolled-back
+transaction on the fixture DB, with the population seeded:
+
+| Claim | Where it was stated | Executed as | Result |
+|---|---|---|---|
+| A cross-company line is on NEITHER tenant's trial balance | **Historical-data impact of 664** (corrected this round) | `k051-cross-company-journal-line.int.test.ts` — `getTrialBalance` for both companies over the seeded pre-664 row | `K051X-2100` absent from **both**; the census over the same row returns **1** |
+| …and on neither tenant's balance sheet | same | `getBalanceSheet` for both companies | **R0** and **R0** |
+| A header account keeps its balance on the trial balance while the balance sheet drops it | K-051 **Before**, K-052 **Before** | `k052-reclassification-onto-header-account.int.test.ts` — `getTrialBalance` alongside the existing `getBalanceSheet` | header carries **R400** on the trial balance, which foots at R1,400 = R1,400, while total assets read **R1,000** |
+| A reversal leaves the foreign project bucket at its full amount, with no offsetting line, while the trial balance zeroes | **Limits** (round 9) | `k051-reversal-foreign-dimension.int.test.ts` — `getProjectProfitability` and `getTrialBalance` read before and after the same reversal in one transaction | bucket **R2,000 → R2,000** (unnamed, `projectName === 'Unknown Project'`); expense account **R3,000 → R2,000** |
+
+**Not re-derived.** K-051's **Before** paragraph names R1,500 → R0 on the fixture as it stood in
+round 1. That fixture has changed shape several times since (`OPENING_ASSETS` is R2,285 today) and
+the figure is not reproducible from it. The MECHANISM behind the sentence — a header account on the
+trial balance and off the balance sheet — is executed in the table above; the historical figure
+itself is left as the original author's measurement and is not re-asserted here.
+
+**Mutations.** Drop `AND ga.company_id = jl.company_id` from `trialBalanceService.ts:136` and the
+cross-company test goes red with `expected [ 'K051X-2100' ] to not include 'K051X-2100'` — the
+account appears on the other tenant's trial balance, which is what the old wording claimed. Copy
+`l.projectId` raw in `reversalLines.ts:99` and 3 tests in the reversal file go red, the new one
+included — via the reversal throwing "project outside this company", the pre-fix defect. Stated
+plainly: that mutation proves the DROP, not the residual's arithmetic; the R2,000 → R2,000 and
+R3,000 → R2,000 figures are a measurement of the residual, not a guard over it.
+
+**What running `bun run ci` end to end found (round 11).** Ten rounds ran the gates individually
+and none ran the composite, so a branch-introduced failure sat undetected: `vat-guard-coverage`
+FAILED on a STALE allowlist entry for `journalEntryPostingService.ts`. Round 8 moved the contra's
+`vatType: l.vatType` into `gl/reversalLines.ts`, which builds lines and posts nothing, while the
+posting file that remains no longer names the field — so the rule (`vatType` **and** a posting call,
+in the same file) puts neither in scope, and the gate correctly refused an allowlist entry that had
+stopped matching. `origin/master` still has the field in the posting file and passes; this is ours.
+Entry removed, and the hole is stated in `vatGuardRules.ts` **KNOWN LIMITS** rather than papered
+over: no claim is unguarded — the contra must mirror the original's classification to offset it —
+but the gate no longer SEES that pair, and a future edit to either file gets no build failure.
+Widening the rule to follow a build-here/post-there split is a change to the gate, not to this item,
+and is left as a named decision. `bun run ci` is green end to end after the removal: all 15 steps.

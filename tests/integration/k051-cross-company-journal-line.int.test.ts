@@ -30,6 +30,7 @@ import { getPoolForTests } from '../../src/lib/neon';
 import { createJournalEntry } from '../../src/modules/accounting/services/gl/journalEntryCrudService';
 import { assertParentUsable } from '../../src/modules/accounting/services/gl/accountParentRules';
 import { getBalanceSheet } from '../../src/modules/accounting/services/reports/balanceSheetService';
+import { getTrialBalance } from '../../src/modules/accounting/services/gl/trialBalanceService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -43,6 +44,7 @@ const foreignProject = crypto.randomUUID();
 const ownBu = crypto.randomUUID(), foreignBu = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 const FK = 'gl_journal_lines_account_company_fk';
+let periodId = '', otherPeriodId = '';
 
 /** The request transaction every production caller runs inside. */
 async function inRequestTx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -77,9 +79,13 @@ beforeAll(async () => {
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
      VALUES($1,$2,'K051X-1500','K051X Other tenant bank','asset','debit',3,true)`,
     [foreign, otherCompany]);
-  await pool.query(
+  const { rows: fp } = await pool.query(
     `INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-     VALUES($1,'K051X Mar 2026',3,2026,'2026-03-01','2026-03-31','open')`, [company]);
+     VALUES($1,'K051X Mar 2026',3,2026,'2026-03-01','2026-03-31','open'),
+            ($2,'K051X Mar 2026 (other)',3,2026,'2026-03-01','2026-03-31','open')
+     RETURNING id, company_id`, [company, otherCompany]);
+  periodId = String(fp.find((r: { company_id: string }) => r.company_id === company)!.id);
+  otherPeriodId = String(fp.find((r: { company_id: string }) => r.company_id === otherCompany)!.id);
   // The three dimensions on a line carry NO foreign key of any kind, so they
   // need the service check on their own — 664 says nothing about them.
   await pool.query(
@@ -190,6 +196,57 @@ it('judges a level-2 asset parent on THIS company lines only, and the balance sh
   expect(admitted).toEqual({ childLevel: 3 });
   // R4,000 of another tenant's money never reached this company's assets.
   expect(ownAssets).toBeCloseTo(0, 2);
+});
+
+it('shows the cross-tenant line on NO standard statement, for EITHER tenant', async () => {
+  // What migration 664 prevents, stated by execution rather than by assertion.
+  // `fix.md` used to say the trial balance was where such a row surfaces. It is
+  // not: `trialBalanceService` joins `gl_accounts ON ga.id = jl.gl_account_id
+  // AND ga.company_id = jl.company_id`, so the row satisfies neither side of
+  // that join and BOTH tenants read zero. The balance sheet filters all three
+  // company columns and does the same. So a cross-company line is invisible on
+  // every standard statement, and the only thing that finds it is the direct
+  // census in `fix.md` under "Historical-data impact of 664" — which is run
+  // here, on this same row, so the contrast is measured and not claimed.
+  const seen = await inRequestTx(async (client) => {
+    await client.query("SET LOCAL session_replication_role = 'replica'");
+    const { rows } = await client.query(
+      `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,fiscal_period_id,source,status,created_by,posted_at)
+       VALUES($1,'K051X-JE-TB','2026-03-15'::date,$2,'manual','posted',$3,NOW()) RETURNING id`,
+      [otherCompany, otherPeriodId, otherUser]);
+    await client.query(
+      'INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id) VALUES($1,$2,$3,$4,$5)',
+      [rows[0].id, scopeParent, 4000, 0, otherCompany]);
+
+    const { rows: census } = await client.query(
+      `SELECT jl.company_id AS line_company, ga.company_id AS account_company,
+              COUNT(*)::int AS lines, SUM(jl.debit + jl.credit)::float8 AS gross
+         FROM gl_journal_lines jl
+         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        WHERE ga.company_id <> jl.company_id
+        GROUP BY 1, 2`);
+
+    return {
+      ownTb: await getTrialBalance(company, periodId),
+      otherTb: await getTrialBalance(otherCompany, otherPeriodId),
+      ownAssets: (await getBalanceSheet(company, AS_AT)).totalAssets,
+      otherAssets: (await getBalanceSheet(otherCompany, AS_AT)).totalAssets,
+      census,
+    };
+  });
+
+  // The account the R4,000 was posted to, on neither tenant's trial balance.
+  expect(seen.ownTb.map((r) => r.accountCode)).not.toContain('K051X-2100');
+  expect(seen.otherTb.map((r) => r.accountCode)).not.toContain('K051X-2100');
+  // And on neither tenant's balance sheet.
+  expect(seen.ownAssets).toBeCloseTo(0, 2);
+  expect(seen.otherAssets).toBeCloseTo(0, 2);
+  // The census is the one place it is visible.
+  expect(seen.census).toHaveLength(1);
+  expect(seen.census[0].lines).toBe(1);
+  expect(Number(seen.census[0].gross)).toBeCloseTo(4000, 2);
+  expect(seen.census[0].line_company).toBe(otherCompany);
+  expect(seen.census[0].account_company).toBe(company);
 });
 
 it('refuses a line tagged to another company cost centre, and writes nothing', async () => {
