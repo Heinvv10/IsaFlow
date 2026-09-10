@@ -129,8 +129,8 @@ export default function CompanySettingsPage() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(company),
       });
       if (!res.ok) throw new Error('Failed to save');
-      const saved = (await res.json()) as { data?: { warnings?: string[] } };
-      setSigningWarnings(saved.data?.warnings ?? []);
+      const saveBody = (await res.json()) as { data?: { warnings?: string[] } };
+      setSigningWarnings(saveBody.data?.warnings ?? []);
       await Promise.all([
         docNumbers.length > 0 && apiFetch('/api/accounting/company-settings?type=document-numbers', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },

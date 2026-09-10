@@ -20,20 +20,26 @@ export interface SigningInputDigests {
 }
 
 const INPUT_LABELS: Record<keyof SigningInputDigests, string> = {
-  document: 'the document settings (year, period, framework or status)',
+  document: 'the reporting period (year or period)',
   company: 'the registered company name or number',
   brand: 'the firm branding',
-  sections: 'section content or review state',
+  sections: 'section content',
 };
 
 /**
- * sha256 over EVERY input the statements are rendered from — the document row, the registered
- * company name and number, the firm branding (or the marker for the documented default used
- * when a company has saved none) and every section — plus one digest per input, so a refusal
- * can say which of them moved. The pre-image is jsonb text, not separator-joined text: jsonb
- * keeps NULL distinct from '' and quotes every string, so no two different inputs can produce
- * the same bytes by trading text across a field boundary. section_type is included because it
- * decides which chart a section is drawn with. This is the only copy of the expression.
+ * sha256 over EXACTLY the values the statements are rendered from — no more, no less: the
+ * period (or fiscal year) on the cover, the registered company name and number, the branding
+ * the CSS and cover use (or the marker for the documented default when a company has saved
+ * none), and each section's id, type (it picks the chart), note number, content, overrides and
+ * chart data. Anything the render never prints — the footer text, the document type and
+ * framework, review status, a draft AI narrative — is left out, so changing it cannot void a
+ * signature over identical bytes. Sections are aggregated in the render's own order (note
+ * number, then id). One digest per input lets a refusal say which moved. The pre-image is
+ * jsonb text: NULL stays distinct from '' and every string is quoted, so no two different
+ * inputs can produce the same bytes. This is the only copy of the expression.
+ *
+ * The logo is covered by its URL, not its image: Signum fetches the image itself, so the
+ * picture behind an unchanged URL can differ between the send and a signature.
  */
 export async function documentContentFingerprint(
   q: Query,
@@ -78,21 +84,17 @@ export async function snapshotRenderInputs(
         FROM (
           SELECT d.id, d.company_id,
         c.name AS company_name, c.registration_number AS company_registration, to_jsonb(b) AS brand_row,
-        jsonb_build_object(
-          'fiscal_year', d.fiscal_year, 'period', d.period, 'document_type', d.document_type,
-          'reporting_framework', d.reporting_framework, 'status', d.status) AS document_part,
+        jsonb_build_object('fiscal_year', d.fiscal_year, 'period', d.period) AS document_part,
         jsonb_build_object('name', c.name, 'registration_number', c.registration_number) AS company_part,
         CASE WHEN b.company_id IS NULL THEN jsonb_build_object('default_profile', true)
              ELSE jsonb_build_object('default_profile', false, 'logo_url', b.logo_url,
                'primary_colour', b.primary_colour, 'secondary_colour', b.secondary_colour,
-               'font_family', b.font_family, 'cover_style', b.cover_style,
-               'report_footer_text', b.report_footer_text) END AS brand_part,
+               'font_family', b.font_family, 'cover_style', b.cover_style) END AS brand_part,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object(
-                   'id', s.id, 'section_type', s.section_type, 'sort_order', s.sort_order, 'status', s.status,
-                   'signed_off_by', s.signed_off_by, 'content', s.content, 'overrides', s.overrides,
-                   'ai_narrative', s.ai_narrative, 'ai_narrative_accepted', s.ai_narrative_accepted,
-                   'data_snapshot', s.data_snapshot) ORDER BY s.id)
+                   'id', s.id, 'section_type', s.section_type, 'sort_order', s.sort_order,
+                   'content', s.content, 'overrides', s.overrides,
+                   'data_snapshot', s.data_snapshot) ORDER BY s.sort_order, s.id)
           FROM afs_sections s
           WHERE s.document_id = d.id AND s.company_id = d.company_id
         ), '[]'::jsonb) AS sections_part
@@ -161,8 +163,8 @@ export async function signatureRefusalReason(
 
   const now = await documentContentFingerprint(q, companyId, documentId);
   if (now.fingerprint === atSend.fingerprint) return null;
-  // Name the input(s) that moved, so the operator looks where the change is. A document
-  // stamped by migration 683 without digests gets the general statement.
+  // Name the input(s) that moved, so the operator looks where the change is. A document whose
+  // digests are missing (only possible for a hand-made row) gets the general statement.
   const changed = atSend.digests
     ? (Object.keys(INPUT_LABELS) as Array<keyof SigningInputDigests>)
         .filter(key => atSend.digests?.[key] !== now.digests[key])

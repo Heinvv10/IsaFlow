@@ -1,6 +1,6 @@
 // pages/api/accounting/afs/[documentId]/send-for-signing.ts — POST
 // Auth: withAuth (staff-only)
-// Reads rendered AFS HTML, calls Signum, sends per-signer notifications.
+// Renders the statements from a fingerprinted snapshot, posts them to Signum, notifies each signer.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
