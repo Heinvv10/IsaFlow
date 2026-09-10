@@ -10486,6 +10486,40 @@
       "severity": "high",
       "source": "Found by the K-107 r8 census re-run from consumers; the check-then-act window independently confirmed on origin/master by the orchestrating session, 2026-09-10",
       "processNotes": "The route SELECTs `ce.status` with no FOR UPDATE, refuses in JS when it equals 'posted', then later runs `UPDATE capture_events SET status='posted' ...` with NO `AND status <> 'posted'` predicate. Two concurrent requests both pass the check and both post. Confirmed on origin/master (read at :57-75 and :177). Registered, NOT fixed -- it is outside the K-107 brief and needs its own branch."
+    },
+    {
+      "id": "R-059",
+      "claim": "",
+      "area": "accounting/reporting",
+      "affectedPaths": [
+        "pages/api/accounting/reports-ar-aging.ts",
+        "pages/api/accounting/reports-ap-aging.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Every historical ageing report a user runs for a past date is wrong, and ageing reports are what debtor and creditor decisions are made on.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-053"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-053/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No data is wrong -- nothing is written. Every ageing report ALREADY RUN for a past as-at date overstated or understated balances, because it included invoices raised after that date and applied payments settled after it. Anything sent to a lender, an auditor or a credit decision is affected. Scope needs Hein; do not query production from an agent.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "The AR/AP aging REPORT routes are not point-in-time: they ignore the as-at date except for days_overdue and use today's amount_paid",
+      "severity": "high",
+      "source": "Found by the K-053 r8 fixer; independently confirmed on origin/master by the orchestrating session, 2026-09-10",
+      "processNotes": "`reports-ar-aging.ts` binds `asAtStr` only inside `GREATEST(0, asAt - due_date) AS days_overdue` and filters `(ci.total_amount - COALESCE(ci.amount_paid,0)) > 0` using the CURRENT amount_paid, with no `invoice_date <= as-at` bound and no rewind. `arAgingService`/`apAgingService` do both (`shared/agingRewind`), so route and service disagree: measured -R300 on the fixture at an earlier date (R500-R800) on AR and AP alike, and zero at today -- which is why no earlier fixture saw it. Pre-existing on master, NOT a soft-delete question. Registered rather than fixed inside the K-053 branch. NOTE: the K-053 fixer's fix.md called this R-056 before the ID was assigned; R-056 is the AFS ABS defect. The reference is being corrected."
     }
   ],
   "sourceInventory": [
