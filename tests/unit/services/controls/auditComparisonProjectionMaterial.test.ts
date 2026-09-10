@@ -16,6 +16,9 @@ it('authenticates the seal and expected identity, not an adjacent replaced hash 
  await expect(createComparisonProjection(sealed,{...expected,companyId:snapshotId},['read:reports'])).rejects.toThrow();
  await expect(createComparisonProjection(sealed,expected,[])).rejects.toThrow();
  await expect(createComparisonProjection(sealed,expected,['read:reports','read:payroll'])).rejects.toThrow();
+ const payroll=body();payroll.populations.push(...['payroll_run','payroll_run_line'].map(source=>({source,count:0,excludedCount:0,exclusions:[]})));
+ await expect(createComparisonProjection(sealAuditSnapshot(payroll),expected,['read:reports'])).rejects.toThrow();
+ expect((await createComparisonProjection(sealAuditSnapshot(payroll),expected,['read:reports','read:payroll'])).permissions).toEqual(['read:payroll','read:reports']);
 });
 it('sorts identities independently while preserving original ordinals and needs no artifact bytes',async()=>{
  const sealed=sealAuditSnapshot(body()),verified=verifyAuditSnapshot(sealed,expected);
