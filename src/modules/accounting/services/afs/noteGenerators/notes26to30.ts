@@ -10,11 +10,10 @@ import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import {
-  CASH_SUBTYPES,
-  INVENTORY_SUBTYPES,
   PAYABLE_SUBTYPES,
   RECEIVABLE_SUBTYPES,
 } from '@/modules/accounting/services/gl/accountSubtypes';
+import { fetchBalanceSnapshot } from '@/modules/accounting/services/afs/afsKpiService';
 
 // ── Note 26 — Events After Reporting Date ────────────────────────────────────
 
@@ -68,41 +67,30 @@ export async function generateNote27GoingConcern(
 
   log.info('note27: querying going concern indicators', { companyId, fiscalYear });
 
-  const [ratioRows, profitRows, terms] = await Promise.all([
+  const [balance, profitRows, terms] = await Promise.all([
+    // The SAME current/non-current split the KPI scorecard reads, not a
+    // whitelist of its own. This note carried a three-token list — cash,
+    // receivables, inventory — while `afsKpiService` counts everything that is
+    // not `NON_CURRENT_SUBTYPES`, so prepaid expenses, VAT input,
+    // current_asset and other_current_asset were current to one surface and
+    // absent from the other: 1.11 here against 1.89 in the KPI block of the
+    // same export. `fetchBalanceSnapshot` is exported for exactly this, and it
+    // carries the account_type guard on both arms (production has 27 paycards
+    // typed 'liability' with a bank subtype).
+    fetchBalanceSnapshot(companyId, end),
     sql`
-      SELECT
-        -- Shared vocabulary for the subtypes that have one: the literal list
-        -- recognised only trade_receivable/trade_payable and missed debtors,
-        -- receivable, creditors, bank_account, petty_cash and stock,
-        -- understating both sides of the current ratio.
-        -- vat_payable, overdraft and current_tax_liability are not in the
-        -- canonical vocabulary at all and stay as literals.
-        -- account_type guards both arms: production carries 27 paycards typed
-        -- 'liability' with a bank subtype, and without the guard they counted
-        -- as current ASSETS at a negative balance. Widening the subtype list
-        -- to bank_account/petty_cash/cash_on_hand made that leak larger, not
-        -- smaller, so the guard goes on in the same round.
-        SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = ANY(${[
-          ...CASH_SUBTYPES, ...RECEIVABLE_SUBTYPES, ...INVENTORY_SUBTYPES,
-        ] as string[]}::TEXT[])
-                 THEN gjl.debit - gjl.credit ELSE 0 END) AS current_assets,
-        SUM(CASE WHEN ga.account_type = 'liability' AND ga.account_subtype = ANY(${[
-          ...PAYABLE_SUBTYPES, 'vat_payable', 'overdraft', 'current_tax_liability',
-        ] as string[]}::TEXT[])
-                 THEN gjl.credit - gjl.debit ELSE 0 END) AS current_liabilities
-      FROM gl_accounts ga
-      JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
-      JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
-        AND gje.entry_date <= ${end} AND gje.status = 'posted'
-      WHERE ga.company_id = ${companyId}
-    ` as Promise<DbRow[]>,
-    sql`
+      -- NET movement per side. ABS applied INSIDE the SUM is applied per
+      -- journal LINE, so a supplier rebate credited to an expense account
+      -- INCREASED the reported expense: revenue R20,000, rent R6,000 less a
+      -- R5,000 rebate printed a profit of R9,000 where the income statement
+      -- reported R19,000. This figure drives hasConcerns below, so the
+      -- defect could flip a statutory going-concern conclusion.
       SELECT SUM(
         CASE WHEN ga.account_type = 'revenue'
-             THEN ABS(gjl.credit - gjl.debit) ELSE 0 END
+             THEN gjl.credit - gjl.debit ELSE 0 END
         -
         CASE WHEN ga.account_type = 'expense'
-             THEN ABS(gjl.debit - gjl.credit) ELSE 0 END
+             THEN gjl.debit - gjl.credit ELSE 0 END
       ) AS net_result
       FROM gl_accounts ga
       JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
@@ -114,9 +102,8 @@ export async function generateNote27GoingConcern(
     getCompanyTerminology(companyId),
   ]);
 
-  const ratioRow = ratioRows[0] ?? {};
-  const currentAssets = toNum(ratioRow.current_assets);
-  const currentLiabilities = toNum(ratioRow.current_liabilities);
+  const currentAssets = balance.currentAssets;
+  const currentLiabilities = balance.currentLiabilities;
   const netResult = toNum((profitRows[0] ?? {}).net_result);
 
   const currentRatioStr =

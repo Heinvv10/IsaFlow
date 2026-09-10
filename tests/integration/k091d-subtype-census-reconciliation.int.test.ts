@@ -346,10 +346,14 @@ it('note 27 does not count a liability paycard as a current asset', async () => 
   // -PAYCARD, understating the going-concern ratio.
   expect(snap.currentAssets).toBeCloseTo(CURRENT_ASSET, 2);
   expect(snap.currentAssets).not.toBeCloseTo(CURRENT_ASSET - PAYCARD, 2);
-  // Note 27's liability arm is an explicit list that does not include a bank
-  // subtype, so the paycard is in neither arm — which is the point: it is not
-  // a current ASSET.
-  expect(snap.currentLiabilities).toBeCloseTo(CURRENT_LIAB, 2);
+  // The paycard IS a current liability — it is a liability with a subtype that
+  // is not non-current — and note 27 now reads the same `fetchBalanceSnapshot`
+  // split the KPI scorecard reads, so it counts it on the liability side and
+  // NOT on the asset side. This assertion pinned the old three-token whitelist
+  // (CURRENT_LIAB alone), which is exactly the divergence that made the same
+  // AFS pack print two different current ratios. `CURRENT_LIABILITIES` is the
+  // constant the scorecard assertions above already use.
+  expect(snap.currentLiabilities).toBeCloseTo(CURRENT_LIABILITIES, 2);
 });
 
 // ── the close gates and the migration validator ──────────────────────────────

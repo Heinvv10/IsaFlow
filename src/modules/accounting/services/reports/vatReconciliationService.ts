@@ -79,8 +79,11 @@ export async function getVatReconciliation(
     sql`
       SELECT
         TO_CHAR(gje.entry_date, 'YYYY-MM') AS month,
+        -- NET. ABS inside the SUM added a credit note to GL revenue, then
+        -- reconciled it against invoiced revenue - already net of them - so
+        -- the reconciliation invented the variance and blamed the ledger.
         COALESCE(SUM(CASE WHEN ga.account_type = 'revenue'
-          THEN ABS(gjl.credit - gjl.debit) ELSE 0 END), 0) AS gl_revenue,
+          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS gl_revenue,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
           THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS gl_output_vat,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'
@@ -318,8 +321,9 @@ export async function getVatMultiYearSummary(
     sql`
       SELECT
         EXTRACT(YEAR FROM gje.entry_date)::INT AS year,
+        -- Net, per gl_revenue above: same per-line ABS, same fix.
         COALESCE(SUM(CASE WHEN ga.account_type = 'revenue'
-          THEN ABS(gjl.credit - gjl.debit) ELSE 0 END), 0) AS revenue,
+          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS revenue,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
           THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS output_vat,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'

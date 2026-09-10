@@ -887,3 +887,247 @@ from the comments the round-8 fixer left in the working tree and are addressed:
 
 The remaining two MEDIUMs are **not recovered**. I am not going to invent them;
 a fresh review will re-find them.
+
+---
+
+# Round 10 — the per-line `ABS` class
+
+The round-9 review scored `a0db13b27` NOT DONE with 3 HIGH, 2 MEDIUM, 2 LOW.
+Every finding is a surviving twin of **one** defect:
+
+> `SUM(ABS(credit - debit))` applies `ABS` to each journal **LINE** before
+> summing, so a contra line — a credit note, a sales return, a supplier rebate,
+> a reversed accrual — is **ADDED** to the figure instead of subtracted. The
+> surface then overstates by exactly **twice** the contra amount, and still
+> foots to its own visible rows, which is why no internal check caught it.
+
+`ABS(SUM(...))` is the magnitude of a net balance and is correct.
+`SUM(ABS(...))` is a sum of magnitudes and is correct only where each row is
+itself a single transaction amount.
+
+## Census — by defect SHAPE, not by the predicate the fix introduces
+
+Enumerated with `grep -rn 'ABS('` over `--include=*.ts` across **`src/`,
+`pages/` and `scripts/`** (the whole TypeScript surface, not a chosen subset),
+then reconciled by reading every hit and deciding it by outcome. Directories
+that produced hits: `src/modules/accounting/services/afs/` (including
+`noteGenerators/` and `noteGenerators/primaryStatements/`),
+`src/modules/accounting/services/reports/`,
+`src/modules/accounting/services/gl/integrityChecks/`,
+`src/modules/bureau/services/`, `pages/api/`.
+
+| Site | Verdict |
+|---|---|
+| `notes16to20.ts:143` note 18 revenue | **DEFECT — fixed** (HIGH-1) |
+| `notes16to20.ts:181,192` note 19 other income | **DEFECT — fixed** (HIGH-2, LOW-2) |
+| `notes26to30.ts:100-106` note 27 going concern | **DEFECT — fixed** (HIGH-3) |
+| `disclosureNoteGenerators.ts:199` IFRS note 5 Revenue | **DEFECT — fixed** (twin outside the three named sites) |
+| `vatReconciliationService.ts:83,322` `gl_revenue` / `revenue` | **DEFECT — fixed** (twin; see below) |
+| `accountChecks.ts:220,236` `duplicate_control_accounts.amount` | **DEFECT — fixed** (twin; see below) |
+| `afsPreExportChecks.ts:246-247` | Immune — `ABS` is applied to `bal.balance`, which is already `SUM(debit - credit)` per account. `ABS` **outside** the sum. |
+| `accountChecks.ts:130` `clearing_accounts_not_nil` | Immune — same shape; `f.amount` is a per-account balance from the `balances()` CTE. |
+| `vatChecks.ts:44,102`, `bankChecks.ts:42,78,125` | Immune — each row is ONE journal line or ONE bank transaction, so the magnitude of that row is the intended figure. |
+| `landing-stats.ts:22`, `bureauWorkAggregatorService.ts:146` | Immune — `ABS(amount)` over `bank_transactions`; a deliberate gross-volume statistic. |
+| `cashFlowForecastDataService.ts:176`, `kpiChartsService.ts:92` | Immune — `CASE WHEN amount < 0 THEN ABS(amount)`; a one-sided split of inflow from outflow, where the magnitude IS the figure. |
+| `vatAllocationMismatchService.ts:97,100` | Immune — `ABS(debit) + ABS(credit)` on a single line, i.e. that line's amount whichever side it is on. |
+| `vatExceptionsService.ts:145,176` | Immune — `HAVING ABS(x - SUM(...))`, already `ABS` outside the aggregate. |
+
+Two twins outside the AFS pack are worth naming, because neither was in the
+review and both are real:
+
+* **`vatReconciliationService`** compares GL revenue against **invoiced**
+  revenue, which is already net of credit notes. The per-line `ABS` therefore
+  manufactured a variance of twice every credit note raised in the period —
+  and the reconciliation reports that variance as an exception against the
+  *ledger*.
+* **`duplicate_control_accounts`** reported `SUM(ABS(debit - credit))`, the
+  gross throughput, under a finding that says "the subledger reconciles against
+  a balance that is missing the other". On a receivables control that settles
+  in full that is roughly twice the turnover against a nil balance. Now
+  `ABS(SUM(...))` — the magnitude of the balance, exactly what
+  `clearingAccountsNotNil` reports twelve lines above it in the same file.
+
+## Per-finding disposition
+
+**HIGH-1 — note 18.** `SUM(gjl.credit - gjl.debit)`, `GROUP BY ga.id, ...`,
+`HAVING ABS(SUM(...)) > 0.001` — the same three changes note 20 already
+carries. Measured on the fixture: turnover R100,000 less an R8,000 credit note
+now prints R92,000 and equals `getIncomeStatement().totalRevenue`.
+
+**HIGH-2 / LOW-2 — note 19.** Same three changes. `HAVING ABS(SUM(...)) >
+0.001` also drops the nil-movement rows the income statement drops at
+`Math.abs(amount) > 0.001`, which is LOW-2.
+
+**HIGH-3 — note 27 net result.** Both `ABS` dropped. The going-concern
+paragraph now reports `getIncomeStatement().netProfit` to the cent. This is
+the figure `hasConcerns` reads, so the defect could flip a statutory
+going-concern conclusion, not merely misprint one.
+
+**MEDIUM-1 — two current ratios in one pack.** Note 27 now calls
+`fetchBalanceSnapshot(companyId, end)` — the function `afsKpiService` exported
+in the previous round for exactly this — instead of its own three-token
+whitelist. One definition, two surfaces. The note's `currentRatioStr` is
+asserted equal to the KPI scorecard's `currentRatio.formatted`, not merely
+close to it.
+
+**MEDIUM-2 — notes 18 and 19 double-counted other income.** Note 18 now
+excludes `OTHER_INCOME_SUBTYPES` (new export, `rawSubtypesFor('other_income')`)
+and note 19 reads exactly that set. The two notes now PARTITION the revenue
+book the way `revenueBand` partitions it.
+
+*Change of behaviour worth flagging to Hein:* note 19's hand-written extras —
+`interest_income`, `dividend_income`, `rental_income`, `gain_on_disposal` — are
+absent from `SUBTYPE_ALIASES`, so `canonicalSubtype` returns null for them and
+`revenueBand` reports them as **turnover**. An account spelled that way
+therefore moves from note 19 into note 18, which is where the income statement
+above it already counted it. If those should instead be other income, the fix
+belongs in `SUBTYPE_ALIASES`, where both surfaces read it — and that is a
+reclassification of reported figures, not a note change, so it is not made
+here.
+
+**LOW-1 — raw SQL filters vs a normalising `canonicalSubtype`.** Fixed at the
+column, not at the call sites: **migration `674_gl_accounts_normalise_subtype`**
+installs a `BEFORE INSERT OR UPDATE OF account_subtype` trigger applying the SQL
+twin of `raw.trim().toLowerCase().replace(/[\s-]+/g,'_')`, plus a backfill of
+rows that are not already normalised.
+
+Why the column and not the ~90 filters: `grep` finds **95** `account_subtype =
+ANY(...)` / `<> ALL(...)` comparisons across `src/` and `pages/`, all comparing
+the raw column against `rawSubtypesFor(...)`, whose entries are already the
+normalised keys of `SUBTYPE_ALIASES`. Normalising 95 call sites leaves the
+96th alive; normalising the column makes every one of them correct by
+construction and makes the "by construction" claim at
+`accountClassification.ts` true rather than aspirational — that docstring is
+updated to say so and to name the trigger.
+
+A trigger rather than a `CHECK`: a `CHECK` would make an importer writing
+`'COGS'` fail outright, where normalising stores the spelling the vocabulary
+already recognises. Values outside the vocabulary normalise too and still
+canonicalise to null, i.e. reported as unclassified — unchanged behaviour.
+
+The backfill is deliberately **not** scoped by `company_id`, against the usual
+rule: it normalises a shared vocabulary column rather than one tenant's data,
+and leaving one tenant unnormalised is precisely the divergence the trigger
+exists to end. It touches only rows that are not already normalised — the
+round-9 reviewer measured **zero** such rows in `isaflow` (949 accounts) and
+zero in `isaflow_dev`, so it is a no-op on both.
+
+## Tests — `tests/integration/k091e-note-contra-line-footing.int.test.ts`
+
+**20 tests, all green.** One fixture seeds a contra line against every band and
+asserts by outcome that each note ties to its face-of-statement line:
+
+* note 18 total == `totalRevenue`; note 19 total == `totalOtherIncome`;
+  note 18 + note 19 == `totalRevenue + totalOtherIncome` with **no account in
+  both**; note 20 == `totalOperatingExpenses`; note 21 == the finance cost;
+  note 27 net result == `netProfit`; note 27 ratio == `getKpiScorecard()`'s
+  `currentRatio` (value AND formatted string); IFRS note 5 == the whole revenue
+  book; VAT reconciliation `glRevenue` == the same;
+  `duplicate_control_accounts.amount` == the contending balances.
+* **Both directions.** A revenue-typed account that legitimately ends NET DEBIT
+  (`Sales returns`) still reports, with its sign, in note 18 and on the income
+  statement. A nil-movement revenue account is dropped by note and statement
+  alike. A prepaid-expense and a VAT-input account are current on both ratio
+  surfaces while a fixed asset is on neither, so "everything not non-current"
+  is proved not to mean "everything".
+* **The comparative.** Notes 18-21 and 27 take a single `fiscalYear` and render
+  no prior-year column, so there is no comparative column to break — verified
+  by reading the generator signatures, not assumed. The equivalent proof is
+  run instead: the entire assertion set runs for **two fiscal years** (2026 and
+  2025) over independently-scaled data, so a year-specific fix fails.
+
+## Mutation proof — file copies, restored and md5-verified
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | note 18 `ABS` restored | **4 red** |
+| M2 | note 18 other-income exclusion removed | **4 red** |
+| M3 | note 19 `ABS` restored | **4 red** |
+| M4 | note 27 net-result `ABS` restored | **2 red** |
+| M5 | note 27 ratio back to a narrow whitelist | **2 red** |
+| M6 | IFRS note 5 `ABS` restored | **2 red** |
+| M7 | `duplicate_control_accounts` back to throughput | **1 red** |
+| M8 | VAT recon `gl_revenue` `ABS` restored | **2 red** |
+| M9 | migration 674's trigger dropped from the fixture DB | **5 red** — note 20 double-counts `'COGS'`, note 21 loses the `' Finance Cost '` account, and the normalisation assertion fails |
+
+No probed surface is revertible with the suite green. Backups and the mutation
+scripts are in `<scratchpad>/agents/fix-k091f/`.
+
+## The branch's own test that pinned the divergence
+
+`k091d-subtype-census-reconciliation.int.test.ts` — *"note 27 does not count a
+liability paycard as a current asset"* — asserted
+`snap.currentLiabilities === CURRENT_LIAB`, i.e. **300**, because note 27's
+liability arm was a hand-list that excluded bank subtypes. The KPI assertions
+three tests above it in the SAME file use `CURRENT_LIABILITIES = CURRENT_LIAB +
+PAYCARD`, i.e. **350**. The file therefore encoded the disagreement MEDIUM-1
+reports, one constant apart. That assertion now uses `CURRENT_LIABILITIES`, with
+a comment saying why. Its two other assertions — the paycard is NOT a current
+asset, and is not netted off current assets — are untouched and still pass: the
+`account_type` guard the previous round added is still proved.
+
+## Migration / rollback
+
+`scripts/migrations/sql/674_gl_accounts_normalise_subtype.sql` — prefix reserved
+through `reserve-prefix.sh`. Rollback: `DROP TRIGGER
+trg_gl_accounts_normalise_subtype ON gl_accounts; DROP FUNCTION
+gl_accounts_normalise_subtype();`. The backfill is not reversible, and does not
+need to be: it rewrites nothing on `isaflow` or `isaflow_dev` (zero matching
+rows), and where it does fire it maps a spelling onto the one the vocabulary
+already recognises.
+
+## Historical-data impact
+
+Read-only apart from the migration backfill (a no-op on both live databases).
+Figures that MOVE, for any company that has ever raised a credit note, a sales
+return, a supplier rebate or a reversed accrual:
+
+* AFS note 18 total **falls** by twice each revenue contra; note 19 by twice
+  each other-income contra; note 27's reported profit **rises** by twice each
+  expense credit; the IFRS Revenue note and the VAT reconciliation's GL revenue
+  fall likewise. Every one of them moves TOWARDS the income statement.
+* Note 18 loses its other-income rows to note 19; note 19 loses any
+  `interest_income` / `dividend_income` / `rental_income` /
+  `gain_on_disposal` account to note 18.
+* Note 27's current ratio changes for any company holding prepaid expenses, VAT
+  input, `current_asset` or `other_current_asset` — it rises towards the KPI
+  figure. `hasConcerns` can therefore change, in both directions.
+* `duplicate_control_accounts.amount` falls from throughput to balance.
+
+Sizing query (not run against production):
+
+```sql
+SELECT ga.company_id, ga.account_type, COUNT(*) AS accounts, SUM(t.contra) AS contra_total
+FROM   gl_accounts ga
+JOIN  (SELECT gjl.gl_account_id,
+              SUM(LEAST(gjl.debit, gjl.credit) * 0) +
+              SUM(CASE WHEN ga2.account_type = 'revenue' AND gjl.debit  > 0 THEN gjl.debit
+                       WHEN ga2.account_type = 'expense' AND gjl.credit > 0 THEN gjl.credit
+                       ELSE 0 END) AS contra
+       FROM gl_journal_lines gjl
+       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
+       JOIN gl_accounts ga2 ON ga2.id = gjl.gl_account_id
+       WHERE gje.status = 'posted'
+       GROUP BY gjl.gl_account_id) t ON t.gl_account_id = ga.id
+WHERE  t.contra > 0
+GROUP  BY ga.company_id, ga.account_type
+ORDER  BY contra_total DESC;
+```
+
+## Limits and things not done
+
+* The shape is on `origin/master` and therefore in the deployed product; the
+  books are **not** corrected by this branch, only the reporting. Restating
+  what a past AFS pack printed is a separate decision for Hein.
+* `disclosureNoteGenerators.noteRevenue` still discloses the whole revenue book
+  (turnover + other income) under the title "Revenue", because that generator
+  set has no other-income note to move it to. Its total is asserted against
+  `totalRevenue + totalOtherIncome`, so it foots — but a reader comparing it to
+  the income statement's Revenue line alone will see the other-income
+  difference. Flagged, not changed: adding a note to that set is a new
+  disclosure, not a fix.
+* `disclosureNoteGenerators.ts` sits at exactly 300 lines and
+  `vatReconciliationService.ts` at 397; the latter was already over the
+  300-line cap before this round and is not refactored here.
+* The five one-sided `HAVING`s listed under round 9's H1b remain
+  un-dispositioned.

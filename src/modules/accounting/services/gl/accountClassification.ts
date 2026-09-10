@@ -151,11 +151,36 @@ export const OTHER_EXPENSE_SUBTYPES: readonly string[] = rawSubtypesFor(...OTHER
  * complement of `expenseBand(...) === 'operating_expense'` over the whole
  * vocabulary. Note 20 excludes exactly this, so the note foots to the income
  * statement's Operating Expenses line by construction rather than by agreement.
+ *
+ * "By construction" is true GIVEN a normalised `gl_accounts.account_subtype`.
+ * `canonicalSubtype` lower-cases and collapses whitespace/hyphens before it
+ * looks a spelling up; SQL comparing this array against the raw column does
+ * not. A row stored `'COGS'` therefore banded as cost of sales on the income
+ * statement and as an operating expense inside note 20 — the same pack
+ * disagreeing with itself over one account. Migration 674 installs the
+ * `gl_accounts_normalise_subtype` trigger that makes the column normalised on
+ * every write, which is what turns the claim above into a fact.
  */
 export const NON_OPERATING_EXPENSE_SUBTYPES: readonly string[] = [
   ...OTHER_EXPENSE_SUBTYPES,
   ...rawSubtypesFor('cost_of_sales'),
 ];
+
+/**
+ * Raw spellings of the revenue band `revenueBand` reports as OTHER INCOME.
+ *
+ * AFS notes 18 and 19 must PARTITION the revenue book between them the way
+ * `revenueBand` does. Note 18 filtered on `account_type = 'revenue'` with no
+ * band split at all, so every other-income account printed inside "Revenue
+ * Disaggregation" AND again inside "Other Income" in the same pack, and note
+ * 18's total agreed with neither `totalRevenue` nor `totalRevenue +
+ * totalOtherIncome`. Note 19 meanwhile carried four spellings of its own —
+ * interest_income, dividend_income, rental_income, gain_on_disposal — that are
+ * absent from the canonical vocabulary and so canonicalise to null, which
+ * `revenueBand` reports as TURNOVER: the note claimed as other income what the
+ * income statement above it counted as revenue. One list, both notes.
+ */
+export const OTHER_INCOME_SUBTYPES: readonly string[] = rawSubtypesFor('other_income');
 
 /** Raw spellings of income tax expense, current and deferred. */
 export const TAX_EXPENSE_SUBTYPES: readonly string[] = rawSubtypesFor('tax_expense');
