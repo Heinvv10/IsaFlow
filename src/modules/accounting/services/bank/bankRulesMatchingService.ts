@@ -17,6 +17,7 @@ import {
 import { isRetryableContention } from '../core/retryableContention';
 import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 export async function applyRules(
   companyId: string,
@@ -52,7 +53,7 @@ export async function applyRules(
       SELECT id FROM gl_accounts
       WHERE id = ${bankAccountId}::UUID
         AND company_id = ${companyId}::UUID
-        AND account_subtype = 'bank'
+        AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
     `) as Record<string, unknown>[];
     const bankGlAccountId = bankAccRows[0]?.id ? String(bankAccRows[0].id) : null;
 

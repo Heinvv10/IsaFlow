@@ -1,5 +1,6 @@
 import { sql } from '@/lib/neon';
 import { getAPAging } from './apAgingService';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import type { AgingBucket } from '../../types/ap.types';
 
 export interface SupplierStatementBalance extends AgingBucket {
@@ -21,6 +22,10 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
         WHERE pa.payment_id = sp.id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = sp.supplier_id
           AND si.status NOT IN ('draft', 'cancelled')
+          -- Same population as apAgingService, dated the same way: the
+          -- delete's reversal is dated to the delete, so as at any earlier
+          -- date the bill is still payable and still absorbs these funds.
+          AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
           AND si.invoice_date <= ${asAtDate}::DATE
       ), 0), 0) AS amount
       FROM supplier_payments sp
@@ -33,6 +38,10 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
         WHERE si.id = cn.supplier_invoice_id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = cn.supplier_id
           AND si.status NOT IN ('draft', 'cancelled')
+          -- Same population as apAgingService, dated the same way: the
+          -- delete's reversal is dated to the delete, so as at any earlier
+          -- date the bill is still payable and still absorbs these funds.
+          AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
           AND si.invoice_date <= ${asAtDate}::DATE
       ) THEN cn.applied_amount ELSE 0 END, 0) AS amount
       FROM credit_notes cn

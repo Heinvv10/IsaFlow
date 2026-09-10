@@ -11,6 +11,7 @@ import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getOpenDisputeTotals } from './disputeService';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 type Row = DbRow;
 
 
@@ -52,6 +53,12 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('draft', 'cancelled')
+        -- A soft-deleted invoice leaves this report exactly when the delete's
+        -- reversal reaches the ledger, and not one day earlier: the reversal is
+        -- dated TODAY whenever the invoice's own period is closed, so an undated
+        -- exclusion drops the document from every earlier as-at date while the
+        -- control account still carries it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
       -- POINT IN TIME. amount_paid on the invoice is a CURRENT snapshot, so
@@ -172,6 +179,12 @@ export async function getARAgingDetail(companyId: string,
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
         AND ci.status NOT IN ('draft', 'cancelled')
+        -- A soft-deleted invoice leaves this report exactly when the delete's
+        -- reversal reaches the ledger, and not one day earlier: the reversal is
+        -- dated TODAY whenever the invoice's own period is closed, so an undated
+        -- exclusion drops the document from every earlier as-at date while the
+        -- control account still carries it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
       -- An invoice with no due date is still a debt. Filtering
