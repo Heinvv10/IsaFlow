@@ -1,0 +1,200 @@
+-- /home/hein/Workspace/IsaFlow/.worktrees/canonical-column-20260911 company 1ea37a6c-6c1c-4484-8826-d3f95d6aab93 cutoff 2026-09-09 journals 200 wall 26 ms
+Sort  (cost=45296.42..45296.67 rows=100 width=498) (actual time=19.729..19.752 rows=200 loops=1)
+  Sort Key: (((COALESCE(j.posted_at, j.created_at) AT TIME ZONE 'Africa/Johannesburg'::text))::date), ((COALESCE(j.posted_by, j.created_by))::text), c.default_currency, j.id
+  Sort Method: quicksort  Memory: 665kB
+  Buffers: shared hit=22979
+  ->  Nested Loop Left Join  (cost=1196.77..45293.10 rows=100 width=498) (actual time=1.327..19.507 rows=200 loops=1)
+        Buffers: shared hit=22970
+        ->  Nested Loop Left Join  (cost=1166.70..40744.68 rows=100 width=329) (actual time=1.164..18.492 rows=200 loops=1)
+              Buffers: shared hit=21549
+              ->  Nested Loop Left Join  (cost=843.33..8404.68 rows=100 width=289) (actual time=0.622..5.408 rows=200 loops=1)
+                    Buffers: shared hit=3363
+                    ->  Nested Loop Left Join  (cost=789.46..3015.68 rows=100 width=217) (actual time=0.483..1.772 rows=200 loops=1)
+                          Buffers: shared hit=1719
+                          ->  Nested Loop  (cost=773.19..1385.93 rows=100 width=156) (actual time=0.408..0.664 rows=200 loops=1)
+                                Buffers: shared hit=934
+                                ->  Index Scan using companies_pkey on companies c  (cost=7.90..15.92 rows=1 width=48) (actual time=0.265..0.267 rows=1 loops=1)
+                                      Index Cond: (id = '1ea37a6c-6c1c-4484-8826-d3f95d6aab93'::uuid)
+                                      Filter: (hashed SubPlan 6)
+                                      Buffers: shared hit=141
+                                      SubPlan 6
+                                        ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.242..0.246 rows=1 loops=1)
+                                              Buffers: shared hit=139
+                                              ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.001..0.001 rows=1 loops=1)
+                                ->  Bitmap Heap Scan on gl_journal_entries j  (cost=765.29..1369.01 rows=100 width=124) (actual time=0.140..0.380 rows=200 loops=1)
+                                      Recheck Cond: (id = ANY ('{00010f04-1eaa-4037-8c7c-3ff12f234174,00023ec5-9232-41c5-a180-c287822b17e4,00037aae-fa7f-48b9-8a06-e6b57d57fa29,0003dca5-bd61-4d7e-a3c1-be7ca2df2a6e,0005758a-87a4-4e69-b2c5-694f68ab55ac,00060070-07aa-4eb9-bf85-a29a7fe341c0,00061374-2953-4b08-aa51-f3e488cc0b2c,00062ecf-a8b5-4519-a193-e18ab4e74269,000667bb-cb39-427e-bae0-fb294cd5f0cc,0006fabc-c293-4bf8-bcdf-d4fff2b9988a,00071202-b26b-4e06-95db-29cb3fb906a6,000825af-ac13-4c87-bb19-56ba22dc9cb3,000a191a-5b00-413b-aec3-c79424c368dc,000a4b67-3a49-485e-b9b2-cba5da2cbfb6,000abb12-3fa8-44c6-bfa7-6fde65fd42a7,000aee8c-3f68-43b3-9e11-a8b9135ed206,000b7a4a-4ba1-414e-b3fb-8f1e86c17020,000d2b49-aba4-4129-91f8-720319e2aa09,000e438c-67b9-406b-8426-0b648859568b,000e922d-fcd1-4dd6-9611-98cf0872748f,000e9c5d-f98f-49ae-b061-2c11816e4550,000edc7c-86e1-4f51-8caa-425853d150af,00104066-42f2-4bab-972d-4a58ad467791,001190d8-e86f-477a-8575-f9ad4f3a0d9f,0012a248-db71-4f89-84d5-2ecab74fce6b,0012ddfc-cf15-4c2d-bef9-6738fb414303,0014541a-becc-4f33-9f31-8ea25581a1d3,00151a19-ff48-42c0-bd76-f4482507edaf,0015778c-8365-46a7-a6e2-29bb68b65747,00163671-0815-405d-a3f1-ab320c348810,001695b7-7eeb-4bbb-bf01-080dba1def49,0017a257-9680-4add-9b8e-85eef73fd185,0018c2b3-5a76-4e92-8104-c5d71d56e235,0018f8ad-d6ec-4401-b68c-e69a1e803c30,00191799-3d7f-4742-9333-2a8ab99c1ffb,001942f3-b19c-4bd8-a561-e8abd67c80d6,001a9642-1929-4a96-b00c-2ef4a8eb7a5b,001b490d-cf00-4163-9342-4ea5722b272f,001b50ee-c71b-4f10-a7c5-47a1aa0acad2,001b924a-b8ce-4c08-a7b0-4ab053b1e5b6,001ba35e-7a5f-484f-a576-8b4b9dc57da3,001ca54f-b98c-46c6-949f-ac8531195790,001d1a13-a961-403a-bde3-fc5bd839e941,001d2e95-1048-4890-9c68-89157fe03bee,001dac40-d237-4598-969e-4256b16b0da0,001e85ea-076e-4d8c-bbf9-23505299075d,001e8f5c-6617-439e-8824-00ff637e4d0e,001ed56e-a5f4-4c55-acc4-f21633f61b7e,001efe12-33ed-4bd6-92e7-66809f3055f4,001f57ea-bd33-49c0-be59-5b42acf5023e,0020407d-bef3-438d-b9e1-f1111b1390c1,0020cd69-e276-42d7-a339-5fd011d2f289,002193b3-9bda-4207-83b0-50eabe6d1a6e,0022680c-2cd2-41f2-a5ca-25f448bdc748,0022ed53-97e4-424c-b68c-925527c71b70,00234b94-b2c7-4344-ab0b-d6577c58be74,0024095c-d7da-42b8-97d4-bc4468588c18,00243edb-222f-4d6c-8426-38093bf4192c,0024e5e6-3349-4555-bfcd-1c17ca5aaa2e,0025306e-256e-45d7-bbea-4c6b3b51677e,00255ce7-fb60-4c64-9c5b-48c0fb2492bc,0025f1df-30f5-4176-9991-aa45e686beb8,0025f403-358d-4b14-a3d7-943c41a7e913,00266ecc-fd3b-4446-bc48-0256a1d67909,0026e4e0-2b55-4432-bad8-2dbe7181c078,00284129-ceff-40d9-87de-56eec0031d96,0029390b-00b0-4fa0-a000-bb2180467399,00299813-3376-4861-b2a5-dc9383e914ba,002a4a84-ede8-419f-99d5-724af353d5b3,002a598b-9d33-4982-a344-b8052ea0fe6d,002b7612-1f98-4799-a15e-080905707c3e,002b938f-1a0d-4605-b3ab-d72cc456faa8,002be0f8-ef44-4f14-a0b7-98f73fc9b93f,002bfd07-9285-4cb0-bb6e-aa9f253776ee,002c0934-313c-4509-b432-82efae22a1a9,002c3dad-77b1-4620-aa1b-238dcfad8168,002ddc2b-c9b5-4603-b84d-3b0304c06df9,002df279-85ec-428f-86e2-0381dfd2061f,002e2c5e-4eee-4066-8a7b-52dee3088ea7,002e8c94-2590-499c-8ef4-f1d60bfe75d2,002f0aa9-853c-41ad-8d20-34259bc2093e,003047f1-34cc-4b69-9e46-3ef6983d1026,0030f510-a133-4c57-993a-787bc4d0ce9c,003102fe-c17f-4158-a309-210e3138b19f,00318c56-b4b8-4de4-a11f-6835696c8991,003229b5-5ac6-4f1c-a60d-434c85e11905,00324838-2179-4df6-b857-a6e26d719eaa,00326197-773c-42a1-ab55-b2cfdc0af580,003288f9-674b-4cec-80ab-8bb6e6d40e19,0032b496-a1e0-4de9-81ef-2b78fb4f0308,00334c07-894d-4a15-9c9c-f09011a39775,0034e407-d9cd-4bd6-9fd7-050052a96f07,00350614-927f-4e32-9181-9618f568d48f,0035ef11-5713-4069-8a98-305cd0968426,00361f5e-c9ac-4b0b-92dd-689b4a20f4f0,003665cc-535f-4220-bba9-070a49e81fe2,003735c6-8313-42d4-8442-d85cf3670b34,00377b8d-7cbf-4a87-a3eb-17336c7dd6d4,00379b93-e98b-4d10-8fc9-ddf743d1a904,00388308-67b4-4083-a755-5202a4e2c3b9,00388436-f5b9-45e3-b986-e040b48a966a,0038caf1-6ce4-462e-9b16-9008d87d3461,003972ff-08b6-467f-98fc-2cc649309ff6,0039b4d4-7437-446a-842d-708fca6d7129,003b6d2a-638d-40fb-a393-81da111fbb0c,003c96cd-a154-4741-b29c-02731d4a4cb4,003c9793-abaf-4a14-8e9d-1aad039dfdf9,003d89ac-36c7-4559-9731-9cb4b4d7c38e,003dbacd-072b-456f-b6b5-283c83fa3590,003e1502-fecc-494e-a950-2bb7d57da471,003ec45b-ce6c-40c7-b81e-26e552d0a7f2,003ff4ba-2220-4f4e-8c87-174e4d023c66,0041cc3e-c06e-4f6b-a3aa-01ca7460c2bc,004219ab-9a40-46c6-b7ba-6a672fc0915c,00434525-cb6e-4e1e-9517-1a575dc76e7f,00441f69-6658-4ca0-b80f-7ff4d77b4e36,00455745-599b-4126-9114-2a89448ad0d2,00460bb4-f9e9-4b60-bca5-243cd56c1c29,0046a9e3-e6a8-4d14-91b1-6cf2ed41df12,00479940-c748-44e0-b631-57d604e34ac8,0047aed8-861b-4658-b065-eb8ca2d96316,0047e214-ccb7-46c3-a274-faac5876c7f7,00482c5b-9de9-4dbb-a9ee-5e430e130482,0049486a-d6e1-4699-afdd-0b33984a0197,004964ec-7952-4522-9c60-0a19bcfdc5ab,0049a17d-7f25-40b7-b0b7-6b9f32f3908f,004a2e8b-4b42-46a4-a683-1f955fb1df20,004bd30a-a805-4496-b5f5-f736d7d491e4,004bf692-e67c-4896-b21e-cd845fbdbd71,004c0c7c-8ef1-496a-ab04-f73e6904a796,004d237d-e3cc-47db-a43f-f62438427656,004d6e04-979b-4221-a401-e6ec416a532a,004e6df1-5961-43fb-b6cb-0d6b9fd295ae,004e72eb-269b-4a98-b02a-03a162572953,004ec82c-d5e6-4cbd-a12e-0fc1cb623e60,00501856-2741-43ec-b868-3ce727dced6a,0053145b-0129-49ce-a576-ac7407e33b45,0053faa9-609a-4f85-bca4-469dc3a53e65,0054828b-3781-4e5f-9342-97fcfbca0fb8,00548d6e-430f-4e93-b351-a361d858b560,0054937f-6d1f-4184-a8f8-cec015777d8a,0055bba8-0355-4eb7-8a66-16230c0f4e15,0055e75f-d192-4bda-b13b-516eecdd7712,0055ebf1-7326-4961-a216-bce4e9c3edb4,005621ec-a94c-42cd-815c-a14361ba6863,0056a3e7-496c-4659-a8c9-64f3ab4d4e8c,0056ba39-e1b4-4b8f-89a7-3016e7ede224,00571c78-d3af-4504-b0ff-09a280b60fd1,005742ab-a3b4-4c38-bafd-5c89a9461137,0057e34c-47a0-44a3-80d5-fea20ef23813,00595614-6454-4fdb-90da-bd164a9f078c,0059af86-563c-4809-b8f9-2086a7070707,005a6d6f-2fa7-4051-a5b0-c11e25ed2403,005a80b6-2220-4100-9168-5b0592ff83d5,005af4a1-d8f6-4be6-8f05-33ef58d51990,005b99a5-f1b2-41aa-bbc6-d28607ff751f,005c0077-f1d6-464f-b7a6-5e0f9bbfc37b,005c1334-5dfe-4dc2-95fb-0ca2a5366706,005c7e63-779b-4a90-975d-f7a086dd6d72,005d2000-86cd-400d-ab1b-608f526a91bd,005d53bc-5388-4470-816f-b795cef369cc,005d7b8a-4119-49f1-81c5-60d691d5e5c1,005e0101-a99d-4d98-b459-c7a5b4d185d9,005e323f-6bcb-4075-ab41-50dd8f5affa6,005ec866-a5f6-4eaf-a8d9-8c13cf109dca,006030fb-4b32-4fbc-b96f-9dfa29eaeea0,0060fc66-ffa8-417c-bb03-707a9f0274c5,00611a6f-d35b-453c-8263-73a43e4886f9,0062e4bb-7891-45d5-ae29-ad2d8e004c73,00632613-cb40-4fee-9c3a-98254eddf66d,00642a6d-10fb-4655-8ccf-9ac18b34fe24,006457b7-d0ee-49ef-855e-ce3fb8f0bd1a,0064e4e0-43b2-4781-8d63-62ea6a254180,0065e618-6167-4dfb-b39e-58a7cdde21a6,0066f37a-20ec-47d3-81c5-6b11e1709eff,0067621b-f1e4-4704-b4b7-9e9e4f642d2d,00679778-d229-4961-a87d-3afe997465c9,0068b12e-2e48-432b-9fea-9b58be93c652,00692c2c-9f13-4c65-b6e9-1c0aa3ffbe92,00694887-f5bc-402e-a10c-881e6102df37,0069ad86-cdf4-491f-b6e1-213761d5c620,0069bd9a-3ee0-48db-ab12-04f1950caf7f,0069c37e-280a-4d2e-93bf-0915097540e5,006a00fd-3ba8-469b-a142-d6188ffb15e1,006a3a57-e8ab-43fc-bd7e-4c2e54b96a82,006b5314-1d0d-4cf8-b12b-74e38ddb7a39,006bae1a-3868-413d-86ab-1d4165adce7e,006bf052-cf8a-42e0-ba35-b6c34a1d249d,006db0e3-f189-47fe-bdd7-6cc5770dbd64,006e3cd3-5f80-4d75-b3f0-afb89cb97e3b,006e459d-9caf-4fcc-a730-ff4d10a68c78,006ea93b-baf8-4e69-b49d-de353cd2904d,007052e6-9b87-413f-b84d-da84adf7107b,0072298c-60fd-4b88-b0fe-023c26efd65c,00726ddf-2d3a-4682-8b6a-47fe8130afc8,0073627a-cbaa-41eb-8d8c-c3d262b3f022,00749890-118f-4db1-9c01-2b248a550dd2,0074f0d4-131f-4706-a84a-ccc87b28eb63,0074f808-1144-4de8-9fcc-41dffa264bef,0076a92d-930d-4650-b974-20d3e26d23d1}'::uuid[]))
+                                      Filter: ((hashed SubPlan 5) AND (entry_date <= '2026-09-09'::date) AND (company_id = '1ea37a6c-6c1c-4484-8826-d3f95d6aab93'::uuid) AND ((status)::text = 'posted'::text))
+                                      Heap Blocks: exact=191
+                                      Buffers: shared hit=793
+                                      ->  Bitmap Index Scan on gl_journal_entries_pkey  (cost=0.00..757.00 rows=200 width=0) (actual time=0.077..0.078 rows=200 loops=1)
+                                            Index Cond: (id = ANY ('{00010f04-1eaa-4037-8c7c-3ff12f234174,00023ec5-9232-41c5-a180-c287822b17e4,00037aae-fa7f-48b9-8a06-e6b57d57fa29,0003dca5-bd61-4d7e-a3c1-be7ca2df2a6e,0005758a-87a4-4e69-b2c5-694f68ab55ac,00060070-07aa-4eb9-bf85-a29a7fe341c0,00061374-2953-4b08-aa51-f3e488cc0b2c,00062ecf-a8b5-4519-a193-e18ab4e74269,000667bb-cb39-427e-bae0-fb294cd5f0cc,0006fabc-c293-4bf8-bcdf-d4fff2b9988a,00071202-b26b-4e06-95db-29cb3fb906a6,000825af-ac13-4c87-bb19-56ba22dc9cb3,000a191a-5b00-413b-aec3-c79424c368dc,000a4b67-3a49-485e-b9b2-cba5da2cbfb6,000abb12-3fa8-44c6-bfa7-6fde65fd42a7,000aee8c-3f68-43b3-9e11-a8b9135ed206,000b7a4a-4ba1-414e-b3fb-8f1e86c17020,000d2b49-aba4-4129-91f8-720319e2aa09,000e438c-67b9-406b-8426-0b648859568b,000e922d-fcd1-4dd6-9611-98cf0872748f,000e9c5d-f98f-49ae-b061-2c11816e4550,000edc7c-86e1-4f51-8caa-425853d150af,00104066-42f2-4bab-972d-4a58ad467791,001190d8-e86f-477a-8575-f9ad4f3a0d9f,0012a248-db71-4f89-84d5-2ecab74fce6b,0012ddfc-cf15-4c2d-bef9-6738fb414303,0014541a-becc-4f33-9f31-8ea25581a1d3,00151a19-ff48-42c0-bd76-f4482507edaf,0015778c-8365-46a7-a6e2-29bb68b65747,00163671-0815-405d-a3f1-ab320c348810,001695b7-7eeb-4bbb-bf01-080dba1def49,0017a257-9680-4add-9b8e-85eef73fd185,0018c2b3-5a76-4e92-8104-c5d71d56e235,0018f8ad-d6ec-4401-b68c-e69a1e803c30,00191799-3d7f-4742-9333-2a8ab99c1ffb,001942f3-b19c-4bd8-a561-e8abd67c80d6,001a9642-1929-4a96-b00c-2ef4a8eb7a5b,001b490d-cf00-4163-9342-4ea5722b272f,001b50ee-c71b-4f10-a7c5-47a1aa0acad2,001b924a-b8ce-4c08-a7b0-4ab053b1e5b6,001ba35e-7a5f-484f-a576-8b4b9dc57da3,001ca54f-b98c-46c6-949f-ac8531195790,001d1a13-a961-403a-bde3-fc5bd839e941,001d2e95-1048-4890-9c68-89157fe03bee,001dac40-d237-4598-969e-4256b16b0da0,001e85ea-076e-4d8c-bbf9-23505299075d,001e8f5c-6617-439e-8824-00ff637e4d0e,001ed56e-a5f4-4c55-acc4-f21633f61b7e,001efe12-33ed-4bd6-92e7-66809f3055f4,001f57ea-bd33-49c0-be59-5b42acf5023e,0020407d-bef3-438d-b9e1-f1111b1390c1,0020cd69-e276-42d7-a339-5fd011d2f289,002193b3-9bda-4207-83b0-50eabe6d1a6e,0022680c-2cd2-41f2-a5ca-25f448bdc748,0022ed53-97e4-424c-b68c-925527c71b70,00234b94-b2c7-4344-ab0b-d6577c58be74,0024095c-d7da-42b8-97d4-bc4468588c18,00243edb-222f-4d6c-8426-38093bf4192c,0024e5e6-3349-4555-bfcd-1c17ca5aaa2e,0025306e-256e-45d7-bbea-4c6b3b51677e,00255ce7-fb60-4c64-9c5b-48c0fb2492bc,0025f1df-30f5-4176-9991-aa45e686beb8,0025f403-358d-4b14-a3d7-943c41a7e913,00266ecc-fd3b-4446-bc48-0256a1d67909,0026e4e0-2b55-4432-bad8-2dbe7181c078,00284129-ceff-40d9-87de-56eec0031d96,0029390b-00b0-4fa0-a000-bb2180467399,00299813-3376-4861-b2a5-dc9383e914ba,002a4a84-ede8-419f-99d5-724af353d5b3,002a598b-9d33-4982-a344-b8052ea0fe6d,002b7612-1f98-4799-a15e-080905707c3e,002b938f-1a0d-4605-b3ab-d72cc456faa8,002be0f8-ef44-4f14-a0b7-98f73fc9b93f,002bfd07-9285-4cb0-bb6e-aa9f253776ee,002c0934-313c-4509-b432-82efae22a1a9,002c3dad-77b1-4620-aa1b-238dcfad8168,002ddc2b-c9b5-4603-b84d-3b0304c06df9,002df279-85ec-428f-86e2-0381dfd2061f,002e2c5e-4eee-4066-8a7b-52dee3088ea7,002e8c94-2590-499c-8ef4-f1d60bfe75d2,002f0aa9-853c-41ad-8d20-34259bc2093e,003047f1-34cc-4b69-9e46-3ef6983d1026,0030f510-a133-4c57-993a-787bc4d0ce9c,003102fe-c17f-4158-a309-210e3138b19f,00318c56-b4b8-4de4-a11f-6835696c8991,003229b5-5ac6-4f1c-a60d-434c85e11905,00324838-2179-4df6-b857-a6e26d719eaa,00326197-773c-42a1-ab55-b2cfdc0af580,003288f9-674b-4cec-80ab-8bb6e6d40e19,0032b496-a1e0-4de9-81ef-2b78fb4f0308,00334c07-894d-4a15-9c9c-f09011a39775,0034e407-d9cd-4bd6-9fd7-050052a96f07,00350614-927f-4e32-9181-9618f568d48f,0035ef11-5713-4069-8a98-305cd0968426,00361f5e-c9ac-4b0b-92dd-689b4a20f4f0,003665cc-535f-4220-bba9-070a49e81fe2,003735c6-8313-42d4-8442-d85cf3670b34,00377b8d-7cbf-4a87-a3eb-17336c7dd6d4,00379b93-e98b-4d10-8fc9-ddf743d1a904,00388308-67b4-4083-a755-5202a4e2c3b9,00388436-f5b9-45e3-b986-e040b48a966a,0038caf1-6ce4-462e-9b16-9008d87d3461,003972ff-08b6-467f-98fc-2cc649309ff6,0039b4d4-7437-446a-842d-708fca6d7129,003b6d2a-638d-40fb-a393-81da111fbb0c,003c96cd-a154-4741-b29c-02731d4a4cb4,003c9793-abaf-4a14-8e9d-1aad039dfdf9,003d89ac-36c7-4559-9731-9cb4b4d7c38e,003dbacd-072b-456f-b6b5-283c83fa3590,003e1502-fecc-494e-a950-2bb7d57da471,003ec45b-ce6c-40c7-b81e-26e552d0a7f2,003ff4ba-2220-4f4e-8c87-174e4d023c66,0041cc3e-c06e-4f6b-a3aa-01ca7460c2bc,004219ab-9a40-46c6-b7ba-6a672fc0915c,00434525-cb6e-4e1e-9517-1a575dc76e7f,00441f69-6658-4ca0-b80f-7ff4d77b4e36,00455745-599b-4126-9114-2a89448ad0d2,00460bb4-f9e9-4b60-bca5-243cd56c1c29,0046a9e3-e6a8-4d14-91b1-6cf2ed41df12,00479940-c748-44e0-b631-57d604e34ac8,0047aed8-861b-4658-b065-eb8ca2d96316,0047e214-ccb7-46c3-a274-faac5876c7f7,00482c5b-9de9-4dbb-a9ee-5e430e130482,0049486a-d6e1-4699-afdd-0b33984a0197,004964ec-7952-4522-9c60-0a19bcfdc5ab,0049a17d-7f25-40b7-b0b7-6b9f32f3908f,004a2e8b-4b42-46a4-a683-1f955fb1df20,004bd30a-a805-4496-b5f5-f736d7d491e4,004bf692-e67c-4896-b21e-cd845fbdbd71,004c0c7c-8ef1-496a-ab04-f73e6904a796,004d237d-e3cc-47db-a43f-f62438427656,004d6e04-979b-4221-a401-e6ec416a532a,004e6df1-5961-43fb-b6cb-0d6b9fd295ae,004e72eb-269b-4a98-b02a-03a162572953,004ec82c-d5e6-4cbd-a12e-0fc1cb623e60,00501856-2741-43ec-b868-3ce727dced6a,0053145b-0129-49ce-a576-ac7407e33b45,0053faa9-609a-4f85-bca4-469dc3a53e65,0054828b-3781-4e5f-9342-97fcfbca0fb8,00548d6e-430f-4e93-b351-a361d858b560,0054937f-6d1f-4184-a8f8-cec015777d8a,0055bba8-0355-4eb7-8a66-16230c0f4e15,0055e75f-d192-4bda-b13b-516eecdd7712,0055ebf1-7326-4961-a216-bce4e9c3edb4,005621ec-a94c-42cd-815c-a14361ba6863,0056a3e7-496c-4659-a8c9-64f3ab4d4e8c,0056ba39-e1b4-4b8f-89a7-3016e7ede224,00571c78-d3af-4504-b0ff-09a280b60fd1,005742ab-a3b4-4c38-bafd-5c89a9461137,0057e34c-47a0-44a3-80d5-fea20ef23813,00595614-6454-4fdb-90da-bd164a9f078c,0059af86-563c-4809-b8f9-2086a7070707,005a6d6f-2fa7-4051-a5b0-c11e25ed2403,005a80b6-2220-4100-9168-5b0592ff83d5,005af4a1-d8f6-4be6-8f05-33ef58d51990,005b99a5-f1b2-41aa-bbc6-d28607ff751f,005c0077-f1d6-464f-b7a6-5e0f9bbfc37b,005c1334-5dfe-4dc2-95fb-0ca2a5366706,005c7e63-779b-4a90-975d-f7a086dd6d72,005d2000-86cd-400d-ab1b-608f526a91bd,005d53bc-5388-4470-816f-b795cef369cc,005d7b8a-4119-49f1-81c5-60d691d5e5c1,005e0101-a99d-4d98-b459-c7a5b4d185d9,005e323f-6bcb-4075-ab41-50dd8f5affa6,005ec866-a5f6-4eaf-a8d9-8c13cf109dca,006030fb-4b32-4fbc-b96f-9dfa29eaeea0,0060fc66-ffa8-417c-bb03-707a9f0274c5,00611a6f-d35b-453c-8263-73a43e4886f9,0062e4bb-7891-45d5-ae29-ad2d8e004c73,00632613-cb40-4fee-9c3a-98254eddf66d,00642a6d-10fb-4655-8ccf-9ac18b34fe24,006457b7-d0ee-49ef-855e-ce3fb8f0bd1a,0064e4e0-43b2-4781-8d63-62ea6a254180,0065e618-6167-4dfb-b39e-58a7cdde21a6,0066f37a-20ec-47d3-81c5-6b11e1709eff,0067621b-f1e4-4704-b4b7-9e9e4f642d2d,00679778-d229-4961-a87d-3afe997465c9,0068b12e-2e48-432b-9fea-9b58be93c652,00692c2c-9f13-4c65-b6e9-1c0aa3ffbe92,00694887-f5bc-402e-a10c-881e6102df37,0069ad86-cdf4-491f-b6e1-213761d5c620,0069bd9a-3ee0-48db-ab12-04f1950caf7f,0069c37e-280a-4d2e-93bf-0915097540e5,006a00fd-3ba8-469b-a142-d6188ffb15e1,006a3a57-e8ab-43fc-bd7e-4c2e54b96a82,006b5314-1d0d-4cf8-b12b-74e38ddb7a39,006bae1a-3868-413d-86ab-1d4165adce7e,006bf052-cf8a-42e0-ba35-b6c34a1d249d,006db0e3-f189-47fe-bdd7-6cc5770dbd64,006e3cd3-5f80-4d75-b3f0-afb89cb97e3b,006e459d-9caf-4fcc-a730-ff4d10a68c78,006ea93b-baf8-4e69-b49d-de353cd2904d,007052e6-9b87-413f-b84d-da84adf7107b,0072298c-60fd-4b88-b0fe-023c26efd65c,00726ddf-2d3a-4682-8b6a-47fe8130afc8,0073627a-cbaa-41eb-8d8c-c3d262b3f022,00749890-118f-4db1-9c01-2b248a550dd2,0074f0d4-131f-4706-a84a-ccc87b28eb63,0074f808-1144-4de8-9fcc-41dffa264bef,0076a92d-930d-4650-b974-20d3e26d23d1}'::uuid[]))
+                                            Buffers: shared hit=600
+                                      SubPlan 5
+                                        ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.039..0.040 rows=1 loops=1)
+                                              Buffers: shared hit=2
+                                              ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+                          ->  Limit  (cost=16.27..16.28 rows=1 width=214) (actual time=0.005..0.005 rows=1 loops=200)
+                                Buffers: shared hit=785
+                                ->  Sort  (cost=16.27..16.28 rows=1 width=214) (actual time=0.005..0.005 rows=1 loops=200)
+                                      Sort Key: cv.version DESC, ((cv.entity_id = (j.id)::text)) DESC, cv.entity_id COLLATE "C"
+                                      Sort Method: quicksort  Memory: 25kB
+                                      Buffers: shared hit=785
+                                      ->  WindowAgg  (cost=16.22..16.26 rows=1 width=214) (actual time=0.005..0.005 rows=1 loops=200)
+                                            Buffers: shared hit=777
+                                            ->  WindowAgg  (cost=16.22..16.24 rows=1 width=53) (actual time=0.004..0.004 rows=1 loops=200)
+                                                  Buffers: shared hit=777
+                                                  ->  Sort  (cost=16.22..16.23 rows=1 width=45) (actual time=0.004..0.004 rows=1 loops=200)
+                                                        Sort Key: cv.version
+                                                        Sort Method: quicksort  Memory: 25kB
+                                                        Buffers: shared hit=777
+                                                        ->  Result  (cost=8.19..16.21 rows=1 width=45) (actual time=0.003..0.003 rows=1 loops=200)
+                                                              One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                                                              Buffers: shared hit=777
+                                                              ->  Index Scan using control_entity_versions_entity_canonical_idx on control_entity_versions cv  (cost=8.19..16.21 rows=1 width=45) (actual time=0.003..0.003 rows=1 loops=200)
+                                                                    Index Cond: ((company_id = j.company_id) AND (entity_type = 'journal_entry'::text) AND (entity_id_canonical = (j.id)::text))
+                                                                    Filter: (hashed SubPlan 7)
+                                                                    Buffers: shared hit=777
+                                                                    SubPlan 7
+                                                                      ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.030..0.031 rows=1 loops=1)
+                                                                            Buffers: shared hit=2
+                                                                            ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+                    ->  Aggregate  (cost=53.87..53.88 rows=1 width=72) (actual time=0.018..0.018 rows=1 loops=200)
+                          Buffers: shared hit=1644
+                          InitPlan 9 (returns $14)
+                            ->  Aggregate  (cost=26.99..27.00 rows=1 width=32) (actual time=0.011..0.011 rows=1 loops=200)
+                                  Buffers: shared hit=822
+                                  ->  Subquery Scan on f  (cost=26.93..26.98 rows=4 width=56) (actual time=0.003..0.004 rows=6 loops=200)
+                                        Buffers: shared hit=822
+                                        ->  Limit  (cost=26.93..26.94 rows=4 width=96) (actual time=0.003..0.004 rows=6 loops=200)
+                                              Buffers: shared hit=822
+                                              ->  Sort  (cost=26.93..26.94 rows=4 width=96) (actual time=0.003..0.003 rows=6 loops=200)
+                                                    Sort Key: x.id
+                                                    Sort Method: quicksort  Memory: 25kB
+                                                    Buffers: shared hit=822
+                                                    ->  Index Scan using idx_gl_jl_company_entry on gl_journal_lines x  (cost=8.19..26.89 rows=4 width=96) (actual time=0.001..0.002 rows=6 loops=200)
+                                                          Index Cond: ((company_id = j.company_id) AND (journal_entry_id = j.id))
+                                                          Filter: (hashed SubPlan 8)
+                                                          Buffers: shared hit=822
+                                                          SubPlan 8
+                                                            ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.026..0.027 rows=1 loops=1)
+                                                                  Buffers: shared hit=2
+                                                                  ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+                          ->  Index Scan using idx_gl_jl_company_entry on gl_journal_lines l  (cost=8.19..26.85 rows=4 width=4) (actual time=0.004..0.006 rows=6 loops=200)
+                                Index Cond: ((company_id = j.company_id) AND (journal_entry_id = j.id))
+                                Filter: (hashed SubPlan 10)
+                                Buffers: shared hit=822
+                                SubPlan 10
+                                  ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.025..0.027 rows=1 loops=1)
+                                        Buffers: shared hit=2
+                                        ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+              ->  Aggregate  (cost=323.37..323.38 rows=1 width=40) (actual time=0.065..0.065 rows=1 loops=200)
+                    Buffers: shared hit=18186
+                    InitPlan 14 (returns $23)
+                      ->  Aggregate  (cost=282.11..282.12 rows=1 width=32) (actual time=0.054..0.054 rows=1 loops=200)
+                            Buffers: shared hit=17125
+                            ->  Subquery Scan on f_1  (cost=38.40..282.09 rows=8 width=92) (actual time=0.009..0.042 rows=9 loops=200)
+                                  Buffers: shared hit=17125
+                                  ->  Limit  (cost=38.40..282.01 rows=8 width=100) (actual time=0.009..0.041 rows=9 loops=200)
+                                        Buffers: shared hit=17125
+                                        ->  Result  (cost=38.40..282.01 rows=8 width=100) (actual time=0.009..0.040 rows=9 loops=200)
+                                              One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                                              Buffers: shared hit=17125
+                                              ->  Nested Loop Left Join  (cost=38.40..281.95 rows=8 width=84) (actual time=0.008..0.039 rows=9 loops=200)
+                                                    Buffers: shared hit=17125
+                                                    ->  Index Scan Backward using control_change_events_entity_canonical_idx on control_change_events x_1  (cost=8.32..41.23 rows=8 width=52) (actual time=0.002..0.005 rows=9 loops=200)
+                                                          Index Cond: ((company_id = j.company_id) AND (entity_type = 'journal_entry'::text) AND (entity_id_canonical = (j.id)::text))
+                                                          Filter: ((hashed SubPlan 11) AND (action <> ALL ('{baseline_observed,journal.post}'::text[])))
+                                                          Buffers: shared hit=1287
+                                                          SubPlan 11
+                                                            ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.025..0.025 rows=1 loops=1)
+                                                                  Buffers: shared hit=2
+                                                                  ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+                                                    ->  Limit  (cost=30.06..30.07 rows=1 width=40) (actual time=0.004..0.004 rows=0 loops=1872)
+                                                          Buffers: shared hit=15838
+                                                          ->  Sort  (cost=30.06..30.07 rows=1 width=40) (actual time=0.003..0.003 rows=0 loops=1872)
+                                                                Sort Key: e_1.occurred_at DESC, e_1.id DESC
+                                                                Sort Method: quicksort  Memory: 25kB
+                                                                Buffers: shared hit=15838
+                                                                ->  Result  (cost=16.23..30.05 rows=1 width=40) (actual time=0.003..0.003 rows=0 loops=1872)
+                                                                      One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                                                                      Buffers: shared hit=15835
+                                                                      ->  Nested Loop  (cost=16.23..30.05 rows=1 width=40) (actual time=0.003..0.003 rows=0 loops=1872)
+                                                                            Join Filter: ((p_1.id)::text = e_1.entity_id_canonical)
+                                                                            Rows Removed by Join Filter: 2
+                                                                            Buffers: shared hit=15835
+                                                                            ->  Index Scan using control_change_events_entity_canonical_idx on control_change_events e_1  (cost=8.32..14.10 rows=1 width=93) (actual time=0.001..0.002 rows=2 loops=1872)
+                                                                                  Index Cond: ((company_id = j.company_id) AND (entity_type = 'fiscal_period'::text) AND (occurred_at <= x_1.occurred_at))
+                                                                                  Filter: ((hashed SubPlan 12) AND (action = ANY ('{fiscal_period.close,fiscal_period.lock,fiscal_period.reopen,year_closed_period}'::text[])))
+                                                                                  Buffers: shared hit=9155
+                                                                                  SubPlan 12
+                                                                                    ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.026..0.027 rows=1 loops=1)
+                                                                                          Buffers: shared hit=2
+                                                                                          ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.001 rows=1 loops=1)
+                                                                            ->  Index Scan using fiscal_periods_no_overlap on fiscal_periods p_1  (cost=7.91..15.93 rows=1 width=32) (actual time=0.000..0.001 rows=1 loops=3319)
+                                                                                  Index Cond: (company_id = j.company_id)
+                                                                                  Filter: ((hashed SubPlan 13) AND (id = j.fiscal_period_id))
+                                                                                  Rows Removed by Filter: 1
+                                                                                  Buffers: shared hit=6680
+                                                                                  SubPlan 13
+                                                                                    ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.040..0.041 rows=1 loops=1)
+                                                                                          Buffers: shared hit=2
+                                                                                          ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+                    ->  Result  (cost=8.32..41.23 rows=8 width=0) (actual time=0.008..0.010 rows=9 loops=200)
+                          One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                          Buffers: shared hit=1061
+                          ->  Index Scan using control_change_events_entity_canonical_idx on control_change_events n  (cost=8.32..41.23 rows=8 width=0) (actual time=0.007..0.009 rows=9 loops=200)
+                                Index Cond: ((company_id = j.company_id) AND (entity_type = 'journal_entry'::text) AND (entity_id_canonical = (j.id)::text))
+                                Filter: ((hashed SubPlan 15) AND (action <> ALL ('{baseline_observed,journal.post}'::text[])))
+                                Buffers: shared hit=1061
+                                SubPlan 15
+                                  ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.037..0.038 rows=1 loops=1)
+                                        Buffers: shared hit=2
+                                        ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+        ->  Memoize  (cost=30.07..30.09 rows=1 width=40) (actual time=0.004..0.004 rows=0 loops=200)
+              Cache Key: j.company_id, j.fiscal_period_id, j.posted_at
+              Cache Mode: binary
+              Hits: 29  Misses: 171  Evictions: 0  Overflows: 0  Memory Usage: 18kB
+              Buffers: shared hit=1421
+              ->  Subquery Scan on event  (cost=30.06..30.08 rows=1 width=40) (actual time=0.004..0.004 rows=0 loops=171)
+                    Buffers: shared hit=1421
+                    ->  Limit  (cost=30.06..30.07 rows=1 width=48) (actual time=0.004..0.004 rows=0 loops=171)
+                          Buffers: shared hit=1421
+                          ->  Sort  (cost=30.06..30.07 rows=1 width=48) (actual time=0.004..0.004 rows=0 loops=171)
+                                Sort Key: e.occurred_at DESC, e.id DESC
+                                Sort Method: quicksort  Memory: 25kB
+                                Buffers: shared hit=1421
+                                ->  Result  (cost=16.23..30.05 rows=1 width=48) (actual time=0.004..0.004 rows=0 loops=171)
+                                      One-Time Filter: ((NULLIF(current_setting('app.current_company_id'::text, true), ''::text))::uuid = j.company_id)
+                                      Buffers: shared hit=1421
+                                      ->  Nested Loop  (cost=16.23..30.05 rows=1 width=48) (actual time=0.003..0.003 rows=0 loops=171)
+                                            Join Filter: ((p.id)::text = e.entity_id_canonical)
+                                            Rows Removed by Join Filter: 2
+                                            Buffers: shared hit=1421
+                                            ->  Index Scan using control_change_events_entity_canonical_idx on control_change_events e  (cost=8.32..14.10 rows=1 width=101) (actual time=0.002..0.002 rows=2 loops=171)
+                                                  Index Cond: ((company_id = j.company_id) AND (entity_type = 'fiscal_period'::text) AND (occurred_at <= j.posted_at))
+                                                  Filter: ((hashed SubPlan 16) AND (action = ANY ('{fiscal_period.close,fiscal_period.lock,fiscal_period.reopen,year_closed_period}'::text[])))
+                                                  Buffers: shared hit=827
+                                                  SubPlan 16
+                                                    ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.030..0.031 rows=1 loops=1)
+                                                          Buffers: shared hit=2
+                                                          ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+                                            ->  Index Scan using fiscal_periods_no_overlap on fiscal_periods p  (cost=7.91..15.93 rows=1 width=32) (actual time=0.000..0.001 rows=1 loops=296)
+                                                  Index Cond: (company_id = j.company_id)
+                                                  Filter: ((hashed SubPlan 17) AND (id = j.fiscal_period_id))
+                                                  Rows Removed by Filter: 1
+                                                  Buffers: shared hit=594
+                                                  SubPlan 17
+                                                    ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (actual time=0.026..0.027 rows=1 loops=1)
+                                                          Buffers: shared hit=2
+                                                          ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+        SubPlan 2
+          ->  Index Scan using gl_journal_entries_pkey on gl_journal_entries original  (cost=8.18..16.21 rows=1 width=0) (never executed)
+                Index Cond: (id = j.reversal_of_id)
+                Filter: ((hashed SubPlan 1) AND (company_id = j.company_id))
+                SubPlan 1
+                  ->  ProjectSet  (cost=0.00..5.27 rows=1000 width=16) (never executed)
+                        ->  Result  (cost=0.00..0.01 rows=1 width=0) (never executed)
+Planning:
+  Buffers: shared hit=1194
+Planning Time: 1.736 ms
+Execution Time: 20.060 ms
