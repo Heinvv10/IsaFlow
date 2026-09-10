@@ -100,7 +100,7 @@ were not redone. Every finding below was fixed on this branch.
 | L-B | FIXED | `bankRulesMatchingService.ts` 331 → 268: the suggestion arm moved to `bankRulesSuggestionPass.ts` (98). No call site moved. | `bunx tsc --noEmit` clean; the seven rule-related unit suites green |
 | L-C | FIXED | Both `/not found/i` assertions pinned to `Journal line <id> not found`, which `lockForStatusWrite`'s `Bank transaction <id> not found` can no longer satisfy. | `k144-match-unvalidated-journal-line.int.test.ts` (5) |
 | L-D | FIXED, with a correction to the finding | `isEmptyPeriodEnvelope`'s QIF arm also requires no `^D`/`^T` record lines. Measured: a WELL-FORMED QIF missing only its final `^` already parses correctly (the parser flushes the trailing record), so that specific case was never silently zeroed. The reachable hazard is a file carrying record lines the parser could NOT read and no `^` at all — that was exempted as an empty period and imported as zero rows. | `k145-non-csv-parse-guard.test.ts` (11) |
-| L-E | FIXED (documented) | The `CREATE UNIQUE INDEX` stays non-`CONCURRENTLY` — the release pass must share its transaction, and `CONCURRENTLY` cannot run in a transaction block — but the trade is now stated in the file: ACCESS EXCLUSIVE on `bank_transactions` for the build, so 657 is a maintenance-window deploy. | migration header |
+| L-E | FIXED (documented) | The `CREATE UNIQUE INDEX` stays non-`CONCURRENTLY` — the release pass must share its transaction, and `CONCURRENTLY` cannot run in a transaction block — but the trade is now stated in the file: SHARE on `bank_transactions` for the build (readers and `SELECT … FOR UPDATE` pass, every write blocks), so 657 is a maintenance-window deploy. The header said ACCESS EXCLUSIVE until round 5; corrected there. | migration header |
 | L-F | FIXED | `bank/.claude.md` gains the auto-post family (`autoPostGateService`, `autoPostSettingsService`, `autoPostUndoService`), `bankRulesSuggestionPass` / `bankRulesMatchingHelpers`, the real `applyRules(companyId, bankAccountId, userId, ruleIds?)` signature and `rulePattern`'s NULL rule. Mirror regenerated. | `bun run agent-docs:check` — OK: 74 mirrors match |
 
 **Migration choice.** 657 was CORRECTED in place rather than followed by 661. It is unpushed,
@@ -157,3 +157,19 @@ beside it. It passed under `BANK_TABLE_LOCK_E2E=1` (recorded in `green.log`); th
 proves the same mapping through the probe and the unit test. The probe is a second round trip
 only on the 55P03 path, and a DDL window that opens between the failed UPDATE and the probe
 reports "retry" for a genuine race — the harmless direction.
+
+# Blind review round 4 — disposition per finding
+
+Round 4 returned **DONE**, 0 HIGH / 0 MEDIUM, 2 LOW documentation residuals. Both are closed
+here; no production behaviour changed this round.
+
+| # | Disposition | Where |
+|---|---|---|
+| LOW-1 | DOCUMENTED, not discriminated — with a correction to the finding's premise | `bankTxLock.ts:90-108`. The reviewer's fix suggestion (have `lockBankTransactionForUpdate`'s catch consult `tableLockUnavailable()`) cannot be applied as written: the `SELECT … FOR UPDATE` runs OUTSIDE a savepoint, so its `55P03` aborts the transaction and the probe's `LOCK TABLE` answers `25P02` "current transaction is aborted" — measured on the schema fixture (`BEGIN; SELECT 1/0; LOCK TABLE bank_transactions IN ROW SHARE MODE NOWAIT;` → 25P02), which would mask the real error rather than classify it. Discriminating here requires wrapping that SELECT in its own savepoint on every bank write path; that is a behaviour change on six call sites for a branch whose own migration cannot reach the window (`FOR UPDATE` takes ROW SHARE, which does not conflict with 657's SHARE), so it is deferred and the catch now states the limit, the exposure (`ALTER TABLE` / `VACUUM FULL` / `TRUNCATE` only) and the wrong attribution (`skippedRaced`) in place. |
+| LOW-2 | FIXED | `657_bank_tx_matched_line_unique.sql:96-99` — "ACCESS EXCLUSIVE" corrected to SHARE, with what SHARE actually blocks. 657 is unpushed and unmerged, so the header is corrected in place; no new prefix (661 stays free). The fix.md L-E row above is corrected to match. |
+
+**Deferred follow-up.** Savepoint-wrap `lockBankTransactionForUpdate`'s SELECT and probe with
+`LOCK TABLE … IN ROW SHARE MODE NOWAIT` (ROW SHARE, not ROW EXCLUSIVE — it is the mode that
+statement takes), then route a refusal to `skippedUnavailable`. That also removes the existing
+poisoned-transaction hazard for callers that `continue` after catching
+`BankTransactionLockTimeoutError`.

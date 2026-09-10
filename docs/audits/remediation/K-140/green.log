@@ -134,3 +134,25 @@ Mutation proofs (production change reverted, test re-run, then restored):
      k141-suggestion-priority-tiebreak.int.test.ts 1 failed / 1 passed. RESTORED.
   L4 (DROP INDEX IF EXISTS) not mutation-proved: it only changes behaviour on a database
      that has never applied 657, which the fixture has.
+
+=== Round 5 (blind review round 4 residuals: LOW-1, LOW-2) ===
+Changes are comment/doc only — no production behaviour changed, so no mutation proof applies
+(there is no assertion a comment can make go red; the round-2/3 mutation proofs stand).
+
+Evidence for LOW-1's premise correction (schema fixture, no lock held):
+  BEGIN; SELECT 1/0; LOCK TABLE bank_transactions IN ROW SHARE MODE NOWAIT;
+  -> ERROR: division by zero
+  -> ERROR: current transaction is aborted, commands ignored until end of transaction block (25P02)
+  A NOWAIT probe therefore cannot classify a 55P03 raised by an unsavepointed statement.
+
+bunx tsc --noEmit                                   -> clean (exit 0)
+bunx eslint src/.../bank/bankTxLock.ts              -> clean (exit 0)
+env -u DATABASE_URL bunx vitest run (FULL unit)     -> 803 files passed | 40 skipped;
+                                                       9583 tests passed | 243 skipped
+k144-migration-657-dedupe.int.test.ts               -> 8 passed
+k144-match-table-lock-not-a-race.int.test.ts        -> 2 passed | 1 skipped
+  same, BANK_TABLE_LOCK_E2E=1                       -> 3 passed
+NOTE: running those two integration FILES in one vitest invocation fails 2 — the dedupe file
+builds the unique index inside a transaction while the other file probes table locks, so they
+contend on bank_transactions. Each file passes alone (shown above). File-level interference on
+a shared fixture DB, not a regression; they were never run together before this round.
