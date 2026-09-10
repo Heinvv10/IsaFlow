@@ -12,7 +12,8 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () =>
   findBankTransactionAllocationStates: kernel.states,
 }));
 import { partitionApprovalBound, APPROVAL_REQUIRED_REASON, APPROVAL_UNKNOWN_REASON } from '@/lib/mcp/tools/bulkApprovePreviewApproval';
-import { payrollPreviewRefusal, PAYROLL_APPROVAL_REQUIRED_TEXT, PAYROLL_PREVIEW_UNAVAILABLE_TEXT } from '@/lib/mcp/tools/payrollPreviewApproval';
+import { payrollPreviewRefusal, PAYROLL_PREVIEW_UNAVAILABLE_TEXT } from '@/lib/mcp/tools/payrollPreviewApproval';
+import { approvalRequiredReply } from '@/lib/mcp/approvalReply';
 import { partitionBankApprovalBound } from '@/lib/mcp/tools/bankPreviewApproval';
 
 const ref = { entityType: 'supplier_invoice', operation: 'supplier_invoice.post' as const };
@@ -36,15 +37,25 @@ describe('partitionApprovalBound', () => {
   });
 });
 
+const payrollTool = { name: 'approve_pay_run', inputSchema: { type: 'object', properties: {} } };
 describe('payrollPreviewRefusal', () => {
   it.each([
-    [{ kind: 'answered', required: true }, PAYROLL_APPROVAL_REQUIRED_TEXT],
+    [{ kind: 'answered', required: true }, approvalRequiredReply(payrollTool)],
     [{ kind: 'answered', required: false }, null],
     [{ kind: 'unavailable', policiesExist: true }, PAYROLL_PREVIEW_UNAVAILABLE_TEXT],
     [{ kind: 'unavailable', policiesExist: false }, null],
   ])('answers %o with the matching refusal', async (answer, expected) => {
     kernel.preview.mockResolvedValue(answer);
-    expect(await payrollPreviewRefusal('company', 'run')).toBe(expected);
+    expect(await payrollPreviewRefusal('company', 'run', payrollTool)).toBe(expected);
+  });
+  it('words the refusal from the tool it was given, not a synthesised empty schema', async () => {
+    // A hard-coded `inputSchema: {}` could never see approval_id, so a tool
+    // that gained one would keep being told it cannot carry an approval.
+    kernel.preview.mockResolvedValue({ kind: 'answered', required: true });
+    const carrier = { name: 'approve_pay_run', inputSchema: { type: 'object', properties: { approval_id: { type: 'string' } } } };
+    const refusal = await payrollPreviewRefusal('company', 'run', carrier);
+    expect(refusal).toMatch(/approval_id/);
+    expect(refusal).not.toMatch(/cannot carry/i);
   });
 });
 

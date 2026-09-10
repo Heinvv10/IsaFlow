@@ -35,3 +35,26 @@ it('answers a close with no covering fiscal period with a non-2xx status and its
  expect(res.status).toHaveBeenCalledWith(409);
  expect(JSON.stringify(res.json.mock.calls)).toMatch(/2025-12-31/);
 });
+it('answers misaligned fiscal periods with a non-2xx status and both date ranges',async()=>{
+ // The outcome that refuses on every production company; the integration test
+ // that drives it over HTTP does not run without a database, so it is pinned here too.
+ close.mockResolvedValueOnce({error:'period_range_mismatch',expected:{startDate:'2024-03-01',endDate:'2025-02-28'},
+  actual:{startDate:'2025-01-01',endDate:'2025-12-31'},startMonth:3} as never);
+ const req={method:'POST',companyId:'company',user:{id:'person'},body:{action:'close',yearLabel:'2025'}} as unknown as NextApiRequest;
+ const res={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};res.status.mockReturnValue(res);
+ await handler(req,res as unknown as NextApiResponse);
+ expect(res.status).toHaveBeenCalledWith(409);
+ const body=JSON.stringify(res.json.mock.calls);
+ expect(body).toMatch(/2025-01-01 to 2025-12-31/);
+ expect(body).toMatch(/2024-03-01 to 2025-02-28/);
+ expect(body).toMatch(/March/);
+});
+it('answers an unusable supplied approval with a caller error, not a 500',async()=>{
+ close.mockRejectedValueOnce(Object.assign(new Error('Approval not found'),{code:'OPERATION_APPROVAL_NOT_EXECUTABLE'}));
+ const req={method:'POST',companyId:'company',user:{id:'person'},body:{action:'close',yearLabel:'2025',dryRun:true,
+  approvalId:'11111111-1111-1111-1111-111111111111'}} as unknown as NextApiRequest;
+ const res={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};res.status.mockReturnValue(res);
+ await handler(req,res as unknown as NextApiResponse);
+ expect(res.status).toHaveBeenCalledWith(409);
+ expect(JSON.stringify(res.json.mock.calls)).toMatch(/Approval not found/);
+});
