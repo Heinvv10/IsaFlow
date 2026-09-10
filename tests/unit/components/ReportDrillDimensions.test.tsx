@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
@@ -11,21 +11,32 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: {chi
 const route = vi.hoisted(() => ({ query: {accountId: '5000', from: '2026-04-01', to: '2026-04-30', cost_centre_id: 'centre-a', business_unit_id: 'bu-a'}, pathname: '/accounting/reports/account-detail/[accountId]', push: vi.fn() }));
 vi.mock('next/router', () => ({ useRouter: () => route }));
 const dates = {periodStart: '2026-04-01', periodEnd: '2026-04-30'};
-const response = (data: unknown) => new Response(JSON.stringify({data}));
+const response = (data: unknown, status = 200) => new Response(JSON.stringify({data}), {status});
 const requestParams = () => new URL(String(vi.mocked(apiFetch).mock.calls.at(-1)?.[0]), 'http://localhost').searchParams;
 afterEach(cleanup);
-beforeEach(() => vi.mocked(apiFetch).mockReset());
+beforeEach(() => {
+  route.query = {accountId:'5000', from:'2026-04-01', to:'2026-04-30', cost_centre_id:'centre-a', business_unit_id:'bu-a'};
+  route.push.mockReset();
+  vi.mocked(apiFetch).mockReset();
+});
 
 describe('report drill cost centre selection', () => {
   it('offers a BU-scoped full ledger link that returns to the income statement', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => response({transactions: []}));
-    render(<AccountDrillDown accountCode="5000" {...dates} businessUnitId="bu-a"
-      source="is" returnTo="/accounting/reports/income-statement?period_start=2026-01-01" />);
+    const returnTo = '/accounting/reports/income-statement?period_start=2026-01-01&period_end=2026-01-31&business_unit_id=bu-a';
+    const drill = render(<AccountDrillDown accountCode="5000" {...dates} businessUnitId="bu-a"
+      source="is" returnTo={returnTo} />);
     const link = await screen.findByRole('link', {name:'Open full ledger'});
     const href = new URL(link.getAttribute('href')!, 'http://localhost');
     expect(href.searchParams.get('business_unit_id')).toBe('bu-a');
     expect(href.searchParams.get('source')).toBe('is');
     expect(href.searchParams.get('return_to')).toContain('/accounting/reports/income-statement');
+    drill.unmount();
+
+    route.query = {accountId:'5000', ...Object.fromEntries(href.searchParams)};
+    vi.mocked(apiFetch).mockImplementation(async () => response(null));
+    render(<AccountDetailPage />);
+    expect(screen.getByRole('link', {name:'Back to Income Statement'})).toHaveAttribute('href', returnTo);
   });
 
   it('carries the business unit through transactions, evidence, account links and account detail', async () => {
@@ -104,5 +115,35 @@ describe('report drill cost centre selection', () => {
     route.query.cost_centre_id = '';
     view.rerender(<AccountDetailPage />);
     await waitFor(() => expect(requestParams().has('cost_centre_id')).toBe(false));
+  });
+
+  it('shows transaction and evidence API failures instead of treating error envelopes as data', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => response({message:'Unavailable'}, 503));
+    const drill = render(<AccountDrillDown accountCode="5000" {...dates} />);
+    expect(await screen.findByText('Failed to load transactions')).toBeInTheDocument();
+    drill.unmount();
+
+    render(<EvidenceDrillModal accountId="5000" accountName="Expense" {...dates} onClose={vi.fn()} />);
+    expect(await screen.findByText('Failed to load evidence')).toBeInTheDocument();
+    expect(screen.queryByText('No journal entries found for this period')).not.toBeInTheDocument();
+  });
+
+  it('ignores evidence from a superseded business-unit request', async () => {
+    let resolveA!: (value: Response) => void;
+    let resolveB!: (value: Response) => void;
+    const requestA = new Promise<Response>(resolve => { resolveA = resolve; });
+    const requestB = new Promise<Response>(resolve => { resolveB = resolve; });
+    vi.mocked(apiFetch).mockImplementation(async url =>
+      new URL(String(url), 'http://localhost').searchParams.get('business_unit_id') === 'bu-a'
+        ? requestA : requestB);
+    const props = {accountId:'5000', accountName:'Expense', ...dates, onClose:vi.fn()};
+    const view = render(<EvidenceDrillModal {...props} businessUnitId="bu-a" />);
+    view.rerender(<EvidenceDrillModal {...props} businessUnitId="bu-b" />);
+
+    await act(async () => resolveB(response({rows:[{jeId:'b', description:'BU B row', debit:1, credit:0, postingAgent:null, extractionConfidence:null}], count:1})));
+    expect(await screen.findByText('BU B row')).toBeInTheDocument();
+    await act(async () => resolveA(response({rows:[{jeId:'a', description:'BU A row', debit:1, credit:0, postingAgent:null, extractionConfidence:null}], count:1})));
+    expect(screen.queryByText('BU A row')).not.toBeInTheDocument();
+    expect(screen.getByText('BU B row')).toBeInTheDocument();
   });
 });

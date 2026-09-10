@@ -88,10 +88,15 @@ export function AccountDrillDown({
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
 
     apiFetch(`/api/accounting/reports-account-transactions?${params}`)
-      .then(r => r.json())
+      .then(async r => {
+        const json = await r.json();
+        if (!r.ok) throw new Error('Failed to load transactions');
+        return json;
+      })
       .then(json => {
         if (cancelled) return;
         const d = json.data || json;
+        if (!d || !Array.isArray(d.transactions)) throw new Error('Invalid transaction response');
         setData(d);
       })
       .catch(() => {

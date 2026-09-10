@@ -45,23 +45,24 @@ export default function IncomeStatementPage() {
   const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
   const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
-  const isMountedRef = useRef(true);
+  const reportRequestRef = useRef(0);
 
   // Sync-back effect: when router.query.period_start / period_end populate after
   // mount (Next.js can hydrate router.query on a later tick, or client-side
   // router.push can set them after the open-period fetch has already resolved),
   // push the URL values into state so the report re-fetches correctly.
   useEffect(() => {
+    if (router.isReady === false) return;
     if (qStart) setPeriodStart(qStart);
     if (qEnd) setPeriodEnd(qEnd);
     setBusinessUnitId(qBusinessUnit);
-  }, [qStart, qEnd, qBusinessUnit]);
+  }, [router.isReady, qStart, qEnd, qBusinessUnit]);
 
   // Fetch the current open period on mount to set smart default dates.
   // The open-period values are only written when no deep-link params are present
   // (checked both at call-time and when the promise resolves).
   useEffect(() => {
-    isMountedRef.current = true;
+    if (router.isReady === false) return;
 
     if (qStart && qEnd) {
       // Deep-link params present at mount — use them and skip the period fetch.
@@ -71,18 +72,12 @@ export default function IncomeStatementPage() {
       return;
     }
 
+    let cancelled = false;
     apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => {
-        if (!isMountedRef.current) return;
-        // Guard: if deep-link params arrived after mount (router.query hydrates
-        // asynchronously), do not overwrite them with the fetched period dates.
-        const searchParams = typeof window !== 'undefined'
-          ? new URLSearchParams(window.location.search)
-          : null;
-        const latestStart = searchParams?.get('period_start');
-        const latestEnd = searchParams?.get('period_end');
-        if (!latestStart && !latestEnd) {
+        if (cancelled) return;
+        if (!qStart && !qEnd) {
           const period = json.data as { startDate?: string; endDate?: string } | null;
           if (period?.startDate) setPeriodStart(period.startDate);
           if (period?.endDate) setPeriodEnd(clampToToday(period.endDate));
@@ -90,12 +85,11 @@ export default function IncomeStatementPage() {
         setPeriodResolved(true);
       })
       .catch(() => {
-        if (isMountedRef.current) setPeriodResolved(true);
+        if (!cancelled) setPeriodResolved(true);
       });
 
-    return () => { isMountedRef.current = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => { cancelled = true; };
+  }, [router.isReady, qStart, qEnd]);
   const [report, setReport] = useState<IncomeStatementReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -146,7 +140,11 @@ export default function IncomeStatementPage() {
     setExpandedAccount(prev => (prev === code ? null : code));
   }
   const loadReport = useCallback(async () => {
-    if (!periodStart || !periodEnd || !periodResolved) return;
+    if (router.isReady === false || !periodStart || !periodEnd || !periodResolved) {
+      reportRequestRef.current += 1;
+      return;
+    }
+    const requestId = ++reportRequestRef.current;
     setIsLoading(true);
     setError('');
     try {
@@ -165,13 +163,14 @@ export default function IncomeStatementPage() {
       const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load');
-      setReport(json.data || json);
+      if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load income statement');
+      if (requestId === reportRequestRef.current)
+        setError(err instanceof Error ? err.message : 'Failed to load income statement');
     } finally {
-      setIsLoading(false);
+      if (requestId === reportRequestRef.current) setIsLoading(false);
     }
-  }, [periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved]);
+  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 

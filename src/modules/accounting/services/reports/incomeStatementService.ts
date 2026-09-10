@@ -200,11 +200,20 @@ export async function getIncomeStatement(companyId: string,
       report.priorSubtypeDisclosure = prior.subtypeDisclosure;
 
       const mergeLineItems = (curr: ReportLineItem[], prev: ReportLineItem[]) => {
-        const priorMap = new Map(prev.map(p => [p.accountCode, p.amount]));
-        return curr.map(c => {
-          const pa = priorMap.get(c.accountCode) ?? 0;
-          const variance = c.amount - pa;
-          return { ...c, priorAmount: pa, variance, variancePct: pa !== 0 ? (variance / Math.abs(pa)) * 100 : 0 };
+        const currentMap = new Map(curr.map(item => [item.accountCode, item]));
+        const priorMap = new Map(prev.map(item => [item.accountCode, item]));
+        const codes = [...curr.map(item => item.accountCode),
+          ...prev.filter(item => !currentMap.has(item.accountCode)).map(item => item.accountCode)];
+        return codes.map(code => {
+          const currentItem = currentMap.get(code);
+          const priorItem = priorMap.get(code);
+          const amount = currentItem?.amount ?? 0;
+          const priorAmount = priorItem?.amount ?? 0;
+          const variance = amount - priorAmount;
+          return {
+            ...(currentItem ?? priorItem!), amount, priorAmount, variance,
+            variancePct: priorAmount !== 0 ? (variance / Math.abs(priorAmount)) * 100 : 0,
+          };
         });
       };
       report.revenue = mergeLineItems(current.revenue, prior.revenue);
