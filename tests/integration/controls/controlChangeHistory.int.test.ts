@@ -111,4 +111,6 @@ it('does not reject legal large source-reference metadata when its distinct auth
    VALUES(${f.companyA}::uuid,${ctx.principal.operationId}::uuid,'journal.post','journal_entry',${randomUUID()},${f.u1.id},'cookie',${JSON.stringify({sourceVersions:sources,beneficiaries:[]})}::jsonb,${'a'.repeat(64)},'pending',clock_timestamp()+interval '1 day')`;
  });
  expect((await actor(ctx=>readControlEntityHistory(ctx,{entityType:'supplier',entityId:id}))).items[0]?.after).toEqual({status:'recorded'});
+ await pool.query("UPDATE control_operation_approvals SET binding=jsonb_build_object('sourceVersions',$3::jsonb,'beneficiaries','[]'::jsonb) WHERE company_id=$1 AND operation_id=(SELECT operation_id FROM control_change_events WHERE company_id=$1 AND entity_id=$2 LIMIT 1)",[f.companyA,id,JSON.stringify([{entityType:'historical_import',entityId:randomUUID(),version:1,fingerprint:'a'.repeat(64)}])]);
+ await expect(actor(ctx=>readControlEntityHistory(ctx,{entityType:'supplier',entityId:id}))).rejects.toThrow();
 });
