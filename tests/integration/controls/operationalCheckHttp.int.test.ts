@@ -14,8 +14,8 @@ it('serves all four registered shared checks through real PAT HTTP and preserves
  const manifest=await f.client.rpc(f.f.u1.tokens[0]!.raw,'tools/list');
  for(const name of names)expect(manifest.result?.tools?.filter(tool=>tool.name===name)).toHaveLength(1);
  for(const name of names){
-  const data=result(await f.call(name));expect(data.checkId).toBe(name);expect(data.populationCount).toBe(0);expect(data.findings).toEqual([]);
-  if(name==='bank_statement_completeness'){expect(data.status).toBe('unknown');expect(data.missingSources).toContain('source_statement_population_unavailable');}
+  const data=result(await f.call(name));expect(data.checkId).toBe(name);expect(data.populationCount).toBe(name==='bank_statement_completeness'?2:0);expect(data.findings).toEqual([]);
+  if(name==='bank_statement_completeness'){expect(data.status).toBe('unknown');expect(data.missingSources).toEqual(expect.arrayContaining(['source_statement_bytes_unavailable_or_changed','source_statement_count_unavailable','source_statement_balances_unavailable']));}
   if(name==='payroll_control_checks'){expect(data.status).toBe('unknown');expect(data.missingSources).toContain('independent_employee_settlement_evidence_unavailable');}
  }
 });
@@ -29,7 +29,7 @@ it('detects an actual backdated source journal once and isolates it from a secon
  expect(data.findings[0]?.message).toContain('backdated_accounting_date');
  expect(result(await f.call('journal_risk_checks',{},'u3')).populationCount).toBe(0);
 });
-it.each([['three_way_match_exceptions','invoices'],['journal_risk_checks','reports'],['bank_statement_completeness','banking'],['payroll_control_checks','payroll']])('rechecks current %s authority without changing broad PAT scopes',async(name,module)=>{
+it.each([['three_way_match_exceptions','suppliers'],['three_way_match_exceptions','customers'],['journal_risk_checks','reports'],['bank_statement_completeness','banking'],['payroll_control_checks','payroll']])('rechecks current %s authority without changing broad PAT scopes',async(name,module)=>{
  const token=f.f.u1.tokens[0]!,before=(await f.pool.query('SELECT scopes FROM personal_access_tokens WHERE company_id=$1 AND id=$2',[f.f.companyA,token.id])).rows[0].scopes;
  result(await f.call(name));
  await f.pool.query('INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,$3,false)',[f.f.companyA,f.f.u1.id,module]);
