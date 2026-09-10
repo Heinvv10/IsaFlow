@@ -14,9 +14,17 @@
  * So the work is queued on the context, the owner starts it after a successful
  * COMMIT (never after a ROLLBACK), and it runs outside any ALS context: every
  * `sql` inside takes its own pooled connection and autocommits as the pool's
- * role, exactly like the webhook and cron callers of the same services. There
- * are no RLS GUCs on that path, so every statement the work issues must carry
- * its own `company_id` predicate.
+ * role, exactly like the webhook and cron callers of the same services.
+ *
+ * THE OBLIGATION THIS CREATES. There are no RLS GUCs on that path, so every
+ * statement the work issues must scope itself to the tenant — a bare primary
+ * key is not enough, because RLS is no longer behind it. Normally that means an
+ * explicit `company_id` predicate. Two tables in the current callbacks carry no
+ * `company_id` column and are scoped through a parent instead; there the
+ * predicate must reproduce what the table's own RLS policy walks:
+ *   - `bank_transaction_attachments` -> EXISTS on `bank_transactions.company_id`
+ *   - `procurement_documents`        -> its `(entity_type, entity_id)` parent
+ * A callback that cannot scope itself does not belong here.
  */
 import { als, type RequestContext } from '@/lib/als';
 import { log } from '@/lib/logger';
