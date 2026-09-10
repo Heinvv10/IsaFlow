@@ -72,6 +72,8 @@ it('enforces existing account ranges across descendants and refuses constrained 
  await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read,can_write,account_range_from,account_range_to,restrictions) VALUES($1,$2,'accounts',true,true,'1000','1999','{}'::jsonb)",[f.companyA,f.u2.id]);
  try{
   await actor(()=>updateAccount(f.companyA,root,{description:'Allowed in range'}),'u2');
+  await actor(()=>reclassifyAccount(f.companyA,root,{parentAccountId:null}),'u2');
+  await expect(actor(()=>renameAccountCode(f.companyA,root,'2002'),'u2')).rejects.toThrow();
   await expect(actor(()=>updateAccount(f.companyA,child,{description:'Outside range'}),'u2')).rejects.toThrow();
   const parent=await legacy();await expect(actor(()=>reclassifyAccount(f.companyA,root,{parentAccountId:parent}),'u2')).rejects.toThrow();
   await expect(actor(()=>createAccount(f.companyA,{...input(),accountCode:'1500'}),'u2')).rejects.toThrow();
