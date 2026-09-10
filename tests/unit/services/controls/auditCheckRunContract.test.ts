@@ -18,7 +18,7 @@ it('publishes the shared kind list and the spike-measured journal limits',()=>{
  expect(AUDIT_CHECK_RUN_IDS).toEqual(['journal_risk_checks']);
  // maxSlabRows counts only rows that can join a threshold group, and is set by measurement (plan v8 A27): at the
  // 101-change-fact worst case a held row costs 15.2 KiB, so 25 000 of them hold ~371 MiB of the 1 536 MiB worker heap,
- // and the fixed detector analyses them in ~0.2 s. The old 1 000 rested on "real slabs are at most 6 rows", which a
+ // and the fixed detector analyses them in ~0.36 s (0.30 s at 20 000, 0.55 s at 40 000). The old 1 000 rested on "real slabs are at most 6 rows", which a
  // single dev tenant contradicts with a 927-journal slab.
  expect(AUDIT_CHECK_RUN_LIMITS.journal_risk_checks).toEqual({maxRuntimeMs:300000,graceMs:30000,idleMs:15000,fetchRows:1000,maxSlabRows:25000,maxFindings:100000,workMem:'64MB'});
  expect(Object.isFrozen(AUDIT_CHECK_RUN_LIMITS)&&Object.isFrozen(AUDIT_CHECK_RUN_LIMITS.journal_risk_checks)).toBe(true);

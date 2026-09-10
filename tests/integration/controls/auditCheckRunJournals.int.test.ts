@@ -63,10 +63,11 @@ it('carries a threshold slab across the FETCH boundary instead of splitting it i
 },180000);
 it('refuses a duplicate finding key, a tampered seal, an unpublished generation and a foreign-tenant reader',async()=>{
  const jobId=await published(CUTOFF);
- await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),randomUUID()))).rejects.toThrow(/unavailable/i);
+ const unavailable=(reason:'not_found'|'not_ready')=>expect.objectContaining({name:'CheckRunUnavailableError',reason});
+ await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),randomUUID()))).rejects.toEqual(unavailable('not_found'));
  const other=await actor(()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff:CUTOFF,checks:['journal_risk_checks'],idempotencyKey:randomUUID()}));
- await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),other.jobs[0]!.id))).rejects.toThrow(/unavailable/i);
- await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),jobId),'u3')).rejects.toThrow(/unavailable/i);
+ await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),other.jobs[0]!.id))).rejects.toEqual(unavailable('not_ready'));
+ await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),jobId),'u3')).rejects.toEqual(unavailable('not_found'));
  // The writer's RETURNING identity check rests on this constraint: one key may occupy only one ordinal per generation.
  await expect(pool.query(`INSERT INTO control_audit_check_findings(company_id,job_id,generation,lease_id,ordinal,finding_key,protected_item)
   SELECT company_id,job_id,generation,lease_id,999999,finding_key,protected_item FROM control_audit_check_findings
