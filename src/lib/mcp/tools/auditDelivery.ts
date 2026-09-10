@@ -26,7 +26,8 @@ function writeInput(args:Record<string,unknown>,companyId:string){
  return input;
 }
 function tool<T>(name:string,description:string,write:boolean,properties:Record<string,unknown>,required:string[],schema:z.ZodType<T>,run:(input:T)=>Promise<unknown>):McpTool{
- return{name,description,scope:'read:reports',write,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async(args,ctx)=>{
+ // Enqueueing a job is a write: it needs write:audit ("Create evidence snapshots and audit export jobs"); authorize() still checks source reads.
+ return{name,description,scope:write?'write:audit':'read:reports',write,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async(args,ctx)=>{
   const parsed=schema.safeParse(write?writeInput(args,ctx.companyId):args);if(!parsed.success)return toolError('Invalid audit delivery arguments');
   return ok(await run(parsed.data));
  }};
