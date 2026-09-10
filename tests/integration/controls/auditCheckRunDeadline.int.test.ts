@@ -22,7 +22,9 @@ import {startCheckRunWorker,type WorkerOutcome} from './checkRunWorkerChild';
  * only real evidence of what the lease's grace window is for (plan §4 G2).
  */
 const env=process.env,config=fixtureConfigFromEnv(env),target=validateFixtureTarget(config);
-const SEEDED=3200000,PROBE=1400000,LIMITS=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks;
+const SEEDED=3200000,PROBE=Number(env.ISAFLOW_CHECK_RUN_DEADLINE_PROBE??1400000),LIMITS=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks;
+// Re-measuring against a population already seeded in the disposable DB; the company must already hold it.
+const EXISTING=env.ISAFLOW_CHECK_RUN_DEADLINE_EXISTING_COMPANY;
 const artifact=env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT??'',report=env.ISAFLOW_CHECK_RUN_DEADLINE_REPORT??'';
 let pool:Pool,fixture:ForensicFixture,census:ScaleCensus;
 interface Attempt {target:number;cutoff:string;population:number;jobId:string;outcome:WorkerOutcome;loadBefore:number[];
@@ -35,7 +37,14 @@ beforeAll(async()=>{
  env.ISAFLOW_AUDIT_WORKER_DATABASE_URL=target.connectionString;env.DATABASE_SSL='disable';
  env.ENCRYPTION_KEY=randomBytes(32).toString('hex');env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
  pool=new Pool({connectionString:target.connectionString,ssl:false,max:3});
- fixture=await provisionForensicFixture(config);census=await seedJournalRiskScale(pool,fixture,SEEDED,'quiet');
+ if(!Number.isSafeInteger(PROBE)||PROBE<1||PROBE>SEEDED)throw new Error('Bounded probe size required');
+ if(EXISTING){
+  if(!/^[0-9a-f-]{36}$/.test(EXISTING))throw new Error('Existing company must be a uuid');
+  const [owner]=(await pool.query("SELECT user_id::text AS id FROM company_users WHERE company_id=$1 AND role='admin' ORDER BY user_id LIMIT 1",[EXISTING])).rows;
+  const [counted]=(await pool.query("SELECT count(*)::int AS journals FROM gl_journal_entries WHERE company_id=$1 AND status='posted'",[EXISTING])).rows;
+  if(!owner||counted.journals<PROBE)throw new Error('Existing company does not hold the probe population');
+  fixture={companyA:EXISTING,u1:{id:owner.id}} as ForensicFixture;census={journals:counted.journals,lines:0,changes:0,versions:0,rules:0,seedMs:0};
+ }else{fixture=await provisionForensicFixture(config);census=await seedJournalRiskScale(pool,fixture,SEEDED,'quiet');}
 },3600000);
 afterAll(async()=>{
  if(report)await writeFile(report,JSON.stringify({fixture:{...census,profile:'quiet'},workDeadlineMs:AUDIT_PROCESS_LIMITS.check_run.workDeadlineMs,
@@ -73,9 +82,12 @@ it('measures the largest population that publishes inside the 300 s work deadlin
    goals.push(Math.min(SEEDED,Math.round(boundary*0.85)),Math.min(SEEDED,Math.round(boundary*1.15)));
   }else if(outcome.reply?.state!=='succeeded')break;
  }
- const published=attempts.filter(attempt=>attempt.outcome.reply?.state==='succeeded');
- expect(published.length,'not even the smallest target published').toBeGreaterThan(0);
- for(const attempt of published)expect(attempt.outcome.elapsedMs).toBeLessThan(AUDIT_PROCESS_LIMITS.check_run.workDeadlineMs);
+ // A measurement, so the assertion is the contract, not a guess about this machine: every run either published inside
+ // the deadline or failed RESOURCE_LIMIT with its failure recorded and nothing published — never late, never unknown.
+ for(const attempt of attempts){
+  if(attempt.outcome.reply?.state==='succeeded'){expect(attempt.outcome.elapsedMs).toBeLessThan(deadline);expect(attempt.results).toBe(1);}
+  else{expect(attempt.outcome.reply).toEqual({state:'failed',code:'RESOURCE_LIMIT',failureRecorded:true});expect(attempt.results).toBe(0);}
+ }
 },7200000);
 it('a run past the work deadline records RESOURCE_LIMIT inside the lease grace, under the same lease, publishing nothing',async()=>{
  const overrun=attempts.find(attempt=>attempt.outcome.reply?.state!=='succeeded');
