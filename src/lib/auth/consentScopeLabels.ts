@@ -20,7 +20,7 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   'write:beneficiaries': 'Propose banking changes for independent human verification before use.',
   'read:access': 'Read current tenant roles and connection grants without credentials.',
   'read:audit': 'Read protected accounting history and control findings. Sensitive payroll needs separate permission.',
-  'write:audit': 'Create evidence snapshots and audit export jobs.',
+  'write:audit': 'Start forensic work: evidence snapshots, audit exports, snapshot comparisons and control check runs.',
   'read:imports': 'Read historical import sources, prepared plans and execution evidence.',
   'write:imports': 'Prepare and execute independently approved historical imports; accounting permissions are also required.',
   'write:release': 'Dispatch independently approved payment releases using verified banking details.',

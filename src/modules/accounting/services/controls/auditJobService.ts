@@ -10,6 +10,7 @@ import {protectChangeValues,type ProtectedChange} from './changeProtection';
 import {parseAuditSnapshotRequest,auditSnapshotPermissions,type AuditSnapshotRequest} from './auditJobContract';
 import {auditRequestHash,openAuditJobRequest} from './auditJobProtection';
 import {auditJobRequestPermissions} from './auditJobDelegation';
+import {assertAuditEnqueueQuota} from './auditEnqueueQuota';
 interface JobRow {
  kind:string;id:string;company_id:string;requester_person_id:string;request_hash:string;protected_request:ProtectedChange;
  state:'queued'|'running'|'succeeded'|'failed';attempts:number;created_at:Date|string;completed_at:Date|string|null;
@@ -45,15 +46,20 @@ export async function getAuditJob(ctx:ControlTx,id:string):Promise<AuditJobStatu
   :evidence.kind==='audit_compare'?{...status,kind:'audit_compare',resultComparisonId:row.result_comparison_id}
   :{...status,kind:'audit_check_run',checkId:evidence.request.checkId,runGroupId:evidence.request.runGroupId,resultCheckRunId:row.result_check_run_id};
 }
-/** One small transaction-bound enqueue. Worker authority is saved from the issued principal, never request fields. */
+/**
+ * One small transaction-bound enqueue. Worker authority is saved from the issued principal, never request fields.
+ * Starting forensic work takes the opt-in write:audit on every transport, before any source read, and is rate-bounded.
+ */
 export async function enqueueAuditSnapshot(ctx:ControlTx,input:unknown):Promise<AuditJobStatus>{
- assertControlTx(ctx);const request=parseAuditSnapshotRequest(input);await authorize(ctx,request);
+ assertControlTx(ctx);const request=parseAuditSnapshotRequest(input);
+ await assertEffectivePermission(ctx,'write:audit');await authorize(ctx,request);
  return withSavepoint('audit_snapshot_enqueue',async()=>{
   const principal=ctx.principal,hash=auditRequestHash(request);
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`audit-job:${principal.companyId}:${principal.personId}:${request.idempotencyKey}`},0))`;
   const existing=await ctx.sql`SELECT id,request_hash FROM control_audit_job_intents WHERE company_id=${principal.companyId}::uuid
    AND requester_person_id=${principal.personId} AND kind='audit_snapshot' AND idempotency_key=${request.idempotencyKey}` as {id:string;request_hash:string}[];
   if(existing.length){if(existing.length!==1||existing[0]!.request_hash!==hash)throw new Error('Idempotency key already binds a different audit request');return getAuditJob(ctx,existing[0]!.id);}
+  await assertAuditEnqueueQuota(ctx,'audit_snapshot',1);
   const id=randomUUID();
   const protectedRequest=protectChangeValues('audit_job',null,{companyId:principal.companyId,jobId:id,kind:'audit_snapshot',request,
    authority:{personId:principal.personId,authMethod:principal.authMethod,connectionId:principal.connectionId,grantId:principal.grantId,

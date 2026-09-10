@@ -15,7 +15,7 @@ export function riskOptions(input:RiskCheckOptions){
  return{...input,limit,cutoff:input.cutoff??null};
 }
 /** Decimal(80) per ISO currency. Shared so a streamed run and a paged check normalise money the same way. */
-export function riskAmountTotals(findings:readonly RiskFinding[]):Record<string,string>{
+export function riskAmountTotals(findings:readonly Pick<RiskFinding,'amount'|'currency'>[]):Record<string,string>{
  const D=Decimal.clone({precision:80}),totals:Record<string,string>={};
  for(const finding of findings){if(!/^[A-Z]{3}$/.test(finding.currency))continue;
   totals[finding.currency]=new D(totals[finding.currency]??'0').add(canonicalMoney(finding.amount)).toFixed();}

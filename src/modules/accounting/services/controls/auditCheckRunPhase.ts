@@ -11,11 +11,17 @@ import {auditCheckRunBudget,CheckRunPublicationFenceError,CheckRunResourceLimitE
 import {analyseJournalRisks,journalRiskThresholdGroup} from './journalRiskAnalysis';
 import {buildJournalRiskFinding,JOURNAL_RISK_COVERAGE} from './journalRiskShared';
 import {journalRiskPolicySql,journalRiskThresholds,type JournalRiskPolicyRow} from './journalRiskPopulationSql';
-import {checkStatus,riskAmountTotals,type RiskFinding} from './invoiceRiskQueriesResult';
+import {checkStatus,riskAmountTotals} from './invoiceRiskQueriesResult';
 import {openRetainedAuditCheckRunItem,sealAuditCheckRunHeader,sealAuditCheckRunItem,type CheckRunHeader,type CheckRunIdentity} from './auditCheckRunProtection';
 import {streamJournalRiskSlabs,type CheckRunLimits} from './auditCheckRunStream';
 import {writeAuditCheckRunFindings,type StagedCheckRunFinding} from './auditCheckRunWriter';
 export interface CheckRunPhaseOptions {signal?:AbortSignal;deadlineAt:number}
+/**
+ * What the run keeps per finding while it streams: enough to verify the re-read and to total the money, never the
+ * finding itself. A message can be 8 663 characters; holding 100 000 full findings (and a second decrypted copy during
+ * the re-read) exhausted the worker heap before any bound refused, so the run aborted instead of publishing.
+ */
+interface StagedFinding {key:string;itemHash:string;amount:string;currency:string}
 const itemHash=(value:unknown)=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 /**
  * Limits a caller may pass only to TIGHTEN the production bounds, so each bound's exact edge can be exercised with a
@@ -65,16 +71,16 @@ export async function runAuditCheckRunPhase(ctx:ControlTx,lease:AuditJobLease,op
   const policies=await ctx.sql`${journalRiskPolicySql(ctx.principal.companyId)}` as JournalRiskPolicyRow[];
   const {thresholds,missingPolicy}=journalRiskThresholds(policies);check();
   const identity:CheckRunIdentity={companyId:lease.companyId,checkRunId:lease.jobId,generation:lease.generation,leaseId:lease.leaseId};
-  const staged:RiskFinding[]=[],findingsDigest=createHash('sha256');
+  const staged:StagedFinding[]=[],findingsDigest=createHash('sha256');
   const writer=writeAuditCheckRunFindings(ctx,lease,check);
   const groupable=(row:Parameters<typeof journalRiskThresholdGroup>[0])=>thresholds.some(threshold=>journalRiskThresholdGroup(row,threshold)!==null);
   const population=await streamJournalRiskSlabs(ctx,{cutoff,limits,check,groupable,onSlab:async rows=>{
    for(const result of analyseJournalRisks(rows,thresholds)){
     const built=buildJournalRiskFinding(result),ordinal=staged.length;
     if(ordinal>=limits.maxFindings)throw new CheckRunResourceLimitError('findings_exceed_limit');
-    const item={amount:built.amount,currency:built.currency,finding:built.finding};
-    findingsDigest.update(`${ordinal}\n${built.finding.key}\n${itemHash(built.finding)}\n`);
-    staged.push(built);
+    const item={amount:built.amount,currency:built.currency,finding:built.finding},hash=itemHash(built.finding);
+    findingsDigest.update(`${ordinal}\n${built.finding.key}\n${hash}\n`);
+    staged.push({key:built.finding.key,itemHash:hash,amount:built.amount,currency:built.currency});
     await writer.append({ordinal,key:built.finding.key,envelope:sealAuditCheckRunItem(identity,ordinal,item)} satisfies StagedCheckRunFinding);
    }
   }});
@@ -128,26 +134,32 @@ async function assertPopulationTotals(ctx:ControlTx,cutoff:string,streamedCount:
  if(counted!==streamedCount)throw new Error('Streamed check run population count disagrees with its SQL aggregate');
  for(const currency of Object.keys(streamed))if(!rows.some(row=>row.currency===currency))throw new Error('Streamed check run population total has no SQL aggregate');
 }
-/** Persistence check: every sealed finding is read back inside the same transaction before the header is written. */
-async function verifyRetainedFindings(ctx:ControlTx,lease:AuditJobLease,identity:CheckRunIdentity,staged:readonly RiskFinding[],
+/**
+ * Persistence check: every sealed finding is read back inside the same transaction before the header is written, one
+ * page at a time. Each item must hash to what was staged at its ordinal; the money is re-totalled page by page from the
+ * re-read bytes with the shared normalisation. No page, and no full finding, outlives its loop.
+ */
+async function verifyRetainedFindings(ctx:ControlTx,lease:AuditJobLease,identity:CheckRunIdentity,staged:readonly StagedFinding[],
  amountTotals:Record<string,string>,check:()=>void):Promise<void>{
- const seen:RiskFinding[]=[];let after=-1;
+ const Money=Decimal.clone({precision:80}),totals:Record<string,string>={};let count=0,after=-1;
  for(;;){
   check();
   const page=await ctx.sql`SELECT ordinal,finding_key,protected_item FROM control_audit_check_findings
    WHERE company_id=${lease.companyId}::uuid AND job_id=${lease.jobId}::uuid AND generation=${lease.generation}
     AND lease_id=${lease.leaseId}::uuid AND ordinal>${after} ORDER BY ordinal LIMIT 512` as {ordinal:number;finding_key:string;protected_item:never}[];
   if(!page.length)break;
+  const money:Array<{amount:string;currency:string}>=[];
   for(const row of page){
    const expected=staged[row.ordinal];
-   if(!expected||row.ordinal!==seen.length||row.finding_key!==expected.finding.key)throw new Error('Retained check run findings do not match the streamed run');
+   if(!expected||row.ordinal!==count||row.finding_key!==expected.key)throw new Error('Retained check run findings do not match the streamed run');
    const item=openRetainedAuditCheckRunItem(row.protected_item,identity,staged.length,row.ordinal);
-   if(canonicalJson({amount:item.amount,currency:item.currency,finding:item.finding})!==canonicalJson({amount:expected.amount,currency:expected.currency,finding:expected.finding}))
+   if(item.finding.key!==expected.key||itemHash(item.finding)!==expected.itemHash||item.amount!==expected.amount||item.currency!==expected.currency)
     throw new Error('Retained check run findings do not match the streamed run');
-   seen.push({amount:item.amount,currency:item.currency,finding:item.finding});
+   money.push({amount:item.amount,currency:item.currency});count++;
   }
+  for(const [currency,total] of Object.entries(riskAmountTotals(money)))totals[currency]=new Money(totals[currency]??'0').add(total).toFixed();
   after=page[page.length-1]!.ordinal;
  }
- if(seen.length!==staged.length||canonicalJson(riskAmountTotals(seen))!==canonicalJson(amountTotals))
+ if(count!==staged.length||canonicalJson(totals)!==canonicalJson(amountTotals))
   throw new Error('Retained check run findings do not match the streamed run');
 }

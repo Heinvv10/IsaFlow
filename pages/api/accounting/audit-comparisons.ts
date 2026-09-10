@@ -5,6 +5,7 @@ import {withCsrf} from '@/lib/auth/withCsrf';
 import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
 import {withErrorHandler} from '@/lib/api-error-handler';
 import {apiResponse} from '@/lib/apiResponse';
+import {AuditEnqueueQuotaError} from '@/modules/accounting/services/controls/auditEnqueueQuota';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {parseAuditComparisonRequest} from '@/modules/accounting/services/controls/auditComparisonJobContract';
 import {enqueueAuditComparison} from '@/modules/accounting/services/controls/auditComparisonJobService';
@@ -28,6 +29,7 @@ export async function auditComparisonsHandler(req:NextApiRequest,res:NextApiResp
  }catch(error){
   if(error instanceof ZodError)return apiResponse.badRequest(res,'Invalid audit comparison input');
   if(error instanceof EffectivePermissionError)return apiResponse.forbidden(res,'Current comparison source permission denied');
+  if(error instanceof AuditEnqueueQuotaError)return apiResponse.tooManyRequests(res,error.message);
   throw error;
  }
 }
