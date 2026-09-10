@@ -105,3 +105,22 @@ it('does not let an obsolete open-period response overwrite restored deep-link d
   expect(screen.getByDisplayValue('2026-04-30')).toBeInTheDocument();
   expect(reportParams().at(-1)?.get('business_unit_id')).toBe('bu-a');
 });
+
+it('removes a previous report when the selected BU request fails', async () => {
+  vi.mocked(apiFetch).mockImplementation(async url => {
+    const path = String(url);
+    if (path.includes('business-units') || path.includes('cost-centres')) return response({items:[]});
+    if (path.includes('fiscal-periods')) return response(null);
+    return new URL(path, 'http://localhost').searchParams.has('business_unit_id')
+      ? response({message:'Bad business unit'}, 400) : response({...report, netProfit:11});
+  });
+  const view = render(<IncomeStatementPage />);
+  expect(await screen.findByTestId('net-profit')).toHaveTextContent('11');
+
+  route.query = {business_unit_id:'malformed'};
+  view.rerender(<IncomeStatementPage />);
+  expect(await screen.findByText('Failed to load')).toBeInTheDocument();
+  expect(screen.queryByTestId('net-profit')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', {name:'Export CSV'})).toBeDisabled();
+  expect(screen.getByRole('button', {name:'Export Excel'})).toBeDisabled();
+});

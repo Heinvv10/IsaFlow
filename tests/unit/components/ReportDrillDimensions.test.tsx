@@ -13,6 +13,12 @@ vi.mock('next/router', () => ({ useRouter: () => route }));
 const dates = {periodStart: '2026-04-01', periodEnd: '2026-04-30'};
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({data}), {status});
 const requestParams = () => new URL(String(vi.mocked(apiFetch).mock.calls.at(-1)?.[0]), 'http://localhost').searchParams;
+const ledger = (description: string) => ({
+  rows:[{journalEntryId:description, entryDate:'2026-04-01', entryNumber:'JE-1', description,
+    reference:'', source:'manual', debit:1, credit:0, runningBalance:1}],
+  total:201, openingBalance:0, periodNet:1, periodClosingBalance:1,
+  meta:{accountId:'account-1', accountCode:'5000', accountName:'Expense', accountType:'expense', normalBalance:'debit'},
+});
 afterEach(cleanup);
 beforeEach(() => {
   route.query = {accountId:'5000', from:'2026-04-01', to:'2026-04-30', cost_centre_id:'centre-a', business_unit_id:'bu-a'};
@@ -145,5 +151,44 @@ describe('report drill cost centre selection', () => {
     await act(async () => resolveA(response({rows:[{jeId:'a', description:'BU A row', debit:1, credit:0, postingAgent:null, extractionConfidence:null}], count:1})));
     expect(screen.queryByText('BU A row')).not.toBeInTheDocument();
     expect(screen.getByText('BU B row')).toBeInTheDocument();
+  });
+
+  it('ignores an older account-ledger business-unit response', async () => {
+    let resolveA!: (value: Response) => void;
+    let resolveB!: (value: Response) => void;
+    const requestA = new Promise<Response>(resolve => { resolveA = resolve; });
+    const requestB = new Promise<Response>(resolve => { resolveB = resolve; });
+    vi.mocked(apiFetch).mockImplementation(async url =>
+      new URL(String(url), 'http://localhost').searchParams.get('business_unit_id') === 'bu-a'
+        ? requestA : requestB);
+    const view = render(<AccountDetailPage />);
+    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(1));
+    route.query = {...route.query, business_unit_id:'bu-b'};
+    view.rerender(<AccountDetailPage />);
+    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(2));
+
+    await act(async () => resolveB(response(ledger('BU B ledger'))));
+    expect(await screen.findByText('BU B ledger')).toBeInTheDocument();
+    await act(async () => resolveA(response(ledger('BU A ledger'))));
+    expect(screen.queryByText('BU A ledger')).not.toBeInTheDocument();
+  });
+
+  it('ignores an older account-ledger page response', async () => {
+    let resolvePage1!: (value: Response) => void;
+    let resolvePage2!: (value: Response) => void;
+    const page1 = new Promise<Response>(resolve => { resolvePage1 = resolve; });
+    const page2 = new Promise<Response>(resolve => { resolvePage2 = resolve; });
+    vi.mocked(apiFetch).mockImplementation(async url =>
+      new URL(String(url), 'http://localhost').searchParams.get('offset') === '200' ? page2 : page1);
+    const view = render(<AccountDetailPage />);
+    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(1));
+    route.query = {...route.query, page:'2'} as typeof route.query;
+    view.rerender(<AccountDetailPage />);
+    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(2));
+
+    await act(async () => resolvePage2(response(ledger('Page 2 ledger'))));
+    expect(await screen.findByText('Page 2 ledger')).toBeInTheDocument();
+    await act(async () => resolvePage1(response(ledger('Page 1 ledger'))));
+    expect(screen.queryByText('Page 1 ledger')).not.toBeInTheDocument();
   });
 });
