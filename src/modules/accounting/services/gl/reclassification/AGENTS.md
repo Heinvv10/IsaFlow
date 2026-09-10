@@ -129,9 +129,9 @@ createReclassBatch / recordReclassBatchLines / getReclassBatch
   because the return reads it as VAT today.
 - **Every dimension the source line carries goes onto BOTH legs** —
   `project_id`, `cost_center_id`, `vat_type`, `bu_id`. `cc1_id` / `cc2_id`
-  cannot be expressed by `JournalLineInput` at all, so a line carrying either is
-  SKIPPED rather than posted with them dropped; zero production lines carry them
-  today. An unrecognised `vat_type` (the column is bare `text` with no CHECK)
+  are supported by the shared journal writer, but this module's source-line
+  mapping and builder do not yet carry them. A line carrying either remains
+  SKIPPED. An unrecognised `vat_type` (the column is bare `text` with no CHECK)
   skips for the same reason.
 - **Periods.** With no `posting_date`, one journal per distinct source entry
   date — period-neutral, and every line whose own period is CLOSED is skipped

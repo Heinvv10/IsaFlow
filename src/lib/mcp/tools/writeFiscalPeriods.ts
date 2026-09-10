@@ -20,6 +20,7 @@ import { getFiscalPeriodById, reopenPeriod } from '@/modules/accounting/services
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { yearEndCloseRefusal } from './yearEndCloseRefusal';
 
 const DRY = { wroteNothing: true, billable: false } as const;
 
@@ -178,7 +179,9 @@ export const yearEndCloseTool: McpTool = {
   },
   handler: async (args, ctx) => {
     const year = args.fiscal_year;
-    if (!Number.isInteger(year)) return toolError('fiscal_year must be a whole number');
+    if (typeof year !== 'number' || !Number.isInteger(year)) {
+      return toolError('fiscal_year must be a whole number');
+    }
     const dryRun = args.dry_run === true;
 
     // No try/catch: every refusal this service can raise comes back as a typed
@@ -187,55 +190,7 @@ export const yearEndCloseTool: McpTool = {
     // a half-posted year-end and free the key for a second attempt.
     const result = await closeFiscalYear(ctx.companyId, String(year), ctx.userId, { dryRun });
 
-    if ('error' in result) {
-      if (result.error === 'open_periods') {
-        return toolError(
-          `Fiscal year ${year} has ${result.count} open period`
-          + `${result.count === 1 ? '' : 's'}: `
-          + `${result.openPeriods.map((p) => p.periodName).join(', ')}. `
-          + 'Close each of them with close_fiscal_period first. Nothing was posted.',
-        );
-      }
-      if (result.error === 'period_range_mismatch') {
-        return toolError(
-          `Fiscal year ${year}'s periods run ${result.actual.startDate} to ${result.actual.endDate}, `
-          + `but this company's financial year starts in month ${result.startMonth}, so `
-          + `FY${year} is really ${result.expected.startDate} to ${result.expected.endDate}. `
-          + 'Closing the periods as they stand would roll the wrong twelve months into retained '
-          + 'earnings and then LOCK them, and nothing would look wrong afterwards because the '
-          + 'journal balances either way. Nothing was posted. '
-          + 'THE FIX IS NOT THIS TOOL. The periods themselves are misaligned with the financial '
-          + 'year, and the year-end close is downstream of that: re-dating live fiscal periods is '
-          + 'a data correction that needs a person to decide it, not something a close should do '
-          + 'on the way past. Call list_fiscal_periods and read `alignment` — when `aligned` is '
-          + 'false, that is the thing to fix, and this close will work once it is.',
-        );
-      }
-      if (result.error === 'no_fiscal_period') {
-        return toolError(
-          `No fiscal period covers ${result.entryDate}, where the closing journal would be dated. `
-          + 'Posting it without one would leave it outside the trial balance, the VAT201 and the '
-          + 'AFS permanently. Nothing was posted.',
-        );
-      }
-      if (result.error === 'ambiguous_retained_earnings') {
-        return toolError(
-          `More than one account could be retained earnings (${result.accountCodes.join(', ')}) `
-          + 'so the close refuses rather than breaking the tie. Posting a year of trading into '
-          + 'the wrong equity account and then locking every period behind it is not recoverable '
-          + 'in place. Leave the role on exactly one account with update_gl_account. '
-          + 'Nothing was posted.',
-        );
-      }
-      if (result.error === 'no_retained_earnings') {
-        return toolError(
-          'No account carries the retained_earnings system role for this company. Create one with '
-          + 'create_gl_account, or set the subtype on the existing equity account with '
-          + 'update_gl_account. Nothing was posted.',
-        );
-      }
-      return toolError(`Fiscal year ${year} has no periods. Nothing was posted.`);
-    }
+    if ('error' in result) return yearEndCloseRefusal(year, result);
 
     if ('dryRun' in result) {
       return {
@@ -243,7 +198,15 @@ export const yearEndCloseTool: McpTool = {
           fiscal_year: year,
           dry_run: true,
           net_income: result.netIncome,
-          would_post: {
+          // NULL when the year is ALREADY closed, because the live call would
+          // post nothing — and now null BY CONSTRUCTION: the service hands back
+          // `preview: null` on that branch and names the stranded movement
+          // `residualPreview`, so this cannot be got wrong here. The residual
+          // is non-empty in exactly one case — P&L that landed in the year AFTER
+          // its close — and it is not an offer: the entry number is taken, so no
+          // close can ever sweep it up. `unclosed_net_income` below is that
+          // money, as a number.
+          would_post: result.preview === null ? null : {
             entry_number: result.preview.entryNumber,
             entry_date: result.preview.entryDate,
             description: result.preview.description,
@@ -257,7 +220,16 @@ export const yearEndCloseTool: McpTool = {
               credit: l.credit,
             })),
           },
-          would_lock_every_period_in_year: true,
+          // A year that is ALREADY closed would lock nothing and post nothing:
+          // its aggregates are flat because its own closing journal flattened
+          // them, so the preview above is empty for the same reason a dormant
+          // year's is. Saying so is the point — this is the read the agent is
+          // told to make before authorising the irreversible half.
+          already_closed: result.alreadyClosed,
+          existing_entry_number: result.existingEntry
+            ? String(result.existingEntry.entry_number) : null,
+          would_lock_every_period_in_year: !result.alreadyClosed,
+          unclosed_net_income: result.unclosedNetIncome,
         }),
         ...DRY,
       };
@@ -267,9 +239,25 @@ export const yearEndCloseTool: McpTool = {
       fiscal_year: year,
       dry_run: false,
       net_income: result.netIncome,
-      journal_entry_id: String(result.closingEntry.id),
-      entry_number: String(result.closingEntry.entry_number),
-      periods_locked: true,
+      // NULL for a dormant year: nothing was posted to any P&L account, so
+      // there is no closing journal to write. The year still closes and the
+      // periods still lock, which is what the caller acts on.
+      journal_entry_id: result.closingEntry ? String(result.closingEntry.id) : null,
+      entry_number: result.closingEntry ? String(result.closingEntry.entry_number) : null,
+      // A COUNT, not a boolean, and the two counts are NOT the same number.
+      // `periods_locked` is what THIS call locked — zero on an already-closed
+      // re-run, which locks nothing — while the service's count is how many
+      // periods in the year are locked now, which on a re-run is the twelve an
+      // earlier close locked. Reporting the latter as the former told an agent
+      // its no-op call had locked twelve periods.
+      periods_locked: result.alreadyClosed ? 0 : result.periodsLockedInYear,
+      periods_locked_in_year: result.periodsLockedInYear,
+      already_closed: result.alreadyClosed,
+      // Non-zero ONLY on an already-closed year that gained posted P&L after
+      // its close: that movement is in no closing journal and in no equity
+      // account, and this tool can never sweep it up. Surfaced as a number so
+      // an agent can act on it rather than parsing the sentence.
+      unclosed_net_income: result.unclosedNetIncome,
       message: result.message,
     });
   },

@@ -1,16 +1,16 @@
 $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts"
 
- RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-009
 
-{"level":"info","message":"Starting migration execution","timestamp":"2026-09-09T03:35:27.448Z","component":"migration","data":{"companyId":"32671ddd-e2e9-442c-b19e-440d2670c52e","source":"xero","accountCount":2}}
-{"level":"info","message":"Migration execution complete","timestamp":"2026-09-09T03:35:27.513Z","component":"migration","data":{"companyId":"32671ddd-e2e9-442c-b19e-440d2670c52e","source":"xero","accountsImported":2,"customersImported":0,"suppliersImported":0}}
-{"level":"info","message":"Rollback complete","timestamp":"2026-09-09T03:35:27.528Z","component":"migration","data":{"companyId":"32671ddd-e2e9-442c-b19e-440d2670c52e","source":"xero","deleted":2}}
-{"level":"info","message":"Starting migration execution","timestamp":"2026-09-09T03:35:27.533Z","component":"migration","data":{"companyId":"9f4b9f26-d4f6-4d64-bd72-c07d2c27d386","source":"xero","accountCount":2}}
-{"level":"info","message":"Migration execution complete","timestamp":"2026-09-09T03:35:27.543Z","component":"migration","data":{"companyId":"9f4b9f26-d4f6-4d64-bd72-c07d2c27d386","source":"xero","accountsImported":2,"customersImported":0,"suppliersImported":0}}
-{"level":"error","message":"Rollback failed","timestamp":"2026-09-09T03:35:27.547Z","component":"migration","data":{"companyId":"9f4b9f26-d4f6-4d64-bd72-c07d2c27d386","source":"xero","error":{"length":369,"name":"error","severity":"ERROR","code":"23503","detail":"Key (id)=(8cc98d38-c2db-44c0-9688-de2a4aee03bd) is still referenced from table \"gl_journal_lines\".","schema":"public","table":"gl_journal_lines","constraint":"gl_journal_lines_gl_account_id_fkey","file":"ri_triggers.c","line":"2621","routine":"ri_ReportViolation","message":"update or delete on table \"gl_accounts\" violates foreign key constraint \"gl_journal_lines_gl_account_id_fkey\" on table \"gl_journal_lines\"","stack":"error: update or delete on table \"gl_accounts\" violates foreign key constraint \"gl_journal_lines_gl_account_id_fkey\" on table \"gl_journal_lines\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg-pool/index.js:45:11\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:110:17)\n    at rollbackMigration (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/core/migrationExecuteService.ts:224:23)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts:68:3\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
- ❯ tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts (2 tests | 2 failed) 637ms
-   × keeps a pre-existing account the import merely re-stamped 85ms
-   × rolls back without destroying or failing on an account carrying posted lines 17ms
+{"level":"info","message":"Starting migration execution","timestamp":"2026-09-09T03:45:05.604Z","component":"migration","data":{"companyId":"9b6a9482-f8b7-4106-a949-fab76f6fbe3e","source":"xero","accountCount":2}}
+{"level":"info","message":"Migration execution complete","timestamp":"2026-09-09T03:45:05.643Z","component":"migration","data":{"companyId":"9b6a9482-f8b7-4106-a949-fab76f6fbe3e","source":"xero","accountsImported":2,"customersImported":0,"suppliersImported":0}}
+{"level":"info","message":"Rollback complete","timestamp":"2026-09-09T03:45:05.668Z","component":"migration","data":{"companyId":"9b6a9482-f8b7-4106-a949-fab76f6fbe3e","source":"xero","deleted":2}}
+{"level":"info","message":"Starting migration execution","timestamp":"2026-09-09T03:45:05.682Z","component":"migration","data":{"companyId":"3c344e54-0116-43e9-a0a4-00c0fed09d5f","source":"xero","accountCount":2}}
+{"level":"info","message":"Migration execution complete","timestamp":"2026-09-09T03:45:05.708Z","component":"migration","data":{"companyId":"3c344e54-0116-43e9-a0a4-00c0fed09d5f","source":"xero","accountsImported":2,"customersImported":0,"suppliersImported":0}}
+{"level":"error","message":"Rollback failed","timestamp":"2026-09-09T03:45:05.712Z","component":"migration","data":{"companyId":"3c344e54-0116-43e9-a0a4-00c0fed09d5f","source":"xero","error":{"length":369,"name":"error","severity":"ERROR","code":"23503","detail":"Key (id)=(f3a62976-f70d-49bc-96d0-4a88c4858f45) is still referenced from table \"gl_journal_lines\".","schema":"public","table":"gl_journal_lines","constraint":"gl_journal_lines_gl_account_id_fkey","file":"ri_triggers.c","line":"2621","routine":"ri_ReportViolation","message":"update or delete on table \"gl_accounts\" violates foreign key constraint \"gl_journal_lines_gl_account_id_fkey\" on table \"gl_journal_lines\"","stack":"error: update or delete on table \"gl_accounts\" violates foreign key constraint \"gl_journal_lines_gl_account_id_fkey\" on table \"gl_journal_lines\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg-pool/index.js:45:11\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-009/src/lib/neon.ts:110:17)\n    at rollbackMigration (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-009/src/modules/accounting/services/core/migrationExecuteService.ts:224:23)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-009/tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts:68:3\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+ ❯ tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts (2 tests | 2 failed) 598ms
+   × keeps a pre-existing account the import merely re-stamped 84ms
+   × rolls back without destroying or failing on an account carrying posted lines 38ms
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
 
@@ -46,19 +46,19 @@ AssertionError: promise rejected "error: update or delete on table "gl_acco… {
      70|   const survivors = await pool.query('SELECT account_code FROM gl_acco…
 
 Caused by: error: update or delete on table "gl_accounts" violates foreign key constraint "gl_journal_lines_gl_account_id_fkey" on table "gl_journal_lines"
- ❯ node_modules/pg-pool/index.js:45:11
+ ❯ ../audit-remediation-20260908/node_modules/pg-pool/index.js:45:11
  ❯ LazyQuery.run src/lib/neon.ts:110:17
  ❯ rollbackMigration src/modules/accounting/services/core/migrationExecuteService.ts:224:23
  ❯ tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts:68:3
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
-Serialized Error: { length: 369, severity: 'ERROR', code: '23503', detail: 'Key (id)=(8cc98d38-c2db-44c0-9688-de2a4aee03bd) is still referenced from table "gl_journal_lines".', hint: undefined, position: undefined, internalPosition: undefined, internalQuery: undefined, where: undefined, schema: 'public', table: 'gl_journal_lines', dataType: undefined, constraint: 'gl_journal_lines_gl_account_id_fkey', file: 'ri_triggers.c', routine: 'ri_ReportViolation' }
+Serialized Error: { length: 369, severity: 'ERROR', code: '23503', detail: 'Key (id)=(f3a62976-f70d-49bc-96d0-4a88c4858f45) is still referenced from table "gl_journal_lines".', hint: undefined, position: undefined, internalPosition: undefined, internalQuery: undefined, where: undefined, schema: 'public', table: 'gl_journal_lines', dataType: undefined, constraint: 'gl_journal_lines_gl_account_id_fkey', file: 'ri_triggers.c', routine: 'ri_ReportViolation' }
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
 
 
  Test Files  1 failed (1)
       Tests  2 failed (2)
-   Start at  05:35:26
-   Duration  864ms (transform 84ms, setup 0ms, import 129ms, tests 637ms, environment 0ms)
+   Start at  05:45:04
+   Duration  1.30s (transform 316ms, setup 0ms, import 430ms, tests 598ms, environment 0ms)
 
 error: script "test:integration" exited with code 1

@@ -1,0 +1,39 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: GET ","timestamp":"2026-09-09T09:32:55.147Z","component":"API","requestId":"01M22R6RFAPY5R7PGDHVDG16EP","data":{"type":"request","method":"GET","url":"","query":{"ref":"k096_a9991e96"}}}
+{"level":"warn","message":"Paystack mandate live verify failed","timestamp":"2026-09-09T09:32:55.160Z","component":"PaystackMandate","requestId":"01M22R6RFAPY5R7PGDHVDG16EP","data":{"prId":"8efe5f26-0621-417c-81d6-329ce0034849","err":"duplicate key value violates unique constraint \"ux_sub_mandates_company_active\""}}
+{"level":"error","message":"error","timestamp":"2026-09-09T09:32:55.191Z","component":"API","requestId":"01M22R6RFAPY5R7PGDHVDG16EP","data":{"type":"error","method":"GET","url":"","error":"current transaction is aborted, commands ignored until end of transaction block","stack":"error: current transaction is aborted, commands ignored until end of transaction block\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:107:19)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/billing/paystack/mandate/verify.ts:109:17)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts:123:13\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts:119:7\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20","duration":"18ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:32:55.197Z","component":"http","requestId":"01M22R6RFAPY5R7PGDHVDG16EP","data":{"event":"request_completed","route":"","method":"GET","status":500,"durationMs":51,"userId":"k096","companyId":"e985047c-1fa4-4e0b-8bf2-c54740cf81ac","outcome":"server_error"}}
+ ❯ tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts (1 test | 1 failed) 2703ms
+     × activates one mandate and commits the request transaction 85ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts > K-096 mandate verify must activate only the mandate it authorised > activates one mandate and commits the request transaction
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts:147:28
+    145|     // The route must not blow up on the poisoned transaction.
+    146|     expect(handlerError).toBeNull();
+    147|     expect(res.statusCode).toBe(200);
+       |                            ^
+    148|     expect((res.body as { data: { status: string } }).data.status).toB…
+    149|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:32:50
+   Duration  5.30s (transform 1.01s, setup 0ms, import 1.09s, tests 2.70s, environment 0ms)
+
+error: script "test:integration" exited with code 1

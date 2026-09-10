@@ -124,7 +124,7 @@ export async function forceLogout(userId: string): Promise<void> {
   log.info('forceLogout — GoTrue tokens revoked + app sessions cleared', { userId }, 'AdminUserActionsService');
 }
 
-const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
+export const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
 
 export async function addUserToCompany(
   userId: string,
