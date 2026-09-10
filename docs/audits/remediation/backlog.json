@@ -10523,6 +10523,72 @@
       "severity": "high",
       "source": "Found by the K-053 r8 fixer; independently confirmed on origin/master by the orchestrating session, 2026-09-10",
       "processNotes": "`reports-ar-aging.ts` binds `asAtStr` only inside `GREATEST(0, asAt - due_date) AS days_overdue` and filters `(ci.total_amount - COALESCE(ci.amount_paid,0)) > 0` using the CURRENT amount_paid, with no `invoice_date <= as-at` bound and no rewind. `arAgingService`/`apAgingService` do both (`shared/agingRewind`), so route and service disagree: measured -R300 on the fixture at an earlier date (R500-R800) on AR and AP alike, and zero at today -- which is why no earlier fixture saw it. Pre-existing on master, NOT a soft-delete question. Registered rather than fixed inside the K-053 branch. NOTE: the K-053 fixer's fix.md called this R-056 before the ID was assigned; R-056 is the AFS ABS defect. The reference is being corrected."
+    },
+    {
+      "id": "R-061",
+      "claim": "",
+      "area": "accounting/vat",
+      "affectedPaths": [
+        "src/modules/accounting/services/reports/vatSubmissionService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Outcome is safe by unique index, but the loser does a full VAT201 posting before it discovers it lost and the caller gets an opaque 500 instead of a refusal.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None. The unique index `vat_returns_company_id_period_start_period_end_key` aborts the loser's transaction and its journal unwinds with it. The defect is diagnosability and wasted posting, not wrong data.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "submitVATReturn posts the VAT201 journal before it claims the period; the concurrency guard is decorative",
+      "severity": "medium",
+      "source": "Found by the K-107 r10 census re-derivation; file confirmed present on origin/master by the orchestrating session, 2026-09-10",
+      "processNotes": "Reads `vat_returns` for a `status='submitted'` row at :219, posts the VAT201 journal, then INSERTs the `vat_returns` row LAST at :325. The UNIQUE on (company_id, period_start, period_end) is confirmed on the fixture schema and makes the OUTCOME safe, so the read is decorative under concurrency. The claim should be taken before the first posting. Registered, NOT fixed -- outside the K-107 brief; needs its own branch. Same class as `recordLoanPayment`."
+    },
+    {
+      "id": "R-062",
+      "claim": "",
+      "area": "accounting/loans",
+      "affectedPaths": [
+        "src/modules/accounting/services/loans/loanPeriodCloseService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Same decorative-guard class as R-061, but the loser does N postings rather than one before it discovers it lost.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None. `loan_period_locks_pkey` on (company_id, yyyymm) aborts the loser and its reclassification journals unwind with its transaction.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "closeLoanPeriod posts one reclassification journal per active loan before it claims the period",
+      "severity": "medium",
+      "source": "Found by the K-107 r10 census re-derivation; file confirmed present on origin/master by the orchestrating session, 2026-09-10",
+      "processNotes": "`isPeriodLocked(companyId, yyyymm)` is read first, then a loop posts one reclassification journal per active loan, then `INSERT INTO loan_period_locks` runs LAST. The primary key makes the outcome safe the same way as R-061. The claim should precede the loop. Registered, NOT fixed -- outside the K-107 brief; needs its own branch."
     }
   ],
   "sourceInventory": [
