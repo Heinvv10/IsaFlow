@@ -3,6 +3,10 @@ export const FLOW_READ_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // ── Reads the UI does not meter ──────────────────────────────────────────
   duplicate_invoice_checks: null,
   payment_risk_checks: null,
+  three_way_match_exceptions: null,
+  journal_risk_checks: null,
+  bank_statement_completeness: null,
+  payroll_control_checks: null,
   company_profile: null,
   list_companies: null,
   search_gl: null,
