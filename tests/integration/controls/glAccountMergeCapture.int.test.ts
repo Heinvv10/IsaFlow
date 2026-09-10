@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
 import {postJournalEntry} from '@/modules/accounting/services/gl/journalEntryPostingService';
 import {mergeAccounts} from '@/modules/accounting/services/gl/accountMergeService';
+import {readControlEntityHistory} from '@/modules/accounting/services/controls/controlChangeHistoryService';
 import {actor,evidence,glFixture,journalRows,legacy,merge,mergeFixture,patMerge,pool} from './glAccountMergeCaptureFixture';
 it('captures the actual merge with complete journal images and exact recovery identity',async()=>{
  const f=glFixture(),m=await mergeFixture(),before=await journalRows(m.journal);
@@ -105,3 +106,18 @@ it('keeps concurrent ordinary posting and merge atomic with safe retry after loc
  const rows=await evidence('journal_entry',m.journal);expect(rows.filter(row=>row.action.startsWith('accounts_merged:'))).toHaveLength(1);
  expect(rows.some(row=>row.action==='journal.post')).toBe(true);
 },30000);
+
+it('requires retained payroll-sensitive source authority for actual producer merge history',async()=>{
+ const f=glFixture(),m=await mergeFixture('draft');
+ await pool.query("UPDATE gl_journal_entries SET source='auto_payroll',description='Synthetic individual directive' WHERE company_id=$1 AND id=$2",[f.companyA,m.journal]);
+ await merge(m.source,m.target);
+ const read=()=>actor(ctx=>readControlEntityHistory(ctx,{entityType:'journal_entry',entityId:m.journal}));
+ expect((await read()).items[0]?.before).toMatchObject({header:{source:'auto_payroll',description:'Synthetic individual directive'}});
+ await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'payroll_sensitive',false)",[f.companyA,f.u1.id]);
+ try{
+  await expect(read()).rejects.toThrow();
+  await pool.query("UPDATE gl_journal_entries SET source='manual' WHERE company_id=$1 AND id=$2",[f.companyA,m.journal]);
+  await expect(read()).rejects.toThrow();
+ }finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='payroll_sensitive'",[f.companyA,f.u1.id]);}
+ expect((await read()).items[0]?.after).toMatchObject({header:{source:'auto_payroll'},lines:expect.arrayContaining([expect.objectContaining({gl_account_id:m.target})])});
+});
