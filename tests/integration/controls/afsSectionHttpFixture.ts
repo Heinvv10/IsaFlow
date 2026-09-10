@@ -33,6 +33,9 @@ export async function afsSectionHttpFixture(){
   SIGNUM_API_URL:'http://signum.synthetic.invalid',SIGNUM_API_KEY:'synthetic',SIGNUM_CALLBACK_BASE_URL:'http://signum.synthetic.invalid/sign',SIGNUM_WEBHOOK_SECRET:randomBytes(16).toString('hex')});
  const pool=new Pool({connectionString:target.connectionString,ssl:false,max:4,statement_timeout:10000});
  const f=await provisionForensicFixture(fixtureConfigFromEnv(process.env)),csrf=randomBytes(32).toString('hex'),admin=randomUUID();
+ // The AI and send limiters count per IP, and every run of this suite arrives from 127.0.0.1:
+ // without this the second run of the day answers 429 and the suite tests the limiter instead.
+ await pool.query("DELETE FROM rate_limit_counters WHERE key LIKE 'ai:afs-ai-narrative:%' OR key LIKE '%afs-signing%'");
  await pool.query("INSERT INTO users(id,email,role,is_active,status) VALUES($1,$2,'super_admin',true,'active')",[admin,`${admin}@forensic.invalid`]);
  const modules=new Map<string,Module>();
  async function resolve(req:IncomingMessage){
