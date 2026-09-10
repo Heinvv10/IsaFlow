@@ -1,7 +1,8 @@
 /**
  * GET /api/accounting/evidence/trial-balance/[accountId]
  * Returns GL line evidence for a specific account, with optional date range.
- * Query params: from=YYYY-MM-DD, to=YYYY-MM-DD, limit=N
+ * Query params: from=YYYY-MM-DD, to=YYYY-MM-DD, limit=N, cost_centre_id=UUID,
+ * business_unit_id=UUID. Dimension filters are cumulative.
  */
 
 import type { NextApiResponse } from 'next';
@@ -19,6 +20,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const costCentreId = req.query.cost_centre_id;
   if (costCentreId !== undefined && (typeof costCentreId !== 'string' || !UUID_RE.test(costCentreId))) {
     return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+  const businessUnitId = req.query.business_unit_id;
+  if (businessUnitId !== undefined && (typeof businessUnitId !== 'string' || !UUID_RE.test(businessUnitId))) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
   }
 
   const { companyId } = req;
@@ -44,6 +49,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const rows = await resolveAccountEvidence(companyId, accountId, {
     costCentreId,
+    businessUnitId,
     fromDate: from,
     toDate: to,
     limit,

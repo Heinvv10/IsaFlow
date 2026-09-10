@@ -58,6 +58,7 @@ export interface TrialBalanceReport {
    */
   fiscalYearStart: string;
   costCentreId?: string;
+  businessUnitId?: string;
   /** Canonical key for account lines — always `rows`, never `accounts`. */
   rows: TrialBalanceRow[];
   /** Rows returned. The balanced assertion below describes exactly these. */
