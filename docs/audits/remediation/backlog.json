@@ -10625,6 +10625,39 @@
       "severity": "medium",
       "source": "Surfaced by the K-071 r12 blind reviewer as the pre-existing half of its MEDIUM-1; reserved and registered by the K-071 r13 fixer, 2026-09-10",
       "processNotes": "The contention half is FIXED on the K-071 branch: 8 routes can raise the retryable-contention event, 4 needed fixing, and a new `isRetryableContention` union is tested before each blanket branch and answers 409. What remains is the general hazard -- the blanket catch still maps every OTHER error to 400. Registered rather than fixed because narrowing a catch requires typing every refusal first (see `planSupplierPaymentApplication`, where narrowing without typing would have turned 'Cannot apply a cancelled payment' into a 500). Needs its own branch."
+    },
+    {
+      "id": "R-064",
+      "claim": "",
+      "area": "accounting/payroll",
+      "affectedPaths": [
+        "pages/api/payroll/runs/[id]/calculate.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "No data risk. The defect is the status class: 400 tells the caller to fix their request, when contention means retry, and no Retry-After is sent.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None — nothing is written. A 55P03 aborts the transaction, so the 4xx COMMIT degrades to a rollback.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "payroll calculate answers lock-timeout contention with 400, a client-error class, under neither of the codebase's two contention contracts",
+      "severity": "low",
+      "source": "Flagged by the K-107 r11 blind reviewer as 'R-id TBA'; confirmed on origin/master by the orchestrating session, 2026-09-10",
+      "processNotes": "`calculate.ts:48-50` maps `PayrollLoanLockTimeoutError` (OR'ed with `PayrollRunJournalPostedError`) to `apiResponse.badRequest`. Deliberate — the comment says both are refusals raised before anything is written and that without the mapping they would reach withErrorHandler as a 500 and lose the user's instruction. That data-safety reasoning holds; the pre-write claim is the author's and is not independently verified here.\n\nHOW TO FIX DEPENDS ON AN OPEN DECISION FOR HEIN. The codebase now has TWO contracts for lock contention: **409** (the bank routes, which K-071 standardised; and master's `approval-requests.ts` and `recurring-journals-action.ts`, which chose 409 deliberately as 'a retry, not a fault'), and **503 + Retry-After** (`apiDocumentLock.ts`, which K-107 applied to recurring templates). The K-107 reviewer also flagged those two 409 routes; they are NOT registered as defects, because doing so would presume 503 wins. Only this route's 400 is wrong under either contract."
     }
   ],
   "sourceInventory": [
