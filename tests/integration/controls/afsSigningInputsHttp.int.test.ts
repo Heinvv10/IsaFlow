@@ -235,12 +235,20 @@ describe('editing the inputs of a document out for signature',()=>{
    const unchanged=await h.request('PUT','/api/accounting/afs/brand-profile',same);
    expect(unchanged.status,JSON.stringify(unchanged.body)).toBe(200);
    expect(unchanged.body.data?.warnings,'a save that changed nothing warned anyway').toEqual([]);
-   const brand=await h.request('PUT','/api/accounting/afs/brand-profile',{...same,primaryColour:'#1e3a5f'});
+   // The footer is saved but never printed, so a footer-only save voids nothing and must not
+   // tell the operator it will — they would cancel a valid signing at Signum for nothing.
+   const footer=await h.request('PUT','/api/accounting/afs/brand-profile',{...same,reportFooterText:'A footer the statements never print'});
+   expect(footer.status,JSON.stringify(footer.body)).toBe(200);
+   expect(footer.body.data?.warnings,'a footer-only save claimed it would void a signature').toEqual([]);
+   const brand=await h.request('PUT','/api/accounting/afs/brand-profile',{...same,reportFooterText:'A footer the statements never print',primaryColour:'#1e3a5f'});
    expect(JSON.stringify(brand.body.data?.warnings),'the branding change gave no warning').toContain(doc);
 
    const resave=await h.request('PUT','/api/accounting/companies',{id:h.f.companyA,name:before.name,registrationNumber:before.registration_number});
    expect(resave.status,JSON.stringify(resave.body)).toBe(200);
    expect(resave.body.data?.warnings,'re-saving the same company details warned anyway').toEqual([]);
+   const unrelated=await h.request('PUT','/api/accounting/companies',{id:h.f.companyA,phone:'011 555 0100'});
+   expect(unrelated.status,JSON.stringify(unrelated.body)).toBe(200);
+   expect(unrelated.body.data?.warnings,'a change to nothing the statements print warned').toEqual([]);
    const renamed=await h.request('PUT','/api/accounting/companies',{id:h.f.companyA,registrationNumber:'2024/000001/07'});
    expect(renamed.status,JSON.stringify(renamed.body)).toBe(200);
    expect(JSON.stringify(renamed.body.data?.warnings),'the company change gave no warning').toContain(doc);
