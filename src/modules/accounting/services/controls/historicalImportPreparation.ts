@@ -36,7 +36,7 @@ export async function prepareHistoricalImport(ctx:ControlTx,input:HistoricalImpo
   if(existing.length!==1||(!inserted.length&&existing[0]!.requester_person_id!==p.personId))throw new Error('Historical source identity belongs to a different requester');
   const importId=String(existing[0]!.id);
   if(inserted.length)await recordCommittedChange(ctx,{entityType:'historical_import',entityId:importId,previousVersion:null,newVersion:1,action:'historical_import.prepared',accountingDate:normalized.accountingDate,
-   before:null,after:{status:'prepared',sourceId:source.sourceId,contentHash:source.contentHash,normalizedHash:source.normalizedHash,amount:normalized.amount,currency:normalized.currency},bindingHash:payloadHash,protectedEvidenceRef:null});
+   before:null,after:{status:'prepared',kind:normalized.kind,sourceId:source.sourceId,contentHash:source.contentHash,normalizedHash:source.normalizedHash,amount:normalized.amount,currency:normalized.currency},bindingHash:payloadHash,protectedEvidenceRef:null});
   const material=await materializeHistoricalImportOperation(ctx,{entityType:'historical_import',entityId:importId,operation:'historical_import.post'});
   const facts=material.observedSources[0]!.facts as {source:{contentHash:string;normalizedHash:string}};
   if(facts.source.contentHash!==source.contentHash||facts.source.normalizedHash!==source.normalizedHash)throw new Error('Historical source key already exists with different evidence');
