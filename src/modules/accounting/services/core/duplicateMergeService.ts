@@ -47,18 +47,26 @@ async function mergeCustomers(companyId: string, primaryId: string, duplicateId:
 
   let count = 0;
 
-  // customer_invoices has both customer_id and client_id
+  // (2) PAYMENTS BEFORE (3) INVOICES — the canonical order in
+  // `src/modules/accounting/services/bank/.claude.md`. A merge reassigns EVERY
+  // invoice and EVERY payment of one counterparty, so it contends with any
+  // settlement running for that counterparty at the same moment; taken the
+  // other way round it is the inverse of `confirmCustomerPayment`,
+  // `cancelCustomerPayment` and `planReceiptApplication`, which all lock the
+  // payment and then the invoices. The two statements are independent and
+  // `count` is a sum, so only the order changes.
   const r1 = await sql`
+    UPDATE customer_payments SET client_id = ${primaryId}::UUID
+    WHERE company_id = ${companyId}::UUID AND client_id = ${duplicateId}::UUID
+  ` as unknown as SqlResult;
+  count += Number(r1.rowCount ?? 0);
+
+  // customer_invoices has both customer_id and client_id
+  const r2 = await sql`
     UPDATE customer_invoices
     SET customer_id = ${primaryId}::UUID, client_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID
       AND (customer_id = ${duplicateId}::UUID OR client_id = ${duplicateId}::UUID)
-  ` as unknown as SqlResult;
-  count += Number(r1.rowCount ?? 0);
-
-  const r2 = await sql`
-    UPDATE customer_payments SET client_id = ${primaryId}::UUID
-    WHERE company_id = ${companyId}::UUID AND client_id = ${duplicateId}::UUID
   ` as unknown as SqlResult;
   count += Number(r2.rowCount ?? 0);
 
@@ -102,14 +110,16 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
 
   let count = 0;
 
+  // (2) PAYMENTS BEFORE (3) INVOICES, for the reason given in `mergeCustomers`
+  // above — the AP twin of the same inversion.
   const r1 = await sql`
-    UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID
+    UPDATE supplier_payments SET supplier_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
   ` as unknown as SqlResult;
   count += Number(r1.rowCount ?? 0);
 
   const r2 = await sql`
-    UPDATE supplier_payments SET supplier_id = ${primaryId}::UUID
+    UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
   ` as unknown as SqlResult;
   count += Number(r2.rowCount ?? 0);

@@ -43,6 +43,24 @@ export class PaymentLockTimeoutError extends Error {
 }
 
 /**
+ * Raised when a payment POSTS between the unlocked peek `voidPaymentDocument`
+ * resolves its bank line from and the payment lock it takes afterwards — so the
+ * line it locked first hangs off a journal this payment did not have. Nothing
+ * has been written when it is raised, and the identical call a moment later
+ * sees the posted payment, so it is retryable exactly like the timeout above.
+ * It carries a CODE for the same reason that one does: `safeErrorText` surfaces
+ * a message only for a code on its own allowlist, and an agent told the generic
+ * fallback retries the call it was just refused.
+ */
+export class PaymentPostedDuringVoidError extends Error {
+  readonly code = 'PAYMENT_POSTED_DURING_VOID';
+  constructor(paymentId: string) {
+    super(`Payment ${paymentId} was posted while this void was being prepared — retry in a moment.`);
+    this.name = 'PaymentPostedDuringVoidError';
+  }
+}
+
+/**
  * Structural, not `instanceof`: a route deciding a status code on this must not
  * be defeated by module mocking or by two bundled copies of this file. Mirrors
  * `isBankTransactionLockTimeout`. The condition is RETRYABLE and nothing has

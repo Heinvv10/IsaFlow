@@ -27,10 +27,15 @@ vi.mock('@/lib/neon', () => ({
   // transaction to hold one, so run the block straight through.
   withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
 }));
-vi.mock('@/modules/accounting/services/core/paymentLock', () => ({
-  lockCustomerPaymentForUpdate: vi.fn(),
-  lockSupplierPaymentForUpdate: vi.fn(),
-}));
+vi.mock('@/modules/accounting/services/core/paymentLock', async () => {
+  // importOriginal, not a hand-written stub: the refusal CLASSES are part of
+  // this module's contract and a stub that omits one turns a typed refusal into
+  // a mock-resolution error that looks nothing like the production failure.
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/core/paymentLock')>(
+    '@/modules/accounting/services/core/paymentLock',
+  );
+  return { ...actual, lockCustomerPaymentForUpdate: vi.fn(), lockSupplierPaymentForUpdate: vi.fn() };
+});
 vi.mock('@/modules/accounting/services/bank/bankAllocationUnwind', () => ({
   unwindOnePayment: vi.fn(),
   unwindBankAllocationApplication: vi.fn(),
@@ -188,8 +193,13 @@ describe('voidPaymentDocument', () => {
     const m = vi.mocked(sql);
     m.mockResolvedValueOnce([{ gl_journal_entry_id: null }] as never);  // peek: not posted yet
 
-    await expect(voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER))
-      .rejects.toThrow(/posted while this void was being prepared/i);
+    const err = await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER)
+      .then(() => null, (e: unknown) => e);
+    expect((err as Error).message).toMatch(/posted while this void was being prepared/i);
+    // TYPED, not a bare Error: `safeErrorText` surfaces a message only for a
+    // code on `REFUSAL_CODES`, and an agent handed the generic fallback retries
+    // the call it was just refused.
+    expect(err).toMatchObject({ code: 'PAYMENT_POSTED_DURING_VOID' });
     expect(unwindOnePayment).not.toHaveBeenCalled();
     expect(unwindBankAllocationApplication).not.toHaveBeenCalled();
     expect(reverseJournalEntry).not.toHaveBeenCalled();
