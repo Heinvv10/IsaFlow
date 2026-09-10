@@ -1,7 +1,7 @@
 // src/modules/accounting/services/afs/pdfExportService.ts
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { AfsDocument, AfsSection, SectionType, SectionStatus, DocumentType, DocumentStatus, ReportingFramework, NoteContent, AfsSectionVersionEntry } from './afsTypes';
+import type { AfsDocument, BrandProfile, AfsSection, SectionType, SectionStatus, DocumentType, DocumentStatus, ReportingFramework, NoteContent, AfsSectionVersionEntry } from './afsTypes';
 import { DEFAULT_BRAND_PROFILE, getBrandProfile } from './brandProfileService';
 import { runPreExportChecks } from './afsPreExportChecks';
 import { renderAfsToHtml } from './afsHtmlRendererService';
@@ -24,6 +24,13 @@ export interface PdfExportOptions {
    * companies permanently unable to send for signature.
    */
   allowDefaultBrandProfile?: boolean;
+  /**
+   * The company and brand values to render with, read and fingerprinted in one statement by the
+   * caller (snapshotRenderInputs). When given, the renderer does NOT re-read those tables, so
+   * the bytes it produces are exactly what the fingerprint describes. A null brand profile means
+   * the snapshot saw none: the documented default is used.
+   */
+  inputs?: { companyName: string; registrationNumber: string | null; brandProfile: BrandProfile | null };
 }
 
 // ── DB row mappers ────────────────────────────────────────────────────────────
@@ -111,9 +118,9 @@ export async function renderDocumentHtml(
 
   const sections = sectionRows.map(mapSectionRow);
 
-  // 3. Load brand profile
-  const savedProfile = await getBrandProfile(companyId);
-  if (savedProfile === null && !options?.allowDefaultBrandProfile) {
+  // 3. Load brand profile — unless the caller supplies the values it fingerprinted
+  const savedProfile = options?.inputs ? options.inputs.brandProfile : await getBrandProfile(companyId);
+  if (savedProfile === null && !options?.allowDefaultBrandProfile && !options?.inputs) {
     throw new Error(`Brand profile not found for company: ${companyId}`);
   }
   const brandProfile = savedProfile ?? { ...DEFAULT_BRAND_PROFILE, id: 'default', companyId, createdAt: new Date(), updatedAt: new Date() };
@@ -135,19 +142,25 @@ export async function renderDocumentHtml(
     }
   }
 
-  // 5. Load company info
-  const companyRows = (await sql`
-    SELECT name, registration_number
-    FROM   companies
-    WHERE  id = ${companyId}::UUID
-  `) as Record<string, unknown>[];
-
-  const companyRow = companyRows[0];
-  if (companyRow === undefined) {
-    throw new Error(`Company not found: ${companyId}`);
+  // 5. Load company info — unless the caller supplies the values it fingerprinted
+  let companyName: string;
+  let registrationNumber: string;
+  if (options?.inputs) {
+    companyName        = options.inputs.companyName;
+    registrationNumber = options.inputs.registrationNumber ?? '';
+  } else {
+    const companyRows = (await sql`
+      SELECT name, registration_number
+      FROM   companies
+      WHERE  id = ${companyId}::UUID
+    `) as Record<string, unknown>[];
+    const companyRow = companyRows[0];
+    if (companyRow === undefined) {
+      throw new Error(`Company not found: ${companyId}`);
+    }
+    companyName        = companyRow.name as string;
+    registrationNumber = (companyRow.registration_number as string | null) ?? '';
   }
-  const companyName         = companyRow.name as string;
-  const registrationNumber  = (companyRow.registration_number as string | null) ?? '';
 
   // 6. Render HTML. Defence-in-depth: WeasyPrint fetches the logo URL server-side, so
   // re-validate it here (covers rows stored before the save-time guard) and drop it if it

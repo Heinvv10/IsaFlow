@@ -15,7 +15,7 @@ import { sql } from '@/lib/neon';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { countMandatorySectionsBelow, lockDocumentForTransition } from '@/modules/accounting/services/afs/afsDocumentTransitions';
-import { documentContentFingerprint, lockRenderInputs } from '@/modules/accounting/services/afs/afsSigningIntegrity';
+import { snapshotRenderInputs } from '@/modules/accounting/services/afs/afsSigningIntegrity';
 import { renderDocumentHtml } from '@/modules/accounting/services/afs/pdfExportService';
 import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
@@ -98,27 +98,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // 3. Render the statements from the CURRENT rows — the same rows the fingerprint is taken
-  //     over. There is no stored artifact to sign: nothing in the product writes one, so
-  //     reading a file here would post bytes of unknown provenance and arbitrary age.
+  // 3. Fingerprint what is rendered. The company and brand inputs are read ONCE, in the same
+  //     statement that fingerprints them, and the render uses those values instead of
+  //     re-reading the tables — so the bytes Signum receives are, by construction, the bytes
+  //     the fingerprint describes. No lock is taken on the company or its branding (edits to
+  //     either are deliberately allowed while a document is out for signature); a later edit
+  //     makes the webhook's recomputation differ and the signature is refused, naming it. The
+  //     document and its sections are already held by the document lock above.
   //
-  //     The document row is already locked, and so are its sections (every section write takes
-  //     FOR SHARE on the document). The company row and brand profile are held here for the
-  //     same reason; the fingerprint is taken before AND after the render, which catches the one
-  //     change a lock cannot stop — a first brand profile inserted while the render runs.
-  try {
-    await lockRenderInputs(sql, companyId);
-  } catch (err) {
-    if (sendReviewError(res, err, 'AFS document', documentId)) return;
-    throw err;
-  }
-  const beforeRender = await documentContentFingerprint(sql, companyId, documentId);
+  //     There is no stored artifact to sign: nothing in the product writes one, so reading a
+  //     file here would post bytes of unknown provenance and arbitrary age.
+  const snapshot = await snapshotRenderInputs(sql, companyId, documentId);
   let html: string;
   try {
     // skipChecks: the pre-export blocker gate is the export's own policy and runs there. What
-    // matters here is that the bytes are DERIVED from the current rows rather than read from a
-    // stored artifact; a render that cannot be produced at all refuses the send.
-    html = await renderDocumentHtml(documentId, companyId, { skipChecks: true, allowDefaultBrandProfile: true });
+    // matters here is that the bytes are DERIVED from the fingerprinted values; a render that
+    // cannot be produced at all refuses the send.
+    html = await renderDocumentHtml(documentId, companyId, {
+      skipChecks: true,
+      allowDefaultBrandProfile: true,
+      inputs: {
+        companyName: snapshot.companyName,
+        registrationNumber: snapshot.registrationNumber,
+        brandProfile: snapshot.brandProfile,
+      },
+    });
   } catch (err) {
     log.warn('Signing refused — the statements could not be rendered from the current content',
       { companyId, documentId, error: err instanceof Error ? err.message : String(err) }, 'send-for-signing-api');
@@ -127,26 +131,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `Cannot send for signing: the statements could not be rendered from the current content — ${err instanceof Error ? err.message : 'render failed'}`,
     );
   }
-  const { fingerprint, digests } = await documentContentFingerprint(sql, companyId, documentId);
-  if (fingerprint !== beforeRender.fingerprint) {
-    log.warn('Signing refused — an input changed while the statements were rendering', { companyId, documentId }, 'send-for-signing-api');
-    return apiResponse.conflict(
-      res,
-      'Cannot send for signing: the company settings or branding changed while the statements were being prepared — send it for signature again',
-    );
-  }
+  const { fingerprint, digests } = snapshot;
 
-  // 4. Load company name for document title
-  const companies = (await sql`
-    SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1
-  `) as Array<{ name: string }>;
-  const companyName = companies.length > 0 ? companies[0]!.name : 'Company';
-  const title = `Annual Financial Statements — ${companyName}`;
+  // 4. The document title carries the same company name the statements were rendered with
+  const title = `Annual Financial Statements — ${snapshot.companyName}`;
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
-  // Both records: the rows that were rendered (taken above, unchanged across the render), and
-  // the exact bytes that were posted.
+  // Both records: the inputs that were rendered (fingerprinted in the snapshot above), and the
+  // exact bytes that were posted.
   const payloadSha256 = createHash('sha256').update(html, 'utf8').digest('hex');
   const { signumDocumentId, signingTokens } = await sendForSigning(
     documentId,
