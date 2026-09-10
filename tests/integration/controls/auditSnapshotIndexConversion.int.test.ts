@@ -19,11 +19,11 @@ beforeAll(async()=>{f=await provisionForensicFixture(config);storage=await evide
 });afterAll(async()=>{await storage?.close();await pool.end();});
 function actor<T>(person:'u1'|'u2',action:()=>Promise<T>){return withAuditWorkerTransaction(pool,{companyId:f.companyA,personId:f[person].id,jobId:randomUUID()},'read committed',Date.now()+15000,undefined,
  store=>withControlRequest(store,{companyId:f.companyA,personId:f[person].id,authMethod:'cookie'},action));}
-async function prepared(){
+async function prepared(uppercase=false){
  const original=await actor('u1',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals','bank'],checks:[],idempotencyKey:randomUUID()}));
  expect(await runAuditSnapshotJob({companyId:f.companyA,personId:f.u1.id,jobId:original.id},{pool})).toMatchObject({state:'succeeded'});
  // Enqueue before synthetic removal deliberately exercises the immutable v1 pinned hash too.
- const comparison=await actor('u2',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:original.id,secondSnapshotId:original.id,idempotencyKey:randomUUID()}));
+ const comparison=await actor('u2',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:uppercase?original.id.toUpperCase():original.id,secondSnapshotId:uppercase?original.id.toUpperCase():original.id,idempotencyKey:randomUUID()}));
  const lease=await actor('u2',()=>claimAuditJob(requireControlTx(),comparison.id));if(!lease)throw new Error('Missing comparison lease');
  const retained=(await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,original.id])).rows[0];
  const artifacts=(await pool.query('SELECT artifact_id,protected_artifact FROM control_audit_snapshot_artifacts WHERE company_id=$1 AND snapshot_id=$2 ORDER BY artifact_id',[f.companyA,original.id])).rows;
@@ -89,4 +89,9 @@ it('reuses an existing complete index without rewriting its protected header',as
  const before=(await pool.query('SELECT protected_header FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,id])).rows;
  const header=await convert(lease,id);expect(header.snapshotId).toBe(id);
  expect((await pool.query('SELECT protected_header FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,id])).rows).toEqual(before);
+});
+
+it('preserves legacy pinned hashes for mixed-case UUID representations of the same source',async()=>{
+ const {id,lease,retained}=await prepared(true);await removeIndex(id);
+ expect(await convert(lease,id)).toMatchObject({snapshotId:id,canonicalHash:retained.canonical_hash});
 });
