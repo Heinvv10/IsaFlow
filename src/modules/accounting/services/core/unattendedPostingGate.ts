@@ -29,13 +29,14 @@
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { detectDocumentType, extractAmounts } from './ocrExtractionService';
 import { extractTotalCandidates, isUnreconciled } from './ocrAmountReconciliation';
-import { adjustmentAfterTotal, unexplainedLargerFigure, unsettledTender } from './ocrLargerFigure';
+import type { Unreconciled } from './ocrLargerFigure';
+import { adjustmentAfterTotal, unexplainedLargerFigure, unreconciledFigure } from './ocrLargerFigure';
 import { hasCreditIndicator } from './creditIndicators';
 
 export type UnattendedPostingInput = Pick<
   ExtractedDocument,
   'documentType' | 'rawText' | 'subtotal' | 'vatAmount' | 'totalAmount' | 'warnings' | 'extractionMethod'
->;
+> & Partial<Pick<ExtractedDocument, 'vendorName' | 'vendorAddress'>>;
 
 /**
  * Were the figures recovered by the regex/OCR FALLBACK rather than the
@@ -67,12 +68,13 @@ export function isFallbackExtraction(doc: Pick<ExtractedDocument, 'extractionMet
  * are `hasCreditIndicator`'s, and a negative total is a credit whatever read it.
  */
 export function isCreditNote(
-  doc: Pick<ExtractedDocument, 'documentType' | 'rawText'> & Partial<Pick<ExtractedDocument, 'totalAmount'>>,
+  doc: Pick<ExtractedDocument, 'documentType' | 'rawText'>
+    & Partial<Pick<ExtractedDocument, 'totalAmount' | 'vendorName' | 'vendorAddress'>>,
 ): boolean {
   return doc.documentType === 'credit_note'
     || detectDocumentType(doc.rawText ?? '') === 'credit_note'
     || (doc.totalAmount ?? 0) < 0
-    || hasCreditIndicator(doc.rawText ?? '', doc.totalAmount);
+    || hasCreditIndicator(doc.rawText ?? '', doc.totalAmount, [doc.vendorName, doc.vendorAddress]);
 }
 
 /**
@@ -81,9 +83,17 @@ export function isCreditNote(
  * they take the credit refusal, the fallback policy and the ambiguity check.
  */
 export function refusesUnattendedApproval(
-  doc: Pick<ExtractedDocument, 'documentType' | 'rawText' | 'totalAmount' | 'warnings' | 'extractionMethod'>,
+  doc: Pick<ExtractedDocument, 'documentType' | 'rawText' | 'totalAmount' | 'warnings' | 'extractionMethod'>
+    & Partial<Pick<ExtractedDocument, 'vendorName' | 'vendorAddress'>>,
 ): boolean {
   return isCreditNote(doc) || isFallbackExtraction(doc) || isAmbiguousTotal(doc);
+}
+
+/** The refusal a failed reconciliation is reported as. */
+function unreconciledReason(off: Unreconciled): string {
+  if (off.reason === 'paid') return `the document was paid ${off.value.toFixed(2)}, not the total read`;
+  if (off.reason === 'larger') return `the document prints ${off.value.toFixed(2)}, more than the total read`;
+  return `the document prints ${off.value.toFixed(2)} below its total, which nothing explains`;
 }
 
 /** Why this document may not post unattended, or null when nothing is left to choose. */
@@ -117,11 +127,11 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   if (larger !== null) return `the document prints ${larger.toFixed(2)}, more than the total read`;
   const adjusted = adjustmentAfterTotal(doc.rawText ?? '', total);
   if (adjusted !== null) return `the document adjusts the total by ${adjusted.toFixed(2)} after printing it`;
-  // A SPLIT payment prints no figure larger than the total, so neither check
-  // above sees `SERVICE 10% 23.00 / VISA 126.50 / MASTERCARD 126.50` under a
-  // total of 230.00. What was paid is what the document settled for.
-  const settled = unsettledTender(doc.rawText ?? '', total);
-  if (settled !== null) return `the document was paid ${settled.toFixed(2)}, not the total read`;
+  // The WHITELIST: the whole document must reconcile against the total, not
+  // the slice below it. A split tender printed ABOVE the total block, and a
+  // charge printed BELOW the tender line, both evaded the slice.
+  const off = unreconciledFigure(doc.rawText ?? '', total, doc);
+  if (off) return unreconciledReason(off);
 
   // The TOTAL was re-read; the VAT was not, and a stored net and VAT are a
   // second number the entry is built from. Measured: a zero-rated slip whose
@@ -167,7 +177,8 @@ export function isAmbiguousTotal(
   // amount-based check as the gate, so `Total 230.00 / Tip 23.00 / CARD 253.00`
   // is not approved at R230.00 here either.
   if (printed.length === 0) return false;
+  const reread = extractAmounts(doc.rawText ?? '');
   return unexplainedLargerFigure(doc.rawText ?? '', printed[0]!) !== null
     || adjustmentAfterTotal(doc.rawText ?? '', printed[0]!) !== null
-    || unsettledTender(doc.rawText ?? '', printed[0]!) !== null;
+    || unreconciledFigure(doc.rawText ?? '', printed[0]!, reread) !== null;
 }

@@ -23,7 +23,7 @@
  * nothing it finds is ever offered as the payable.
  */
 import { parseAmount } from './ocrAmountParsing';
-import { UNRECONCILED_WARNING, totalPrintedEnd } from './ocrAmountReconciliation';
+import { UNRECONCILED_WARNING, totalPrintedEnd, totalPrintedLastEnd } from './ocrAmountReconciliation';
 
 /**
  * A printed money figure: it carries a decimal part, which is what keeps
@@ -70,7 +70,7 @@ const CASH_LABEL = /(?<![A-Za-z])(?:Cash|Tender(?:ed)?|Kontant)(?![A-Za-z])/i;
  * the charge, whatever it is called. `Account` is deliberately absent: on a
  * trade slip `Account Balance 12 345.67` is not a payment.
  */
-const TENDER_LABEL = /(?<![A-Za-z])(?:Cash|Kontant|Tender(?:ed)?|Card|Kaart|Visa|Master(?:\s*card)?|Maestro|Amex|American\s+Express|Diners|Debit|EFT|Snap\s*Scan|Zapper|Yoco|Speedpoint|Voucher|Cheque|Payment|Paid|Betaal\w*|Betaling)(?![A-Za-z])/i;
+const TENDER_LABEL = /(?<![A-Za-z])(?:Cash|Kontant|Tender(?:ed)?|Card|Kaart|Visa|Master(?:\s*card)?|Maestro|Amex|American\s+Express|Diners|Debit|EFT|Snap\s*Scan|Scan\s*to\s*Pay|Zapper|Yoco|Ozow|Pay\s*Shap|SCode|Speedpoint|Voucher|Cheque|Payment|Paid|Points|Loyalty|eBucks|UCount|Miles|Betaal\w*|Betaling|(?:Capitec|Apple|Samsung|Google|FNB|Nedbank|Absa|Standard\s+Bank|Mobile|Instant)\s*(?:Pay|Money|EFT))(?![A-Za-z])/i;
 
 /**
  * A figure printed NEGATIVE: a glued minus (`-23.00`, `-R23.00`, `R -23.00`),
@@ -85,6 +85,28 @@ const NEGATIVE_FIGURE = /(?<![\d.,])(?:[-–](?:R|ZAR)?(\d+[.,]\d{2})|\(\s*(?:R|
  * that the payable is more. This vocabulary only ever REFUSES.
  */
 const ADDITION_LABEL = /(?<![A-Za-z])(?:Tips?|Gratuit(?:y|ies)|Fooi|Service\s*(?:Charge|Chg|Fee)|Svc(?:\s*Chg)?|Delivery(?:\s*(?:Fee|Charge))?|Del\s*Chg)(?![A-Za-z])[\s:.=R]*(?:incl(?:uded|\.)?[\s:.=R]*)?(\d+(?:[.,]\d{1,2})?)(?![\d.,]*\d)/gi;
+
+/**
+ * What may stand between a payment's name and its amount: separators, a
+ * currency mark, and the handful of nouns a till prints inside a tender line
+ * (`Card Amount 449.50`, `Fleet card R 1 140.47`). ANYTHING ELSE means the
+ * payment word was not labelling this figure at all — `Credit card surcharge
+ * 5.00` is a charge, `points balance 1 250.00` is a loyalty balance, and
+ * `Logitech MX Master 3S 1 899.00` is a mouse. Measured: without this, all
+ * three were summed as payments and refused three ordinary slips.
+ *
+ * Its failure direction is safe. An unlisted connector only stops a figure
+ * counting as a payment, and rule 3 of `unreconciledFigure` then refuses the
+ * document because nothing explains it.
+ */
+const TENDER_CONNECTOR = /^(?:[\s:.=*#()\/-]|R\b|ZAR\b|Amount\b|Amt\b|Total\b|Due\b|Tendered\b|Paid\b|Payment\b|No\b)*$/i;
+
+/** Does a payment label stand IMMEDIATELY before this figure on its line? */
+function labelsTender(segment: string): boolean {
+  const matches = [...segment.matchAll(new RegExp(TENDER_LABEL.source, 'gi'))];
+  const last = matches[matches.length - 1];
+  return last !== undefined && TENDER_CONNECTOR.test(segment.slice(last.index + last[0].length));
+}
 
 interface PrintedFigure {
   value: number;
@@ -106,7 +128,7 @@ function printedFigures(text: string): PrintedFigure[] {
         value: parseAmount(match[1]!),
         isChange: CHANGE_LABEL.test(line.slice(labelFrom, match.index)),
         isCash: CASH_LABEL.test(line.slice(labelFrom, match.index)),
-        isTender: TENDER_LABEL.test(line.slice(labelFrom, match.index)),
+        isTender: labelsTender(line.slice(labelFrom, match.index)),
         end: match.index + match[0].length,
       });
       labelFrom = match.index + match[0].length;
@@ -144,43 +166,67 @@ export function unexplainedLargerFigure(text: string, total: number): number | n
   return culprit ? culprit.value : null;
 }
 
+/** Why a document's own figures do not reconcile against the total read. */
+export interface Unreconciled {
+  /** `paid` — the payments do not add up; `larger` — a bigger figure nothing
+   *  explains; `stray` — a figure below the total block nothing explains. */
+  reason: 'paid' | 'larger' | 'stray';
+  value: number;
+}
+
 /**
- * Do the payments printed after the total ADD UP to it?
+ * Does the WHOLE document reconcile against the total it was read with?
  *
- * This is HIGH-1 of the round-14 review and the sixth attempt at the same
- * defect. `SERVICE 10% 23.00 / VISA 126.50 / MASTERCARD 126.50` under a total
- * of 230.00 asks for 253.00, and neither vocabulary saw it: `ADDITION_LABEL`
- * did not know bare `Service` (nor `Waiter`, `Freight`, `Shipping`,
- * `Handling`), and because the payment was SPLIT no single printed figure
- * exceeded the total, so `unexplainedLargerFigure` found nothing either. The
- * same slip with `Freight` or `Waiter` in place of `SERVICE`, and with two
- * EFT legs instead of two cards, behaved identically.
+ * Round 15 asked the same question of a SLICE — the text after the printed
+ * total — and the round-16 review beat it three ways with that alone: a split
+ * tender printed ABOVE the total block (`VISA 126.50 / MASTERCARD 126.50 /
+ * Sub Total 200 / VAT 30 / Total 230`) was never examined and posted R230.00
+ * against a payable of R253.00; a charge printed BELOW the tender line was
+ * skipped because a tender had been found; and a payment rail missing from
+ * `TENDER_LABEL` simply dropped out of the sum. Seven rounds have now been
+ * beaten by a rule that reads a position.
  *
- * A charge has no end of names; the arithmetic has one form. What was paid is
- * what was tendered less what was given back, and on an ordinary purchase it
- * equals the total. Where it does not, something between the two is a figure
- * the reader did not account for — whatever the document calls it — and the
- * document goes to a person. Change is subtracted only where a CASH tender is
- * printed: only cash gives change, and `CARD 253.00 / Change 23.00` under a
- * total of 230.00 is a mislabelled tip, not a tender and its change.
+ * So this is a WHITELIST, and it is measured over the whole document. Three
+ * things must hold, and anything else goes to a person:
  *
- * A cent of rounding is allowed. Null when the document prints no payment
- * after its total, which is the ordinary shape of a supplier invoice.
+ *  1. the payments, wherever they are printed, sum to the total (less change,
+ *     and only where a CASH tender is printed — only cash gives change);
+ *  2. no figure is LARGER than the total except one exactly equal to it (a
+ *     repeated total, an amount-due box) or one the payment sum already
+ *     accounted for (`CASH 300.00` against `CHANGE 47.00`);
+ *  3. nothing printed below the total block is left unexplained — not a
+ *     payment, not change, not zero, not the total again, and not the net or
+ *     the tax the reader itself extracted (a VAT recap or a tax-analysis
+ *     block, which is what an ordinary supplier invoice prints there).
+ *
+ * Rule 3 is what makes `TENDER_LABEL` non-load-bearing in the dangerous
+ * direction: a rail this file has never heard of leaves the CHARGE beside it
+ * unexplained, and the document refuses whether or not the rail was
+ * recognised. The vocabulary now only ever buys back an ordinary slip.
  */
-export function unsettledTender(text: string, total: number): number | null {
-  const end = totalPrintedEnd(text, total);
-  if (end === null) return null;
-  const figures = printedFigures(text.slice(end));
+export function unreconciledFigure(
+  text: string,
+  total: number,
+  known: { subtotal?: number | null; vatAmount?: number | null } = {},
+): Unreconciled | null {
+  const figures = printedFigures(text);
   const tenders = figures.filter((f) => f.isTender && !f.isChange);
-  if (tenders.length === 0) {
-    const stray = figures.find((f) => f.value !== 0 && f.value !== total);
-    return stray ? stray.value : null;
+  if (tenders.length > 0) {
+    const hasCash = figures.some((f) => f.isCash && !f.isChange);
+    const change = hasCash ? figures.filter((f) => f.isChange).reduce((sum, f) => sum + f.value, 0) : 0;
+    const settled = Math.round((tenders.reduce((sum, f) => sum + f.value, 0) - change) * 100) / 100;
+    if (Math.abs(settled - total) > 0.01) return { reason: 'paid', value: settled };
   }
-  const change = figures.some((f) => f.isCash && !f.isChange)
-    ? figures.filter((f) => f.isChange).reduce((sum, f) => sum + f.value, 0)
-    : 0;
-  const settled = Math.round((tenders.reduce((sum, f) => sum + f.value, 0) - change) * 100) / 100;
-  return Math.abs(settled - total) <= 0.01 ? null : settled;
+
+  const larger = figures.find((f) => f.value > total && !f.isTender && !f.isChange);
+  if (larger) return { reason: 'larger', value: larger.value };
+
+  const end = totalPrintedLastEnd(text, total);
+  if (end === null) return null;
+  const explained = new Set([0, total, known.subtotal ?? total, known.vatAmount ?? total]);
+  const stray = printedFigures(text.slice(end))
+    .find((f) => !f.isTender && !f.isChange && !explained.has(f.value));
+  return stray ? { reason: 'stray', value: stray.value } : null;
 }
 
 /**

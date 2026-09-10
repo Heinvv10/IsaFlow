@@ -56,14 +56,46 @@ const CREDIT_WORDS = [
   'RETURN', 'RETURNS', 'RETURNED', 'RETOER', 'RETOERE',
   'VOID', 'VOIDED',
   'REVERSAL', 'REVERSED', 'REVERSING',
+  'RETOUR', 'RETOURE',
   'CANCELLED', 'CANCELED', 'CANCELLATION', 'KANSELLASIE', 'KANSELLEER',
   'EXCHANGE', 'EXCHANGED',
 ];
 
+/**
+ * The ABBREVIATIONS the same document types are printed under. Round 15's
+ * word list was beaten by thirteen of them on the first attempt: `CR NOTE
+ * 0012`, `Cr Note No 0012`, `C/N 0012`, `CRN 0012`, `CR/NOTE`, `RETOUR`,
+ * `TAX INVOICE (CR)`, `CANX`, `CANX SALE`, `RTN SLIP`, `R/A 0012`.
+ *
+ * This set IS closed where the charge names were not, and the difference is
+ * where each set comes from. A charge is a noun a merchant invents — `Car
+ * Guard`, `Packer`, `Tronc`, `Bag Levy` — and the next merchant invents
+ * another. An abbreviation is a CONTRACTION of a word already above: the
+ * document types that return money are credit note, return, cancellation,
+ * reversal and refund, and a contraction is built from those same letters. So
+ * the generator is bounded, which is why this list can be finished and the
+ * charge list could not. `DEBIT NOTE` is included even though a supplier's
+ * debit note ADDS to what is owed: whose debit note it is decides the
+ * direction, the document does not say, and a refusal is the cheap half.
+ */
+const CREDIT_ABBREVIATIONS = [
+  String.raw`CR[\s./-]*N(?:OTE)?`,
+  String.raw`C[./-]N`,
+  String.raw`CRN`,
+  String.raw`RTN`,
+  String.raw`CANX`,
+  String.raw`R[./]A`,
+  String.raw`ADJUSTMENT\s+N[O0]TE`,
+  String.raw`DEB[I1l]T\s+N[O0]TE`,
+];
+
 const CREDIT_WORD = new RegExp(
-  `(?<![A-Za-z])(?:${CREDIT_WORDS.map(ocrTolerant).join('|')})(?![A-Za-z])`,
+  `(?<![A-Za-z0-9])(?:${[...CREDIT_WORDS.map(ocrTolerant), ...CREDIT_ABBREVIATIONS].join('|')})(?![A-Za-z0-9])`,
   'i',
 );
+
+/** `TAX INVOICE (CR)` — the marker printed in brackets beside the type. */
+const BRACKETED_CREDIT = /\(\s*CR\s*\)/i;
 
 /**
  * Phrases in which a credit word describes something OTHER than this
@@ -88,7 +120,14 @@ const BENIGN_PHRASES: RegExp[] = [
   /on\s+credit(?![A-Za-z])/gi,
   /(?:no|geen)\s+(?:cash\s+)?(?:refunds?|returns?|exchanges?|terugbetalings?)[^\n]*/gi,
   /(?:refunds?|returns?|exchanges?)\s+(?:policy|within|only|accepted|will|are|is|subject|may|must)[^\n]*/gi,
+  /(?:goods|items?)\s+(?:returned|exchanged)\s+(?:must|may|can|will|should|are|is|within|in)\b[^\n]*/gi,
+  /(?:may|can|will|must|shall)\s+(?:not\s+)?be\s+(?:returned|exchanged|refunded)[^\n]*/gi,
   /goods\s+may\s+be\s+(?:returned|exchanged)[^\n]*/gi,
+  /retain\s+(?:this|your)\s+(?:slip|receipt|invoice)[^\n]*/gi,
+  /returns?\s+to\s+(?:any|the|your)\s+(?:store|branch|shop)[^\n]*/gi,
+  /void\s+if\s+\w+/gi,
+  /cancellation\s+fee/gi,
+  /credit\s+guarantee/gi,
   /(?:returned|exchanged)\s+(?:with)?in\s+\d+\s+days[^\n]*/gi,
   /exchange\s+rate[^\n]*/gi,
   /less\s+credit\s+note[^\n]*/gi,
@@ -119,7 +158,30 @@ function totalPrintedSigned(text: string, total: number): boolean {
   return false;
 }
 
-export function hasCreditIndicator(text: string, total: number | null | undefined): boolean {
-  if (CREDIT_WORD.test(scrubBenign(text))) return true;
+/**
+ * Who the document is FROM is not what the document is.
+ *
+ * `Credit Solutions SA`, `Refund Recovery Services` and `Shop 5, The Exchange,
+ * Sandton` are a supplier's name and address, and round 15 read all three as
+ * credit notes. This is the structural carve-back the phrase list cannot be:
+ * the extracted vendor identity is blanked out of the text before the words
+ * are looked for, so a credit word inside it says nothing about the document,
+ * while a `CREDIT NOTE` header printed by that same supplier still refuses.
+ */
+function scrubVendorIdentity(text: string, identity: readonly (string | null | undefined)[]): string {
+  return identity.reduce<string>((acc, part) => {
+    const trimmed = (part ?? '').trim();
+    if (trimmed.length < 3) return acc;
+    return acc.split(trimmed).join(' '.repeat(trimmed.length));
+  }, text);
+}
+
+export function hasCreditIndicator(
+  text: string,
+  total: number | null | undefined,
+  vendorIdentity: readonly (string | null | undefined)[] = [],
+): boolean {
+  const scrubbed = scrubBenign(scrubVendorIdentity(text, vendorIdentity));
+  if (CREDIT_WORD.test(scrubbed) || BRACKETED_CREDIT.test(scrubbed)) return true;
   return total !== null && total !== undefined && total !== 0 && totalPrintedSigned(text, total);
 }

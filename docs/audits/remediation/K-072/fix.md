@@ -1482,3 +1482,156 @@ harness never sets. It is a harness artefact, not a defect.
 **Migration:** none. **Historical data:** unchanged — these defects mis-READ documents at capture time
 and leave no marker, so the round-13 impact SQL is still the only detection available. **Rollback:**
 revert the commit.
+
+---
+
+## Round 16 — auto-posting becomes a WHITELIST, measured over the whole document
+
+Seven rounds have now been beaten, and every one of them by a rule that read a POSITION. Round 15's
+tender arithmetic read only `text.slice(end)` — the text below the printed total — so the round-15
+review beat it three ways with that fact alone, and the credit rule was still a word list. **This round
+does not add a rule; it changes the shape of the decision.** A VLM extraction may auto-post or
+auto-approve only when the document RECONCILES END TO END, and anything else goes to a person.
+
+`unreconciledFigure(text, total, {subtotal, vatAmount})` replaces `unsettledTender` and is measured over
+the WHOLE document:
+
+1. **the payments sum to the total**, wherever on the page they are printed, less change and only where
+   a CASH tender is printed — only cash gives change;
+2. **no figure is larger than the total** except one exactly equal to it (a repeated total, an
+   amount-due box) or one the payment sum already accounted for (`CASH 300.00` / `CHANGE 47.00`);
+3. **nothing below the total block is unexplained** — not a payment, not change, not zero, not the
+   total again, and not the net or the tax the reader itself extracted (a VAT recap or a tax-analysis
+   block, which is what an ordinary supplier invoice prints there).
+
+The gate's existing conditions stand in front of these: `subtotal + VAT = total`, one printed total, a
+positive total, a VAT figure the text corroborates, no credit signal, and the round-14 fallback policy.
+
+**Rule 3 is what makes `TENDER_LABEL` non-load-bearing in the dangerous direction.** A payment rail this
+file has never heard of leaves the CHARGE beside it unexplained below the total, so the document refuses
+whether or not the rail was recognised — verified on all 18 of the review's rails (MEDIUM-2 under) and
+all 14 of its charge names (LOW-1). The vocabulary now only ever buys an ordinary slip back.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 split tender printed ABOVE the total | FIXED. `VISA 126.50 / MASTERCARD 126.50 / Sub Total 200 / VAT 30 / Total 230` → `paid 253.00`. Position-independence is the fix, as the review said. |
+| HIGH-2 13 of 14 credit abbreviations posted | FIXED. `CREDIT_ABBREVIATIONS`: `CR[\s./-]*N(OTE)?`, `C/N`, `CRN`, `RTN`, `CANX`, `R/A`, `ADJUSTMENT NOTE`, `DEBIT NOTE`, plus `RETOUR`/`RETOURE` as words and `(CR)` bracketed. All 18 credit probes refuse. |
+| MEDIUM-1 fix.md's "cost is zero" was false off the corpora | FIXED — the cost is measured and stated below, and it is no longer the round-15 number. |
+| MEDIUM-2 `TENDER_LABEL` gaps, both directions | FIXED. The rails are added (`Ozow`, `PayShap`, `SCode`, `Scan to Pay`, `Capitec/Apple/Samsung/Google/FNB/Nedbank/Absa/Standard Bank/Mobile/Instant Pay|Money|EFT`, `Points`, `Loyalty`, `eBucks`, `UCount`, `Miles`) AND rule 3 makes the list non-load-bearing. |
+| LOW-1 a charge printed BELOW the tender line | FIXED by rule 3 — the stray check no longer stops once a tender is found. |
+| r14 `C negative stored total only` | Round 15 called it a harness artefact and the reviewer agreed; the orchestrator ruled it a real bug and it is fixed at source. See below. |
+
+### Why the abbreviation set is closed where the charge names were not
+
+A charge is a noun a merchant INVENTS — `Car Guard`, `Packer`, `Tronc`, `Bag Levy` — and the next
+merchant invents another, so no list of them can be finished. An abbreviation is a CONTRACTION of a word
+already in the credit list: the document types that return money are credit note, return, cancellation,
+reversal and refund, and every abbreviation is built from those same letters. The generator is bounded,
+which is exactly what the charge list did not have. `DEBIT NOTE` is included even though a supplier's
+debit note ADDS to what is owed: whose debit note it is decides the direction, the document does not say
+it, and a refusal is the cheap half.
+
+### Two structural carve-backs, not more phrases
+
+- **The vendor identity is scrubbed first.** `Credit Solutions SA`, `Refund Recovery Services` and
+  `Shop 5, The Exchange, Sandton` were all read as credit notes. The extracted `vendorName` and
+  `vendorAddress` are blanked out of the text before the words are looked for, so a credit word inside
+  the supplier's own name says nothing about the document — while a `CREDIT NOTE` header printed by that
+  same supplier still refuses (pinned).
+- **A payment word must be LABELLING the figure beside it.** `TENDER_CONNECTOR` allows only separators,
+  a currency mark and the handful of nouns a till prints inside a tender line (`Card Amount 449.50`).
+  Without it, `Credit card surcharge 5.00`, `points balance 1 250.00` and a mouse called `MX Master 3S
+  1 899.00` were each summed as payments, and refused three ordinary slips. Its failure direction is
+  safe: an unlisted connector only stops a figure counting as a payment, and rule 3 then refuses.
+
+### The negative VLM total, fixed at source
+
+`parseVlmResponse` stored the model's figures with their sign. Round 15 relied on that sign reaching
+`isCreditNote`, and it does — but a negative total also reaches the journal builders, where it posts a
+purchase backwards rather than refusing, and every capture screen shows a negative payable. The sign is
+a CLASSIFICATION, so it is converted into one, once: `documentType = 'credit_note'` and the figures are
+stored positive. The credit refusal is kept — by the type now, not by the sign. Pinned end to end
+through `extractWithVlm` with a stubbed model (`k072-vlm-negative-total.test.ts`).
+
+### THE COST, stated plainly — head vs its two parents, extraction stamped `'vlm'`
+
+`r14` = `cd1d2b452`, `r15` = `8cda2e5e4`, `r16` = this commit. WRONG = auto-posted at an amount that is
+not the payable.
+
+| Set | rows | posts r14 → r15 → **r16** | approvals r14 → r15 → **r16** | WRONG posts |
+|---|---|---|---|---|
+| `k076-slip-corpus.ts` | 177 | 62 → 62 → **61** | 66 → 66 → **64** | 0 → 0 → **0** |
+| r13 ordinary receipts | 16 | 4 → 4 → **4** | 8 → 8 → **6** | 0 → 0 → **0** |
+| r13 reviewer probes | 44 | 3 → 2 → **2** | 3 → 2 → **2** | 0 → 0 → **0** |
+| r13 refund probes | 10 | 0 → 0 → **0** | 0 → 0 → **0** | 0 → 0 → **0** |
+| r14 credit probes | 29 | 13 → 1 → **1** | 15 → 1 → **1** | 13 → 1 → **1** |
+| r14 charge probes | 33 | 18 → 0 → **0** | 18 → 0 → **0** | 18 → 0 → **0** |
+| r14 ordinary probes | 12 | 8 → 9 → **9** | 9 → 10 → **10** | 0 → 0 → **0** |
+| r15 own charge probes | 36 | 9 → 0 → **0** | 9 → 0 → **0** | 9 → 0 → **0** |
+| **r15 reviewer — under-refusal** | 40 | 35 → 32 → **0** | 35 → 32 → **0** | **35 → 32 → 0** |
+| **r15 reviewer — credit** | 18 | 14 → 13 → **0** | 17 → 13 → **0** | **14 → 13 → 0** |
+| **r15 reviewer — ordinary** | 24 | 22 → 8 → **19** | 22 → 8 → **19** | 0 → 0 → **0** |
+
+**The whitelist does NOT refuse most ordinary receipts, and it gives back most of what round 15 took.**
+On the reviewer's 21+3 ordinary documents, round 15 refused 14 that had posted on round 14; round 16
+posts 19 of 24, recovering 11 of those 14 — because the phrase list is no longer doing the work
+(identity scrub) and a payment word no longer captures a figure it is not labelling. The remaining
+round-16 cost against round 15 is **1 corpus post, 2 corpus approvals and 2 of the 16 ordinary receipts'
+approvals** (no ordinary receipt lost an auto-POST). Every one of those is rule 3.
+
+**The shapes that now refuse, named:**
+
+| shape | example | refusal |
+|---|---|---|
+| a loyalty savings line below the total | `CARD 69.98 / ClubCard Points Earned 7 / You saved R5.00` (corpus `R3`) | `prints 5.00 below its total, which nothing explains` |
+| a MIXED-basket VAT analysis whose recap figures are not the net | `VAT ANALYSIS / Std Rated Incl 137.98 / Zero Rated 52.98` on a 190.96 total (`O1`) | same |
+| a rewards line below the total | `WRewards savings 12.00` (`O2`), `You saved 10.00` (`O14`) | same |
+| a foreign-currency line below the total | `USD 12.50 @ 18.40` | same |
+| SA cash rounding without a change line | `TOTAL 24.97 / ROUNDING 0.03 / CASH 25.00` | `paid 25.00, not the total read` |
+| a credit word in the vendor identity the READER failed to extract | address `The Exchange`, vendor `Refund Recovery Services` | credit note |
+
+The last row is a measurement artefact of the probe harness, not of the path in play: the carve-back
+scrubs the EXTRACTED identity, the probes run the regex reader (which extracts no address at all and
+mis-read that vendor as `Receipt No: 004512`), and on the VLM path — the only path that can auto-post —
+both fields are populated by the model. Pinned directly: with the identity supplied, both are ordinary
+purchases; without it, both are credits.
+
+A single corpus row changed its pinned outcome, `R3 Clicks, points and savings`, from `post` to
+`refuse`, annotated in place. The corpus invariant — a slip either refuses, or posts exactly its payable
+— still holds on all 177.
+
+### Mutations — 9, all caught, files restored byte-identically (`md5sum -c`)
+
+Two survived the first sweep and are recorded because the tests that kill them were written afterwards:
+N2 (the larger-than-total arm) was masked by `unexplainedLargerFigure`, which the gate still calls, and
+N5 (last vs first printed total) needed a two-item basket under a header amount-due box.
+
+| # | mutation | result |
+|---|---|---|
+| N1 | the payment sum reads only the text BELOW the total (round 15) | RED (2) |
+| N2 | no figure may be larger than the total | RED (1) |
+| N3 | nothing below the total block is checked | RED (27) |
+| N4 | the net and the tax do not explain a figure below the total | RED (1) |
+| N5 | the FIRST printed total ends the block, not the last | RED (1) |
+| N6 | any payment word before a figure labels it | RED (2) |
+| N7 | the credit abbreviations are dropped | RED (11) |
+| N8 | the vendor identity is not scrubbed | RED (4) |
+| N9 | a negative VLM total keeps its sign and its type | RED (2) |
+
+### Gates
+
+`env -u DATABASE_URL bun run ci` → 15 checks PASS, `Test Files 808 passed | 36 skipped (844)`,
+`Tests 10186 passed | 234 skipped (10420)`, component 62/418, build PASS, `[ci] all checks passed`,
+`CI_EXIT=0`. Integration `tests/integration/k072-*.int.test.ts` → 7 files / 58 tests passed,
+`INT_EXIT=0`.
+
+**Migration:** none. **Historical data:** unchanged — these defects mis-READ documents at capture time
+and leave no marker; the round-13 impact SQL is still the only detection available. **Rollback:** revert
+the commit.
+
+**Limits, disclosed.** `unexplainedLargerFigure` and `adjustmentAfterTotal` are kept alongside the
+whitelist. Both only ever refuse, so they cannot make a document postable; they are retained because
+deleting them would drop pinned cases the whitelist reads differently (a whole-rand `Gratuity 23`, and a
+tender/change pair separated by another figure). Rule 3's exemption list is the extracted net and tax
+only, so a mixed-basket VAT analysis whose recap figures are neither will refuse — that is the largest
+single share of the measured cost, and widening it is the first knob to turn if Hein wants the rate back.
