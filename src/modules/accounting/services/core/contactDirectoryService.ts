@@ -67,6 +67,21 @@ let ownershipSeq = 0;
  * 25P02 on every subsequent statement instead of this refusal. A malformed id
  * is by definition not a customer of this company, so it is refused; anything
  * else propagates.
+ *
+ * It asks ONLY about the tenant, not about `deleted_at`. This is a tenant
+ * fence, and the paths it sits on are not all creates: quote update, sales-order
+ * update, practice-client update, recurring-transaction execute and bank
+ * allocation all take an id that an EXISTING company-owned row already carries,
+ * and `softDeleteService.ts:69-73` soft-deletes a customer with no check for
+ * open documents. Filtering deleted rows here therefore refuses edits that
+ * previously saved, with no cross-tenant exposure closed by the refusal —
+ * measured on `isaflow_dev`: editing a draft quote whose own-company customer
+ * had been soft-deleted raised CustomerNotInCompanyError. It also matches the
+ * guard this fix cites as its precedent, `customer-invoices-detail.ts:104-110`,
+ * which has no such clause. `customerBelongsToCompany` /
+ * `customersBelongToCompany` keep theirs: the MCP write tools call them to
+ * decide whether a NEW document may name a customer, which is a different
+ * question.
  */
 export async function assertCustomerInCompany(
   companyId: string,
@@ -75,7 +90,14 @@ export async function assertCustomerInCompany(
   if (!customerId) return;
   const owned = await withSavepoint(
     `cust_own_${++ownershipSeq}`,
-    () => customerBelongsToCompany(companyId, customerId),
+    async () => {
+      const rows = (await sql`
+        SELECT 1 FROM customers
+        WHERE id = ${customerId}::uuid AND company_id = ${companyId}
+        LIMIT 1
+      `) as Row[];
+      return rows.length > 0;
+    },
   ).catch((err: unknown) => {
     // 22P02 invalid_text_representation — the id is not even a UUID.
     if ((err as { code?: string }).code === '22P02') return false;

@@ -41,6 +41,18 @@ vi.mock('@/modules/accounting/services/core/companyService', () => ({
   reserveNextDocumentNumber,
 }));
 
+// The row lock is a real `FOR UPDATE` against a live connection; stubbed so the
+// bank case below reaches the fence. It returns the transaction unchanged, so
+// nothing about the ordering being asserted is faked away.
+const lockBankTransactionForUpdate = vi.hoisted(() => vi.fn());
+vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
+  lockBankTransactionForUpdate,
+  isLockNotAvailable: () => false,
+  BankTransactionLockTimeoutError: class extends Error {},
+  BankMatchUnavailableError: class extends Error {},
+  tableLockUnavailable: async () => false,
+}));
+
 import { sql } from '@/lib/neon';
 import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
@@ -50,6 +62,7 @@ import { createRecurringInvoice } from '@/modules/accounting/services/ar/recurri
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { createPracticeClient, updatePracticeClient } from '@/modules/accounting/services/practice/practiceClientService';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
+import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 
 const mockSql = sql as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown[]>>;
 
@@ -231,5 +244,64 @@ describe('R-067 — a recurring template carries a caller-supplied id in opaque 
       .rejects.toBeInstanceOf(CustomerNotInCompanyError);
     expect(writeStatements()).toEqual([]);
     expect(sqlTexts[sqlTexts.length - 1]).toContain('FROM customers');
+  });
+});
+
+describe('R-067 — a bank receipt cannot be allocated to another company customer', () => {
+  // `entityId` is a request-body field (bank-transactions-action.ts:40 checks
+  // its UUID shape and nothing else) that lands in
+  // `customer_payments.client_id`. The only customer read on the path fetches a
+  // NAME and falls back to `Customer #<id>`, so a foreign id used to reach the
+  // INSERT — and the journal is POSTED before that INSERT, so the refusal has
+  // to happen before `createJournalEntry`, not merely before the write.
+  beforeEach(() => {
+    sqlTexts.length = 0;
+    mockSql.mockClear();
+    lockBankTransactionForUpdate.mockResolvedValue({
+      id: '77777777-7777-4777-8777-777777777777',
+      status: 'imported',
+      amount: 115,
+      bank_account_id: '88888888-8888-4888-8888-888888888888',
+      transaction_date: new Date('2026-09-10T00:00:00'),
+      reference: 'EFT 115',
+      description: 'Receipt',
+    });
+    mockSql.mockImplementation((strings: unknown) => {
+      sqlTexts.push((strings as TemplateStringsArray).join('?'));
+      return Promise.resolve([]);
+    });
+  });
+
+  it('refuses a foreign customer before posting anything', async () => {
+    await expect(
+      allocateTransaction(
+        COMPANY, '77777777-7777-4777-8777-777777777777', null, USER,
+        'Receipt', 'customer', FOREIGN,
+      ),
+    ).rejects.toBeInstanceOf(CustomerNotInCompanyError);
+    expect(sqlTexts).toHaveLength(1);
+    expect(sqlTexts[0]).toContain('FROM customers');
+    expect(writeStatements()).toEqual([]);
+  });
+
+  it('proceeds past the fence for an own-tenant customer', async () => {
+    let call = 0;
+    mockSql.mockImplementation((strings: unknown) => {
+      sqlTexts.push((strings as TemplateStringsArray).join('?'));
+      return Promise.resolve(call++ === 0 ? [{ ok: 1 }] : []);
+    });
+    await allocateTransaction(
+      COMPANY, '77777777-7777-4777-8777-777777777777', null, USER,
+      'Receipt', 'customer', '22222222-2222-4222-8222-222222222222',
+    ).catch(() => undefined);
+    expect(sqlTexts.length).toBeGreaterThan(1);
+  });
+
+  it('does not fence a GL-account allocation, which carries no customer id', async () => {
+    await allocateTransaction(
+      COMPANY, '77777777-7777-4777-8777-777777777777',
+      '99999999-9999-4999-8999-999999999998', USER, 'Bank charges', 'account',
+    ).catch(() => undefined);
+    expect(sqlTexts.some((t) => t.includes('FROM customers'))).toBe(false);
   });
 });
