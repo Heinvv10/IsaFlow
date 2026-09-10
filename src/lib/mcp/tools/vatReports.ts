@@ -12,6 +12,7 @@ import { getVatReconciliation } from '@/modules/accounting/services/reports/vatR
 import { exportVat201, type Vat201ExportFormat } from '@/modules/accounting/services/reports/vat201ExportService';
 import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
 import {
+  assertVatPeriodLockAuthority,
   getVatPeriodLock,
   lockVatPeriod,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
@@ -140,6 +141,9 @@ export const lockVatPeriodTool: McpTool = {
     if (typeof period === 'string') return toolError(period);
     const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
     if (bad) return bad;
+    // Before the dry run too: a preview of a lock this connection may not take
+    // is a lie the agent acts on.
+    await assertVatPeriodLockAuthority(ctx.companyId, ctx.userId, period.start, period.end);
 
     const existing = await getVatPeriodLock(ctx.companyId, period.start, period.end);
     const report = await getVat201Report(ctx.companyId, period.start, period.end, { detail: 'summary' });
