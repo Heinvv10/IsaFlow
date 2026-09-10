@@ -64,7 +64,7 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
  FROM roots r JOIN companies c ON c.id=${ctx.principal.companyId}::uuid
  LEFT JOIN gl_accounts a ON a.company_id=c.id AND a.id=r.bank_account_id AND a.account_subtype='bank'
  LEFT JOIN captured_documents d ON d.company_id=c.id AND d.id=r.source_document_id
- LEFT JOIN control_entity_versions v ON v.company_id=c.id AND v.entity_type=r.entity_type AND lower(v.entity_id)=r.id::text
+ LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=c.id AND cv.entity_type=r.entity_type AND lower(cv.entity_id)=r.id::text ORDER BY (cv.entity_id=r.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
  ORDER BY r.id LIMIT 10001` as (BankStatementSource&{bank_account_id:string;source_document_id:string;source_fingerprint:string;expected_source_hash:string;
   review_currency:string;review_result:StatementReviewProof['result'];review_valid:boolean;account_type:string|null;account_subtype:string|null;
   is_active:boolean|null;document_status:string|null;uncoveredCount:string;uncoveredFingerprint:string})[];

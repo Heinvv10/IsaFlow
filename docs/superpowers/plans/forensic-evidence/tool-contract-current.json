@@ -2850,6 +2850,11 @@
             "minLength": 1,
             "maxLength": 80
           },
+          "lineage": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
           "limit": {
             "type": "integer",
             "minimum": 1,

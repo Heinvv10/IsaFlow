@@ -1,5 +1,6 @@
 import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
 import type { ControlTx } from '../controls/contracts';
+import { sameIntentId } from '../controls/intentIdentity';
 import type { PayrollPostResult } from './payrollControlService';
 /** Reading an existing financial receipt is authorized afresh and never claims another posting effect. */
 export async function readPayrollPostingReceipt(ctx:ControlTx,runId:string):Promise<PayrollPostResult|null> {
@@ -16,8 +17,8 @@ export async function readPayrollPostingReceipt(ctx:ControlTx,runId:string):Prom
   if(!journal || journal.status!=='posted' || journal.reversed_at)throw new Error('Payroll posting receipt state is inconsistent');
   const [effect]=await ctx.sql`SELECT result FROM control_operation_effects WHERE company_id=${company}::uuid
     AND entity_type='payroll_run' AND lower(entity_id)=lower(${runId}) AND operation='payroll_run.post'
-    AND result->>'journalEntryId'=${run.journal_entry_id} ORDER BY committed_at DESC LIMIT 1` as {result:PayrollPostResult}[];
-  if(!effect || effect.result?.journalEntryId!==run.journal_entry_id || effect.result.run?.id!==runId) {
+    AND lower(result->>'journalEntryId')=lower(${run.journal_entry_id}) ORDER BY committed_at DESC LIMIT 1` as {result:PayrollPostResult}[];
+  if(!effect || !sameIntentId(effect.result?.journalEntryId,String(run.journal_entry_id)) || !sameIntentId(effect.result.run?.id,runId)) {
     throw new Error('Existing payroll journal has no verified posting receipt');
   }
   return effect.result;

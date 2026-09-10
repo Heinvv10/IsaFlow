@@ -4,6 +4,7 @@ import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {requireControlTx} from '../controls/context';
 import {canonicalJson} from '../controls/canonical';
 import {recordCommittedChange} from '../controls/changeEventService';
+import {retainedLineage} from '../controls/operationVersions';
 import {readGlChangeRows,meaningfulGlRow} from './glAccountChangeRows';
 import {assertMergePopulation,mergePopulation,readMergeJournals} from './glMergeChangeRows';
 import type {MergeAccountsResult} from './accountMergeService';
@@ -69,7 +70,7 @@ export async function withGlMergeChanges(companyId:string,source:string,target:s
   }
   const bindingHash=createHash('sha256').update(canonicalJson({mergeRecordId:result.mergeRecordId,sourceAccountId:source,targetAccountId:target,movedLinesDigest:result.movedLinesDigest})).digest('hex');
   const capture=async(entityType:string,entityId:string,before:Record<string,unknown>,after:Record<string,unknown>,accountingDate:string|null)=>{
-   const row=versions.find(v=>v.entity_type===entityType&&v.entity_id.toLowerCase()===entityId.toLowerCase()),version=row?Number(row.version):null;
+   const row=retainedLineage(versions.filter(v=>v.entity_type===entityType),entityId),version=row?Number(row.version):null;
    await recordCommittedChange(ctx,{entityType,entityId,previousVersion:version,newVersion:version===null?1:version+1,
     action:`accounts_merged:${result.mergeRecordId}`,accountingDate,before,after,bindingHash,protectedEvidenceRef:null});
   };

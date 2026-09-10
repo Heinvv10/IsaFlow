@@ -4,6 +4,7 @@ import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {loadPermissionState,EffectivePermissionError} from '@/lib/auth/effectivePermissionQueries';
 import {permissionReason} from '@/lib/auth/effectivePermissionPolicy';
 import type {ControlTx} from '../controls/contracts';
+import {retainedLineage} from '../controls/operationVersions';
 import {assertControlTx} from '../controls/context';
 import {canonicalJson} from '../controls/canonical';
 import {recordCommittedChange} from '../controls/changeEventService';
@@ -27,7 +28,8 @@ export async function saveDefaultAccounts(ctx:ControlTx,value:unknown):Promise<{
   const changed=expected.filter((row,i)=>meaningfulGlRow(row)!==meaningfulGlRow(before[i]!));
   if(!settingsChanged&&!changed.length)return{saved:true};
   const versions=await ctx.sql`SELECT entity_type,entity_id,version FROM control_entity_versions WHERE company_id=${c}::uuid
-   AND ((entity_type='gl_account' AND entity_id=ANY(${changed.map(row=>row.id)}::text[])) OR (entity_type='accounting_default_accounts' AND entity_id=${c}))
+   AND ((entity_type='gl_account' AND lower(entity_id)=ANY(${changed.map(row=>row.id.toLowerCase())}::text[]))
+    OR (entity_type='accounting_default_accounts' AND lower(entity_id)=lower(${c})))
    ORDER BY entity_type,entity_id FOR UPDATE` as {entity_type:string;entity_id:string;version:number|string}[];
   for(const row of changed){
    const rows=await ctx.sql`UPDATE gl_accounts SET is_system_account=${row.is_system_account},account_subtype=${row.account_subtype}
@@ -43,7 +45,7 @@ export async function saveDefaultAccounts(ctx:ControlTx,value:unknown):Promise<{
   const after=await readGlChangeRows(ctx,{ids}),next=await readDefaultSettings(ctx);
   assertDefaultRows(expected,after);if(!next||!sameMappings(next,mappings))throw new Error('Default settings were not retained');
   const record=async(entityType:string,entityId:string,a:Record<string,unknown>|null,b:Record<string,unknown>)=>{
-   const found=versions.find(row=>row.entity_type===entityType&&row.entity_id===entityId),v=found?Number(found.version):null;
+   const found=retainedLineage(versions.filter(row=>row.entity_type===entityType),entityId),v=found?Number(found.version):null;
    await recordCommittedChange(ctx,{entityType,entityId,previousVersion:v,newVersion:v===null?1:v+1,action:'default_accounts_changed',accountingDate:null,
     before:a,after:b,bindingHash:null,protectedEvidenceRef:null});
   };

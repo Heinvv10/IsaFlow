@@ -4,6 +4,7 @@ import { isRealCalendarDate, UUID_RE } from '@/lib/validation';
 import { assertControlTx } from './context';
 import { protectChangeValues } from './changeProtection';
 import type { ChangeEventInput, ControlTx } from './contracts';
+import { retainedLineage } from './operationVersions';
 
 /** Mandatory event and exact restricted evidence share the caller's transaction. */
 export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventInput): Promise<{ eventId: string; newVersion: number }> {
@@ -24,10 +25,10 @@ export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventIn
     const p = ctx.principal;
     // A lineage retained under another spelling of the same id is extended in place, never forked beside,
     // and its event and evidence rows join that same lineage rather than the caller's spelling.
-    const [retained] = await ctx.sql`SELECT entity_id FROM control_entity_versions WHERE company_id=${p.companyId}::uuid
+    const lineages = await ctx.sql`SELECT entity_id FROM control_entity_versions WHERE company_id=${p.companyId}::uuid
       AND entity_type=${input.entityType} AND lower(entity_id)=lower(${input.entityId})
-      ORDER BY (entity_id=${input.entityId}) DESC,entity_id LIMIT 1` as { entity_id: string }[];
-    const entityId = retained ? retained.entity_id : input.entityId;
+      ORDER BY (entity_id=${input.entityId}) DESC,entity_id LIMIT 2` as { entity_id: string }[];
+    const entityId = retainedLineage(lineages, input.entityId)?.entity_id ?? input.entityId;
     const versions = input.previousVersion === null
       // The baseline targets the retained spelling, so a lineage retained under any spelling conflicts and refuses.
       ? await ctx.sql`INSERT INTO control_entity_versions(company_id,entity_type,entity_id,version,material_hash)

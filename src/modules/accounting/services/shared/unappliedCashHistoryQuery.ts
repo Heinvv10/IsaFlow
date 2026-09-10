@@ -35,10 +35,10 @@ export async function queryUnappliedCashHistory(companyId:string,kind:'customer'
    FROM gl_journal_entries j WHERE j.company_id=p.company_id AND j.reversal_of_id=je.id AND j.status='posted'),'[]'::jsonb) AS contras,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('date',e.accounting_date,'occurredAt',e.occurred_at,'committedAt',f.committed_at))
    FROM control_change_events e JOIN control_operation_effects f ON f.company_id=e.company_id AND f.operation_id=e.operation_id
-   WHERE e.company_id=p.company_id AND e.entity_type=${kind}||'_payment' AND e.entity_id=p.id::text
+   WHERE e.company_id=p.company_id AND e.entity_type=${kind}||'_payment' AND lower(e.entity_id)=p.id::text
     AND e.accounting_date IS NOT NULL AND (
      (e.action=${kind}||'_payment.'||CASE WHEN ${kind}='customer' THEN 'cancel' ELSE 'void' END
-       AND f.operation=e.action AND f.entity_id=p.id::text AND f.entity_type=e.entity_type AND f.binding_hash=e.binding_hash)
+       AND f.operation=e.action AND lower(f.entity_id)=p.id::text AND f.entity_type=e.entity_type AND f.binding_hash=e.binding_hash)
      OR (e.action='bank_allocation.payment_cancelled' AND f.operation='bank_allocation.reverse'
        AND f.result->>'originalJournalEntryId'=je.id::text)
     )),'[]'::jsonb) AS cancellations,
