@@ -4,7 +4,6 @@
  */
 import type { McpToolResult } from '../types';
 import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
-import { isCallerSafeError } from '@/lib/lockTimeout';
 
 export function ok(data: unknown): McpToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -127,20 +126,102 @@ function truncateForMessage(value: unknown): string {
 }
 
 /**
- * Surface a service error's message ONLY when it is an application-level
- * validation error (a hand-thrown Error with no SQLSTATE `code`). pg / driver
- * errors always carry a `code` (e.g. '23505', '42703') and could leak schema
- * names — those return the generic fallback instead.
+ * The codes this codebase's own refusal classes carry — the complete set of
+ * `readonly code = '…'` declarations under `src/`, kept in sync by
+ * `tests/unit/mcp/typedRefusalReachesAgent.test.ts`, which fails when a new one
+ * is declared and not listed here.
  *
- * The typed row-lock timeouts are the one exception, and they matter here more
- * than anywhere: they are hand-thrown, their message is "retry in a moment",
- * and an agent is exactly the caller that should hear it. Filtered out with the
- * driver errors, contention reached the agent as a flat "could not do this",
- * which does not read as retryable.
+ * An ALLOWLIST, not a shape test. A shape test asked "does this code look like
+ * ours" and admitted anything SCREAMING_SNAKE that reached the boundary —
+ * Node's own error codes are exactly that (`ERR_INVALID_ARG_TYPE`,
+ * `ERR_OUT_OF_RANGE`, undici's `UND_ERR_*`), and each carries an internal
+ * message naming arguments and received values. A `code` an attacker can
+ * influence would have passed too. Identity closes the class; shape only
+ * narrowed it.
+ *
+ * Failing closed here costs a new refusal class its wording until it is added,
+ * which the census test surfaces the moment it is written.
+ */
+const REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'ADJUSTMENT_NOT_APPROVABLE',
+  'APPROVAL_REQUEST_LOCK_TIMEOUT',
+  'BANK_ALLOCATION_REFUSED',
+  'BANK_MATCH_UNAVAILABLE',
+  'BANK_TX_ALLOCATED',
+  'BANK_TX_LOCK_TIMEOUT',
+  'BATCH_NOT_PROCESSABLE',
+  'CAPTURE_EVENT_LOCKED',
+  'CREDIT_NOTE_LOCK_TIMEOUT',
+  'CUSTOMER_INVOICE_LOCK_TIMEOUT',
+  'CUSTOMER_NOT_FOUND',
+  'DOCUMENT_CLAIM_LOCK_TIMEOUT',
+  'DOCUMENT_NUMBER_LOCK_TIMEOUT',
+  'GL_ACCOUNT_LOCK_TIMEOUT',
+  'JOURNAL_REVERSAL_LOCK_TIMEOUT',
+  'LOAN_POST_LOCK_TIMEOUT',
+  'PAYMENT_LOCK_TIMEOUT',
+  'PAYMENT_POSTED_DURING_VOID',
+  'PAYROLL_LOAN_LOCK_TIMEOUT',
+  'PAYROLL_RUN_JOURNAL_POSTED',
+  'RECEIPT_REFUSED',
+  'RECLASS_LINE_LOCK_TIMEOUT',
+  'RECURRING_INVOICE_LOCK_TIMEOUT',
+  'RECURRING_INVOICE_NOT_DUE',
+  'RECURRING_INVOICE_TEMPLATE_INVALID',
+  'RECURRING_JOURNAL_LOCK_TIMEOUT',
+  'RECURRING_JOURNAL_NOT_FOUND',
+  'RECURRING_TEMPLATE_LOCK_TIMEOUT',
+  'RECURRING_TEMPLATE_NOT_DUE',
+  'RECURRING_TEMPLATE_TOTALS_MISMATCH',
+  'RULE_AUTHORITY_REQUIRED',
+  'SUPPLIER_INVOICE_LOCK_TIMEOUT',
+  'SUPPLIER_PAYMENT_NOT_FOUND',
+  'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
+  'SUPPLIER_PAYMENT_REFUSED',
+  'TAX_DIRECTIVE_ALREADY_APPLIED',
+  'TIME_ENTRIES_NOT_CLAIMED',
+  'TIME_ENTRY_LOCK_TIMEOUT',
+  'WIP_ENTRIES_LOCKED',
+  'WRITE_OFF_NOT_APPROVABLE',
+]);
+
+/**
+ * Declared codes that are NOT refusals, and must stay behind the fallback.
+ *
+ * `ClaimOutsideTransactionError` marks a programmer error — a claim attempted
+ * outside a request transaction — not something the caller did or can remedy.
+ * Its message names internal machinery (`withAuth` / `als.run`), so an agent
+ * told it would retry against advice it cannot act on.
+ *
+ * The census in `tests/unit/mcp/typedRefusalReachesAgent.test.ts` requires
+ * every declared code to appear in EXACTLY ONE of these two sets, so a new
+ * coded error is a decision rather than a default disclosure.
+ */
+export const NOT_A_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'CLAIM_OUTSIDE_TRANSACTION',
+]);
+
+/**
+ * Surface a service error's message ONLY when it is an application-level
+ * refusal this codebase raised itself. Everything else — pg SQLSTATEs, driver
+ * and library errors, anything carrying a `code` we do not own — returns the
+ * generic fallback, because their text can carry schema names, file paths and
+ * argument values.
+ *
+ * "No `code` at all" is NOT the test, and used to be: the services now raise
+ * their refusals as typed classes carrying a NAMED code
+ * (`SUPPLIER_PAYMENT_REFUSED`, `BANK_ALLOCATION_REFUSED`, `RECEIPT_REFUSED`),
+ * and the old predicate read every one of them as a driver error and replaced
+ * the remedy with the fallback. An agent that is told "Could not apply this
+ * payment." instead of "Invoice INV-9 is cancelled and cannot receive a
+ * payment." retries the same call. A code-less `Error` is still surfaced: those
+ * are the codebase's own `throw new Error(...)` messages, written to be read.
  */
 export function safeErrorText(err: unknown, fallback: string): string {
-  if (isCallerSafeError(err)) return err.message;
-  return fallback;
+  if (!(err instanceof Error)) return fallback;
+  const code = (err as { code?: unknown }).code;
+  if (code === undefined) return err.message;
+  return typeof code === 'string' && REFUSAL_CODES.has(code) ? err.message : fallback;
 }
 
 /**

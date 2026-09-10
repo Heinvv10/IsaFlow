@@ -107,12 +107,20 @@ export async function executeArchive(
          subtotal, tax_rate, tax_amount, total_amount, amount_paid, status,
          invoice_date, due_date, sent_at, paid_at, notes, internal_notes,
          project_id, gl_journal_entry_id, created_by, approved_by, approved_at,
-         currency, created_at, updated_at, company_id)
+         created_at, updated_at, company_id)
+      -- No currency here: archive_customer_invoices has the column (nullable,
+      -- no default) and customer_invoices does NOT, so selecting it raised
+      -- 42703 column "currency" does not exist -- and an INSERT ... SELECT is
+      -- parsed whether or not it matches a row, so EVERY archive run threw,
+      -- for every company, and rolled back to the archive_body savepoint.
+      -- Found by the round-9 lock-order enumeration; unrelated to lock order,
+      -- but executeArchive could not be exercised at all until it was fixed.
+      -- The archived column stays NULL, which is all the source can supply.
       SELECT id, invoice_number, customer_id, client_id, billing_period_start, billing_period_end,
              subtotal, tax_rate, tax_amount, total_amount, amount_paid, status,
              invoice_date, due_date, sent_at, paid_at, notes, internal_notes,
              project_id, gl_journal_entry_id, created_by, approved_by, approved_at,
-             currency, created_at, updated_at, company_id
+             created_at, updated_at, company_id
       FROM customer_invoices
       WHERE company_id = ${companyId}
         AND invoice_date < ${cutoffDate}::date
@@ -146,26 +154,15 @@ export async function executeArchive(
     `) as DbRow[];
     const supplierInvoicesArchived = siRows.length;
 
-    // Step 6: Delete from active tables (reverse dependency order)
-    // jl.company_id guard provides defense-in-depth alongside the subquery scope (BL-13)
-    await sql`
-      DELETE FROM gl_journal_lines jl
-      WHERE jl.company_id = ${companyId}::UUID
-        AND jl.journal_entry_id IN (
-          SELECT je.id FROM gl_journal_entries je
-          WHERE je.company_id = ${companyId}
-            AND je.entry_date < ${cutoffDate}::date
-            AND je.status = 'posted'
-        )
-    `;
-
-    await sql`
-      DELETE FROM gl_journal_entries
-      WHERE company_id = ${companyId}
-        AND entry_date < ${cutoffDate}::date
-        AND status = 'posted'
-    `;
-
+    // Step 6: Delete from active tables — (1) bank, (3) invoices, (4) GL lines
+    // then GL entries. That is the canonical lock order of
+    // `src/modules/accounting/services/bank/.claude.md`, and it is ALSO the
+    // FK dependency order, which is why the previous sequence (GL lines, GL
+    // entries, bank, invoices) was not merely a lock inversion: measured on the
+    // fixture, deleting a `gl_journal_lines` row still referenced by a
+    // reconciled `bank_transactions.matched_journal_line_id` (NO ACTION) raises
+    // `bank_transactions_matched_journal_line_id_fkey` — exactly the pair this
+    // step exists to archive. Children before parents in both directions.
     await sql`
       DELETE FROM bank_transactions
       WHERE company_id = ${companyId}
@@ -185,6 +182,25 @@ export async function executeArchive(
       WHERE company_id = ${companyId}
         AND invoice_date < ${cutoffDate}::date
         AND status IN ('paid', 'cancelled')
+    `;
+
+    // jl.company_id guard provides defense-in-depth alongside the subquery scope (BL-13)
+    await sql`
+      DELETE FROM gl_journal_lines jl
+      WHERE jl.company_id = ${companyId}::UUID
+        AND jl.journal_entry_id IN (
+          SELECT je.id FROM gl_journal_entries je
+          WHERE je.company_id = ${companyId}
+            AND je.entry_date < ${cutoffDate}::date
+            AND je.status = 'posted'
+        )
+    `;
+
+    await sql`
+      DELETE FROM gl_journal_entries
+      WHERE company_id = ${companyId}
+        AND entry_date < ${cutoffDate}::date
+        AND status = 'posted'
     `;
 
     // Step 7: Update run record to completed

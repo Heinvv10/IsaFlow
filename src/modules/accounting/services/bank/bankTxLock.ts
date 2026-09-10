@@ -19,14 +19,26 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
+import { isLockContention } from '../core/lockContention';
 
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
+/**
+ * Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row.
+ * Kept local to the table-lock probe below: `isLockContention` is what the
+ * WRITE path classifies on, and it covers the deadlock SQLSTATE too.
+ */
 const LOCK_NOT_AVAILABLE = '55P03';
 
 /**
- * Raised when another request holds the row longer than the 5s `lock_timeout`.
- * The bank API routes return a caught service error's message as a 400, so this
- * wording is what the caller reads — it has to say "retry".
+ * Raised when another request holds the row longer than the 5s `lock_timeout`,
+ * or when Postgres breaks a deadlock (`40P01`) by choosing this transaction as
+ * the victim — `isLockContention` covers both. They are one answer to a caller:
+ * nothing was written, the row was never acquired, and retrying is the remedy.
+ * The name is kept because routes match on the `BANK_TX_LOCK_TIMEOUT` code.
+ * The bank API routes surface a caught service error's message to the caller,
+ * and since r13 they all surface it as a 409 — the narrow routes via
+ * `isBankTransactionLockTimeout`, the blanket-catch action routes via
+ * `core/retryableContention` — so this wording is what the user reads. It has
+ * to say "retry".
  */
 export class BankTransactionLockTimeoutError extends Error {
   readonly code = 'BANK_TX_LOCK_TIMEOUT';
@@ -34,6 +46,17 @@ export class BankTransactionLockTimeoutError extends Error {
     super(`Bank transaction ${bankTxId} is being allocated by another request — retry in a moment.`);
     this.name = 'BankTransactionLockTimeoutError';
   }
+}
+
+/**
+ * Structural, not `instanceof`: a route deciding a status code on this must not
+ * be defeated by module mocking or by two bundled copies of this file. The
+ * condition is RETRYABLE and nothing has been written — the row was never
+ * acquired — so a caller may answer it with a 409.
+ */
+export function isBankTransactionLockTimeout(err: unknown): err is BankTransactionLockTimeoutError {
+  return err instanceof Error
+    && (err as { code?: unknown }).code === 'BANK_TX_LOCK_TIMEOUT';
 }
 
 /**
@@ -86,8 +109,21 @@ export async function lockBankTransactionForUpdate(
       SELECT * FROM bank_transactions
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE`) as DbRow[];
+    // Restore the default on the SUCCESS path only. `SET LOCAL` lasts to the end
+    // of the TRANSACTION, so without this the 5s budget silently governs every
+    // lock taken afterwards in the same request — and both confirm arms and
+    // `voidPaymentDocument` now call this FIRST, so that is every lock they
+    // take. Deliberately NOT in a `finally`: after a timeout the transaction is
+    // aborted and this statement would itself throw 25P02, replacing the typed
+    // error with an opaque one. The shape and the reasoning are `paymentLock`'s.
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
+    // Classified with `isLockContention`, not the 55P03 check alone: a DEADLOCK
+    // (40P01) is the same answer to the caller — the row was never acquired,
+    // nothing was written, retrying is the remedy — and left unmapped it
+    // reaches `withAuth` as a 500 on the money path.
+    //
     // A 55P03 here has the same two readings the match UPDATE has — a peer
     // holding the row, or DDL holding the TABLE — and this branch reports both
     // as the first: the message says "being allocated by another request" and
@@ -106,9 +142,31 @@ export async function lockBankTransactionForUpdate(
     // GRANTED here rather than refused. Only an EXCLUSIVE or ACCESS EXCLUSIVE
     // holder (`ALTER TABLE`, `VACUUM FULL`, `TRUNCATE`) reaches this branch, and
     // the wording it raises is at least retryable in either reading.
-    if (isLockNotAvailable(err)) throw new BankTransactionLockTimeoutError(bankTxId);
+    if (isLockContention(err)) throw new BankTransactionLockTimeoutError(bankTxId);
     throw err;
   }
+}
+
+/**
+ * Run `fn` under the same 5s `lock_timeout`, for a WRITE whose own wait must be
+ * bounded: `matchTransaction`'s UPDATE waits on `uq_bank_tx_matched_line`
+ * behind a peer's uncommitted binding. It used to inherit the budget
+ * `lockBankTransactionForUpdate` left behind; that helper now restores the
+ * default, and the inherited wait became unbounded — a slow peer pinned the
+ * request instead of answering LINE_CLAIMED.
+ *
+ * Call it INSIDE a savepoint. A timeout is then undone by ROLLBACK TO, which
+ * restores the previous value too; on success the default is restored here,
+ * so the budget ends with the write it was set for.
+ */
+export async function withBankLockBudget<T>(fn: () => Promise<T>): Promise<T> {
+  const client = als.getStore()?.client;
+  if (!client) throw new Error('withBankLockBudget requires a request transaction (withAuth / als.run).');
+  assertTxUsable();
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  const out = await fn();
+  await client.query('SET LOCAL lock_timeout = DEFAULT');
+  return out;
 }
 
 /** Is this the `lock_timeout` firing, on any statement in the request? */
@@ -138,9 +196,9 @@ const MATCH_LOCK_PROBE_SAVEPOINT = 'bank_tx_match_lock_probe';
 /**
  * Did the failed UPDATE wait on the TABLE, or on the row?
  *
- * `lockBankTransactionForUpdate` issues `SET LOCAL lock_timeout = '5s'`, which
- * bounds EVERY lock wait for the rest of the request — not only the row and
- * index waits. So a raw 55P03 out of the match UPDATE has two readings: a peer
+ * The match UPDATE runs under `withBankLockBudget`'s 5s `lock_timeout`, which
+ * bounds EVERY lock wait that statement takes — not only the row and index
+ * waits. So a raw 55P03 out of the match UPDATE has two readings: a peer
  * holding the journal line's index entry past 5s (genuine contention), or a
  * relation-level lock held by DDL (infrastructure). Reported as one, an index
  * build tells every user mid-deploy that their line is "already matched to
