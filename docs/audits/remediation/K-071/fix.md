@@ -1154,3 +1154,23 @@ the match UPDATE, inside its savepoint (a timeout's ROLLBACK TO also restores th
 and restores the default on success. `k144-match-line-lock-timeout` gained an outcome check that
 `lock_timeout` after a successful match equals its value before. Mutations: dropping the budget
 wrap → the test times out (60s); dropping the restore → `expected '5s' to be '0'`.
+
+### Gates (round 19, foreground)
+
+`env -u DATABASE_URL bun run ci` (load 18.20 at start):
+
+    [ci] build PASS
+
+    [ci] all checks passed
+    EXIT=0
+
+Integration, whole directory, `--config vitest.integration.config.ts --no-file-parallelism`:
+
+    Test Files  29 failed | 232 passed (261)
+         Tests  13 failed | 1272 passed | 163 skipped (1448)
+
+Round 18 was 34 files / 18 tests; the k071, k140, k107 and two k144 failures are gone. The
+29 remaining files, run alone on a clean `git archive` of `origin/master` (`ad1fe6937`): **29
+failed / 13 tests, identical set — none branch-only.** They are auth/2FA/impersonation, AFS,
+aging, K-035 webhooks, CSP/CSRF and fixture-data files; no bank, k071, k074, k107, k140, k143
+or k144 file among them.
