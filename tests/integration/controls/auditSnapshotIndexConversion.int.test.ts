@@ -59,6 +59,7 @@ it('refuses corrupt originals without publishing a replacement index',async()=>{
 });
 it('refuses an incomplete existing index instead of silently rebuilding it',async()=>{
  const {id,lease}=await prepared();
+ await pool.query("DELETE FROM control_audit_snapshot_index_chunks WHERE company_id=$1 AND snapshot_id=$2 AND section='records' AND ordinal=0",[f.companyA,id]);
  await pool.query("DELETE FROM control_audit_snapshot_index_items WHERE company_id=$1 AND snapshot_id=$2 AND section='records' AND ordinal=0",[f.companyA,id]);
  await expect(convert(lease,id)).rejects.toThrow(/incomplete|population|census/i);
  expect((await pool.query("SELECT ordinal FROM control_audit_snapshot_index_items WHERE company_id=$1 AND snapshot_id=$2 AND section='records' AND ordinal=0",[f.companyA,id])).rows).toEqual([]);
