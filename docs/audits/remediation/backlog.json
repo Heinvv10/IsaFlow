@@ -11460,6 +11460,42 @@
       "severity": "medium",
       "source": "Measured by the R-059 round-8 blind reviewer: the service marked a statement with a variance of 300 as reconciled. Pre-existing on master.",
       "processNotes": "Fix: the mark-reconciled service recomputes the variance under the same rules as the UI and refuses a non-zero one (a 4xx before any write), with a test through the real route."
+    },
+    {
+      "id": "R-088",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "pages/api/accounting/receipt-to-journal.ts",
+        "pages/api/accounting/capture/[id]/post-expense.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Each upload is a new captured document, so R-058's row lock and the posted-status guards (which stop a double-click on ONE document) do not apply. A user who re-uploads a slip, or forwards the same receipt by email and WhatsApp, books the expense and the bank credit again with no refusal. No marker rule (COPY/REPRINT) can close it, because the re-upload is byte-identical to the original.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-072",
+        "R-058",
+        "R-070"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-072/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Count captured documents per company with identical content hash or identical (vendor, date, total) that each produced a journal.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "The same receipt uploaded more than once posts once per upload: neither receipt path de-duplicates by content",
+      "severity": "high",
+      "source": "Measured by the K-072 round-23 blind reviewer in an integration probe: one slip uploaded three times posted 3 journals, a R3,450 bank credit for a R1,150 receipt.",
+      "processNotes": "Fix direction: a content fingerprint (file hash, and a normalised vendor+date+total+VAT key) checked before auto-post, and a partial-unique constraint as the backstop, as gl_journal_entries already has for source documents. Refuse to auto-post a match; let a human confirm a genuine repeat purchase. Related: R-070 (two routes with no already-posted guard). Fix after K-072 merges: it touches the same routes."
     }
   ],
   "sourceInventory": [
