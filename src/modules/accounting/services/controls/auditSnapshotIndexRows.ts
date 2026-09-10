@@ -39,14 +39,14 @@ function* items(material:SnapshotIndexMaterial):Generator<Row>{for(const item of
 function* chunks(material:SnapshotIndexMaterial):Generator<Row>{for(const item of material.items)for(const [chunk_ordinal,envelope] of item.chunks.entries())yield{section:item.section,ordinal:item.ordinal,chunk_ordinal,envelope};}
 /** Caller owns the enclosing publication transaction/savepoint; no partial material may be committed on failure. */
 export async function retainSnapshotIndexMaterial(ctx:ControlTx,lease:AuditJobLease,snapshotId:string,material:SnapshotIndexMaterial,options?:{signal?:AbortSignal;deadlineAt?:number}){
- assertAuditJobLease(ctx,lease);
+ assertAuditJobLease(ctx,lease);snapshotId=snapshotId.toLowerCase();
  if(ctx.principal.authMethod!=='job'||ctx.principal.jobId!==lease.jobId||ctx.principal.jobLeaseId!==lease.leaseId||ctx.principal.jobGeneration!==lease.generation)throw new Error('Index retention requires delegated worker authority');
  const check=indexBudget(options);check();
  const saved=await loadStoredAuditJobDelegation(ctx.sql,lease.companyId,lease.personId,lease);
  if(saved.kind==='audit_snapshot'){
   if(snapshotId!==lease.jobId)throw new Error('Snapshot index target must equal snapshot job');
  }else if(saved.kind==='audit_compare'){
-  if(snapshotId!==saved.request.firstSnapshotId&&snapshotId!==saved.request.secondSnapshotId)throw new Error('Snapshot index target is outside comparison inputs');
+  if(snapshotId!==saved.request.firstSnapshotId.toLowerCase()&&snapshotId!==saved.request.secondSnapshotId.toLowerCase())throw new Error('Snapshot index target is outside comparison inputs');
  }else throw new Error('Snapshot index retention requires snapshot or comparison job');
  for(const permission of saved.permissions)await assertEffectivePermission(ctx,permission);
  if(material.header.companyId!==lease.companyId||material.header.snapshotId!==snapshotId)throw new Error('Snapshot index material identity mismatch');
