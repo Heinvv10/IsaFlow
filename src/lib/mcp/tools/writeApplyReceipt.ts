@@ -33,7 +33,7 @@ import {
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import { assertBankAllocationAuthority } from '@/modules/accounting/services/bank/bankAllocationService';
 import { mcpPostingAgent } from '../postingAgent';
-import { allocationsSchema, parseAllocations } from './cashApplicationArgs';
+import { CASH_APPLICATION_INTENT_REQUIRED_TEXT, allocationsSchema, parseAllocations } from './cashApplicationArgs';
 import { guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'apply_receipt_to_invoice';
@@ -57,7 +57,9 @@ export const applyReceiptToInvoiceTool: McpTool = {
     + 'a loan or intercompany account without cash (settle_by_contra), credit notes '
     + '(create_credit_note), or receipts that were posted straight to the control account by a '
     + 'journal with no customer payment record behind them — those are invisible to this tool. '
-    + 'Run with dry_run first: it reports every balance that would move and writes nothing.',
+    + 'Run with dry_run first: for bank_transaction_id it reports every balance that would move '
+    + 'and writes nothing; for payment_id it refuses, because applying an existing payment needs a '
+    + 'prepared cash application intent and independent approval this connector cannot prepare yet.',
   scope: 'write:invoices',
   write: true,
   // Both branches move a customer's outstanding balance, and one of them posts
@@ -121,6 +123,9 @@ async function applyFromPayment(
   allocations: readonly { invoiceId: string; amount: number }[],
   dryRun: boolean,
 ) {
+  // Up front, before any read: the live call cannot succeed without a prepared
+  // intent, so a preview of balances would promise something it cannot deliver.
+  if (dryRun) return toolError(CASH_APPLICATION_INTENT_REQUIRED_TEXT);
   let plan;
   try {
     plan = await planReceiptApplication(companyId, paymentId, allocations);
