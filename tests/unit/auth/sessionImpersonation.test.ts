@@ -34,17 +34,30 @@ it('leaves an ordinary session unflagged',async()=>{
  expect(await resolveImpersonatingActor(client,claims,undefined)).toBeNull();
  expect(assertIndependentHumanReview(principal(null),'someone')).toBeUndefined();
 });
-it('leaves an unimplicated session alone when the reader function is not deployed',async()=>{
+it('marks every session unverified when the reader function is not deployed',async()=>{
  reader(false,undefined);
- // A database lagging migration 675 must not stop every tenant approving anything:
- // no proof cookie is no impersonation signal at all.
- expect(await resolveImpersonatingActor(client,claims,undefined)).toBeNull();
-});
-it('marks a session the proof implicates but cannot resolve as unverified',async()=>{
- reader(false,undefined);
+ // Fail closed on the request path: an admin who drops the proof cookie against a member
+ // with no verified factor would otherwise be recorded as the member with no actor at all.
+ // The cost - approvals refused - is a deploy-gate failure, not a runtime surprise:
+ // assertImpersonationReaderDeployed is what keeps this state off a live database.
+ expect(await resolveImpersonatingActor(client,claims,undefined)).toBe(IMPERSONATION_UNVERIFIED);
  expect(await resolveImpersonatingActor(client,claims,'not-a-usable-proof')).toBe(IMPERSONATION_UNVERIFIED);
  expect(()=>assertIndependentHumanReview(principal(IMPERSONATION_UNVERIFIED),'requester'))
   .toThrow('Impersonation state is unverified; an independent review cannot be recorded');
+});
+it('fails the deploy gate when the reader function is missing, and passes when it is there',async()=>{
+ const {assertImpersonationReaderDeployed}=await import('@/lib/auth/sessionImpersonation');
+ await expect(assertImpersonationReaderDeployed(async()=>[{available:false}])).rejects
+  .toThrow(/control_session_impersonator/);
+ await expect(assertImpersonationReaderDeployed(async()=>[{available:true}])).resolves.toBeUndefined();
+});
+it('is reached from withAuth and nowhere else',async()=>{
+ // An approver path outside withAuth would carry no impersonation marking at all, so the
+ // single call site is the invariant. This is an architecture assertion, deliberately.
+ const {execFileSync}=await import('node:child_process');
+ const hits=execFileSync('git',['grep','-l','resolveImpersonatingActor(','--','src','pages'],{encoding:'utf8'})
+  .split('\n').filter(Boolean).filter(file=>file!=='src/lib/auth/sessionImpersonation.ts');
+ expect(hits).toEqual(['src/lib/auth/withAuth.ts']);
 });
 it('stops re-checking the reader function once it is present',async()=>{
  reader(true,{actor:null});
