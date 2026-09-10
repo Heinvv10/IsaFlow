@@ -52,7 +52,7 @@ for(const uppercaseFirst of [true,false]){
   const {posted,invoice}=await postedCash();
   const p=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115'}]})),approvalId=await approved(p.operation);
   await actor(()=>executeCashApplication(requireControlTx(),p.intentId,{approvalId}));
-  const r=await actor(()=>prepareCashApplicationReversal(requireControlTx(),{version:1,originalIntentId:p.intentId,reversalDate:'2026-09-11',reason:'Synthetic UUID cash inverse'})),inverseApproval=await approved(r.operation);
+  const r=await actor(()=>prepareCashApplicationReversal(requireControlTx(),{originalIntentId:p.intentId,reversalDate:'2026-09-11',reason:'Synthetic UUID cash inverse'})),inverseApproval=await approved(r.operation);
   const result=await actor(()=>executeCashApplicationReversal(requireControlTx(),spelling(r.intentId),{approvalId:inverseApproval}));
   expect(await actor(()=>executeCashApplicationReversal(requireControlTx(),retry(r.intentId)))).toEqual(result);
   expect(await actor(()=>executeCashApplicationReversal(requireControlTx(),r.intentId.toUpperCase(),{approvalId:inverseApproval}))).toEqual(result);
