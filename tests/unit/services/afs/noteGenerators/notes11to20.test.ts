@@ -13,6 +13,15 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/afsFiscalPeriod', () => ({
   getFiscalRange: vi.fn(async () => ({ start: '2026-01-01', end: '2026-12-31' })),
 }));
+// Notes 10 and 16 are the aged report at the year end, summed (R-059). The
+// ageing's own arithmetic is pinned against a database in
+// tests/integration/r059-year-end-notes-agree-with-ageing.int.test.ts; here the
+// totals are stubbed so these tests stay about the note CONTENT and the date
+// it asks for.
+vi.mock('@/modules/accounting/services/reports/agedBucketTotals', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/reports/agedBucketTotals')>();
+  return { ...actual, getAgedBucketTotals: vi.fn() };
+});
 // Note generators call getCompanyTerminology which issues its own SELECT.
 // Stub it so the test's mockSql.mockResolvedValueOnce chains are not
 // consumed by the terminology lookup.
@@ -25,6 +34,7 @@ vi.mock('@/modules/accounting/services/afs/entityTerminology', async (orig) => {
 });
 
 import { sql } from '@/lib/neon';
+import { getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
 import {
   generateNote11CashAndCashEquivalents,
   generateNote12ShareCapital,
@@ -189,25 +199,24 @@ describe('notes11to20 generators', () => {
   // ─── Note 16 ─────────────────────────────────────────────────────────────
 
   describe('generateNote16TradePayables', () => {
-    it('returns two tables (summary + aging) and never suppresses', async () => {
-      sqlMock.mockResolvedValueOnce([
-        { gross_payables: 120000, current_amount: 80000, days_30: 30000, days_60_plus: 10000 },
-      ]);
+    const mockAged = vi.mocked(getAgedBucketTotals);
+
+    it('asks the AP ageing for the fiscal year END; two tables, the age table footing to gross', async () => {
+      mockAged.mockResolvedValueOnce({ current: 80000, days30: 30000, days60: 6000, days90: 3000, days120Plus: 1000, disputed: 0, gross: 120000 });
 
       const result = await generateNote16TradePayables(COMPANY_ID, FISCAL_YEAR);
 
-      const tables = result.content.blocks.filter((b) => b.type === 'table');
+      expect(mockAged).toHaveBeenCalledWith(COMPANY_ID, 'ap', '2026-12-31');
+      const tables = result.content.blocks.filter((b) => b.type === 'table') as { headers: string[]; rows: string[][] }[];
       expect(tables.length).toBe(2);
-      if (tables[0]?.type === 'table') {
-        expect(tables[0].headers).toEqual(['', 'Amount (R)']);
-      }
-      if (tables[1]?.type === 'table') {
-        expect(tables[1].headers).toEqual(['Current', '30 days', '60+ days', 'Total']);
-      }
+      expect(tables[0]!.headers).toEqual(['', 'Amount (R)']);
+      expect(tables[0]!.rows[0]).toEqual(['Trade payables', '120\u00a0000,00']);
+      expect(tables[1]!.headers).toEqual(['Current', '30 days', '60 days', '90 days', '120+ days', 'Total']);
+      expect(tables[1]!.rows[0]![5]).toBe('120\u00a0000,00');
     });
 
     it('still shows tables with zero values when no payables', async () => {
-      sqlMock.mockResolvedValueOnce([{ gross_payables: null, current_amount: null, days_30: null, days_60_plus: null }]);
+      mockAged.mockResolvedValueOnce({ current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0, disputed: 0, gross: 0 });
       const result = await generateNote16TradePayables(COMPANY_ID, FISCAL_YEAR);
       const tables = result.content.blocks.filter((b) => b.type === 'table');
       expect(tables.length).toBe(2);

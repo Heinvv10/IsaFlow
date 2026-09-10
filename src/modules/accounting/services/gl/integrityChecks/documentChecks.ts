@@ -8,9 +8,11 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { fmtDate } from '@/lib/fmtDate';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult, type IntegritySampleRow } from './types';
 import { documentInLedgerAsAtFragment } from '../../shared/softDeleteLedgerPresence';
+import { rewindAmount, effectivePaidExpr } from '../../shared/agingRewind';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 function sample(rows: DbRow[]): IntegritySampleRow[] {
   return rows.map((r) => ({
@@ -31,35 +33,40 @@ function sample(rows: DbRow[]): IntegritySampleRow[] {
  * amount this check reports.
  */
 export async function invoicesNullDueDate(ctx: IntegrityCheckContext): Promise<IntegrityCheckResult> {
-  const totals = (await sql`
-    SELECT COUNT(*)::INT AS count,
-           COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS amount
+  // The ageing's own population and balance AT ctx.asAt (R-059): the shared
+  // rewind, 'draft'/'cancelled' out, the rewound balance > 0. This read TODAY's
+  // amount_paid and the open-status set, so at a past date an invoice settled
+  // since was missing and one part-paid since was understated.
+  const paid = effectivePaidExpr('ar');
+  const from = sql`
     FROM customer_invoices ci
+    LEFT JOIN LATERAL (
+      ${rewindAmount({ companyId: ctx.companyId, asAtStr: ctx.asAt, todayStr: fmtDate(new Date()), side: 'ar' })}
+    ) unpaid ON TRUE
     WHERE ci.company_id = ${ctx.companyId}::UUID
       -- This check quantifies what the ageing is understating, so it reads the
       -- same population the ageing does at the same date.
       -- See shared/softDeleteLedgerPresence.
       AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
       AND ci.due_date IS NULL
-      AND ci.invoice_date <= ${ctx.asAt}::DATE
-      AND ci.status = ANY(${AR_OPEN_STATUSES as unknown as string[]}::TEXT[])
+      AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${ctx.asAt}::DATE
+      -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+      AND (ci.total_amount - ${sql.unsafe(paid)}) > 0`;
+
+  const totals = (await sql`
+    SELECT COUNT(*)::INT AS count,
+           COALESCE(SUM(ci.total_amount - ${sql.unsafe(paid)}), 0) AS amount
+    ${from}
   `) as DbRow[];
 
   const rows = (await sql`
     SELECT ci.id::TEXT AS id,
            COALESCE(ci.invoice_number, ci.id::TEXT) AS label,
-           ci.total_amount - COALESCE(ci.amount_paid, 0) AS amount,
+           ci.total_amount - ${sql.unsafe(paid)} AS amount,
            'invoiced ' || ci.invoice_date::TEXT AS detail
-    FROM customer_invoices ci
-    WHERE ci.company_id = ${ctx.companyId}::UUID
-      -- This check quantifies what the ageing is understating, so it reads the
-      -- same population the ageing does at the same date.
-      -- See shared/softDeleteLedgerPresence.
-      AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
-      AND ci.due_date IS NULL
-      AND ci.invoice_date <= ${ctx.asAt}::DATE
-      AND ci.status = ANY(${AR_OPEN_STATUSES as unknown as string[]}::TEXT[])
-    ORDER BY (ci.total_amount - COALESCE(ci.amount_paid, 0)) DESC
+    ${from}
+    ORDER BY (ci.total_amount - ${sql.unsafe(paid)}) DESC
     LIMIT ${ctx.limit}
   `) as DbRow[];
 
@@ -144,7 +151,11 @@ export async function invoicesWithoutRevenueLine(ctx: IntegrityCheckContext): Pr
       AND je.status = 'posted'
       AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
       AND ci.invoice_date <= ${ctx.asAt}::DATE
-      AND ci.status <> ALL(ARRAY['cancelled', 'void', 'voided', 'draft']::TEXT[])
+      -- The issued population — the ageing's own status rule. The list this
+      -- replaced also named 'void' and 'voided', which customer_invoices'
+      -- CHECK constraint forbids, and its <> ALL was NULL for a null-status
+      -- invoice, so an issued invoice with no revenue leg went unreported.
+      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_lines jl
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
