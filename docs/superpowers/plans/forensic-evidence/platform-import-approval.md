@@ -222,3 +222,79 @@ three decisions - `approved_by_impersonator`, `rejected_by_impersonator`, `withd
 Suites: integration 211 passed over 16 files with one pre-existing failure in `apSharedWriters`
 (identical case and assertion at base `c26475391`); units 10 927 passed with the five known
 pre-existing failures. Logs `platform-import-fix-r4-*.log`.
+
+
+## Fifth round: the gate's polarity, and the round-4 review
+
+**The request-context guard now refuses by default.** It used to allow any request context without
+a control principal unless it was positively a platform-admin request, so an auth path or ordering
+bug that left the principal unset approved quietly. It now refuses every principal-less request
+context. The only blanket allow is having no request context at all - a script or background task
+run by an operator with database credentials - and that is stated in the code rather than implied.
+Regression guard for the class: `independentRequestReview.test.ts` runs the guard inside a bare
+`als.run` store; mutation `m34` (put the allow back) turns it red.
+
+Every `als.run` in `src`, `pages` and `scripts` was enumerated. None needs an allow:
+
+| Principal-less context | Where | Why it is not allowed through |
+|---|---|---|
+| Platform-admin request | `withPlatformImportRequest` | the one exception, below |
+| Invite token | `withInviteToken` | registration/acceptance; records no approver |
+| Extension token | `withExtensionToken` | bank-feed pairing and statement ingest; records no approver |
+| MCP invocation persistence | `invocationPersistence.independently` | fixed internal SQL only; the tool itself runs under a bearer principal |
+| Audit-worker poller and lease | `auditJobPoller`, `auditJobLease` | fixed SQL; job work runs under `withControlJobRequest`, which installs a job principal |
+| Portfolio workbench | `portfolioWorkbenchService` | cross-company reads only |
+| AP backfill operator script | `scripts/ap-backfill-supplier-payments.ts` | raw SQL functions only, no service calls |
+
+Their own suites (MCP HTTP, audit worker, controls) still pass except for failures that also fail at
+base or need fixture opt-ins not present here.
+
+**The platform-admin exception, and why the suggested remedy does not apply.** Refusing it breaks
+`sageMigrationCommitService`, which approves imported supplier invoices under `withPlatformAdmin` -
+every AP invoice would fail into `summary.apInvoices.failed`. Routing that commit through
+`withPlatformImportTarget` does not work: the target is keyed to a historical import or retained
+source (there is none for a Sage commit), its permission ceiling grants no `write:invoices`, and its
+confinement refuses every operation except `historical_import.post`. So the context is allowed and
+logged at error level on every call, identified positively (module-private WeakSet keyed on store
+identity, set only inside `withPlatformImportRequest`, removed in its `finally`). The census test and
+the unit test both fail the day the refusal lands. **Open:** a platform administrator can still be
+the approver of record on a tenant's supplier invoices through Sage migration, until that path is
+given the confined treatment.
+
+**Stated plainly: the platform-import exemption is total.** Anything reachable inside a
+platform-import target context carries a control principal with no impersonator, so the
+independence guard passes for it - including action `execute`. Confinement relabels the platform
+administrator's approval authority to one operation and one import; it does not remove it. The
+tenant approval requirement on `historical_import.post` is what stands between that administrator
+and a posting, not this guard.
+
+**End-impersonation records the impersonated session.** It took the session id from the caller's
+claims, which on the global path are the administrator's restored session: the 502 path kept the
+stash, so the proof stayed live, and the success record carried the wrong session under the name
+`target_session_id`. It now reads the id from the `impersonation_start` record for its stash.
+Covered on the target's exit, the administrator's exit and the 502 path; mutation `m35` red.
+
+**The request path fails closed again when the reader is missing**, with the cost moved to deploy:
+`scripts/assert-impersonation-reader.ts`, run by `deploy.sh` right after migrations, stops a deploy
+whose database lacks `control_session_impersonator()`. Mutation `m36` red. `resolveImpersonatingActor`
+is called from `withAuth` only - pinned by an architecture test - so an approver path reached outside
+`withAuth` carries no impersonation marking; that is the stated invariant. Commentary refuses a
+decision it cannot attribute rather than writing the unverified marker into an actor column
+(`m37` red).
+
+**Census, by approver-column write.** Added: AFS section review (`reviewed_by`), section sign-off
+(`signed_off_by`), document sign-off and document lock (`locked_by`, two writers), the
+caller-supplied reviewer/signatory fields of `updateAfsSection`, and both tax-directive approvals
+(`approved_by`). Each mutation-checked.
+
+**Migration 677** moves the delegation liveness reads behind a SECURITY DEFINER function (the
+request path needs no grant on the stash table, which holds encrypted admin tokens, and a permission
+failure can no longer read as an ended delegation) and adds a partial expression index for the
+audit lookup. Applied repeatedly, idempotent. 677 was confirmed unused across every worktree and ref.
+
+**Review points answered rather than changed.** `report_commentary`'s person columns are all
+`text` (`approved_by`, `withdrawn_by`, `generated_by`), so the new actor columns force no cast.
+Migration 676 was only ever applied to the synthetic fixture database, not to `isaflow_dev`; it is
+frozen from here and later DDL goes into 677. `independentReview` now imports
+`platformImportAuthority`, which itself imports the controls context: that joins an existing
+context/platformImportAuthority cycle rather than creating a new one, and is not fixed here.
