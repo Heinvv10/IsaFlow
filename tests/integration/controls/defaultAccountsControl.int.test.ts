@@ -77,3 +77,9 @@ it('requires issued context and detaches input before the first awaited authorit
  await f.actor(async ctx=>{const pending=saveDefaultAccounts(ctx,input);input.mappings.primary_bank='invalid';await pending;});
  expect(JSON.parse((await f.state()).settings.value)).toEqual({primary_bank:id});
 });
+it('refuses whole-map changes when an existing designation is outside current account constraints',async()=>{
+ const id=await f.account(),code=(await f.pool.query('SELECT account_code FROM gl_accounts WHERE company_id=$1 AND id=$2',[f.f.companyA,id])).rows[0].account_code,before=await f.state();
+ await f.pool.query('INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write,account_range_from,account_range_to,restrictions) VALUES($1,$2,$3,true,$4,$4,$5::jsonb)',[f.f.companyA,f.f.u1.id,'accounts',code,'{}']);
+ try{const {saveDefaultAccounts}=await import('@/modules/accounting/services/gl/defaultAccountsControl');await expect(f.actor(ctx=>saveDefaultAccounts(ctx,{mappings:{primary_bank:id}}))).rejects.toThrow('Current permissions');expect(await f.state()).toEqual(before);}
+ finally{await f.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key=$3',[f.f.companyA,f.f.u1.id,'accounts']);}
+});
