@@ -18,6 +18,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 
@@ -107,15 +108,15 @@ export async function findVatAllocationMismatches(
         -- drops. Those rows returned a NULL account name and could never raise
         -- the denied-account flag — the report could not name what to fix.
         (ARRAY_AGG(va.account_code ORDER BY GREATEST(jl.debit, jl.credit) DESC)
-           FILTER (WHERE COALESCE(va.account_subtype, '') <> 'bank'
+           FILTER (WHERE COALESCE(va.account_subtype, '') <> ALL(${BANK_SUBTYPES as string[]}::TEXT[])
                      AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
                      AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_code,
         (ARRAY_AGG(va.account_name ORDER BY GREATEST(jl.debit, jl.credit) DESC)
-           FILTER (WHERE COALESCE(va.account_subtype, '') <> 'bank'
+           FILTER (WHERE COALESCE(va.account_subtype, '') <> ALL(${BANK_SUBTYPES as string[]}::TEXT[])
                      AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
                      AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_name,
         (ARRAY_AGG(COALESCE(va.vat_input_denied, false) ORDER BY GREATEST(jl.debit, jl.credit) DESC)
-           FILTER (WHERE COALESCE(va.account_subtype, '') <> 'bank'
+           FILTER (WHERE COALESCE(va.account_subtype, '') <> ALL(${BANK_SUBTYPES as string[]}::TEXT[])
                      AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
                      AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_vat_input_denied
       FROM bank_transactions bt

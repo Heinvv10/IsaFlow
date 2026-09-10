@@ -32,6 +32,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import type { SubledgerRole } from '../gl/controlAccountService';
+import { dropCancelledReversalPairs } from './orphanReversalPairs';
 
 export interface UnappliedCashItem {
   /** Payment id (mechanism 1) or journal-entry id (mechanism 2). */
@@ -190,9 +191,25 @@ export async function getUnappliedControlCash(
     // subledger". The two partitions — documents that claim a journal, journals
     // no document claims — must cover the control account exactly once each, or
     // the decomposition double-counts and the residual never reaches zero.
+    //
+    // The reversal a SOFT-DELETE posts is the one control movement no document
+    // will ever claim and that is not a reconciling item. The invoice keeps
+    // pointing at the ORIGINAL entry so the undo can find it, so the reversal
+    // passes every `NOT EXISTS` below and would land here as an orphan for the
+    // full gross value of the document — on the AR reconciler and the AP
+    // reconciler, permanently, for every deleted invoice. The pair already
+    // contributes zero to the decomposition: `unpostedDocumentService` still
+    // counts the deleted document AND its original journal (its GL half reads
+    // only `jl.journal_entry_id = ci.gl_journal_entry_id`, never the reversal),
+    // so it nets to nothing, and the control balance has moved by exactly the
+    // same amount the sub-ledger dropped. Counting the reversal here re-opens
+    // a gap both sides had closed. `soft_delete_journal_reversals` (migration
+    // 653) records exactly which entries those are, and `idx_sdjr_reversal_entry`
+    // indexes this direction.
     const orphanRows = (await (isAr
       ? sql`
-        SELECT je.id, je.entry_number AS document_number, NULL::text AS entity_name,
+        SELECT je.id, je.reversal_of_id, je.entry_number AS document_number,
+               NULL::text AS entity_name,
                je.entry_date AS document_date, je.created_at,
                COALESCE(SUM(jl.credit - jl.debit), 0) AS control_credit
         FROM gl_journal_entries je
@@ -208,12 +225,16 @@ export async function getUnappliedControlCash(
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
           AND NOT EXISTS (SELECT 1 FROM credit_notes d
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
-        GROUP BY je.id, je.entry_number, je.entry_date, je.created_at
+          AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
+                          WHERE r.company_id = ${companyId}::UUID
+                            AND r.reversal_journal_entry_id = je.id)
+        GROUP BY je.id, je.reversal_of_id, je.entry_number, je.entry_date, je.created_at
         HAVING COALESCE(SUM(jl.credit - jl.debit), 0) <> 0
         ORDER BY je.entry_date, je.id
       `
       : sql`
-        SELECT je.id, je.entry_number AS document_number, NULL::text AS entity_name,
+        SELECT je.id, je.reversal_of_id, je.entry_number AS document_number,
+               NULL::text AS entity_name,
                je.entry_date AS document_date, je.created_at,
                COALESCE(SUM(jl.debit - jl.credit), 0) AS control_credit
         FROM gl_journal_entries je
@@ -229,7 +250,10 @@ export async function getUnappliedControlCash(
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
           AND NOT EXISTS (SELECT 1 FROM credit_notes d
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
-        GROUP BY je.id, je.entry_number, je.entry_date, je.created_at
+          AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
+                          WHERE r.company_id = ${companyId}::UUID
+                            AND r.reversal_journal_entry_id = je.id)
+        GROUP BY je.id, je.reversal_of_id, je.entry_number, je.entry_date, je.created_at
         HAVING COALESCE(SUM(jl.debit - jl.credit), 0) <> 0
         ORDER BY je.entry_date, je.id
       `)) as DbRow[];
@@ -246,7 +270,7 @@ export async function getUnappliedControlCash(
       if (allocated !== 0) appliedRecords.push(toItem(r, Math.round(allocated * 100) / 100));
     }
 
-    const withoutPaymentRecord = orphanRows.map((r) =>
+    const withoutPaymentRecord = dropCancelledReversalPairs(orphanRows).map((r) =>
       toItem(r, Math.round(Number(r.control_credit ?? 0) * 100) / 100),
     );
 

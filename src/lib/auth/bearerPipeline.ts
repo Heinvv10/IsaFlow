@@ -13,7 +13,8 @@ import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
 // Register the DATE parser independently of neon.ts import order.
 import '@/lib/pgTypes';
-import { als } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
@@ -239,10 +240,8 @@ export async function runBearerRequest(
       return res;
     };
 
-    const runHandler = async () =>
-      als.run({ client, userId: ctx.userId, companyId: ctx.companyId, claims }, async () => {
-        await handler(authedReq, res);
-      });
+    const txCtx: RequestContext = { client, userId: ctx.userId, companyId: ctx.companyId, claims, afterCommit: [] };
+    const runHandler = async () => runOwnedContext(txCtx, async () => { await handler(authedReq, res); });
 
     if (process.env.SENTRY_ENABLED === 'true') {
       await Sentry.withIsolationScope(async () => {
@@ -287,8 +286,9 @@ export async function runBearerRequest(
       return; // finally still runs (release + slow-request log)
     }
 
-    // Transaction durable — replay the buffered flush.
+    // Transaction durable — replay the buffered flush, then start after-commit work (R-075).
     if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+    if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch { /* secondary */ }
     throw err;

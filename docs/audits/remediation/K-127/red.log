@@ -1,0 +1,40 @@
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts > K-127 sanitizeClientResponse preserves ordinary English > keeps a sentence containing the word "update"
+AssertionError: expected 'I will . Thank you.' to be 'I will update your contact details. T…' // Object.is equality
+
+Expected: "I will update your contact details. Thank you."
+Received: "I will . Thank you."
+
+ ❯ tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts:20:43
+     18|   it('keeps a sentence containing the word "update"', () => {
+     19|     const reply = 'I will update your contact details. Thank you.';
+     20|     expect(sanitizeClientResponse(reply)).toBe(reply);
+       |                                           ^
+     21|   });
+     22|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts > K-127 sanitizeClientResponse preserves ordinary English > keeps a sentence containing the word "query"
+AssertionError: expected 'If you have a about this account, rep…' to be 'If you have a query about this accoun…' // Object.is equality
+
+Expected: "If you have a query about this account, reply here."
+Received: "If you have a about this account, reply here."
+
+ ❯ tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts:25:43
+     23|   it('keeps a sentence containing the word "query"', () => {
+     24|     const reply = 'If you have a query about this account, reply here.…
+     25|     expect(sanitizeClientResponse(reply)).toBe(reply);
+       |                                           ^
+     26|   });
+     27|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+   Start at  11:30:17
+   Duration  639ms (transform 118ms, setup 0ms, import 150ms, tests 23ms, environment 0ms)
+

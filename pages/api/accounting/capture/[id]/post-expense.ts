@@ -28,6 +28,7 @@ import {
   lockCaptureEventForPosting,
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
+import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
@@ -69,21 +70,30 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ------------------------------------------------------------------
   // The DOCUMENT is the row every posting route has to agree on, so it is
   // locked first on every path — document-then-event, never the reverse, so
-  // there is no cycle to deadlock on. The refusals below are check-then-act;
-  // under the locks they read settled values. Nothing is written yet, so a lock
-  // timeout is a safe 4xx.
+  // there is no cycle to deadlock on. The event lock is what makes the status
+  // refusal below meaningful (R-058): two concurrent requests both read a
+  // postable status and both post. Under the locks the refusals read settled
+  // values; nothing is written yet, so contention is a retryable 409.
   let event;
   try {
     event = await lockCaptureEventForPosting(companyId, eventId);
   } catch (err) {
-    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.conflict(res, err.message);
     throw err;
   }
 
   if (!event) return apiResponse.notFound(res, 'Capture event', eventId);
 
-  if (event.eventStatus === 'posted') {
-    return apiResponse.badRequest(res, 'Event already posted');
+  // Postable is an ALLOW-list (`captureEventLock.ts`), not `status === 'posted'`.
+  // Naming one value left every OTHER terminal state postable: a user could
+  // discard a captured document and then post it anyway, with no race at all.
+  if (!isCaptureEventPostable(event.eventStatus)) {
+    return apiResponse.badRequest(
+      res,
+      event.eventStatus === 'posted'
+        ? 'Event already posted'
+        : `Event cannot be posted from status '${event.eventStatus}'`,
+    );
   }
 
   // The document's own posting claim, which this route never read — it refused

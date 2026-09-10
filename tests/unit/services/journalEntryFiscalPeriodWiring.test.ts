@@ -27,6 +27,9 @@ vi.mock('@/lib/neon', () => ({
   withTransaction: vi.fn(),
   fmtDate: (v: unknown) => String(v ?? ''),
 }));
+vi.mock('@/lib/alsTransaction', () => ({
+  withAlsTransaction: (_actor: unknown, fn: () => unknown) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -53,7 +56,10 @@ const INPUT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sqlMock.mockResolvedValue([]);
+  // Both of INPUT's accounts come back as owned by COMPANY: createJournalEntry
+  // now refuses a line naming another company's account before it resolves a
+  // period, and an empty answer would stop it short of the subject of this file.
+  sqlMock.mockResolvedValue([{ id: 'a1' }, { id: 'a2' }]);
 });
 
 describe('createJournalEntry — fiscal period resolution is wired in', () => {

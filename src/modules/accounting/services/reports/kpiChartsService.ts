@@ -6,6 +6,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 
 export interface ChartPoint {
@@ -105,7 +107,7 @@ export async function getCashFlowChart(companyId: string, months: number): Promi
           SELECT 1 FROM gl_accounts ga
           WHERE ga.id = bt.bank_account_id
             AND ga.company_id = ${companyId}::UUID
-            AND ga.account_subtype = 'bank'
+            AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
         )
       GROUP BY m.month_start
       ORDER BY m.month_start
@@ -135,11 +137,12 @@ export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap'): P
             WHEN CURRENT_DATE - due_date <= 60 THEN '60 Days'
             ELSE '90+ Days'
           END AS bucket,
-          COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-        FROM customer_invoices
-        WHERE status IN ('approved', 'sent', 'partially_paid', 'overdue')
-          AND company_id = ${companyId}::UUID
-          AND (total_amount - COALESCE(amount_paid, 0)) > 0
+          COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
+        FROM customer_invoices ci
+        WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+          AND ci.company_id = ${companyId}::UUID
+          AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
+          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
         GROUP BY bucket
       `) as DbRow[];
     } else {
@@ -151,11 +154,12 @@ export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap'): P
             WHEN CURRENT_DATE - due_date <= 60 THEN '60 Days'
             ELSE '90+ Days'
           END AS bucket,
-          COALESCE(SUM(balance), 0) AS total
-        FROM supplier_invoices
-        WHERE status IN ('approved', 'partially_paid')
-          AND company_id = ${companyId}::UUID
-          AND balance > 0
+          COALESCE(SUM(si.balance), 0) AS total
+        FROM supplier_invoices si
+        WHERE si.status IN ('approved', 'partially_paid')
+          AND si.company_id = ${companyId}::UUID
+          AND ${documentInLedgerAsAtFragment('si', asAtTodayStr(), companyId)}
+          AND si.balance > 0
         GROUP BY bucket
       `) as DbRow[];
     }

@@ -2,7 +2,7 @@
  * BalanceSheetBody — the loaded-report branch of the balance sheet page,
  * extracted so the page stays under the 300-line limit. Renders the shared
  * balanced / out-of-balance banner and the two StatementGrid columns
- * (Assets; Liabilities and Equity).
+ * (Assets; Equity and Liabilities).
  */
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
@@ -19,6 +19,9 @@ interface BalanceSheetBodyProps {
   onToggleAccount: (code: string) => void;
   drillDownStart: string;
   drillDownEnd: string;
+  costCentreId?: string;
+  businessUnitId?: string;
+  returnTo?: string;
   onEvidence: (accountId: string, accountName: string) => void;
   /** Which comparator columns to print. Omitted, the prior-year checkbox alone
    *  decides, which is what every caller did before the trend column existed. */
@@ -29,14 +32,17 @@ interface BalanceSheetBodyProps {
 
 export function BalanceSheetBody({
   report, showComparative, expandedAccount, onToggleAccount, drillDownStart, drillDownEnd, onEvidence,
-  columns: columnsProp, applyComparators = rows => rows,
+  costCentreId, businessUnitId, returnTo, columns: columnsProp, applyComparators = rows => rows,
 }: BalanceSheetBodyProps) {
   // The account-detail route master's BalanceSheetRow linked every account
   // name to. The migration to StatementGrid dropped it; the row model now
   // carries an href and this is the only surface that sets one.
   const detailHref = (code: string) =>
     `/accounting/reports/account-detail/${encodeURIComponent(code)}` +
-    `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`;
+    `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs` +
+    (costCentreId ? `&cost_centre_id=${encodeURIComponent(costCentreId)}` : '') +
+    (businessUnitId ? `&business_unit_id=${encodeURIComponent(businessUnitId)}` : '') +
+    (returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : '');
   const built = toBalanceSheetRows(report, { comparative: showComparative, detailHref });
   const assets = applyComparators(built.assets);
   const liabilitiesAndEquity = applyComparators(built.liabilitiesAndEquity);
@@ -46,7 +52,9 @@ export function BalanceSheetBody({
     [...report.assets, ...report.liabilities, ...report.equity].find(a => a.accountCode === code)?.accountName ?? code;
   const evidence = (code: string) => onEvidence(code, nameOf(code));
   const drill = (code: string) => (
-    <AccountDrillDown accountCode={code} periodStart={drillDownStart} periodEnd={drillDownEnd} asTableRow={false} />
+    <AccountDrillDown accountCode={code} periodStart={drillDownStart} periodEnd={drillDownEnd}
+      costCentreId={costCentreId} businessUnitId={businessUnitId} source="bs" returnTo={returnTo}
+      asTableRow={false} />
   );
 
   return (
@@ -63,7 +71,7 @@ export function BalanceSheetBody({
       <div className={comparatorColumns ? 'space-y-4' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
         <StatementGrid rows={assets} columns={columns} title="Assets" cents
           expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
-        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Liabilities and Equity" cents
+        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Equity and Liabilities" cents
           expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
       </div>
     </div>

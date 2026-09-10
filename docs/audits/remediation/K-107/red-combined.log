@@ -1,0 +1,193 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k107-recurring-invoice-number-collision.int.test.ts" "tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts" "tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-107
+
+{"level":"info","message":"Recurring template executed","timestamp":"2026-09-09T09:48:16.795Z","component":"recurring","data":{"templateId":"045cefdc-a9e8-4d12-83d9-6c9d202ce549","entityId":"421ead6d-794e-4c92-817c-8130c76fdf05","entityType":"customer_invoice"}}
+{"level":"info","message":"Quote converted to sales order","timestamp":"2026-09-09T09:48:16.810Z","data":{"quoteId":"8ac462a4-d6ae-4023-8b2c-6e6829902d8a","salesOrderId":"195e4d7d-c7cb-4d51-8823-b3a374e21c8d"}}
+{"level":"info","message":"Quote converted to sales order","timestamp":"2026-09-09T09:48:16.842Z","data":{"quoteId":"8ac462a4-d6ae-4023-8b2c-6e6829902d8a","salesOrderId":"bc4bab7e-4545-424e-802a-fe880022db86"}}
+{"level":"info","message":"Sales order converted to invoice","timestamp":"2026-09-09T09:48:16.916Z","data":{"salesOrderId":"01e66457-afa8-43f1-b53e-fd9bce09a027","invoiceId":"82ccb7c7-87da-4372-9e6a-ef543d3f5979"}}
+{"level":"info","message":"Recurring template executed","timestamp":"2026-09-09T09:48:16.946Z","component":"recurring","data":{"templateId":"3fc70859-1159-4f6a-bc8d-d355ecb0bd18","entityId":"5fa3f442-d85b-4ea8-9842-b3887ac87a5b","entityType":"supplier_invoice"}}
+{"level":"info","message":"Recurring template executed","timestamp":"2026-09-09T09:48:16.965Z","component":"recurring","data":{"templateId":"3fc70859-1159-4f6a-bc8d-d355ecb0bd18","entityId":"1c85eda7-27f3-48af-84f8-6a20af1026da","entityType":"supplier_invoice"}}
+ ❯ tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts (1 test | 1 failed) 385ms
+   × converts a quote to a sales order exactly once 113ms
+ ❯ tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts (2 tests | 1 failed) 474ms
+   × mints the sales-order invoice from the company sequence 91ms
+ ❯ tests/integration/k107-recurring-invoice-number-collision.int.test.ts (2 tests | 2 failed) 546ms
+   × a daily customer template runs twice in one month without a number collision 145ms
+   × a daily supplier template runs twice in one month without duplicating the bill number 109ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k107-recurring-invoice-number-collision.int.test.ts > a daily customer template runs twice in one month without a number collision
+AssertionError: expected { second: '23505', distinct: 1 } to deeply equal { second: 'ok', distinct: 2 }
+
+- Expected
++ Received
+
+  {
+-   "distinct": 2,
+-   "second": "ok",
++   "distinct": 1,
++   "second": "23505",
+  }
+
+ ❯ tests/integration/k107-recurring-invoice-number-collision.int.test.ts:59:6
+     57|   // RED: today the second run raises 23505 on uq_customer_invoices_co…
+     58|   expect({ second, distinct: new Set(numbers.rows.map(r => r.invoice_n…
+     59|     .toEqual({ second: 'ok', distinct: 2 });
+       |      ^
+     60| });
+     61|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/integration/k107-recurring-invoice-number-collision.int.test.ts > a daily supplier template runs twice in one month without duplicating the bill number
+AssertionError: expected { rows: 2, distinctNumbers: 1 } to deeply equal { rows: 2, distinctNumbers: 2 }
+
+- Expected
++ Received
+
+  {
+-   "distinctNumbers": 2,
++   "distinctNumbers": 1,
+    "rows": 2,
+  }
+
+ ❯ tests/integration/k107-recurring-invoice-number-collision.int.test.ts:71:6
+     69|     rows: rows.rows.length,
+     70|     distinctNumbers: new Set(rows.rows.map(r => r.invoice_number)).siz…
+     71|   }).toEqual({ rows: 2, distinctNumbers: 2 });
+       |      ^
+     72| });
+     73|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts > mints the sales-order invoice from the company sequence
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts:70:30
+     68|   // The configured counter must have moved, and the minted number mus…
+     69|   // one the sequence would have issued.
+     70|   expect.soft(Number(after)).toBe(Number(before) + 1);
+       |                              ^
+     71|   expect(minted).toBe(`INV-${String(Number(before)).padStart(7, '0')}`…
+     72| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts > mints the sales-order invoice from the company sequence
+AssertionError: expected 'INV-00001' to be 'INV-0000001' // Object.is equality
+
+Expected: "INV-0000001"
+Received: "INV-00001"
+
+ ❯ tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts:71:18
+     69|   // one the sequence would have issued.
+     70|   expect.soft(Number(after)).toBe(Number(before) + 1);
+     71|   expect(minted).toBe(`INV-${String(Number(before)).padStart(7, '0')}`…
+       |                  ^
+     72| });
+     73|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts > converts a quote to a sales order exactly once
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts:55:33
+     53|
+     54|   const orders = await pool.query('SELECT count(*)::int AS n FROM cust…
+     55|   expect.soft(orders.rows[0].n).toBe(1);
+       |                                 ^
+     56|
+     57|   const link = await pool.query('SELECT converted_order_id FROM custom…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts > converts a quote to a sales order exactly once
+AssertionError: expected 'bc4bab7e-4545-424e-802a-fe880022db86' to be '195e4d7d-c7cb-4d51-8823-b3a374e21c8d' // Object.is equality
+
+Expected: "195e4d7d-c7cb-4d51-8823-b3a374e21c8d"
+Received: "bc4bab7e-4545-424e-802a-fe880022db86"
+
+ ❯ tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts:58:56
+     56|
+     57|   const link = await pool.query('SELECT converted_order_id FROM custom…
+     58|   expect.soft(String(link.rows[0].converted_order_id)).toBe(first!.sal…
+       |                                                        ^
+     59|
+     60|   expect(second).toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts > converts a quote to a sales order exactly once
+AssertionError: expected { quote: { …(16) }, …(1) } to be null
+
+- Expected:
+null
+
++ Received:
+{
+  "quote": {
+    "clientId": "00b180ed-9c0d-4279-82a1-31201b98fda8",
+    "convertedInvoiceId": null,
+    "createdAt": "Wed Sep 09 2026 11:48:16 GMT+0200 (South Africa Standard Time)",
+    "customerName": "null",
+    "expiryDate": null,
+    "id": "8ac462a4-d6ae-4023-8b2c-6e6829902d8a",
+    "lines": [
+      {
+        "accountId": null,
+        "description": "Consulting",
+        "id": "9b8750db-1a0a-4b88-acd5-5bfb41fce2b8",
+        "lineNumber": 1,
+        "lineTotal": 1000,
+        "quantity": 1,
+        "quoteId": "8ac462a4-d6ae-4023-8b2c-6e6829902d8a",
+        "taxRate": 15,
+        "unitPrice": 1000,
+      },
+    ],
+    "notes": null,
+    "quoteDate": "2026-01-01",
+    "quoteNumber": "K121-Q-1",
+    "status": "converted_to_order",
+    "subtotal": 1000,
+    "taxAmount": 150,
+    "terms": null,
+    "total": 1150,
+    "updatedAt": "Wed Sep 09 2026 11:48:16 GMT+0200 (South Africa Standard Time)",
+  },
+  "salesOrderId": "bc4bab7e-4545-424e-802a-fe880022db86",
+}
+
+ ❯ tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts:60:18
+     58|   expect.soft(String(link.rows[0].converted_order_id)).toBe(first!.sal…
+     59|
+     60|   expect(second).toBeNull();
+       |                  ^
+     61| });
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  4 failed | 1 passed (5)
+   Start at  11:48:15
+   Duration  1.96s (transform 1.38s, setup 0ms, import 2.76s, tests 1.40s, environment 0ms)
+
+error: script "test:integration" exited with code 1

@@ -1740,3 +1740,86 @@ whole-rand and role work took to 371 lines against the 300 cap. A pure move — 
 identical results before and after the split. `ocrLargerFigure.ts` 209 lines, `ocrPrintedFigures.ts` 172.
 
 **Migration:** none. **Historical data:** unchanged. **Rollback:** revert the commit.
+
+## Master merge — `origin/master` `bfc5c442e` into `37c699635` (401 commits)
+
+Merge only: no posting-gate logic changed beyond what a conflict forced. Six textual conflicts, plus
+one SEMANTIC conflict in a file git merged cleanly (master's `r058` integration test).
+
+### The two capture posting routes (`capture/[id]/post.ts`, `capture/[id]/post-expense.ts`)
+
+- **Master wanted (R-058, #419):** a `FOR UPDATE` row lock on `capture_events` before the status
+  check; lock contention (55P03 **and** 40P01) answered **409** as retryable; the 5s `lock_timeout`
+  **reset to DEFAULT once the lock is granted**, so a downstream wait is not bounded by it; and an
+  **allow-list** of postable statuses (`isCaptureEventPostable`) instead of `=== 'posted'`, so a
+  discarded event cannot be posted. R-075 (#420) touched neither route.
+- **The branch wanted (K-072):** lock the DOCUMENT then the event (`captureRowLock.
+  lockCaptureEventForPosting`), refuse on `posted_at` / `'rejected'`, claim the document before the
+  first ledger write, and — `post.ts` — `refusesUnattendedApproval` forcing `draft`.
+- **Resolution keeps both.** The routes take the branch's two-row lock (document-then-event, so
+  the cross-route fence survives) and then apply master's allow-list to `event.eventStatus`, with
+  master's wording. Lock contention answers **409** (`apiResponse.conflict`) as R-058 did. The
+  branch's `captureRowLock.ts` adopts R-058's lock contract for BOTH acquisitions — 40P01 joins
+  55P03 as retryable, and `lock_timeout` is reset after each granted lock (`lockWithTimeout`, the
+  same shape as `captureEventLock.ts`). The other `captureRowLock` callers (`receipt-to-journal`,
+  `ai-invoice-pipeline`, `document-capture-action`) keep answering 400; only the reset and the
+  40P01 mapping reach them. The unattended gate, the claim and `computeFingerprint` /
+  `supplierVatNumber` (master) all sit in `post.ts` unchanged relative to their own side.
+- `captureEventLock.lockCaptureEventForPosting` (master) has no caller after the merge and is
+  removed; the module keeps the allow-list, `CaptureEventLockedError` and `lockCaptureEventRow`
+  (discard). Its header no longer says `captured_documents` must not be locked — K-072 locks it.
+
+**Semantic conflict — `r058-capture-post-double-post.int.test.ts` "a downstream lock wait
+outlives the 5s".** It proved the reset by holding the DOCUMENT row 7s from another
+transaction, on the premise that the post routes never lock `captured_documents`. On the merged
+tip they lock it FIRST, so that hold is an acquisition, bounded by design, and the route answers
+409 at 5s — the test failed 409 ≠ 200. The test now holds the company's **fiscal period** row
+(the journal INSERT's FK check takes FOR KEY SHARE on it), which is a genuine downstream wait.
+Mutation: removing `SET LOCAL lock_timeout = DEFAULT` from `captureRowLock.ts` turns it RED
+(500 at 5051 ms); restored, `md5sum -c` OK.
+
+**Proved by outcome on the merged tree:** `r058-*` + `r075-*` 36/37 (the one failure is the
+r075 test below, identical on master); mutations
+— post-expense `conflict`→`badRequest` RED ("answers 409 when another transaction holds the
+event"), post.ts allow-list→`=== 'posted'` RED ("a DISCARDED event is refused", "discard
+CONCURRENT with post"); files restored, `md5sum -c` OK. K-072's 7 files 58/58 green.
+
+### `journalEntryPostingService.ts`
+The branch did not touch `resolveReversalDate`; master's move to `journalEntryReversalDate.ts`
+(with its re-export) is taken as is. The branch's one change — `reverseJournalEntry` releasing
+the captured document's posting claim — is kept, inside master's `withReversalTransaction`
+callback (ALS-bound, so the release commits or rolls back with the contra), before master's
+`{ ...reversalEntry, foreignDimensionDroppedLines }` return. 306 lines (master 300, branch 355).
+
+### `postExpenseZeroVatLine.test.ts` / `capturePostFingerprint.test.ts`
+Both sides stubbed `@/lib/als` identically; the branch's block is kept. `capturePostFingerprint`
+(new on master, merged clean) stubbed only master's single SELECT, so K-072's claim UPDATE got
+`[]` and the route refused before its INSERT (5/5 red) — a stale stub in untyped `tests/**`, the
+lesson in the brief. Its stub now answers the claim.
+
+### Docs
+`core/.claude.md`: both sides' recent-change entries kept (branch 2026-09-10 above master's
+2026-09-09). `agent-docs:generate`, then `agent-docs:check`: "OK: 74 agent document mirror(s)".
+
+### `tests/**` census
+Branch tests naming anything master moved or re-signed in these files
+(`journalEntryPostingService`, `reverseJournalEntry`, `resolveReversalDate`, `captureEventLock`,
+`periodStatusService`, `captureDeduplicationService`, `autoPublishGateService`,
+`captureRouterService`): `postExpenseZeroVatLine` (mocks `journalEntryPostingService`; green),
+`k072-draft-claim-release` (calls reversal through routes; green). Master tests reaching the
+branch's routes: `capturePostFingerprint` (fixed above), `r058-*`, `r075-*`.
+
+### Gates (merged tree)
+- `env -u DATABASE_URL bun run ci`: exit 0, `[ci] all checks passed` — unit 877 files /
+  10962 passed, component 530 passed, build PASS.
+- Integration, full suite, `--no-file-parallelism`, 292 files in 6 chunks, each chunk also run on
+  a clean `git archive origin/master` (`bfc5c442e`): 1513 passed / 16 failed / 201 skipped on the
+  merge; the 16 failures (34 files, mostly file-level) are **the same FAIL lines on master**
+  (`comm` of the sorted FAIL lines empty in both directions, every chunk).
+- `r075-route-event-after-commit` "routeEvent writes on its own connection after COMMIT" fails
+  **identically on the master archive** (write order `extracted, pending` vs expected
+  `pending, extracted`) — master's test disagrees with master's R-058 r2 reorder of
+  `routeEvent`. Not touched here; reported to the orchestrator.
+- Line counts over the 300 cap after the merge: `post.ts` 337 (master 296, branch 299), `post-expense.ts` 310 (branch 300),
+  `captureRowLock.ts` 304, `journalEntryPostingService.ts` 306 — each side's comments merged;
+  not condensed further to keep both sides' text reviewable.

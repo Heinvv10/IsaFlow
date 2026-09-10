@@ -12,13 +12,14 @@
  *   - invoice is not cancelled and not fully paid
  *   - invoice outstanding ≥ company min_outstanding_zar
  *   - invoice days_overdue matches a template's range (active, highest escalation_order)
- *   - invoice has NO open customer_invoice_dispute
+ *   - invoice has NO open customer_invoice_dispute, and no dispute resolved
+ *     with a credit note that is still an unapproved draft
  *   - NO existing dunning_send for (invoice, template) — never re-send same tone
  *   - NO dunning_send for invoice in last 48h — cool-off
  *   - customer has email on file
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendDunning } from './dunningService';
@@ -44,7 +45,7 @@ interface CandidateRow extends DbRow {
   outstanding: string | number;
   days_overdue: number;
   customer_email: string | null;
-  has_open_dispute: boolean;
+  has_blocking_dispute: boolean;
   template_id: string | null;
   template_send_weekdays_only: boolean | null;
   last_send_for_template_at: string | null;
@@ -69,6 +70,18 @@ export async function runDunningCron(options: {
   portalBaseUrl?: string;
   /** Override for "now" — test-only. */
   now?: Date;
+  /**
+   * Restrict the walk to one company. An ordinary operational affordance —
+   * re-run the ladder for one tenant after a fix, or backfill a single
+   * company — not a test hook, and a no-op when omitted (the predicate is
+   * `NULL::uuid IS NULL OR …`, which is true for every row).
+   *
+   * The tests use it to work AROUND a shared fixture database in which two
+   * files count each other's invoices. That remains registered as R-036: the
+   * real fix is per-file company isolation in the fixture, not narrowing a
+   * production query.
+   */
+  companyId?: string;
 } = {}): Promise<DunningCronResult> {
   const now = options.now ?? new Date();
   const result: DunningCronResult = {
@@ -85,10 +98,12 @@ export async function runDunningCron(options: {
     return result;
   }
 
+  const onlyCompany = options.companyId ?? null;
   const companies = (await sql`
     SELECT company_id, min_outstanding_zar
     FROM dunning_settings
     WHERE auto_send_enabled = true
+      AND (${onlyCompany}::uuid IS NULL OR company_id = ${onlyCompany}::uuid)
   `) as CompanyRow[];
   result.companiesChecked = companies.length;
 
@@ -113,6 +128,12 @@ export async function runDunningCron(options: {
             ON cdo.company_id = ci.company_id AND cdo.customer_id = cust.id
          WHERE ci.company_id = ${companyId}::uuid
            AND ci.status NOT IN ('cancelled', 'paid')
+           -- A deleted invoice is not chased. Undated on purpose, and NOT an
+           -- appeal to aging: the dated predicate deliberately KEEPS an invoice
+           -- deleted before this change, whose journal was never reversed, so
+           -- "out of aging" is no longer the reason. Chasing a customer for a
+           -- document the business has deleted is wrong however the GL reads.
+           AND ci.deleted_at IS NULL
            AND ci.due_date IS NOT NULL
            AND ci.due_date < CURRENT_DATE
            AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) >= ${minOutstanding}
@@ -151,9 +172,20 @@ export async function runDunningCron(options: {
              m.template_id, m.template_send_weekdays_only,
              EXISTS (
                SELECT 1 FROM customer_invoice_disputes d
+               LEFT JOIN credit_notes cn
+                 ON cn.id = d.credit_note_id AND cn.company_id = d.company_id
                 WHERE d.customer_invoice_id = m.invoice_id
-                  AND d.status = 'open'
-             ) AS has_open_dispute,
+                  AND d.company_id = m.company_id
+                  AND (
+                    d.status = 'open'
+                    -- Resolved with credit, but the credit note is still a
+                    -- draft: nothing has posted to the GL and nothing has been
+                    -- applied to the invoice, so the disputed amount is still
+                    -- sitting in overdue. Chasing it would escalate against a
+                    -- customer whose dispute was already agreed.
+                    OR (d.credit_note_id IS NOT NULL AND cn.status = 'draft')
+                  )
+             ) AS has_blocking_dispute,
              (SELECT MAX(sent_at) FROM dunning_sends
                WHERE customer_invoice_id = m.invoice_id AND template_id = m.template_id)
                AS last_send_for_template_at,
@@ -161,6 +193,9 @@ export async function runDunningCron(options: {
                WHERE customer_invoice_id = m.invoice_id)
                AS last_send_any_at
       FROM matched m
+      -- Deterministic order: without it the run order is heap order, which
+      -- makes "the invoice after the failing one still sent" untestable.
+      ORDER BY m.invoice_number
     `) as CandidateRow[];
 
     for (const row of candidates) {
@@ -169,7 +204,7 @@ export async function runDunningCron(options: {
       try {
         if (!row.template_id) { result.skipped += 1; continue; }
         if (!row.customer_email) { result.skipped += 1; continue; }
-        if (row.has_open_dispute) { result.skipped += 1; continue; }
+        if (row.has_blocking_dispute) { result.skipped += 1; continue; }
         if (row.last_send_for_template_at) { result.skipped += 1; continue; }
         if (row.last_send_any_at) {
           const last = new Date(row.last_send_any_at).getTime();
@@ -180,14 +215,21 @@ export async function runDunningCron(options: {
           continue;
         }
 
-        const sendResult = await sendDunning({
-          companyId,
-          invoiceId,
-          templateId: String(row.template_id),
-          sentBy: null,
-          triggerSource: 'cron',
-          portalBaseUrl: options.portalBaseUrl,
-        });
+        // One savepoint per invoice. sendDunning writes (portal_token,
+        // dunning_sends, captured_documents), and a PostgreSQL error on any of
+        // them aborts the whole surrounding transaction — the catch below would
+        // otherwise carry on into a run where every remaining invoice fails with
+        // 25P02. Rolling back to the savepoint restores a usable transaction.
+        const sendResult = await withSavepoint('dunning_cron_invoice', () =>
+          sendDunning({
+            companyId,
+            invoiceId,
+            templateId: String(row.template_id),
+            sentBy: null,
+            triggerSource: 'cron',
+            portalBaseUrl: options.portalBaseUrl,
+          }),
+        );
         if (sendResult.emailStatus === 'sent') {
           result.sent += 1;
         } else {

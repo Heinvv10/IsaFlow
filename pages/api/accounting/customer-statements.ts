@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { parsePagination } from '@/lib/pagination';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -23,6 +24,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // invoice history, no LIMIT). One row per customer, so a generous cap
   // keeps every realistic tenant intact while ending the pathological case.
   const { limit, offset } = parsePagination(req.query, 1000, 2000);
+  // A balances summary with no as-at parameter is a summary as at today.
+  const asAtStr = asAtTodayStr();
 
   try {
     // COALESCE(client_id, customer_id): both columns exist and either may
@@ -48,6 +51,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         GROUP BY client_id
       ) paid ON paid.client_id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId} AND ci.status != 'cancelled'
+      -- As at TODAY, not undated: a document soft-deleted BEFORE the delete
+      -- began reversing its journal has a standing entry the control account
+      -- still carries, and a bare deleted_at IS NULL would drop it from this
+      -- figure while the GL keeps it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
       GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name, paid.total_paid, paid.last_payment_date
       HAVING SUM(ci.total_amount::numeric) > 0
       ORDER BY SUM(ci.total_amount::numeric) - COALESCE(paid.total_paid, 0) DESC, COALESCE(ci.client_id, ci.customer_id)

@@ -90,11 +90,6 @@ const ALLOWED: Record<string, string> = {
     + 'On that reading this entry is a stay of execution, not a verdict.',
 
   // ── NO CLAIM DECIDED ──────────────────────────────────────────────────────
-  'src/modules/accounting/services/gl/journalEntryPostingService.ts':
-    'No claim decided: reversal mirrors the stored VAT classification and '
-    + 'swaps debit/credit on each already-posted line. It chooses no new '
-    + 'account, rate or claim; coercing the contra would stop it offsetting '
-    + 'the original classification. Pinned by journalEntryReversal.test.ts.',
   'src/modules/accounting/services/ar/writeOffService.ts':
     'Posts a bad-debt write-off with the fixed code `bad_debt` (VAT201 box '
     + '17). Not an account-dependent claim — the code does not vary with which '

@@ -7,6 +7,8 @@ import type { DbRow } from '@/types/db';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -67,7 +69,9 @@ export async function generateNote8FinancialAssets(
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('investment', 'financial_asset', 'loan_receivable')
+      AND ga.account_subtype = ANY(${[
+        ...rawSubtypesFor('investment'), 'financial_asset', 'loan_receivable',
+      ]}::TEXT[])
     GROUP BY ga.account_name, ga.account_subtype
     HAVING SUM(gjl.debit - gjl.credit) <> 0
     ORDER BY ga.account_subtype, ga.account_name
@@ -129,7 +133,10 @@ export async function generateNote9Inventories(
       ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('inventory', 'raw_materials', 'work_in_progress', 'finished_goods', 'consumables')
+      AND ga.account_subtype = ANY(${[
+        ...rawSubtypesFor('inventory'),
+        'raw_materials', 'work_in_progress', 'finished_goods', 'consumables',
+      ]}::TEXT[])
     GROUP BY ga.account_name, ga.account_code, ga.account_subtype
     HAVING COALESCE(SUM(gjl.debit - gjl.credit), 0) <> 0
     ORDER BY ga.account_subtype, ga.account_name
@@ -209,6 +216,12 @@ export async function generateNote10TradeReceivables(
       ) AS days_90_plus
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId} AND ci.invoice_date <= ${end}
+      -- The note must show what the control account showed at year end, so it
+      -- asks the soft-delete question at year end too: a document deleted AFTER
+      -- the year end is still receivable in these figures, and one deleted
+      -- before this change was ever made has a standing journal the GL carries.
+      -- See shared/softDeleteLedgerPresence.
+      AND ${documentInLedgerAsAtFragment('ci', end, companyId)}
   `) as DbRow[];
 
   const row = rows[0] ?? {};

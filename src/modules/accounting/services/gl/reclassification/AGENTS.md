@@ -78,7 +78,6 @@ createReclassBatch / recordReclassBatchLines / getReclassBatch
 - **Skip reasons**, machine-stable, in the order they are reported:
   `entry_reversed`, `entry_is_reversal`, `reclassification_contra`,
   `appeared_after_lock`, `already_reclassified`, `zero_amount`,
-  `unreproducible_analysis_coding`,
   `unknown_vat_type`, `vat_period_locked`, `source_period_missing`,
   `source_period_closed`.
 - **A REVERSAL IS A PAIR, AND BOTH HALVES ARE SKIPPED.** `reversed_at` marks the
@@ -129,9 +128,9 @@ createReclassBatch / recordReclassBatchLines / getReclassBatch
   because the return reads it as VAT today.
 - **Every dimension the source line carries goes onto BOTH legs** —
   `project_id`, `cost_center_id`, `vat_type`, `bu_id`. `cc1_id` / `cc2_id`
-  cannot be expressed by `JournalLineInput` at all, so a line carrying either is
-  SKIPPED rather than posted with them dropped; zero production lines carry them
-  today. An unrecognised `vat_type` (the column is bare `text` with no CHECK)
+  are supported by the shared journal writer, but this module's source-line
+  mapping and builder do not yet carry them. A line carrying either remains
+  SKIPPED. An unrecognised `vat_type` (the column is bare `text` with no CHECK)
   skips for the same reason.
 - **Periods.** With no `posting_date`, one journal per distinct source entry
   date — period-neutral, and every line whose own period is CLOSED is skipped
@@ -320,6 +319,8 @@ by the depreciation workstream, which is deleting the constant; this module
 picks the fix up when it lands rather than forking the shared service.
 
 ## Recent changes
+
+- 2026-09-10: CC1 and CC2 now travel through candidate mapping, ownership sanitisation and both reclassification journal legs, alongside the business unit. Lines carrying analysis coding are no longer skipped as `unreproducible_analysis_coding`; the shared writer's explicit `historical-copy` mode preserves owned inactive references while continuing to reject a foreign or wrong-slot reference.
 
 - 2026-09-04 (review round): two HIGH defects closed. **HIGH-1**, the reversal
   pair split above — the first cut moved the reversing half of every pair whose

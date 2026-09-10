@@ -5,6 +5,9 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { amortise } from '@/lib/amortisation/engine';
 import type { LoanInputs, RatePoint, ScheduleRow } from '@/lib/amortisation/types';
+import { arrearsBasisNote, computeDaysPastDue, resolveArrears } from './loanArrearsService';
+
+export { computeDaysPastDue } from './loanArrearsService';
 
 type Row = DbRow;
 
@@ -106,25 +109,6 @@ export function computeEclAmount(
   const exposure = next12.reduce((s, r) => s + r.interest + r.principal, 0);
   const amount = exposure * PD_STAGE1 * LGD;
   return { stage, method: '12m', amount: Math.max(0, amount) };
-}
-
-export function computeDaysPastDue(
-  lastPaymentDate: string | null,
-  asOfDate: string,
-  scheduledDate?: string | null,
-): number {
-  if (!scheduledDate) return 0;
-  const scheduled = new Date(scheduledDate).getTime();
-  // If a payment arrived on or before schedule, no DPD.
-  if (lastPaymentDate) {
-    const paid = new Date(lastPaymentDate).getTime();
-    if (paid <= scheduled) return 0;
-    const diff = Math.round((paid - scheduled) / (1000 * 60 * 60 * 24));
-    return Math.max(0, diff);
-  }
-  const asOf = new Date(asOfDate).getTime();
-  if (asOf <= scheduled) return 0;
-  return Math.max(0, Math.round((asOf - scheduled) / (1000 * 60 * 60 * 24)));
 }
 
 // ── NPV impact for modification accounting ──────────────────────────────────
@@ -242,8 +226,6 @@ function mapAssessment(r: Row): Assessment {
   };
 }
 
-// ── assessLoan ─────────────────────────────────────────────────────────────
-
 export async function assessLoan(
   companyId: string,
   loanId: string,
@@ -256,7 +238,9 @@ export async function assessLoan(
   if (loans.length === 0) throw new Error(`Loan ${loanId} not found`);
 
   const runs = (await sql`
-    SELECT id FROM loan_schedule_runs WHERE loan_id = ${loanId} ORDER BY computed_at DESC LIMIT 1
+    SELECT id FROM loan_schedule_runs
+    WHERE loan_id = ${loanId} AND company_id = ${companyId}
+    ORDER BY computed_at DESC LIMIT 1
   `) as Row[];
   if (runs.length === 0) throw new Error('No schedule run exists — compute schedule first');
 
@@ -267,19 +251,9 @@ export async function assessLoan(
 
   const nca = checkNcaCompliance(schedule);
 
-  // Find latest posted payment to derive DPD
-  const lastPay = (await sql`
-    SELECT MAX(posting_date) AS last_payment_date
-    FROM loan_gl_postings
-    WHERE company_id = ${companyId} AND loan_id = ${loanId}
-  `) as Row[];
-  const lastPaymentDate = lastPay[0]?.last_payment_date != null
-    ? fmtDate(lastPay[0]!.last_payment_date)
-    : null;
-
-  // The next scheduled row on or after asOfDate is the earliest unpaid
-  const nextScheduled = schedule.find((r) => !r.skip && r.date >= asOfDate);
-  const scheduledDate = nextScheduled ? nextScheduled.date : null;
+  const { scheduledDate, lastPaymentDate, hasReceipts } = await resolveArrears(
+    companyId, loanId, schedule, asOfDate,
+  );
 
   const dpd = computeDaysPastDue(lastPaymentDate, asOfDate, scheduledDate);
   const stage = determineEclStage(dpd);
@@ -296,12 +270,12 @@ export async function assessLoan(
       company_id, loan_id, assessment_date,
       nca_flagged, nca_period, ifrs9_stage,
       days_past_due, ecl_amount, ecl_method,
-      outstanding, assessed_by
+      outstanding, assessed_by, notes
     ) VALUES (
       ${companyId}, ${loanId}, ${asOfDate},
       ${nca.flagged}, ${nca.firstBreachPeriod}, ${stage},
       ${dpd}, ${ecl.amount}, ${ecl.method},
-      ${outstanding}, ${userId}
+      ${outstanding}, ${userId}, ${arrearsBasisNote(hasReceipts, dpd)}
     )
     RETURNING *
   `) as Row[];

@@ -60,13 +60,13 @@ import { als, assertTxUsable } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
+/** `lock_not_available` (the 5s `lock_timeout` elapsed) and `deadlock_detected`. */
+const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
 
 /**
- * Raised when another request holds the row longer than the 5s `lock_timeout`.
- * Both routes answer a caught service error as a 400, so the wording is what
- * the operator reads — it has to say "retry".
+ * Raised when another request holds the row past the 5s `lock_timeout`, or the
+ * wait deadlocked. The capture inbox routes answer it 409 (R-058), the others
+ * 400; either way the wording is what the operator reads — it says "retry".
  */
 export class CaptureRowLockTimeoutError extends Error {
   readonly code = 'CAPTURE_ROW_LOCK_TIMEOUT';
@@ -76,12 +76,19 @@ export class CaptureRowLockTimeoutError extends Error {
   }
 }
 
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
+function isRetryableLockError(err: unknown): boolean {
+  const code = typeof err === 'object' && err !== null
+    ? (err as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && RETRYABLE_LOCK_ERRORS.has(code);
 }
 
-async function beginLock(rowId: string): Promise<void> {
+/**
+ * One `FOR UPDATE` read under a bounded wait, the bound RESET once granted —
+ * else it bounds every later lock wait in the request and a downstream 55P03
+ * escapes as a 500 (R-058, `captureEventLock.ts`). Not reset after a failure:
+ * the tx is aborted, and another statement would mask the error with 25P02.
+ */
+async function lockWithTimeout(rowId: string, read: () => Promise<DbRow[]>): Promise<DbRow | null> {
   const client = als.getStore()?.client;
   if (!client) {
     throw new Error(
@@ -91,6 +98,14 @@ async function beginLock(rowId: string): Promise<void> {
   }
   assertTxUsable();
   await client.query("SET LOCAL lock_timeout = '5s'");
+  try {
+    const rows = await read();
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
+    return rows[0] ?? null;
+  } catch (err) {
+    if (isRetryableLockError(err)) throw new CaptureRowLockTimeoutError(rowId);
+    throw err;
+  }
 }
 
 /**
@@ -103,17 +118,10 @@ export async function lockCapturedDocumentForUpdate(
   companyId: string,
   documentId: string,
 ): Promise<DbRow | null> {
-  await beginLock(documentId);
-  try {
-    const rows = (await sql`
-      SELECT extracted_data, status, posted_at FROM captured_documents
-      WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-      FOR UPDATE`) as DbRow[];
-    return rows[0] ?? null;
-  } catch (err) {
-    if (isLockTimeout(err)) throw new CaptureRowLockTimeoutError(documentId);
-    throw err;
-  }
+  return lockWithTimeout(documentId, async () => (await sql`
+    SELECT extracted_data, status, posted_at FROM captured_documents
+    WHERE id = ${documentId}::uuid AND company_id = ${companyId}
+    FOR UPDATE`) as DbRow[]);
 }
 
 /**
@@ -128,17 +136,10 @@ export async function lockCaptureEventForUpdate(
   companyId: string,
   eventId: string,
 ): Promise<DbRow | null> {
-  await beginLock(eventId);
-  try {
-    const rows = (await sql`
-      SELECT id FROM capture_events
-      WHERE id = ${eventId}::uuid AND company_id = ${companyId}
-      FOR UPDATE`) as DbRow[];
-    return rows[0] ?? null;
-  } catch (err) {
-    if (isLockTimeout(err)) throw new CaptureRowLockTimeoutError(eventId);
-    throw err;
-  }
+  return lockWithTimeout(eventId, async () => (await sql`
+    SELECT id FROM capture_events
+    WHERE id = ${eventId}::uuid AND company_id = ${companyId}
+    FOR UPDATE`) as DbRow[]);
 }
 
 /**

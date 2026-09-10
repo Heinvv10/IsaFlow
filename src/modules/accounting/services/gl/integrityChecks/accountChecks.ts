@@ -10,6 +10,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { CASH_SUBTYPES, rawSubtypesFor } from '../accountSubtypes';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult, type IntegritySampleRow } from './types';
 
 function sample(rows: DbRow[]): IntegritySampleRow[] {
@@ -160,7 +161,7 @@ export async function costOfSalesTypedAsExpense(ctx: IntegrityCheckContext): Pro
            'typed ' || COALESCE(b.account_subtype, 'no subtype') || ', reported as an operating expense' AS detail
     FROM (${b}) b
     WHERE b.account_type = 'expense'
-      AND COALESCE(b.account_subtype, '') <> 'cost_of_sales'
+      AND COALESCE(b.account_subtype, '') <> ALL(${rawSubtypesFor('cost_of_sales')}::TEXT[])
       AND b.account_name ~* '(cost of sale|^cos[ -]|direct material|direct cost|cost of good)'
   `;
   const totals = (await sql`SELECT COUNT(*)::INT AS count, COALESCE(SUM(f.amount), 0) AS amount FROM (${failing}) f`) as DbRow[];
@@ -216,7 +217,15 @@ export async function duplicateControlAccounts(ctx: IntegrityCheckContext): Prom
   for (const [role, { sources, accountType }] of Object.entries(CONTROL_ROLES)) {
     const rows = (await sql`
       SELECT ga.id::TEXT AS id, ga.account_code, ga.account_name,
-             SUM(ABS(jl.debit - jl.credit)) AS amount
+             -- The BALANCE at stake, not gross throughput. ABS inside the SUM
+             -- is applied per journal LINE, so this reported every invoice
+             -- plus every payment ever posted to a contending control account
+             -- - on an AR control that settles in full it is roughly twice the
+             -- turnover, against a finding that says the subledger reconciles
+             -- against "a balance that is missing the other". ABS OUTSIDE the
+             -- SUM is the magnitude of the balance, which is what
+             -- clearingAccountsNotNil in this same file reports.
+             ABS(SUM(jl.debit - jl.credit)) AS amount
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
@@ -225,9 +234,14 @@ export async function duplicateControlAccounts(ctx: IntegrityCheckContext): Prom
         AND je.entry_date <= ${ctx.asAt}::DATE
         AND je.source = ANY(${sources as string[]}::TEXT[])
         AND ga.account_type = ${accountType}
-        AND COALESCE(ga.account_subtype, '') <> ALL(ARRAY['bank', 'cash', 'vat_input', 'vat_output']::TEXT[])
+        -- CASH_SUBTYPES rather than the literal 'bank','cash': a control
+        -- account spelled bank_account or petty_cash was counted as a
+        -- contending control account and reported as a split.
+        AND COALESCE(ga.account_subtype, '') <> ALL(${[
+          ...CASH_SUBTYPES, 'vat_input', 'vat_output',
+        ] as string[]}::TEXT[])
       GROUP BY ga.id, ga.account_code, ga.account_name
-      ORDER BY SUM(ABS(jl.debit - jl.credit)) DESC
+      ORDER BY ABS(SUM(jl.debit - jl.credit)) DESC
     `) as DbRow[];
 
     if (rows.length <= 1) continue;

@@ -1,0 +1,42 @@
+# K-023 GREEN (round 4 — re-review findings R1/R2 addressed)
+
+## Integration (real Postgres fixture)
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k023-sdl-invented-salary.int.test.ts" "tests/integration/k023-sdl-threshold-boundary.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-023
+
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  09:53:52
+   Duration  1.79s (transform 392ms, setup 0ms, import 584ms, tests 1.77s, environment 0ms)
+
+
+## Full unit suite (DATABASE_URL unset)
+ Test Files  787 passed | 36 skipped (823)
+      Tests  9335 passed | 234 skipped (9569)
+
+## Mutation checks — five wrong bases, five different sets of tests catch them
+A. `employees.length * 25_000 * 12` (the original defect): 8 failed | 2 passed of 10.
+B. `r(totalGross) * 12` (this run annualised, no window): 3 failed | 7 passed.
+C. gate on the SDL-leviable subset instead of remuneration: 1 failed — the remuneration case.
+D. `elapsedPeriods = priorPeriods + 1` (divide by runs found): 1 failed — the seasonal case.
+E. drop the empty-window guard (`priorPeriods === 0 ? 1`): 1 failed | 8 passed of the
+   boundary file — exactly "levies a company resuming payroll after a year of dormancy".
+Production code restored after each; both files back to 11 passed.
+
+## Historical-impact SQL — agreement with the code, not just syntax
+Executed against the DISPOSABLE fixture database only, never production. Two probe companies
+were seeded and then deleted:
+- seasonal: runs 11, 9, 7, 5 and 3 periods back plus the current one, R60,000 each.
+  Query returns basis_now = 360000.00 for the current period, matching the service's logged
+  `annual: 360000` for the same shape.
+- resumed after dormancy: one R5,000 run 18 periods back plus a R60,000 current period.
+  Query returns basis_now = 720000.00, matching the empty-window guard.
+The row-based `ROWS BETWEEN 11 PRECEDING` window of round 3 was replaced by a lateral filtered
+on the calendar period index, so both halves of the fraction now count calendar months.
+
+## Static checks
+bunx tsc --noEmit -> exit 0
+bunx eslint sdlLeviabilityService.ts -> exit 0
+bun run agent-docs:check -> OK: 74 agent document mirror(s) match canonical sources.

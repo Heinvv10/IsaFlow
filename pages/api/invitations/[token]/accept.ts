@@ -6,15 +6,24 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
-import { adminUpdateUser, signIn } from '@/lib/auth/gotrue';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { als } from '@/lib/als';
+import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
+import { checkRateLimit, refundRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 
+// Memoised, like every other pool in the repo (src/lib/neon.ts,
+// src/lib/auth/withInviteToken.ts). Building one per request cost a TCP + TLS
+// handshake to the BYPASSRLS role on every accept attempt, including each of
+// the ten rate-limited password guesses admitted before the 429.
+let _adminPool: pg.Pool | null = null;
 function adminPool(): pg.Pool {
+  if (_adminPool) return _adminPool;
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
   if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required for invite accept');
-  return new pg.Pool({
+  _adminPool = new pg.Pool({
     connectionString: url,
     max: 2,
     ssl:
@@ -24,25 +33,61 @@ function adminPool(): pg.Pool {
           ? false
           : { rejectUnauthorized: false },
   });
+  return _adminPool;
+}
+
+/**
+ * `firstName` / `lastName` arrive in an anonymous request body. Neither type
+ * nor length was asserted before they reached GoTrue user_metadata and
+ * `users.first_name` / `users.last_name` (VARCHAR(255)): a non-string bound as
+ * JSON text, and an over-long string raised 22001, which escaped as a 500.
+ *
+ * The cap counts CODE POINTS, not `String.prototype.slice`'s UTF-16 code
+ * units. A name of astral characters cut at 255 units ends on a lone high
+ * surrogate, which Postgres refuses as `22021 invalid byte sequence for
+ * encoding "UTF8"` — the same 500 this guard exists to remove, with 22021
+ * substituted for 22001. Spreading into an array iterates by code point, so a
+ * surrogate pair is never split. VARCHAR(255) counts characters, and a code
+ * point outside the BMP is one character, so 255 of them still fit.
+ */
+function profileName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const capped = [...value.trim()].slice(0, 255).join('');
+  return capped === '' ? null : capped;
 }
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } });
   }
-  const token = (req as InviteTokenRequest).inviteToken;
-  const { password, firstName, lastName } = req.body ?? {};
-  if (typeof password !== 'string' || password.length < 10) {
-    return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
+  const tokenHash = (req as InviteTokenRequest).inviteTokenHash;
+  const { password } = req.body ?? {};
+  const firstName = profileName((req.body ?? {}).firstName);
+  const lastName = profileName((req.body ?? {}).lastName);
+  // Presence only here. The 10-character floor is a rule about a password being
+  // SET, and step 2 below may find that this address already HAS a login, in
+  // which case the typed password is proof of ownership of whatever that
+  // account was provisioned with. Enforcing the floor up front locked such a
+  // person out of the invitation behind a message about a new password.
+  if (typeof password !== 'string' || password.length === 0) {
+    return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password is required' } });
   }
 
   // 1. Look up invitation (RLS policy invites_by_token permits this)
+  //    gotrue_user_id IS NOT NULL is load-bearing twice over. Unifying the token
+  //    encoding (K-104) made userInvitationService's invitations match here, and
+  //    that path never creates a GoTrue user — accepting one would PUT a password
+  //    to /admin/users/null. A NULL also defeats the step-2 guard below, because
+  //    `id = NULL` matches no `users` row, so the account-protection branch would
+  //    be skipped on exactly the rows whose identity is unknown. Those
+  //    invitations are accepted at /invite/<token> instead.
   const rows = await sql<{
     id: string; email: string; role: string; company_id: string; gotrue_user_id: string;
   }>`
     SELECT id, email, role, company_id, gotrue_user_id
     FROM company_invitations
-    WHERE token = ${token} AND accepted_at IS NULL AND expires_at > now()
+    WHERE token = ${tokenHash} AND accepted_at IS NULL AND expires_at > now()
+      AND gotrue_user_id IS NOT NULL
     LIMIT 1
   `;
   if (rows.length === 0) {
@@ -50,43 +95,175 @@ const handler: NextApiHandler = async (req, res) => {
   }
   const inv = rows[0]!;
 
-  // 2. Set the user's password in GoTrue
-  await adminUpdateUser(inv.gotrue_user_id, {
-    password,
-    user_metadata: { first_name: firstName, last_name: lastName },
-  });
+  // For an address that already has a login, step 3 below turns this endpoint
+  // into a password oracle: 401 and 200 tell a guess apart. The token is only
+  // ever mailed to the address it authenticates, so the prober is the mailbox
+  // owner — but the invitation is a single acceptance, and nothing legitimate
+  // needs more than a handful of tries. Keyed on the digest, never the raw
+  // token, so the rate-limit table holds no usable invitation secret.
+  // Charged above 1 deliberately: checkRateLimit short-circuits on its
+  // in-process LRU while a key sits below half its limit, which under-counts
+  // precisely the burst a guesser produces, and a cost above 1 is documented to
+  // always fall through to the authoritative shared counter. Ten attempts an
+  // hour, counted exactly and across pods.
+  //
+  // Placed AFTER the 410, not before it: the key is derived from a caller-chosen
+  // URL segment, so charging it ahead of the lookup let an unauthenticated
+  // caller insert a rate_limit_counters row per invented token. The lookup is
+  // what proves the key names a real invitation, and this still precedes every
+  // GoTrue call, which is what the cap exists to bound.
+  //
+  // als.exit: checkRateLimit goes through `sql`, which routes onto the
+  // invite-token transaction whenever one is in flight. Any thrown path below
+  // (a GoTrue outage) ROLLBACKs that transaction and would discard the attempt
+  // with it, and the counter would also hold this key's row lock across two
+  // GoTrue round-trips. Run it on the module pool so the count survives.
+  const ATTEMPT_COST = 2;
+  const ATTEMPTS_PER_HOUR = 10;
+  const admitted = await als.exit(() => checkRateLimit(`invite-accept:${tokenHash}`, {
+    max: ATTEMPTS_PER_HOUR * ATTEMPT_COST, windowSecs: 3600, cost: ATTEMPT_COST,
+  }));
+  if (!admitted) {
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
+  }
+  // Hand the units back on the two verdicts below that are reachable ONLY
+  // after signIn has already succeeded, so no unauthenticated caller can spend
+  // the counter down. als.exit for the same reason the charge uses it: keep it
+  // off the invite-token transaction, which is rolled back on any throw.
+  const refund = () => als.exit(() => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST));
 
-  // 3. Sign them in to get tokens
-  const tok = await signIn(inv.email, password);
 
-  // 4. Insert company_users + users-profile rows using BYPASSRLS admin role
-  //    (RLS policy would refuse company_users INSERT because the user has no
-  //    pre-existing membership to satisfy USING.)
-  const admin = adminPool();
-  const client = await admin.connect();
+  // 2-4 run on the BYPASSRLS admin role: RLS would refuse the company_users
+  //    INSERT (no pre-existing membership to satisfy USING) and `users` is
+  //    readable only by auth.uid(), which is empty inside the invite-token
+  //    transaction — so the step-2 lookup below would silently see no rows.
+  const client = await adminPool().connect();
+  let tok: GoTrueTokenResponse;
+  let opened = false;
   try {
+    // 2. Does this address already hold an established IsaFlow login? A `users`
+    //    row is written only by tenant provisioning (after email verification)
+    //    and by step 4 below, so its presence means a password already exists.
+    //    Invites resolve an EXISTING GoTrue user when adminCreateUser 422s
+    //    (src/lib/auth/gotrue.ts), so setting a password here would let whoever
+    //    holds the invite link replace the credentials of that person's login
+    //    for a company they were never invited to.
+    const established = await client.query<{ id: string }>(
+      `SELECT id FROM users WHERE id = $1 LIMIT 1`,
+      [inv.gotrue_user_id]
+    );
+    const isEstablished = (established.rowCount ?? 0) > 0;
+
+    if (!isEstablished) {
+      // Brand-new invitee: this invitation is what establishes the login, so
+      // the password they type becomes their password — and only here does the
+      // strength floor apply, matching register.ts / do-reset-password.ts.
+      if (password.length < 10) {
+        return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
+      }
+      // email_confirm is not redundant with the `email_confirm: true` that
+      // POST /api/invitations passes to adminCreateUser: that call returns
+      // early through adminGetUserByEmail on a 422 and never applies it
+      // (src/lib/auth/gotrue.ts). An address with a pending, unverified
+      // /api/auth/register signup is exactly that case — no `users` row, so
+      // !isEstablished, but a GoTrue user that already exists unconfirmed.
+      // Without this the password below is overwritten and the signIn that
+      // follows fails `email_not_confirmed`, rethrows, and answers 500 on
+      // every retry until the invitee's hourly budget is gone. Holding the
+      // invitation link is proof of control of the mailbox it was sent to,
+      // which is the same proof the verification mail asks for.
+      await adminUpdateUser(inv.gotrue_user_id, {
+        password,
+        email_confirm: true,
+        user_metadata: { first_name: firstName, last_name: lastName },
+      });
+    }
+
+    // 3. Sign in. For an established account this is the ownership proof — the
+    //    acceptor must already know that account's current password.
+    try {
+      tok = await signIn(inv.email, password);
+    } catch (err) {
+      if (!isEstablished) throw err;
+      log.warn('invite accept rejected: wrong password for existing account', {
+        inviteId: inv.id,
+        companyId: inv.company_id,
+      }, 'auth');
+      return res.status(401).json({ success: false, error: { code: 'SIGN_IN_REQUIRED', message: 'This email already has an IsaFlow account. Enter that account\'s password to accept the invitation.' } });
+    }
+    if (tok.user.id !== inv.gotrue_user_id) {
+      log.error('invite accept identity mismatch', {
+        inviteId: inv.id,
+        companyId: inv.company_id,
+      }, 'auth');
+      // Refunded: the cap bounds password GUESSING, and this verdict is only
+      // reachable after signIn already succeeded. It is also permanent — an
+      // administrator has to repair the invitation — so charging it only
+      // locks the rightful invitee out of their own link for an hour.
+      await refund();
+      return res.status(409).json({ success: false, error: { code: 'IDENTITY_MISMATCH', message: 'Invitation does not match this account' } });
+    }
+
+    // 4. Attach the membership + profile row.
     await client.query('BEGIN');
+    opened = true;
     await client.query(
+      // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
+      // invitation row when the same address is re-invited, so an existing
+      // member kept their old role while the invitation claimed the new one.
       `INSERT INTO company_users (company_id, user_id, role)
        VALUES ($1::uuid, $2, $3)
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
       [inv.company_id, tok.user.id, inv.role]
     );
-    await client.query(
-      `INSERT INTO users (id, email, first_name, last_name, is_active)
-       VALUES ($1, $2, $3, $4, true)
-       ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email,
-         first_name = COALESCE(EXCLUDED.first_name, users.first_name),
-         last_name  = COALESCE(EXCLUDED.last_name,  users.last_name)`,
-      [tok.user.id, inv.email, firstName ?? null, lastName ?? null]
-    );
+    // `users` carries users_email_key UNIQUE (email) as well as its primary
+    // key, and the INSERT below arbitrates only on `id`. Another row holding
+    // this address under a different id (a pre-GoTrue-cutover profile, a
+    // deleted-and-recreated GoTrue identity) therefore raised 23505, which
+    // escaped as an opaque 500 the invitee could do nothing about.
+    //
+    // Answered from the violation itself rather than from a preceding SELECT.
+    // A pre-check cannot close the window between the read and the write, so
+    // the same condition answered a clear 409 when it was pre-existing and an
+    // opaque 500 when it was concurrent — and it cost an extra round-trip on
+    // every accept to buy that. The unique index is the authority either way.
+    try {
+      await client.query(
+        // No `email = EXCLUDED.email` on the conflict branch: that reverted the
+        // profile email of an account that had changed it, every time its owner
+        // accepted an invitation. The row's own email stays its own.
+        `INSERT INTO users (id, email, first_name, last_name, is_active)
+         VALUES ($1, $2, $3, $4, true)
+         ON CONFLICT (id) DO UPDATE SET
+           first_name = COALESCE(EXCLUDED.first_name, users.first_name),
+           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name)`,
+        [tok.user.id, inv.email, firstName, lastName]
+      );
+    } catch (err) {
+      const pgErr = err as { code?: string; constraint?: string };
+      if (pgErr.code !== '23505' || pgErr.constraint !== 'users_email_key') throw err;
+      // 23505 aborts the transaction, so nothing may run on this client until
+      // it is rolled back. The membership INSERT above goes with it.
+      await client.query('ROLLBACK');
+      opened = false;
+      log.error('invite accept blocked: email already held by another user row', {
+        inviteId: inv.id,
+        companyId: inv.company_id,
+      }, 'auth');
+      await refund();
+      return res.status(409).json({ success: false, error: { code: 'EMAIL_IN_USE', message: 'This email is already attached to a different IsaFlow profile. Ask an administrator to resolve it before accepting.' } });
+    }
     await client.query(
       `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid`,
       [inv.id]
     );
     await client.query('COMMIT');
+    opened = false;
   } catch (err) {
-    await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
+    // The GoTrue calls above run before BEGIN. Rolling back a client with no
+    // open transaction only logs `WARNING: there is no transaction in progress`
+    // on every GoTrue failure, so ask first.
+    if (opened) await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
       log.error(
         'ROLLBACK failed after transaction error',
         { error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr) },
@@ -96,7 +273,6 @@ const handler: NextApiHandler = async (req, res) => {
     throw err;
   } finally {
     client.release();
-    await admin.end();
   }
 
   // 5. Set cookies
@@ -110,4 +286,7 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: { userId: tok.user.id, companyId: inv.company_id } });
 };
 
-export default withInviteToken(handler);
+// withErrorHandler OUTSIDE withInviteToken -- see the note on
+// pages/api/invitations/[token]/index.ts. A GoTrue outage rethrows out of the
+// handler and must reach the caller as JSON, not as a Next HTML 500.
+export default withErrorHandler(withInviteToken(handler));

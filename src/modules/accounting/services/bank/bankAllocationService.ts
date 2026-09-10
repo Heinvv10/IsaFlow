@@ -12,6 +12,7 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { isControlAccountSettlement } from '../gl/settlementVat';
+import { isBankSubtype } from '../gl/accountSubtypes';
 import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -22,6 +23,7 @@ import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 
 
 type Row = DbRow;
@@ -106,6 +108,16 @@ export async function allocateTransaction(
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
   if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot allocate`);
+
+  // R-067. `entityId` arrives in the request body (bank-transactions-action.ts:40
+  // validates its UUID SHAPE only) and is written into `customer_payments.client_id`
+  // below; the only customer read on this path fetches a NAME and falls back to
+  // `Customer #<id>` on a miss. Measured: company A allocated a receipt against
+  // company B's customer and the row carried B's client_id. Fenced in the service,
+  // not the route — the two screens, bank-match-confirm and the MCP allocate /
+  // bulk-allocate tools all pass through here — and BEFORE `createJournalEntry`,
+  // because withAuth COMMITs a 4xx returned after a write. Supplier twin: R-068.
+  if (allocType === 'customer') await assertCustomerInCompany(companyId, entityId);
 
   const totalAmount = Math.abs(Number(tx.amount));
   const bankAccountId = String(tx.bank_account_id);
@@ -200,7 +212,7 @@ export async function allocateTransaction(
     `) as Row[];
     if (cpRows.length === 0) throw new Error('Counterparty bank account not found');
     const cp = cpRows[0]!;
-    if (String(cp.account_subtype) !== 'bank') {
+    if (!isBankSubtype(cp.account_subtype == null ? null : String(cp.account_subtype))) {
       throw new Error('Transfer counterparty must be a bank account (subtype = bank)');
     }
 
@@ -334,7 +346,8 @@ export async function allocateTransaction(
   }
 
   const linesWithDims = lines.map(l =>
-    l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId, buId: buId || l.buId }
+    l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId,
+      cc1Id: cc1Id || l.cc1Id, cc2Id: cc2Id || l.cc2Id, buId: buId || l.buId }
   );
 
   // Carry forward source_document_id from the invoice when allocating against a known entity

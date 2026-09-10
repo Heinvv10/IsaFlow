@@ -31,6 +31,8 @@ function line(over: Partial<ReclassSourceLine> = {}): ReclassSourceLine {
     costCenterId: null,
     vatType: null,
     buId: null,
+    cc1Id: null,
+    cc2Id: null,
     ...over,
   };
 }
@@ -140,6 +142,14 @@ describe('buildReclassJournals', () => {
   it('preserves the business unit on BOTH legs', () => {
     const [journal] = buildReclassJournals([line({ buId: 'bu1' })], SOURCE, TARGET, NAMES, null);
     expect(journal!.lines.map((l) => l.buId)).toEqual(['bu1', 'bu1']);
+  });
+
+  it('preserves CC1 and CC2 on BOTH legs', () => {
+    const [journal] = buildReclassJournals(
+      [line({ cc1Id: 'cc1', cc2Id: 'cc2' })], SOURCE, TARGET, NAMES, null,
+    );
+    expect(journal!.lines.map((l) => [l.cc1Id, l.cc2Id]))
+      .toEqual([['cc1', 'cc2'], ['cc1', 'cc2']]);
   });
 
   it('preserves project and cost centre on BOTH legs', () => {

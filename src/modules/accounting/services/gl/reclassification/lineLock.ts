@@ -62,9 +62,17 @@ const LOCK_TIMEOUT = '5s';
  * lock is taken before anything is written, so nothing needs unwinding and the
  * caller may simply retry. The wording is what the agent reads, so it has to
  * say "retry" and say that nothing posted.
+ *
+ * The `_LOCK_TIMEOUT` suffix is a CONTRACT, not a naming preference:
+ * `isCallerSafeError` (`@/lib/lockTimeout`) decides on that suffix whether a
+ * typed error's own message may be shown to a caller, so a lock error without
+ * it silently loses its retry wording the moment its tool adopts
+ * `safeErrorText`. This code was `RECLASS_LINE_LOCKED` and was the one
+ * exception. `tests/unit/lib/lockTimeoutSurfacing.test.ts` enumerates every
+ * class and fails if a new one drops the suffix.
  */
 export class ReclassLineLockTimeoutError extends Error {
-  readonly code = 'RECLASS_LINE_LOCKED';
+  readonly code = 'RECLASS_LINE_LOCK_TIMEOUT';
   constructor(count: number) {
     super(
       `${count} journal line${count === 1 ? ' is' : 's are'} being reclassified by another `

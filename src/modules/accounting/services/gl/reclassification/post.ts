@@ -102,6 +102,7 @@ export async function postReclassBatch(
       // lines is affirmatively labelled as the token owner's own typing, and
       // drops out of `list_agent_postings`.
       actorMeta(input.actor),
+      { dimensionAssignmentMode: 'historical-copy' },
     );
 
     if (!entry.fiscalPeriodId) {

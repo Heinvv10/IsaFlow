@@ -4,6 +4,7 @@
  * bank_transactions as each Haiku call settles. Re-runnable + idempotent.
  */
 import { sql } from '@/lib/neon';
+import { withAlsTransaction } from '@/lib/alsTransaction';
 import { resolveVatCodeForAccount } from '../gl/inputVatDenial';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
@@ -271,6 +272,9 @@ export async function buildRunDeps(
     loadAccounts: () => loadAccountsForCompany(companyId),
     loadCandidates: () => loadCandidatesForTxIds(companyId, txIds),
     persist: (txId, r) => persistLlmResult(companyId, txId, r),
-    sweep: (ids) => gateSweep(companyId, ids, 'categorization', userId),
+    // The pass runs after the request has committed (runAfterCommit), with no
+    // request transaction. The sweep posts through allocateTransaction, whose
+    // row locks and savepoints need one — so it gets its own, bound into ALS.
+    sweep: (ids) => withAlsTransaction({ userId, companyId }, () => gateSweep(companyId, ids, 'categorization', userId)),
   };
 }

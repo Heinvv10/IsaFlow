@@ -28,7 +28,7 @@
  */
 
 import type { PoolClient } from 'pg';
-import { als } from '@/lib/als';
+import { runOwnedContext } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
@@ -115,7 +115,7 @@ async function buildOneClientRow(
     // Run the workbench for this company under an ALS context that points at
     // this iteration's client, so the inner sql tagged template routes through
     // the right transaction.
-    const wb = await als.run(
+    const wb = await runOwnedContext(
       { client, userId, companyId: cu.companyId, claims: {} },
       () => getMonthEndWorkbench(cu.companyId, period),
     );

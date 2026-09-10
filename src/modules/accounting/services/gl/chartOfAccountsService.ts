@@ -10,6 +10,7 @@ import { cacheThrough, cache } from '@/lib/cache';
 import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
+import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
 
 export interface CreateAccountInput {
@@ -444,7 +445,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
 
     // 4. Bank accounts: additional check — any unreconciled bank
     //    transactions would be orphaned if we soft-deleted the account.
-    if (accountSubtype === 'bank') {
+    if (isBankSubtype(accountSubtype)) {
       const pendingRows = await sql`
         SELECT COUNT(*) AS cnt FROM bank_transactions
         WHERE bank_account_id = ${id}

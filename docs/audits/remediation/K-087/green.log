@@ -1,0 +1,111 @@
+K-087 — GREEN evidence (branch fix/audit-k087-opening-balance-sign, off origin/master 5661d6f0)
+
+RED on origin/master code (validator's run, see red.log):
+  tests/integration/k087-opening-balance-negative-zeroed.int.test.ts — 2 failed / 2
+
+GREEN, real PostgreSQL (isaflow_schema_fixture), 2026-09-09 15:52:
+  k087-opening-balance-negative-zeroed.int.test.ts   2 passed / 2
+  k087-opening-balance-adjacent.int.test.ts          4 passed / 4
+  combined: Test Files 2 passed, Tests 6 passed
+
+Mutation proof — the two line expressions reverted to
+  `isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0` (and the credit mirror),
+  same tests re-run:
+    Tests 5 failed | 1 passed (6)
+  The one survivor is "the second company is untouched by company A's import", which asserts a
+  negative and cannot go red on this mutation. Production file RESTORED and re-run: 6 passed / 6.
+
+Static gates:
+  bunx tsc --noEmit                                             exit 0
+  bunx eslint src/.../core/migrationOpeningBalanceService.ts    exit 0
+
+Full unit suite, DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset
+(`env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run`), 2026-09-09 15:53:
+  Test Files 792 passed | 36 skipped (828)
+  Tests      9438 passed | 234 skipped (9672)   — 0 failed. Machine load average 46.
+
+Scope note: an earlier (crashed) fixer's fix.md claimed a second production change to
+migrationImportService.ts for R-020. No such change exists in this branch and none was made —
+that file belongs to the K-015 branch (PR #373). This branch is the sign defect only.
+
+================================================================================
+Round 2 — the five LOW findings from the blind review of cdfcb585
+================================================================================
+
+Changes: LOW-1 + LOW-2 strengthened both weak tests; LOW-3 sign convention documented in the
+code and re-scoped in fix.md; LOW-4 the import-date journal date bounded in fix.md as a
+follow-up candidate (deliberately not changed); LOW-5 module .claude.md updated and mirrors
+regenerated.
+
+GREEN, real PostgreSQL (isaflow_schema_fixture), 2026-09-09 16:05:
+  k087-opening-balance-negative-zeroed.int.test.ts   2 passed / 2
+  k087-opening-balance-adjacent.int.test.ts          4 passed / 4
+  combined: Test Files 2 passed, Tests 6 passed
+
+Mutation proof — four independent mutants, production file restored after each:
+  revert   both line expressions back to `> 0 ? bal : 0`      -> 6 failed / 0 passed
+  swap     `isDebitNormal === (bal > 0)` becomes `!==`        -> 6 failed / 0 passed
+  nosign   `Math.abs(bal)` becomes `bal`                      -> 6 failed / 0 passed
+  nofilter drop `openingBalance !== 0` from the line-45 filter -> 2 failed / 4 passed
+  Restored -> 6 passed / 6.
+  The reviewer measured 5/1, 4/2, 5/1 and 1/5 on the same four mutants at cdfcb585. Every
+  mutant now has strictly more detections and no sign mutant has a survivor. The previous
+  survivor ("the second company is untouched", a COUNT(*) = 0 on a company nothing had been
+  written to) is replaced by an assertion that an ALREADY-IMPORTED company's per-account signed
+  balances are unchanged after a second company imports the same account codes; it dies on all
+  four mutants.
+
+Static gates:
+  bunx tsc --noEmit                                             exit 0
+  bunx eslint src/.../core/migrationOpeningBalanceService.ts    exit 0
+  bun run agent-docs:check    OK: 74 mirrors match canonical sources
+
+Full unit suite, DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset, 2026-09-09:
+  16:07 run: 790 passed | 2 failed | 36 skipped of 828 files (9436 passed / 2 failed of 9672),
+             machine load average 80. The failures were in a module-ordering test using
+             vi.resetModules(); I did not capture the file names before the rerun.
+  16:08 rerun, same command, unchanged tree:
+             Test Files 792 passed | 36 skipped (828)
+             Tests      9438 passed | 234 skipped (9672)  — 0 failed.
+  The 9438/0 total is identical to the round-1 run of the same suite on this branch. Treating
+  the two as load-induced flakes rests on the clean rerun, not on inspection of the failures.
+
+================================================================================
+Round 3 — merge of origin/master (7749f3fab) into the branch
+================================================================================
+
+Three conflicts, all in this service's area:
+  migrationOpeningBalanceService.ts — master's K-009 work added an ownership guard
+    (`glRows[0].imported_from !== source` -> notOwned, reported alongside unresolved in one
+    throw) in the same hunk as my SIGN CONVENTION comment. Resolved by keeping BOTH: master's
+    guard runs first as a `continue`, then the comment, then my sign expressions. The sign
+    semantics are untouched by master and untouched by me.
+  core/.claude.md — both sides edited the "Migration wizard" bullet. Kept both additions:
+    `migrationOpeningBalanceService.ts` (mine) and `migrationRollbackService.ts` (master's).
+    My all-or-nothing business rule now also names the ownership refusal, so it stays true.
+  core/AGENTS.md — generated; regenerated rather than hand-resolved.
+  docs/audits/remediation/K-087/* kept as ours (no incoming change).
+
+Test-fixture change forced by master: both K-087 integration files seed `gl_accounts` with
+`imported_from = 'xero'`. Without it the new ownership guard reports every seeded account as
+notOwned and nothing posts. This does not weaken the tests — see the mutation rerun below.
+
+Post-merge, real PostgreSQL (isaflow_schema_fixture), 2026-09-09:
+  k087-opening-balance-negative-zeroed.int.test.ts   2 passed / 2
+  k087-opening-balance-adjacent.int.test.ts          4 passed / 4
+  Mutation rerun on the merged file: revert -> 6 failed / 0 passed; side-test inversion ->
+  6 failed / 0 passed; dropping Math.abs -> 6 failed / 0 passed. Restored -> 6 passed / 6.
+
+Static gates after the merge:
+  bunx tsc --noEmit            exit 0
+  bunx eslint <service>        exit 0
+  bun run agent-docs:check     OK: 74 mirrors match canonical sources
+
+Full unit suite after the merge, DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset:
+  Test Files 798 passed | 2 failed | 40 skipped (840)
+  Tests      9551 passed | 2 failed | 243 skipped (9796)   — machine load average 91.
+  Failures: tests/unit/services/cashFlowReport.test.ts and
+            tests/unit/services/bank/bankAllocationUnwind.test.ts.
+  Both pass in isolation on this tree (2 files / 17 tests passed), neither imports
+  migrationOpeningBalanceService, and both are on the known load-flake list from round 1 of
+  this item. Named here rather than hidden behind a green rerun.

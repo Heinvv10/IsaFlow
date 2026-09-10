@@ -1,0 +1,60 @@
+=== K-108 / K-109 GREEN ===
+
+--- integration (fixture DB) ---
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-043
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  11:59:15
+   Duration  4.71s (transform 1.18s, setup 0ms, import 2.87s, tests 824ms, environment 29ms)
+
+
+--- unit (fail-closed default arm) ---
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  11:59:23
+   Duration  1.95s (transform 332ms, setup 0ms, import 555ms, tests 63ms, environment 0ms)
+
+
+--- migration 647 applied to the fixture ---
+psql -f scripts/migrations/sql/647_approval_rules_condition_operator_check.sql → DO
+conname=approval_rules_condition_operator_check  convalidated=f
+CHECK ((condition_operator = ANY (ARRAY['any','greater_than','greater_equal']))) NOT VALID
+Re-ran the same file → DO (idempotent, the DO block finds the constraint and skips).
+bun scripts/audit-migration-naming.ts → no new duplicate prefixes (339 files scanned).
+bun scripts/ci/check-migration-rls.ts → OK.
+
+--- mutation proof (production code temporarily reverted, then restored) ---
+D. route operator allowlist replaced with `false` (never rejects):
+     Tests  2 failed | 5 passed (7)  × create refused / update refused
+E. checkApproval default arm set to `matches = false` (fails open):
+     Tests  2 failed | 1 passed (3)  × requires approval when unevaluable / below the rule value
+F. requestApproval reverted to the original unscoped VALUES insert:
+     Tests  2 failed | 5 passed (7)  × cross-tenant rule id / rule id that exists nowhere
+Restored: 3 integration files (K-043 + K-108/109) 13 passed, unit 3 passed.
+
+An earlier mutation replacing only `AND rl.company_id = ${companyId}` inside the new
+INSERT ... SELECT left all 7 tests passing. That is honest to record: with RLS forced on
+approval_rules, the SELECT alone already hides another tenant's rule, so the explicit
+company predicate is defence in depth that this suite cannot isolate from RLS. It stays
+because the validator asked for correctness that does not depend on RLS being on. Mutation F
+above reverts the whole SELECT form and is the one that discriminates.
+
+--- tsc --noEmit ---
+TSC_EXIT=0
+
+--- eslint (5 changed src/pages files) ---
+ESLINT_EXIT=0
+
+--- full unit suite (DATABASE_URL unset) ---
+bunx vitest run: Test Files 5 failed | 788 passed | 36 skipped (829)
+                 Tests 11 failed | 9430 passed | 234 skipped (9675)
+Failing files: trackerExclusion, actorPropagation, bankAllocationService,
+bankAllocationDateShift, bankAllocationUnwind, cashFlowReport. None touch approvals, the
+failing set differed across three consecutive runs, and every failure is a 10s vitest timeout
+under machine load. Re-run in isolation on this branch:
+  bunx vitest run <those 6 files> → Test Files 6 passed (6) / Tests 34 passed (34).
+Also re-ran tests/integration/user-id-join-compat.int.test.ts (it touches the approval joins):
+16 passed.
