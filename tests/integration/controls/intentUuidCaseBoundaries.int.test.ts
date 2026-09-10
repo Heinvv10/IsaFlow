@@ -63,7 +63,7 @@ for(const uppercaseFirst of [true,false]){
  it(`compensation first uppercase=${uppercaseFirst} retains one exact assignment and replay`,async()=>{
   const employee=randomUUID(),component=randomUUID();
   await pool.query("INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status) VALUES($1,$2,$3,'Synthetic','UUID','2020-01-01','active')",[employee,fixture.companyA,employee.slice(0,12)]);
-  await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,'Synthetic UUID salary','3601','earning')",[component,fixture.companyA]);
+  await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,'3601','earning')",[component,fixture.companyA,`Synthetic UUID salary ${component}`]);
   const p=await actor(()=>preparePayrollCompensation(requireControlTx(),{version:1,source:{kind:'manual'},actions:[{kind:'assign',employeeId:employee,componentId:component,amount:'123.45',effectiveFrom:'2027-01-01'}]})),approvalId=await approved(p.operation);
   const result=await actor(()=>executePayrollCompensation(requireControlTx(),spelling(p.intentId),{approvalId}));
   expect(await actor(()=>executePayrollCompensation(requireControlTx(),retry(p.intentId)))).toEqual(result);
