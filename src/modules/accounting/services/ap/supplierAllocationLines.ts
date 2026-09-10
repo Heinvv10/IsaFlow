@@ -138,7 +138,11 @@ export async function planSupplierAllocationLines(
  * cannot deadlock against each other.
  *
  * A timeout is a REFUSAL: it is raised before anything on this path has been
- * written, and retrying unchanged is the right move. A DEADLOCK (40P01) is
+ * written, and retrying unchanged is the right move. (55P03 aborts the
+ * transaction, so the 409 the caller answers with is COMMITted over an
+ * already-rolled-back transaction — which writes nothing, the same as every
+ * other pre-write refusal here. The AR mirror is `receiptAllocationLines.ts`.)
+ * A DEADLOCK (40P01) is
  * answered the same way, via `isLockContention` — see the canonical lock order
  * in `bank/.claude.md` for why one should not arise here at all.
  */

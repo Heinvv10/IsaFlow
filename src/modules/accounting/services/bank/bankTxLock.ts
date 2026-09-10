@@ -27,10 +27,11 @@ import { isLockContention } from '../core/lockContention';
  * the victim — `isLockContention` covers both. They are one answer to a caller:
  * nothing was written, the row was never acquired, and retrying is the remedy.
  * The name is kept because routes match on the `BANK_TX_LOCK_TIMEOUT` code.
- * The bank API routes surface a caught service error's message to the caller —
- * as a 400, or as the 409 `bank-match-confirm` answers via
- * `isBankTransactionLockTimeout` — so this wording is what the user reads. It
- * has to say "retry".
+ * The bank API routes surface a caught service error's message to the caller,
+ * and since r13 they all surface it as a 409 — the narrow routes via
+ * `isBankTransactionLockTimeout`, the blanket-catch action routes via
+ * `core/retryableContention` — so this wording is what the user reads. It has
+ * to say "retry".
  */
 export class BankTransactionLockTimeoutError extends Error {
   readonly code = 'BANK_TX_LOCK_TIMEOUT';

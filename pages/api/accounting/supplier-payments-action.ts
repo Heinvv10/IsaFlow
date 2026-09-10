@@ -15,6 +15,7 @@ import {
   processSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
 import { voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -49,6 +50,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    // 409 for contention: `process` and `void` both take the payment row lock
+    // as their first act, so a `PAYMENT_LOCK_TIMEOUT` here wrote nothing and
+    // retrying is the remedy. It is the same event `supplier-allocations`
+    // already answers 409 one call deeper — this route answered it 400.
+    if (isRetryableContention(err)) {
+      log.info('Supplier payment action hit a contended row', { error: err }, 'accounting-api');
+      return apiResponse.conflict(res, (err as Error).message);
+    }
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Supplier payment action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

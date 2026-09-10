@@ -197,7 +197,11 @@ it('a payment held past the 5s budget is a refusal that wrote nothing', async ()
   }
 
   expect(JSON.stringify(result.body)).toMatch(/retry in a moment/i);
-  expect(result.status).toBeLessThan(500);
+  // 409, not `< 500`. The loose bound passed at 400 and at 409 alike, so it
+  // could not go red while this route answered contention with the status this
+  // codebase reserves for the caller's own mistake — which it did, for eight
+  // rounds. Its two siblings (`k071-{bill,invoice}-lock-concurrency`) pin 409.
+  expect(result.status).toBe(409);
 
   // Pre-write: the lock is the void's first act, so nothing moved.
   const { rows } = await pool.query('SELECT status FROM supplier_payments WHERE id=$1', [payment]);

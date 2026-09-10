@@ -12,6 +12,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { UUID } from '@/lib/schemas/common';
 import {
   matchTransaction,
@@ -176,6 +177,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
     }
   } catch (err) {
+    // CONTENTION first, and 409 — the status this codebase gives "a peer holds
+    // the row, retry". `allocate` reaches `planSupplierPaymentApplication` and
+    // `planReceiptApplication` through `recordSupplierBankPayment` /
+    // `autoApplyCustomerReceipt`, so this route raises the SAME event that
+    // `bank-match-confirm` answers 409 — and answered it 400 until this branch.
+    // Every member is pre-write, so the 4xx `withAuth` COMMITs commits nothing.
+    if (isRetryableContention(err)) {
+      log.info('Bank transaction action hit a contended row', { action: body.action }, 'accounting-api');
+      return apiResponse.conflict(res, (err as Error).message);
+    }
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Bank transaction action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

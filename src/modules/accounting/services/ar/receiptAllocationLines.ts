@@ -155,7 +155,7 @@ export async function planAllocationLines(
  *
  * The wait is bounded rather than indefinite, and a timeout is a REFUSAL: it is
  * raised before anything on this path has been written, and retrying unchanged
- * is the right move. (55P03 aborts the transaction, so the 400 the caller
+ * is the right move. (55P03 aborts the transaction, so the 409 the caller
  * answers with is COMMITted over an already-rolled-back transaction — which
  * writes nothing, the same as every other pre-write refusal here.) A DEADLOCK
  * (40P01) is answered the same way, via `isLockContention` — see the canonical
