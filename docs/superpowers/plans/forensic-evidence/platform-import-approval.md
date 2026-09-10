@@ -64,3 +64,68 @@ Three findings were fixed, tests first, each with an actual RED and a mutation c
 
 No production database was touched. Logs live in `.worktrees/mcp-forensic-artifacts-20260909/`
 under `platform-import-fix-*.log`.
+
+
+## Second blind review: sessions minted before the fix (P1), and the deploy step
+
+The first fix covers sessions minted after it. A session minted BEFORE it carries neither signal -
+the delegation proof is droppable and expires within the hour, and the recorded-session lookup keys
+on `details->>'target_session_id'`, which no earlier `impersonation_start` row has. Because
+end-impersonation never revoked the target's GoTrue session, those refresh tokens are live: refresh
+a retained target token, present only the access and active-company cookies, and against a member
+with no verified MFA factor withAuth admits the session at AAL1 with nothing marking it.
+
+Fixed in code:
+
+- **end-impersonation now revokes the session it minted** (`logout(accessToken,'local')` when the
+  caller still holds the impersonated cookies - the member's own sessions survive - otherwise
+  `adminRevokeAllUserSessions` for the target). It runs before the admin cookies are restored and
+  returns 502 with the stash intact if GoTrue refuses, so the exit is retryable rather than leaving
+  a live orphan session. Unit-proven in `mfa-impersonation-workflow.test.ts`; mutation `m12`
+  (revocation removed) turns it red.
+
+- **OPERATOR STEP, REQUIRED AT THE DEPLOY THAT SHIPS THIS:**
+
+  ```sh
+  bun scripts/revoke-legacy-impersonation-sessions.ts           # dry run: lists and counts targets
+  bun scripts/revoke-legacy-impersonation-sessions.ts --apply   # revokes every listed target
+  ```
+
+  It revokes all GoTrue sessions of every user named by an `impersonation_start` row with no
+  `target_session_id`. Those members are signed out and log in again; that is the point. It has NOT
+  been run against production by this work - no production database was touched. Dry run, counts and
+  failure reporting are unit-proven (`tests/unit/scripts/revokeLegacyImpersonationSessions.test.ts`,
+  mutation `m14`).
+
+- **Can such a session be detected instead of revoked? Honestly, no.** The impersonated session is
+  an ordinary GoTrue session for the member, minted by a magic link. Nothing outside the audit row
+  ties a session to an impersonation: the stash never stored the session id, GoTrue's session rows
+  carry no impersonation marker, and the only correlates are creation time and a magic-link/OTP
+  `amr` - which ordinary magic-link and administratively minted dev logins also produce. A
+  timestamp heuristic would both miss sessions and sign out members who did nothing. Revocation is
+  the remedy; there is no reliable detector.
+
+Also in this round:
+
+- **Unmigrated database (P2).** `withAuth` called the reader function unconditionally, so on a
+  database that lags migration 675 every authenticated request would fail with 42883 - and a dev
+  database here has lagged migrations before. The call is now guarded by `to_regprocedure` (result
+  cached once present, one extra round trip per process). When the function is absent the state is
+  reported as `IMPERSONATION_UNVERIFIED` and the review guards refuse outright. That is the
+  deliberate trade: fail open for ordinary reads and writes, fail closed for anything that records a
+  human review. Mutation `m13` (treating unverified as unimpersonated) turns it red.
+
+- **Migration assertion (P3).** The auth-method check is still dropped by its deterministic
+  column-level name, but the migration now asserts that exactly one such check survives and that it
+  admits `platform_import`, and the grant-shape assertion no longer needs its second EXISTS.
+  Mutation `m16` (a cookie-only auth-method check) turns the migration and its test red.
+
+- **Real-route coverage (P3).** The control-exception guard is now proven through
+  `pages/api/accounting/control-exceptions` under a real impersonated session, with the
+  unimpersonated administrator's resolution succeeding in the same case. Mutation `m15` (guard
+  removed) turns it red. The beneficiary guard remains unit-level only.
+
+Suites after this round: integration 165 passed over 14 files
+(`platform-import-fix-r2-int-green.log`), units under `tests/unit/{auth,scripts,services/controls}`
+1372 passed (`platform-import-fix-r2-unit-green.log`). Migration 675 re-applied twice, exit 0 both
+times.
