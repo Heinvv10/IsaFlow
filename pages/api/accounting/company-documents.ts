@@ -187,13 +187,20 @@ export async function extractStatutoryDocData(fileData: string, docType: string,
 
   const result = await extractStatutoryDocWithVlm(base64, mimeType, docTypeMap[docType] || undefined);
   if (result) {
-    await sql`
+    const stored = await sql`
       UPDATE company_documents
       SET extracted_data = ${JSON.stringify(result)}::jsonb
       WHERE id = ${docId}::uuid
         AND company_id = ${companyId}::uuid
+      RETURNING id
     `;
-    log.info('Statutory doc extraction stored', { docId, docType: result.documentType }, 'company-docs');
+    // By outcome: the fence can match nothing, and a success log there would be
+    // the same false "extraction complete" R-075 itself produced.
+    if (stored.length === 0) {
+      log.warn('Statutory doc extraction discarded — document is not this company\'s', { docId, companyId }, 'company-docs');
+    } else {
+      log.info('Statutory doc extraction stored', { docId, docType: result.documentType }, 'company-docs');
+    }
   }
 }
 

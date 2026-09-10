@@ -23,7 +23,17 @@
  * `company_id` column and are scoped through a parent instead; there the
  * predicate must reproduce what the table's own RLS policy walks:
  *   - `bank_transaction_attachments` -> EXISTS on `bank_transactions.company_id`
- *   - `procurement_documents`        -> its `(entity_type, entity_id)` parent
+ *   - `procurement_documents`        -> the `(entity_type, entity_id)` parent
+ *                                       row, all six types its policy walks
+ * One callback is genuinely tenant-free: `checkAndAlert` touches only
+ * `admin_settings`, a platform-global table with no `company_id` column and no
+ * tenant meaning. That is the only shape exempt from the rule.
+ *
+ * And scoping is not enough on its own: a fenced statement can match zero rows,
+ * so log by OUTCOME (the row count), never on reaching the end of the function.
+ * A success log over a no-op is the same false "extraction complete" that made
+ * R-075 invisible in production.
+ *
  * A callback that cannot scope itself does not belong here.
  */
 import { als, type RequestContext } from '@/lib/als';

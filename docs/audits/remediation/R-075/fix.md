@@ -263,3 +263,62 @@ Census row:
 
 Baseline after restore: 6/6 integration, 3/3 unit; the four mutated files byte-identical to their
 backups.
+
+---
+
+# Round 3 — the three LOWs from the blind review of `925c18c5b`
+
+## LOW-1 — the `procurement_documents` fence was not a fence
+
+Round 2's predicate was `AND entity_type = $n AND entity_id = $n`, with both values passed in by
+`uploadDocument` — the same values it had just INSERTed into that row. The clauses compare the row's
+own columns to themselves, so they can never be false: the callback had **no tenant fence at all**,
+and it did not reproduce the policy either. The review is right.
+
+`pg_policies` for `procurement_documents` (`tenant_isolation_via_parent`) is a six-branch disjunction:
+`supplier_invoice → sage_supplier_invoices`, `customer_invoice → customer_invoices`,
+`supplier_payment → supplier_payments`, `customer_payment → customer_payments`,
+`credit_note → credit_notes`, `purchase_order → purchase_orders`, each `EXISTS (p.id = entity_id AND
+p.company_id IN (<the user's companies>))`.
+
+`UploadDocumentInput` now carries `companyId` — `pages/api/accounting/documents.ts:141` has it in
+scope already and passes it — and the UPDATE is that policy verbatim with the membership subquery
+replaced by this request's company. All six branches, so a document whose parent belongs to another
+tenant matches nothing. `extractAndStoreDocMetadata`'s signature is `(buffer, mimeType, docId,
+companyId)`; the useless `entityType`/`entityId` arguments are gone.
+
+Observation, not changed (outside this fix's scope): `verifyEntityOwnership`
+(`documentStorageService.ts:84-94`) — the route's pre-check — covers only five of the six tables; it
+omits `purchase_orders`. It fails **closed** (a purchase-order document is refused upload), so it is
+not a leak, but it and the policy disagree. Worth its own register item.
+
+## LOW-2 — the success log fired over a zero-row UPDATE
+
+All three callbacks logged `'… stored'` on reaching the end of the function, so a fenced UPDATE that
+matched nothing still logged success — measured by the reviewer on a foreign-scope run. That is
+precisely the false "extraction complete" that made R-075 invisible in production for however long it
+has been live.
+
+All three now `RETURNING id` and branch on the row count: `log.info('… stored')` only when a row was
+written, `log.warn('… discarded — … is not this company's', { docId, companyId })` when the fence
+matched nothing. Pinned in both directions by the integration test, which now asserts on the log
+lines as well as the row.
+
+## LOW-3 — `checkAndAlert` is a third exception the header did not name
+
+`afterCommit.ts`'s header listed the two parent-scoped tables but implied every callback must carry a
+tenant predicate. `checkAndAlert` touches only `admin_settings`, which has no `company_id` column and
+no tenant meaning. Named in the header as the one genuinely tenant-free shape, and the
+log-by-outcome rule from LOW-2 written in beside it, since a fenced statement that matches nothing is
+the failure the rule exists to make visible.
+
+## Round-3 mutations
+
+| # | Mutation | Result |
+|---|---|---|
+| M14 | procurement fence keeps the parent EXISTS but drops the company (`p.company_id IS NOT NULL`) | 1 failed |
+| M15 | procurement fence back to round 2's self-referential `entity_type`/`entity_id` clauses | 1 failed |
+| M16 | all three callbacks log success unconditionally again | 3 failed |
+
+Baseline after restore: 6/6 integration. M15 failing is the direct proof that round 2's predicate was
+not a fence.

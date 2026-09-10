@@ -16,6 +16,15 @@ import { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
+const logged = { info: [] as string[], warn: [] as string[] };
+vi.mock('@/lib/logger', () => ({
+  log: {
+    info: (m: string) => { logged.info.push(m); },
+    warn: (m: string) => { logged.warn.push(m); },
+    error: () => {}, debug: () => {},
+  },
+}));
+
 const EXTRACTED = { vendorName: 'R075 r2', totalAmount: 1, confidence: 0.9 };
 vi.mock('@/modules/accounting/services/core/ocrService', () => ({
   extractFromText: async () => EXTRACTED,
@@ -37,7 +46,8 @@ const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 
 /** ids of the rows that belong to company A — the target of every call below. */
 let attachmentId = '', companyDocId = '', procDocId = '';
-const entityA = randomUUID(), entityB = randomUUID();
+/** procurement_documents has no company_id: its parent supplier invoice carries it. */
+let parentInvoiceId = '';
 
 beforeAll(async () => {
   await pool.query("INSERT INTO users (id,email,role,is_active) VALUES ($1,$2,'admin',true)",
@@ -60,13 +70,16 @@ beforeAll(async () => {
     `INSERT INTO company_documents (company_id, document_type, document_name, file_data, mime_type, file_size, uploaded_by)
      VALUES ($1,'cipc_certificate','R075r2',$2,'image/png',8,$3) RETURNING id`, [coA, PNG_URL, user])).rows[0].id;
 
+  parentInvoiceId = (await pool.query(
+    `INSERT INTO sage_supplier_invoices (company_id) VALUES ($1) RETURNING id`, [coA])).rows[0].id;
   procDocId = (await pool.query(
     `INSERT INTO procurement_documents (entity_type, entity_id, document_type, document_name, mime_type, file_size)
-     VALUES ('supplier_invoice',$1,'other','R075r2','image/png',8) RETURNING id`, [entityA])).rows[0].id;
+     VALUES ('supplier_invoice',$1,'other','R075r2','image/png',8) RETURNING id`, [parentInvoiceId])).rows[0].id;
 });
 
 afterAll(async () => {
   await pool.query('DELETE FROM procurement_documents WHERE id = $1', [procDocId]);
+  await pool.query('DELETE FROM sage_supplier_invoices WHERE company_id = ANY($1::uuid[])', [[coA, coB]]);
   await pool.query('DELETE FROM company_documents WHERE company_id = ANY($1::uuid[])', [[coA, coB]]);
   await pool.query(
     'DELETE FROM bank_transaction_attachments WHERE bank_transaction_id IN (SELECT id FROM bank_transactions WHERE company_id = ANY($1::uuid[]))',
@@ -104,13 +117,12 @@ const cases: Array<{
     },
   },
   {
-    name: 'procurement document extraction (scoped through entity_type/entity_id)',
+    name: "procurement document extraction (fenced on the parent invoice's company)",
     table: 'procurement_documents', id: () => procDocId,
     run: async (scope) => {
       const { extractAndStoreDocMetadata } =
         await import('@/modules/accounting/services/core/documentStorageService');
-      return extractAndStoreDocMetadata(PNG, 'image/png', procDocId,
-        'supplier_invoice', scope === 'own' ? entityA : entityB);
+      return extractAndStoreDocMetadata(PNG, 'image/png', procDocId, scope === 'own' ? coA : coB);
     },
   },
 ];
@@ -118,15 +130,22 @@ const cases: Array<{
 describe.each(cases)('$name', ({ table, id, run }) => {
   beforeEach(async () => {
     await pool.query(`UPDATE ${table} SET extracted_data = NULL WHERE id = $1`, [id()]);
+    logged.info.length = 0; logged.warn.length = 0;
   });
 
-  it("another company's scope writes nothing", async () => {
+  it("another company's scope writes nothing, and says so", async () => {
     await run('foreign');
     expect(await extracted(table, id())).toBeNull();
+    // The no-op must NOT be logged as a success — that false "stored" line is
+    // what made R-075 invisible in production.
+    expect(logged.info.filter((m) => /stored/i.test(m))).toEqual([]);
+    expect(logged.warn.filter((m) => /discarded/i.test(m))).toHaveLength(1);
   });
 
   it('its own scope still writes — the guard is not simply blocking everything', async () => {
     await run('own');
     expect(await extracted(table, id())).not.toBeNull();
+    expect(logged.info.filter((m) => /stored/i.test(m))).toHaveLength(1);
+    expect(logged.warn.filter((m) => /discarded/i.test(m))).toEqual([]);
   });
 });

@@ -56,7 +56,7 @@ const sites: Array<[string, () => Promise<unknown>, () => unknown[]]> = [
       { companyId: COMPANY, user: { id: 'u' } } as never, res() as never),
     () => m.recalculateNudge.mock.calls],
   ['uploadDocument → VLM extraction',
-    () => uploadDocument({ entityType: 'purchase_order', entityId: 'e1', documentType: 'other', filePath: png,
+    () => uploadDocument({ companyId: COMPANY, entityType: 'purchase_order', entityId: 'e1', documentType: 'other', filePath: png,
       mimeType: 'image/png', size: 4, originalFilename: 'doc.png', uploadedBy: 'u', uploadedByName: 'U' }),
     () => m.extractFromImage.mock.calls],
   ['sendInvoiceEmail → invoice.sent webhook',
