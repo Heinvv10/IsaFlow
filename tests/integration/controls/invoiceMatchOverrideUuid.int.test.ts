@@ -68,3 +68,17 @@ it('serializes concurrently executed independently approved lower and uppercase 
  expect(outcomes.filter((o):o is PromiseFulfilledResult<Annotated>=>o.status==='fulfilled')).toHaveLength(1);
  expectOneOverride(await state(p.intentId,p.invoiceId),p.intentId);
 });
+/**
+ * The kernel finds a prior effect by the approval's operation_id and by binding_hash, and the first
+ * effect bumps the intent's entity version — so a SECOND same-case approval requested afterwards
+ * carries a new operation_id and a new binding_hash and misses both. Only the effect's own
+ * unexecuted-intent guard stands between that and a second committed annotation.
+ */
+it('cannot annotate one invoice match twice through a second same-case approval requested after the effect',async()=>{
+ const p=await prepared(),first=await execute(p.intentId,await f.approve(p.operation));
+ const second=await f.attempt(async()=>execute(p.intentId,await f.approve(p.operation)));
+ expectOneOverride(await state(p.intentId,p.invoiceId),p.intentId);
+ // The kernel lets it through; the effect's own guard is what refuses.
+ expect(second.error instanceof Error?second.error.message:second.value).toBe('Unexecuted override belonging to current requester required');
+ expect(first).toBeDefined();
+});
