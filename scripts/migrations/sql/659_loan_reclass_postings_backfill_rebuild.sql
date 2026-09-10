@@ -116,6 +116,7 @@ DECLARE
   inserted_rows  BIGINT;
   total_rows     BIGINT := 0;
   refused        TEXT;
+  refused_total  BIGINT;
 BEGIN
   -- FORCE ROW LEVEL SECURITY applies to the table owner too, so only a
   -- superuser or a BYPASSRLS role can DELETE/INSERT here without the app_user
@@ -140,8 +141,16 @@ BEGIN
     net_credit  NUMERIC(18,2)
   );
 
+  -- Round-4 L4. Driving this from `loans` alone would never revisit a company
+  -- whose last loan was deleted: its refusal rows from an earlier run would
+  -- read as current when they are not, and any reclass journal it still holds
+  -- would be neither reconstructed nor refused. The refusals table is
+  -- presented as the authoritative record of what was skipped, so every
+  -- company that has one is revisited too.
   FOR target_company IN
-    SELECT DISTINCT company_id FROM loans
+    SELECT company_id FROM loans
+    UNION
+    SELECT company_id FROM loan_reclass_backfill_refusals
   LOOP
     TRUNCATE tmp_k081_journals;
 
@@ -222,13 +231,29 @@ BEGIN
         OR t.loan_id IN (SELECT loan_id FROM tmp_k081_journals
                           WHERE n_loans = 1 AND COALESCE(cp_lines, 0) = 0);
 
-    SELECT string_agg(line, E'\n') INTO refused FROM (
+    -- Round-4 L3. DISTINCT bounds this by distinct loan keys rather than by
+    -- journals, but a tenant with thousands of unresolvable references would
+    -- still build one multi-thousand-line string in memory and print it line
+    -- by line. Show the first 50 and point at the durable table for the rest.
+    SELECT COUNT(*) INTO refused_total FROM (
       SELECT DISTINCT format('company_id=%s loan_key=%s reason=%s',
                              target_company, COALESCE(loan_key, '(unparsed)'), reason) AS line
         FROM loan_reclass_backfill_refusals
        WHERE company_id = target_company
     ) r;
+    SELECT string_agg(line, E'\n') INTO refused FROM (
+      SELECT DISTINCT format('company_id=%s loan_key=%s reason=%s',
+                             target_company, COALESCE(loan_key, '(unparsed)'), reason) AS line
+        FROM loan_reclass_backfill_refusals
+       WHERE company_id = target_company
+       ORDER BY 1
+       LIMIT 50
+    ) r;
     IF refused IS NOT NULL THEN
+      IF refused_total > 50 THEN
+        refused := refused || format(E'\n… and %s more; see loan_reclass_backfill_refusals',
+                                     refused_total - 50);
+      END IF;
       RAISE WARNING E'loan_reclass_postings backfill refused to reconstruct these loans; their next close reclassifies the full current portion, so correct them by hand and re-run this migration (see docs/audits/remediation/K-081/fix.md). Every refusal is also a row in loan_reclass_backfill_refusals:\n%', refused;
     END IF;
 

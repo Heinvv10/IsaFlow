@@ -170,12 +170,21 @@ async function main(): Promise<void> {
   // nothing at all — only RAISE EXCEPTION surfaces, because errors travel as
   // errors. Printing them is the whole reason a migration is allowed to refuse
   // a row instead of guessing at it.
-  client.on('notice', (n) => {
+  //
+  // Review L2. Postgres itself raises a NOTICE for every `IF NOT EXISTS` that
+  // skips ("relation ... already exists, skipping"), and the corpus carries
+  // thousands of them — enough to bury the WARNING lines above. Those carry a
+  // real SQLSTATE (42P07, 42710, 42704 ...); a plain `RAISE NOTICE` from a
+  // migration defaults to `successful_completion` (00000). Keep the latter,
+  // drop the former. WARNING and above are never filtered.
+  const noticeListener = (n: { severity?: string; code?: string; message?: string }) => {
     const severity = n.severity ?? 'NOTICE';
+    if (severity === 'NOTICE' && (n.code ?? '00000') !== '00000') return;
     for (const line of String(n.message ?? '').split('\n')) {
       console.log(`  [${severity}] ${line}`);
     }
-  });
+  };
+  client.on('notice', noticeListener);
   try {
     // Bootstrap: ensure tracking table exists with canonical schema even if
     // migration 332 hasn't run yet. Also upgrades pre-existing tables that
@@ -278,6 +287,9 @@ async function main(): Promise<void> {
       await client.query(`SELECT pg_advisory_unlock($1)`, [ADVISORY_LOCK_KEY]);
     }
   } finally {
+    // Review L6. The client goes back to the pool, so the listener would
+    // outlive this call if main() were ever driven more than once.
+    client.removeListener('notice', noticeListener);
     client.release();
     await pool.end();
   }

@@ -115,10 +115,18 @@ export async function closeLoanPeriod(
   yyyymm: string,
   userId: string,
 ): Promise<CloseResult> {
+  // Round-4 M2. The ordering guard takes the company's close advisory lock, so
+  // it must run BEFORE the already-locked read: with the read first, two
+  // concurrent closes of the SAME month both see it unlocked, then serialise,
+  // and the second re-creates and re-posts every reclass journal for the month
+  // before the loan_period_locks PK finally rejects it ~60 lines later. The
+  // request transaction rolls that back, but the caller gets a raw 23505
+  // instead of the named error, and the safety rests on nothing in between
+  // committing. Under the lock the read answers correctly the first time.
+  await assertClosesInOrder(companyId, yyyymm);
   if (await isPeriodLocked(companyId, yyyymm)) {
     throw new Error(`Period ${yyyymm} is already locked`);
   }
-  await assertClosesInOrder(companyId, yyyymm);
 
   // One JOINed query: every active loan with its latest schedule-row snapshot
   // for the target month. LEFT JOIN on LATERAL so loans with no row in this

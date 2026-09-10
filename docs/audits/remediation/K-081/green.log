@@ -127,3 +127,34 @@ Gates: bunx tsc --noEmit clean. eslint clean on the changed src files
 same on origin/master). scripts/ci/check-migration-rls.ts OK (the new
 loan_reclass_backfill_refusals table is under RLS). scripts/audit-migration-naming.ts
 OK. scripts/ci/check-gl-journal-lines-scope.ts OK. bun run agent-docs:check OK.
+
+=== Round 4 (blind review of 259c45453: 0 HIGH, 2 MEDIUM, 7 LOW) — 2026-09-10 ===
+tests/unit/services/loans/                                    9 files, 124 passed
+tests/integration/k081-loan-close-concurrency.int.test.ts     3 passed   (M1, M2)
+tests/integration/k081-loan-reclass-refusal-sweep.int.test.ts 2 passed   (L3, L4)
+k081/k082/k083 integration (8 files)                          41 passed
+FULL unit suite, fixture env UNSET (env -u DATABASE_URL):     796 files, 9469 passed | 234 skipped | 0 failed
+bunx tsc --noEmit                                             clean (exit 0)
+bunx eslint loanPostingGuards.ts loanPeriodCloseService.ts    clean (exit 0)
+bun run agent-docs:check                                      OK: 74 mirrors match
+bun scripts/audit-migration-naming.ts                         341 files, no new duplicate prefixes
+bun scripts/ci/check-migration-rls.ts                         OK
+bash scripts/ci/check-internal-apis.sh                        OK
+
+Mutation proof (applied, run, restored; restored tree byte-identical to pre-mutation diff):
+  M1  drop the request-transaction assert            -> "refuses to close outside a request transaction (M1)" RED
+  M2  assertClosesInOrder back below isPeriodLocked   -> M2 case RED: 23505 loan_period_locks_pkey, not the named error
+  L1  hashtextextended(621) -> hashtext(concat)       -> M4 ordering case RED (holder no longer blocks the close)
+  L4  UNION refusals -> SELECT DISTINCT FROM loans    -> L4 sweep case RED
+  L3  drop ORDER BY 1 LIMIT 50                        -> L3 case RED (51 lines, no "… and 1 more")
+
+L2 notice filter, proven end-to-end on scratch database k081probe (dropped afterwards), one probe
+migration with a duplicate CREATE TABLE IF NOT EXISTS plus its own RAISE NOTICE and RAISE WARNING:
+  origin/master runner (no listener):   applying ... / ok            <- nothing surfaces at all
+  259c45453 runner (unfiltered):        [NOTICE] relation "k081_probe_t" already exists, skipping
+                                        [NOTICE] PROBE-MIGRATION-NOTICE  [WARNING] PROBE-MIGRATION-WARNING
+  round-4 runner (filtered):            [NOTICE] PROBE-MIGRATION-NOTICE  [WARNING] PROBE-MIGRATION-WARNING
+Only the Postgres IF-NOT-EXISTS chatter is dropped; the migration's own NOTICE and WARNING survive.
+
+Shared fixture end state (L5): schema_migrations has no 65% row (621/622/624 only);
+loan_reclass_postings and loan_reclass_backfill_refusals exist with 0 rows.

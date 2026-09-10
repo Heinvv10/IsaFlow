@@ -34,6 +34,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
   postJournalEntry: postJournalEntryMock,
 }));
 
+import { als } from '@/lib/als';
 import { closeLoanPeriod } from '@/modules/accounting/services/loans/loanPeriodCloseService';
 
 const COMPANY = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -91,6 +92,17 @@ function primeMonth(row: Record<string, unknown>, prior: number | null = null): 
   });
 }
 
+/**
+ * Round-4 M1. `closeLoanPeriod` refuses to run outside a request transaction —
+ * an advisory xact lock on a pooled connection is released the instant it is
+ * taken. Every read still goes through the mocked `sql`.
+ */
+function closeIn(yyyymm: string) {
+  const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+  return als.run({ client, userId: USER, companyId: COMPANY, claims: {} } as never,
+    () => closeLoanPeriod(COMPANY, yyyymm, USER));
+}
+
 function capturedLines(): CapturedLine[] {
   return createJournalEntryMock.mock.calls.flatMap(
     (c) => ((c[1] as { lines: CapturedLine[] }).lines ?? []),
@@ -114,21 +126,21 @@ beforeEach(() => {
 describe('closeLoanPeriod — closing a second month', () => {
   it('leaves the current portion at February\'s figure, not January plus February', async () => {
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'));
-    await closeLoanPeriod(COMPANY, '202501', USER);
+    await closeIn('202501');
 
     primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28'), JAN_ST);
-    await closeLoanPeriod(COMPANY, '202502', USER);
+    await closeIn('202502');
 
     expect(currentPortionBalance()).toBeCloseTo(FEB_ST, 2);
   });
 
   it('posts only the movement in the second month', async () => {
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'));
-    await closeLoanPeriod(COMPANY, '202501', USER);
+    await closeIn('202501');
     const afterJan = capturedLines().length;
 
     primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28'), JAN_ST);
-    await closeLoanPeriod(COMPANY, '202502', USER);
+    await closeIn('202502');
 
     const febLines = capturedLines().slice(afterJan);
     const febGross = febLines.reduce((s, l) => s + l.credit + l.debit, 0);
@@ -138,18 +150,18 @@ describe('closeLoanPeriod — closing a second month', () => {
 
   it('still reclassifies the full amount on the first close', async () => {
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'));
-    await closeLoanPeriod(COMPANY, '202501', USER);
+    await closeIn('202501');
 
     expect(currentPortionBalance()).toBeCloseTo(JAN_ST, 2);
   });
 
   it('posts nothing when the current portion is unchanged', async () => {
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'));
-    await closeLoanPeriod(COMPANY, '202501', USER);
+    await closeIn('202501');
     const afterJan = createJournalEntryMock.mock.calls.length;
 
     primeMonth(loanRow(JAN_ST, 890_000, '2025-02-28'), JAN_ST);
-    const result = await closeLoanPeriod(COMPANY, '202502', USER);
+    const result = await closeIn('202502');
 
     expect(createJournalEntryMock.mock.calls.length).toBe(afterJan);
     expect(result.reclassEntries).toHaveLength(0);
@@ -157,12 +169,12 @@ describe('closeLoanPeriod — closing a second month', () => {
 
   it('reverses the movement when the current portion falls', async () => {
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'));
-    await closeLoanPeriod(COMPANY, '202501', USER);
+    await closeIn('202501');
     const afterJan = capturedLines().length;
 
     // February's twelve-month window is smaller than January's.
     primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28'), JAN_ST);
-    await closeLoanPeriod(COMPANY, '202502', USER);
+    await closeIn('202502');
 
     const febLines = capturedLines().slice(afterJan);
     const currentPortionLeg = febLines.find((l) => l.glAccountId === CURRENT_PORTION)!;
@@ -187,14 +199,14 @@ describe('closeLoanPeriod — a month that locked without reclassifying this loa
     // January: the loan has no current-portion account, so the close skips it
     // and posts nothing — but still locks the month.
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31', { current_portion_account_id: null }));
-    const jan = await closeLoanPeriod(COMPANY, '202501', USER);
+    const jan = await closeIn('202501');
     expect(jan.reclassEntries).toHaveLength(0);
     expect(jan.skippedLoans).toEqual([{ loanId: LOAN, reason: 'missing GL accounts' }]);
 
     // February: accounts are fixed. Nothing was reclassified in January, so
     // February must post the FULL current portion, not a movement off it.
     primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28'));
-    await closeLoanPeriod(COMPANY, '202502', USER);
+    await closeIn('202502');
 
     expect(currentPortionBalance()).toBeCloseTo(FEB_ST, 2);
     const leg = capturedLines().find((l) => l.glAccountId === CURRENT_PORTION)!;
@@ -204,7 +216,7 @@ describe('closeLoanPeriod — a month that locked without reclassifying this loa
 
   it('records what it reclassified, so the next close reads a real figure', async () => {
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'));
-    await closeLoanPeriod(COMPANY, '202501', USER);
+    await closeIn('202501');
 
     const recorded = sqlMock.mock.calls
       .map((c) => (c[0] as TemplateStringsArray).join('?'))
@@ -219,7 +231,7 @@ describe('closeLoanPeriod — a month that locked without reclassifying this loa
 
   it('records nothing when the movement was zero and no journal posted', async () => {
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'), JAN_ST);
-    await closeLoanPeriod(COMPANY, '202501', USER);
+    await closeIn('202501');
 
     const recorded = sqlMock.mock.calls
       .map((c) => (c[0] as TemplateStringsArray).join('?'))
