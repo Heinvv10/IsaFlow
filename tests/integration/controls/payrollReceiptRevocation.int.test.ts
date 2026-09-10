@@ -44,12 +44,14 @@ beforeAll(async()=>{
     VALUES($1,$2,'Synthetic payroll policy','payroll_run','amount','any',0,'admin')`,[policyId,fixture.companyA]);
 });
 afterAll(async()=>{await pool.end();});
-let nextMonth=0;
+let runCount=0;
 async function calculatedRun(){
-  const month=++nextMonth,id=randomUUID(),end=new Date(Date.UTC(2026,month,0)).toISOString().slice(0,10);
+  // Each case needs its own period; roll into the next fiscal year past twelve.
+  const index=runCount++,year=2026+Math.floor(index/12),month=index%12+1,id=randomUUID();
+  const end=new Date(Date.UTC(year,month,0)).toISOString().slice(0,10);
   await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-    VALUES($1,$2,'Synthetic revocation period',$3,2026,$4,$5,'open')`,[randomUUID(),fixture.companyA,month,`2026-${String(month).padStart(2,'0')}-01`,end]);
-  await pool.query(`INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,$3,2026,'draft')`,[id,fixture.companyA,month]);
+    VALUES($1,$2,'Synthetic revocation period',$3,$6,$4,$5,'open')`,[randomUUID(),fixture.companyA,month,`${year}-${String(month).padStart(2,'0')}-01`,end,year]);
+  await pool.query(`INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,$3,$4,'draft')`,[id,fixture.companyA,month,year]);
   const {calculatePayrollRun}=await import('@/modules/accounting/services/payroll/payrollRunService');
   await actor(fixture.u1,()=>calculatePayrollRun(id,fixture.companyA));
   return {id,ref:{entityType:'payroll_run',entityId:id,operation:'payroll_run.post'} as OperationRef};
@@ -168,4 +170,47 @@ it('replays a consumed approval whose request also requested another run approva
   expect(await settle(post(current.id)),'fresh retry with shared request').toEqual({ok:true,value:first});
   expect(await withRole(fixture.u2,'viewer',()=>settle(post(current.id))),'revoked reviewer').toEqual({ok:false,error:'Approval authority is no longer valid'});
   expect(await ledger(current.id)).toEqual(before);
+});
+
+// The same request requests approval for a run, then posts that run without it (no policy applies).
+async function unconsumedSameRunApproval(storeUppercase:boolean){
+  const current=await calculatedRun(),{requestOperationApproval,approvePayrollRun}=await services();
+  return withoutPolicy(async()=>{
+    const approvalId=await actor(fixture.u1,async ctx=>{const own=await requestOperationApproval(ctx,current.ref);
+      await approvePayrollRun(fixture.companyA,current.id,fixture.u1.id);return own.id;});
+    if(storeUppercase)await pool.query('UPDATE control_operation_approvals SET entity_id=upper(entity_id) WHERE company_id=$1 AND id=$2',[fixture.companyA,approvalId]);
+    const [approval]=(await pool.query('SELECT status,consumed_effect_id FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[fixture.companyA,approvalId])).rows;
+    const before=await ledger(current.id);
+    return {approval,before,retry:await settle(post(current.id)),after:await ledger(current.id)};
+  });
+}
+
+it('fails closed when the same request left an unconsumed approval for the same run',async()=>{
+  const {approval,before,retry,after}=await unconsumedSameRunApproval(false);
+  expect(approval).toEqual({status:'approved',consumed_effect_id:null});expect(before.effects).toBe(1);
+  expect(retry).toEqual({ok:false,error:'Approval effect linkage is invalid'});expect(after).toEqual(before);
+});
+
+it('fails closed when that unconsumed same-run approval stores an uppercase entity id',async()=>{
+  const {approval,before,retry,after}=await unconsumedSameRunApproval(true);
+  expect(approval).toEqual({status:'approved',consumed_effect_id:null});
+  expect(retry).toEqual({ok:false,error:'Approval effect linkage is invalid'});expect(after).toEqual(before);
+});
+
+it('refuses a fresh retry after the consumed approval link is erased, instead of skipping the revocation recheck',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref,fixture.u1,fixture.u2);
+  await post(current.id,approvalId);const before=await ledger(current.id);
+  await pool.query('UPDATE control_operation_approvals SET consumed_effect_id=NULL WHERE company_id=$1 AND id=$2',[fixture.companyA,approvalId]);
+  expect(await withRole(fixture.u2,'viewer',()=>settle(post(current.id))),'erased link with revoked reviewer').toEqual({ok:false,error:'Approval effect linkage is invalid'});
+  expect(await ledger(current.id)).toEqual(before);
+});
+
+it('refuses an approval-id retry deterministically when a case-only duplicate effect exists',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref,fixture.u1,fixture.u2);
+  await post(current.id,approvalId);const before=await ledger(current.id);
+  await pool.query(`INSERT INTO control_operation_effects(company_id,id,operation_id,operation,entity_type,entity_id,binding_hash,result,committed_at)
+    SELECT company_id,gen_random_uuid(),operation_id,operation,entity_type,upper(entity_id),binding_hash,result,committed_at
+    FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='payroll_run.post'`,[fixture.companyA,current.id]);
+  expect(await settle(post(current.id,approvalId)),'kernel retry with case-only duplicate').toEqual({ok:false,error:'Committed operation effect is ambiguous'});
+  expect((await ledger(current.id)).journals).toEqual(before.journals);
 });
