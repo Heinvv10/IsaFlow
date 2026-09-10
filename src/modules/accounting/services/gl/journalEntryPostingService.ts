@@ -201,7 +201,9 @@ export async function reverseJournalEntry(
         description: `Reversal of ${entry.entryNumber}`,
         source: entry.source,
         lines: carried.lines,
-      }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
+      }, userId, actorMeta(opts) ?? defaultHumanMeta(userId), {
+        dimensionAssignmentMode: 'historical-copy',
+      });
     } catch (err) {
       // Nothing exists yet, but the claim does. Inside a request transaction the
       // rollback undoes it; outside one (cron, scripts) this is what stops a

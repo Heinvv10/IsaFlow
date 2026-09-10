@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, VatType } from '../../types/gl.types';
 import { assertJournalLinesOwned } from './journalLineOwnership';
+import type { DimensionAssignmentMode } from './journalCostCentreValidation';
 import { defaultHumanMeta, type JournalEntryMeta } from './journalEntryMeta';
 import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
 
@@ -203,11 +204,16 @@ export async function createJournalEntry(
   input: JournalEntryCreateInput,
   userId: string,
   meta?: JournalEntryMeta,
+  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode },
 ): Promise<JournalEntry> {
   try {
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
-    await assertJournalLinesOwned(companyId, input.lines); // journalLineOwnership.ts
+    await assertJournalLinesOwned(
+      companyId,
+      input.lines,
+      opts?.dimensionAssignmentMode,
+    ); // journalLineOwnership.ts
 
     let fiscalPeriodId = input.fiscalPeriodId;
     if (!fiscalPeriodId) {
