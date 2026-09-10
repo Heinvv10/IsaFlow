@@ -9,6 +9,10 @@ export function requirePeriodControl(companyId: string, userId?: string): Contro
   if (ctx.principal.companyId !== companyId || (userId !== undefined && ctx.principal.personId !== userId)) throw new Error('Period control transaction actor mismatch');
   return ctx;
 }
+/** The authority every period control asserts, callable by a preview that skips only the write. */
+export async function assertPeriodControlAuthority(companyId: string, userId?: string): Promise<void> {
+  await assertEffectivePermission(requirePeriodControl(companyId, userId), 'write:locks');
+}
 export async function runPeriodControl<T>(companyId: string, ref: OperationRef, options: PeriodControlOptions | undefined,
   effect: (ctx: ControlTx, permit: ControlledEffectPermit) => Promise<T>, userId?: string): Promise<T> {
   try {

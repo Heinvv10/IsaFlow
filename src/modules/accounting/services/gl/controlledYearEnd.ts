@@ -40,11 +40,14 @@ async function prior(ctx:ControlTx,year:string):Promise<CloseYearResult|null>{
  return replayKnownOperationEffect<CloseYearResult>(ctx,{entityType:'fiscal_year',entityId:year,operation:'year.close'},effect.id);
 }
 export async function closeFiscalYear(companyId:string,yearLabel:string,userId:string,options:CloseYearOptions={}):Promise<CloseYearResult|CloseYearDryRunResult|CloseYearError>{
- const ctx=actor(companyId,userId);await assertEffectivePermission(ctx,options.dryRun?'read:reports':'write:locks');
+ // A dry run runs the live authority and skips only the write: previewing a
+ // close this caller cannot perform both misleads it and discloses close state.
+ const ctx=actor(companyId,userId);await assertEffectivePermission(ctx,'write:locks');
+ await assertEffectivePermission(ctx,'write:post');
  if(!/^[1-9][0-9]{3}$/.test(yearLabel))throw new Error('Invalid financial year');
  const parent={entityType:'fiscal_year',entityId:yearLabel,operation:'year.close' as const};
  if(!options.dryRun){
-  await assertEffectivePermission(ctx,'write:post');const result=await prior(ctx,yearLabel);
+  const result=await prior(ctx,yearLabel);
   if(result)return options.approvalId?executeControlledOperation<CloseYearResult>(ctx,parent,options.approvalId,async()=>{throw new Error('Receipt replay cannot create a new effect');}):result;
  }
  let material:Awaited<ReturnType<typeof loadOperationMaterial>>;

@@ -17,6 +17,7 @@ import {
   PeriodNotCloseableError,
 } from '@/modules/accounting/services/gl/fiscalPeriodCloseService';
 import { getFiscalPeriodById, reopenPeriod } from '@/modules/accounting/services/gl/fiscalPeriodService';
+import { assertPeriodControlAuthority } from '@/modules/accounting/services/controls/periodControl';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -117,6 +118,9 @@ export const reopenFiscalPeriodTool: McpTool = {
     const bad = guardCastableArgs(args, { uuid: ['fiscal_period_id'] });
     if (bad) return bad;
     const dryRun = args.dry_run === true;
+    // The reopen's own authority, run on the preview too: a dry run skips the
+    // write, never the guard.
+    await assertPeriodControlAuthority(ctx.companyId, ctx.userId);
 
     // Every refusal is answered from a READ, so the service call can rethrow.
     const period = await getFiscalPeriodById(ctx.companyId, periodId);
