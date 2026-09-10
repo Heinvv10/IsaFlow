@@ -10,7 +10,7 @@ import {inspectTransactionEvidence} from '@/modules/accounting/services/controls
 import {EVIDENCE_TYPES} from '@/modules/accounting/services/controls/transactionEvidenceTypes';
 const limit=z.number().int().min(1).max(100).optional(),cursor=z.string().min(1).max(2048).optional();
 const fields={entity_type:z.string().min(1).max(80),entity_id:z.string().min(1).max(80),limit,cursor};
-const history=z.object(fields).strict(),calls=z.object({after_id:z.string().uuid().optional(),limit}).strict(),graph=history.extend({entity_type:z.enum(EVIDENCE_TYPES),entity_id:z.string().uuid()}).strict();
+const history=z.object({...fields,lineage:z.string().min(1).max(80).optional()}).strict(),calls=z.object({after_id:z.string().uuid().optional(),limit}).strict(),graph=z.object({...fields,entity_type:z.enum(EVIDENCE_TYPES),entity_id:z.string().uuid()}).strict();
 const pageProperties={limit:{type:'integer',minimum:1,maximum:100},cursor:{type:'string',minLength:1,maxLength:2048}};
 function tool<T>(name:string,description:string,scope:string|null,properties:Record<string,unknown>,required:string[],schema:z.ZodType<T>,run:(input:T)=>Promise<unknown>):McpTool{
  return{name,description,scope,write:false,inputSchema:{type:'object',additionalProperties:false,properties,required},handler:async(args)=>{
@@ -18,8 +18,8 @@ function tool<T>(name:string,description:string,scope:string|null,properties:Rec
   return ok(await run(input));
  }};
 }
-const changes=tool('entity_change_history','Read exact authorized committed change evidence with explicit secret redactions, recorded actor IDs and historical gaps. Follow the signed version cursor; missing legacy evidence is not reconstructed.', 'read:audit',
- {entity_type:{type:'string',enum:[...HISTORY_ENTITY_TYPES]},entity_id:{type:'string',minLength:1,maxLength:80},...pageProperties},['entity_type','entity_id'],history,
+const changes=tool('entity_change_history','Read exact authorized committed change evidence with explicit secret redactions, recorded actor IDs and historical gaps. Follow the signed version cursor; missing legacy evidence is not reconstructed. An entity retained under two id spellings answers FORKED_LINEAGE with each lineage; read each by passing its lineage.', 'read:audit',
+ {entity_type:{type:'string',enum:[...HISTORY_ENTITY_TYPES]},entity_id:{type:'string',minLength:1,maxLength:80},lineage:{type:'string',minLength:1,maxLength:80},...pageProperties},['entity_type','entity_id'],history,
  async({entity_type,entity_id,...options})=>readControlEntityHistory(requireControlTx(),{entityType:entity_type,entityId:entity_id,...options}));
 const invocations=tool('mcp_call_history','Read sanitized recorded MCP attempts and outcomes in UUID order. Missing final outcomes remain unknown; this read does not reconcile them. Follow nextAfterId.', 'read:audit',
  {after_id:{type:'string',format:'uuid'},limit:pageProperties.limit},[],calls,

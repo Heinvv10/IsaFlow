@@ -3,6 +3,7 @@ import {assertControlledEffectPermit,type ControlledEffectPermit} from '../contr
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
 import {readControlEntityVersion} from '../controls/operationVersions';
+import {loadIntentReceipt} from '../controls/intentIdentity';
 import {assertControlTx} from '../controls/context';
 import type {ControlTx,OperationRef} from '../controls/contracts';
 import type {ApMaterial} from '../controls/apOperationMaterializer';
@@ -18,8 +19,7 @@ export async function loadBankAllocationReversal(ctx:ControlTx,id:string,permit?
  const vatLocks=await ctx.sql`SELECT * FROM vat_period_locks WHERE company_id=${company}::uuid AND period_start<=${intent.reversal_date}::date AND period_end>=${intent.reversal_date}::date ORDER BY id FOR SHARE` as Row[];
  const contras=await ctx.sql`SELECT * FROM gl_journal_entries WHERE company_id=${company}::uuid AND reversal_of_id=${original.journal.id}::uuid ORDER BY id FOR SHARE` as Row[];
  const facts={intent,original,periods,vatLocks,contras},fingerprint=createHash('sha256').update(canonicalJson(facts)).digest('hex');
- const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${company}::uuid AND operation='bank_allocation.reverse'
-  AND entity_type='bank_allocation_reversal_intent' AND entity_id=${id} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{afterFingerprint:string;reversalJournalEntryId:string}}[];
+ const effect=await loadIntentReceipt<{afterFingerprint:string;reversalJournalEntryId:string}>(ctx,{entityType:'bank_allocation_reversal_intent',entityId:id,operation:'bank_allocation.reverse'});
  if(effect){
   if(original.transfer)assertTransferBankLinks(original.transfer.banks,original.journal,original.lines,true);
   if(effect.result.afterFingerprint!==fingerprint||!original.journal.reversed_at||original.sources.bank.status!=='imported'

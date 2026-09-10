@@ -6,6 +6,7 @@ import type {ControlTx,OperationRef} from '../controls/contracts';
 import type {ApMaterial} from '../controls/apOperationMaterializer';
 import {assertControlTx} from '../controls/context';
 import {readControlEntityVersion} from '../controls/operationVersions';
+import {loadIntentReceipt,sameIntentId} from '../controls/intentIdentity';
 import {canonicalJson} from '../controls/canonical';
 import {parseCashApplicationPlan,cashApplicationTotal} from './cashApplicationPlan';
 import {loadCashApplicationSources} from './cashApplicationSources';
@@ -18,9 +19,8 @@ export async function loadCashApplicationIntent(ctx:ControlTx,id:string){
  if(plan.paymentId!==intent.payment_id||plan.kind!==intent.kind||plan.accountingDate!==intent.accounting_date||intent.currency!=='ZAR'
   ||!new D(intent.amount).eq(cashApplicationTotal(plan)))throw new Error('Cash application intent binding invalid');
  const sources=await loadCashApplicationSources(ctx,plan);
- const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${company}::uuid AND operation='cash_application.apply'
-  AND entity_type='cash_application_intent' AND entity_id=${id} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{intentId:string;afterFingerprint:string}}[];
- if(effect){if(effect.result.intentId!==id||effect.result.afterFingerprint!==sources.fingerprint)throw new Error('Cash application receipt material changed');}
+ const effect=await loadIntentReceipt<{intentId:string;afterFingerprint:string}>(ctx,{entityType:'cash_application_intent',entityId:id,operation:'cash_application.apply'});
+ if(effect){if(!sameIntentId(effect.result.intentId,id)||effect.result.afterFingerprint!==sources.fingerprint)throw new Error('Cash application receipt material changed');}
  else if(intent.source_fingerprint!==sources.fingerprint)throw new Error('Cash application sources changed');
  return{intent,plan,sources,effect};
 }

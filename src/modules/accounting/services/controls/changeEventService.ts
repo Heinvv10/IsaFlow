@@ -4,6 +4,7 @@ import { isRealCalendarDate, UUID_RE } from '@/lib/validation';
 import { assertControlTx } from './context';
 import { protectChangeValues } from './changeProtection';
 import type { ChangeEventInput, ControlTx } from './contracts';
+import { retainedLineage } from './operationVersions';
 
 /** Mandatory event and exact restricted evidence share the caller's transaction. */
 export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventInput): Promise<{ eventId: string; newVersion: number }> {
@@ -22,24 +23,31 @@ export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventIn
     // This digest protects retained ciphertext; it is not a public bank-data hash.
     const materialHash = createHash('sha256').update(protectedValues.protectedPayload.ciphertext).digest('hex');
     const p = ctx.principal;
+    // A lineage retained under another spelling of the same id is extended in place, never forked beside,
+    // and its event and evidence rows join that same lineage rather than the caller's spelling.
+    const lineages = await ctx.sql`SELECT entity_id,version FROM control_entity_versions WHERE company_id=${p.companyId}::uuid
+      AND entity_type=${input.entityType} AND lower(entity_id)=lower(${input.entityId})
+      ORDER BY version DESC,(entity_id=lower(${input.entityId})) DESC,entity_id LIMIT 2` as { entity_id: string; version: string | number }[];
+    const entityId = retainedLineage(lineages, input.entityId)?.entity_id ?? input.entityId;
     const versions = input.previousVersion === null
+      // The baseline targets the retained spelling, so a lineage retained under any spelling conflicts and refuses.
       ? await ctx.sql`INSERT INTO control_entity_versions(company_id,entity_type,entity_id,version,material_hash)
-          VALUES(${p.companyId}::uuid,${input.entityType},${input.entityId},${input.newVersion},${materialHash})
+          VALUES(${p.companyId}::uuid,${input.entityType},${entityId},${input.newVersion},${materialHash})
           ON CONFLICT(company_id,entity_type,entity_id) DO NOTHING RETURNING version`
       : await ctx.sql`UPDATE control_entity_versions SET version=${input.newVersion},material_hash=${materialHash},updated_at=clock_timestamp()
-          WHERE company_id=${p.companyId}::uuid AND entity_type=${input.entityType} AND entity_id=${input.entityId}
+          WHERE company_id=${p.companyId}::uuid AND entity_type=${input.entityType} AND entity_id=${entityId}
             AND version=${input.previousVersion} RETURNING version`;
     if (versions.length !== 1) throw new Error('Control entity version is stale');
     const evidenceId = randomUUID(), eventId = randomUUID();
     const envelope = protectedValues.protectedPayload;
     const evidenceRows = await ctx.sql`INSERT INTO control_protected_evidence(company_id,id,entity_type,entity_id,key_id,envelope_version,ciphertext)
-      VALUES(${p.companyId}::uuid,${evidenceId}::uuid,${input.entityType},${input.entityId},${envelope.keyId},${envelope.version},${envelope.ciphertext}) RETURNING id` as { id: string }[];
+      VALUES(${p.companyId}::uuid,${evidenceId}::uuid,${input.entityType},${entityId},${envelope.keyId},${envelope.version},${envelope.ciphertext}) RETURNING id` as { id: string }[];
     if (evidenceRows.length !== 1 || evidenceRows[0]?.id !== evidenceId) throw new Error('Mandatory protected evidence INSERT was not retained');
     const eventRows = await ctx.sql`INSERT INTO control_change_events(company_id,id,person_id,connection_id,grant_id,acting_firm_id,
       request_id,operation_id,provenance,entity_type,entity_id,previous_version,new_version,action,accounting_date,
       before_values,after_values,binding_hash,protected_evidence_id)
       VALUES(${p.companyId}::uuid,${eventId}::uuid,${p.personId},${p.connectionId},${p.grantId},${p.actingFirmId},
-        ${p.requestId}::uuid,${input.operationId ?? p.operationId}::uuid,${p.provenance},${input.entityType},${input.entityId},
+        ${p.requestId}::uuid,${input.operationId ?? p.operationId}::uuid,${p.provenance},${input.entityType},${entityId},
         ${input.previousVersion},${input.newVersion},${input.action},${input.accountingDate}::date,
         ${JSON.stringify(protectedValues.before)}::jsonb,${JSON.stringify(protectedValues.after)}::jsonb,
         ${input.bindingHash},${evidenceId}::uuid) RETURNING id` as { id: string }[];
