@@ -504,3 +504,71 @@ check that no per-row child query appears in the statement log (≈101 statement
 A18 constraint assertions and merge grep, the A21 CHECK and the A23 setting check. T2e records the 100k run
 under the real check-run unit with `RuntimeMaxUSec` read back, closing the spike's caveat that no runtime cap
 was in force.
+
+
+---
+
+# v7 amendments (implementation findings from T2c; nothing above is rewritten)
+
+T2c shipped at `60794ad8f`. These entries record what the database actually does, where the v6 text assumed
+otherwise, and which v6 gates moved to a later task rather than being dropped.
+
+## A24 `approval_rules` accepts exactly one aggregate shape, so §2.3's premise is wrong
+
+v6 §2.3 and A8 finding 9 assume the detector's `usable` filter (`aggregate_window_days === null &&
+aggregate_by === null`, now `journalRiskThresholds` in `journalRiskPopulationSql.ts`) is guarding against
+arbitrary windowed or grouped approval policies. It is not, because such policies cannot exist. The row
+trigger `control_version_approval_policy` on `approval_rules` raises `Unsupported aggregate approval policy`
+unless
+
+```
+(aggregate_window_days IS NULL OR aggregate_window_days = 1)
+AND (aggregate_by IS NULL OR aggregate_by = 'supplier')
+AND (aggregate_window_days IS NULL) = (aggregate_by IS NULL)
+```
+
+so the only non-null aggregate a company can hold is **one day, by supplier**. The assumption that is wrong is
+the plan's, not the trigger's: `usable` is not a broad filter over a large space of unsupported policies, it is
+a two-valued gate.
+
+`unsupported_or_bounded_current_journal_policy` is therefore reachable in production through exactly three
+doors, and the check must be read as covering those and nothing else:
+
+1. an active `journal_entry` policy with `aggregate_window_days = 1 AND aggregate_by = 'supplier'`;
+2. an active `journal_entry` policy whose `condition_field` is outside `('amount','total')`;
+3. an active `journal_entry` policy whose `condition_operator` is outside `('greater_than','greater_equal')` —
+   in practice `'any'`, which is the column default's neighbour and the commonest value in the wild.
+
+Consequences carried forward: T2c's fixture uses door 1, since it is the only aggregate the database will
+accept (`tests/integration/controls/journalRiskCheckRunFixture.ts`, the "Windowed" rule). A later plan that
+widens `usable` must widen the trigger first, and that is a root-coordinated shared object. No new detector
+work is implied — the flag already fires correctly on all three doors.
+
+**Deployed-company incidence: NOT MEASURED, and deliberately so.** Production (`isaflow`) is never queried
+from an implementation session, not even with `SELECT`. The shapes enumerated while writing this amendment
+came from the disposable synthetic fixture database `isaflow_schema_fixture` on 127.0.0.1:33149, whose rows
+are the accumulated residue of test runs and say nothing about any real tenant: there, `1/supplier` was the
+only non-null aggregate present on `journal_entry` (19 rows) alongside 45 `journal_entry` rows at operator
+`'any'` (door 3). Whether any deployed company holds a door-1, door-2 or door-3 policy is an open question for
+whoever runs the production read, and this plan does not answer it.
+
+## A25 v6 gates deferred out of T2c, with their destination
+
+- **A15 gate c0** (the vendored pre-seam `journalRiskQueries.ts` reference) and the **over-cap differential**
+  (10 001-row / 150-change fixtures, oracle at `sourceFetch` 200 001) move to **T2e**, beside the scale
+  fixture that has to build a population that large anyway. T2c implemented the A14 seam itself
+  (`loadJournalRiskPopulation(ctx, cutoff, limits = JOURNAL_RISK_DEFAULT_LIMITS)`), so the oracle can reach
+  past 10 000 as soon as a population exists to read; the differential T2c did run is at default limits over
+  1 086 rows, where neither path emits `async_scan_required:journal_population_exceeds_10000`, which is the
+  end state A20 describes.
+- **A17's statement-count gate** ("no per-row child query in the statement log, ≈101 statements for 100k
+  rows") moves to **T2e**: it is an M3-style measurement and needs the 100k population. The property it
+  measures is structural in T2c — both LATERALs travel inside the cursor body and the only per-page statement
+  is `FETCH` — but it is asserted by nothing, and a later edit could reintroduce a per-parent query silently.
+- **§4's "a run finishing inside grace succeeds" is an emulation and stays one.** The gate shortens the lease
+  to exactly `graceMs` before the run rather than letting a real 300 s run overrun into the grace window, so
+  what it proves is "work landing in the last 30 s of a lease publishes", not "work that exceeded
+  `maxRuntimeMs` publishes". The genuine half is the opposite gate, which lets the lease expire while the
+  transaction is streaming — the only way a run can cross expiry, since it holds `FOR SHARE` on the job row
+  and no competitor can shorten the lease under it. Any evidence document for this slice must say so in these
+  terms; a summary that reports the gate as "finishes inside grace: PASS" without the emulation is wrong.
