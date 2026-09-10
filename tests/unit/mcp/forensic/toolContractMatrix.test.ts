@@ -76,6 +76,10 @@ describe('every registered tool has a frozen schema/auth fixture', () => {
       if (s.items) visit(s.items);
     };
     for (const t of MCP_TOOLS) visit(t.inputSchema);
+    // The invariant, not the count: a write tool under a read:* scope is the
+    // defect class this suite exists to stop, and regenerating the frozen JSON
+    // would hide a reintroduction from every agreement check.
+    expect(MCP_TOOLS.filter(t => t.write && !(t.scope ?? '').startsWith('write:')).map(t => t.name)).toEqual([]);
     expect(MCP_TOOLS.filter(t => t.write)).toHaveLength(72);
     expect(MCP_TOOLS.filter(t => t.requiresPost)).toHaveLength(32);
   });
