@@ -126,18 +126,45 @@ function truncateForMessage(value: unknown): string {
 }
 
 /**
- * A code this codebase's own refusal classes carry: SCREAMING_SNAKE, so it
- * always contains an underscore. A pg SQLSTATE is five upper-case
- * alphanumerics and never does, and neither does a Node system code (ENOENT,
- * ECONNRESET) — so "has an underscore" admits exactly the application refusals
- * and nothing whose text could carry schema or filesystem detail.
+ * The codes this codebase's own refusal classes carry — the complete set of
+ * `readonly code = '…'` declarations under `src/`, kept in sync by
+ * `tests/unit/mcp/safeErrorTextAllowlist.test.ts`, which fails when a new one
+ * is declared and not listed here.
+ *
+ * An ALLOWLIST, not a shape test. A shape test asked "does this code look like
+ * ours" and admitted anything SCREAMING_SNAKE that reached the boundary —
+ * Node's own error codes are exactly that (`ERR_INVALID_ARG_TYPE`,
+ * `ERR_OUT_OF_RANGE`, undici's `UND_ERR_*`), and each carries an internal
+ * message naming arguments and received values. A `code` an attacker can
+ * influence would have passed too. Identity closes the class; shape only
+ * narrowed it.
+ *
+ * Failing closed here costs a new refusal class its wording until it is added,
+ * which the census test surfaces the moment it is written.
  */
-const NAMED_CODE_RE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
+const REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'BANK_ALLOCATION_REFUSED',
+  'BANK_TX_ALLOCATED',
+  'BANK_TX_LOCK_TIMEOUT',
+  'CREDIT_NOTE_LOCK_TIMEOUT',
+  'CUSTOMER_INVOICE_LOCK_TIMEOUT',
+  'GL_ACCOUNT_LOCK_TIMEOUT',
+  'PAYMENT_LOCK_TIMEOUT',
+  'RECEIPT_REFUSED',
+  'RECLASS_LINE_LOCKED',
+  'RECURRING_INVOICE_LOCK_TIMEOUT',
+  'RECURRING_INVOICE_NOT_DUE',
+  'RECURRING_INVOICE_TEMPLATE_INVALID',
+  'SUPPLIER_INVOICE_LOCK_TIMEOUT',
+  'SUPPLIER_PAYMENT_REFUSED',
+]);
 
 /**
  * Surface a service error's message ONLY when it is an application-level
- * refusal. pg / driver errors always carry a SQLSTATE `code` and could leak
- * schema names — those return the generic fallback instead.
+ * refusal this codebase raised itself. Everything else — pg SQLSTATEs, driver
+ * and library errors, anything carrying a `code` we do not own — returns the
+ * generic fallback, because their text can carry schema names, file paths and
+ * argument values.
  *
  * "No `code` at all" is NOT the test, and used to be: the services now raise
  * their refusals as typed classes carrying a NAMED code
@@ -145,15 +172,14 @@ const NAMED_CODE_RE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
  * and the old predicate read every one of them as a driver error and replaced
  * the remedy with the fallback. An agent that is told "Could not apply this
  * payment." instead of "Invoice INV-9 is cancelled and cannot receive a
- * payment." retries the same call. So the SHAPE of the code decides, the way
- * `safeLineDetail` already decides it — tighter here, because this helper
- * returns the raw message rather than a capped one.
+ * payment." retries the same call. A code-less `Error` is still surfaced: those
+ * are the codebase's own `throw new Error(...)` messages, written to be read.
  */
 export function safeErrorText(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) return fallback;
   const code = (err as { code?: unknown }).code;
   if (code === undefined) return err.message;
-  return typeof code === 'string' && NAMED_CODE_RE.test(code) ? err.message : fallback;
+  return typeof code === 'string' && REFUSAL_CODES.has(code) ? err.message : fallback;
 }
 
 /**

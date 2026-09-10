@@ -21,6 +21,7 @@
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { sql } from '@/lib/neon';
+import { requireRequestTransaction } from '../core/requestTransaction';
 import type { DbRow } from '@/lib/neon';
 
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
@@ -115,10 +116,56 @@ export async function planSupplierAllocationLines(
   return { supplierId, lines };
 }
 
+/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
+const LOCK_NOT_AVAILABLE = '55P03';
+
+/**
+ * Read the bills this allocation names, holding a row lock on each until the
+ * end of the surrounding transaction.
+ *
+ * THE LOCK IS LOAD-BEARING, and for the same reason as its AR mirror
+ * `fetchInvoiceCandidates`. Paying a bill is a check-then-act on
+ * `supplier_invoices.amount_paid`: `outstandingBefore` is read here, the
+ * over-payment guard is decided from it in `buildLine`, and the column is moved
+ * much later in `applyLineToBill`. Nothing else on the AP path locks the bill —
+ * `lockSupplierPaymentForUpdate` protects a PAYMENT the same transaction
+ * created, and `bankTxLock` protects a bank LINE, a different row per request.
+ * So two bank lines confirmed against one bill both read the same outstanding,
+ * both pass, and both apply; the only thing that ever stopped them was a
+ * collision on `uq_gl_je_company_entry_number` inside `createJournalEntry` —
+ * the money path's safety resting on an index that exists to number journals.
+ *
+ * `ORDER BY si.id` fixes the lock ORDER (`LockRows` sits above `Sort`), so two
+ * requests naming the same pair of bills take them in the same sequence and
+ * cannot deadlock against each other.
+ *
+ * A timeout is a REFUSAL: it is raised before anything on this path has been
+ * written, and retrying unchanged is the right move.
+ */
 async function fetchBillCandidates(
   companyId: string,
   paymentId: string | null,
   invoiceIds: readonly string[],
+): Promise<Map<string, BillCandidate>> {
+  const client = requireRequestTransaction('fetchBillCandidates');
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  try {
+    return await lockBillCandidates(companyId, paymentId, invoiceIds, client);
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) {
+      throw new SupplierPaymentRefusal(
+        'Another request is paying one of these bills — retry in a moment.',
+      );
+    }
+    throw err;
+  }
+}
+
+async function lockBillCandidates(
+  companyId: string,
+  paymentId: string | null,
+  invoiceIds: readonly string[],
+  client: { query: (t: string) => Promise<unknown> },
 ): Promise<Map<string, BillCandidate>> {
   const rows = (await sql`
     SELECT si.id,
@@ -136,7 +183,15 @@ async function fetchBillCandidates(
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND si.id = ANY(${[...invoiceIds]}::UUID[])
+    ORDER BY si.id
+    FOR UPDATE OF si
   `) as BillCandidate[];
+  // Restore the default on the SUCCESS path only. `SET LOCAL` lasts to the end
+  // of the TRANSACTION, so without this the 5s budget silently governs every
+  // lock taken afterwards in the same request. Deliberately NOT in a `finally`:
+  // after a timeout the transaction is aborted and this statement would itself
+  // throw 25P02, replacing the typed refusal with an opaque error.
+  await client.query('SET LOCAL lock_timeout = DEFAULT');
   return new Map(rows.map((r) => [String(r.id), r]));
 }
 

@@ -142,3 +142,51 @@ WHERE ci.company_id = $1 AND COALESCE(ci.amount_paid,0) > 0
 **Migration.** None.
 
 **Historical-data impact.** None. Nothing about what is written changed this round: the two fixes alter what a caller is TOLD (an agent now reads the remedy instead of a fallback; a racing user reads a 400 instead of a 500), and the invoice lock refuses a second application that the JE-number index was already rejecting. No row already in production is wrong because of these changes, and none is corrected by them.
+
+---
+
+## Round 7 (blind review `review-k071-r6.md`: 0 HIGH, 3 MEDIUM, 4 LOW)
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 — the round-6 self-correction made the dry-run guard blind to every UPDATE | **Fixed; the round-6 re-anchor was wrong and the reviewer's measurement is confirmed.** `/UPDATE \w+ SET/` with a literal space matches no statement in this codebase — every `UPDATE` breaks the line between the table and `SET` — so `expect(...some(...)).toBe(false)` passed on a false negative and the guard was unenforced for exactly the write it exists to catch. Now `/INSERT INTO|UPDATE\s+\w+\s+SET|DELETE FROM/`, verified against the real statement text in both directions (matches `applyLineToInvoice`'s `amount_paid` move, does not match `FOR UPDATE OF ci`). Mutation-proved: adding an `UPDATE customer_invoices SET updated_at` to the plan path turns it red. The AP twin (`supplierPaymentApplicationService.test.ts`) carried the ORIGINAL bare `/INSERT\|UPDATE\|DELETE/`, which the new `FOR UPDATE OF si` would have failed on — corrected to the same anchor rather than to the broken one. |
+| MEDIUM-2 — a contended RECEIPT answered 500 where it used to answer 400 | **Fixed.** `isPaymentLockTimeout` added beside `isBankTransactionLockTimeout` (structural, same reason), and `customer-allocations.ts` answers `PAYMENT_LOCK_TIMEOUT` with **409** and the retry wording — the way `bank-match-confirm` answers the parallel bank-line timeout. Pre-write (the lock is `planReceiptApplication`'s first act), so the 4xx `withAuth` COMMITs commits an empty transaction. New `tests/unit/api/customerAllocationsRefusalStatus.test.ts` pins all four outcomes (refusal 400, timeout 409, driver error re-thrown, post-plan failure re-thrown); removing the branch turns it red. |
+| MEDIUM-3 — the AP arm this commit rewrote has no invoice lock | **Fixed.** `fetchBillCandidates` takes `ORDER BY si.id` + `FOR UPDATE OF si` under a 5s `lock_timeout`, 55P03 → `SupplierPaymentRefusal`, a direct transcription of `fetchInvoiceCandidates`. Proved on the real fixture with two pool clients: `tests/integration/k071-bill-lock-concurrency.int.test.ts` — the loser answers **400** with the remedy and the bill's `amount_paid` is 600 with one `payment_allocations` row; removing the lock reproduces the reviewer's prediction exactly (`[200, 500]`, the `uq_gl_je_company_entry_number` collision). A held bill lock times out into a retry refusal that wrote nothing. |
+| LOW-1 — `NAMED_CODE_RE` admits Node's own `ERR_*` family | **Fixed.** The shape test is replaced by `REFUSAL_CODES`, an explicit allowlist of the 14 `readonly code = '…'` classes this repo owns. Fails CLOSED, so a census test (`git grep` over `src/`) asserts every declared code is listed and names the file to edit when one is not. New cases pin `ERR_INVALID_ARG_TYPE`, `ERR_OUT_OF_RANGE`, `ERR_ASSERTION`, `ERR_STREAM_PREMATURE_CLOSE`, `ABORT_ERR`, `UND_ERR_SOCKET` and two attacker-shaped codes as hidden; restoring the regex turns both red. The disclosure boundary is unchanged in the direction that matters — pg SQLSTATEs and non-string codes stay hidden, code-less `Error`s stay surfaced. |
+| LOW-2 — `fetchInvoiceCandidates` degrades silently outside a request transaction | **Fixed, by refusing rather than by commenting.** New `core/requestTransaction.ts#requireRequestTransaction` (the wording the four sibling lock helpers already use); both `fetchInvoiceCandidates` and the new `fetchBillCandidates` call it. Five unit test files that exercised these paths mocked no ALS store and were silently taking the skip-the-lock branch — each now stands in a request-bound client, which is also what makes the `SET LOCAL lock_timeout '5s'` / `DEFAULT` assertions possible. |
+| LOW-3 — a refusal logged at `error` level on the route | **Fixed.** `log.info` for the refusal branch, with the reason rather than the error object; the fault branch two lines above keeps `log.error`. Pinned by a test that asserts `log.error` is not called on a refusal. |
+| LOW-4 — `bankAllocationService.ts` is 768 lines | **Not fixed, deliberately.** Pre-existing and untouched by this round; splitting it is an adjacent refactor of the file every settlement path posts through, which is not something to do in a remediation branch under a blind review. Recorded here so it is carried, not lost. |
+
+**Files.** `src/lib/mcp/tools/toolHelpers.ts`; `src/modules/accounting/services/core/requestTransaction.ts` (new), `core/paymentLock.ts`; `ap/supplierAllocationLines.ts`; `ar/receiptAllocationLines.ts`; `pages/api/accounting/customer-allocations.ts`; the `ap/`, `ar/`, `core/` and `bank/` `.claude.md` files (+ their `AGENTS.md` mirrors).
+
+**Tests this round.** `tests/integration/k071-bill-lock-concurrency.int.test.ts` (2, real DB);
+`tests/unit/api/customerAllocationsRefusalStatus.test.ts` (5); `+3` each in
+`receiptApplicationService.test.ts` and `supplierPaymentApplicationService.test.ts` (lock clauses,
+timeout → refusal, refusal outside a transaction); `+3` in `typedRefusalReachesAgent.test.ts`
+(Node codes, attacker-shaped codes, the allowlist census). Full unit suite **9,488 passed /
+234 skipped** with the fixture env UNSET; **31 integration tests passed** over the branch's seven
+files on the real PostgreSQL fixture. `tsc --noEmit` and `eslint` clean; `agent-docs:check` OK.
+
+**Migration.** None, this round or any other on this branch.
+
+**Historical-data impact.** The AP lock is the only change that alters an outcome, and only for a
+race that was already failing: before it, the second of two settlements against one bill either
+collided on the JE-number index (rolled back, no rows) or — when the numbers did not collide —
+over-paid the bill. The latter leaves detectable rows. Read-only impact SQL (production, never run
+from here):
+
+```sql
+-- Bills paid beyond their total, or whose amount_paid exceeds what is allocated to them.
+SELECT si.id, si.invoice_number, si.total_amount, si.amount_paid,
+       COALESCE(SUM(pa.amount_allocated), 0) AS allocated
+FROM supplier_invoices si
+LEFT JOIN payment_allocations pa ON pa.invoice_id = si.id
+WHERE si.company_id = $1
+GROUP BY si.id
+HAVING COALESCE(si.amount_paid,0) > si.total_amount + 0.01
+    OR COALESCE(si.amount_paid,0) > COALESCE(SUM(pa.amount_allocated), 0) + 0.01;
+```
+
+**Limits.** `requireRequestTransaction` makes both candidate reads throw for any caller outside
+`withAuth` / `als.run`. Every production caller was enumerated and all are route- or MCP-bound; a
+future background job applying cash must wrap itself in `als.run` rather than removing the guard.
