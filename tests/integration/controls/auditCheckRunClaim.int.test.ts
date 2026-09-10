@@ -68,11 +68,11 @@ function observing(target:Pool,seen:Seen[]):Pool{
 it('observes a <=5 s claim timeout, the class work timeout and the per-class idle timeout in PostgreSQL',async()=>{
  const check=await checkRun(),checkSeen:Seen[]=[];
  const result=await runAuditJob(identity(check),{pool:observing(pool,checkSeen),workerClass:'check_run'});
- expect(result).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
- expect(checkSeen).toHaveLength(3);
- // Until the T2c phase exists a claimed check run fails closed, once, and is never reclaimed.
+ expect(result).toMatchObject({state:'succeeded',checkRunId:check});
+ // Two cold transactions: the bounded claim and the class-deadlined work transaction that publishes in one COMMIT.
+ expect(checkSeen).toHaveLength(2);
  expect((await pool.query('SELECT state,last_error_code,attempts,lease_id FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,check])).rows[0])
-  .toEqual({state:'failed',last_error_code:'WORKER_ERROR',attempts:1,lease_id:null});
+  .toEqual({state:'succeeded',last_error_code:null,attempts:1,lease_id:null});
  const again=vi.fn(async()=>({state:'not_claimed' as const})),poller=createAuditJobPoller({companyIds:[fixture.companyA],kinds:['audit_check_run'],batchSize:10},{pool,executeJob:again});
  while((await poller.pollOnce()).attempted>0);
  expect(again.mock.calls.map(call=>(call as unknown as [{jobId:string}])[0].jobId)).not.toContain(check);
@@ -80,7 +80,8 @@ it('observes a <=5 s claim timeout, the class work timeout and the per-class idl
  expect(checkSeen[0]!.statement).toBeLessThanOrEqual(5000);expect(checkSeen[0]!.statement).toBeGreaterThan(0);
  expect(checkSeen[1]!.statement).toBeGreaterThan(295000);expect(checkSeen[1]!.statement).toBeLessThanOrEqual(300000);
  for(const seen of checkSeen)expect(seen.idle).toBe(15000);
- expect((await pool.query('SELECT count(*)::int AS n FROM control_audit_check_results WHERE company_id=$1 AND job_id=$2',[fixture.companyA,check])).rows[0].n).toBe(0);
+ // One generation, one result row: a published run is never re-executed by a later claim.
+ expect((await pool.query('SELECT count(*)::int AS n FROM control_audit_check_results WHERE company_id=$1 AND job_id=$2',[fixture.companyA,check])).rows[0].n).toBe(1);
  const snap=await snapshot(),snapSeen:Seen[]=[];
  expect(await runAuditJob(identity(snap),{pool:observing(pool,snapSeen),workerClass:'audit'})).toMatchObject({state:'succeeded',snapshotId:snap});
  expect(snapSeen).toHaveLength(2);
