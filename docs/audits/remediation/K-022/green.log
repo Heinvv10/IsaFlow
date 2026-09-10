@@ -1,0 +1,61 @@
+K-022 — verification of the fourth review-remediation commit
+============================================================
+
+1. Integration tests (disposable fixture DB, production schema)
+   $ bun run test:integration -- tests/integration/k022
+   Test Files  2 passed (2)
+        Tests  15 passed (15)
+   - k022-payroll-recalc-drops-loan-deduction.int.test.ts    4 tests
+   - k022-payroll-loan-reversal-edge-cases.int.test.ts      11 tests
+
+2. Unit tests added for the delivery of the two refusals
+   $ bunx vitest run tests/unit/mcp/payRunLifecycle.test.ts \
+                     tests/unit/api/payrollCalculateRefusals.test.ts
+   Test Files  2 passed (2)
+        Tests  25 passed (25)
+
+3. Full unit suite, NO fixture env sourced (DATABASE_URL etc. unset)
+   $ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL -u GOTRUE_URL \
+         -u JWT_SECRET -u ENCRYPTION_KEY -u ISAFLOW_DISPOSABLE_AUTH_TEST \
+         -u DATABASE_SSL bunx vitest run
+   files 821  passed 9329  failed 0  pending 234
+   Clean. The two files that flaked in the previous two rounds
+   (cashFlowReport, bank/bankAllocationUnwind) passed here as well, which
+   confirms they were 10s-timeout flakes under parallel load rather than
+   anything this branch touched.
+
+4. Mutation checks — production change reverted, tests re-run, then restored.
+   ALL NINE KILL.
+   THIS ROUND:
+   00. shared guard narrowed to the reverse path (proves readRunLoanWork
+       is still load-bearing after the de-duplication)                    1 failed
+   PREVIOUS ROUND:
+   0a. restore assigned loan_balance_before absolutely (the regression)  1 failed
+       (the two-period test: March recalculated after April was taken)
+   0b. dry_run journal guard removed                                     1 failed
+   PREVIOUS ROUNDS, ALL RE-RUN ON THIS TREE:
+   a. journal guard narrowed back to the reverse path only        1 failed
+   b. lockLoansForRun call removed (FOR UPDATE never taken)        3 failed
+      (the reviewer's two-client test is the discriminator)
+   c. exact restore forced onto the LEAST fallback                 1 failed
+   d. tombstone `stranded` flag hardcoded false                    1 failed
+   e. exact schedule-row clear forced onto the period match        1 failed
+      (killed by the two-rows-in-one-period fixture)
+   f. success-path lock_timeout restore removed                    3 failed
+   Earlier rounds, measured on the trees they applied to, NOT re-run here:
+   g. reversal call removed from calculatePayrollRun               4 failed
+   h. tombstone INSERT removed                                     2 failed
+   i. stranded `run_id IS NULL` clause removed                     1 failed
+   j. withTransaction wrapper removed                              2 failed x3
+
+5. Gates
+   $ bunx tsc --noEmit                                        exit 0
+   $ bunx eslint <6 changed source files>                     clean
+   $ bun run agent-docs:check     OK: 74 mirrors match canonical sources
+   $ bun scripts/audit-migration-naming.ts   339 files, no new duplicate prefixes
+   $ bun scripts/ci/check-migration-rls.ts   OK: every company_id table under RLS
+   $ bun scripts/ci/check-raw-transaction-control.ts  OK: 2668 files
+
+6. Migrations 621 and 622 each applied TWICE to the fixture DB to prove
+   idempotence, and tracked in schema_migrations with a sha256 checksum.
+   Neither run against production.

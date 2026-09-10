@@ -29,7 +29,7 @@ beforeEach(() => {
 });
 
 describe('generateDueCharges', () => {
-  it('creates one queued charge per due subscription and rolls the period forward', async () => {
+  it('creates one queued charge per due subscription and leaves the period alone', async () => {
     const now = new Date('2026-05-01T00:00:00Z');
     const due = {
       company_id: 'co-1',
@@ -48,12 +48,13 @@ describe('generateDueCharges', () => {
       .mockResolvedValueOnce([] as never)          // existing charge check — none
       .mockResolvedValueOnce([{ id: 'mandate-1' }] as never) // active paystack mandate
       .mockResolvedValueOnce([] as never)          // INSERT charge
-      .mockResolvedValueOnce([] as never);         // UPDATE subscription period
+      .mockResolvedValueOnce([] as never)          // void charges of cancelling subs — none
+      .mockResolvedValueOnce([] as never);         // close out cancelling subs — none
 
     const result = await generateDueCharges(now);
 
-    expect(result).toEqual({ created: 1, skipped: 0 });
-    expect(mockSql).toHaveBeenCalledTimes(5);
+    expect(result).toEqual({ created: 1, skipped: 0, cancelled: 0, voided: 0 });
+    expect(mockSql).toHaveBeenCalledTimes(6);
   });
 
   it('applies discount_percent to the charge amount', async () => {
@@ -67,6 +68,7 @@ describe('generateDueCharges', () => {
       }] as never)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([{ id: 'm-1' }] as never)
+      .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
 
@@ -87,10 +89,12 @@ describe('generateDueCharges', () => {
         discount_percent: 0, monthly_price_cents: 10000, annual_price_cents: 0,
       }] as never)
       .mockResolvedValueOnce([] as never)           // no existing charge
-      .mockResolvedValueOnce([] as never);          // no active mandate
+      .mockResolvedValueOnce([] as never)           // no active mandate
+      .mockResolvedValueOnce([] as never)           // void — none
+      .mockResolvedValueOnce([] as never);          // close out — none
 
     const result = await generateDueCharges(now);
-    expect(result).toEqual({ created: 0, skipped: 1 });
+    expect(result).toEqual({ created: 0, skipped: 1, cancelled: 0, voided: 0 });
   });
 
   it('skips when a charge already exists for the period', async () => {
@@ -102,10 +106,23 @@ describe('generateDueCharges', () => {
         current_period_end: '2026-05-01T00:00:00Z',
         discount_percent: 0, monthly_price_cents: 10000, annual_price_cents: 0,
       }] as never)
-      .mockResolvedValueOnce([{ id: 'existing-charge' }] as never);
+      .mockResolvedValueOnce([{ id: 'existing-charge' }] as never)
+      .mockResolvedValueOnce([] as never)           // void — none
+      .mockResolvedValueOnce([] as never);          // close out — none
 
     const result = await generateDueCharges(now);
-    expect(result).toEqual({ created: 0, skipped: 1 });
+    expect(result).toEqual({ created: 0, skipped: 1, cancelled: 0, voided: 0 });
+  });
+
+  it('reports voided debits and closed-out subscriptions separately from skips', async () => {
+    const now = new Date('2026-05-01T00:00:00Z');
+    mockSql
+      .mockResolvedValueOnce([] as never)                          // no due subs
+      .mockResolvedValueOnce([{ id: 'charge-voided' }] as never)   // void
+      .mockResolvedValueOnce([{ id: 'sub-cancelled' }] as never);  // close out
+
+    const result = await generateDueCharges(now);
+    expect(result).toEqual({ created: 0, skipped: 0, cancelled: 1, voided: 1 });
   });
 });
 
@@ -129,8 +146,11 @@ describe('runQueuedCharges', () => {
   it('charges the authorization and records a settled subscription_charges row on success', async () => {
     mockSql
       .mockResolvedValueOnce([baseCharge] as never)  // SELECT charges
+      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
+      .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim the attempt
       .mockResolvedValueOnce([] as never)            // INSERT paystack_payment_requests
-      .mockResolvedValueOnce([] as never);           // UPDATE charge → settled
+      .mockResolvedValueOnce([] as never)            // UPDATE charge → settled
+      .mockResolvedValueOnce([] as never);           // advance the period
 
     mockCharge.mockResolvedValueOnce({
       status: 'success',
@@ -154,6 +174,8 @@ describe('runQueuedCharges', () => {
   it('skips when mandate is not active', async () => {
     mockSql
       .mockResolvedValueOnce([{ ...baseCharge, mandate_status: 'revoked' }] as never)
+      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
+      .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim
       .mockResolvedValueOnce([] as never); // UPDATE charge → failed
 
     const result = await runQueuedCharges();
@@ -165,6 +187,8 @@ describe('runQueuedCharges', () => {
   it('skips when paystack_authorization_code is missing', async () => {
     mockSql
       .mockResolvedValueOnce([{ ...baseCharge, paystack_authorization_code: null }] as never)
+      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
+      .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim
       .mockResolvedValueOnce([] as never);
 
     const result = await runQueuedCharges();
@@ -175,6 +199,8 @@ describe('runQueuedCharges', () => {
   it('marks charge failed when Paystack throws', async () => {
     mockSql
       .mockResolvedValueOnce([baseCharge] as never)
+      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
+      .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim
       .mockResolvedValueOnce([] as never); // UPDATE charge → failed
 
     mockCharge.mockRejectedValueOnce(new Error('insufficient funds'));
@@ -182,5 +208,17 @@ describe('runQueuedCharges', () => {
     const result = await runQueuedCharges();
 
     expect(result).toEqual({ submitted: 0, failed: 1, skipped: 0 });
+  });
+
+  it('does not charge when a concurrent run has already claimed the attempt', async () => {
+    mockSql
+      .mockResolvedValueOnce([baseCharge] as never)
+      .mockResolvedValueOnce([{ count: 0 }] as never) // unattributed live charges
+      .mockResolvedValueOnce([] as never); // claim matched no row
+
+    const result = await runQueuedCharges();
+
+    expect(result).toEqual({ submitted: 0, failed: 0, skipped: 1 });
+    expect(mockCharge).not.toHaveBeenCalled();
   });
 });

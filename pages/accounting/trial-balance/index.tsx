@@ -12,8 +12,9 @@ import type { TBRowData } from '@/components/reports/TrialBalanceRow';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { useTrialBalanceFilters } from '@/components/reports/useTrialBalanceFilters';
+
 interface CostCentre { id: string; code: string; name: string }
-interface FiscalPeriod { id: string; periodName: string; startDate: string; endDate: string; status: string }
 interface EvidenceTarget { accountId: string; accountName: string }
 
 const fmt = (n: number) =>
@@ -21,8 +22,8 @@ const fmt = (n: number) =>
 
 export default function TrialBalancePage() {
   const [rows, setRows] = useState<TBRowData[]>([]);
-  const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
-  const [selectedPeriod, setSelectedPeriod] = useState('');
+  const { periods, selectedPeriod, setSelectedPeriod, costCentreId, setCostCentreId,
+    comparePeriodId, setComparePeriodId, showMovement, setShowMovement, returnTo, filtersReady } = useTrialBalanceFilters();
   const [totalDebit, setTotalDebit] = useState(0);
   const [totalCredit, setTotalCredit] = useState(0);
   // Authoritative, from the service. Recomputing these client-side is how a
@@ -35,9 +36,6 @@ export default function TrialBalancePage() {
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
-  const [costCentreId, setCostCentreId] = useState('');
-  const [comparePeriodId, setComparePeriodId] = useState('');
-  const [showMovement, setShowMovement] = useState(false);
   const [evidenceTarget, setEvidenceTarget] = useState<EvidenceTarget | null>(null);
 
   useEffect(() => {
@@ -47,28 +45,8 @@ export default function TrialBalancePage() {
       .catch(() => { /* reference data load failure — non-critical */ });
   }, []);
 
-  useEffect(() => {
-    const todayIso = new Date().toISOString().substring(0, 10);
-    apiFetch('/api/accounting/fiscal-periods', { credentials: 'include' })
-      .then(r => r.json())
-      .then(res => {
-        const items: FiscalPeriod[] = res.data?.items || res.data || [];
-        setPeriods(items);
-        const openContainingToday = items.find(
-          p => p.status === 'open'
-            && p.startDate.substring(0, 10) <= todayIso
-            && p.endDate.substring(0, 10) >= todayIso,
-        );
-        const anyOpen = items.find(p => p.status === 'open');
-        const best = openContainingToday ?? anyOpen;
-        if (best) setSelectedPeriod(best.id);
-        else if (items.length > 0) setSelectedPeriod(items[0]!.id);
-      })
-      .catch(() => { /* non-critical — period selector remains empty */ });
-  }, []);
-
   const loadTB = useCallback(async () => {
-    if (!selectedPeriod) return;
+    if (!selectedPeriod || !filtersReady) return;
     setLoading(true); setError('');
     try {
       const params = new URLSearchParams({ fiscal_period_id: selectedPeriod });
@@ -87,12 +65,15 @@ export default function TrialBalancePage() {
       setFiscalYearStart(String(data.fiscalYearStart || ''));
     } catch { setError('Failed to load trial balance'); }
     finally { setLoading(false); }
-  }, [selectedPeriod, costCentreId, comparePeriodId]);
+  }, [selectedPeriod, costCentreId, comparePeriodId, filtersReady]);
 
   useEffect(() => { void loadTB(); }, [loadTB]);
 
   const handleExport = () => {
-    if (selectedPeriod) window.open(`/api/accounting/trial-balance-export?fiscal_period_id=${selectedPeriod}`, '_blank');
+    if (!selectedPeriod || !filtersReady) return;
+    const params = new URLSearchParams({ fiscal_period_id: selectedPeriod });
+    if (costCentreId) params.set('cost_centre_id', costCentreId);
+    window.open(`/api/accounting/trial-balance-export?${params}`, '_blank');
   };
 
   const sumOf = (key: 'openingDebit' | 'openingCredit' | 'periodDebit' | 'periodCredit') =>
@@ -223,6 +204,8 @@ export default function TrialBalancePage() {
                 <tbody>
                   {rows.map(r => (
                     <TrialBalanceRow
+                      returnTo={returnTo}
+                      costCentreId={costCentreId}
                       key={r.accountCode}
                       row={r}
                       isExpanded={expandedAccount === r.accountCode}
@@ -269,6 +252,7 @@ export default function TrialBalancePage() {
       </div>
       {evidenceTarget && (
         <EvidenceDrillModal
+          costCentreId={costCentreId}
           accountId={evidenceTarget.accountId}
           accountName={evidenceTarget.accountName}
           periodStart={drillDownStart}

@@ -4,7 +4,9 @@
  * Pure business logic — no database dependencies (testable without DB).
  */
 
-export type DepreciationMethod = 'straight_line' | 'reducing_balance' | 'sum_of_years';
+import { annualPolicyCharge, type DepreciationMethod } from './depreciationMethods';
+
+export type { DepreciationMethod };
 export type AssetStatus = 'available' | 'assigned' | 'in_maintenance' | 'disposed' | 'written_off';
 export type DisposalMethod = 'sale' | 'scrap' | 'write_off' | 'donation' | 'theft' | 'insurance_claim';
 export type SarsCategory = keyof typeof SARS_WEAR_AND_TEAR;
@@ -89,69 +91,57 @@ interface CalcInput {
   accumulatedDepreciation?: number;
 }
 
-export function calculateStraightLine(input: CalcInput): DepreciationResult {
+/**
+ * One implementation, three methods. `annualPolicyCharge` in
+ * `depreciationMethods.ts` is the single schedule the monthly run, the dry-run
+ * preview, the CSV export and the asset detail page all read, so no two of them
+ * can quote a different number for the same asset. These wrappers keep this
+ * module's (cost, salvageValue, monthsElapsed) shape for its existing callers.
+ */
+function calcByMethod(input: CalcInput, method: DepreciationMethod): DepreciationResult {
   const { cost, salvageValue, usefulLifeYears, monthsElapsed, accumulatedDepreciation } = input;
   if (usefulLifeYears <= 0 || cost <= salvageValue) {
-    return { monthlyAmount: 0, annualAmount: 0, annualRate: 0, method: 'straight_line', remainingMonths: 0 };
+    return { monthlyAmount: 0, annualAmount: 0, annualRate: 0, method, remainingMonths: 0 };
   }
   const totalMonths = usefulLifeYears * 12;
   const remainingMonths = Math.max(0, totalMonths - monthsElapsed);
-  if (remainingMonths <= 0) {
-    return { monthlyAmount: 0, annualAmount: 0, annualRate: 0, method: 'straight_line', remainingMonths: 0 };
+  const annualDep = annualPolicyCharge({
+    method, cost, residual: salvageValue, usefulLifeYears, monthsElapsed,
+  });
+  const annualRate = Math.round((annualDep / cost) * 100 * 100) / 100;
+  if (remainingMonths <= 0 || annualDep <= 0) {
+    return { monthlyAmount: 0, annualAmount: 0, annualRate, method, remainingMonths: 0 };
   }
-  const depreciableAmount = cost - salvageValue;
-  const annualDep = depreciableAmount / usefulLifeYears;
-  const annualRate = (annualDep / cost) * 100;
   let monthlyDep = Math.round((annualDep / 12) * 100) / 100;
   if (accumulatedDepreciation !== undefined) {
-    const remaining = depreciableAmount - accumulatedDepreciation;
+    const remaining = Math.round((cost - salvageValue - accumulatedDepreciation) * 100) / 100;
     if (remaining <= 0) {
-      return { monthlyAmount: 0, annualAmount: 0, annualRate: Math.round(annualRate * 100) / 100, method: 'straight_line', remainingMonths: 0 };
+      return { monthlyAmount: 0, annualAmount: 0, annualRate, method, remainingMonths: 0 };
     }
-    monthlyDep = Math.min(monthlyDep, Math.round(remaining * 100) / 100);
+    // Same final-month true-up the run applies, so this returns the figure the
+    // GL will actually carry rather than one cent-fraction short of it.
+    if (monthsElapsed === Math.round(totalMonths) - 1) monthlyDep = remaining;
+    monthlyDep = Math.min(monthlyDep, remaining);
   }
-  return { monthlyAmount: monthlyDep, annualAmount: Math.round(annualDep * 100) / 100, annualRate: Math.round(annualRate * 100) / 100, method: 'straight_line', remainingMonths };
+  return {
+    monthlyAmount: monthlyDep,
+    annualAmount: Math.round(annualDep * 100) / 100,
+    annualRate,
+    method,
+    remainingMonths,
+  };
+}
+
+export function calculateStraightLine(input: CalcInput): DepreciationResult {
+  return calcByMethod(input, 'straight_line');
 }
 
 export function calculateReducingBalance(input: CalcInput): DepreciationResult {
-  const { cost, salvageValue, usefulLifeYears, accumulatedDepreciation } = input;
-  if (usefulLifeYears <= 0 || cost <= salvageValue) {
-    return { monthlyAmount: 0, annualAmount: 0, annualRate: 0, method: 'reducing_balance', remainingMonths: 0 };
-  }
-  const rate = 2 / usefulLifeYears;
-  const annualRate = rate * 100;
-  const accum = accumulatedDepreciation ?? 0;
-  const bookValue = cost - accum;
-  const maxDepreciable = bookValue - salvageValue;
-  if (maxDepreciable <= 0) {
-    return { monthlyAmount: 0, annualAmount: 0, annualRate: Math.round(annualRate * 100) / 100, method: 'reducing_balance', remainingMonths: 0 };
-  }
-  const annualDep = bookValue * rate;
-  let monthlyDep = Math.round((annualDep / 12) * 100) / 100;
-  monthlyDep = Math.min(monthlyDep, Math.round(maxDepreciable * 100) / 100);
-  const remainingMonths = monthlyDep > 0 ? Math.ceil(maxDepreciable / monthlyDep) : 0;
-  return { monthlyAmount: monthlyDep, annualAmount: Math.round(annualDep * 100) / 100, annualRate: Math.round(annualRate * 100) / 100, method: 'reducing_balance', remainingMonths };
+  return calcByMethod(input, 'reducing_balance');
 }
 
 export function calculateSumOfYears(input: CalcInput): DepreciationResult {
-  const { cost, salvageValue, usefulLifeYears, monthsElapsed } = input;
-  if (usefulLifeYears <= 0 || cost <= salvageValue) {
-    return { monthlyAmount: 0, annualAmount: 0, annualRate: 0, method: 'sum_of_years', remainingMonths: 0 };
-  }
-  const currentYear = Math.floor(monthsElapsed / 12) + 1;
-  const totalMonths = usefulLifeYears * 12;
-  const remainingMonths = Math.max(0, totalMonths - monthsElapsed);
-  if (currentYear > usefulLifeYears || remainingMonths <= 0) {
-    return { monthlyAmount: 0, annualAmount: 0, annualRate: 0, method: 'sum_of_years', remainingMonths: 0 };
-  }
-  const sumOfDigits = (usefulLifeYears * (usefulLifeYears + 1)) / 2;
-  const remainingYears = usefulLifeYears - currentYear + 1;
-  const fraction = remainingYears / sumOfDigits;
-  const depreciableAmount = cost - salvageValue;
-  const annualDep = depreciableAmount * fraction;
-  const monthlyDep = Math.round((annualDep / 12) * 100) / 100;
-  const annualRate = Math.round((annualDep / cost) * 100 * 100) / 100;
-  return { monthlyAmount: monthlyDep, annualAmount: Math.round(annualDep * 100) / 100, annualRate, method: 'sum_of_years', remainingMonths };
+  return calcByMethod(input, 'sum_of_years');
 }
 
 export function calculateDepreciation(input: DepreciationInput): DepreciationResult {
