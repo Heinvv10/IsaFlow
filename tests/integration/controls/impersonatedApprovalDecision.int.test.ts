@@ -109,6 +109,17 @@ describe('control approval decisions under actual impersonated sessions: actual 
   expect(await status(approval.id)).toBe('pending');expect(await decisions(approval.id)).toBe(0);
  });
 
+ it('refuses the maker approving his own import from his own tenant session token',async()=>{
+  const p=await h.prepared(),approval=await h.request(p.ref);
+  await h.pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')",[h.f.companyA,h.admin]);
+  try{
+   const cookies={[ACCESS_COOKIE]:await session(h.admin,`maker-${randomUUID()}`,'aal2'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA};
+   const result=await decide(cookies,approval.id);
+   expect(result.status).toBe(500);
+   expect(result.body.message).toBe('Self approval is not permitted');
+  }finally{await h.pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[h.f.companyA,h.admin]);}
+  expect(await status(approval.id)).toBe('pending');expect(await decisions(approval.id)).toBe(0);
+ });
  it('still lets the same tenant administrator approve and the maker post from an unimpersonated session',async()=>{
   const p=await h.prepared(),approval=await h.request(p.ref);
   const result=await decide(await ordinary(`ordinary-${randomUUID()}`),approval.id);
