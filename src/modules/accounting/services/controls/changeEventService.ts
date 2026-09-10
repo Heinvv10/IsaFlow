@@ -32,16 +32,18 @@ export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventIn
     if (versions.length !== 1) throw new Error('Control entity version is stale');
     const evidenceId = randomUUID(), eventId = randomUUID();
     const envelope = protectedValues.protectedPayload;
-    await ctx.sql`INSERT INTO control_protected_evidence(company_id,id,entity_type,entity_id,key_id,envelope_version,ciphertext)
-      VALUES(${p.companyId}::uuid,${evidenceId}::uuid,${input.entityType},${input.entityId},${envelope.keyId},${envelope.version},${envelope.ciphertext})`;
-    await ctx.sql`INSERT INTO control_change_events(company_id,id,person_id,connection_id,grant_id,acting_firm_id,
+    const evidenceRows = await ctx.sql`INSERT INTO control_protected_evidence(company_id,id,entity_type,entity_id,key_id,envelope_version,ciphertext)
+      VALUES(${p.companyId}::uuid,${evidenceId}::uuid,${input.entityType},${input.entityId},${envelope.keyId},${envelope.version},${envelope.ciphertext}) RETURNING id` as { id: string }[];
+    if (evidenceRows.length !== 1 || evidenceRows[0]?.id !== evidenceId) throw new Error('Mandatory protected evidence INSERT was not retained');
+    const eventRows = await ctx.sql`INSERT INTO control_change_events(company_id,id,person_id,connection_id,grant_id,acting_firm_id,
       request_id,operation_id,provenance,entity_type,entity_id,previous_version,new_version,action,accounting_date,
       before_values,after_values,binding_hash,protected_evidence_id)
       VALUES(${p.companyId}::uuid,${eventId}::uuid,${p.personId},${p.connectionId},${p.grantId},${p.actingFirmId},
         ${p.requestId}::uuid,${input.operationId ?? p.operationId}::uuid,${p.provenance},${input.entityType},${input.entityId},
         ${input.previousVersion},${input.newVersion},${input.action},${input.accountingDate}::date,
         ${JSON.stringify(protectedValues.before)}::jsonb,${JSON.stringify(protectedValues.after)}::jsonb,
-        ${input.bindingHash},${evidenceId}::uuid)`;
+        ${input.bindingHash},${evidenceId}::uuid) RETURNING id` as { id: string }[];
+    if (eventRows.length !== 1 || eventRows[0]?.id !== eventId) throw new Error('Mandatory change event INSERT was not retained');
     return { eventId, newVersion: input.newVersion };
   } catch (error) {
     // A route catching a refusal must not commit a mutation without its evidence.
