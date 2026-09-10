@@ -25,7 +25,10 @@ export async function comparisonDispatchFixture(){
    const result=await runAuditSnapshotJob(identity(job.id),{pool});if(result.state!=='succeeded')throw new Error(`Synthetic snapshot creation failed: ${JSON.stringify(result)}`);return job.id;
   }
   const enqueue=(first:string,second=first)=>actor(()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:first,secondSnapshotId:second,idempotencyKey:randomUUID()}));
-  const original=async(id:string)=>(await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,id])).rows[0];
+  const original=async(id:string)=>({
+   snapshot:(await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,id])).rows[0],
+   artifacts:(await pool.query('SELECT artifact_id,protected_artifact FROM control_audit_snapshot_artifacts WHERE company_id=$1 AND snapshot_id=$2 ORDER BY artifact_id',[f.companyA,id])).rows,
+  });
   async function removeCompanion(id:string,removeIndex=false){
    const tables=['control_audit_comparison_source_items','control_audit_comparison_sources',...(removeIndex?['control_audit_snapshot_index_chunks','control_audit_snapshot_index_items','control_audit_snapshot_indexes']:[])];
    for(const table of tables)await pool.query(`DELETE FROM ${table} WHERE company_id=$1 AND snapshot_id=$2`,[f.companyA,id]);
