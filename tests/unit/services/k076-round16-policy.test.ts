@@ -40,7 +40,7 @@ describe('K-076 r16 HIGH-1 — a split tender printed ABOVE the total', () => {
   });
 
   it('a tender printed above the total that AGREES with it does not refuse', () => {
-    expect(unreconciledFigure(`${OCEAN}VISA 230.00\n${BLOCK}`, 230, { subtotal: 200, vatAmount: 30 })).toBeNull();
+    expect(unreconciledFigure(`${OCEAN}VISA 230.00\n${BLOCK}`, 230)).toBeNull();
   });
 });
 
@@ -48,7 +48,7 @@ describe('K-076 r16 LOW-1 — a charge printed BELOW the tender line', () => {
   it.each(['Car Guard', 'Packer', 'Trolley', 'Bag Levy', 'Waiter', 'Tronc', 'Freight',
     'Courier', 'Handling', 'Surcharge', 'Levy', 'Shipping', 'Admin', 'Booking'])('%s', (charge) => {
     const text = `${OCEAN}${BLOCK}VISA 230.00\n${charge} 23.00`;
-    expect(unreconciledFigure(text, 230, { subtotal: 200, vatAmount: 30 }))
+    expect(unreconciledFigure(text, 230))
       .toEqual({ reason: 'stray', value: 23 });
   });
 });
@@ -62,60 +62,60 @@ describe('K-076 r16 MEDIUM-2 — a payment rail the vocabulary does not know', (
     // Recognised, the sum disagrees; unrecognised, the charge is left
     // unexplained below the total. The vocabulary cannot cost money here.
     const text = `${OCEAN}${BLOCK}SERVICE 23.00\nVISA 230.00\n${rail} 23.00`;
-    expect(unreconciledFigure(text, 230, { subtotal: 200, vatAmount: 30 })).not.toBeNull();
+    expect(unreconciledFigure(text, 230)).not.toBeNull();
     expect(refusal(text, 230, 200, 30)).not.toBeNull();
   });
 
   it.each(['OZOW', 'ZAPPER', 'GIFT CARD', 'STAFF ACCOUNT'])('%s paying the whole total is ordinary', (rail) => {
     const text = `${HDR('CAFE')}Coffee 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\n${rail} 115.00`;
-    expect(unreconciledFigure(text, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
+    expect(unreconciledFigure(text, 115)).toBeNull();
   });
 
   it('a loyalty split is a payment on both legs, not an over-refusal', () => {
     const text = `${HDR('CAFE')}Coffee 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nPOINTS 15.00\nCARD 100.00`;
-    expect(unreconciledFigure(text, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
+    expect(unreconciledFigure(text, 115)).toBeNull();
   });
 
   it('a payment word that is not labelling the figure beside it is not a payment', () => {
     // `Credit card surcharge 5.00`, `points balance 1 250.00` and a mouse
     // called `MX Master 3S` were all summed as payments before r16.
     const surcharge = `${HDR('SPAR')}Milk 100.00\nCredit card surcharge 5.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00`;
-    expect(unreconciledFigure(surcharge, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
+    expect(unreconciledFigure(surcharge, 115)).toBeNull();
     const mouse = `${HDR('TAKEALOT')}1 Logitech MX Master 3S 1 899.00\nDelivery 60.00\nSub Total 1 703.48\nVAT 15% 255.52\nTotal 1 959.00`;
-    expect(unreconciledFigure(mouse, 1959, { subtotal: 1703.48, vatAmount: 255.52 })).toBeNull();
+    expect(unreconciledFigure(mouse, 1959)).toBeNull();
   });
 });
 
 describe('K-076 r16 — nothing below the total block may be unexplained', () => {
   it('a VAT recap or a tax-analysis block IS explained by the net and the tax', () => {
     const recap = `${HDR('SPAR')}Milk 100.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00\nVAT @ 15% 15.00`;
-    expect(unreconciledFigure(recap, 115, { subtotal: 100, vatAmount: 15 })).toBeNull();
+    expect(unreconciledFigure(recap, 115)).toBeNull();
     const analysis = `${HDR('ACME')}Widget 1000.00\nSub Total 1000.00\nVAT 15% 150.00\nTOTAL 1150.00\nVAT SUMMARY\nRate Net VAT\n15% 1000.00 150.00`;
-    expect(unreconciledFigure(analysis, 1150, { subtotal: 1000, vatAmount: 150 })).toBeNull();
+    expect(unreconciledFigure(analysis, 1150)).toBeNull();
   });
 
   it('an amount-due box repeated in the header does not make the line items strays', () => {
     const text = `${HDR('ACME')}AMOUNT DUE 1150.00\nWidget 1 1000.00 1000.00\nSub Total 1000.00\nVAT 15% 150.00\nTOTAL 1150.00`;
-    expect(unreconciledFigure(text, 1150, { subtotal: 1000, vatAmount: 150 })).toBeNull();
+    expect(unreconciledFigure(text, 1150)).toBeNull();
     // The BOTTOM occurrence ends the total block. Keyed off the first, every
     // line item below the header box would have to be explained, and a basket
     // of two items — neither of them the net or the tax — could not be.
     const basket = `${HDR('ACME')}AMOUNT DUE 1150.00\nWidget 1 400.00 400.00\nGadget 1 600.00 600.00\n`
       + 'Sub Total 1000.00\nVAT 15% 150.00\nTOTAL 1150.00';
-    expect(unreconciledFigure(basket, 1150, { subtotal: 1000, vatAmount: 150 })).toBeNull();
+    expect(unreconciledFigure(basket, 1150)).toBeNull();
   });
 
   it('a figure larger than the total that no payment explains is its own refusal', () => {
     // The payment is printed on a continuation line, so nothing labels the
     // amount; it is simply bigger than the total the reader chose.
     const text = `${OCEAN}${BLOCK}VISA\n**** 1234   253.00`;
-    expect(unreconciledFigure(text, 230, { subtotal: 200, vatAmount: 30 }))
+    expect(unreconciledFigure(text, 230))
       .toEqual({ reason: 'larger', value: 253 });
   });
 
   it('a part payment leaves a balance the reader cannot call the total', () => {
     const text = `${HDR('ACME')}Sub Total 5000.00\nVAT 15% 750.00\nTOTAL 5750.00\nDeposit Paid 2000.00\nBalance 3750.00`;
-    expect(unreconciledFigure(text, 5750, { subtotal: 5000, vatAmount: 750 })).not.toBeNull();
+    expect(unreconciledFigure(text, 5750)).not.toBeNull();
   });
 });
 
