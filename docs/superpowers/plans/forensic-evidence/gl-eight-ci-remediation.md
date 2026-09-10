@@ -33,3 +33,21 @@ PG tests. Only adapt after the PG scenarios pass. Request exclusive PG/static
 lease from root; close all fixture pools. Then rerun focused units, source and
 dedicated test TypeScript plus typed scoped ESLint. Root reviews named commits
 before integration. Full CI remains root-owned and required.
+
+## Actual producer verification progress
+
+`90890`: nine actual PG cases, 8 pass/1 fixture assertion failure (3.47s).
+Debit/credit refusal, no mutation, reactivation, rename, system protection,
+subtype refusal/create and foreign account assertions pass. Real approval
+already records `baseline_observed` v1 for used accounts; zero-balance
+mutation correctly retains `updated` v2. Initial one-event assumption was
+wrong. The strengthened assertion preserves both versions and exact decrypted
+updated before/after rows.
+
+`28054`: exact image comparison exposed JS Date millisecond truncation in the
+fixture; retained evidence correctly contains actual microseconds. Use SQL
+`to_jsonb` and exact bank-opening decimal text for expected persisted rows.
+`20980`: corrected SQL fixture mistakenly returned its `material` wrapper;
+`b70dc8bb1` unwraps it. Exact-image retry remains required before retiring old
+writer fixtures. All three processes terminal and fixture pools closed;
+PG/static slot released to root. No production defect inferred or changed.
