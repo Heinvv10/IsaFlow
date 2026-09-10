@@ -31,6 +31,17 @@ export const SCOPE_REMEDIATION: Partial<Record<PatScope, string>> = {
     + 'connector (or mint a new personal access token) and include "Write contacts" — the grant '
     + 'that covers creating and editing customers and suppliers, including supplier banking '
     + 'details. Existing permissions are unaffected and nothing else needs to change.',
+  // Four tools (close_fiscal_period, reopen_fiscal_period, year_end_close,
+  // lock_vat_period) moved to this scope after connections were authorised.
+  'write:locks': 'This connection cannot close, reopen or lock accounting periods or file a VAT '
+    + 'period lock. write:locks is an opt-in grant: re-authorise the connector (or mint a new '
+    + 'personal access token) and tick "Manage accounting locks". A company owner or admin can '
+    + 'grant it; a manager can only use it once an owner or admin gives them an explicit locks '
+    + 'module override, and a viewer cannot hold it. Existing permissions are unaffected.',
+  'write:bank-tx': 'This connection cannot allocate, settle or post bank transactions. '
+    + 'Re-authorise the connector (or mint a new personal access token) and include "Write bank '
+    + 'transactions" — the grant that covers allocating bank lines and settling invoices through '
+    + 'a payment. Existing permissions are unaffected.',
 };
 
 /**
