@@ -51,3 +51,28 @@ fixture; retained evidence correctly contains actual microseconds. Use SQL
 `b70dc8bb1` unwraps it. Exact-image retry remains required before retiring old
 writer fixtures. All three processes terminal and fixture pools closed;
 PG/static slot released to root. No production defect inferred or changed.
+
+## Assertion traceability and corrected verification
+
+`81232` terminal 0: corrected zero-balance case passed in 827 ms (2.80 s
+runner); eight cases filtered by the command, not committed skips. Full exact
+before/after and both baseline v1/update v2 retained. Combined with `90890`, all
+nine actual cases have passed. Pools closed and lease released before units.
+
+| Original writer assertion | Preserved proof |
+| --- | --- |
+| Named R130000 debit refusal | PG parameterized 130000 case, name + exact money + complete unchanged state |
+| Credit R450 refusal | PG parameterized -450 case, exact signed money + complete unchanged state |
+| No UPDATE on refusal | Both PG money cases inspect real forwarded queries and entire persisted state |
+| Used zero-balance account may deactivate | Two real R5000 opposite postings; exact baseline/update history and images |
+| 0.004 rounding dust allowed | Direct real `holdsMoney(1000-1000.004)` plus both signed half-cent boundaries |
+| Live-balance reactivation, no balance lookup | PG legacy inactive row, real R130000 posted money; query absence + resulting balance |
+| Metadata rename, no balance lookup | PG real R130000 posted money; query absence + unchanged resulting balance |
+| System deactivation refuses before balance query | PG real system row, query absence + entire unchanged state |
+| Expense subtype required | PG real issued create refuses with no domain/history/version/evidence mutation; valid explicit subtype positive |
+
+The two original balance-query test bodies and all seven originally passing
+subtype/import/template bodies remain unchanged. Unissued writer unit cases
+now explicitly assert the current control-context boundary without a mock
+that grants authority. Adapted focused units passed; source/dedicated test
+TypeScript and typed scoped lint remain queued, no full-CI claim.
