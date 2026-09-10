@@ -28,6 +28,12 @@ export class AuditEnqueueQuotaError extends Error {
  */
 export async function assertAuditEnqueueQuota(ctx:ControlTx,kind:AuditJobKind,count:number,maxActive?:number):Promise<void>{
  const quota=AUDIT_ENQUEUE_QUOTAS[kind],principal=ctx.principal;
+ // Today this lock is never the one that decides: every enqueue asserts write:audit first, and assertEffectivePermission
+ // calls control_lock_permission_principal (migration 626), which holds pg_advisory_xact_lock('control-authority:' ||
+ // company) to the end of the transaction — so two enqueues in one company are already serialised before either
+ // counts. That is why removing this line leaves every gate green. It stays because the quota must not depend on a
+ // permission helper's locking: if that helper ever narrows its lock (per person, or to a shorter scope), this is the
+ // lock that keeps concurrent members from both seeing room for the last slot (plan v11 A50).
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`audit-enqueue:${kind}:${principal.companyId}`},0))`;
  const [usage]=await ctx.sql`SELECT
    count(*) FILTER(WHERE i.created_at>clock_timestamp()-make_interval(hours=>${quota.windowHours}::int))::int AS company,
