@@ -755,9 +755,39 @@ Measured at `2e0ae4f36` (`git grep -l`, `src/**` + `pages/**`, `.ts`/`.tsx`):
 | `postJournalEntry(` | **39** | files that CALL it (incl. the one that defines it, `journalEntryPostingService.ts`) — the round-8 number |
 | `postJournalEntry` | **58** | files that MENTION it; the extra 19 name it only in prose/comments |
 | direct `gl_journal_*` writers that never mention it | **+2** | `pages/api/accounting/bank-transfers.ts`, `gl/assetDepreciationPosting.ts` |
-| **ledger-writing universe** | **60** | the set the next census must start from |
+| **ledger-writing universe (this file's r9 scope)** | **60** | INSERT-only scope: files that call `postJournalEntry` or `INSERT INTO gl_journal_*` directly |
 
-Enumerations at `<scratchpad>/agents/fix-k107m/{callers39,mentions58}.txt`.
+**Round 9's 60 was itself an INSERT-only scope, not the full ledger-writing
+universe.** A case-insensitive `(insert into|update) gl_journal_(entries|lines)`
+over `src/**`+`pages/**` (r11 blind review) finds four more files that write the
+journal tables directly and never mention `postJournalEntry` — three are
+`UPDATE`, one path is reached only through comments in two other files that were
+checked and excluded:
+
+| File | Write | Guard |
+|---|---|---|
+| `gl/accountMergeService.ts:70` | `UPDATE gl_journal_lines SET gl_account_id` | `lockGlAccountsForUpdate` taken first (:94) — clean |
+| `gl/journalEntryReversalClaim.ts:114,158` | `UPDATE gl_journal_entries SET reversed_by/at` | is itself the claim — clean |
+| `pages/api/accounting/provisional/[jeId]/attach.ts:59` | `UPDATE gl_journal_entries SET source_document_id` | metadata only, no status check-then-act |
+| `capture/evidenceAttachmentService.ts:102` | same | metadata only, no status check-then-act |
+
+(`src/lib/mcp/tools/writeReclassification.ts` and
+`gl/reclassification/journals.ts` match the `UPDATE gl_journal_lines` pattern
+only in a doc comment describing what they deliberately do NOT do — not
+counted.) None of the four is an unguarded check-then-act, so no code defect —
+but the 60 above is not the full universe until these are added:
+
+| Set | Count | What it is |
+|---|---|---|
+| **ledger-writing universe** | **64** | 60 (INSERT-scope) + the 4 `UPDATE`-only direct writers above |
+
+The next census must start from **64**, and state its scope (does it include
+metadata-only `UPDATE`s that never touch balance-bearing columns, or only
+writes that move an amount/account/status?) rather than repeating an
+unqualified count.
+
+Enumerations at `<scratchpad>/agents/fix-k107m/{callers39,mentions58}.txt` and
+`<scratchpad>/agents/fix-k107n/update-writers.txt` (this round).
 
 **(b) 21 of those 60 appeared nowhere in this file.** The next census could not
 tell whether they had been read and cleared or never read — the exact failure
@@ -772,7 +802,7 @@ Mention-only, and cleared — no status check-then-act ahead of a ledger write:
 | `gl/assetDepreciationPosting.ts` | Direct INSERT; called only through `postDualDepreciationToLedger`, guarded by `depreciationRunQueries.alreadyPosted` + `resolvePeriod`'s `status !== 'open'` refusal. |
 | `src/lib/mcp/tools/bulkApprovePeriods.ts` | Read-only verdicts (`SELECT` at :99); writes nothing. |
 | `afs/changesInEquityService.ts` | Reporting; the mention is a comment. No `INSERT`/`UPDATE` in the file. |
-| `ap/supplierBankPaymentService.ts` | Posts through `allocateTransaction`, which holds the bank-tx row lock (`bankTxLock.ts`); its `status !== 'imported'` read is inside that lock. |
+| `ap/supplierBankPaymentService.ts` | Its own `status !== 'imported'` read (:87-88) is a pre-validation OUTSIDE any lock — but `allocateTransaction` re-reads the row under `lockBankTransactionForUpdate` and refuses at `bank/bankAllocationService.ts:106-108`, so the outcome is safe. |
 | `ar/receiptMatchConfirmService.ts` | Same path, same lock, same shape. |
 | `ar/creditNoteCancelService.ts` | Both rows read `FOR UPDATE` (:170) before the write. |
 | `gl/closeRun/closeRunProposalBuilder.ts` | Pure builder; writes nothing (its `proposal.status` read feeds a return value). |
@@ -797,8 +827,8 @@ already carries:
 
 | File :: symbol | Risk |
 |---|---|
-| `reports/vatSubmissionService.ts` :: `submitVATReturn` | **MEDIUM.** Reads `vat_returns` for a `status='submitted'` row (:219), then posts the VAT201 journal, then INSERTs the `vat_returns` row LAST (:325). `vat_returns_company_id_period_start_period_end_key` (UNIQUE on `company_id, period_start, period_end`, confirmed on the fixture schema) makes the OUTCOME safe — the loser's 23505 aborts its transaction and unwinds its own journal — so the read is decorative under concurrency, and the caller gets an opaque 500 instead of a refusal raised before the first posting. |
-| `loans/loanPeriodCloseService.ts` :: `closeLoanPeriod` | **MEDIUM.** `isPeriodLocked(companyId, yyyymm)` read first, then a loop posting one reclassification journal per active loan, then `INSERT INTO loan_period_locks` LAST. `loan_period_locks_pkey` on `(company_id, yyyymm)` makes the outcome safe the same way, and the loser's reclass journals unwind with its transaction — but it does N postings before it discovers it lost. |
+| `reports/vatSubmissionService.ts` :: `submitVATReturn` | **MEDIUM.** Reads `vat_returns` for a `status='submitted'` row (:219), then posts the VAT201 journal, then INSERTs the `vat_returns` row LAST (:325). `vat_returns_company_id_period_start_period_end_key` (UNIQUE on `company_id, period_start, period_end`, confirmed on the fixture schema) makes the OUTCOME safe — but **not** the way this row first said. Measured with two interleaved pool clients (r11 blind review): the loser dies earlier than the `vat_returns` INSERT, on `uq_gl_je_company_entry_number`, **inside `createJournalEntry`'s `sql.transaction` SAVEPOINT** (`gl/journalEntryCrudService.ts:244`) — so the loser's OUTER transaction is not aborted, only the savepoint unwinds, and its journal never lands. The route's `catch` calls `apiResponse.badRequestFromError` (`pages/api/accounting/vat-returns/index.ts:64`), which returns **400**, not an opaque 500 — and `withAuth` COMMITs a 4xx returned after a write, which is safe here only because nothing was written before the savepoint failed. The read is still decorative under concurrency; a refusal raised before the first posting remains the fix registered below. |
+| `loans/loanPeriodCloseService.ts` :: `closeLoanPeriod` | **MEDIUM.** `isPeriodLocked(companyId, yyyymm)` read first, then a loop posting one reclassification journal per active loan, then `INSERT INTO loan_period_locks` LAST. `loan_period_locks_pkey` on `(company_id, yyyymm)` makes the outcome safe — same measured mechanism as above: the loser dies on `uq_gl_je_company_entry_number` inside `createJournalEntry`'s SAVEPOINT, not on `loan_period_locks_pkey`, so only that one journal's savepoint unwinds. The route has no `catch` around this call, so an uncaught error still reaches the framework 500 → `withAuth` ROLLBACKs the whole outer transaction — that is what keeps loans 1..N-1's already-posted journals from stranding today. If a future round wraps this route in a `catch` that answers a 4xx (the same shape LOW-2 just removed from the recurring-execute route, and the same shape this row's VAT sibling has), loans 1..N-1's journals would COMMIT live while loan N is refused — safe today is conditional on the route staying catch-less, not on the unique key. |
 
 Both belong to the same class the round-8 fix applied to `applyTaxDirective`:
 take the claim FIRST, then post. Registered for a later round, not fixed here —
@@ -844,3 +874,114 @@ are index-protected, so no duplicate VAT201 journal and no duplicate loan
 reclassification can exist from them; the pre-existing rule holds that whether
 any tenant has one from some OTHER cause is a data question this branch does not
 answer.
+
+## Round 10 — documentation only, no production code touched
+
+The r11 blind review scored `610bb7659` at 0 HIGH / 0 MEDIUM / 1 LOW
+(documentation only) and stated code is DONE. This round closes that LOW and
+one prose error the same review flagged, plus records the missing
+integration-suite measurement for `610bb7659`. No file under `src/` or `pages/`
+changed.
+
+**LOW-1 closed.** §LOW-3(a) above now states the census was an INSERT-only
+scope (60) and adds the 4 `UPDATE`-only direct writers the r11 review found
+(`accountMergeService.ts`, `journalEntryReversalClaim.ts`,
+`provisional/[jeId]/attach.ts`, `evidenceAttachmentService.ts`) — universe now
+**64**, scope stated explicitly so the next census doesn't repeat an unqualified
+count. All four re-confirmed clean (lock held first, or is itself the claim, or
+metadata-only). Grep re-run this round (`(insert into|update)
+gl_journal_(entries|lines)`, case-insensitive) independently reproduces the same
+4 files; `writeReclassification.ts` and `reclassification/journals.ts` confirmed
+to match in a doc comment only, not code.
+
+**Wording error fixed.** The §LOW-3(b) row for `ap/supplierBankPaymentService.ts`
+said its `status !== 'imported'` read is "inside that lock" — false; the read at
+`:87-88` is a pre-validation outside any lock. Corrected to point at the actual
+safety mechanism: `allocateTransaction` re-reads under
+`lockBankTransactionForUpdate` and refuses at
+`bank/bankAllocationService.ts:106-108`.
+
+**R-061 / R-062 mechanism corrected.** Both rows said the loser "23505s" and
+"aborts its transaction" on the sites' own unique keys
+(`vat_returns_company_id_period_start_period_end_key`,
+`loan_period_locks_pkey`). Measured with two interleaved pool clients: the loser
+actually dies earlier, on `uq_gl_je_company_entry_number`, inside
+`createJournalEntry`'s `sql.transaction` SAVEPOINT
+(`gl/journalEntryCrudService.ts:244`) — so only the savepoint unwinds, not the
+outer transaction. For VAT this means the route's `badRequestFromError`
+(`vat-returns/index.ts:64`) returns a real **400** that `withAuth` COMMITs, not
+an opaque 500. For the loan close, safety today depends on the route having no
+`catch` (uncaught error → framework 500 → `withAuth` ROLLBACKs everything); a
+future `catch`-and-4xx on that route would strand loans 1..N-1's journals live.
+Both rows now state the measured mechanism and this conditional. R-061/R-062
+themselves stay registered; the R-register text is the orchestrator's to
+correct, not this file's job beyond matching it.
+
+**Integration suite — the r11 measurement that was never recorded.** r11's
+review left `INTEGRATION_PLACEHOLDER` — its run never finished. Re-run this
+round in the foreground against `610bb7659` (unchanged tip; this round is
+docs-only, no recompile needed). `uptime` showed load average 35–50 (many
+concurrent agents on this box), so the suite was run TWICE in full to check
+for load-induced noise, plus the odd-looking failures were re-run alone:
+
+```
+source <scratchpad>/fixture.env && bunx vitest run --config vitest.integration.config.ts --no-file-parallelism
+# Run 1 (09:17): Test Files 33 failed | 194 passed (227)  Tests 16 failed | 1063 passed | 168 skipped (1247)
+# Run 2 (09:22): Test Files 33 failed | 194 passed (227)  Tests 16 failed | 1063 passed | 168 skipped (1247)
+```
+
+Both runs agree on the final tallies: **16 failed / 1063 passed / 168 skipped**,
+matching the count prior rounds recorded. Under this load, well over 16 files
+throw a setup-time error (connection resets / FK-constraint races from
+concurrent fixture writers) during the run, but by the end only 16 tests remain
+failed in both independent runs — those transient file-level crashes are noise
+from the shared box, not new failures; `grep` of both full logs for
+`k107|k120|k121|documentClaimLock|recurringTemplateLock|apiDocumentLock`
+against `^ FAIL ` lines returns nothing in either run.
+
+Re-ran the four odd-looking names the r11 reviewer flagged, alone, together
+(`--no-file-parallelism`, unaffected by the other agents' load once isolated to
+5 files):
+
+```
+tests/integration/k019-import-autolink-double-bind.int.test.ts
+tests/integration/k019-transfer-relink-double-bind.int.test.ts
+tests/integration/k-035-webhook-redelivery-discarded.int.test.ts
+tests/integration/opening-balances-postgres.int.test.ts
+tests/integration/financialFiguresScoping.int.test.ts
+Test Files  5 failed (5)   Tests  9 failed | 36 passed (45)
+```
+
+All 5 fail alone too — not a parallelism artifact. `git diff 9cbb75393
+610bb7659 --stat` over exactly these 5 files is **empty**: byte-identical to
+merge-base, so the branch changed nothing in them. All settle as pre-existing,
+unrelated to K-107/K-120/K-121:
+- `k019-*-double-bind.int.test.ts` (×2), `opening-balances-postgres.int.test.ts`:
+  fixture-data race — `insert or update on table "gl_journal_lines" violates
+  foreign key constraint "gl_journal_lines_account_company_fk"` — a seeded
+  cross-company account reference the fixture setup itself creates, not a
+  behaviour the K-107/120/121 branch touches.
+- `k-035-webhook-redelivery-discarded.int.test.ts`: pre-existing webhook
+  idempotency assertion failure (`expected 'completed' to be 'pending'`),
+  unrelated module.
+- `financialFiguresScoping.int.test.ts`: pre-existing Brightsphere data-defect
+  pin (fix.md elsewhere documents this as a known, tracked data issue, not a
+  code defect).
+
+### Round 10 files
+
+- `docs/audits/remediation/K-107/fix.md` — this section, the LOW-1 census
+  correction, the supplierBankPaymentService wording fix, and the R-061/R-062
+  mechanism correction.
+
+### Round 10 tests / mutation
+
+None — no production code changed, so nothing to mutate.
+
+### Round 10 migration
+
+None.
+
+### Round 10 historical impact
+
+None — no code changed.
