@@ -50,7 +50,7 @@ it('records template final parents once and emits no events on identical reseed'
  const codes=getTemplateLines('isaflow_standard').map(row=>row.code);
  const accounts=(await pool.query('SELECT id,parent_account_id FROM gl_accounts WHERE company_id=$1 AND account_code=ANY($2::text[])',[f.companyB,codes])).rows;expect(accounts).toHaveLength(codes.length);
  for(const account of accounts){const rows=await changes(account.id,f.companyB);expect(rows).toHaveLength(1);expect(rows[0].values.after?.parent_account_id).toBe(account.parent_account_id);}
- const count=Number((await pool.query("SELECT count(*) FROM control_change_events WHERE company_id=$1 AND entity_type='gl_account'",[f.companyB])).rows[0].count);expect(count).toBeGreaterThan(50);
+ const count=Number((await pool.query("SELECT count(*) FROM control_change_events WHERE company_id=$1 AND entity_type='gl_account'",[f.companyB])).rows[0].count);expect(count).toBe(codes.length);
  await actor(()=>seedChartOfAccountsFromTemplate(f.companyB,'isaflow_standard'),'u3');
  expect(Number((await pool.query("SELECT count(*) FROM control_change_events WHERE company_id=$1 AND entity_type='gl_account'",[f.companyB])).rows[0].count)).toBe(count);
 });
