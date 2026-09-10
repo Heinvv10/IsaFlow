@@ -31,7 +31,9 @@ import {
 } from './accountMergeGuards';
 import { digestLineIds, previewAccountMerge } from './accountMergePreview';
 import { recordAccountMerge } from './accountMergeRecord';
-import { lockGlAccountsForUpdate } from './glAccountLock';
+import { withGlMergeChanges } from './glMergeChangeControl';
+import { detachGlInput } from './glAccountChangeRows';
+import { requireControlTx } from '../controls/context';
 import type { PostingActorOpts } from './journalEntryMeta';
 
 export {
@@ -74,7 +76,7 @@ export async function repointMovableLines(
         ON fp.id = e.fiscal_period_id AND fp.company_id = ${companyId}::UUID
      WHERE l.company_id = ${companyId}::UUID
        AND l.gl_account_id = ${sourceId}::UUID
-       AND e.id = l.journal_entry_id
+       AND e.id = l.journal_entry_id AND e.company_id = ${companyId}::UUID
        AND (e.status <> 'posted'
             OR (e.fiscal_period_id IS NOT NULL AND fp.status = 'open'))
     RETURNING l.id
@@ -86,12 +88,18 @@ export async function mergeAccounts(
   companyId: string, sourceId: string, targetId: string,
   userId?: string, actor?: PostingActorOpts,
 ): Promise<MergeAccountsResult> {
-  // Locked FIRST, so everything below reads a state no concurrent merge can
-  // change under it — `lockGlAccountsForUpdate` takes the rows in ascending id
-  // order under a 5s lock_timeout, which is what makes two opposite merges a
-  // clean wait rather than a deadlock or an unbounded stall inside the
-  // registry's savepoint.
-  await lockGlAccountsForUpdate(companyId, [sourceId, targetId]);
+  const input = detachGlInput({companyId, sourceId, targetId, userId, actor});
+  const ctx = requireControlTx();
+  if (input.userId !== undefined && input.userId !== ctx.principal.personId) throw new Error('Merge actor does not match authenticated context');
+  return withGlMergeChanges(input.companyId, input.sourceId, input.targetId, () =>
+    mergeOwnedAccounts(input.companyId, input.sourceId, input.targetId, ctx.principal.personId, {...input.actor,
+      actorType: ctx.principal.provenance === 'job' ? 'system' : ctx.principal.provenance,
+      actorTokenJti: ctx.principal.connectionId}));
+}
+
+async function mergeOwnedAccounts(
+  companyId: string, sourceId: string, targetId: string, userId: string, actor?: PostingActorOpts,
+): Promise<MergeAccountsResult> {
 
   const source = await loadMergeAccount(companyId, sourceId);
   const target = await loadMergeAccount(companyId, targetId);
@@ -137,8 +145,8 @@ export async function mergeAccounts(
   // an executable check rather than by memory: `accountMergeRecordDb.test.ts >
   // the classifier and the write-time predicate select the SAME rows`
   // enumerates both sides and compares them by id. The count check below
-  // catches drift in how MANY rows move; only that test catches a same-count
-  // substitution that changes WHICH. They are not extracted into a shared
+  // catches drift in how MANY rows move; the capture boundary also checks the
+  // exact identity and complete retained after-state, catching same-count substitutions. They are not extracted into a shared
   // fragment because a tagged template cannot take one without concatenating
   // SQL in JavaScript, which this repo forbids outright.
   //
