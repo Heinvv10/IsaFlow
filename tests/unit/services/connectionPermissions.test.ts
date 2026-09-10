@@ -5,7 +5,7 @@ vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:
 import {getConnectionPermissions} from '@/modules/accounting/services/controls/connectionPermissionsService';
 import {connectionPermissionsTool} from '@/lib/mcp/tools/forensicAccess';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
-const ctx={principal:{companyId:'company',personId:'person',authMethod:'pat',connectionId:'opaque',grantId:'grant',actingFirmId:null,grantedScopes:['secret-unused']}} as ControlTx;
+const ctx:ControlTx={sql:vi.fn(async()=>[]),principal:{companyId:'company',personId:'person',authMethod:'pat',connectionId:'opaque',grantId:'grant',actingFirmId:null,grantedScopes:['secret-unused'],requestId:'request',operationId:'operation',provenance:'agent',delegatedByPersonId:null}};
 beforeEach(()=>{vi.clearAllMocks();mock.require.mockReturnValue(ctx);mock.resolve.mockResolvedValue({companyId:'company',personId:'person',role:'viewer',permissions:['read:reports','read:bank-tx'],denied:{'write:accounts':'ENTITY_REQUIRED','read:access':'ROLE_CEILING'}});});
 it('preserves policy reasons and separates conditional from executable rights',async()=>{
  const value=await getConnectionPermissions(ctx);expect(mock.resolve).toHaveBeenCalledWith(ctx);expect(value.permissions).toEqual(['read:bank-tx','read:reports']);
