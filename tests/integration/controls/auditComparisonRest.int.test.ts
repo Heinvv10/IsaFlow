@@ -1,5 +1,6 @@
 import {beforeAll,afterAll,it,expect} from 'vitest';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
+import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
 import {auditComparisonRestFixture} from './auditComparisonRestFixture';
 import {openAuditJobRequest} from '@/modules/accounting/services/controls/auditJobProtection';
 let f:Awaited<ReturnType<typeof auditComparisonRestFixture>>,jobId:string;
@@ -25,6 +26,12 @@ it('runs the real worker and returns complete authenticated result pages over HT
  const items=[...first.body.data.items,...second.body.data.items];expect(items).toHaveLength(2);
  expect(items.map(item=>item.identity.id).sort()).toEqual([...f.records].sort());
  expect(items.every(item=>item.kind==='added'&&item.before===null&&item.after.snapshotId===f.second)).toBe(true);
+ for(const section of ['checks','evidence','evidenceGaps']){const empty=await f.request('GET',{comparisonId:jobId,section});expect(empty.status).toBe(200);expect(empty.body.data).toMatchObject({total:0,items:[],nextCursor:null,canonicalHash:first.body.data.canonicalHash});}
+ const digest=createHash('sha256').update('isaflow.audit-comparison-result.v1\n');
+ items.forEach((change,position)=>digest.update(canonicalJson({section:'records',position,change})+'\n'));
+ const header=first.body.data;expect(header).toMatchObject({version:1,companyId:f.f.companyA,permissions:['read:payroll','read:reports']});
+ digest.update(canonicalJson({version:header.version,comparisonRuleVersion:header.comparisonRuleVersion,companyId:header.companyId,first:header.first,second:header.second,permissions:header.permissions,counts:header.counts,populationChanged:header.populationChanged,coverageChanged:header.coverageChanged})+'\n');
+ expect(digest.digest('hex')).toBe(header.canonicalHash);
 });
 it('refuses current source revocation for both repeated enqueue and retained read, then recovers',async()=>{
  await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'payroll',false)",[f.f.companyA,f.f.u1.id]);
