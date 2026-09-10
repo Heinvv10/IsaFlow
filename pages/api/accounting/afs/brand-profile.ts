@@ -61,6 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // mapped to a 400 here, so any other failure still reaches withErrorHandler
     // and is reported as the 500 it is.
     try {
+      const previous = await getBrandProfile(companyId);
       const profile = await upsertBrandProfile(companyId, {
         primaryColour: parsed.data.primaryColour ?? '#000000',
         secondaryColour: parsed.data.secondaryColour ?? '#000000',
@@ -72,7 +73,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Allowed while a document is out for signature — blocking a company's own branding for
       // a whole signing round would be the mirror defect — but the change voids that signature,
       // so say so where the person making it will see it.
-      const warnings = await signingInvalidationWarnings(sql, companyId, 'the firm branding');
+      const signedFieldsChanged = !previous
+        || previous.logoUrl !== profile.logoUrl || previous.primaryColour !== profile.primaryColour
+        || previous.secondaryColour !== profile.secondaryColour || previous.fontFamily !== profile.fontFamily
+        || previous.coverStyle !== profile.coverStyle || previous.reportFooterText !== profile.reportFooterText;
+      const warnings = signedFieldsChanged
+        ? await signingInvalidationWarnings(sql, companyId, 'the firm branding')
+        : [];
       return apiResponse.success(res, { ...profile, warnings });
     } catch (err) {
       if (err instanceof BrandPrimaryError) {

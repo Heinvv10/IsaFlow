@@ -20,6 +20,8 @@ import {
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { Email } from '@/lib/schemas/common';
+import { sql } from '@/lib/neon';
+import { signingInvalidationWarnings } from '@/modules/accounting/services/afs/afsSigningIntegrity';
 
 const PatchBody = z.object({
   name:            z.string().min(1).max(200).optional(),
@@ -60,6 +62,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       const { name, trading_name, phone, email, website, billing_email, billing_contact, address_line1, city, province, postal_code } = parsed.data;
 
+      const before = await getCompanyDetail(companyId);
       await updateCompany(companyId, {
         name,
         trading_name,
@@ -78,6 +81,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (!updated) {
         return apiResponse.notFound(res, 'Company', companyId);
       }
+      // A rename voids the signature of any AFS document out for signature (the name is on its
+      // cover). The rename stands; the platform admin is told which signatures it voided.
+      const warnings = before && before.name !== updated.name
+        ? await signingInvalidationWarnings(sql, companyId, 'the registered company name')
+        : [];
 
       await logAdminAction(
         req.user.id,
@@ -88,7 +96,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         getIp(req)
       );
 
-      return apiResponse.success(res, updated);
+      return apiResponse.success(res, { ...updated, warnings });
     } catch (err) {
       log.error('Failed to update company', { companyId, error: err }, 'admin-api');
       return apiResponse.badRequest(res, 'Failed to update company');

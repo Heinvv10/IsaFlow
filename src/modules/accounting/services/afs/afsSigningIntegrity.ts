@@ -6,6 +6,7 @@
 // mandatory section is still signed off. Anything else is a signature over content the database no longer holds, so it is
 // refused, the reason recorded, and the document handed back for a fresh send.
 import { log } from '@/lib/logger';
+import { asLockTimeout } from './afsSectionAttestation';
 
 /** A tagged-template query: the request-bound `sql`, or a `withTransaction` tx. */
 export type Query = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
@@ -31,8 +32,8 @@ const INPUT_LABELS: Record<keyof SigningInputDigests, string> = {
  * when a company has saved none) and every section — plus one digest per input, so a refusal
  * can say which of them moved. The pre-image is jsonb text, not separator-joined text: jsonb
  * keeps NULL distinct from '' and quotes every string, so no two different inputs can produce
- * the same bytes by trading text across a field boundary. The same expression stamps documents
- * already out for signature in migration 683; the grandfather tests prove the two agree.
+ * the same bytes by trading text across a field boundary. section_type is included because it
+ * decides which chart a section is drawn with. This is the only copy of the expression.
  */
 export async function documentContentFingerprint(
   q: Query,
@@ -59,7 +60,7 @@ export async function documentContentFingerprint(
                'report_footer_text', b.report_footer_text) END AS brand_part,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object(
-                   'id', s.id, 'sort_order', s.sort_order, 'status', s.status,
+                   'id', s.id, 'section_type', s.section_type, 'sort_order', s.sort_order, 'status', s.status,
                    'signed_off_by', s.signed_off_by, 'content', s.content, 'overrides', s.overrides,
                    'ai_narrative', s.ai_narrative, 'ai_narrative_accepted', s.ai_narrative_accepted,
                    'data_snapshot', s.data_snapshot) ORDER BY s.id)
@@ -85,7 +86,11 @@ export async function signatureRefusalReason(
   documentId: string,
   atSend: { fingerprint: string | null; digests: SigningInputDigests | null },
 ): Promise<string | null> {
-  if (!atSend.fingerprint) return 'No record of what was sent for signature';
+  // Not a state the product produces (the send records the fingerprint in the same statement
+  // that marks the document out for signature), but a hand-made row must not be signed over.
+  if (!atSend.fingerprint) {
+    return 'There is no record of what was sent for signature, so this signature cannot be matched to the statements — send it for signature again';
+  }
   // Counted on the same connection as the fingerprint, so both see one state of the document.
   const counted = (await q`
     SELECT COUNT(*)::int AS cnt
@@ -105,7 +110,7 @@ export async function signatureRefusalReason(
       AND s.status <> 'signed_off'
   `) as Record<string, unknown>[];
   const notSignedOff = Number(counted[0]?.cnt ?? 0);
-  if (notSignedOff > 0) return `${notSignedOff} mandatory section(s) are no longer signed off`;
+  if (notSignedOff > 0) return `${notSignedOff} mandatory section(s) are not signed off`;
 
   const now = await documentContentFingerprint(q, companyId, documentId);
   if (now.fingerprint === atSend.fingerprint) return null;
@@ -119,6 +124,22 @@ export async function signatureRefusalReason(
   return changed.length > 0
     ? `Changed after the document was sent for signature: ${changed.join('; ')}`
     : 'The statements changed after the document was sent for signature';
+}
+
+/**
+ * Holds the company row and its brand profile (when it has one) against change for the rest of
+ * the send. Company and brand edits are deliberately NOT refused while a document is out for
+ * signature, so without this an edit could land between the render and the fingerprint and be
+ * recorded as signed. A lock cannot stop a FIRST brand profile being inserted — the send
+ * compares the fingerprint before and after the render for exactly that.
+ */
+export async function lockRenderInputs(q: Query, companyId: string): Promise<void> {
+  try {
+    await q`SELECT id FROM companies WHERE id = ${companyId}::UUID FOR SHARE`;
+    await q`SELECT id FROM brand_profiles WHERE company_id = ${companyId}::UUID FOR SHARE`;
+  } catch (err) {
+    throw asLockTimeout(err, 'The company settings');
+  }
 }
 
 /** Documents of this company whose signature an edit to its settings or branding will void. */
