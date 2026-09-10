@@ -36,8 +36,9 @@ it('refuses a live AP contra settlement without write:bank-tx and leaves the led
 },60000);
 it('runs that same authority on the AP preview',async()=>{
  const preview=await f.rpcToken(await f.scopedToken(['write:invoices','write:post']),'settle_by_contra',{...settlement(),dry_run:true,idempotency_key:randomUUID()});
- expect(text(preview),'preview without write:bank-tx').toBe(GENERIC);
+ expect(text(preview),'preview without write:bank-tx').toContain('write:bank-tx');
  const allowed=await f.rpcToken(await f.scopedToken(['write:invoices','write:post','write:bank-tx']),'settle_by_contra',{...settlement(),dry_run:true,idempotency_key:randomUUID()});
  expect(text(allowed)).not.toBe(GENERIC);
+ expect(text(allowed)).not.toContain('Insufficient scope');
  expect(await count('SELECT count(*)::int AS n FROM supplier_payments WHERE company_id=$1',[f.fixture.companyA])).toBe(0);
 },60000);

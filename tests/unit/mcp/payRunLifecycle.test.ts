@@ -16,8 +16,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/mcp/tools/payrollPreviewApproval', () => ({
-  payrollApprovalRequired: vi.fn(async () => false),
-  PAYROLL_APPROVAL_REQUIRED_TEXT: 'approval required',
+  payrollPreviewRefusal: vi.fn(async () => null),
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
