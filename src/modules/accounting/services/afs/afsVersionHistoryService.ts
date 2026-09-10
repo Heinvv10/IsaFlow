@@ -1,7 +1,7 @@
 // src/modules/accounting/services/afs/afsVersionHistoryService.ts
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { assertIndependentRequestReview } from '@/modules/accounting/services/controls/independentReview';
+import { lockSectionForWrite, voidSectionAttestation } from './afsSectionAttestation';
 import type { AfsSectionVersionEntry, NoteContent } from './afsTypes';
 
 // ── Error ───────────────────────────────────────────────────────────────────
@@ -24,43 +24,38 @@ interface SectionContentRow {
   status: string;
 }
 
+/** Reads a section of `documentId` only: a section is never reached through another document. */
 async function getSectionContent(
   companyId: string,
-  sectionId: string,
-  lock = false
+  documentId: string,
+  sectionId: string
 ): Promise<SectionContentRow | null> {
-  const rows = (lock ? await sql`
+  const rows = (await sql`
     SELECT id, content, overrides, version_history, status
     FROM afs_sections
     WHERE id = ${sectionId}
-      AND company_id = ${companyId}
-    FOR UPDATE
-  ` : await sql`
-    SELECT id, content, overrides, version_history, status
-    FROM afs_sections
-    WHERE id = ${sectionId}
+      AND document_id = ${documentId}
       AND company_id = ${companyId}
   `) as Record<string, unknown>[];
-  if (rows.length === 0) return null;
   const first = rows[0];
-  if (first === undefined) return null;
-  return first as unknown as SectionContentRow;
+  return first === undefined ? null : first as unknown as SectionContentRow;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Snapshots the current section content into version_history (prepended).
- * If the section is currently `signed_off`, resets status to `reviewed`.
- * Called by the overrides PUT handler BEFORE applying new overrides.
+ * Snapshots the current section content into version_history (prepended). A snapshot only:
+ * it changes neither content nor review state. A caller that goes on to change the content
+ * voids the review itself (voidSectionAttestation) — the snapshot cannot know whether it will.
  */
 export async function saveVersion(
   companyId: string,
+  documentId: string,
   sectionId: string,
   userId: string,
   note?: string
 ): Promise<AfsSectionVersionEntry> {
-  const section = await getSectionContent(companyId, sectionId);
+  const section = await getSectionContent(companyId, documentId, sectionId);
   if (!section) {
     throw new VersionHistoryError(`Section ${sectionId} not found for company ${companyId}`, 'NOT_FOUND');
   }
@@ -80,13 +75,13 @@ export async function saveVersion(
     UPDATE afs_sections
     SET version_history = jsonb_build_array(${JSON.stringify(newVersion)}::jsonb)
                           || COALESCE(version_history, '[]'::jsonb),
-        status = CASE WHEN status = 'signed_off' THEN 'reviewed' ELSE status END,
         updated_at = now()
     WHERE id = ${sectionId}
+      AND document_id = ${documentId}
       AND company_id = ${companyId}
   `;
 
-  log.info('Version saved', { sectionId, companyId, userId, version: newVersion.version }, 'afsVersionHistoryService');
+  log.info('Version saved', { sectionId, documentId, companyId, userId, version: newVersion.version }, 'afsVersionHistoryService');
   return newVersion;
 }
 
@@ -95,9 +90,10 @@ export async function saveVersion(
  */
 export async function listVersions(
   companyId: string,
+  documentId: string,
   sectionId: string
 ): Promise<AfsSectionVersionEntry[]> {
-  const section = await getSectionContent(companyId, sectionId);
+  const section = await getSectionContent(companyId, documentId, sectionId);
   if (!section) {
     throw new VersionHistoryError(`Section ${sectionId} not found for company ${companyId}`, 'NOT_FOUND');
   }
@@ -105,24 +101,26 @@ export async function listVersions(
 }
 
 /**
- * Restores a previous version:
- * 1. Saves current state as a new version (restore is reversible)
- * 2. Sets section.content = target version's content snapshot
- * 3. Clears section.overrides
- * 4. Never raises the review status. A restore replaces content, so whatever review
- *    covered the current content no longer covers the section: a reviewed or signed-off
- *    section drops to 'pending' and the saved snapshot records that the restore
- *    invalidated its review; any lower status is kept as it is.
+ * Restores a previous version of a section of `documentId`:
+ * 1. Locks the section and its document; refuses a locked document (ReviewError)
+ * 2. Voids any review or sign-off: restored content was not what was reviewed
+ * 3. Saves current state as a new version (restore is reversible)
+ * 4. Sets section.content and overrides to the target version's snapshot
+ * A restore never raises the review status: a reviewed or signed-off section drops to
+ * 'pending' and the saved snapshot records that the restore invalidated its review; any
+ * lower status is kept as it is.
  */
 export async function restoreVersion(
   companyId: string,
+  documentId: string,
   sectionId: string,
   version: number,
   userId: string
 ): Promise<AfsSectionVersionEntry> {
   // Locked: whether this restore invalidates a review is decided on the status a
   // concurrent reviewer has COMMITTED, not on a snapshot that review is about to replace.
-  const section = await getSectionContent(companyId, sectionId, true);
+  const locked = await lockSectionForWrite(companyId, documentId, sectionId);
+  const section = await getSectionContent(companyId, documentId, sectionId);
   if (!section) {
     throw new VersionHistoryError(`Section ${sectionId} not found for company ${companyId}`, 'NOT_FOUND');
   }
@@ -133,13 +131,12 @@ export async function restoreVersion(
     throw new VersionHistoryError(`Version ${version} not found for section ${sectionId}`, 'VERSION_NOT_FOUND');
   }
 
-  // Dropping a review is a change of review state; an impersonated session may not make it.
-  const reviewInvalidated = section.status === 'reviewed' || section.status === 'signed_off';
-  if (reviewInvalidated) assertIndependentRequestReview();
+  const reviewInvalidated = locked.status === 'reviewed' || locked.status === 'signed_off';
+  await voidSectionAttestation(companyId, locked, userId, `Restoring version ${version} replaced the section's content`);
 
   // Save current state as a new version first (so restore is reversible)
-  const saveEntry = await saveVersion(companyId, sectionId, userId, reviewInvalidated
-    ? `Restoring version ${version} invalidated the section's prior ${section.status} review`
+  const saveEntry = await saveVersion(companyId, documentId, sectionId, userId, reviewInvalidated
+    ? `Restoring version ${version} invalidated the section's prior ${locked.status} review`
     : undefined);
 
   // Now apply the target version's content and overrides
@@ -152,11 +149,12 @@ export async function restoreVersion(
         status = CASE WHEN status IN ('reviewed','signed_off') THEN 'pending' ELSE status END,
         updated_at = now()
     WHERE id = ${sectionId}
+      AND document_id = ${documentId}
       AND company_id = ${companyId}
   `;
 
   log.info('Version restored', {
-    sectionId, companyId, userId,
+    sectionId, documentId, companyId, userId,
     restoredVersion: version,
     newVersionEntry: saveEntry.version,
   }, 'afsVersionHistoryService');

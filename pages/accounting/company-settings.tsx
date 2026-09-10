@@ -36,6 +36,8 @@ export default function CompanySettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  // AFS documents out for signature whose signature the last save voided (see companies PUT).
+  const [signingWarnings, setSigningWarnings] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('details');
 
   // Deep links land on the tab they name (e.g. the "not registered for VAT"
@@ -127,6 +129,8 @@ export default function CompanySettingsPage() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(company),
       });
       if (!res.ok) throw new Error('Failed to save');
+      const saveBody = (await res.json()) as { data?: { warnings?: string[] } };
+      setSigningWarnings(saveBody.data?.warnings ?? []);
       await Promise.all([
         docNumbers.length > 0 && apiFetch('/api/accounting/company-settings?type=document-numbers', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -245,6 +249,11 @@ export default function CompanySettingsPage() {
             <CheckCircle2 className="h-4 w-4" /> Changes saved successfully
           </div>
         )}
+        {signingWarnings.map(warning => (
+          <div key={warning} className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex items-center gap-2 text-amber-500 text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0" /> {warning}
+          </div>
+        ))}
 
         {loading ? (
           <div className="flex justify-center py-12">

@@ -6,10 +6,21 @@ import { createAfsDocument } from './afsDocumentService';
 import { createAfsSection, updateAfsSection } from './afsSectionService';
 import { getKpiScorecard } from './afsKpiService';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
-import { deliverPack } from './packDeliveryService';
 import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
 
 type Row = DbRow;
+
+/**
+ * A pack generated with review SKIPPED used to be written straight to 'signed_off' — the status that
+ * LOCKS a document — with no signatory, and delivered. There is no status for "published without
+ * a signature" yet (the follow-up), and inventing one here would change a vocabulary the review
+ * workflow, the portal and the section write guard all read. Until it exists the pack is still
+ * generated, as a draft a person can open and send on, but it is NOT delivered — and the caller
+ * and the scheduler are told why, so nobody is left wondering where the month's pack went.
+ */
+export const UNREVIEWED_PACK_NOT_DELIVERED =
+  'Not delivered: a pack that skips review needs a published status that is not yet available. '
+  + 'The draft is ready to review and send by hand.';
 
 export class DuplicatePackError extends Error {
   constructor(message: string) {
@@ -28,8 +39,10 @@ export interface GeneratePackOptions {
 export interface GeneratePackResult {
   documentId: string;
   sectionsGenerated: number;
-  status: 'draft' | 'signed_off';
+  status: 'draft';
   deliveryScheduled: boolean;
+  /** Why no pack went out, when none did. Null when delivery follows the normal review path. */
+  deliveryWithheldReason: string | null;
 }
 
 interface PackData {
@@ -259,19 +272,27 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     });
   }
 
-  const finalStatus: 'draft' | 'signed_off' = config.reviewRequired ? 'draft' : 'signed_off';
+  // Always a draft: nothing here is signed, so nothing may claim a status that says it is.
+  const finalStatus = 'draft' as const;
+
+  // Delivery follows the review, as it always has. A pack that skips review is generated and
+  // held back — and the hold is written ON THE DOCUMENT, because a return value gates nothing:
+  // deliverPack reads this column, and only a document sign-off clears it.
+  const deliveryScheduled = false;
+  const deliveryWithheldReason = config.reviewRequired ? null : UNREVIEWED_PACK_NOT_DELIVERED;
 
   await sql`
-    UPDATE afs_documents SET status = ${finalStatus}, updated_at = NOW()
+    UPDATE afs_documents
+    SET status = ${finalStatus},
+        delivery_withheld_reason = ${deliveryWithheldReason},
+        updated_at = NOW()
     WHERE id = ${doc.id}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  let deliveryScheduled = false;
-  if (!config.reviewRequired) {
-    await deliverPack(doc.id, companyId);
-    deliveryScheduled = true;
+  if (deliveryWithheldReason) {
+    log.warn('Pack generated but not delivered', { companyId, period, documentId: doc.id, reason: deliveryWithheldReason }, 'managementPackGeneratorService');
   }
 
-  log.info('Pack generated', { companyId, period, documentId: doc.id, finalStatus }, 'managementPackGeneratorService');
-  return { documentId: doc.id, sectionsGenerated: sectionRows.length, status: finalStatus, deliveryScheduled };
+  log.info('Pack generated', { companyId, period, documentId: doc.id, finalStatus, deliveryWithheldReason }, 'managementPackGeneratorService');
+  return { documentId: doc.id, sectionsGenerated: sectionRows.length, status: finalStatus, deliveryScheduled, deliveryWithheldReason };
 }

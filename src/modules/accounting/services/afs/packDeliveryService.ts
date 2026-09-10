@@ -20,11 +20,20 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/** The statuses that mean a person has signed the pack off. Everything else is a draft. */
+const SIGNED_STATUSES = new Set(['signed_off', 'filed']);
+const DRAFT_MARK = 'DRAFT — NOT FOR DISTRIBUTION';
+
 // ── PDF stub ─────────────────────────────────────────────────────────────────
-async function generatePackPdf(documentId: string, companyId: string): Promise<Buffer | null> {
+async function generatePackPdf(documentId: string, companyId: string, documentStatus: string): Promise<Buffer | null> {
   try {
     const { exportToPdf } = await import('./pdfExportService');
-    return await exportToPdf(documentId, companyId, { skipChecks: true });
+    // A pack that is not signed off goes out marked as a draft, so a draft-tier recipient can
+    // never mistake an unreviewed pack for a signed one.
+    return await exportToPdf(documentId, companyId, {
+      skipChecks: true,
+      ...(SIGNED_STATUSES.has(documentStatus) ? {} : { watermark: DRAFT_MARK }),
+    });
   } catch (err) {
     log.warn(
       'PDF generation failed — delivering email without attachment',
@@ -76,6 +85,7 @@ function buildPackEmailHtml(params: {
   period: string;
   kpis: KpiResult[];
   portalUrl: string;
+  isDraft: boolean;
 }): string {
   const topKpis = [...params.kpis]
     .sort((a, b) => {
@@ -95,7 +105,12 @@ function buildPackEmailHtml(params: {
     )
     .join('');
 
+  // The KPI figures travel in the body as well as the PDF, so the draft mark does too.
+  const draftBanner = params.isDraft
+    ? `<p style="background:#fef3c7;color:#92400e;font-weight:700;padding:8px 12px;border-radius:4px;margin:0 0 16px;">${DRAFT_MARK} — this pack has not been signed off.</p>`
+    : '';
   const body = `
+    ${draftBanner}
     <h2 style="color:#0f172a;margin:0 0 4px;">${escapeHtml(params.companyName)}</h2>
     <p style="color:#64748b;margin:0 0 24px;">Management Accounts — ${escapeHtml(params.period)}</p>
     <h3 style="color:#0f172a;margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">KPI Dashboard</h3>
@@ -120,7 +135,8 @@ async function sendToRecipient(
   companyId: string,
 ): Promise<void> {
   const { receives } = recipient;
-  const isDraft = documentStatus === 'draft';
+  // Final-tier recipients receive signed packs only: in_review and partner_review are drafts too.
+  const isDraft = !SIGNED_STATUSES.has(documentStatus);
 
   if (receives === 'final' && isDraft) return;
   if (receives === 'draft' && !isDraft) return;
@@ -152,6 +168,20 @@ async function sendToRecipient(
 
 // ── Public interface ──────────────────────────────────────────────────────────
 
+/** Raised when the document itself says it may not go out yet. */
+export class PackDeliveryWithheldError extends Error {
+  constructor(public readonly reason: string) {
+    super(reason);
+    this.name = 'PackDeliveryWithheldError';
+  }
+}
+
+/**
+ * Sends the pack to its recipients. THE gate for that: every delivery — the route, a future
+ * scheduler, a script — passes through here, so the refusal lives here rather than in a caller.
+ * A pack generated with review SKIPPED carries delivery_withheld_reason until a person signs the
+ * document off (afsDocumentTransitions clears it and audits the release).
+ */
 export async function deliverPack(documentId: string, companyId: string): Promise<void> {
   log.info('Delivering management pack', { documentId, companyId }, 'packDeliveryService');
 
@@ -163,6 +193,12 @@ export async function deliverPack(documentId: string, companyId: string): Promis
 
   if (!doc) {
     throw new Error(`Management pack document not found: ${documentId}`);
+  }
+
+  const withheld = doc.delivery_withheld_reason as string | null;
+  if (withheld) {
+    log.warn('Pack delivery refused', { documentId, companyId, reason: withheld }, 'packDeliveryService');
+    throw new PackDeliveryWithheldError(withheld);
   }
 
   const period = String(doc.period ?? '');
@@ -178,10 +214,11 @@ export async function deliverPack(documentId: string, companyId: string): Promis
   const kpis: KpiResult[] = scorecard?.kpis ?? [];
 
   const portalUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za'}/accounting/afs/management-packs/${documentId}`;
-  const subject = `${companyName} — Management Accounts ${period}`;
-  const html = buildPackEmailHtml({ companyName, period, kpis, portalUrl });
+  const isDraft = !SIGNED_STATUSES.has(documentStatus);
+  const subject = `${isDraft ? '[DRAFT] ' : ''}${companyName} — Management Accounts ${period}`;
+  const html = buildPackEmailHtml({ companyName, period, kpis, portalUrl, isDraft });
 
-  const pdfBuffer = await generatePackPdf(documentId, companyId);
+  const pdfBuffer = await generatePackPdf(documentId, companyId, documentStatus);
 
   for (const recipient of recipients) {
     await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId);

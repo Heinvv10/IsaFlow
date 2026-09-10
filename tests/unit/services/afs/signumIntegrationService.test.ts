@@ -113,6 +113,7 @@ describe('signumIntegrationService', () => {
         '<html>AFS content</html>',
         'Annual Financial Statements — Test Co',
         [{ email: 'alice@example.com', name: 'Alice' }],
+        { contentFingerprint: 'a'.repeat(64), payloadSha256: 'b'.repeat(64) },
       );
 
       expect(result.signumDocumentId).toBe('signum-123');
@@ -147,7 +148,7 @@ describe('signumIntegrationService', () => {
         '@/modules/accounting/services/afs/signumIntegrationService'
       );
       await expect(
-        sendForSigning('doc-id-1', 'comp-id', '<html/>', 'Title', []),
+        sendForSigning('doc-id-1', 'comp-id', '<html/>', 'Title', [], { contentFingerprint: 'a'.repeat(64), payloadSha256: 'b'.repeat(64) }),
       ).rejects.toThrow('Signum create failed: 500');
     });
 
@@ -157,7 +158,7 @@ describe('signumIntegrationService', () => {
         '@/modules/accounting/services/afs/signumIntegrationService'
       );
       await expect(
-        sendForSigning('doc-id-1', 'comp-id', '<html/>', 'Title', []),
+        sendForSigning('doc-id-1', 'comp-id', '<html/>', 'Title', [], { contentFingerprint: 'a'.repeat(64), payloadSha256: 'b'.repeat(64) }),
       ).rejects.toThrow('SIGNUM_API_URL');
     });
   });

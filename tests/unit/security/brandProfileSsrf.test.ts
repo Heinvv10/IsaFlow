@@ -24,6 +24,11 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 const { checkPublicUrlMock } = vi.hoisted(() => ({ checkPublicUrlMock: vi.fn() }));
 vi.mock('@/lib/safeFetch', () => ({ checkPublicUrl: checkPublicUrlMock }));
 
+// The out-for-signature warning reads the database; it is proven against PostgreSQL in
+// tests/integration/controls/afsSigningInputsHttp.int.test.ts.
+vi.mock('@/modules/accounting/services/afs/afsSigningIntegrity', () => ({
+  withSignatureImpactWarnings: vi.fn(async (_q: unknown, _c: unknown, write: () => Promise<unknown>) => ({ result: await write(), warnings: [] })),
+}));
 vi.mock('@/modules/accounting/services/afs/brandProfileService', () => ({
   getBrandProfile: vi.fn(),
   upsertBrandProfile: vi.fn().mockResolvedValue({ id: 'bp1' }),

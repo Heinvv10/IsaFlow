@@ -17,6 +17,15 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/noteEngineService', () => ({
   generateSection: vi.fn(),
 }));
+// The section write guard (document binding, lock check, review invalidation) is proven
+// against real PostgreSQL in tests/integration/controls/afsSectionReviewIntegrityHttp.int.test.ts.
+vi.mock('@/modules/accounting/services/afs/afsSectionAttestation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/afs/afsSectionAttestation')>()),
+  lockSectionForWrite: vi.fn().mockResolvedValue({
+    id: 'section', documentId: 'document', sectionType: 'note', status: 'pending', reviewedBy: null, signedOffBy: null,
+  }),
+  voidSectionAttestation: vi.fn().mockResolvedValue(false),
+}));
 vi.mock('@/lib/apiResponse', () => {
   const validationError = vi.fn();
   // Mirror real helper: zodValidationError extracts fieldErrors and forwards
@@ -55,6 +64,7 @@ function makeReq(overrides: Partial<NextApiRequest> = {}): NextApiRequest {
     query:     { documentId: DOCUMENT_ID, sectionId: SECTION_ID },
     body:      { fiscalYear: 2025, framework: 'full_ifrs' },
     companyId: COMPANY_ID,
+    user:      { id: '44444444-4444-4444-9444-444444444444' },
     ...overrides,
   } as unknown as NextApiRequest;
 }
@@ -140,7 +150,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/regenerate', () => {
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
     expect(generateSection).toHaveBeenCalledWith(
-      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2025, 'full_ifrs',
+      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2025, 'full_ifrs', '44444444-4444-4444-9444-444444444444',
     );
     expect(apiResponse.success).toHaveBeenCalledWith(res, { sectionId: SECTION_ID });
   });
@@ -151,7 +161,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/regenerate', () => {
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
     expect(generateSection).toHaveBeenCalledWith(
-      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2024, 'ifrs_smes',
+      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2024, 'ifrs_smes', '44444444-4444-4444-9444-444444444444',
     );
   });
 });

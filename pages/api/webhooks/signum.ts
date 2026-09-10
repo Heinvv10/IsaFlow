@@ -7,13 +7,18 @@ import fs from 'fs/promises';
 import path from 'path';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
-import { afsSignedPdfPath } from '@/lib/storage/afsStorage';
+import { sql, withTransaction } from '@/lib/neon';
+import { afsQuarantinedPdfPath, afsSignedPdfPath } from '@/lib/storage/afsStorage';
 import {
   verifySignumWebhookSignature,
   downloadSignedPdf,
 } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { notifyDocumentSignedOff } from '@/modules/accounting/services/afs/portalNotificationService';
+import {
+  recordSignatureRefusal,
+  signatureRefusalReason,
+  type SigningInputDigests,
+} from '@/modules/accounting/services/afs/afsSigningIntegrity';
 
 export const config = { api: { bodyParser: false } };
 
@@ -88,11 +93,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const doc = rows[0]!;
 
-  // 3a. Idempotency guard — reject replays for document.signed when already signed_off
-  if (payload.event === 'document.signed' && doc.status === 'signed_off') {
+  // 3a. Only a document still awaiting its signature moves. A signed-off document has already
+  //     been through this (replay), and a filed one must never travel backwards.
+  if (doc.status !== 'partner_review') {
     log.info(
-      'Signed webhook replay ignored — already signed_off',
-      { documentId: doc.id, signumDocumentId: payload.documentId },
+      'Signum webhook ignored — the document is no longer awaiting signature',
+      { documentId: doc.id, status: doc.status, event: payload.event },
       'signum-webhook',
     );
     return res.status(200).json({ received: true });
@@ -102,10 +108,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (payload.event !== 'document.signed') {
     await sql`
       UPDATE afs_documents
-      SET signum_document_id  = NULL,
-          signing_requested_at = NULL,
-          updated_at           = now()
+      SET signum_document_id          = NULL,
+          signing_requested_at        = NULL,
+          signing_content_fingerprint = NULL,
+          signing_payload_sha256      = NULL,
+          signing_input_digests       = NULL,
+          updated_at                  = now()
       WHERE id = ${doc.id}::UUID AND company_id = ${doc.company_id}::UUID
+        AND status = 'partner_review'
     `;
     log.info(
       'Signum signing terminal event — signing state reset',
@@ -115,25 +125,72 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).json({ received: true });
   }
 
-  // 5. Download signed PDF from Signum
-  const pdfBuffer = await downloadSignedPdf(payload.documentId);
+  // 5. Sign off only the content that was sent. The document row is locked first, so the check
+  //    and the sign-off are one decision, and the section write guard (which refuses every edit
+  //    while signing_requested_at is set) cannot be raced by an edit that started earlier.
+  const outcome = await withTransaction(async (tx) => {
+    // A wedged peer must surface as a failed delivery Signum retries, not a pinned connection.
+    await tx`SET LOCAL lock_timeout = '5s'`;
+    const locked = (await tx`
+      SELECT status, signing_content_fingerprint, signing_input_digests
+      FROM afs_documents
+      WHERE id = ${doc.id}::UUID AND company_id = ${doc.company_id}::UUID
+      FOR UPDATE
+    `) as Array<{ status: string; signing_content_fingerprint: string | null; signing_input_digests: SigningInputDigests | null }>;
+    const row = locked[0];
+    if (!row || row.status !== 'partner_review') return { signed: false as const, reason: null };
 
-  // 6. Store PDF using STORAGE_ROOT-relative helper
-  const storagePath = afsSignedPdfPath(doc.company_id, doc.id);
-  await fs.mkdir(path.dirname(storagePath), { recursive: true });
-  await fs.writeFile(storagePath, pdfBuffer);
+    const refusal = await signatureRefusalReason(tx, doc.company_id, doc.id,
+      { fingerprint: row.signing_content_fingerprint, digests: row.signing_input_digests });
+    if (refusal) {
+      // The signatories DID sign, so the artifact is kept as evidence — in quarantine, never as
+      // the document's signed copy. Signum's API as integrated here has no void/cancel call, so
+      // a person must cancel the request at the provider; the recorded reason says so.
+      const quarantine = afsQuarantinedPdfPath(doc.company_id, doc.id, new Date().toISOString().replace(/[:.]/g, '-'));
+      // What the record claims must be what happened: the copy is only "kept" if it was
+      // actually written. The path itself stays in the log — an operator finds it there, and a
+      // client has no business reading the server's filesystem layout.
+      let kept = false;
+      try {
+        const refusedPdf = await downloadSignedPdf(payload.documentId);
+        await fs.mkdir(path.dirname(quarantine), { recursive: true });
+        await fs.writeFile(quarantine, refusedPdf);
+        kept = true;
+        log.warn('Refused signature quarantined', { documentId: doc.id, quarantine }, 'signum-webhook');
+      } catch (err) {
+        log.error('Refused signature could not be retrieved from the provider', {
+          documentId: doc.id, quarantine, error: err instanceof Error ? err.message : String(err),
+        }, 'signum-webhook');
+      }
+      await recordSignatureRefusal(tx, doc.company_id, doc.id,
+        `${refusal}. The signed copy ${kept ? 'has been kept for the operator' : 'could not be retrieved from the signature provider'}; `
+        + 'cancel the request at Signum before sending again.');
+      return { signed: false as const, reason: refusal };
+    }
 
-  // 7. Update afs_document: status → 'signed_off', locked_at, signed_pdf_path
-  await sql`
-    UPDATE afs_documents
-    SET status          = 'signed_off',
-        locked_at       = now(),
-        signed_pdf_path = ${storagePath},
-        updated_at      = now()
-    WHERE id = ${doc.id}::UUID AND company_id = ${doc.company_id}::UUID
-  `;
+    // Download and store the signed PDF only once the signature is going to be accepted.
+    const pdfBuffer = await downloadSignedPdf(payload.documentId);
+    const storagePath = afsSignedPdfPath(doc.company_id, doc.id);
+    await fs.mkdir(path.dirname(storagePath), { recursive: true });
+    await fs.writeFile(storagePath, pdfBuffer);
 
-  // 8. Notify portal contacts
+    await tx`
+      UPDATE afs_documents
+      SET status          = 'signed_off',
+          locked_at       = now(),
+          signed_pdf_path = ${storagePath},
+          updated_at      = now()
+      WHERE id = ${doc.id}::UUID AND company_id = ${doc.company_id}::UUID
+        AND status = 'partner_review'
+    `;
+    return { signed: true as const, reason: null };
+  });
+
+  if (!outcome.signed) {
+    return res.status(200).json({ received: true, ...(outcome.reason ? { refused: outcome.reason } : {}) });
+  }
+
+  // 6. Notify portal contacts
   await notifyDocumentSignedOff(doc.company_id, doc.id);
 
   log.info(

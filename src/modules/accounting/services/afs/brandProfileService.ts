@@ -27,6 +27,21 @@ function mapRow(row: Record<string, unknown>): BrandProfile {
   };
 }
 
+/**
+ * The documented default the statements are rendered with when a company has never saved a
+ * brand profile — which is the normal state: nothing in company creation writes one. Signing
+ * must not be impossible for such a company, so the signing render falls back to this, and the
+ * signing fingerprint records that the default (rather than a saved profile) was used.
+ */
+export const DEFAULT_BRAND_PROFILE: Omit<BrandProfile, 'id' | 'companyId' | 'createdAt' | 'updatedAt'> = {
+  logoUrl: null,
+  primaryColour: '#1e293b',
+  secondaryColour: '#64748b',
+  fontFamily: 'professional',
+  coverStyle: 'classic',
+  reportFooterText: null,
+};
+
 export async function getBrandProfile(companyId: string): Promise<BrandProfile | null> {
   log.info('brandProfileService.getBrandProfile', { companyId });
 
