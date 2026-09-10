@@ -9,7 +9,7 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget} from '../forensic-fixture';
 import type {PlatformImportRequestCapability} from '@/lib/auth/platformImportAuthority';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
-export type AuthorityProbe='escaped'|'identity'|'restore'|'revoke_after_gate'|'controlWriteFailed'|'criticalAuditFailed'|'txUnusable';
+export type AuthorityProbe='lock_order'|'escaped'|'identity'|'restore'|'revoke_after_gate'|'controlWriteFailed'|'criticalAuditFailed'|'txUnusable';
 interface ProbeBody {companyId:string;probe:AuthorityProbe}
 export async function platformImportAuthorityFixture(){
  const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
@@ -22,10 +22,12 @@ export async function platformImportAuthorityFixture(){
  let server:ReturnType<typeof createServer>|undefined,closed=false;
  const finished=new Map<string,()=>void>();
  let retainedCapability:PlatformImportRequestCapability|undefined,retainedContext:ControlTx|undefined;
+ const lockPids:number[]=[];let lockEntered=0,releaseLock!:()=>void;
+ const lockResume=new Promise<void>(resolve=>{releaseLock=resolve;});
  let escaped:Promise<unknown>|undefined,releaseEscaped:(()=>void)|undefined,escapedQueryRefused=false;
  async function finishEscaped(){releaseEscaped?.();await escaped;return escapedQueryRefused;}
  async function close(){
-  if(closed)return;closed=true;await finishEscaped();
+  if(closed)return;closed=true;releaseLock();await finishEscaped();
   const results=await Promise.allSettled([pool.end(),roleProbe.end(),
    import('@/lib/auth/withPlatformAdmin.pools').then(async m=>{await Promise.all([m.getAppPool().end(),m.getPlatformAdminPool().end()]);}),
    import('@/lib/neon').then(m=>m.getPoolForTests().end()),
@@ -50,6 +52,7 @@ export async function platformImportAuthorityFixture(){
    const body=req.body as ProbeBody,parent=als.getStore()!;
    const [before]=await sql`SELECT pg_backend_pid() AS pid,current_user AS role,COALESCE(current_setting('app.current_company_id',true),'') AS company`;
    retainedCapability=req.platformImportCapability;
+   if(body.probe==='lock_order')lockPids.push(Number((before as {pid:number}).pid));
    if(body.probe==='escaped'){
     let written!:()=>void;const ready=new Promise<void>(resolve=>{written=resolve;});
     const resume=new Promise<void>(resolve=>{releaseEscaped=resolve;});
@@ -69,6 +72,12 @@ export async function platformImportAuthorityFixture(){
    try{
     result=await withPlatformImportTarget(req.platformImportCapability,{action:'retain',companyId:body.companyId,sourceHash:'a'.repeat(64)},async ctx=>{
      assertControlTx(ctx);retainedContext=ctx;
+     if(body.probe==='lock_order'){
+      lockEntered++;await lockResume;
+      // Match the existing approval-authority lock order; A1 has no valid persisted admin approval yet.
+      await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${body.companyId}`},0))`;
+      await ctx.sql`SELECT id FROM users WHERE id::text=${ctx.principal.personId} FOR UPDATE`;
+     }
      const [active]=await ctx.sql`SELECT pg_backend_pid() AS pid,current_user AS role,app.current_company_id()::text AS company,auth.uid()::text AS person`;
      if(body.probe==='restore')throw new Error('Synthetic ordinary target error');
      if(['controlWriteFailed','criticalAuditFailed','txUnusable'].includes(body.probe)){
@@ -110,7 +119,19 @@ export async function platformImportAuthorityFixture(){
     const body=await response.json();await completed;return{status:response.status,body};
    }finally{finished.delete(id);}
   }
+  async function waitForLockOverlap(){
+   const deadline=Date.now()+5000;
+   while(Date.now()<deadline){
+    if(new Set(lockPids).size===2&&lockEntered>=1){
+     if(lockEntered===2)return 'both_targets';
+     const rows=await pool.query('SELECT pid,wait_event FROM pg_stat_activity WHERE pid=ANY($1::int[])',[lockPids]);
+     if(rows.rows.some((row:{wait_event:string|null})=>row.wait_event==='advisory'))return 'serialized_authority_wait';
+    }
+    await new Promise(resolve=>setTimeout(resolve,10));
+   }
+   throw new Error('Two authority requests did not overlap at the target/advisory boundary');
+  }
   async function witness(){return(await pool.query('SELECT name FROM customers WHERE company_id=$1 AND id=$2',[f.companyA,customer])).rows[0]?.name;}
-  return{f,pool,admin,customer,request,witness,close,finishEscaped,retained:()=>({capability:retainedCapability,context:retainedContext})};
+  return{f,pool,admin,customer,request,witness,close,finishEscaped,waitForLockOverlap,releaseLock,retained:()=>({capability:retainedCapability,context:retainedContext})};
  }catch(error){try{await close();}catch(cleanup){throw new AggregateError([error,cleanup],'Authority fixture setup failed');}throw error;}
 }
