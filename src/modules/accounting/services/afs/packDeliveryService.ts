@@ -152,6 +152,20 @@ async function sendToRecipient(
 
 // ── Public interface ──────────────────────────────────────────────────────────
 
+/** Raised when the document itself says it may not go out yet. */
+export class PackDeliveryWithheldError extends Error {
+  constructor(public readonly reason: string) {
+    super(reason);
+    this.name = 'PackDeliveryWithheldError';
+  }
+}
+
+/**
+ * Sends the pack to its recipients. THE gate for that: every delivery — the route, a future
+ * scheduler, a script — passes through here, so the refusal lives here rather than in a caller.
+ * A pack generated without review carries delivery_withheld_reason until a person signs the
+ * document off (afsDocumentTransitions clears it and audits the release).
+ */
 export async function deliverPack(documentId: string, companyId: string): Promise<void> {
   log.info('Delivering management pack', { documentId, companyId }, 'packDeliveryService');
 
@@ -163,6 +177,12 @@ export async function deliverPack(documentId: string, companyId: string): Promis
 
   if (!doc) {
     throw new Error(`Management pack document not found: ${documentId}`);
+  }
+
+  const withheld = doc.delivery_withheld_reason as string | null;
+  if (withheld) {
+    log.warn('Pack delivery refused', { documentId, companyId, reason: withheld }, 'packDeliveryService');
+    throw new PackDeliveryWithheldError(withheld);
   }
 
   const period = String(doc.period ?? '');

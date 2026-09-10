@@ -275,15 +275,20 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   // Always a draft: nothing here is signed, so nothing may claim a status that says it is.
   const finalStatus = 'draft' as const;
 
+  // Delivery follows the review, as it always has. A pack that skips review is generated and
+  // held back — and the hold is written ON THE DOCUMENT, because a return value gates nothing:
+  // deliverPack reads this column, and only a document sign-off clears it.
+  const deliveryScheduled = false;
+  const deliveryWithheldReason = config.reviewRequired ? null : UNREVIEWED_PACK_NOT_DELIVERED;
+
   await sql`
-    UPDATE afs_documents SET status = ${finalStatus}, updated_at = NOW()
+    UPDATE afs_documents
+    SET status = ${finalStatus},
+        delivery_withheld_reason = ${deliveryWithheldReason},
+        updated_at = NOW()
     WHERE id = ${doc.id}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  // Delivery follows the review, as it always has: the scheduler delivers on delivery_day.
-  // A pack that skips review is generated and held back, with the reason on the result.
-  const deliveryScheduled = false;
-  const deliveryWithheldReason = config.reviewRequired ? null : UNREVIEWED_PACK_NOT_DELIVERED;
   if (deliveryWithheldReason) {
     log.warn('Pack generated but not delivered', { companyId, period, documentId: doc.id, reason: deliveryWithheldReason }, 'managementPackGeneratorService');
   }

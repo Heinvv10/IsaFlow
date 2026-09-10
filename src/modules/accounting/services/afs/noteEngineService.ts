@@ -44,6 +44,13 @@ export async function generateSection(
   // Generated content replaces whatever was there, so it is bound to the document in the
   // request, refused while that document is locked or out for signature, and it voids the
   // review the old content carried.
+  //
+  // The guard is only as strong as the caller's transaction. Called from a request (the
+  // regenerate route) the lock is held to COMMIT. Called from a worker or a script with no
+  // request context, SET LOCAL lock_timeout no-ops and FOR UPDATE releases at the end of its
+  // own statement, so the check below becomes advisory — a check-then-act window that a
+  // concurrent sign-off can slip through. Any worker that drives this must open its own
+  // transaction (als.run with a client, as the audit poller does) before calling it.
   const locked = await lockSectionForWrite(companyId, documentId, sectionId);
   await voidSectionAttestation(companyId, locked, userId, 'Section regenerated from the ledger');
 
@@ -124,8 +131,8 @@ export async function generateSection(
 
 /**
  * Generates all sections in a document concurrently (ordered by sort_order).
- * Individual section failures are caught, logged, and swallowed so other
- * sections continue unaffected.
+ * Individual section failures are caught and logged so other sections continue unaffected —
+ * and RETURNED, so the caller can surface a refusal rather than lose it.
  */
 export async function generateAllSections(
   companyId: string,
@@ -133,7 +140,11 @@ export async function generateAllSections(
   fiscalYear: number,
   framework: ReportingFramework,
   userId: string,
-): Promise<void> {
+): Promise<Array<{ sectionId: string; error: string }>> {
+  // Failures are returned, not only logged: a refusal from the write guard (a locked document,
+  // a section of another document) is an answer the caller has to act on, and a log line is
+  // not an answer.
+  const failures: Array<{ sectionId: string; error: string }> = [];
   const sections = (await sql`
     SELECT s.id, s.section_type
     FROM afs_sections s
@@ -165,7 +176,10 @@ export async function generateAllSections(
           { companyId, documentId, sectionId: s.id, error: message },
           'noteEngineService',
         );
+        failures.push({ sectionId: s.id, error: message });
       }
     }),
   );
+
+  return failures;
 }

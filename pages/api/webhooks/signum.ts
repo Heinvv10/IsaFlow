@@ -107,6 +107,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SET signum_document_id          = NULL,
           signing_requested_at        = NULL,
           signing_content_fingerprint = NULL,
+          signing_payload_sha256      = NULL,
           updated_at                  = now()
       WHERE id = ${doc.id}::UUID AND company_id = ${doc.company_id}::UUID
         AND status = 'partner_review'
@@ -140,17 +141,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // the document's signed copy. Signum's API as integrated here has no void/cancel call, so
       // a person must cancel the request at the provider; the recorded reason says so.
       const quarantine = afsQuarantinedPdfPath(doc.company_id, doc.id, new Date().toISOString().replace(/[:.]/g, '-'));
+      // What the record claims must be what happened: the copy is only "kept" if it was
+      // actually written. The path itself stays in the log — an operator finds it there, and a
+      // client has no business reading the server's filesystem layout.
+      let kept = false;
       try {
         const refusedPdf = await downloadSignedPdf(payload.documentId);
         await fs.mkdir(path.dirname(quarantine), { recursive: true });
         await fs.writeFile(quarantine, refusedPdf);
+        kept = true;
+        log.warn('Refused signature quarantined', { documentId: doc.id, quarantine }, 'signum-webhook');
       } catch (err) {
-        log.error('Refused signature could not be quarantined', {
-          documentId: doc.id, error: err instanceof Error ? err.message : String(err),
+        log.error('Refused signature could not be retrieved from the provider', {
+          documentId: doc.id, quarantine, error: err instanceof Error ? err.message : String(err),
         }, 'signum-webhook');
       }
       await recordSignatureRefusal(tx, doc.company_id, doc.id,
-        `${refusal}. The signed copy is quarantined at ${quarantine}; cancel the request at Signum before sending again.`);
+        `${refusal}. The signed copy ${kept ? 'has been kept for the operator' : 'could not be retrieved from the signature provider'}; `
+        + 'cancel the request at Signum before sending again.');
       return { signed: false as const, reason: refusal };
     }
 
