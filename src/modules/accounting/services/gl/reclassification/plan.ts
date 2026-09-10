@@ -35,6 +35,7 @@ import {
   type ReclassSkip,
 } from './candidates';
 import { buildReclassJournals, type ReclassJournalDraft } from './journals';
+import { carryForwardDimensions } from './dimensions';
 import { computeReclassImpact, type ReclassImpact } from './impact';
 import { reclassWarnings, targetPriorSources, type ReclassWarning } from './warnings';
 
@@ -170,8 +171,15 @@ export async function planReclassification(
   // completeness identity unable to fail whatever this function did.
   const universeTotal = await countReclassCandidates(companyId, query);
 
+  // A dimension the source line carries but this company does not own is
+  // dropped here rather than copied into a journal `assertJournalLinesOwned`
+  // would then refuse — which would unwind the whole batch over one historical
+  // tag. Both legs lose it together, so nothing this company reports moves.
+  // See ./dimensions.ts.
+  const carried = await carryForwardDimensions(companyId, movable);
+
   const drafts = buildReclassJournals(
-    movable,
+    carried.lines,
     input.sourceAccountId,
     input.targetAccountId,
     {
@@ -220,6 +228,7 @@ export async function planReclassification(
   const priorSources = await targetPriorSources(companyId, target.id, source.id);
   const warnings = reclassWarnings({
     universeTotal, source, target, movable, impact, priorSources,
+    droppedDimensionLines: carried.droppedLineCount,
   });
   const postedThrough = await getLedgerPostedThrough(companyId, window.end, window.start);
 

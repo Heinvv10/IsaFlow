@@ -21,6 +21,14 @@
  *   out from under it. There is no read-side disclosure (the reports filter on
  *   these columns, none joins the dimension table for a name), so this is
  *   integrity, not exposure — but it is the same defect on the same INSERT.
+ *
+ * THE BOUNDARY. This is a check on what a CALLER ASSERTS about a new line. One
+ * writer does not assert anything: `reclassification/journals.ts` copies the
+ * three dimensions off a HISTORICAL posted line, which may already hold a
+ * foreign id — the very rows this defect created. Refusing there would unwind a
+ * whole remediation batch over one legacy tag, so that path resolves ownership
+ * itself through `ownedDimensions` and drops what it does not own, per line.
+ * See `reclassification/dimensions.ts`. Every other caller stays refused.
  */
 
 import { sql } from '@/lib/neon';
@@ -29,27 +37,60 @@ import type { JournalLineInput } from '../../types/gl.types';
 
 type Dimension = 'project' | 'cost centre' | 'business unit';
 
-/** How many of `ids` (already unique, non-empty) belong to companyId. */
-async function ownedCount(dimension: Dimension, companyId: string, ids: string[]): Promise<number> {
+/** Which of `ids` (already unique, non-empty) belong to companyId. */
+async function ownedIds(dimension: Dimension, companyId: string, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
   const rows = (dimension === 'project'
     ? await sql`SELECT id FROM projects WHERE company_id = ${companyId}::uuid AND id = ANY(${ids}::uuid[])`
     : dimension === 'cost centre'
       ? await sql`SELECT id FROM cost_centres WHERE company_id = ${companyId}::uuid AND id = ANY(${ids}::uuid[])`
       : await sql`SELECT id FROM business_units WHERE company_id = ${companyId}::uuid AND id = ANY(${ids}::uuid[])`
   ) as { id: string }[];
-  return rows.length;
+  return new Set(rows.map((r) => r.id));
 }
+
+const present = (values: readonly (string | null | undefined)[]): string[] =>
+  [...new Set(values.filter((v): v is string => typeof v === 'string' && v !== ''))];
 
 async function assertDimensionOwned(
   dimension: Dimension,
   companyId: string,
   values: (string | undefined)[],
 ): Promise<void> {
-  const unique = [...new Set(values.filter((v): v is string => typeof v === 'string' && v !== ''))];
+  const unique = present(values);
   if (unique.length === 0) return;
-  if ((await ownedCount(dimension, companyId, unique)) !== unique.length) {
+  if ((await ownedIds(dimension, companyId, unique)).size !== unique.length) {
     throw new Error(`One or more journal lines name a ${dimension} outside this company`);
   }
+}
+
+export interface DimensionRefs {
+  project: readonly (string | null | undefined)[];
+  costCentre: readonly (string | null | undefined)[];
+  businessUnit: readonly (string | null | undefined)[];
+}
+
+export interface OwnedDimensions {
+  project: ReadonlySet<string>;
+  costCentre: ReadonlySet<string>;
+  businessUnit: ReadonlySet<string>;
+}
+
+/**
+ * Which of the ids in `refs` this company actually owns — the same three reads
+ * as the assertion above, without the refusal.
+ *
+ * For the ONE caller that does not assert a caller's claim but carries a
+ * HISTORICAL value forward: see `reclassification/dimensions.ts`. Resolved once
+ * for the whole batch, so a 400-journal reclassification pays three SELECTs and
+ * not three per journal.
+ */
+export async function ownedDimensions(companyId: string, refs: DimensionRefs): Promise<OwnedDimensions> {
+  return {
+    project: await ownedIds('project', companyId, present(refs.project)),
+    costCentre: await ownedIds('cost centre', companyId, present(refs.costCentre)),
+    businessUnit: await ownedIds('business unit', companyId, present(refs.businessUnit)),
+  };
 }
 
 /**
