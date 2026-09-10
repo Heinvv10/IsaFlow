@@ -151,7 +151,7 @@ export async function confirmReceiptMatch(
   const {bankTxId,userId,allocations}=params;
   const validation=await validateBankReceiptApplication(companyId,bankTxId,allocations);
   const {journalEntryId}=await allocateTransaction(companyId,bankTxId,null,userId,'Matched customer receipt','customer',validation.customerId,
-   undefined,undefined,undefined,undefined,undefined,{...params.postingOpts,autoApply:false,applications:allocations.map(a=>({invoiceId:a.invoiceId,amount:String(a.amount)}))});
+   undefined,undefined,undefined,undefined,undefined,{...params.postingOpts,postingAgent:params.postingOpts?.postingAgent??params.postingAgent,autoApply:false,applications:allocations.map(a=>({invoiceId:a.invoiceId,amount:String(a.amount)}))});
   const rows=await sql`SELECT id,status FROM customer_payments WHERE company_id=${companyId}::uuid AND gl_journal_entry_id=${journalEntryId}::uuid` as DbRow[];
   if(rows.length!==1)throw new Error('Controlled bank receipt association unavailable');
   return{...validation,journalEntryId,customerPaymentId:String(rows[0]!.id),paymentStatus:String(rows[0]!.status)};
