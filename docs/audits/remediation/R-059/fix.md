@@ -403,7 +403,8 @@ All 30 turned red (failing/total in the target file):
 Re-run: any AFS or disclosure-note pack for a year end that had settlement after it; any
 sales/purchase or customer/supplier report for a past period; any supplier statement reconciliation
 struck at a past statement date. That last figure is STORED on `supplier_statement_reconciliations`:
-existing rows keep their old `isaflow_balance` until they are re-created. SQL for Hein to size the
+existing rows keep their old `isaflow_balance` until they are re-created — or, since round 10, until
+someone clicks Rematch, which now re-measures it. SQL for Hein to size the
 stored reconciliations:
 
 ```sql
@@ -1535,4 +1536,62 @@ gate right, and R-087 is about calls that bypass the page.
   component 84 / 537, `[ci] all checks passed`, `CI_EXIT=0`.
 - Fixture integration, `--no-file-parallelism`: every `r059-*` (12 files), every
   `k053-*`, `k091*`, `k093*` — **37 files / 241 tests passed**.
+- `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
+
+---
+
+# Round 10
+
+## LOW-1: Rematch kept the variance struck at creation — FIXED
+
+`rematchLines` re-read the bills and re-matched the lines, but left
+`isaflow_balance` and `variance` as they were when the statement was uploaded.
+The counts and the variance then described different sets of bills. On the
+path this branch changed, that went wrong in both directions:
+- **P, then approve the draft and Rematch.** The line now matches, so missing is
+  0. We owe A + B = 600 against the supplier's 300, but the stored variance was
+  still 0, so the page allowed "Mark reconciled". Master refused this case.
+- **The draft-only case, then approve and Rematch.** It now matches and is owed,
+  but a phantom variance of 300 stayed until the statement was re-uploaded.
+
+This predates the branch: master reaches the same wrong result through
+capture-then-Rematch. It sits on this branch's path, so it is fixed here.
+
+**One function, not two copies.** The variance computation moved out of
+`createReconciliation` into `measureOurSide(companyId, supplierId,
+statementDate, supplierBalance)`, the AP ageing's rewind at the statement date.
+Creation calls it, and so does `rematchLines`, from the stored `statement_date`
+and `supplier_balance`. Rematch then writes `isaflow_balance` and `variance`
+back, company-scoped. This makes Rematch a second writer of those two columns.
+Creation used to be the only one (round-2 review), and the round-2 historical
+note is amended in place.
+
+Pinned both ways in `r059-statement-recon-match-candidates`, continuing D and P:
+- **P'**: approve B, Rematch. isaflow 600, variance −300, missing 0, refused.
+- **D'**: approve the draft, Rematch. isaflow 300, variance 0, missing 0,
+  reconcilable.
+
+## LOW-2: the cancelled half of the candidate rule — PINNED
+
+New case **X**: a cancelled bill of 300 with its line is not a match candidate
+(missing 1, refused).
+
+## Round 10 mutations (file copies, restored and `cmp`-verified)
+
+| # | Mutation | Red |
+|---|---|---|
+| V1 | Rematch no longer writes the re-measured variance | P' and D' — 2 of 6 |
+| V2 | candidates admit cancelled bills (`COALESCE(status,'') <> 'draft'`) | X — 1 of 6 |
+
+## Not chased
+
+`reportPacksShareMount` failed once in the reviewer's round-9 gate at load 17.8.
+That is the registered R-085 flake, which is being fixed on its own branch.
+
+## Round 10 gates
+
+- `env -u DATABASE_URL bun run ci`: 15/15 PASS, unit 854 files / 10093 tests,
+  component 84 / 537, `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`: every `r059-*` (12 files), every
+  `k053-*`, `k091*`, `k093*` — **37 files / 244 tests passed**.
 - `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
