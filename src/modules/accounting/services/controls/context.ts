@@ -35,7 +35,7 @@ class ControlQuery implements Promise<unknown[]> {
   finally(callback?: (() => void) | null): Promise<unknown[]> { return this.run().finally(callback); }
 }
 type AuthenticatedIdentity = Pick<ControlPrincipal, 'personId' | 'companyId' | 'authMethod'>
-  & Partial<Pick<ControlPrincipal, 'connectionId' | 'grantId' | 'grantedScopes' | 'actingFirmId'>>;
+  & Partial<Pick<ControlPrincipal, 'connectionId' | 'grantId' | 'grantedScopes' | 'actingFirmId' | 'impersonatorPersonId'>>;
 
 /** Authentication middleware supplies this identity; request args are never input. */
 export function makeControlPrincipal(identity: AuthenticatedIdentity): ControlPrincipal {
@@ -46,10 +46,13 @@ export function makeControlPrincipal(identity: AuthenticatedIdentity): ControlPr
   if (bearer && (!identity.connectionId || !identity.grantId || !identity.grantedScopes)) {
     throw new Error('Authenticated grant identity required');
   }
+  // Only a browser session can be driven by an impersonating administrator.
+  if (bearer && identity.impersonatorPersonId) throw new Error('An impersonated grant identity is not authenticated');
   return Object.freeze({
     personId: identity.personId, companyId: identity.companyId, authMethod: identity.authMethod,
     connectionId: identity.connectionId ?? null, grantId: identity.grantId ?? null,
     actingFirmId: identity.actingFirmId ?? null, delegatedByPersonId: null,
+    impersonatorPersonId: identity.impersonatorPersonId ?? null,
     requestId: randomUUID(), operationId: randomUUID(), provenance: bearer ? 'agent' : 'human',
     grantedScopes: bearer ? Object.freeze([...identity.grantedScopes!]) : null,
   });
@@ -108,7 +111,7 @@ export async function withControlJobRequest<T>(store:RequestContext,lease:AuditJ
     const saved=await loadStoredAuditJobDelegation(sql,lease.companyId,lease.personId,lease);
     const principal:ControlPrincipal=Object.freeze({companyId:lease.companyId,personId:lease.personId,
       connectionId:saved.authority.connectionId,grantId:saved.authority.grantId,actingFirmId:saved.authority.actingFirmId,
-      authMethod:'job',provenance:'job',delegatedByPersonId:lease.personId,requestId:randomUUID(),operationId:randomUUID(),
+      authMethod:'job',provenance:'job',delegatedByPersonId:lease.personId,impersonatorPersonId:null,requestId:randomUUID(),operationId:randomUUID(),
       grantedScopes:Object.freeze([...saved.permissions]),jobId:lease.jobId,jobLeaseId:lease.leaseId,jobGeneration:lease.generation});
     return withPrincipal(store,principal,async()=>{
       const {assertEffectivePermission}=await import('@/lib/auth/effectivePermissions');

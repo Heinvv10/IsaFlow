@@ -6,6 +6,7 @@ import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
 import { assertControlTx } from './context';
 import { recordCommittedChange } from './changeEventService';
 import type { ControlTx, EvidenceRef } from './contracts';
+import { assertIndependentHumanReview } from './independentReview';
 import { BeneficiaryError, bankFingerprint, normalizeBeneficiaryDetails, openBeneficiary, sealBeneficiary,
   validateBeneficiaryRef, type BeneficiaryDetails, type BeneficiaryRef } from './beneficiaryValidation';
 import * as q from './beneficiaryQueries';
@@ -69,6 +70,7 @@ export async function verifyBeneficiaryChange(ctx: ControlTx, proposalId: string
     // This helper locks caller/requester in a common order before either live permission lookup.
     await q.lockAuthorities(ctx, proposalId);
     const initial = await q.loadProposal(ctx, proposalId);
+    assertIndependentHumanReview(ctx.principal, initial.requester_person_id);
     if (initial.requester_person_id === ctx.principal.personId) throw new BeneficiaryError('INDEPENDENT_PERSON_REQUIRED');
     const ref = validateBeneficiaryRef({ entityType: initial.entity_type, entityId: initial.entity_id });
     await assertEffectivePermission(ctx, 'write:beneficiaries', ref);
@@ -125,6 +127,7 @@ async function terminateProposal(ctx: ControlTx, proposalId: string, reason: str
     const initial = await q.loadProposal(ctx, proposalId);
     const isRequester = initial.requester_person_id === ctx.principal.personId;
     if (status === 'cancelled' && !isRequester) throw new BeneficiaryError('REQUESTER_REQUIRED');
+    if (status === 'rejected') assertIndependentHumanReview(ctx.principal, initial.requester_person_id);
     if (status === 'rejected' && isRequester) throw new BeneficiaryError('INDEPENDENT_PERSON_REQUIRED');
     const ref = validateBeneficiaryRef({ entityType: initial.entity_type, entityId: initial.entity_id });
     await assertEffectivePermission(ctx, 'write:beneficiaries', ref);
