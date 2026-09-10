@@ -45,7 +45,7 @@ export async function proposeBeneficiaryChange(ctx: ControlTx, input: Beneficiar
     const evidence = evidenceRefs.length ? await q.validateEvidence(ctx, ref, evidenceRefs) : [];
     const sealed = sealBeneficiary(ctx.principal.companyId, ref, details);
     const p = ctx.principal;
-    if (p.authMethod === 'job') throw new BeneficiaryError('UNSUPPORTED_PRINCIPAL');
+    if (p.authMethod === 'job'||p.authMethod==='platform_import') throw new BeneficiaryError('UNSUPPORTED_PRINCIPAL');
     const proposal: q.Proposal = { id: randomUUID(), company_id: p.companyId, entity_type: ref.entityType, entity_id: ref.entityId,
       requester_person_id: p.personId, requester_auth_method: p.authMethod,
       requester_grant_id: p.authMethod === 'cookie' ? null : p.authMethod === 'pat' ? p.connectionId : p.grantId,

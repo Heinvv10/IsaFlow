@@ -12,3 +12,8 @@ it('does not connect or transmit when the originating transaction rolls back or 
  const callback=mocks.observe.mock.calls[0]![0];await callback('rolled_back');await callback('unknown');
  expect(mocks.connect).not.toHaveBeenCalled();
 });
+it('never schedules financial release from a platform import principal',async()=>{
+ const ctx={principal:{companyId:'company',personId:'person',authMethod:'platform_import',connectionId:null,grantId:null,grantedScopes:null},sql:vi.fn().mockResolvedValue([{requester_person_id:'person'}])};
+ await expect(schedulePaymentReleaseDispatch(ctx as never,'11111111-1111-4111-8111-111111111111')).rejects.toThrow('Authenticated');
+ expect(mocks.observe).not.toHaveBeenCalled();expect(mocks.connect).not.toHaveBeenCalled();
+});
