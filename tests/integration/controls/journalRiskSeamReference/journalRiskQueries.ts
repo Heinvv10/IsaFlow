@@ -1,6 +1,7 @@
-// VENDORED pre-seam reference (plan v6 A15). Verbatim from bcf5aab53:src/modules/accounting/services/controls/journalRiskQueries.ts
-// (blob c783aa67a59d13d8f553f3bdf4625c7bf210c713). The ONLY edit: imports of the unvendored ./context, ./canonical and ./contracts are rewritten to the
-// @/ alias, which resolves to the same files, unchanged since bcf5aab53. Never edit below this header.
+// VENDORED pre-seam reference (plan v6 A15). Verbatim from c39a8e17c:src/modules/accounting/services/controls/journalRiskQueries.ts
+// (blob 6c97551a19a54cdf4a0511e0de32e620355034b5) — the integration branch's detector before the check-run seam merged into it, re-vendored from
+// bcf5aab53 so the reference carries integration's lineage columns and signals. The ONLY edit: imports of the unvendored
+// ./context and ./contracts are rewritten to the @/ alias. Never edit below this header.
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 import {assertControlTx} from '@/modules/accounting/services/controls/context';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -17,10 +18,10 @@ export async function loadJournalRiskPopulation(ctx:ControlTx,cutoff:string|null
   CASE WHEN event.action IN ('fiscal_period.close','year_closed_period') THEN 'closed'
    WHEN event.action='fiscal_period.lock' THEN 'locked' WHEN event.action='fiscal_period.reopen' THEN 'open' ELSE NULL END AS "periodState",
   COALESCE(changes.facts,'[]'::jsonb) AS changes,COALESCE(changes.count,0)::int AS "changeCount",
-  v.version,COUNT(*) OVER()::text AS population,COALESCE(lines.count,0)::int AS "lineCount",COALESCE(lines.facts,'[]'::jsonb) AS lines,
+  v.version,COALESCE(v.lineage_count,0)::int AS "lineageCount",(v.version_count>1 AND v.entity_id<>j.id::text) IS TRUE AS "lineageTie",COUNT(*) OVER()::text AS population,COALESCE(lines.count,0)::int AS "lineCount",COALESCE(lines.facts,'[]'::jsonb) AS lines,
   (j.reversal_of_id IS NULL OR EXISTS(SELECT 1 FROM gl_journal_entries original WHERE original.company_id=j.company_id AND original.id=j.reversal_of_id)) AS "reversalOwned"
  FROM gl_journal_entries j JOIN companies c ON c.id=j.company_id
- LEFT JOIN control_entity_versions v ON v.company_id=j.company_id AND v.entity_type='journal_entry' AND v.entity_id=j.id::text
+ LEFT JOIN LATERAL(SELECT cv.*,count(*) OVER() AS lineage_count,count(*) OVER(PARTITION BY cv.version) AS version_count FROM control_entity_versions cv WHERE cv.company_id=j.company_id AND cv.entity_type='journal_entry' AND lower(cv.entity_id)=j.id::text ORDER BY cv.version DESC,(cv.entity_id=j.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
  LEFT JOIN LATERAL(SELECT SUM(l.debit) AS amount,COUNT(*) AS count,
    (SELECT jsonb_agg(f) FROM(SELECT x.id,x.gl_account_id,x.debit::text,x.credit::text FROM gl_journal_lines x
     WHERE x.company_id=j.company_id AND x.journal_entry_id=j.id ORDER BY x.id LIMIT 101) f) AS facts
@@ -30,16 +31,16 @@ export async function loadJournalRiskPopulation(ctx:ControlTx,cutoff:string|null
     CASE WHEN history.action IN ('fiscal_period.close','year_closed_period') THEN 'closed'
      WHEN history.action='fiscal_period.lock' THEN 'locked' WHEN history.action='fiscal_period.reopen' THEN 'open' ELSE NULL END AS "periodState"
    FROM control_change_events x LEFT JOIN LATERAL(SELECT e.id,e.action FROM control_change_events e
-    JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=e.entity_id
+    JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=lower(e.entity_id)
     WHERE e.company_id=j.company_id AND e.entity_type='fiscal_period' AND p.id=j.fiscal_period_id
      AND e.action IN ('fiscal_period.close','fiscal_period.lock','fiscal_period.reopen','year_closed_period')
      AND e.occurred_at<=x.occurred_at ORDER BY e.occurred_at DESC,e.id DESC LIMIT 1) history ON true
-   WHERE x.company_id=j.company_id AND x.entity_type='journal_entry' AND x.entity_id=j.id::text
+   WHERE x.company_id=j.company_id AND x.entity_type='journal_entry' AND lower(x.entity_id)=j.id::text
     AND x.action NOT IN ('baseline_observed','journal.post') ORDER BY x.occurred_at,x.id LIMIT 101) f) AS facts
-   FROM control_change_events n WHERE n.company_id=j.company_id AND n.entity_type='journal_entry' AND n.entity_id=j.id::text
+   FROM control_change_events n WHERE n.company_id=j.company_id AND n.entity_type='journal_entry' AND lower(n.entity_id)=j.id::text
     AND n.action NOT IN ('baseline_observed','journal.post')) changes ON true
  LEFT JOIN LATERAL(SELECT e.id,e.new_version,e.action,e.occurred_at FROM control_change_events e
-   JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=e.entity_id
+   JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=lower(e.entity_id)
    WHERE e.company_id=j.company_id AND e.entity_type='fiscal_period' AND p.id=j.fiscal_period_id
     AND e.action IN ('fiscal_period.close','fiscal_period.lock','fiscal_period.reopen','year_closed_period')
     AND e.occurred_at<=j.posted_at ORDER BY e.occurred_at DESC,e.id DESC LIMIT 1) event ON true
