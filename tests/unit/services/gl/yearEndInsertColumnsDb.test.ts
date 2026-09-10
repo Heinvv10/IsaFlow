@@ -31,9 +31,11 @@ import { join } from 'node:path';
 import { isDbReachable } from '../../helpers/dbReachable';
 import { getPoolForTests } from '@/lib/neon';
 
+// The two INSERTs live in the POSTER, split out of yearEndCloseService when the
+// close gained its dormant-year branch and outgrew the 300-line cap.
 const SERVICE = join(
   process.cwd(),
-  'src/modules/accounting/services/gl/yearEndCloseService.ts',
+  'src/modules/accounting/services/gl/yearEndJournalPoster.ts',
 );
 
 /**
