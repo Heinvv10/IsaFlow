@@ -61,7 +61,14 @@ const NOT_A_PURCHASE = new RegExp(String.raw`(?<![A-Za-z])(?:COPY|RE-?PRINT\w*|D
 const FIELD = new RegExp(String.raw`(?<![A-Za-z])(?:(?:DELIVERY\s+NOTE|(?:PURCHASE\s+|SALES\s+|YOUR\s+|CUSTOMER\s+)?ORDER|JOB\s+CARD|QUOT(?:E|ATION)|KWOTASIE|STATEMENT)\s*(?:(?:No|Nr|Number|Ref(?:erence)?|Date|Datum)\.?\s*[:#.]?|[:#])\s*[A-Z0-9]\S*|^\s*(?:Note|Nota|Settlement(?:\s+(?:terms|discount))?)\s*:)`, 'gi');
 /** Which of a card machine's two ORIGINAL prints this is — never a reprint. */
 const CARD_COPY = /(?<![A-Za-z])(?:CUSTOMER|MERCHANT|CARDHOLDER|CLIENT|KLI[EË]NT|KLANT|HANDELAAR)\s+(?:COPY|KOPIE)(?![A-Za-z])/gi;
-const REPRINT = /(?<![A-Za-z])(?:RE[\s-]?PRINT\w*|RE[\s-]?ISSUE\w*|DUPLICAT\w*|DUPLIKAAT|HERDRUK\w*|HERUITREIK\w*|KOPIE(?:ER)?|AFSKRIF|C[\s.]O[\s.]P[\s.]Y|TRAINING\s+MODE|COPY(?=[\s*)\]=-]*$)|COPY\s+OF|IS\s+A\s+COPY|COPY\s+(?:(?:TAX\s+)?INVOICE|RECEIPT|SLIP|No\.?|\d)|COPY\s*[-–:](?=\s)|DUPL?|RPRNT)(?![A-Za-z])/im;
+/** A word printed with its letters spaced out (`R E P R I N T`). */
+const spaced = (word: string) => [...word].join(String.raw`[\s.]`);
+const REPRINT = new RegExp(String.raw`(?<![A-Za-z])(?:RE[\s-]?PRINT\w*|RE-?PR(?:N?T|\.)|RPRNT|RPT|RE[\s-]?ISSUE\w*|DUPLICAT\w*|DUPL?`
+  + String.raw`|DUPLIKAAT|HERDRUK\w*|HERUITREIK\w*|KOPIE(?:ER)?|AFSKRIF|TRAINING\s+MODE|NOT\s+(?:AN?\s+)?ORIGINAL|SECOND\s+PRINT\w*|PRINTED\s+AGAIN`
+  + `|${['COPY', 'REPRINT', 'DUPLICATE', 'KOPIE'].map(spaced).join('|')}`
+  + String.raw`|COPY(?=[\s*)\]=-]*$)|COPY\s+OF|IS\s+A\s+COPY|COPY\s+(?:(?:TAX\s+)?INV\w*|RE?C(?:EI)?PT|SLIP|ONLY)|COPY\s*[-–:](?=\s)`
+  // `Copy 2 of 2` opening its line — `A4 COPY 50` and `Colour copy 10 x 2.50` are photocopies, a purchase.
+  + String.raw`|^[\s*[(=-]*COPY\s+(?:No\.?\s*)?\d{1,2}(?:\s+OF\s+\d{1,2})?(?=[\s*)\]=-]*$))(?![A-Za-z])`, 'im');
 const MONEY_FIGURE = /\d[.,]\d{2}(?!\d)/;
 /** A date, a time printed after a date, or a labelled time — never the first money figure. */
 function stripDateTime(line: string): string {

@@ -2268,8 +2268,12 @@ would have passed 300 lines, so the item column and the summary block moved to `
 | | `591193edb` | **head** |
 |---|---|---|
 | unattended / WRONG, all rows | 371 / 102 | **314 / 45** |
-| change + prior-balance probes (x-excl, y-chg, y-int; 35) | 14 / 14 | **0 / 0** |
-| under-VAT and summary-block probes (x-under, x-in, y-mid, z-*; 38) | 34 / 33 | **3 / 2** (the 2 open above) |
+| change probes (z-above, z-below, z-below-card, y-chg; 23) | 21 / 21 | **0 / 0** |
+| prior-balance and label-exclusion probes (x-excl, y-int; 30) | 11 / 11 | **0 / 0** |
+| under-VAT and summary-block probes (x-under, x-in, y-mid; 20) | 16 / 15 | **3 / 2** (the 2 open above) |
+
+*(Regrouped in round 25, LOW-3: this table first counted the z-\* CHANGE probes under "under-VAT" and x-excl
+under "change + prior balance". The all-rows line and every per-row outcome are unchanged.)*
 | reprint footers (x-rp; 23) | 11 / 11 | **0 / 0** |
 
 **Newly refused: 0. Newly wrong: 0.** 57 wrong rows close. The 45 left: the 35 of round 23 (24 number-word
@@ -2284,3 +2288,51 @@ without cash (1) · Z3 the item rows forgive change without cash (1) · Z4 prior
 summary-block check (1) · Z6 no between-net-and-total check (1) · Z7 the between check on paid slips too (2) ·
 Z8 the summary-block check on paid slips too (1) · Z9 `COPY RECEIPT/INVOICE/No/digit` gone (1) · Z10
 `DUP`/`RPRNT` gone (1) · Z11 `HERUITREIK`/`KOPIEER` gone (1) · Z12 `COPY -` gone (1).
+
+---
+
+## Round 25 — the net survives a null subtotal, the summary block is read by value, the tax row
+
+Review: `review-k072-r24.md` (2H/0M/3L, no regressions; the item-column move changed no output). The reviewer
+supplied a combined diff (`agents/rev-k072y/v6.diff`); it was read, not pasted. Two of its lines were rewritten
+and both are covered below. Harness as in round 24 plus the reviewer's `y24`, `y24b`, `y24c` (228 probes):
+**2 707 rows**, run twice — as stored, and with EVERY row's `subtotal` nulled (the reviewer's `run3.ts`).
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 the item-column checks took the net from the stored subtotal; with `subtotal: null` 9 of 10 r23 HIGH-3 rows posted again, and `Labour 1000.00 / Delivery 100.00 / VAT 15% 150.00 / TOTAL 1150.00` (no sub total line) posted | FIXED. `unreconciledFigure` passes `known.subtotal ?? total − VAT`; the gate has already refused a null VAT. The honest twin without a sub total line posts (pinned). With every subtotal nulled the table is identical to the stored run (below). |
+| HIGH-2 a figure on a summary-labelled line in the block explained itself by its first word (`Total Freight 350.00`, `VAT on delivery 52.50`, 13 of 13) | FIXED. A summary figure in the block is explained only by VALUE: it is the net, or the tax (total − net), or it and another summary figure add up to the total — the role-and-value rule rule 3 already applies below the total. **Changed from the diff:** the diff did not accept a figure equal to the tax, so a block of just `VAT 15% 150.00 / TOTAL 1150.00` (no sub total line) refused its own VAT line; it passes now (pinned). The diff's pairing test excluded the first index holding the value, not the figure itself — rewritten to compare indexes. 13 of 13 refuse with and without a stored net; `Sub Total / VAT / TOTAL` and `Total Excl / VAT / Total Incl` post with a stored net, a derived net, and no `known` at all. |
+| the two cases pinned open in round 24 (`Delivery 150.00`, `Travel 149.99`) | CLOSED. On a document no payment settles, where the item rows sum to the total and more than one row prints, a row equal to the tax (total − net, within a cent) refuses. A label cannot decide it — `Burger 100.00 / Sauce 15.00` is honest and has the same shape — so a PAID slip is spared (pinned). `Travel 150.01` closes too. The round-24 "still open" test now asserts refusal. |
+| LOW-1 12 reprint markings posted; `COPY\s+\d` refused a copy shop | FIXED: `COPY ONLY/RCPT/INV…`, `RE-PRT/REPRT/REPR.`, `RPT`, spaced `R E P R I N T`/`D U P L I C A T E`/`K O P I E`, `NOT AN ORIGINAL`, `SECOND PRINT`, `PRINTED AGAIN`. `Copy 2 of 2`/`Copy No 2` now refuse only as a line of their own, so `A4 COPY 50` and `Colour copy 10 x 2.50 25.00` are items and the Minuteman invoice posts again at R115 (pinned). The list still fails open for a spelling it lacks; **R-088 remains the real double-post exposure.** |
+| LOW-2 the prior-balance END anchor and the whole-number skip in the block were unpinned (mutants GREEN) | PINNED: the reviewer's four "label + figure + more" rows, and `Sub Total / Delivery 350 / VAT / TOTAL`. The `CHANGE_LABEL` end anchor is pinned too, with the reviewer's `CASH 1850.00 / CHANGE 350.00 / Change brake pads 350.00`. |
+| LOW-3 the round-24 table grouped the change probes under "under-VAT" | CORRECTED above. |
+
+Tests changed because a second defence now refuses first (each still refuses): `k076-ocr-subtotal-reconciliation`
+"refuses auto-post when the amounts were rebased" (the warning is no longer the ONLY defence; the block is the
+second) and `k076-unattended-posting-gate` "refuses a VAT figure that disagrees" (its old text now refuses in the
+block, so the VAT-disagreement check is pinned with a text whose block reconciles, and the old text is pinned as
+refused).
+
+### Re-measured — head vs `45e49cb48`, 2 707 rows
+
+| | `45e49cb48` stored | **head** stored | `45e49cb48` subtotal null | **head** subtotal null |
+|---|---|---|---|---|
+| unattended / WRONG, all rows | 378 / 84 | **338 / 43** | 401 / 107 | **338 / 43** |
+| summary role probes (e-sumrole; 15) | 15 / 13 | **2 / 0** | 15 / 13 | **2 / 0** |
+| null-subtotal item rows (x-under/x-in/y-mid-vlmnull; 20) | 10 / 9 | **1 / 0** | 10 / 9 | **1 / 0** |
+| x23 under-VAT (x-under; 10) | 2 / 2 | **0 / 0** | 9 / 9 | **0 / 0** |
+| pinned-open tax rows (c-open; 3) | 3 / 3 | **0 / 0** | 3 / 3 | **0 / 0** |
+| reprint markings (d-rp; 84) | 12 / 12 | **0 / 0** | 12 / 12 | **0 / 0** |
+| ordinary controls (d-ok, o-ord; 29) | 17 / 0 | **18 / 0** (copy shop) | 17 / 0 | **18 / 0** |
+
+**Newly refused: 0. Newly wrong: 0** — in both modes. The 43 WRONG left are the accepted classes only: 24
+number-word references, 6 glued hours, 8 six-figure branch rows (ruled not a finding), 3 harness artefacts and
+2 w-cnt probes that post their correct total.
+
+### Mutations — 13, all RED, restored byte-identically
+
+A1 no total − VAT net (1) · A2 the block explained by role alone (2) · A3 no pair rule (5) · A4 no tax-row rule
+(2) · A5 the tax-row rule on paid slips (1) · A6 the prior-balance END anchor removed (1) · A7 the block skips
+whole numbers (1) · A8 the change label's END anchor removed (1) · A9 `COPY RCPT/INV/ONLY` gone (1) · A10
+`REPRT/RE-PRT/REPR./RPT` gone (1) · A11 spaced letters gone (1) · A12 `NOT AN ORIGINAL`/`SECOND PRINT` gone (1) ·
+A13 `COPY` + digit anywhere again (1).

@@ -129,8 +129,13 @@ describe('K-076 the gate judges the stored document, whatever read it', () => {
   });
 
   it('refuses a VAT figure that disagrees with the one the text prints', () => {
-    const doc = stored({ subtotal: 1000, vatAmount: 100, totalAmount: 1100, rawText: 'Sub Total 1000.00\nVAT 150.00\nTotal 1100.00' });
+    // Round 25: the old text (`Sub Total 1000 / VAT 150 / Total 1100`) is now
+    // refused a step earlier by the summary block, so the stored figures
+    // disagree with a text whose own block reconciles.
+    const doc = stored({ subtotal: 1050, vatAmount: 100, totalAmount: 1150, rawText: 'Sub Total 1000.00\nVAT 150.00\nTotal 1150.00' });
     expect(unattendedPostingRefusal(doc)).toMatch(/not the VAT the document prints/);
+    expect(unattendedPostingRefusal(stored({ subtotal: 1000, vatAmount: 100, totalAmount: 1100,
+      rawText: 'Sub Total 1000.00\nVAT 150.00\nTotal 1100.00' }))).not.toBeNull();
   });
 });
 
