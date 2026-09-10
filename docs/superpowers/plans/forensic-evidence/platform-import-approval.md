@@ -394,3 +394,63 @@ no end row.
 
 Suites: units 10 949 passed with the five known pre-existing failures; integration 251 passed over
 18 files with the known `apSharedWriters` failure (identical at base).
+
+
+## Eighth round, and where this branch stops
+
+- **Restore race.** Whether a restore invalidates a review was decided from an unlocked read, so a
+  review committing mid-restore left `reviewed` on the restored content. The first read now takes
+  the row lock (`FOR UPDATE`), and the final UPDATE also decides in SQL
+  (`CASE WHEN status IN ('reviewed','signed_off')`). An interleaving test holds a reviewer's
+  uncommitted UPDATE while the restore starts, commits it, and requires `pending` plus the
+  invalidation note; it was `reviewed` before (RED). Mutation `m61` (unlocked read) red. Mutation
+  `m62` (SQL CASE reverted to the JavaScript decision) **survives**: under the row lock the two
+  decisions are identical, and the SQL form only matters for a restore run outside any transaction,
+  which no route does. It stays as belt-and-braces and is recorded as untested.
+- **Revocation record cannot fail the exit.** The `impersonation_revoked` INSERT runs after GoTrue has
+  revoked; if it threw, the exit 500'd with the admin's cookies unrestored and the stash kept, and a
+  retry would loop on 502. It is audit-only (the end row already stopped the proof), so its failure
+  is logged with identifying fields and the exit completes. Proven with a trigger that fails that
+  INSERT: 200, stash deleted, end row present, proof refused. `m63` red.
+- **Gate success line** now reads "executable by their calling roles", changed together with the
+  line `deploy.sh` requires; verified by piping the real gate output against the fixture through the
+  same grep. `m64` red.
+- **677 checksum.** 677's comment was edited after it had been applied to the fixture database.
+  The fixture is migrated by `psql -f`, not by `apply-migrations.ts`: its `schema_migrations` table
+  has a `checksum` column but zero rows, so no checksum was ever recorded for 677 and nothing refuses
+  it. 677 is not on master, so no other database has applied it. It is not edited again.
+
+**Moved out of this branch:** the wider AFS review defects the last review found (the overrides
+endpoint, AI-narrative accept, `updateAfsSection` content writes, and restore/overrides not being
+bound to the URL's document) are pre-existing AFS module work, now on a separate branch.
+
+## Final summary
+
+What this branch changes, end to end:
+
+1. **Platform historical imports** have a real maker/checker path: retain -> prepare -> request under
+   confined platform authority, independent tenant approval, execute. The platform permission
+   ceiling grants only what that confined path uses (no generic tenant reads). Migration 675.
+2. **An impersonated session can never be an independent reviewer.** The control principal carries
+   the impersonating actor, taken from the delegation proof and from the recorded impersonation
+   session (so a dropped proof cookie does not hide it). Every controls-kernel decision, every
+   approver-of-record writer found by call site and by approver-column write (supplier invoice,
+   credit note, write-off, VAT adjustment, expense claim approve/reject, customer invoice, payroll
+   run, payment batch, adjustment, supplier payment, practice time entries, leave, close-run
+   proposal, AFS review/sign-off/lock and caller-supplied signatories, tax directives, AFS restore
+   that would drop a review) refuses it. Commentary is recorded, not blocked. Migration 676.
+3. **The review guard refuses by default** inside a request context: any context without a tenant
+   principal is refused, including a verified platform-admin request. The only blanket allow is no
+   request context at all (a script).
+4. **Ending impersonation ends it.** The delegation proof names its stash row and is honoured only
+   while that row lives and no end is recorded for its session (migration 677, SECURITY DEFINER,
+   indexed). The end is recorded before GoTrue is asked to revoke, from the impersonation start record,
+   never the caller; failures are recorded; the revocation has its own row.
+5. **Operational gates.** The deploy stops unless both reader functions exist and their calling roles
+   may execute them. The pre-change population of impersonated sessions is handled by
+   `scripts/revoke-legacy-impersonation-sessions.ts` - an operator step at deploy, dry-run first.
+
+Open, and written down rather than fixed here: the platform-import exemption is total (confinement
+relabels the platform administrator's approval authority rather than removing it); the Sage migration
+commit needs a confined design; management packs use `signed_off` for an unsigned document; the
+expense-claim self-approval hole; and the AFS module defects moved to their own branch.
