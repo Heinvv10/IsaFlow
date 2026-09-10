@@ -62,7 +62,9 @@ describe('undoRun', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     // The reconciled row is still posted and still tagged — the run is not undone.
-    expect(r).toEqual({ reversed: 2, skipped: 1, alreadyUndone: 0, undone: false });
+    expect(r).toEqual({
+      reversed: 2, skipped: 1, skippedBy: { reconciled: 1, contended: 0, failed: 0 }, alreadyUndone: 0, undone: false,
+    });
     expect(reverseReconciledTransaction).toHaveBeenCalledWith('co-1', 't2', 'u-1');
     expect(reverseJournalEntry).toHaveBeenCalledWith('co-1', 'je-3', 'u-1');
     expect(reverseReconciledTransaction).not.toHaveBeenCalledWith('co-1', 't1', 'u-1');
@@ -83,7 +85,9 @@ describe('undoRun', () => {
 
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
-    expect(r).toEqual({ reversed: 1, skipped: 0, alreadyUndone: 0, undone: true });
+    expect(r).toEqual({
+      reversed: 1, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 0, undone: true,
+    });
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(true);
   });
@@ -104,7 +108,9 @@ describe('undoRun', () => {
 
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
-    expect(r).toEqual({ reversed: 1, skipped: 1, alreadyUndone: 0, undone: false });
+    expect(r).toEqual({
+      reversed: 1, skipped: 1, skippedBy: { reconciled: 0, contended: 1, failed: 0 }, alreadyUndone: 0, undone: false,
+    });
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
   });
@@ -145,8 +151,54 @@ describe('undoRun', () => {
 
     // `alreadyUndone` is master's third counter — a row whose journal was
     // reversed before this run reached it. Nothing here is in that state.
-    expect(r).toEqual({ reversed: 1, skipped: 1, alreadyUndone: 0, undone: false });
+    expect(r).toEqual({
+      reversed: 1, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+    });
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
+  });
+
+  // K-071 r21. A provisional JE the user already reversed by hand has nothing
+  // left to undo. Reversing it again is refused ("already reversed") on every
+  // retry, so it was counted as a failure forever and the run never closed.
+  it('finishes a row whose provisional JE was already reversed, without reversing it again', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
+      { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [
+        { id: 't1', status: 'allocated', matched_journal_line_id: null, provisional_je_id: 'je-1' },
+      ] },
+      { match: /SELECT reversed_at FROM gl_journal_entries/, rows: [{ reversed_at: '2026-09-10T00:00:00Z' }] },
+    ]);
+
+    const r = await undoRun('co-1', 'run-1', 'u-1');
+
+    expect(r).toEqual({
+      reversed: 0, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 1, undone: true,
+    });
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(joined.some((t) => /SET status = 'imported', provisional_je_id = NULL/.test(t))).toBe(true);
+    expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(true);
+  });
+
+  // The other direction: a row still marked posted with NOTHING linked is not
+  // "already undone" — clearing its tag would let the run read undone over a
+  // line the books still show as allocated.
+  it.each(['allocated', 'matched'])('skips a %s row with nothing linked and leaves the run open', async (status) => {
+    routeSql([
+      { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
+      { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [
+        { id: 't1', status, matched_journal_line_id: null, provisional_je_id: null },
+      ] },
+    ]);
+
+    const r = await undoRun('co-1', 'run-1', 'u-1');
+
+    expect(r).toEqual({
+      reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+    });
+    const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(joined.some((t) => /SET auto_post_run_id = NULL/.test(t))).toBe(false);
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
   });
 });
