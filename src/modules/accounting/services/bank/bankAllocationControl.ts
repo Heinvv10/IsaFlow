@@ -1,3 +1,4 @@
+import {UUID_RE} from '@/lib/validation';
 import {parseBankTransferRequest} from './bankAllocationTransferPlan';
 import {bindBankTransferSelection} from './bankAllocationTransferPreparation';
 import {bindBankAllocationVatAccount} from './bankAllocationVatPreparation';
@@ -35,7 +36,8 @@ export async function prepareBankAllocation(ctx:ControlTx,input:unknown){
 }
 
 export async function executeBankAllocation(ctx:ControlTx,intentId:string,options?:PostingActorOpts&{approvalId?:string}){
- assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ assertControlTx(ctx);if(!UUID_RE.test(intentId))throw new Error('Invalid controlled intent UUID');intentId=intentId.toLowerCase();
+ await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
  const {loadBankAllocationIntent}=await import('./bankAllocationMaterial');
  const {executeControlledOperation}=await import('../controls/approvalExecutionService');
  const {replayKnownOperationEffect}=await import('../controls/operationReceiptReplay');

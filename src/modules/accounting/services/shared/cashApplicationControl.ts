@@ -1,3 +1,4 @@
+import {UUID_RE} from '@/lib/validation';
 import {randomUUID} from 'node:crypto';
 import Decimal from 'decimal.js';
 import {withSavepoint} from '@/lib/neon';
@@ -30,7 +31,8 @@ export async function prepareCashApplication(ctx:ControlTx,input:unknown){
 }
 
 export async function executeCashApplication(ctx:ControlTx,intentId:string,options?:{approvalId?:string}){
- assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ assertControlTx(ctx);if(!UUID_RE.test(intentId))throw new Error('Invalid controlled intent UUID');intentId=intentId.toLowerCase();
+ await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
  const {loadCashApplicationIntent}=await import('./cashApplicationMaterial');
  const {executeControlledOperation}=await import('../controls/approvalExecutionService');
  const {replayKnownOperationEffect}=await import('../controls/operationReceiptReplay');

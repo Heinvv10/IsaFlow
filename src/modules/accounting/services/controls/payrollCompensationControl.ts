@@ -25,7 +25,7 @@ export async function preparePayrollCompensation(ctx:ControlTx,input:unknown){
 
 export async function executePayrollCompensation(ctx:ControlTx,intentId:string,options:{approvalId?:string}={}){
  assertControlTx(ctx);
- const id=z.string().uuid().parse(intentId),saved=z.object({approvalId:z.string().uuid().optional()}).strict().parse(JSON.parse(canonicalJson(options)));
+ const id=z.string().uuid().parse(intentId).toLowerCase(),saved=z.object({approvalId:z.string().uuid().optional()}).strict().parse(JSON.parse(canonicalJson(options)));
  await assertEffectivePermission(ctx,'write:payroll');
  const {loadPayrollCompensationIntent}=await import('./payrollCompensationMaterial');
  const {executeControlledOperation}=await import('./approvalExecutionService');
