@@ -21,10 +21,10 @@ export async function glAccountHistoryHttpFixture(){
    void apiResolver(req,res,Object.fromEntries(url.searchParams),{default:url.pathname.endsWith('-detail')?detail:chart},{previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,url.pathname)
     .catch(()=>{res.statusCode=500;res.end('Synthetic GL route failure');});});
   await new Promise<void>((resolve,reject)=>{server!.once('error',reject);server!.listen(0,'127.0.0.1',()=>{server!.removeListener('error',reject);resolve();});});
-  const address=server.address();if(!address||typeof address==='string')throw new Error('Synthetic GL listener unavailable');
+  const address=server.address();if(!address||typeof address==='string')throw new Error('Synthetic GL listener unavailable');const port=address.port;
   async function rest(method:string,body:Record<string,unknown>,detail=false,validCsrf=true){
    const token=await new SignJWT({role:'authenticated',aal:'aal2'}).setProtectedHeader({alg:'HS256'}).setSubject(f.f.u1.id).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(jwtKey));
-   const response=await fetch(`http://127.0.0.1:${address!.port}/api/accounting/chart-of-accounts${detail?'-detail':''}`,{method,redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${f.f.companyA}; isaflow_csrf=${csrf}`,'x-csrf-token':validCsrf?csrf:'invalid'},body:JSON.stringify(body)});
+   const response=await fetch(`http://127.0.0.1:${port}/api/accounting/chart-of-accounts${detail?'-detail':''}`,{method,redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${f.f.companyA}; isaflow_csrf=${csrf}`,'x-csrf-token':validCsrf?csrf:'invalid'},body:JSON.stringify(body)});
    return{status:response.status,body:await response.json()};
   }
   return{...f,rest,close};
