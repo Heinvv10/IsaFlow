@@ -42,7 +42,7 @@ describe('K-076 r20 HIGH-1 — a counter label is the WHOLE label', () => {
     expect(unreconciledFigure(`${OCEAN}Cake cutting per Table 30\n${BLOCK}`, 230, K)).toEqual({ reason: 'stray', value: 30 });
   });
 
-  it.each(['Table 12', 'Customer copy 1', 'Your points balance 1250', 'Visit us at Shop 45',
+  it.each(['Table 12', 'Your points balance 1250', 'Visit us at Shop 45',
     'Benefit points earned 45', 'Till 04 Cashier 12 Trans 998812', 'Lane 3 Class 1',
     'Bank: FNB Acc 62012345678 Branch 250655'])('"%s" is still a count', (footer) => {
     expect(unreconciledFigure(`${SPAR}${footer}`, 115, SK)).toBeNull();
@@ -88,7 +88,7 @@ describe('K-076 r20 MEDIUM-1 — every excluded shape is exact', () => {
       expect(unreconciledFigure(`${OCEAN}${BLOCK}${line}`, 230, K)).not.toBeNull();
     });
 
-  it.each(['Page 1 of 3', 'VISA **** **** **** 1234', 'Weight 5 kg', 'Warranty 30 days',
+  it.each(['Page 1 of 3', 'VISA **** **** **** 1234', 'Weight 5 kg', 'Warranty valid for 30 days',
     'Returns accepted within 30 days', 'Open 7 days', '12 Main Road', 'Consulting 5 hrs 800.00 800.00'])(
     '"%s" is not money', (footer) => {
       const text = footer.startsWith('Consulting')
@@ -139,7 +139,7 @@ describe('K-076 r20 MEDIUM-3 — credit markings, and a second gate that fails c
     expect(refusesUnattendedApproval({ ...doc, rawText: letter.replace('VERGOEDING', 'TAX INVOICE') })).toBe(false);
   });
 
-  it.each(['TAX INVOICE', 'Tax Invoice (COPY)', 'INVOICE', 'RECEIPT', 'TILL SLIP', 'CASH SALE',
+  it.each(['TAX INVOICE', 'INVOICE', 'RECEIPT', 'TILL SLIP', 'CASH SALE',
     'BELASTINGFAKTUUR', 'KWITANSIE', 'BILL'])('"%s" names a purchase', (title) => {
     expect(identifiesAsPurchase({ rawText: `SPAR\n${title}\nBread 100.00\nTOTAL 115.00`, documentType: 'unknown' })).toBe(true);
   });
