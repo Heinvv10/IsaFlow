@@ -5,6 +5,9 @@ import {historicalHash,readHistoricalImportSource,storeHistoricalImportSource} f
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 import {executeHistoricalImport} from '@/modules/accounting/services/controls/historicalImportExecution';
 import {prepareHistoricalImport} from '@/modules/accounting/services/controls/historicalImportPreparation';
+import {assertHistoryEntity} from '@/modules/accounting/services/controls/controlChangeHistoryPolicy';
+import {readHistoricalImportSourceKind} from '@/modules/accounting/services/controls/historicalImportSourceKind';
+import {historicalImportInvoiceEvidence} from '@/modules/accounting/services/controls/historicalImportInvoiceEvidence';
 
 describe('platform historical import persisted maker and independent tenant approval: actual PostgreSQL',()=>{
  let h:Awaited<ReturnType<typeof platformImportApprovalFixture>>;
@@ -82,6 +85,18 @@ describe('platform historical import persisted maker and independent tenant appr
   await expect(h.execute(b.ref,approval.id)).rejects.toThrow();
   await expect(h.execute(a.ref,randomUUID())).rejects.toThrow();
   expect(await h.noEffects(a.ref)).toEqual({journals:0,effects:0});expect(await h.noEffects(b.ref)).toEqual({journals:0,effects:0});
+ });
+ it('confines history and invoice-evidence reads to the selected source while the same maker holds another posted import',async()=>{
+  const a=await h.prepared(),b=await h.prepared(),approval=await h.request(b.ref);await h.review(approval.id);
+  const invoiceB=(await h.execute(b.ref,approval.id)).documentId;if(!invoiceB)throw new Error('Posted import B produced no invoice');
+  for(const selection of [{action:'prepare',sourceId:a.retained.sourceId},{action:'execute',importId:a.ref.entityId}] as const){
+   // History entity reads need read:audit, outside the platform ceiling: refused for the selected source too, so this is not the identity guard.
+   for(const source of [a,b])await expect(h.maker(selection,ctx=>assertHistoryEntity(ctx,'historical_import_source',source.retained.sourceId))).rejects.toThrow(/Current permissions do not allow/);
+   await expect(h.maker(selection,ctx=>readHistoricalImportSourceKind(ctx,b.retained.sourceId))).rejects.toThrow('Platform import source identity differs');
+   await expect(h.maker(selection,ctx=>historicalImportInvoiceEvidence(ctx,'customer_invoice',invoiceB))).rejects.toThrow('Platform import authority');
+   await expect(h.maker(selection,ctx=>readHistoricalImportSourceKind(ctx,a.retained.sourceId))).resolves.toBe('customer_invoice');
+  }
+  expect(await h.noEffects(a.ref)).toEqual({journals:0,effects:0});
  });
  it('refuses an actual other-tenant source through a selected company',async()=>{
   const bytes=Buffer.from(JSON.stringify(h.body()));
