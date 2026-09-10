@@ -477,3 +477,25 @@ and `customerInvoiceCancelService.cancelCustomerInvoice` (both `FOR UPDATE`),
 | `pages/api/accounting/assets.ts`; `expense/expenseClaimService.ts` :: `nextClaimNumber`; `items/itemService.ts` :: `generateItemCode`; `admin/services/invoiceService.ts` | **LOW.** MAX+1 against a real unique index, no savepointed retry — concurrent creates 23505 into a 500. Correct trade, not a retry. Now stated in each comment. |
 | `ap/procurementService.ts` :: `generateGRNNumber` | **NONE — dead.** No non-test caller; `goodsReceivedService` has its own atomic counter. Mentioned, not deleted. |
 | `pages/api/accounting/products.ts` :: `generateProductCode`; `items/inventoryService.ts` :: `generateProductCode` | **NONE — unreachable.** `validateProduct` rejects a blank `code` with a 422 before the generator runs (carried over from round 5). |
+
+## Round 7 — the dead MAX()+1 generator is deleted
+
+Deleted `src/modules/accounting/services/practice/wipInvoiceNumber.ts` (`insertWipInvoice`) and
+`tests/unit/services/practice/wipInvoiceNumber.test.ts`, and removed the do-not-call note the file's
+existence had required in `practice/.claude.md`.
+
+The semantic merge (`18e522a20`) moved `generateWipInvoice` onto `insertWithReservedNumber` and left
+`insertWipInvoice` in the tree, unused, flagged do-not-call. That was the right call *for a merge* —
+you do not delete master's work while reconciling it — but it is wrong for this branch. This branch's
+entire subject is that `MAX(invoice_number)+1` numbering is unsafe, and section B above registers
+`trg_cp_payment_number` / `trg_sp_payment_number` as **live** instances of that same class on the two
+tables that carry money. Shipping a branch that argues the class is a defect while leaving a dead,
+working, importable implementation of it in `services/practice/` is a landmine for the next writer who
+needs an invoice number and greps for one: a do-not-call comment is weaker than the file not existing.
+
+Confirmed unreferenced before deleting — the only mentions in the tree were its own unit test, the two
+doc mirrors, and the historical `K-040/fix.md` record (left as-is; it describes what K-040 did).
+Nothing in `src/` or `pages/` imported it.
+
+Re-proved by outcome on the tree after the deletion (integration, `--no-file-parallelism`) — see the
+proof block below.
