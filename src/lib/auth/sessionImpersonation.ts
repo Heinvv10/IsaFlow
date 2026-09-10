@@ -88,5 +88,5 @@ export async function assertImpersonationReaderDeployed(
 export async function runImpersonationReaderGate(
   query: (text: string) => Promise<ReaderState[]>, out: (line: string) => void): Promise<void> {
   await assertImpersonationReaderDeployed(query);
-  out('impersonation readers present and executable by app_user\n');
+  out('impersonation readers present and executable by their calling roles\n');
 }

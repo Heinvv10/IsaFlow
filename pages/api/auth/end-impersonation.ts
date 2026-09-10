@@ -139,13 +139,22 @@ const handler: NextApiHandler = async (req, res) => {
       error: { code: 'REVOCATION_FAILED', message: 'Could not revoke the impersonated session — please retry' } });
   }
 
-  // Append-only: the revocation GoTrue actually performed is its own record.
-  await sql`
-    INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
-    VALUES (${stash.admin_user_id}, 'impersonation_revoked', 'user', ${stash.target_user_id},
-      ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope,
-        revoked: true })}::jsonb)
-  `;
+  // Append-only: the revocation GoTrue actually performed is its own record. It is
+  // audit-only - the end row above already stopped the proof - and GoTrue has revoked by
+  // now, so failing here would strand the admin: a retry's local logout with an already
+  // revoked token fails, giving a 502 loop until the stash expires. Log and carry on.
+  try {
+    await sql`
+      INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+      VALUES (${stash.admin_user_id}, 'impersonation_revoked', 'user', ${stash.target_user_id},
+        ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope,
+          revoked: true })}::jsonb)
+    `;
+  } catch (recordErr) {
+    log.error('end-impersonation: revocation succeeded but its audit record could not be written',
+      { stashId, targetSessionId, scope: revocationScope,
+        message: recordErr instanceof Error ? recordErr.message : String(recordErr) }, 'Admin');
+  }
 
   setAuthCookies(res, {
     accessToken: stash.admin_access_token,
