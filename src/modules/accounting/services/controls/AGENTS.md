@@ -26,7 +26,8 @@ Shared accounting control contracts, canonical operation material and authentica
 - Legacy missing provenance stays unknown; do not fabricate historical evidence.
 - Retained rows are matched by canonical entity identity: `lower(entity_id)` within `company_id`, and result identities compared with `sameIntentId`. Two spellings of one receipt are ambiguous and fail closed.
 - One entity keeps one version lineage. `readControlEntityVersion` binds the lineage retained under the caller's spelling, else the single retained spelling, and refuses two spellings when neither is the caller's. `recordCommittedChange` extends that lineage in place and writes its change event and protected evidence under the same spelling.
-- A caller that reads versions with its own exact-text query (bankRuleChangeControl, glAccountChangeControl, glMergeChangeControl) can therefore offer `previousVersion: null` while a differently spelled lineage exists. That write is refused as a stale version rather than forking a second lineage; such a caller must be moved onto `readControlEntityVersion` before it can extend that entity again.
+- Callers that look a version up themselves (bankRuleChangeControl, glAccountChangeControl, glMergeChangeControl) match `lower(entity_id)` and prefer the caller's spelling, exactly as `readControlEntityVersion` does, so a lineage retained under another spelling is extended rather than permanently blocked by the primary-key conflict.
+- Every projection that reports control evidence — audit snapshot sources, risk and three-way-match queries, change history, transaction evidence, payroll posting receipts — matches the same way. A reader that matches exactly reports a controlled entity as unversioned or its history as absent, which understates evidence rather than failing closed.
 - Max 300 lines per implementation file; root owns shared contracts and migration allocation.
 
 ## Recent changes

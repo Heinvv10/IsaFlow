@@ -33,8 +33,9 @@ export async function loadEvidenceNode(ctx:ControlTx,ref:EvidenceIdentity,permis
   }
   if(!row)return null;
   const history=await ctx.sql`SELECT v.version,(SELECT min(e.occurred_at) FROM control_change_events e
-      WHERE e.company_id=${c}::uuid AND e.entity_type=${t} AND e.entity_id=${id}) AS recorded_since
-    FROM control_entity_versions v WHERE v.company_id=${c}::uuid AND v.entity_type=${t} AND v.entity_id=${id} LIMIT 1` as
+      WHERE e.company_id=${c}::uuid AND e.entity_type=${t} AND lower(e.entity_id)=lower(${id})) AS recorded_since
+    FROM control_entity_versions v WHERE v.company_id=${c}::uuid AND v.entity_type=${t} AND lower(v.entity_id)=lower(${id})
+    ORDER BY (v.entity_id=${id}) DESC,v.entity_id LIMIT 1` as
     {version:string|number;recorded_since:Date|string|null}[];
   const version=history[0]?Number(history[0].version):null;
   const recorded=history[0]?.recorded_since;

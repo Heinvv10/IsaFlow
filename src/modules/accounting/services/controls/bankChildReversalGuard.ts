@@ -18,7 +18,7 @@ export async function assertStandaloneBankChildReversal(ctx:ControlTx,paymentId:
  const [origin]=await ctx.sql`SELECT 1 AS bank_owned WHERE EXISTS(
   SELECT 1 FROM control_operation_effects e
   WHERE e.company_id=${ctx.principal.companyId}::uuid AND e.operation='bank_allocation.post'
-   AND e.entity_type='bank_allocation_intent' AND e.result->>'paymentId'=${paymentId}
+   AND e.entity_type='bank_allocation_intent' AND lower(e.result->>'paymentId')=lower(${paymentId})
  ) OR EXISTS(
   SELECT 1 FROM bank_transactions b JOIN gl_journal_lines l
    ON l.company_id=b.company_id AND l.id=b.matched_journal_line_id

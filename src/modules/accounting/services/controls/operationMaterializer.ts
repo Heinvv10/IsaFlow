@@ -93,7 +93,7 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
       INSERT INTO control_policy_exposure(company_id,policy_id,beneficiary_key,currency,window_start,
         operation,entity_id,amount,state,approval_id)
       VALUES(${ctx.principal.companyId}::uuid,${rule.id},${bucket.beneficiaryKey},${bucket.currency},
-        ${material.windowStart}::date,${material.binding.operation},${material.binding.entityId},${bucket.amount}::numeric,
+        ${material.windowStart}::date,${material.binding.operation},lower(${material.binding.entityId}),${bucket.amount}::numeric,
         ${state},${approvalId}::uuid)
       ON CONFLICT(company_id,policy_id,operation,entity_id,beneficiary_key,currency) DO UPDATE SET
         beneficiary_key=EXCLUDED.beneficiary_key,currency=EXCLUDED.currency,window_start=EXCLUDED.window_start,

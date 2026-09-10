@@ -15,7 +15,7 @@ export async function readPayrollPostingReceipt(ctx:ControlTx,runId:string):Prom
     WHERE company_id=${company}::uuid AND id=${run.journal_entry_id}::uuid FOR SHARE` as {status:string;reversed_at:unknown}[];
   if(!journal || journal.status!=='posted' || journal.reversed_at)throw new Error('Payroll posting receipt state is inconsistent');
   const [effect]=await ctx.sql`SELECT result FROM control_operation_effects WHERE company_id=${company}::uuid
-    AND entity_type='payroll_run' AND entity_id=${runId} AND operation='payroll_run.post'
+    AND entity_type='payroll_run' AND lower(entity_id)=lower(${runId}) AND operation='payroll_run.post'
     AND result->>'journalEntryId'=${run.journal_entry_id} ORDER BY committed_at DESC LIMIT 1` as {result:PayrollPostResult}[];
   if(!effect || effect.result?.journalEntryId!==run.journal_entry_id || effect.result.run?.id!==runId) {
     throw new Error('Existing payroll journal has no verified posting receipt');

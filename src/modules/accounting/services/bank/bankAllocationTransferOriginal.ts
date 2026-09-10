@@ -27,7 +27,7 @@ export async function loadBankTransferOriginalBanks(ctx:ControlTx,intent:Row,pla
   FROM control_operation_effects e JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=lower(e.entity_id)
   WHERE e.company_id=${company}::uuid AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
    AND (lower(e.entity_id)=${intent.id}::text OR e.result->>'journalEntryId'=${journal.id}::text
-    OR i.payload->'transfer'->>'originalIntentId'=${intent.id}::text) ORDER BY lower(e.entity_id) LIMIT 3` as Row[];
+    OR lower(i.payload->'transfer'->>'originalIntentId')=${intent.id}::text) ORDER BY lower(e.entity_id) LIMIT 3` as Row[];
  if(new Set(receipts.map(r=>String(r.entity_id))).size!==receipts.length)throw new Error('Ambiguous operation receipt');
  const original=receipts.find(r=>r.entity_id===intent.id),links=receipts.filter(r=>r.entity_id!==intent.id);
  if(!original||original.audited!==true||receipts.length>2||links.length>1
@@ -39,8 +39,8 @@ export async function loadBankTransferOriginalBanks(ctx:ControlTx,intent:Row,pla
  const late=links[0];
  if(late){
   const saved=parseBankAllocationPlan(late.payload),r=late.result as Row;
-  if(saved.kind!=='transfer'||saved.transfer.mode!=='link'||saved.transfer.originalIntentId!==intent.id||late.audited!==true
-   ||saved.bankTransactionId!==late.bank_transaction_id||!sameIntentId(r.intentId,String(late.entity_id))||r.originalIntentId!==intent.id
+  if(saved.kind!=='transfer'||saved.transfer.mode!=='link'||!sameIntentId(saved.transfer.originalIntentId,String(intent.id))||late.audited!==true
+   ||saved.bankTransactionId!==late.bank_transaction_id||!sameIntentId(r.intentId,String(late.entity_id))||!sameIntentId(r.originalIntentId,String(intent.id))
    ||r.bankTransactionId!==saved.bankTransactionId||r.journalEntryId!==journal.id||r.oppositeBankTransactionId!==plan.bankTransactionId
    ||r.paymentId!==null||r.status!=='allocated')throw new Error('Late transfer link receipt changed');
   oppositeId=saved.bankTransactionId;
