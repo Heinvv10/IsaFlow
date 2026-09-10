@@ -163,8 +163,12 @@ it('binds a closed original period reversal to the open server-day target and re
   expect(stored.rows[0].binding.accountingDate).toBe(today);
   const { executeControlledOperation } = await import('@/modules/accounting/services/controls/approvalExecutionService');
   const callback = vi.fn();
+  // Guaranteed to differ from `today` (the bound accountingDate), unlike a hard-coded literal
+  // that only fails to refuse on the one day it happens to equal the server's current date.
+  const changedTarget = new Date(`${today}T00:00:00Z`);
+  changedTarget.setUTCDate(changedTarget.getUTCDate() + 1);
   await expect(actor('u1', ctx => executeControlledOperation(ctx,
-    { ...ref, reversalDate: '2026-09-10' } as OperationRef, id, callback))).rejects.toThrow();
+    { ...ref, reversalDate: changedTarget.toISOString().slice(0, 10) } as OperationRef, id, callback))).rejects.toThrow();
   expect(callback).not.toHaveBeenCalled();
   await actor('u1', () => voidSupplierPayment(fixture.companyA, doc.payment, fixture.u1.id, { approvalId: id }));
   const contra = await pool.query('SELECT entry_date::text FROM gl_journal_entries WHERE company_id=$1 AND reversal_of_id=$2', [fixture.companyA, processed.glJournalEntryId]);
