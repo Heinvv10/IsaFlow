@@ -58,3 +58,23 @@ it('refuses foreign sources and retained results, caller authority and oversized
   expect((await f.rpc('compare_audit_snapshots',{first_snapshot_id:first,second_snapshot_id:second,idempotency_key:randomUUID(),...extra})).result?.isError).toBe(true);
  expect((await f.rpc('audit_comparison_items',{comparison_id:comparison,section:'records',limit:101})).result?.isError).toBe(true);
 });
+it('queues genuine indexless originals through MCP without foreground conversion and preserves replay after background publication',async()=>{
+ const ids:string[]=[];
+ for(const sources of [['journals','payroll'],['journals','bank']]){
+  const job=await f.call<Job>('audit_snapshot',{cutoff:'2026-09-09',sources,checks:[],idempotency_key:randomUUID()});ids.push(job.id);
+  expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool})).toMatchObject({state:'succeeded'});
+ }
+ const originals=(await f.pool.query('SELECT id,canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=ANY($2::uuid[]) ORDER BY id',[f.fixture.companyA,ids])).rows;
+ for(const table of ['control_audit_snapshot_index_chunks','control_audit_snapshot_index_items','control_audit_snapshot_indexes','control_audit_comparison_source_items','control_audit_comparison_sources'])
+  await f.pool.query(`DELETE FROM ${table} WHERE company_id=$1 AND snapshot_id=ANY($2::uuid[])`,[f.fixture.companyA,ids]);
+ const args={first_snapshot_id:ids[0],second_snapshot_id:ids[1],idempotency_key:randomUUID()};
+ const job=await f.call<Job>('compare_audit_snapshots',args);
+ expect(await f.call<Job>('audit_job_status',{job_id:job.id})).toMatchObject({state:'queued',attempts:0});
+ expect((await f.pool.query('SELECT snapshot_id FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=ANY($2::uuid[])',[f.fixture.companyA,ids])).rows).toEqual([]);
+ expect((await f.call<Job>('compare_audit_snapshots',args)).id).toBe(job.id);
+ expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool})).toMatchObject({state:'succeeded',comparisonId:job.id});
+ const page=await f.call<Page>('audit_comparison_items',{comparison_id:job.id,section:'records'});expect(page.first.id).toBe(ids[0]);expect(page.second.id).toBe(ids[1]);
+ expect((await f.call<Job>('compare_audit_snapshots',args)).id).toBe(job.id);
+ expect((await f.pool.query('SELECT id,canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=ANY($2::uuid[]) ORDER BY id',[f.fixture.companyA,ids])).rows).toEqual(originals);
+ expect((await f.pool.query('SELECT build_job_id FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=ANY($2::uuid[])',[f.fixture.companyA,ids])).rows).toEqual([{build_job_id:job.id},{build_job_id:job.id}]);
+},30000);
