@@ -35,11 +35,11 @@ Counts above total53. Each economic assertion remains required even when helper 
 ## Contract changes needing explicit classification
 
 - Targeted supplier settlement formerly expected `recordPaymentMatch` without a document. The controlled path creates one immutable-journal-linked child and exact applications; economic no-duplicate settlement must remain proved.
-- Prior party-VAT info log and VAT-fallback warning are absent from current source. Proposed supersession by exact saved VAT-account provenance and no-party-VAT GL proof has been sent to root; no log assertion retired yet.
+- Prior party-VAT info log and VAT-fallback warning are absent from current source. Proposed supersession by exact saved VAT-account provenance and no-party-VAT GL proof was explicitly approved by root; no log assertion retired before mapped PostgreSQL proof.
 - Refund sign, default autoallocation, explicit optout, VAT fallback and invoice dates are preserved capabilities, not obsolete tests.
 
 ## Status
 
 - Current RED reproduced; all original files retained.
-- Source/test mapping in progress; no replacement PostgreSQL acceptance yet.
+- Initial five lifecycle cases authored (three SAST adapters and two inverse identity variants); no replacement PostgreSQL acceptance yet.
 - Root owns intermediate full CI resource lease; this worker has run focused units only.
