@@ -20,7 +20,7 @@ import {
   type PipelineThresholds,
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
-import { isAmbiguousTotal, isCreditNote } from '@/modules/accounting/services/core/unattendedPostingGate';
+import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -149,9 +149,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // measured on the k076 corpus, three mixed-basket slips were auto-approved
   // here at R230.00 against a payable of R253.00 — a WORSE figure than the
   // reader this branch replaced produced. Neither may go through unattended,
-  // and both override `auto_publish`, whose rules judge the supplier and the
-  // duplicate history rather than whether the amount is legible.
-  const unattendedRefused = isCreditNote(extracted) || isAmbiguousTotal(extracted);
+  // nor may figures the regex/OCR fallback recovered (K-072 round 14 policy),
+  // and all three override `auto_publish`, whose rules judge the supplier and
+  // the duplicate history rather than whether the amount is legible.
+  const unattendedRefused = refusesUnattendedApproval(extracted);
   const approvalRoute = unattendedRefused
     ? 'manual_review'
     : determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);

@@ -159,6 +159,8 @@ const ZERO_VAT = {
   confidence: 0.95,
   // The text the auto-post gate re-reads: one printed total, a VAT figure.
   rawText: 'Standard Bank\nSub Total 500.00\nVAT 0.00\nTotal 500.00',
+  // Only a structured extraction may post unattended (K-072 round 14).
+  extractionMethod: 'vlm',
 };
 
 beforeEach(() => {

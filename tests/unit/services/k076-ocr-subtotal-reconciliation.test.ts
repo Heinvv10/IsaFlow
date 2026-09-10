@@ -115,7 +115,7 @@ describe('K-076 a document the reader could not settle does not post unattended'
   // rebased document would have posted unattended where it used to stop.
   const config = { maxAmount: 5000, minConfidence: 0.85 };
   const gate = (text: string, warnings: string[], confidence = 0.95) => shouldAutoPostReceipt(
-    { documentType: 'receipt', rawText: text, ...extractAmounts(text), warnings, confidence }, config,
+    { documentType: 'receipt', rawText: text, ...extractAmounts(text), warnings, confidence, extractionMethod: 'vlm' }, config,
   );
   const RECONCILES = 'Sub Total 1000.00\nVAT 150.00\nTotal Due 1150.00';
 

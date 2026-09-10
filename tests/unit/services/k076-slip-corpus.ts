@@ -1,5 +1,5 @@
 /**
- * Every slip K-076 has been beaten by, rounds 5 to 13, in one place.
+ * Every slip K-076 has been beaten by, rounds 5 to 14, in one place.
  *
  * Each round of this item fixed the slips it was shown and was beaten by one it
  * was not, so the corpus is data rather than scattered `it` bodies: a new
@@ -211,4 +211,56 @@ export const SLIPS: Slip[] = [
   { name: 'R32 Builders invoice, two lines', text: `${INVOICE('Builders Warehouse', 'BW3001')}Paint 20L 2 899.00 1798.00\nRollers 3 49.00 147.00\nSub Total 1691.30\nVAT 15% 253.70\nTotal Due 1945.00`, payable: 1945, outcome: 'post' },
   { name: 'R33 accountant invoice', text: `${INVOICE('Smith & Co Accountants', 'SC2026-09')}Monthly bookkeeping 1 2500.00 2500.00\nSub Total 2500.00\nVAT 375.00\nTotal 2875.00`, payable: 2875, outcome: 'post' },
   { name: 'R34 Wimpy, Cash Tendered and Change Due', text: `${RECEIPT('Wimpy Fourways', '100234')}Breakfast 1 89.90 89.90\nSub Total 78.17\nVAT 11.73\nTotal 89.90\nCash Tendered 100.00\nChange Due 10.10`, payable: 89.9, outcome: 'post' },
+
+  // Round 14 — refunds, returns and Afrikaans credit notes (review r13). Ten
+  // of the fourteen posted or were approved as a purchase at 14e979376; none
+  // may now, on any path.
+  { name: "F1 TOTAL REFUND positive", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nREFUND\nKettle -499.00\nVAT 15% 65.09\nTOTAL -499.00\nTOTAL REFUND 499.00", payable: null, outcome: 'refuse' },
+  { name: "F2 Refund Total positive", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nREFUND\nKettle -499.00\nVAT 15% 65.09\nTOTAL -499.00\nRefund Total 499.00", payable: null, outcome: 'refuse' },
+  { name: "F3 neg VAT, Refund Total pos", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nREFUND\nKettle -499.00\nVAT 15% -65.09\nTOTAL -499.00\nRefund Total 499.00", payable: null, outcome: 'refuse' },
+  { name: "F4 Amount Payable pos (refund payable to customer)", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nRETURN\nKettle -499.00\nSub Total -433.91\nVAT 15% 65.09\nTOTAL -499.00\nAmount Payable 499.00", payable: null, outcome: 'refuse' },
+  { name: "F5 Return Total pos, TOTAL neg, VAT pos analysis", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nRETURNS\nKettle -499.00\nTOTAL -499.00\nVISA -499.00\nVAT ANALYSIS\nExcl VAT 433.91\nVAT 65.09\nReturns Total 499.00", payable: null, outcome: 'refuse' },
+  { name: "F6 exchange neg total + Goods Total pos", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nEXCHANGE\nGoods Total 614.00\nReturned -1113.00\nVAT 15% 65.09\nTOTAL -499.00", payable: null, outcome: 'refuse' },
+  { name: "F7 TOTAL neg with Amount Due 0.00", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nREFUND\nKettle -499.00\nVAT 15% 65.09\nTOTAL -499.00\nAmount Due 0.00", payable: null, outcome: 'refuse' },
+  { name: "F8 Kredietnota VAT label", text: "Acme Voorrade\nKREDIETNOTA\nDatum: 2026-09-01\nSub Totaal 100.00\nVAT 15% 15.00\nTotaal 115.00", payable: null, outcome: 'refuse' },
+  { name: "F9 refund trailing minus, VAT incl", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nREFUND\nKettle 499.00-\nTOTAL 499.00-\nVISA REFUND 499.00-\nVAT 15% 65.09-", payable: null, outcome: 'refuse' },
+  { name: "F10 RETURN slip positive", text: "GAME Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nRETURN SLIP\nKettle 499.00\nSub Total 433.91\nVAT 15% 65.09\nTOTAL 499.00\nREFUNDED TO CARD 499.00", payable: null, outcome: 'refuse' },
+  { name: "F11 REFUND slip positive (no CREDIT NOTE)", text: "CHECKERS\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nREFUND\nKettle 115.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD REFUND 115.00", payable: null, outcome: 'refuse' },
+  { name: "F12 REFUND trailing minus", text: "CHECKERS\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nREFUND\nKettle 115.00-\nVAT 15% 15.00-\nTOTAL 115.00-", payable: null, outcome: 'refuse' },
+  { name: "F13 Kredietnota positive", text: "Acme Voorrade\nKREDIETNOTA\nDatum: 2026-09-01\nSub Totaal 100.00\nBTW 15% 15.00\nTotaal 115.00", payable: null, outcome: 'refuse' },
+  { name: "F14 returns total positive + TOTAL negative", text: "GAME\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 004512\nRETURNS\nReturns Total 499.00\nVAT 65.09\nTOTAL -499.00", payable: null, outcome: 'refuse' },
+
+  // Round 14 — a charge or deduction around the total that the round-13 rule
+  // explained away or never saw: a `Chg` read as change, a tip under a split
+  // tender, a card "tender" with change, a discount after the total, and a
+  // payable whose cents OCR dropped. Each posted or approved a wrong figure at
+  // 14e979376.
+  { name: "M1 payable then \"incl Svc Chg\" same line", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nPlease Pay 253.00 incl Svc Chg 23.00", payable: 253, outcome: 'refuse' },
+  { name: "M2 payable then Service Chg next line", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nPlease Pay 253.00\nIncl. Service Chg 23.00", payable: 253, outcome: 'refuse' },
+  { name: "M3 CARD then Svc Chg included", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nCARD 253.00\nSvc Chg incl 23.00", payable: 253, outcome: 'refuse' },
+  { name: "M4 CARD then Tip (mislabelled Change)", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nCARD 253.00\nChange 23.00", payable: 253, outcome: 'refuse' },
+  { name: "M5 tip from cash change", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nCASH 300.00\nCHANGE 70.00\nTip 23.00", payable: 253, outcome: 'refuse' },
+  { name: "M6 split tender with tip, no grand total", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nTip 23.00\nVISA 126.50\nMASTERCARD 126.50", payable: 253, outcome: 'refuse' },
+  { name: "M7 split card+cash with tip", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nTip 23.00\nCARD 200.00\nCASH 100.00\nCHANGE 47.00", payable: 253, outcome: 'refuse' },
+  { name: "M8 delivery, split tender, no grand total", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nDelivery 57.50\nCARD 150.00\nCASH 150.00\nCHANGE 12.50", payable: 287.5, outcome: 'refuse' },
+  { name: "M9 discount after VAT total, card less", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 220.00\nVAT 15% 33.00\nTotal 253.00\nStaff Discount -23.00\nCARD 230.00", payable: 230, outcome: 'refuse' },
+  { name: "M10 all integers, unknown payable", text: "Ocean Basket Sandton\nTAX INVOICE\nDate: 2026-09-01\nHake and Chips 1 200\nSub Total 200\nVAT 15% 30\nTotal 230\nGratuity 23\nAMT DUE 253", payable: 253, outcome: 'refuse' },
+  { name: "M11 cents on total, payable integer", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nGratuity 23\nAMT DUE 253", payable: 253, outcome: 'refuse' },
+  { name: "M12 payable decimal dropped by OCR (space)", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nGratuity 23.00\nAMT DUE 253 00", payable: 253, outcome: 'refuse' },
+  { name: "M13 payable decimal as letter O", text: "Ocean Basket Sandton\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nInvoice No: 88123\nHake and Chips 1 200.00 200.00\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nGratuity 23.00\nAMT DUE 253.OO", payable: 253, outcome: 'refuse' },
+  { name: "M14 space-grouped payable mid-line + tip", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 000.00\nSub Total 1 000.00\nVAT 15% 150.00\nTotal 1 150.00\nPlease Pay 1 265.00 Tip 115.00", payable: 1265, outcome: 'refuse' },
+  { name: "M15 space-grouped payable + ZAR suffix", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 000.00\nSub Total 1 000.00\nVAT 15% 150.00\nTotal 1 150.00\nGratuity 115.00\nPlease Pay 1 265.00 ZAR", payable: 1265, outcome: 'refuse' },
+  { name: "M16 space-grouped payable + tax flag", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 000.00\nSub Total 1 000.00\nVAT 15% 150.00\nTotal 1 150.00\nDelivery 115.00\nAMT DUE 1 265.00 *", payable: 1265, outcome: 'refuse' },
+  { name: "M17 space-grouped payable R prefix mid", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 000.00\nSub Total 1 000.00\nVAT 15% 150.00\nTotal 1 150.00\nDelivery 115.00\nAMT DUE R1 265.00 (incl)", payable: 1265, outcome: 'refuse' },
+  { name: "M18 comma decimal space-grouped mid", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 000.00\nSub Total 1 000,00\nVAT 15% 150,00\nTotal 1 150,00\nDelivery 115,00\nAMT DUE 1 265,00 ZAR", payable: 1265, outcome: 'refuse' },
+
+  // Round 14 — the credit and charge words inside an ORDINARY purchase: an item,
+  // a card type, a refund-policy footer, a delivery-note number. All post.
+  { name: "V1 Credit card surcharge item", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nCredit card surcharge 1 15.00 15.00\nSub Total 1015.00\nVAT 152.25\nTotal 1167.25", payable: 1167.25, outcome: 'post' },
+  { name: "V2 VISA CREDIT tender", text: "Checkers Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 100401\nBread 1 23.00 23.00\nSub Total 20.00\nVAT 3.00\nTOTAL 23.00\nVISA CREDIT 23.00", payable: 23, outcome: 'post' },
+  { name: "V3 NO REFUND WITHOUT SLIP footer", text: "Game Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 100402\nKettle 1 299.00 299.00\nSub Total 260.00\nVAT 39.00\nTotal 299.00\nCARD 299.00\nNO REFUND WITHOUT SLIP", payable: 299, outcome: 'post' },
+  { name: "V4 Refund policy footer", text: "Game Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 100403\nKettle 1 299.00 299.00\nSub Total 260.00\nVAT 39.00\nTotal 299.00\nCARD 299.00\nRefunds within 30 days with slip", payable: 299, outcome: 'post' },
+  { name: "V5 card slip account type CREDIT line", text: "Game Fourways\nTAX INVOICE\nVAT No 4123456789\nDate: 2026-09-01\nReceipt No: 100404\nKettle 1 299.00 299.00\nSub Total 260.00\nVAT 39.00\nTotal 299.00\nCARD 299.00\nAcc Type: CREDIT", payable: 299, outcome: 'post' },
+  { name: "V7 Delivery note number footer", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nDelivery Note No: DN4471", payable: 1150, outcome: 'post' },
+  { name: "V8 Delivery address footer", text: "Waltons Stationery\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00\nDelivery address 12 Main Road", payable: 1150, outcome: 'post' },
 ];

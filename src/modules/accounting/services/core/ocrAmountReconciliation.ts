@@ -114,25 +114,33 @@ export function reconcileNetAgainstTotal(
  * so `selectTotalAmount`'s "the bottom one" still means the figure printed
  * lowest on the document, whichever pattern read it.
  *
- * A figure of zero or less beside a positive one is not a payable, and is
- * dropped. Consulting every pattern made `Balance Due 0.00` on a PAID invoice
- * the bottom candidate, so the reader offered R0.00 where it used to read the
- * invoice total — and an attended post built a R0.00 entry. A document whose
- * figures are ALL negative keeps them: that is a credit note, and its sign is
- * what `isCreditNote` and the gate's positive-total check refuse on.
+ * A ZERO beside a non-zero figure is not a payable, and is dropped:
+ * consulting every pattern made `Balance Due 0.00` on a PAID invoice the
+ * bottom candidate, so the reader offered R0.00. Negatives are KEPT. Round 13
+ * dropped them beside a positive figure too, and a refund slip printing
+ * `TOTAL -499.00 / Refund Total 499.00` then read 499 and posted a purchase
+ * for money the business received; kept, the two figures disagree and refuse.
  */
 export function extractTotalCandidates(text: string): number[] {
-  const hits: Array<{ at: number; value: number }> = [];
-  for (const pattern of GLOBAL_TOTAL_PATTERNS) {
-    for (const match of text.matchAll(pattern)) {
-      if (match[1]) hits.push({ at: match.index, value: parseAmount(match[1]) });
-    }
-  }
-  const values = hits.sort((a, b) => a.at - b.at).map((h) => h.value);
-  const positive = values.filter((v) => v > 0);
-  if (positive.length > 0) return positive;
+  const values = totalHits(text).map((h) => h.value);
   const nonZero = values.filter((v) => v !== 0);
   return nonZero.length > 0 ? nonZero : values;
+}
+
+/** Where the first printed total equal to `total` ENDS, or null when none is. */
+export function totalPrintedEnd(text: string, total: number): number | null {
+  const hit = totalHits(text).find((h) => h.value === total);
+  return hit ? hit.end : null;
+}
+
+function totalHits(text: string): Array<{ at: number; end: number; value: number }> {
+  const hits: Array<{ at: number; end: number; value: number }> = [];
+  for (const pattern of GLOBAL_TOTAL_PATTERNS) {
+    for (const match of text.matchAll(pattern)) {
+      if (match[1]) hits.push({ at: match.index, end: match.index + match[0].length, value: parseAmount(match[1]) });
+    }
+  }
+  return hits.sort((a, b) => a.at - b.at);
 }
 
 /** `TOTAL_PATTERNS` are single-match; `matchAll` requires the global flag. */
