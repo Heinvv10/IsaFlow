@@ -6,9 +6,9 @@ import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
-import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 import {
   NON_OPERATING_EXPENSE_SUBTYPES,
+  OTHER_INCOME_SUBTYPES,
   TAX_EXPENSE_SUBTYPES,
 } from '@/modules/accounting/services/gl/accountClassification';
 
@@ -140,14 +140,31 @@ export async function generateNote18RevenueDisaggregation(
 
   const rows = (await sql`
     SELECT ga.account_name, ga.account_code, ga.account_subtype,
-           SUM(ABS(gjl.credit - gjl.debit)) AS net_amount
+           -- NET movement, not the sum of per-line magnitudes. ABS applied
+           -- INSIDE the SUM is applied to each journal line, so a credit note
+           -- or sales return debited back to a revenue account was ADDED to
+           -- revenue instead of subtracted: R100,000 of sales less an R8,000
+           -- credit note printed R108,000 here while the income statement in
+           -- the same pack reported R92,000 - overstated by twice the return.
+           SUM(gjl.credit - gjl.debit) AS net_amount
     FROM gl_journal_lines gjl
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
       AND ga.account_type = 'revenue'
+      -- Turnover only. Other income belongs to note 19, and without this the
+      -- same account printed in both notes. COALESCE because <> ALL is NULL
+      -- for a NULL subtype, which would drop every unclassified revenue
+      -- account out of the note - and revenueBand calls those turnover.
+      AND COALESCE(ga.account_subtype, '') <> ALL(
+        ${OTHER_INCOME_SUBTYPES as string[]}::TEXT[]
+      )
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_code, ga.account_subtype
+    -- Per ACCOUNT and thresholded exactly as incomeStatementService bands the
+    -- same lines: two accounts sharing a name are two rows, and a nil net
+    -- movement is dropped in either direction.
+    GROUP BY ga.id, ga.account_name, ga.account_code, ga.account_subtype
+    HAVING ABS(SUM(gjl.credit - gjl.debit)) > 0.001
     ORDER BY net_amount DESC
   `) as DbRow[];
 
@@ -178,18 +195,24 @@ export async function generateNote19OtherIncome(
 
   const rows = (await sql`
     SELECT ga.account_name, ga.account_subtype,
-           SUM(ABS(gjl.credit - gjl.debit)) AS net_amount
+           -- Same per-line ABS defect as note 18: a reversed accrual debited
+           -- back to an other-income account was ADDED, so R3,000 credited
+           -- less a R1,000 reversal printed R4,000 against the income
+           -- statement's R2,000.
+           SUM(gjl.credit - gjl.debit) AS net_amount
     FROM gl_journal_lines gjl
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
-      AND ga.account_subtype = ANY(${[
-        ...rawSubtypesFor('other_income'),
-        'interest_income', 'dividend_income', 'rental_income', 'gain_on_disposal',
-      ]}::TEXT[])
+      -- The band revenueBand calls other income, and nothing else. The four
+      -- hand-written spellings this list used to add are absent from the
+      -- canonical vocabulary, so the income statement reports them as
+      -- turnover; claiming them here made notes 18 and 19 overlap instead of
+      -- partition. See OTHER_INCOME_SUBTYPES.
+      AND ga.account_subtype = ANY(${OTHER_INCOME_SUBTYPES as string[]}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_subtype
-    HAVING SUM(ABS(gjl.credit - gjl.debit)) > 0
+    GROUP BY ga.id, ga.account_name, ga.account_subtype
+    HAVING ABS(SUM(gjl.credit - gjl.debit)) > 0.001
     ORDER BY ga.account_subtype
   `) as DbRow[];
 

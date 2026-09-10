@@ -196,7 +196,7 @@ export async function noteRevenue(companyId: string, fiscalYear: number): Promis
 
   const rows = await sql`
     SELECT ga.account_name, ga.account_code,
-      SUM(ABS(gjl.credit - gjl.debit)) AS net_amount
+      SUM(gjl.credit - gjl.debit) AS net_amount -- NET: see AFS note 18
     FROM gl_journal_lines gjl
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
@@ -204,7 +204,7 @@ export async function noteRevenue(companyId: string, fiscalYear: number): Promis
       AND ga.account_type = 'revenue'
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_code
+    GROUP BY ga.id, ga.account_name, ga.account_code HAVING ABS(SUM(gjl.credit - gjl.debit)) > 0.001
     ORDER BY net_amount DESC
   ` as DbRow[];
 

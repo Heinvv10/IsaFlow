@@ -217,7 +217,15 @@ export async function duplicateControlAccounts(ctx: IntegrityCheckContext): Prom
   for (const [role, { sources, accountType }] of Object.entries(CONTROL_ROLES)) {
     const rows = (await sql`
       SELECT ga.id::TEXT AS id, ga.account_code, ga.account_name,
-             SUM(ABS(jl.debit - jl.credit)) AS amount
+             -- The BALANCE at stake, not gross throughput. ABS inside the SUM
+             -- is applied per journal LINE, so this reported every invoice
+             -- plus every payment ever posted to a contending control account
+             -- - on an AR control that settles in full it is roughly twice the
+             -- turnover, against a finding that says the subledger reconciles
+             -- against "a balance that is missing the other". ABS OUTSIDE the
+             -- SUM is the magnitude of the balance, which is what
+             -- clearingAccountsNotNil in this same file reports.
+             ABS(SUM(jl.debit - jl.credit)) AS amount
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
@@ -233,7 +241,7 @@ export async function duplicateControlAccounts(ctx: IntegrityCheckContext): Prom
           ...CASH_SUBTYPES, 'vat_input', 'vat_output',
         ] as string[]}::TEXT[])
       GROUP BY ga.id, ga.account_code, ga.account_name
-      ORDER BY SUM(ABS(jl.debit - jl.credit)) DESC
+      ORDER BY ABS(SUM(jl.debit - jl.credit)) DESC
     `) as DbRow[];
 
     if (rows.length <= 1) continue;
