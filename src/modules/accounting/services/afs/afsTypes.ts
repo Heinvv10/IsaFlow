@@ -114,6 +114,8 @@ export interface UpdateAfsSectionInput {
   aiNarrativeAccepted?: boolean;
   reviewedBy?: string;
   signedOffBy?: string;
+  /** Who is changing the content. Required to change the content of a reviewed or signed-off section. */
+  updatedBy?: string;
 }
 
 // ── NoteTemplate ─────────────────────────────────────────────────────────────
