@@ -28,7 +28,7 @@ export async function getAuditComparisonPage(ctx:ControlTx,input:unknown){
   return openComparisonResultItem(row.protected_item,header,request.section,row.position);
  });
  const next=start+items.length;
- return{comparisonId:request.comparisonId,canonicalHash:header.canonicalHash,comparisonRuleVersion:header.comparisonRuleVersion,
+ return{version:header.version,companyId:header.companyId,permissions:header.permissions,comparisonId:request.comparisonId,canonicalHash:header.canonicalHash,comparisonRuleVersion:header.comparisonRuleVersion,
   first:header.first,second:header.second,counts:header.counts,populationChanged:header.populationChanged,coverageChanged:header.coverageChanged,
   section:request.section,total,items,nextCursor:next<total?String(next):null};
 }

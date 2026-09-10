@@ -1,5 +1,5 @@
 import {beforeAll,afterAll,it,expect} from 'vitest';
-import {randomUUID,randomBytes} from 'node:crypto';
+import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
@@ -10,7 +10,7 @@ import {enqueueAuditComparison} from '@/modules/accounting/services/controls/aud
 import {runAuditSnapshotJob,runAuditJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {readAuditComparisonHeader} from '@/modules/accounting/services/controls/auditComparisonReadHeader';
 import {getAuditComparisonPage} from '@/modules/accounting/services/controls/auditComparisonPageService';
-import {createComparisonResultDigest} from '@/modules/accounting/services/controls/auditComparisonResultDigest';
+import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
 import {COMPARISON_SECTIONS} from '@/modules/accounting/services/controls/auditSnapshotComparisonMaterial';
 const config=fixtureConfigFromEnv(process.env),pool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:2});
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
@@ -34,17 +34,22 @@ beforeAll(async()=>{
 });
 afterAll(()=>pool.end());
 it('reads a real worker population through three authenticated pages as a different authorized person and recomputes the full digest',async()=>{
- const header=await actor(()=>readAuditComparisonHeader(requireControlTx(),comparisonId),'u2'),digest=createComparisonResultDigest();
+ const header=await actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId,section:'records',limit:1}),'u2');
+ const digest=createHash('sha256').update('isaflow.audit-comparison-result.v1\n');
  expect(header.counts.records).toEqual({first:0,second:250,added:250,removed:0,changed:0,unchanged:0});
  const pageSizes:number[]=[];
- for(const section of COMPARISON_SECTIONS){let cursor:string|undefined;
+ for(const section of COMPARISON_SECTIONS){let cursor:string|undefined,position=0;
   do{const page=await actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId,section,...(cursor?{cursor}:{})}),'u2');
    expect(page.canonicalHash).toBe(header.canonicalHash);expect(page.total).toBe(section==='records'?250:0);
-   for(const item of page.items){expect(item).toMatchObject({section,kind:'added',before:null,after:{snapshotId:second}});digest.append(item);}
+   for(const item of page.items){expect(item).toMatchObject({section,kind:'added',before:null,after:{snapshotId:second}});digest.update(canonicalJson({section,position:position++,change:item})+'\n');}
    if(section==='records')pageSizes.push(page.items.length);cursor=page.nextCursor??undefined;
   }while(cursor);
  }
- expect(pageSizes).toEqual([100,100,50]);expect(digest.finish(header)).toBe(header.canonicalHash);
+ expect(pageSizes).toEqual([100,100,50]);
+ // Independent wire-format oracle: only public page fields, no privileged header read or invented lease metadata.
+ const {version,comparisonRuleVersion,companyId,first:sourceFirst,second:sourceSecond,permissions,counts,populationChanged,coverageChanged}=header;
+ digest.update(canonicalJson({version,comparisonRuleVersion,companyId,first:sourceFirst,second:sourceSecond,permissions,counts,populationChanged,coverageChanged})+'\n');
+ expect(digest.digest('hex')).toBe(header.canonicalHash);
  await expect(actor(()=>getAuditJob(requireControlTx(),comparisonId),'u2')).rejects.toThrow(/not found/);
 });
 it('refuses foreign readers and both current domain revocations even after a successful read',async()=>{
