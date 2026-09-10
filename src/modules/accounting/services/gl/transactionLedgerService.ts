@@ -164,7 +164,7 @@ export async function getAccountTransactions(
         AND jl.company_id = ${companyId}::UUID
         AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
           OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
-        AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
+        AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND je.entry_date < ${periodStart}
         AND ga.account_code = ${accountCode}
     `) as Row[];
@@ -185,7 +185,7 @@ export async function getAccountTransactions(
         AND jl.company_id = ${companyId}::UUID
         AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
           OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
-        AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
+        AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${accountCode}

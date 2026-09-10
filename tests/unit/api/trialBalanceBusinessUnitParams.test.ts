@@ -22,6 +22,7 @@ import exportHandler from '../../../pages/api/accounting/trial-balance-export';
 const companyId = '10000000-0000-4000-8000-000000000001';
 const periodId = '20000000-0000-4000-8000-000000000001';
 const businessUnitId = '30000000-0000-4000-8000-000000000001';
+const costCentreId = '40000000-0000-4000-8000-000000000001';
 
 function response() {
   return { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn(), send: vi.fn() } as unknown as NextApiResponse;
@@ -46,6 +47,37 @@ describe.each([reportHandler, exportHandler])('trial balance business-unit valid
     }));
     expect(getTrialBalanceReport).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['fiscal_period_id', 'fiscal_period_id'],
+    ['cost_centre_id', 'cost_centre_id'],
+  ] as const)('rejects malformed or repeated %s values', async (queryKey, messageKey) => {
+    for (const invalid of ['broken', [periodId], [periodId, periodId]]) {
+      const res = response();
+      await handler({ method: 'GET', companyId, query: {
+        fiscal_period_id: periodId,
+        [queryKey]: invalid,
+      } } as unknown as NextApiRequest, res);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.objectContaining({ message: `${messageKey} must be a valid UUID` }),
+      }));
+    }
+    expect(getTrialBalanceReport).not.toHaveBeenCalled();
+  });
+});
+
+it.each(['broken', [periodId], [periodId, periodId]])('rejects malformed or repeated comparison periods', async invalid => {
+  const res = response();
+  await reportHandler({ method: 'GET', companyId, query: {
+    fiscal_period_id: periodId,
+    compare_period_id: invalid,
+  } } as unknown as NextApiRequest, res);
+  expect(res.status).toHaveBeenCalledWith(400);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+    error: expect.objectContaining({ message: 'compare_period_id must be a valid UUID' }),
+  }));
+  expect(getTrialBalanceReport).not.toHaveBeenCalled();
 });
 
 it('passes a valid business unit into the trial balance report', async () => {
@@ -53,10 +85,11 @@ it('passes a valid business unit into the trial balance report', async () => {
   await reportHandler({ method: 'GET', companyId, query: {
     fiscal_period_id: periodId,
     business_unit_id: businessUnitId,
+    cost_centre_id: costCentreId,
   } } as unknown as NextApiRequest, res);
   expect(getTrialBalanceReport).toHaveBeenCalledWith(companyId, periodId, {
     businessUnitId,
-    costCentreId: undefined,
+    costCentreId,
     includeZeroBalances: false,
   });
 });

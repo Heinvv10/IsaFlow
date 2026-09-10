@@ -34,7 +34,7 @@ describe('trial balance dimension coverage (Postgres)', async () => {
         await sql`CREATE TEMP TABLE IF NOT EXISTS fiscal_periods (id uuid, company_id uuid, period_name text, start_date date, end_date date) ON COMMIT DROP`;
         await sql`CREATE TEMP TABLE IF NOT EXISTS gl_accounts (id uuid, company_id uuid, account_code text, account_name text, account_type text, normal_balance text) ON COMMIT DROP`;
         await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_entries (id uuid, company_id uuid, status text, entry_date date) ON COMMIT DROP`;
-        await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid, debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, business_unit_id uuid) ON COMMIT DROP`;
+        await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid, debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, bu_id uuid) ON COMMIT DROP`;
         await sql`INSERT INTO companies VALUES (${company}::uuid, 'Fixture', 3)`;
         await sql`INSERT INTO fiscal_periods VALUES (${period}::uuid, ${company}::uuid, 'April 2026', '2026-04-01', '2026-04-30')`;
         await sql`INSERT INTO gl_accounts VALUES (${company}::uuid, ${company}::uuid, '5000', 'Expense', 'expense', 'debit'), (${foreign}::uuid, ${foreign}::uuid, '5000', 'Foreign expense', 'expense', 'debit')`;

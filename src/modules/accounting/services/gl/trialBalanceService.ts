@@ -140,7 +140,7 @@ async function rowsForBasis(
         AND je.entry_date <= ${periodEnd}
         AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
           OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
-        AND (${buId}::TEXT IS NULL OR jl.business_unit_id = ${buId}::UUID)
+        AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
       ORDER BY ga.account_code
     `) as Row[];
