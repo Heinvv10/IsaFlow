@@ -10658,6 +10658,40 @@
       "severity": "low",
       "source": "Flagged by the K-107 r11 blind reviewer as 'R-id TBA'; confirmed on origin/master by the orchestrating session, 2026-09-10",
       "processNotes": "`calculate.ts:48-50` maps `PayrollLoanLockTimeoutError` (OR'ed with `PayrollRunJournalPostedError`) to `apiResponse.badRequest`. Deliberate — the comment says both are refusals raised before anything is written and that without the mapping they would reach withErrorHandler as a 500 and lose the user's instruction. That data-safety reasoning holds; the pre-write claim is the author's and is not independently verified here.\n\nHOW TO FIX DEPENDS ON AN OPEN DECISION FOR HEIN. The codebase now has TWO contracts for lock contention: **409** (the bank routes, which K-071 standardised; and master's `approval-requests.ts` and `recurring-journals-action.ts`, which chose 409 deliberately as 'a retry, not a fault'), and **503 + Retry-After** (`apiDocumentLock.ts`, which K-107 applied to recurring templates). The K-107 reviewer also flagged those two 409 routes; they are NOT registered as defects, because doing so would presume 503 wins. Only this route's 400 is wrong under either contract."
+    },
+    {
+      "id": "R-063",
+      "claim": "",
+      "area": "accounting/vat",
+      "affectedPaths": [
+        "src/modules/accounting/services/reports/vatReconciliationService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "The VAT reconciliation is a VAT201-facing figure; a delete→undo cycle leaves a phantom pair of journals counted in it.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-053",
+        "K-091"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-053/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Every delete→undo cycle already performed leaves both legs counted. K-053's fix for the sibling (orphanReversalPairs, which recognises exactly-cancelling pairs through reversal_of_id) needs no migration and corrects historical cycles at read time — the same approach here would too.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "The VAT reconciliation counts both legs of a delete-then-undo round trip once the soft_delete_journal_reversals row is gone",
+      "severity": "medium",
+      "source": "Reserved and described by the K-053 r10 fixer, 2026-09-10. NOT independently verified by the orchestrator; it is the same mechanism the K-053 r9 blind reviewer measured in unappliedCashService.",
+      "processNotes": "`reinstateInvoiceJournal` (the undo) DELETEs the `soft_delete_journal_reversals` row, so after a delete→undo cycle both the reversal R and the reinstatement R2 pass every `NOT EXISTS`. K-053 fixed this in `unappliedCashService` with the new `orphanReversalPairs.ts`. `vatReconciliationService` has the same gap. Deliberately NOT fixed on K-053: K-091 is concurrently editing that file (lines 81-83 and 320-326, replacing the per-line ABS revenue arm that is R-056), and K-053 edits it at 108/172/339. Fix after BOTH branches merge, reusing `orphanReversalPairs`."
     }
   ],
   "sourceInventory": [
