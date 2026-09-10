@@ -127,6 +127,11 @@ describeIfDb('take-on posting for imported documents', () => {
     await acct('3100', 'Opening Balance Equity', 'equity', 'opening_balance_equity', 'credit');
     await acct('1000', 'Bank', 'asset', 'bank', 'debit');
     await acct('3200', 'Retained Earnings', 'equity', 'retained_earnings', 'credit');
+    // The same two control accounts under the OTHER spellings the vocabulary
+    // owns. A chart imported from Sage carries `debtors` / `creditors`, and the
+    // R-020 interlock has to recognise them as the same control accounts.
+    await acct('1101', 'Debtors', 'asset', 'debtors', 'debit');
+    await acct('2101', 'Creditors', 'liability', 'creditors', 'credit');
     clearSystemAccountCache();
 
     sessionId = ((await sql`
@@ -450,6 +455,41 @@ describeIfDb('take-on posting for imported documents', () => {
       ], USER))).rejects.toThrow(/payable control account/);
 
       // Neither refusal wrote an opening-balance line.
+      const lines = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM gl_journal_lines l
+           JOIN gl_journal_entries e ON e.id = l.journal_entry_id
+          WHERE l.company_id = $1 AND e.description LIKE 'Opening balances%'`,
+        [COMPANY],
+      )).rows[0];
+      expect(lines.n).toBe(0);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('recognises a control account spelled debtors or creditors as the same control account', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const session = await newSession(c);
+      await run(c, () => importARInvoices(COMPANY, session, [
+        arRow({ invoiceNumber: `${TAG}-r020-alias-ar`, amountPaid: 0 }),
+      ], USER));
+      await run(c, () => importAPInvoices(COMPANY, session, [
+        apRow({ invoiceNumber: `${TAG}-r020-alias-ap`, amountPaid: 0 }),
+      ], USER));
+
+      await expect(run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '1101', debit: 5000, credit: 0 },
+        { accountCode: '3100', debit: 0, credit: 5000 },
+      ], USER))).rejects.toThrow(/receivable control account/);
+
+      await expect(run(c, () => importOpeningBalances(COMPANY, session, '2026-06-30', [
+        { accountCode: '2101', debit: 0, credit: 5000 },
+        { accountCode: '3100', debit: 5000, credit: 0 },
+      ], USER))).rejects.toThrow(/payable control account/);
+
       const lines = (await c.query(
         `SELECT COUNT(*)::INT AS n FROM gl_journal_lines l
            JOIN gl_journal_entries e ON e.id = l.journal_entry_id

@@ -33,6 +33,7 @@
  * where the supply and the tax disagree, and a base computed from the tax
  * cannot ever disagree with it.
  */
+import { canonicalSubtype, type CanonicalSubtype } from '../gl/accountSubtypes';
 import { isVatOnBalanceSheetException } from './vatBalanceSheetExceptions';
 
 /** The South African standard rate. Boxes 1 and 15 are checked against it. */
@@ -61,8 +62,22 @@ const GENERIC_TAX_SUBTYPE = 'tax';
 /**
  * The settlement leg: gross money or a gross obligation. Counting it as base
  * would report the VAT-inclusive total as the value of the supply.
+ *
+ * These are CANONICAL tokens, matched through `canonicalSubtype`, not raw
+ * `account_subtype` values. A debtors control spelled `debtors` and a bank leg
+ * spelled `bank_account` are both real production spellings; against the raw
+ * literal they missed this branch and fell through to `base`, where their
+ * GROSS, VAT-INCLUSIVE amount was counted as the value of the supply and
+ * over-stated boxes 1 and 15 by the whole settlement leg.
  */
-export const VAT_SETTLEMENT_SUBTYPES = ['bank', 'cash', 'receivable', 'payable'] as const;
+export const VAT_SETTLEMENT_SUBTYPES: readonly CanonicalSubtype[] = [
+  'bank', 'cash', 'receivable', 'payable',
+  // A card or a sundry creditor settles an invoice exactly as a bank account
+  // does. Both are offerable subtypes in the Add Account dialog and the MCP
+  // write path, and against the four-token list the gross leg fell through to
+  // `base`, reporting a NEGATIVE box-15 base of -(the VAT).
+  'credit_card', 'other_current_liability',
+];
 
 /** Default when a tax leg carries no `vat_type`, matching the existing box-1/box-15 fallback. */
 export const DEFAULT_VAT_TYPE = 'standard';
@@ -192,15 +207,19 @@ function r2(n: number): number {
  */
 export function classifyVatJournalLine(line: VatLineInput): VatLineClass {
   const subtype = line.accountSubtype;
+  // Canonical for the role decisions; the RAW value is still what
+  // `isVatOnBalanceSheetException` reads, because its legitimate list carries
+  // spellings (`fixed_assets`, `tax`) that are not canonical tokens.
+  const canon = canonicalSubtype(subtype);
   const net = (a: number, b: number) => r2(a - b);
 
   if (line.cancelledSource) {
-    const isTax = subtype !== null && (VAT_TAX_SUBTYPES as readonly string[]).includes(subtype);
+    const isTax = canon !== null && (VAT_TAX_SUBTYPES as readonly string[]).includes(canon);
     return { role: isTax ? 'cancelled' : 'settlement', amount: Math.abs(net(line.debit, line.credit)) };
   }
 
-  if (subtype !== null && (VAT_TAX_SUBTYPES as readonly string[]).includes(subtype)) {
-    const direction: VatDirection = subtype === 'vat_output' ? 'output' : 'input';
+  if (canon !== null && (VAT_TAX_SUBTYPES as readonly string[]).includes(canon)) {
+    const direction: VatDirection = canon === 'vat_output' ? 'output' : 'input';
     return {
       role: 'tax',
       direction,
@@ -215,7 +234,7 @@ export function classifyVatJournalLine(line: VatLineInput): VatLineClass {
     return { role: 'unmapped', amount: Math.abs(net(line.debit, line.credit)) };
   }
 
-  if (subtype !== null && (VAT_SETTLEMENT_SUBTYPES as readonly string[]).includes(subtype)) {
+  if (canon !== null && (VAT_SETTLEMENT_SUBTYPES as readonly string[]).includes(canon)) {
     return { role: 'settlement', amount: net(line.debit, line.credit) };
   }
 

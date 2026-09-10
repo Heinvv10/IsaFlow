@@ -22,6 +22,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { BANK_SUBTYPES } from './accountSubtypes';
 
 /** Cent tolerance. Below this the two figures describe the same money. */
 const AGREEMENT_TOLERANCE = 0.01;
@@ -103,7 +104,7 @@ export async function getOpeningBalances(
             AND je.status     = 'posted'
             AND je.source     = 'auto_migration'
      WHERE ga.company_id      = ${companyId}::UUID
-       AND ga.account_subtype = 'bank'
+       AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
        AND (${bankAccountId ?? null}::UUID IS NULL OR ga.id = ${bankAccountId ?? null}::UUID)
      GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_subtype, ga.is_active,
               ga.bank_opening_balance, ga.bank_opening_balance_date

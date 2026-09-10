@@ -106,6 +106,13 @@ export async function getCashBalance(
   options: CashBalanceOptions = {},
 ): Promise<CashBalance> {
   const exclusive = options.exclusive === true;
+  // `account_type = 'asset'` alongside the subtype list, because a credit card
+  // spelled `bank_account` is a liability and is not cash. Every other reader of
+  // this figure already carries that guard (cashFlowDirectService's movement
+  // half and both cashFlowReconciliationService predicates); without it here the
+  // opening balance disagreed with the closing one it is compared against, and
+  // the reconciliation reported a variance equal to the card balance on books
+  // that were correct.
   // LEFT JOINs so an account with no postings still appears at zero: "this
   // account has never moved" and "this account is not in the report" are
   // different facts, and only the first one is true.
@@ -141,6 +148,7 @@ export async function getCashBalance(
                       ELSE je.entry_date <= ${asAt}::DATE END)
      WHERE ga.company_id      = ${companyId}::UUID
        AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
+       AND ga.account_type    = 'asset'
      GROUP BY ga.id, ga.account_code, ga.account_name, ga.is_active
      ORDER BY ga.account_code
   `) as DbRow[];

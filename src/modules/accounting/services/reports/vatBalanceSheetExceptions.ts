@@ -86,6 +86,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 import { dateStr, r2, toNum } from './vatExceptionsTypes';
 import type { VatOnBalanceSheetLine } from './vatExceptionsTypes';
 import {
@@ -106,13 +107,18 @@ export const BALANCE_SHEET_TYPES: readonly string[] = ['asset', 'liability', 'eq
  * accepts either), so both are listed.
  */
 export const VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES: readonly string[] = [
+  // The VAT control accounts themselves. `tax` is the RAW token a control
+  // account carries and is deliberately NOT canonicalised — through the
+  // vocabulary it also names income tax expense, which is not a balance-sheet
+  // account at all.
   'vat_input',
   'vat_output',
   'tax',
-  'fixed_asset',
-  'fixed_assets',
-  'inventory',
-  'other_current_asset',
+  // Capitalised supplies. Hand-listed, these covered 2 of 3 fixed-asset
+  // spellings, 1 of 2 inventory and 1 of 2 other-current-asset, so an account
+  // spelled `property_plant_equipment`, `stock` or `other_current_assets` was
+  // reported as a VAT exception it is not.
+  ...rawSubtypesFor('fixed_asset', 'inventory', 'other_current_asset'),
 ];
 
 /** `no_vat` means the line was explicitly coded as carrying none. */

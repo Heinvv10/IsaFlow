@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { marginPct } from './marginPct';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 
@@ -95,7 +96,7 @@ export async function getDashboardKPIs(companyId: string,
         -- 1049686 Brighttech Absa and R1,911,554.82 of cash leaves this figure
         -- silently. Do not reinstate the filter because the change looks
         -- like a no-op.
-        WHERE ga.account_subtype = 'bank'
+        WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
           AND bt.company_id = ${companyId}::UUID
       `,
       sql`
@@ -110,7 +111,7 @@ export async function getDashboardKPIs(companyId: string,
         -- 1049686 Brighttech Absa and R1,911,554.82 of cash leaves this figure
         -- silently. Do not reinstate the filter because the change looks
         -- like a no-op.
-        WHERE ga.account_subtype = 'bank'
+        WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
           AND bt.company_id = ${companyId}::UUID
           AND bt.transaction_date <= ${priorToStr}
       `,

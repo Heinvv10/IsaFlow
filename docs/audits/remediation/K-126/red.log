@@ -1,0 +1,40 @@
+
+Expected: "R 0.00"
+Received: "R 15.00"
+
+ ❯ tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts:62:45
+     60|
+     61|   expect.soft(vatCell('Standard rated')).toBe('R 15.00');
+     62|   expect.soft(vatCell('Zero rated export')).toBe('R 0.00');
+       |                                             ^
+     63|
+     64|   const columnVat = [vatCell('Standard rated'), vatCell('Zero rated ex…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts > prints each line's own VAT rate, and the VAT column foots to the totals block
+AssertionError: expected 30 to be 15 // Object.is equality
+
+- Expected
++ Received
+
+- 15
++ 30
+
+ ❯ tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts:66:21
+     64|   const columnVat = [vatCell('Standard rated'), vatCell('Zero rated ex…
+     65|     .reduce((s, v) => s + Number(String(v).replace(/[^0-9.]/g, '')), 0…
+     66|   expect(columnVat).toBe(15); // the tax_amount printed in the totals …
+       |                     ^
+     67| });
+     68|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:39:03
+   Duration  2.48s (transform 655ms, setup 0ms, import 998ms, tests 669ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

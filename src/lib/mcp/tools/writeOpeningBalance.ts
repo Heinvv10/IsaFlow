@@ -29,6 +29,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
+import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -107,7 +108,7 @@ export const setOpeningBalanceTool: McpTool = {
 
     const bankAccount = await getAccountById(ctx.companyId, bankAccountId);
     if (!bankAccount) return toolError(NOT_FOUND);
-    if (bankAccount.accountSubtype !== 'bank') {
+    if (!isBankSubtype(bankAccount.accountSubtype)) {
       // Stated plainly: this is the same NULL-subtype trap that makes an
       // account unable to receive a statement import, and the remedy is the
       // same call.

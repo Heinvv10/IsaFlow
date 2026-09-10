@@ -6,6 +6,19 @@ import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import {
+  NON_OPERATING_EXPENSE_SUBTYPES,
+  OTHER_INCOME_SUBTYPES,
+  TAX_EXPENSE_SUBTYPES,
+} from '@/modules/accounting/services/gl/accountClassification';
+
+/**
+ * Note 17 splits income tax into current and deferred. Both spellings
+ * canonicalise to `tax_expense`, so the split is a RAW one inside a single
+ * token — the only place in this file a raw spelling is the right comparison.
+ */
+const DEFERRED_TAX_SUBTYPE = 'deferred_tax_expense';
+const CURRENT_TAX_SUBTYPES = TAX_EXPENSE_SUBTYPES.filter((s) => s !== DEFERRED_TAX_SUBTYPE);
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type DbRow = Record<string, unknown>;
@@ -75,8 +88,13 @@ export async function generateNote17IncomeTax(
 
   const [taxProvision, deferredBalance] = await Promise.all([
     sql`SELECT
-        SUM(gjl.debit) FILTER (WHERE ga.account_subtype = 'income_tax_expense') AS current_tax,
-        SUM(gjl.debit) FILTER (WHERE ga.account_subtype = 'deferred_tax_expense') AS deferred_tax
+        SUM(gjl.debit - gjl.credit) FILTER (
+          WHERE ga.account_type = 'expense'
+            AND ga.account_subtype = ANY(${CURRENT_TAX_SUBTYPES as string[]}::TEXT[])
+        ) AS current_tax,
+        SUM(gjl.debit - gjl.credit) FILTER (
+          WHERE ga.account_type = 'expense' AND ga.account_subtype = ${DEFERRED_TAX_SUBTYPE}
+        ) AS deferred_tax
       FROM gl_journal_lines gjl
       JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
@@ -127,14 +145,31 @@ export async function generateNote18RevenueDisaggregation(
 
   const rows = (await sql`
     SELECT ga.account_name, ga.account_code, ga.account_subtype,
-           SUM(ABS(gjl.credit - gjl.debit)) AS net_amount
+           -- NET movement, not the sum of per-line magnitudes. ABS applied
+           -- INSIDE the SUM is applied to each journal line, so a credit note
+           -- or sales return debited back to a revenue account was ADDED to
+           -- revenue instead of subtracted: R100,000 of sales less an R8,000
+           -- credit note printed R108,000 here while the income statement in
+           -- the same pack reported R92,000 - overstated by twice the return.
+           SUM(gjl.credit - gjl.debit) AS net_amount
     FROM gl_journal_lines gjl
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
       AND ga.account_type = 'revenue'
+      -- Turnover only. Other income belongs to note 19, and without this the
+      -- same account printed in both notes. COALESCE because <> ALL is NULL
+      -- for a NULL subtype, which would drop every unclassified revenue
+      -- account out of the note - and revenueBand calls those turnover.
+      AND COALESCE(ga.account_subtype, '') <> ALL(
+        ${OTHER_INCOME_SUBTYPES as string[]}::TEXT[]
+      )
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_code, ga.account_subtype
+    -- Per ACCOUNT and thresholded exactly as incomeStatementService bands the
+    -- same lines: two accounts sharing a name are two rows, and a nil net
+    -- movement is dropped in either direction.
+    GROUP BY ga.id, ga.account_name, ga.account_code, ga.account_subtype
+    HAVING ABS(SUM(gjl.credit - gjl.debit)) > 0.001
     ORDER BY net_amount DESC
   `) as DbRow[];
 
@@ -165,17 +200,24 @@ export async function generateNote19OtherIncome(
 
   const rows = (await sql`
     SELECT ga.account_name, ga.account_subtype,
-           SUM(ABS(gjl.credit - gjl.debit)) AS net_amount
+           -- Same per-line ABS defect as note 18: a reversed accrual debited
+           -- back to an other-income account was ADDED, so R3,000 credited
+           -- less a R1,000 reversal printed R4,000 against the income
+           -- statement's R2,000.
+           SUM(gjl.credit - gjl.debit) AS net_amount
     FROM gl_journal_lines gjl
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
-      AND ga.account_subtype IN (
-        'other_income', 'interest_income', 'dividend_income', 'rental_income', 'gain_on_disposal'
-      )
+      -- The band revenueBand calls other income, and nothing else. The four
+      -- hand-written spellings this list used to add are absent from the
+      -- canonical vocabulary, so the income statement reports them as
+      -- turnover; claiming them here made notes 18 and 19 overlap instead of
+      -- partition. See OTHER_INCOME_SUBTYPES.
+      AND ga.account_subtype = ANY(${OTHER_INCOME_SUBTYPES as string[]}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_subtype
-    HAVING SUM(ABS(gjl.credit - gjl.debit)) > 0
+    GROUP BY ga.id, ga.account_name, ga.account_subtype
+    HAVING ABS(SUM(gjl.credit - gjl.debit)) > 0.001
     ORDER BY ga.account_subtype
   `) as DbRow[];
 
@@ -212,12 +254,27 @@ export async function generateNote20OperatingExpenses(
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
       AND ga.account_type = 'expense'
-      AND ga.account_subtype NOT IN (
-        'income_tax_expense', 'deferred_tax_expense', 'interest_expense', 'finance_cost'
+      -- COALESCE: NOT IN is NULL for a NULL subtype, which dropped every
+      -- unclassified expense out of the note. The excluded set is derived from
+      -- the SAME bands expenseBand reads, so this note prints exactly what
+      -- the income statement in the same pack calls an operating expense. A
+      -- hand-list here named income tax by two spellings of its own and other
+      -- expenses by none, so five spellings were reported below the operating
+      -- line by the income statement and inside this note simultaneously.
+      AND COALESCE(ga.account_subtype, '') <> ALL(
+        ${NON_OPERATING_EXPENSE_SUBTYPES as string[]}::TEXT[]
       )
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_subtype
-    HAVING SUM(gjl.debit - gjl.credit) > 0
+    -- Grouped and thresholded EXACTLY as incomeStatementService bands the same
+    -- lines: per ACCOUNT, keeping any non-nil movement in either direction.
+    -- A one-sided HAVING dropped every net-credit operating expense - a
+    -- supplier rebate, a credit note raised against an expense, a reversed
+    -- over-accrual - so the note overstated the operating-expense line by the
+    -- whole credit balance while still footing to its own visible rows.
+    -- Grouping by name alone netted two distinct accounts that happen to share
+    -- a name into one row, or out of the note entirely when they cancelled.
+    GROUP BY ga.id, ga.account_name, ga.account_subtype
+    HAVING ABS(SUM(gjl.debit - gjl.credit)) > 0.001
     ORDER BY net_amount DESC
   `) as DbRow[];
 

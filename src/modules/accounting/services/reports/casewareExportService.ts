@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { canonicalSubtype } from '../gl/accountSubtypes';
 import { log } from '@/lib/logger';
 import { escapeCsv } from '@/lib/csv';
 import type { DbRow } from '@/types/db';
@@ -53,9 +54,16 @@ export async function suggestCaseWareCode(
   accountSubtype: string | null,
 ): Promise<{ code: string; label: string }> {
   const specificKey = `${accountType}:${accountSubtype ?? ''}`;
+  // The canonical key is tried SECOND, not first: several keys above
+  // (`retained`, `tax_payable`, `loan`) are raw spellings with no canonical
+  // token, so canonicalising up front would lose them. This way a
+  // `bank_account` or `cash_on_hand` account reaches B10 instead of falling
+  // through to "Other assets", and every key that worked before still works.
+  const canonicalKey = `${accountType}:${canonicalSubtype(accountSubtype) ?? ''}`;
   const genericKey = `${accountType}:`;
   return (
     CASEWARE_SUGGESTIONS[specificKey] ??
+    CASEWARE_SUGGESTIONS[canonicalKey] ??
     CASEWARE_SUGGESTIONS[genericKey] ??
     { code: 'Z99', label: 'Unclassified' }
   );
