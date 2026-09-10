@@ -40,6 +40,7 @@ const foreign = crypto.randomUUID();
 const scopeParent = crypto.randomUUID();
 const ownCc = crypto.randomUUID(), foreignCc = crypto.randomUUID();
 const foreignProject = crypto.randomUUID();
+const ownBu = crypto.randomUUID(), foreignBu = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 const FK = 'gl_journal_lines_account_company_fk';
 
@@ -87,6 +88,9 @@ beforeAll(async () => {
   await pool.query(
     "INSERT INTO projects(id,company_id,project_number,name) VALUES($1,$2,'K051X-P1','K051X other project')",
     [foreignProject, otherCompany]);
+  await pool.query(
+    `INSERT INTO business_units(id,company_id,code,name) VALUES($1,$2,'K051X-BU','K051X own bu'),($3,$4,'K051X-BUF','K051X other bu')`,
+    [ownBu, company, foreignBu, otherCompany]);
 });
 
 afterAll(async () => {
@@ -99,6 +103,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM fiscal_periods WHERE company_id=ANY($1)', [ids]);
     await pool.query('DELETE FROM cost_centres WHERE company_id=ANY($1)', [ids]);
     await pool.query('DELETE FROM projects WHERE company_id=ANY($1)', [ids]);
+    await pool.query('DELETE FROM business_units WHERE company_id=ANY($1)', [ids]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1)', [ids]);
     await pool.query('DELETE FROM users WHERE id=ANY($1)', [[user, otherUser]]);
   } finally { await pool.end(); }
@@ -236,6 +241,44 @@ it('accepts a line tagged to THIS company cost centre', async () => {
       description: 'K051X own cost centre',
       lines: [
         { glAccountId: own, debit: 700, credit: 0, costCenterId: ownCc },
+        { glAccountId: equity, debit: 0, credit: 700 },
+      ],
+    },
+    user,
+  ));
+  expect(entry.id).toBeTruthy();
+});
+
+it('refuses a line tagged to another company business unit, and writes nothing', async () => {
+  // The third dimension. `bu_id` was the one `journals.ts` originally forgot
+  // and the one nothing exercised, so without this the arm could name the wrong
+  // table — or be deleted outright — and the suite would stay green.
+  await expect(inRequestTx(() => createJournalEntry(
+    company,
+    {
+      entryDate: '2026-03-15',
+      description: 'K051X foreign business unit',
+      lines: [
+        { glAccountId: own, debit: 700, credit: 0, buId: foreignBu },
+        { glAccountId: equity, debit: 0, credit: 700 },
+      ],
+    },
+    user,
+  ))).rejects.toThrow(/business unit outside this company/);
+
+  const { rows } = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE bu_id=$1', [foreignBu]);
+  expect(rows[0].n).toBe(0);
+});
+
+it('accepts a line tagged to THIS company business unit', async () => {
+  const entry = await inRequestTx(() => createJournalEntry(
+    company,
+    {
+      entryDate: '2026-03-15',
+      description: 'K051X own business unit',
+      lines: [
+        { glAccountId: own, debit: 700, credit: 0, buId: ownBu },
         { glAccountId: equity, debit: 0, credit: 700 },
       ],
     },

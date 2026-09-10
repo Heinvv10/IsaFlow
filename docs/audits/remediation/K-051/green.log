@@ -194,3 +194,18 @@ ROUND 6 (review 31ae8c7da: 0 HIGH, 3 MEDIUM, 5 LOW — all eight fixed)
     check-gl-journal-lines-scope            -> OK
     664 re-applied to the fixture DB        -> index NOTICE skip + DO block, idempotent
     journalEntryCrudService.ts              -> 300 lines exactly; journalLineOwnership.ts 66
+
+=== Round 7 (dimension guard scoped to caller-supplied ids) ===
+bun run test:integration -- 6 K-051/K-052 files  -> 6 files, 38 tests passed (10.74s)
+  new: k051-reclassification-foreign-dimension.int.test.ts (1)
+  new: foreign/own business unit in k051-cross-company-journal-line.int.test.ts (2)
+mutation A: plan.ts passes `movable` instead of `carried.lines`
+  -> RED: "One or more journal lines name a project outside this company" (the reported defect)
+mutation B: dimensions.ts keep-predicate returns null always
+  -> RED: expected null to be '<ownCc>' (own cost centre must survive)
+mutation C: assertJournalLinesOwned drops the 'business unit' arm
+  -> RED: 1 failed | 8 passed in k051-cross-company-journal-line.int.test.ts
+bunx vitest run (full unit suite, DATABASE_URL UNSET) -> 792 files passed | 36 skipped,
+  9438 passed | 234 skipped (was 9437 before the new warnings case)
+bunx tsc --noEmit -> clean.  bunx eslint <4 changed src files> -> clean.
+No migration in round 7.
