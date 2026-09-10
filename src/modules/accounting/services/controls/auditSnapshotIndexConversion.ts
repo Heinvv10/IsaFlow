@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import type {ControlTx} from './contracts';
 import {assertAuditJobLease,type AuditJobLease} from './auditJobLease';
 import {loadStoredAuditJobDelegation} from './auditJobDelegation';
@@ -48,11 +49,13 @@ export async function ensureOriginalSnapshotIndex(ctx:ControlTx,lease:AuditJobLe
  const check=indexBudget(options);check();
  const saved=await loadStoredAuditJobDelegation(ctx.sql,lease.companyId,lease.personId,lease);
  if(saved.kind!=='audit_compare')throw new Error('Original index conversion requires comparison job kind');
- if(snapshotId!==saved.request.firstSnapshotId&&snapshotId!==saved.request.secondSnapshotId)throw new Error('Original index conversion source differs from request');
+ snapshotId=z.string().uuid().parse(snapshotId).toLowerCase();
+ const firstId=saved.request.firstSnapshotId.toLowerCase(),secondId=saved.request.secondSnapshotId.toLowerCase();
+ if(snapshotId!==firstId&&snapshotId!==secondId)throw new Error('Original index conversion source differs from request');
  const inputs=await readComparisonIntentInputs(ctx,saved.request);
- const source=snapshotId===saved.request.firstSnapshotId?inputs.first:inputs.second;
+ const source=snapshotId===firstId?inputs.first:inputs.second;
  const pinned='firstCanonicalHash' in saved.request
-  ?snapshotId===saved.request.firstSnapshotId?saved.request.firstCanonicalHash:saved.request.secondCanonicalHash:undefined;
+  ?snapshotId===firstId?saved.request.firstCanonicalHash:saved.request.secondCanonicalHash:undefined;
  const existing=await ctx.sql`SELECT snapshot_id FROM control_audit_snapshot_indexes WHERE company_id=${lease.companyId}::uuid AND snapshot_id=${snapshotId}::uuid`;
  if(existing.length>1)throw new Error('Original index identity ambiguous');
  if(!existing.length){
