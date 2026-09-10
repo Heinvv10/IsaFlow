@@ -210,15 +210,30 @@ export async function listReconciliations(
   }));
 }
 
+/** Rematch of a reconciled statement. Thrown before any write, so the route may answer 409. */
+export class ReconciliationClosedError extends Error {
+  readonly code = 'RECONCILIATION_CLOSED';
+  constructor(readonly reconciliationId: string) {
+    super('This statement is already marked reconciled; Rematch would overwrite the variance it was reconciled at.');
+    this.name = 'ReconciliationClosedError';
+  }
+}
+
 export async function rematchLines(
   companyId: string,
   reconciliationId: string,
 ): Promise<SupplierStatementReconciliation> {
+  // FOR UPDATE: the status check and the writes below are check-then-act.
   const [header] = (await sql`
     SELECT * FROM supplier_statement_reconciliations
     WHERE id = ${reconciliationId}::uuid AND company_id = ${companyId}
+    FOR UPDATE
   `) as DbRow[];
   if (!header) throw new Error(`Reconciliation ${reconciliationId} not found`);
+  // Closed: Rematch re-measures the variance, which would overwrite the one it
+  // was reconciled at (stored nowhere else). Refused rather than re-matched
+  // without the variance write, which would split counts from variance (R-059 r11).
+  if (String(header.status) === 'reconciled') throw new ReconciliationClosedError(reconciliationId);
 
   const existingLines = (await sql`
     SELECT * FROM supplier_statement_lines
