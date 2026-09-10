@@ -235,3 +235,54 @@ Mutation proof — each applied ALONE (unless marked +) and restored:
        RED  1 failed | 5 passed
   M34  salesOrderService: claim row count discarded
        RED  1 failed | 2 passed   (the confirmed order's lines were rewritten)
+
+═══════════════════════════════════════════════════════════════════════════════
+ROUND 6 (R-045) — the four census survivors + the round-5 review's 4 M / 7 L
+═══════════════════════════════════════════════════════════════════════════════
+
+GREEN (real fixture DB, ./node_modules/.bin/vitest --config vitest.integration.config.ts):
+  k107-supplier-payment-double-post.int.test.ts      5 passed
+  k107-write-off-double-post.int.test.ts             5 passed
+  k107-adjustment-double-post.int.test.ts            5 passed
+  k107-stock-adjustment-numbering.int.test.ts        4 passed
+  whole K-107/K-120/K-121 integration set           23 files / 90 passed
+  BL-47 / BL-48 / BL-53-57 (adjacent, AP + insert)   3 files / 10 passed
+GREEN (unit): tests/unit/services/core/documentClaimLock.test.ts        4 passed
+              tests/unit/api/approveActionsNo4xxAfterWrite.test.ts      6 passed
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL ... vitest run):
+              807 files / 9579 passed / 243 skipped / 0 failed
+tsc --noEmit: clean.  eslint on every changed src/ and pages/ file: clean.
+(eslint on tests/** reports only the repo-wide "not found by the project service"
+parse error — tests/** is outside tsconfig; identical on master.)
+
+MUTATIONS — each applied to the production code, test re-run, then restored:
+  M35  supplierPaymentWorkflowService: drop AND status='approved' from the claim
+       RED  3 failed | 2 passed — the concurrent, the SEQUENTIAL and the
+            never-approved case all stopped refusing (the typed error is what
+            goes red; the concurrent case rolls its loser back, so the GL delta
+            measures the winner only). The double post itself was measured
+            separately, by a standalone probe on the fixture DB with M35
+            applied: bank=2300.00, amount_paid=2300.00 and TWO posted journals
+            for one 1150.00 payment.
+  M36  writeOffService: drop AND status='draft' from the claim
+       RED  3 failed | 2 passed — same shape as M35: the concurrent, sequential
+            and never-draft cases all stopped refusing (WriteOffNotApprovableError
+            no longer raised); the GL delta assertions are not what went red
+  M37  adjustmentService: drop AND status='draft' from the claim
+       RED  3 failed | 2 passed — same shape and same reading as M36
+  M38  stock-adjustments: sequence -> the old ADJ-${COUNT(*)+1}
+       RED  4 failed (4) — re-issues a live number after a delete, and 23505s
+            against uq_stock_adjustments_company_number
+  M39  documentClaimLock: remove the catch-path SET LOCAL lock_timeout = DEFAULT
+       RED  1 failed | 3 passed — the 5s ceiling leaks past a 23505
+  M40  documentClaimLock: fall through to claim() outside a request transaction
+       RED  2 failed | 2 passed
+  M41  the three action routes: back to badRequest/badRequestFromError for all
+       RED  3 failed | 3 passed — a post-write failure answered 4xx, which
+            withAuth COMMITs
+
+MIGRATION 671, all three paths proven against the fixture DB:
+  create   NOTICE 671: uq_stock_adjustments_company_number created.
+  no-op    NOTICE 671: ... already enforces unique (company_id, adjustment_number)
+  refuse   ERROR  Migration 671 refused: 1 duplicate (company_id, adjustment_number)
+                  group(s) covering 2 adjustments ... (named, then ROLLBACK)

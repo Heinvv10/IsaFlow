@@ -250,9 +250,12 @@ export async function generateWipInvoice(
   // 5. Mark entries billed via workflow
   const eligibleIds = entries.map((e) => String(e.id));
   try {
-    // The row count is the proof the claim actually happened. It was discarded,
-    // which is what kept the double-bill silent: the loser's predicated UPDATE
-    // matched zero rows and the invoice was returned as if it had worked.
+    // Defence in depth behind `lockTimeEntries`, which is the primary guard:
+    // while that lock holds, the claim cannot match fewer rows than it selected.
+    // The count was nevertheless discarded, which is what kept the double-bill
+    // silent before the lock existed — the loser's predicated UPDATE matched
+    // zero rows and the invoice was returned as if it had worked — and it is
+    // still the only guard for a future caller that mints without locking.
     const claimed = await markEntriesBilled(companyId, eligibleIds, invoiceId);
     if (claimed !== eligibleIds.length) {
       throw new TimeEntriesNotClaimedError(eligibleIds.length, claimed);

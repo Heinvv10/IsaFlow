@@ -11,7 +11,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateAsset, generateAssetNumber, type AssetInput } from '@/modules/accounting/services/items/assetService';
+import { validateAsset, generateAssetNumber, assetNumberPrefix, type AssetInput } from '@/modules/accounting/services/items/assetService';
 
 type Row = Record<string, unknown>;
 
@@ -96,7 +96,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // asset_number), and count is not max — after a single asset was deleted
     // every later create in that category re-issued an existing number and
     // 23505'd permanently, since the count never caught up.
-    const assetPrefix = generateAssetNumber(body.sarsCategory || body.category || 'general', 0).split('-')[0]!;
+    // MAX+1 with no savepointed retry: two concurrent creates in one category
+    // now 23505 into a 500 rather than duplicating a number, which is the
+    // correct trade against a unique index but is not a retry.
+    const assetPrefix = assetNumberPrefix(body.sarsCategory || body.category || 'general');
     const maxResult = await sql`
       SELECT COALESCE(MAX(CAST(SUBSTRING(asset_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
       FROM assets

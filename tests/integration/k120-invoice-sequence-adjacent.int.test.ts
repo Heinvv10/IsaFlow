@@ -104,8 +104,8 @@ it('two sales-order conversions take two consecutive numbers from the sequence',
   const before = await nextNumber();
   const otherBefore = await nextNumber(other);
 
-  const a = await convertSalesOrderToInvoice(company, orderA, user);
-  const b = await convertSalesOrderToInvoice(company, orderB, user);
+  const a = await inTx(() => convertSalesOrderToInvoice(company, orderA, user));
+  const b = await inTx(() => convertSalesOrderToInvoice(company, orderB, user));
 
   const numbers = await pool.query(
     'SELECT id, invoice_number FROM customer_invoices WHERE id=ANY($1) ORDER BY invoice_number',
