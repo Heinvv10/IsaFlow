@@ -10,7 +10,8 @@ import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
 import {checkJournalRisks as referenceCheckJournalRisks} from './journalRiskSeamReference/journalRiskChecks';
 import {CUTOFF,seedJournalRiskPopulation} from './journalRiskCheckRunFixture';
 /**
- * Plan v6 A15 gate c0. `journalRiskSeamReference/` is the detector exactly as it stood at bcf5aab53, before T2c gave
+ * Plan v6 A15 gate c0. `journalRiskSeamReference/` is the detector exactly as it stood at bcf5aab53 — with the two files
+ * integration's lineage work changed re-vendored from c39a8e17c when the check-run branch merged there — before T2c gave
  * it the population-SQL builder, the defaulted source-limit seam and the shared pure functions, and before the blind
  * review extracted its group-eligibility predicate and removed the quadratic copy (its header records the blobs).
  * Both run on one live fixture, in one transaction, under one frozen clock, and every page must be byte-identical —
