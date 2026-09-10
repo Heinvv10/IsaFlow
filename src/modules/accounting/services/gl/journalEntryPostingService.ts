@@ -19,10 +19,10 @@ import {
   releaseJournalReversalClaim,
   withReversalTransaction,
 } from './journalEntryReversalClaim';
-import { resolveReversalDate } from './journalEntryReversalDate';
+import { resolveReversalDate, ReversalPeriodError } from './journalEntryReversalDate';
 
 // Re-exported: the MCP reverse tool and journalEntryService import them from here.
-export { resolveReversalDate };
+export { resolveReversalDate, ReversalPeriodError };
 export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;

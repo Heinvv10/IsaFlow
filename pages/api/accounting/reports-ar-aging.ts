@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { parsePagination } from '@/lib/pagination';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -84,6 +85,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ON c.id = COALESCE(ci.client_id, ci.customer_id)
        AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
+        -- A soft-deleted document leaves this figure exactly when the delete's
+        -- GL reversal reaches the ledger, and not one day earlier: the reversal
+        -- is dated TODAY whenever the document's own period is closed, so an
+        -- undated exclusion drops it from every earlier as-at date while the
+        -- control account still carries it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         AND ci.status NOT IN ('paid', 'cancelled', 'draft')
         AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date), ci.id
@@ -124,6 +131,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         SUM(ci.total_amount - COALESCE(ci.amount_paid, 0))::numeric AS total
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         AND ci.status NOT IN ('paid', 'cancelled', 'draft')
         AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       GROUP BY bucket

@@ -13,8 +13,8 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import {
   getUifDeclaration,
   markUifSubmitted,
-  markUifDeclarationPaid,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
+import { markUifDeclarationPaid } from '@/modules/accounting/services/payroll/uifPaymentService';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -285,31 +285,46 @@ describe('K-040 overlapping WIP invoice runs', () => {
     }
   });
 
-  it('retries the invoice number when a peer in the same company took it first', async () => {
+  it('serialises two runs on the company number sequence and issues contiguous numbers', async () => {
     const a = await pool.connect();
     const b = await pool.connect();
     let runB: Promise<{ invoiceNumber: string; invoiceId: string }> | undefined;
     try {
-      // Two runs, different practice clients, one company: no row-lock contention,
-      // but they compete for INV-00001.
+      // Two runs, different practice clients, one company: no time-entry row-lock
+      // contention, but they compete for the same company_document_numbers row.
+      // Since K-107/K-120 the number is reserved from that sequence rather than
+      // read as MAX(invoice_number)+1, so B parks on the counter row's lock.
       await a.query('BEGIN');
       const invoiceA = await runInvoice(a, companyId, clientId, [entryId]);
 
       await b.query('BEGIN');
       const bPid = Number((await b.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
       runB = runInvoice(b, companyId, secondClientId, [secondClientEntryId]);
-      await waitUntilBlocked(bPid); // parked inside its own customer_invoices INSERT
+      await waitUntilBlocked(bPid); // parked on A's company_document_numbers row lock
 
       await a.query('COMMIT');
 
-      // The 23505 rolls back to this attempt's savepoint, so the loop can retry.
+      // A's COMMIT releases the counter row; B's reservation then reads the
+      // advanced value.
       const invoiceB = await runB;
       await b.query('COMMIT');
 
-      expect(invoiceA.invoiceNumber).toBe('INV-00001');
-      // Contiguous: the retry re-reads MAX(...), which already sees A's committed
-      // number, so B takes the very next one instead of skipping to INV-00003.
-      expect(invoiceB.invoiceNumber).toBe('INV-00002');
+      // Both numbers come from the company sequence, and they are CONTIGUOUS:
+      // the counter is advanced exactly once per invoice, so a serialised loser
+      // takes the very next number rather than skipping one. Asserted
+      // relatively — this suite does not reset company_document_numbers between
+      // tests, so the absolute values depend on what ran before.
+      const { rows: seq } = await pool.query(
+        `SELECT prefix, padding FROM company_document_numbers
+          WHERE company_id=$1 AND document_type='customer_invoice'`, [companyId]);
+      const { prefix, padding } = seq[0];
+      const numeric = (n: string): number => {
+        expect(n.startsWith(prefix)).toBe(true);
+        return Number(n.slice(String(prefix).length));
+      };
+      expect(String(invoiceA.invoiceNumber).length)
+        .toBe(String(prefix).length + Number(padding));
+      expect(numeric(invoiceB.invoiceNumber)).toBe(numeric(invoiceA.invoiceNumber) + 1);
 
       const { rows } = await pool.query(
         `SELECT te.id, te.status, te.invoice_id FROM time_entries te

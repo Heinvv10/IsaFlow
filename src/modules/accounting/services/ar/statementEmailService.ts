@@ -8,6 +8,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate as fmtDbDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import { sendEmail } from '../core/emailService';
 import type { EmailResult } from '../core/emailService';
 import { buildStatementEmailHtml } from './statementEmailTemplate';
@@ -74,6 +75,10 @@ export async function fetchStatementData(
     SELECT id, name, email
     FROM customers
     WHERE id = ${customerId}::UUID AND company_id = ${companyId}::UUID
+    -- A soft-deleted CUSTOMER has no statement: the record is hidden
+    -- everywhere else (customerLedgerService does the same), and drawing one
+    -- here would email a balance for a contact the user has removed.
+      AND deleted_at IS NULL
   ` as Row[];
 
   if (customerRows.length === 0) return null;
@@ -81,12 +86,19 @@ export async function fetchStatementData(
 
   const [invoices, payments, creditNotes] = await Promise.all([
     sql`
-      SELECT id, invoice_number, invoice_date, total_amount
-      FROM customer_invoices
-      WHERE COALESCE(client_id, customer_id) = ${customerId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status != 'cancelled'
-        AND invoice_date <= ${asAtDate}::DATE
+      SELECT ci.id, ci.invoice_number, ci.invoice_date, ci.total_amount
+      FROM customer_invoices ci
+      WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+        AND ci.company_id = ${companyId}::UUID
+        AND ci.status != 'cancelled'
+        -- The statement is what the customer is asked to pay, drawn AS AT a
+        -- date, so it takes the same DATED question arAgingService asks: the
+        -- delete's reversal lands on the delete date, and until that date the
+        -- control account still carries the invoice. An undated
+        -- deleted_at IS NULL here would state a balance to the customer that
+        -- disagrees with both aging and the GL for every earlier as-at date.
+        AND ${documentInLedgerAsAtFragment('ci', asAtDate, companyId)}
+        AND ci.invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date
     ` as Promise<Row[]>,
 

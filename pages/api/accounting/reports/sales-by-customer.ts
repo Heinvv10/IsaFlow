@@ -11,6 +11,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -33,6 +34,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
                            AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
+        -- Dated to the period end this report is drawn to, so the outstanding
+        -- column agrees with the ageing and the control account at that date.
+        -- See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
         -- COALESCE, because status is nullable and NULL != 'cancelled' is

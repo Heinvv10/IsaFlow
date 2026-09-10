@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
 import type { DbRow } from '@/types/db';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -112,11 +113,15 @@ export async function getClientInvoices(clientId: string, companyId: string): Pr
            COALESCE(amount_paid, 0) AS amount_paid,
            (total - COALESCE(amount_paid, 0)) AS balance,
            status
-    FROM customer_invoices
-    WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID
-      AND company_id = ${companyId}::UUID
-      AND status NOT IN ('draft', 'cancelled')
-    ORDER BY invoice_date DESC
+    FROM customer_invoices ci
+    WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
+      AND ci.company_id = ${companyId}::UUID
+        -- K-053: a soft-deleted invoice leaves this list exactly when the
+        -- delete's GL reversal reaches the ledger, and not one day earlier.
+        -- See shared/softDeleteLedgerPresence.
+      AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
+      AND ci.status NOT IN ('draft', 'cancelled')
+    ORDER BY ci.invoice_date DESC
   `) as DbRow[];
 
   return rows.map((r: DbRow) => ({
@@ -143,11 +148,12 @@ export async function getClientStatement(clientId: string, companyId: string, as
   const rows = (await sql`
     SELECT invoice_date AS date, invoice_number AS reference,
            'Invoice' AS description, total AS debit, 0 AS credit
-    FROM customer_invoices
-    WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID
-      AND company_id = ${companyId}::UUID
-      AND status NOT IN ('draft', 'cancelled')
-      AND invoice_date <= ${asOfDate}::DATE
+    FROM customer_invoices ci
+    WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
+      AND ci.company_id = ${companyId}::UUID
+      AND ${documentInLedgerAsAtFragment('ci', asOfDate, companyId)}
+      AND ci.status NOT IN ('draft', 'cancelled')
+      AND ci.invoice_date <= ${asOfDate}::DATE
     UNION ALL
     SELECT payment_date AS date, reference AS reference,
            'Payment' AS description, 0 AS debit, amount AS credit

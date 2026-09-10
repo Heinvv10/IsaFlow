@@ -78,9 +78,13 @@ const CATEGORY_PREFIXES: Record<string, string> = {
   aircraft: 'AIRC', electronic_equipment: 'ELEC', signage: 'SIGN', leasehold_improvements: 'LSIM',
 };
 
+/** The prefix `generateAssetNumber` will use for a category. */
+export function assetNumberPrefix(category: string): string {
+  return CATEGORY_PREFIXES[category] || 'ASST';
+}
+
 export function generateAssetNumber(category: string, existingCount: number): string {
-  const prefix = CATEGORY_PREFIXES[category] || 'ASST';
-  return `${prefix}-${String(existingCount + 1).padStart(4, '0')}`;
+  return `${assetNumberPrefix(category)}-${String(existingCount + 1).padStart(4, '0')}`;
 }
 
 interface CalcInput {

@@ -3,12 +3,13 @@
  * Phase 1 Sage Alignment: Customer & supplier balance adjustments
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import type { AccountingAdjustment, AdjustmentCreateInput } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -88,10 +89,42 @@ export async function createAdjustment(companyId: string,
   return mapRow(rows[0]!);
 }
 
+/**
+ * Raised when the adjustment is not 'draft' when the claim runs — because it
+ * never was, or because a concurrent request has already approved it. Raised
+ * BEFORE the journal is created, so a route may answer it with a 4xx without
+ * `withAuth` committing a half-approved adjustment.
+ */
+export class AdjustmentNotApprovableError extends Error {
+  readonly code = 'ADJUSTMENT_NOT_APPROVABLE';
+  constructor(readonly adjustmentStatus: string) {
+    super(`Adjustment is ${adjustmentStatus}, not draft — it cannot be approved.`);
+    this.name = 'AdjustmentNotApprovableError';
+  }
+}
+
 export async function approveAdjustment(companyId: string, id: string, userId: string): Promise<AccountingAdjustment> {
   const adjRows = (await sql`SELECT * FROM accounting_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!adjRows[0]) throw new Error('Adjustment not found');
-  if (adjRows[0].status !== 'draft') throw new Error('Adjustment is not in draft status');
+
+  // CLAIM before anything is posted. What this replaced read
+  // `adjRows[0].status !== 'draft'` and then posted to AR or AP, with the
+  // adjustment's own row rewritten unconditionally: two concurrent approvals
+  // moved the customer's or supplier's balance twice for one adjustment, and
+  // only one journal id survived on the row to show for it. `cancelAdjustment`
+  // eleven lines below has always been predicated; this is the same guard.
+  const claimed = await claimUnderLockTimeout('adjustment', async () => (await sql`
+    UPDATE accounting_adjustments
+    SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+    WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'
+    RETURNING id
+  `) as Row[]);
+  if (claimed.length === 0) {
+    const now = (await sql`
+      SELECT status FROM accounting_adjustments WHERE id = ${id} AND company_id = ${companyId}
+    `) as Row[];
+    throw new AdjustmentNotApprovableError(now[0] ? String(now[0].status) : 'missing');
+  }
 
   const adj = adjRows[0];
   const amount = Number(adj.amount);
@@ -140,16 +173,15 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
   }, userId);
   await postJournalEntry(companyId, je.id, userId);
 
-  // Wrap the final status update atomically — if this fails the JE exists but the
-  // adjustment stays in draft, which is recoverable, rather than silently half-applied.
-  const updated = await withTransaction(async (tx) => {
-    return (await tx`
-      UPDATE accounting_adjustments
-      SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
-          gl_journal_entry_id = ${je.id}::UUID
-      WHERE id = ${id} AND company_id = ${companyId} RETURNING *
-    `) as Row[];
-  });
+  // Only the journal link is left to write — the status, approver and timestamp
+  // were set by the claim above, in the SAME transaction as this write, so the
+  // separate `withTransaction` this replaced (a second connection, which could
+  // not see the claim) is gone.
+  const updated = (await sql`
+    UPDATE accounting_adjustments
+    SET gl_journal_entry_id = ${je.id}::UUID
+    WHERE id = ${id} AND company_id = ${companyId} RETURNING *
+  `) as Row[];
 
   log.info('Approved adjustment', { id, journalEntryId: je.id }, 'accounting');
   return mapRow(updated[0]!);

@@ -169,3 +169,22 @@ describe('the balance sheet with a cost centre selected', () => {
     expect(comparatorCalls().length).toBe(beforeFilter);
   });
 });
+
+describe('the balance sheet with a business unit selected', () => {
+  it('switches the company-wide trend off and restores it when cleared', async () => {
+    stubFetches();
+    render(<BalanceSheetPage />);
+
+    fireEvent.click(await screen.findByLabelText('12-month trend'));
+    await waitFor(() => expect(comparatorCalls().length).toBe(1));
+    const beforeFilter = comparatorCalls().length;
+
+    fireEvent.change(await screen.findByDisplayValue('All Business Units'), {target:{value:'bu-1'}});
+    expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
+    expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
+    expect(comparatorCalls().length).toBe(beforeFilter);
+
+    fireEvent.change(screen.getByDisplayValue('SALES — Sales'), {target:{value:''}});
+    await waitFor(() => expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(true));
+  });
+});

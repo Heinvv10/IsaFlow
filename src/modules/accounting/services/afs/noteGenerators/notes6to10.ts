@@ -8,6 +8,7 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -215,6 +216,12 @@ export async function generateNote10TradeReceivables(
       ) AS days_90_plus
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId} AND ci.invoice_date <= ${end}
+      -- The note must show what the control account showed at year end, so it
+      -- asks the soft-delete question at year end too: a document deleted AFTER
+      -- the year end is still receivable in these figures, and one deleted
+      -- before this change was ever made has a standing journal the GL carries.
+      -- See shared/softDeleteLedgerPresence.
+      AND ${documentInLedgerAsAtFragment('ci', end, companyId)}
   `) as DbRow[];
 
   const row = rows[0] ?? {};
