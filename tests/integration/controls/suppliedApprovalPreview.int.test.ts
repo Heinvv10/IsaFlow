@@ -1,6 +1,6 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
-import {Pool} from 'pg';
+import {Client,Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
@@ -70,14 +70,16 @@ it('refuses an approval the live call would refuse, and writes nothing either wa
 it('holds no lock once its transaction ends',async()=>{
  const id=await approval(ref(periodId));
  await actor('u1',ctx=>assertSuppliedApprovalExecutable(ctx,ref(periodId),id));
- const client=await pool.connect();
+ // A fresh session, never the pooled one the preview ran on: a session can
+ // re-take its own advisory lock, so a pooled check would miss a leaked one.
+ const client=new Client({connectionString:target.connectionString,ssl:false});await client.connect();
  try{await client.query('BEGIN');
   const row=await client.query('SELECT id FROM control_operation_approvals WHERE company_id=$1 AND id=$2 FOR UPDATE NOWAIT',[fixture.companyA,id]);
   expect(row.rows).toHaveLength(1);
   const policy=await client.query("SELECT pg_try_advisory_lock(hashtextextended('control-policy:'||$1::text,0)) AS free",[fixture.companyA]);
   expect(policy.rows[0].free).toBe(true);
   await client.query("SELECT pg_advisory_unlock(hashtextextended('control-policy:'||$1::text,0))",[fixture.companyA]);
- }finally{await client.query('ROLLBACK');client.release();}
+ }finally{await client.query('ROLLBACK');await client.end();}
 },60000);
 it('takes the control-policy lock before the approval row, as the live path does',async()=>{
  // A live execution holding the policy lock goes on to lock the approval. A
