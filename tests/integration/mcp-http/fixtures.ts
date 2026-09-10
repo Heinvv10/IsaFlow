@@ -60,11 +60,13 @@ export async function runMcpHttpAcceptance(env:NodeJS.ProcessEnv,options:Accepta
   const executed:Array<{id:string;tool:string;phase:GatePhase;committedRefusal:true}>=[];
   const progress=(outcome:'running'|'passed'='running')=>({outcome,version:2,origin,build,planHash,toolCount:names.length,fixtureRunId:fixture.runId,
    phase:options.phase??'all',shard:options.shard??0,size:options.size??500,plannedCaseCount:allCases.length,
-   selectedCaseIds:cases.map(row=>row.id),executed,remainingCaseIds:allCases.filter(row=>!executed.some(done=>done.id===row.id)).map(row=>row.id),
+   selectedCaseIds:cases.filter(row=>!row.sourceProof).map(row=>row.id),deferredSourceCaseIds:cases.filter(row=>row.sourceProof).map(row=>row.id),executed,remainingCaseIds:allCases.filter(row=>!executed.some(done=>done.id===row.id)).map(row=>row.id),
    complete:outcome==='passed'&&executed.length===allCases.length,
    limitations:['No valid financial execution coverage','Dynamic approval and identity cases reported separately','Compatible-input runtime defaults remain separate','No production verification']});
   let narrowMode='scope';
   for(const row of cases){
+   // These gates require separate positive owned-source controls; generic refusals are not causal proof.
+   if(row.sourceProof)continue;
    if((row.phase==='scope'||row.phase==='post')&&narrowMode!==row.phase){
     await pool.query('UPDATE personal_access_tokens SET scopes=$1 WHERE company_id=$2 AND user_id=$3 AND id=$4',
      [row.phase==='post'?PAT_SCOPES.filter(scope=>scope!=='write:post'):[],fixture.companyA,fixture.u1.id,narrow.id]);narrowMode=row.phase;
