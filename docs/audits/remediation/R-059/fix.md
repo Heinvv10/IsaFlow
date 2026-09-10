@@ -1045,10 +1045,17 @@ not merely summing to zero.
 With the status rule routed, it still failed, on two settlement legs the bridge
 never counted:
 
-| Side | Document | False items (before) |
-|---|---|---|
-| AR | written off 150 | `document_not_on_control_account −150` + `posting_with_no_document +150` |
-| AP | credit-noted 230 | `document_not_on_control_account −230` + `unexplained_difference +230` |
+| Side | Document | Named false items (measured, master and pre-fix branch) | `unexplained_difference` |
+|---|---|---|---|
+| AR | written off 150 | **two**: `document_not_on_control_account −150` and `posting_with_no_document +150` | **0** — the two false items cancel each other |
+| AP | credit-noted 230 | **one**: `document_not_on_control_account −230` | **+230** — the equal residual |
+
+The two shapes differ, and round 6's commit message described both as the AP one
+(round 7 corrects it below). On AR the write-off journal was counted on NEITHER
+side of the per-document bridge, but `unappliedCashService` did count it as an
+orphan, so the bridge named it twice with opposite signs and the residual stayed
+0. On AP the credit-note journal was already excluded from the orphans, so only
+the document side named it, and the difference fell into the residual.
 
 **Both are pre-existing on master — measured, not assumed**: the same test on a
 clean `git archive origin/master` gives the same −150/+150 and −230/+230, alongside
@@ -1275,10 +1282,14 @@ journal type, which is **R-084**. The line is corrected in place.
   **2 of 4** tests red, not "1 of 3". The file had gained its fourth test before
   that run. Corrected in place.
 - Round 6's COMMIT MESSAGE says the two new legs "each produced a false item
-  and an equal residual". That is true of the AP credit note only. The AR
-  write-off produced **two false items and a residual of 0**. fix.md's own
-  table had this right. The commit is not rewritten, because shared history is
-  not amended, so the correction is recorded here.
+  and an equal residual". That is true of the AP credit note only. **Measured on
+  master, the AR write-off produced TWO false items and NO residual:**
+  `document_not_on_control_account −150` plus `posting_with_no_document +150`,
+  `unexplained_difference` 0. The round-6 table above now states each side's
+  measured shape, items and residual separately. Round 7's commit message
+  referred to this correction without stating the shape; the commit that adds
+  this paragraph states it. Neither earlier commit is rewritten, because shared
+  history is not amended.
 
 ## Registered as R-084, NOT fixed here — pre-existing on master, out of scope
 
