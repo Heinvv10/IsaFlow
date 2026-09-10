@@ -168,6 +168,7 @@ async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approva
 export async function assertSuppliedApprovalExecutable(ctx: ControlTx, input: OperationRef, approvalId: string): Promise<void> {
   assertControlTx(ctx);
   const ref = canonicalOperationRef(input);
+  await assertPlatformImportOperation(ctx, ref, 'execute');
   await withSavepoint('preview_supplied_approval', async () => {
     // Inside the savepoint: these functions RAISE, and an error outside one
     // aborts the whole request transaction, so a refusal the caller could act
