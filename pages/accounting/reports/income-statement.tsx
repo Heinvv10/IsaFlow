@@ -10,7 +10,6 @@ import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
-
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
@@ -18,8 +17,10 @@ import { ComparatorControls } from '@/components/accounting/reportControls/Compa
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
 import { useStatementComparatorState } from '@/components/accounting/reportControls/useStatementComparatorState';
 import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
+import { reportHref } from '@/components/reports/reportReturnState';
 
 interface CostCentre { id: string; code: string; name: string }
+interface BusinessUnit { id: string; code: string; name: string }
 
 function clampToToday(dateStr: string): string {
   const today = new Date().toISOString().split('T')[0] ?? '';
@@ -39,26 +40,29 @@ export default function IncomeStatementPage() {
   const router = useRouter();
   const qStart = typeof router.query.period_start === 'string' ? router.query.period_start : '';
   const qEnd = typeof router.query.period_end === 'string' ? router.query.period_end : '';
+  const qBusinessUnit = typeof router.query.business_unit_id === 'string' ? router.query.business_unit_id : '';
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
   const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
-  const isMountedRef = useRef(true);
+  const reportRequestRef = useRef(0);
 
   // Sync-back effect: when router.query.period_start / period_end populate after
   // mount (Next.js can hydrate router.query on a later tick, or client-side
   // router.push can set them after the open-period fetch has already resolved),
   // push the URL values into state so the report re-fetches correctly.
   useEffect(() => {
+    if (router.isReady === false) return;
     if (qStart) setPeriodStart(qStart);
     if (qEnd) setPeriodEnd(qEnd);
-  }, [qStart, qEnd]);
+    setBusinessUnitId(qBusinessUnit);
+  }, [router.isReady, qStart, qEnd, qBusinessUnit]);
 
   // Fetch the current open period on mount to set smart default dates.
   // The open-period values are only written when no deep-link params are present
   // (checked both at call-time and when the promise resolves).
   useEffect(() => {
-    isMountedRef.current = true;
+    if (router.isReady === false) return;
 
     if (qStart && qEnd) {
       // Deep-link params present at mount — use them and skip the period fetch.
@@ -68,18 +72,12 @@ export default function IncomeStatementPage() {
       return;
     }
 
+    let cancelled = false;
     apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => {
-        if (!isMountedRef.current) return;
-        // Guard: if deep-link params arrived after mount (router.query hydrates
-        // asynchronously), do not overwrite them with the fetched period dates.
-        const searchParams = typeof window !== 'undefined'
-          ? new URLSearchParams(window.location.search)
-          : null;
-        const latestStart = searchParams?.get('period_start');
-        const latestEnd = searchParams?.get('period_end');
-        if (!latestStart && !latestEnd) {
+        if (cancelled) return;
+        if (!qStart && !qEnd) {
           const period = json.data as { startDate?: string; endDate?: string } | null;
           if (period?.startDate) setPeriodStart(period.startDate);
           if (period?.endDate) setPeriodEnd(clampToToday(period.endDate));
@@ -87,59 +85,73 @@ export default function IncomeStatementPage() {
         setPeriodResolved(true);
       })
       .catch(() => {
-        if (isMountedRef.current) setPeriodResolved(true);
+        if (!cancelled) setPeriodResolved(true);
       });
 
-    return () => { isMountedRef.current = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => { cancelled = true; };
+  }, [router.isReady, qStart, qEnd]);
   const [report, setReport] = useState<IncomeStatementReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
+  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
+  const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
   // column cannot be on with no comparative period behind it.
   const { columns, setColumns, companyWideUnavailable, apply, budgetState, trendFailed } =
     useStatementComparatorState({
-      costCentreSelected: costCentreId !== '',
+      dimensionSelected: costCentreId !== '' || businessUnitId !== '',
       asOf: periodEnd, basis: 'movement', periodStart, periodEnd,
     });
   const showComparative = columns.prior;
   const anyColumn = columns.prior || columns.budget || columns.trend;
+  const returnTo = reportHref('is', { period_start: periodStart, period_end: periodEnd,
+    cost_centre_id: costCentreId, business_unit_id: businessUnitId });
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => setCostCentres(json.data?.items || json.data || []))
       .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
+    apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load business units')))
+      .then(json => { const items = json.data?.items || json.data || []; setBusinessUnits(Array.isArray(items) ? items : []); })
+      .catch(() => { /* reference data load failure — selected BU remains visible as unavailable */ });
   }, []);
 
   function handleExport() {
     const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
     if (costCentreId) params.set('cost_centre_id', costCentreId);
+    if (businessUnitId) params.set('business_unit_id', businessUnitId);
     window.open(`/api/accounting/income-statement-export?${params}`, '_blank');
   }
 
   function handleXlsxExport() {
     const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
     if (costCentreId) params.set('cost_centre_id', costCentreId);
+    if (businessUnitId) params.set('business_unit_id', businessUnitId);
     window.open(`/api/accounting/income-statement-xlsx?${params}`, '_blank');
   }
 
   function toggleAccount(code: string) {
     setExpandedAccount(prev => (prev === code ? null : code));
   }
-
   const loadReport = useCallback(async () => {
-    if (!periodStart || !periodEnd || !periodResolved) return;
+    if (router.isReady === false || !periodStart || !periodEnd || !periodResolved) {
+      reportRequestRef.current += 1;
+      return;
+    }
+    const requestId = ++reportRequestRef.current;
+    setReport(null);
     setIsLoading(true);
     setError('');
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       if (costCentreId) params.set('cost_centre_id', costCentreId);
+      if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (showComparative) {
         const start = new Date(periodStart);
         const end = new Date(periodEnd);
@@ -152,13 +164,14 @@ export default function IncomeStatementPage() {
       const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load');
-      setReport(json.data || json);
+      if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load income statement');
+      if (requestId === reportRequestRef.current)
+        setError(err instanceof Error ? err.message : 'Failed to load income statement');
     } finally {
-      setIsLoading(false);
+      if (requestId === reportRequestRef.current) setIsLoading(false);
     }
-  }, [periodStart, periodEnd, costCentreId, showComparative, periodResolved]);
+  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
@@ -217,6 +230,14 @@ export default function IncomeStatementPage() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Business Unit</label>
+              <select value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className="ff-input text-sm min-w-[160px]">
+                <option value="">All Business Units</option>
+                {businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) && <option value={businessUnitId}>Selected Business Unit (unavailable)</option>}
+                {businessUnits.map(bu => <option key={bu.id} value={bu.id}>{bu.code} — {bu.name}</option>)}
+              </select>
+            </div>
             <div className="pb-2">
               <ComparatorControls value={columns} onChange={setColumns}
                 companyWideUnavailable={companyWideUnavailable} />
@@ -246,6 +267,8 @@ export default function IncomeStatementPage() {
 
               <IncomeStatementSections
                 costCentreId={costCentreId}
+                businessUnitId={businessUnitId}
+                returnTo={returnTo}
                 report={report}
                 periodStart={periodStart}
                 periodEnd={periodEnd}
@@ -263,6 +286,7 @@ export default function IncomeStatementPage() {
       {evidenceTarget && (
         <EvidenceDrillModal
           costCentreId={costCentreId}
+          businessUnitId={businessUnitId}
           accountId={evidenceTarget.accountId}
           accountName={evidenceTarget.accountName}
           periodStart={periodStart}
@@ -273,4 +297,3 @@ export default function IncomeStatementPage() {
     </AppLayout>
   );
 }
-
