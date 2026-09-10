@@ -1437,12 +1437,15 @@ or listed in `NOT_A_REFUSAL_CODES` as an internal marker. The census did exactly
 written for.
 
 Read before deciding, as its docblock demands: the message is
-`Customer <id> was not found for this company` — no schema names, no file paths, and actionable.
-It reaches the MCP boundary, because the allocate / bulk-allocate tools call `allocateTransaction`,
-which now raises it. So it is a genuine refusal: `'CUSTOMER_NOT_FOUND'` added to `REFUSAL_CODES`
-in `src/lib/mcp/tools/toolHelpers.ts`. Without it an agent gets the generic fallback and retries
-the same foreign-customer call forever. The mutation proof is the failure itself — removing the
-entry is what produced the red above; with it, that file is 15/15 green.
+`Customer <id> was not found for this company` — no schema names, no file paths, and it echoes only
+the caller's own id. It is a safe, pre-write refusal, so `'CUSTOMER_NOT_FOUND'` goes in
+`REFUSAL_CODES` (`src/lib/mcp/tools/toolHelpers.ts`) — listed because the census requires a
+decision. **No MCP caller sees it today** (corrected in round 24): `allocate_bank_transaction`
+answers `Not found` from its own ownership pre-check (`allocationLine.ts` `checkLinesOwnership` →
+`customersBelongToCompany`) before the service runs, and a throw from `allocateTransaction` goes
+to `registry.ts`'s generic failure without consulting `safeErrorText`; `writeBankRules` and
+`writeSettleByContra` pre-empt it the same way. The red above is a census result, not a measured
+outcome; with the entry, that file is 15/15 green.
 
 ### Gates on the merged tip
 
@@ -1461,13 +1464,87 @@ failure lines were diffed:
     comm -13 fail-branch.txt fail-master.txt   →  (empty)
     38 failure lines each, 33 files, 15 tests, on both sides
 
-The sets are identical, so not one of them is this branch's. Their causes are the runner
-environment, visible in the log: `SUPABASE_SERVICE_ROLE_KEY is not set` (5), a suite-level refusal
-`DATABASE_URL names the database "isaflow_schema_fixture" … Point it at isaflow_dev` (7), and
-`ECONNREFUSED 127.0.0.1:3200` for the suites that drive a running dev server. The branch runs 10
-more files and 17 more tests than master, and every one of them passes.
+The sets are identical, so not one of them is this branch's. Most are the runner environment —
+`SUPABASE_SERVICE_ROLE_KEY is not set` (5), a suite-level refusal of `isaflow_schema_fixture` (7),
+`ECONNREFUSED 127.0.0.1:3200` — but **not all** (corrected in round 24): some are deterministic
+master failures, among them `k051-cross-company-journal-line` (fails alone on master since #418
+changed the business-unit refusal wording; registered as **R-081**), `supplierStatementBalances`
+(`column si.deleted_at does not exist`), `k-035-webhook-redelivery-discarded` (200 vs 500),
+`financialFiguresScoping` (0 vs 450) and `creditNotePartialApply` (`customers_company_id_fkey`).
+The branch runs **12** more files and **43** more tests than master (the 9 `k071-*` and 3
+`k074-*` files), and every one of them passes.
 
 ### Files this round
 
 `src/lib/mcp/tools/toolHelpers.ts` (one allowlist entry), the two resolved bank docs, and the
 merge itself. No migration.
+
+---
+
+## Round 24 — blind review of `b2d98f0f8` (0 HIGH · 1 MEDIUM · 2 LOW), all addressed; merge `origin/master` (`bfc5c442e`)
+
+### MEDIUM-1 — current master (R-058 #419, R-075 #420) fails this branch's refusal census — FIXED
+
+Merged `origin/master` at `bfc5c442e` (no rebase; no conflicts). R-058 added
+`CaptureEventLockedError` (`capture/captureEventLock.ts:106`, `readonly code = 'CAPTURE_EVENT_LOCKED'`)
+and the branch's census `typedRefusalReachesAgent.test.ts` requires every such code to be a decision.
+
+Decided, not just listed. The message is
+`Capture event <id> is being posted by another request — retry in a moment.` — the lock-timeout
+shape of the fifteen `*_LOCK_TIMEOUT` codes already in `REFUSAL_CODES`, written for the reader
+(the class doc says so: "the wording is what the operator reads — it has to say 'retry'"), and it
+echoes only the caller's own id. `NOT_A_REFUSAL_CODES` is for internal invariant markers whose
+message helps nobody (`CLAIM_OUTSIDE_TRANSACTION`); this is the opposite. So it goes in
+`REFUSAL_CODES`.
+
+Reachability, walked from the thrower: `lockCaptureEventForPosting` / `lockCaptureEventRow` are
+called only by `pages/api/accounting/capture/[id]/{post,post-expense,discard}.ts`, each of which
+catches the class and answers `409` with its message. Nothing under `src/lib/mcp/` imports
+`services/capture` or names `capture_events`, so **no MCP tool reaches it today**. The entry is
+there because the census requires a decision and the right one, if a capture tool is ever added,
+is that the agent reads "retry" rather than a generic failure.
+
+Mutation: deleting the entry → `CAPTURE_EVENT_LOCKED is declared in src/ but missing from
+REFUSAL_CODES`, 1 failed / 14 passed; restored → 15/15.
+
+Also read for interactions: R-075 moved post-response work behind `runAfterCommit` and gave the
+LLM categorisation pass its own `withAlsTransaction` around `gateSweep` — the sweep whose per-row
+savepoints this branch added, which need exactly that transaction. The new `RequestContext` fields
+(`finished`, `afterCommit`) are optional, so this branch's tests that build a context with
+`als.run({ client, userId, companyId, claims })` stay valid; the 17 integration files confirm it.
+
+### LOW-1 — the reason given for `CUSTOMER_NOT_FOUND` was wrong — CORRECTED
+
+Round 23 said an MCP allocate caller would get the generic fallback without the entry. It would
+not: the tool's own ownership pre-check answers `Not found` first, and a service throw goes to the
+registry's generic failure without `safeErrorText`. Round 23's paragraph is rewritten in place to
+say so; the entry stays because the census requires a decision. The merge commit `b2d98f0f8`
+carries the same wrong sentence and is not rewritten (a published merge is not amended) — this
+section is the correction of record.
+
+### LOW-2 — "all environmental" and the file/test delta were wrong — CORRECTED
+
+Round 23's attribution paragraph is rewritten in place: several failures are deterministic master
+defects, not environment — `k051-cross-company-journal-line` is **R-081** (not fixed here), and the
+branch adds **12** files / **43** tests, not 10 / 17.
+
+### Gates on the merged tip
+
+- `env -u DATABASE_URL bun run ci` → every step PASS, `[ci] all checks passed`, **EXIT=0**
+  (`Tests 10272 passed | 248 skipped`, components `534 passed`, build PASS).
+- 17 `k071-*`/`k140-*`/`k143-*`/`k144-*` files, `--no-file-parallelism` →
+  `Test Files 17 passed (17)`, `Tests 48 passed | 1 skipped (49)`, **EXIT=0**.
+- FULL integration suite → `Test Files 34 failed | 263 passed (297)`,
+  `Tests 16 failed | 1498 passed | 201 skipped (1715)`, EXIT=1. Clean `git archive bfc5c442e` →
+  `34 failed | 251 passed (285)`, `16 failed | 1455 passed (1672)`. Failure lines diffed with `comm`
+  in both directions: **empty**, 39 lines each. The branch adds 12 files / 43 tests, all passing.
+- The one failure new since round 23 is master's own
+  `r075-route-event-after-commit.int.test.ts > routeEvent writes on its own connection after
+  COMMIT…` (`expected ['pending','extracting',…] to deeply equal […]`). It fails **alone** on the
+  clean master archive (1 failed / 3 passed) — a deterministic master failure, not load and not this
+  branch. Not fixed here; R-id TBA — "R-075 route-event test fails on the fixture DB".
+
+### Files this round
+
+`src/lib/mcp/tools/toolHelpers.ts` (one allowlist entry), `docs/audits/remediation/K-071/fix.md`,
+and the merge. No migration.

@@ -7,7 +7,8 @@
  */
 
 import { getPool } from '@/lib/neon';
-import { als, assertTxUsable } from '@/lib/als';
+import { als, assertTxUsable, type RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 
 /**
@@ -60,8 +61,10 @@ export async function withAlsTransaction<T>(
   let poisoned = false;
   try {
     await client.query('BEGIN');
-    const result = await als.run({ client, userId, companyId, claims: {} }, fn);
+    const ctx: RequestContext = { client, userId, companyId, claims: {}, afterCommit: [] };
+    const result = await runOwnedContext(ctx, fn);
     await client.query('COMMIT');
+    drainAfterCommit(ctx);
     return result;
   } catch (err) {
     try {

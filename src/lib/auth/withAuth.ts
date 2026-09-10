@@ -7,7 +7,8 @@ import { verifyToken } from './gotrue';
 import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
-import { als } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -201,11 +202,10 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res;
       };
 
-      const runHandler = async () =>
-        als.run(
-          { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
-          async () => { await handler(req, res); }
-        );
+      const ctx: RequestContext = {
+        client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown>, afterCommit: [],
+      };
+      const runHandler = async () => runOwnedContext(ctx, async () => { await handler(req, res); });
 
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
@@ -265,6 +265,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       // never responded there is nothing to replay (Next surfaces its own
       // "resolved without sending a response" path, unchanged from before).
       if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+      // Only now may background work start: its rows are visible, and it gets its
+      // own connection instead of this one (R-075). Never after a ROLLBACK.
+      if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       throw err;
