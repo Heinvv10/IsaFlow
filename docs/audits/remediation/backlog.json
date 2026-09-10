@@ -2534,7 +2534,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [
         "Transfer-link half fixed by merged K-019; the auto-post sweep block remains"
       ],
@@ -2545,8 +2545,8 @@
         "K-071/red.log",
         "K-071/validation.md"
       ],
-      "fixCommit": "4c857048",
-      "pr": null,
+      "fixCommit": "46363ca12",
+      "pr": "421",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
@@ -2633,7 +2633,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts"
@@ -2642,8 +2642,8 @@
         "K-074/red.log",
         "K-074/validation.md"
       ],
-      "fixCommit": "4c857048",
-      "pr": null,
+      "fixCommit": "46363ca12",
+      "pr": "421",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
