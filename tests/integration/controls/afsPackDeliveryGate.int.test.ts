@@ -4,6 +4,7 @@ import {afsSectionHttpFixture} from './afsSectionHttpFixture';
 import {sendEmail} from '@/modules/accounting/services/core/emailService';
 import {generateManagementPack} from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import {signOffDocument} from '@/modules/accounting/services/afs/afsReviewService';
+import {deliverPack,PackDeliveryWithheldError} from '@/modules/accounting/services/afs/packDeliveryService';
 import type {ManagementPackConfig} from '@/modules/accounting/services/afs/afsTypes';
 
 // The mail transport and the model are the boundaries replaced. The delivery route, the
@@ -43,6 +44,13 @@ describe('delivering a management pack that skipped review',()=>{
   const res=await deliver(result.documentId);
   expect(res.status,JSON.stringify(res.body)).toBe(409);
   expect(vi.mocked(sendEmail),'an unreviewed pack was emailed to its recipients').not.toHaveBeenCalled();
+ });
+
+ it('is refused by deliverPack itself, so no caller can deliver around the route',async()=>{
+  const result=await pack('2032-04',false);
+  await expect(deliverPack(result.documentId,h.f.companyA),'the gate lives only in the route')
+   .rejects.toThrow(PackDeliveryWithheldError);
+  expect(vi.mocked(sendEmail)).not.toHaveBeenCalled();
  });
 
  it('goes out once a person has signed the document off, and the release is on the audit trail',async()=>{
