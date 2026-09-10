@@ -1,5 +1,6 @@
 import {capturedStorage} from './capturedEvidenceTestStorage';
 import {log} from '@/lib/logger';
+import * as Sentry from '@sentry/nextjs';
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {uuidBoundaryFixture,upper} from './uuidBoundaryFixture';
@@ -119,16 +120,17 @@ it('records a durable failure when the post-commit release claim cannot run',asy
 it('records a durable failure when the provider result cannot be acknowledged after transmit',async()=>{
  const p=await prepared();
  await enqueue(p.intentId,await f.approve(p.operation));
- await f.pool.query(`CREATE FUNCTION public.synthetic_release_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+ await f.pool.query(`CREATE OR REPLACE FUNCTION public.synthetic_release_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
   BEGIN IF NEW.intent_id='${p.intentId}'::uuid AND NEW.state='exported' THEN RAISE EXCEPTION 'Synthetic release acknowledgement failure'; END IF; RETURN NEW; END $$`);
  try{
+  await f.pool.query('DROP TRIGGER IF EXISTS synthetic_release_ack_failure ON control_payment_release_outbox');
   await f.pool.query('CREATE TRIGGER synthetic_release_ack_failure BEFORE UPDATE ON control_payment_release_outbox FOR EACH ROW EXECUTE FUNCTION public.synthetic_release_ack_failure()');
   const dispatch=await f.attempt(()=>f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId)));
   const saved=await state(p.intentId);
   expect({error:dispatch.error instanceof Error?dispatch.error.message:null,state:saved.outbox[0]?.state}).toEqual({error:null,state:'attempting'});
  }finally{
   await f.pool.query('DROP TRIGGER IF EXISTS synthetic_release_ack_failure ON control_payment_release_outbox');
-  await f.pool.query('DROP FUNCTION public.synthetic_release_ack_failure()');
+  await f.pool.query('DROP FUNCTION IF EXISTS public.synthetic_release_ack_failure()');
  }
  const recorded=await events(p.intentId,'payment_release.acknowledgement_failed');
  expect(recorded).toHaveLength(1);
@@ -164,14 +166,15 @@ it('loads a payment settlement whose retained receipt kept a legacy uppercase en
 it('records a dispatch failure against an advanced release under the state it actually observed',async()=>{
  const p=await prepared();
  await enqueue(p.intentId,await f.approve(p.operation));
- await f.pool.query(`CREATE FUNCTION public.synthetic_release_advance_only() RETURNS trigger LANGUAGE plpgsql AS $$
+ await f.pool.query(`CREATE OR REPLACE FUNCTION public.synthetic_release_advance_only() RETURNS trigger LANGUAGE plpgsql AS $$
   BEGIN IF NEW.intent_id='${p.intentId}'::uuid AND NEW.state='exported' THEN RAISE EXCEPTION 'Synthetic release acknowledgement failure'; END IF; RETURN NEW; END $$`);
  try{
+  await f.pool.query('DROP TRIGGER IF EXISTS synthetic_release_advance_only ON control_payment_release_outbox');
   await f.pool.query('CREATE TRIGGER synthetic_release_advance_only BEFORE UPDATE ON control_payment_release_outbox FOR EACH ROW EXECUTE FUNCTION public.synthetic_release_advance_only()');
   await f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId));
  }finally{
   await f.pool.query('DROP TRIGGER IF EXISTS synthetic_release_advance_only ON control_payment_release_outbox');
-  await f.pool.query('DROP FUNCTION public.synthetic_release_advance_only()');
+  await f.pool.query('DROP FUNCTION IF EXISTS public.synthetic_release_advance_only()');
  }
  expect((await state(p.intentId)).outbox[0]?.state).toBe('attempting');
  expect((await f.pool.query('DELETE FROM control_payment_release_reservations WHERE company_id=$1 AND intent_id=$2::uuid',[f.f.companyA,p.intentId])).rowCount).toBe(1);
@@ -196,9 +199,10 @@ it('swallows a failure to record a failed dispatch rather than escaping the obse
  // mock.calls afterwards always yields [] no matter what was captured.
  const errors=vi.spyOn(log,'error').mockImplementation(()=>{});
  let reported:Array<[unknown,unknown]>=[];
- await f.pool.query(`CREATE FUNCTION public.synthetic_change_event_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+ await f.pool.query(`CREATE OR REPLACE FUNCTION public.synthetic_change_event_failure() RETURNS trigger LANGUAGE plpgsql AS $$
   BEGIN IF NEW.company_id='${company}'::uuid AND NEW.entity_type='payment_release_outbox' THEN RAISE EXCEPTION 'Synthetic change event failure'; END IF; RETURN NEW; END $$`);
  try{
+  await f.pool.query('DROP TRIGGER IF EXISTS synthetic_change_event_failure ON control_change_events');
   await f.pool.query('CREATE TRIGGER synthetic_change_event_failure BEFORE INSERT ON control_change_events FOR EACH ROW EXECUTE FUNCTION public.synthetic_change_event_failure()');
   const dispatch=await f.attempt(()=>f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId)));
   reported=errors.mock.calls.map(call=>[call[0],(call[1] as {reason?:string}|undefined)?.reason]);
@@ -206,11 +210,85 @@ it('swallows a failure to record a failed dispatch rather than escaping the obse
  }finally{
   errors.mockRestore();
   await f.pool.query('DROP TRIGGER IF EXISTS synthetic_change_event_failure ON control_change_events');
-  await f.pool.query('DROP FUNCTION public.synthetic_change_event_failure()');
+  await f.pool.query('DROP FUNCTION IF EXISTS public.synthetic_change_event_failure()');
  }
  expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([]);
  expect((await state(p.intentId)).outbox).toEqual(before);
  // The log line is the whole mitigation once the record cannot be written.
  expect(reported).toEqual([['Release dispatch failure could not be recorded; queued release requires reconciliation',
   'Release provider configuration changed']]);
+});
+/** A queued netcash release whose credentials vanish after enqueue, so its post-commit claim throws. */
+async function refusedNetcashRelease(){
+ const company=f.f.companyA;
+ await f.pool.query("UPDATE companies SET netcash_enabled=true,netcash_service_key='synthetic-service',netcash_payouts_key='synthetic-payouts' WHERE id=$1",[company]);
+ const p=await prepared('netcash');
+ await enqueue(p.intentId,await f.approve(p.operation));
+ await f.pool.query('UPDATE companies SET netcash_service_key=NULL,netcash_payouts_key=NULL WHERE id=$1',[company]);
+ return p;
+}
+/**
+ * The property the 30s recorder budget nearly broke. The dispatch pool sets statement_timeout 5s BELOW
+ * its client-side query_timeout 6s, so a recorder stuck behind a version-table lock is cancelled by the
+ * SERVER, its ROLLBACK runs, and the connection returns to the pool clean. Invert that ordering and the
+ * client gives up while the server statement keeps waiting: the connection goes back still holding an
+ * open transaction, the outbox FOR UPDATE lock and this tenant's role for the next borrower.
+ */
+it('returns the recorder connection to the pool clean after a lock-wait timeout',async()=>{
+ const p=await refusedNetcashRelease();
+ const errors=vi.spyOn(log,'error').mockImplementation(()=>{});
+ const holder=await f.pool.connect();let reported:unknown[]=[],stray:number|null=null;
+ try{
+  await holder.query('BEGIN');
+  // What withInvoiceMatchSourceLocks takes, held here for longer than the pool's whole budget.
+  await holder.query('LOCK TABLE control_entity_versions IN SHARE ROW EXCLUSIVE MODE');
+  const holderPid=(await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+  const dispatch=await f.attempt(()=>f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId)));
+  expect(dispatch.error).toBeUndefined();
+  reported=errors.mock.calls.map(call=>(call[1] as {code?:unknown}|undefined)?.code);
+  // Still under the lock: a clean pool has no other client backend mid-statement or mid-transaction.
+  stray=Number((await f.pool.query(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database()
+   AND backend_type='client backend' AND pid NOT IN($1,pg_backend_pid())
+   AND state IN('active','idle in transaction','idle in transaction (aborted)')`,[holderPid])).rows[0].n);
+ }finally{errors.mockRestore();await holder.query('ROLLBACK');holder.release();}
+ expect(stray).toBe(0);
+ // The server cancelled it: 57014, never the client's code-less 'Query read timeout'.
+ expect(reported).toEqual(['57014']);
+ // Nothing left holding the outbox row, and no late COMMIT persisted the record reported as lost.
+ const probe=await f.pool.connect();
+ try{
+  await probe.query('BEGIN');
+  await expect(probe.query('SELECT 1 FROM control_payment_release_outbox WHERE company_id=$1 AND intent_id=$2::uuid FOR UPDATE NOWAIT',[f.f.companyA,p.intentId])).resolves.toBeDefined();
+ }finally{await probe.query('ROLLBACK');probe.release();}
+ expect(await events(p.intentId,'payment_release.dispatch_failed')).toEqual([]);
+},30000);
+/**
+ * SENTRY_ENABLED is unset in tests, so without this the reporting block could be deleted and every
+ * other case would stay green. A real Sentry client whose beforeSend captures and drops the event
+ * proves the fatal report, its tags and its exception actually reach the tracker — nothing is sent.
+ */
+it('reports a failure to record a failed dispatch to the error tracker, tagged by company and intent',async()=>{
+ const p=await refusedNetcashRelease(),captured:Sentry.ErrorEvent[]=[];
+ const priorGate=process.env.SENTRY_ENABLED;
+ Sentry.init({dsn:'https://public@o0.ingest.invalid/0',defaultIntegrations:false,
+  beforeSend:event=>{captured.push(event);return null;}});
+ process.env.SENTRY_ENABLED='true';
+ const errors=vi.spyOn(log,'error').mockImplementation(()=>{});
+ try{
+  await f.pool.query(`CREATE OR REPLACE FUNCTION public.synthetic_change_event_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN IF NEW.company_id='${f.f.companyA}'::uuid AND NEW.entity_type='payment_release_outbox' THEN RAISE EXCEPTION 'Synthetic change event failure'; END IF; RETURN NEW; END $$`);
+  await f.pool.query('DROP TRIGGER IF EXISTS synthetic_change_event_failure ON control_change_events');
+  await f.pool.query('CREATE TRIGGER synthetic_change_event_failure BEFORE INSERT ON control_change_events FOR EACH ROW EXECUTE FUNCTION public.synthetic_change_event_failure()');
+  await f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId));
+  await Sentry.flush(2000);
+ }finally{
+  errors.mockRestore();
+  if(priorGate===undefined)delete process.env.SENTRY_ENABLED;else process.env.SENTRY_ENABLED=priorGate;
+  await Sentry.close(2000);
+  await f.pool.query('DROP TRIGGER IF EXISTS synthetic_change_event_failure ON control_change_events');
+  await f.pool.query('DROP FUNCTION IF EXISTS public.synthetic_change_event_failure()');
+ }
+ expect(captured.map(event=>({level:event.level,tags:event.tags,message:event.exception?.values?.[0]?.value}))).toEqual([{
+  level:'fatal',tags:{company_id:f.f.companyA,payment_release_intent_id:p.intentId,payment_release_action:'payment_release.dispatch_failed'},
+  message:'Synthetic change event failure'}]);
 });
