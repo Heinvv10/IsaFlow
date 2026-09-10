@@ -31,7 +31,8 @@ export async function gl39Fixture(){
    await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
    const token=user.tokens[0]!;
    const result=await withControlRequest({client,userId:user.id,companyId:user.companyId,claims},{personId:user.id,companyId:user.companyId,authMethod:pat?'pat':'cookie',...(pat?{connectionId:token.id,grantId:token.id,grantedScopes:PAT_SCOPES}:{})},()=>fn(requireControlTx()));
-   await client.query('COMMIT');begun=false;return result;
+   // Failure-injection DDL must never survive, including an unexpectedly successful callback.
+   await client.query(rejectContraPost?'ROLLBACK':'COMMIT');begun=false;return result;
   }catch(error){if(begun)await client.query('ROLLBACK');throw error;}finally{client.release();}
  }
  async function journal(){

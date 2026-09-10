@@ -63,3 +63,11 @@ only an unused row helper was removed. Actual owned entry plus foreign account
 refuses before posting, supplementing separate foreign-journal and inactive
 other-entry isolation. No mocked control issuance, financial kernel or approval
 permit was introduced; positive writers use real current PostgreSQL contexts.
+
+Independent review5b5731495 confirmed two test gaps. Restored actual inactive
+error human names (`GL39 account 0/1`) alongside every code and remedy. Added
+actual unexpected-success injection test: initial RED observed one persisted
+trigger, then test cleanup removed it. Failure-injection actor now always rolls
+back even on success, so neither trigger DDL nor financial changes can commit.
+Correction55810 passed all26 PG cases and affected dedicated TS/scoped typed lint;
+pools closed. Original33 unit bodies were not edited by this correction.

@@ -63,3 +63,10 @@ it.each([false,true])('inverse preserves per-line business unit dimensions (popu
  const rows=(await f.pool.query('SELECT gl_account_id,bu_id,debit::text,credit::text FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[f.f.companyA,inverse.id])).rows;
  for(const [index,id] of j.accounts.entries()){const row=rows.find(row=>row.gl_account_id===id);expect(row?.bu_id).toBe(units[index]);expect(row).toMatchObject(index?{debit:'1000.23',credit:'0.00'}:{debit:'0.00',credit:'1000.23'});}
 });
+it('unexpected success in the failure-injection transaction still rolls back its trigger',async()=>{
+ try{
+  expect(await f.actor(async()=> 'unexpected success','u1',false,true)).toBe('unexpected success');
+  const triggers=await f.pool.query("SELECT tgname FROM pg_trigger WHERE tgname='gl39_reject_contra' AND tgrelid='gl_journal_entries'::regclass");
+  expect(triggers.rows).toHaveLength(0);
+ }finally{await f.pool.query('DROP TRIGGER IF EXISTS gl39_reject_contra ON gl_journal_entries');}
+});
