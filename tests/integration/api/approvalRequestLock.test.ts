@@ -97,13 +97,41 @@ describe('lockApprovalRequestForUpdate', () => {
     const waiter = await begin();
     try {
       await holder.query('SELECT id FROM approval_requests WHERE id=$1 FOR UPDATE', [requestA]);
-      await waiter.query("SET LOCAL lock_timeout = '400ms'");
+      // No lock_timeout is set here on purpose: lockApprovalRequestForUpdate
+      // issues its own `SET LOCAL lock_timeout = '5s'` on this very client, so
+      // any budget declared by the test is overwritten before the FOR UPDATE.
+      // The 5s the code actually applies is what the elapsed assertion pins.
+      const startedAt = Date.now();
+      const error = await on(waiter, () => lockApprovalRequestForUpdate(COMPANY, requestA))
+        .then(() => null, (e: unknown) => e);
+      const elapsed = Date.now() - startedAt;
+      expect(error).toBeInstanceOf(ApprovalRequestLockTimeoutError);
+      expect((error as ApprovalRequestLockTimeoutError).code).toBe('APPROVAL_REQUEST_LOCK_TIMEOUT');
+      expect(elapsed).toBeGreaterThanOrEqual(4500);
+      expect(elapsed).toBeLessThan(9000);
+    } finally {
+      await waiter.query('ROLLBACK'); waiter.release();
+      await holder.query('ROLLBACK'); holder.release();
+    }
+  });
+
+  it('leaves the transaction USABLE after a timeout, so the 409 is not followed by a 25P02', async () => {
+    // 55P03 aborts the Postgres transaction. The route answers the timeout as a
+    // 409 and withAuth then COMMITs, so without the savepoint every statement
+    // after the caught error — the COMMIT included — raises a bare 25P02.
+    const holder = await begin();
+    const waiter = await begin();
+    try {
+      await holder.query('SELECT id FROM approval_requests WHERE id=$1 FOR UPDATE', [requestA]);
       const error = await on(waiter, () => lockApprovalRequestForUpdate(COMPANY, requestA))
         .then(() => null, (e: unknown) => e);
       expect(error).toBeInstanceOf(ApprovalRequestLockTimeoutError);
-      expect((error as ApprovalRequestLockTimeoutError).code).toBe('APPROVAL_REQUEST_LOCK_TIMEOUT');
+      // The proof: an ordinary read on the SAME client still works.
+      const { rows } = await waiter.query('SELECT 1 AS ok');
+      expect(rows[0].ok).toBe(1);
+      await expect(waiter.query('COMMIT')).resolves.toBeDefined();
     } finally {
-      await waiter.query('ROLLBACK'); waiter.release();
+      try { await waiter.query('ROLLBACK'); } finally { waiter.release(); }
       await holder.query('ROLLBACK'); holder.release();
     }
   });

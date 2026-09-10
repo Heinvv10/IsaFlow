@@ -18,7 +18,7 @@
  * Modelled on `bank/bankTxLock.ts` and `gl/glAccountLock.ts` — same idiom, same
  * 5s budget, deliberately not a third one.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
@@ -66,11 +66,18 @@ export async function lockApprovalRequestForUpdate(
   assertTxUsable();
   await client.query("SET LOCAL lock_timeout = '5s'");
 
+  // Savepointed because 55P03 ABORTS the transaction. The caller answers the
+  // timeout as a 409 and carries on, and without the rollback every later
+  // statement on the connection — including the COMMIT — raises a bare 25P02.
+  // Harmless only while this is the first statement of the handler; the
+  // savepoint is what keeps it harmless if anything is ever written before it.
   try {
-    await sql`
-      SELECT id FROM approval_requests
-       WHERE id = ${requestId}::UUID AND company_id = ${companyId} AND status = 'pending'
-       FOR UPDATE`;
+    await withSavepoint('approval_request_lock', async () => {
+      await sql`
+        SELECT id FROM approval_requests
+         WHERE id = ${requestId}::UUID AND company_id = ${companyId} AND status = 'pending'
+         FOR UPDATE`;
+    });
   } catch (err) {
     if (isLockTimeout(err)) throw new ApprovalRequestLockTimeoutError(requestId);
     throw err;

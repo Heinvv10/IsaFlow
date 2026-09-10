@@ -49,7 +49,7 @@ describe('approvals page — decision refusal', () => {
         success: false,
         error: {
           code: 'FORBIDDEN',
-          message: 'You cannot decide on an approval request you raised yourself',
+          message: 'You cannot approve an approval request you raised yourself',
           details: { reason: 'SELF_APPROVAL_FORBIDDEN' },
         },
       }),
@@ -59,7 +59,7 @@ describe('approvals page — decision refusal', () => {
     fireEvent.click(await screen.findByText('Approve'));
 
     expect(await screen.findByText(
-      'You cannot decide on an approval request you raised yourself',
+      'You cannot approve an approval request you raised yourself',
     )).toBeDefined();
     expect(screen.queryByText('Failed to process decision')).toBeNull();
   });

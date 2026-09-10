@@ -492,21 +492,88 @@ additive and nothing outside this module reads it. Dropping it restores round-5 
 (both levers with it).
 
 **Round-6 historical impact.** 669 writes only `required_role`, only on PENDING rows, only from the
-rule already bound — no request changes hands and no decision is revisited. Decisions ALREADY taken
-under a lowered rule are not detectable from the request row (the rule's old role is not stored, and
-`approval_rules` kept no history before round 3's audit rows), so the closest read-only probe is
-decided requests whose rule was updated after the request was raised. Read-only, not run here:
-```sql
-SELECT ar.id, ar.company_id, ar.document_type, ar.document_id, ar.amount,
-       ar.requested_by, ar.decided_by, ar.decided_at,
-       rl.name AS rule_name, rl.approver_role, rl.updated_at AS rule_updated_at
-FROM approval_requests ar
-JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
-WHERE ar.status IN ('approved','rejected')
-  AND rl.updated_at > ar.requested_at
-  AND rl.updated_at <= ar.decided_at
-ORDER BY ar.decided_at DESC;
-```
-Cross-check each hit against `audit_log` (`entity_type = 'approval_rule'`, round 3 onwards) for an
-`approver_role` or `is_active` change by the requester themselves. No rows are rewritten by 669
-beyond the snapshot backfill.
+rule already bound — no request changes hands and no decision is revisited.
+
+**Decisions already taken under a lowered rule are NOT reliably detectable, and no probe is offered
+for them (R-049).** An earlier draft of this document proposed a read-only probe over decided
+requests whose still-bound rule's `updated_at` fell between `requested_at` and `decided_at`, to be
+cross-checked against `audit_log`. The round-7 reviewer ran it and it does not work, in three
+independent ways: it misses the whole lever-A class, where the rule that was EDITED is not the rule
+the request ended up BOUND to, so the edited rule's timestamp is never inspected; `updated_at` is
+last-write-wins, so one later benign edit — or an edit-and-revert inside the window — erases the
+trace entirely; and `approval_rules` never stored a prior `approver_role`, while the `audit_log`
+rows that could supply one only exist from round 3 of this branch onwards, i.e. for none of the
+historical period the probe was meant to cover. It returns an unclassifiable candidate list, and a
+probe that finds nothing while being presented as a remedy is worse than saying it cannot be done.
+
+Retrospective detection is therefore unachievable with the data retained. From this branch forward
+it IS evidenceable: migration 669 snapshots `required_role` at raise time and the round-3
+`approval_rule` audit rows record every role and `is_active` change, so any future weakening is
+visible against the request it would have applied to. Backward, the only honest remedy is a manual
+review of high-value approved documents against the approver's rank, scoped by amount. Registered
+as **R-049**; no rows are rewritten by 669 beyond the snapshot backfill.
+
+## Round 7 — the three LOWs, and what stays open
+
+**LOW-1 — the lock test declared a 400 ms budget the code overrode to 5 s.** The waiter's
+`SET LOCAL lock_timeout = '400ms'` was dead: `lockApprovalRequestForUpdate` re-issues `'5s'` on that
+same client before the `FOR UPDATE`. The line is gone and the test now measures elapsed time and
+pins the 5 s the code actually applies (`>= 4500ms`, `< 9000ms`), so shrinking the budget in the
+service turns the test red instead of passing silently.
+
+**LOW-2 — the `FOR UPDATE` is now savepointed.** 55P03 aborts the Postgres transaction, and the
+route answers the timeout as a 409 and carries on; nothing rolled the transaction back. Harmless
+only because the lock is the first statement `decideRequest` issues. The `SELECT … FOR UPDATE` now
+runs inside `withSavepoint('approval_request_lock', …)`, this repo's idiom for best-effort SQL.
+Proved by a new case in `tests/integration/api/approvalRequestLock.test.ts`: after the caught
+timeout, an ordinary read and the `COMMIT` on the same client both succeed. Removing the savepoint
+turns it red with 25P02.
+
+**LOW-3 — R-033 got worse here, and the requester may now withdraw.** With the ratchet in place, a
+request whose demanded rank only the requester holds was unclearable in BOTH directions: `approve`
+403 (self), every other role 403 (rank), and there is no cancel action anywhere. The relaxation that
+used to be the escape hatch is exactly what the ratchet closes. Only APPROVE is the controlled act,
+so `assertMayDecide` now takes the `decision` and permits a requester to REJECT their own request —
+a withdrawal, which grants nothing — and permits it without a rank check, which is what makes the
+state escapable for a requester who ranks below their own request. Nothing else moves: the
+requester's own approve is still `SELF_APPROVAL_FORBIDDEN`, and a reject by anybody else still faces
+the full ratcheted demand. `decision` is a required parameter, not a defaulted one, so a caller that
+forgets it cannot silently get the permissive answer.
+
+**MEDIUM-1 is out of scope for this branch and is registered as R-048.** The reviewer's finding is
+correct and reproduced: `assertMayDemand` / `assertMayEditRule` bound rule authority UPWARD only, so
+an admin may hand an admin-level rule down to `manager`, raise a fresh request for their own
+document, and have a manager approve it — the ratchet pins a request that is already pending, and
+deliberately does not pin the policy, so a request raised after the downgrade snapshots the
+already-lowered role and there is nothing higher for the ratchet to hold to. **What an admin can
+still do today: lower any rule at or below their own rank, then get their own document approved by
+anyone at the lowered rank.** For a document with no pending request the downgrade-and-raise is one
+actor plus one approver, with no complicity. This is the standing rule-authority design rather than
+a hole in the ratchet, and the reviewer ruled it sits outside the ratchet's boundary by design;
+weakening or extending the ratchet to chase it would risk the property that currently holds. The fix
+is a policy call for R-048 — make the rank guard asymmetric (raising a rule stays at-or-below the
+actor's rank, lowering it requires strictly ABOVE the rule's current role), or restrict writes on
+`/api/accounting/approval-rules` to `owner`.
+
+**R-032, R-033 and R-035 stay open.** R-033's severity is what LOW-3 addresses; the register entry
+should carry the round-7 note that the deadlock is now escapable by withdrawal.
+
+**Round-7 files.** `src/modules/accounting/services/gl/approvalAuthority.ts` (the `decision`
+parameter and the withdrawal arm), `approvalService.ts` (passes it), `approvalRequestLock.ts` (the
+savepoint). No migration.
+
+**Round-7 tests.** `tests/integration/k-043-r7-requester-withdrawal.int.test.ts` (5, real DB) — the
+R-033 deadlock escaping, a requester below their own demand withdrawing, the requester's own approve
+still refused, a non-requester's reject still rank-checked, and a foreign-company context refused.
+`tests/integration/api/approvalRequestLock.test.ts` 5 → 6. `approvalDecisionAuthority.test.ts`
+11 → 16. Approval integration total 62 → **67** across 8 files; approval unit 71 → 76 across 9
+files; full unit suite **9522 passed / 234 skipped** with `DATABASE_URL` unset. `tsc --noEmit` and
+`eslint` on the three changed sources both clean; `agent-docs:check` OK (74 mirrors).
+
+**Round-7 mutations** (both red, restored from file copies): the withdrawal arm removed — 2 unit and
+2 integration cases red; the savepoint removed — the new lock case red on 25P02.
+
+**Round-7 rollback.** Revert the three source files; no schema change, nothing to undo in the data.
+
+**Round-7 historical impact.** None. The withdrawal arm only widens who may set a PENDING row to
+`rejected`, and the savepoint changes no row at all. No backfill, no existing row is wrong.
