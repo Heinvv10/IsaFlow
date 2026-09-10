@@ -5,6 +5,7 @@ import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
 import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
 import { withSavepoint } from '@/lib/neon';
 import { requireControlTx } from '../controls/context';
+import { canonicalIntentId, loadIntentReceipt, sameIntentId } from '../controls/intentIdentity';
 import { loadOperationMaterial } from '../controls/operationMaterializer';
 import { materializeAssetDepreciationOperation } from '../controls/assetDepreciationOperationMaterializer';
 import { initializeOperationObservations } from '../controls/approvalRequestService';
@@ -42,22 +43,21 @@ export async function prepareAssetDepreciation(companyId:string,userId:string,as
  });
 }
 async function receipt(ctx:ControlTx,intentId:string):Promise<AssetDepreciationResult|null>{
- const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-  AND entity_type='asset_depreciation_intent' AND entity_id=${intentId} AND operation='asset_depreciation.post'
-  ORDER BY committed_at DESC LIMIT 1` as {id:string;result:AssetDepreciationResult}[];
+ const effect=await loadIntentReceipt<AssetDepreciationResult>(ctx,ref(intentId));
  if(!effect)return null;
- if(effect.result.intentId!==intentId)throw new Error('Invalid depreciation receipt');
+ if(!sameIntentId(effect.result.intentId,intentId))throw new Error('Invalid depreciation receipt');
  if(effect.result.journalEntryId){
   const rows=await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${ctx.principal.companyId}::uuid
    AND id=${effect.result.journalEntryId}::uuid AND source='auto_depreciation' AND source_record_id=${intentId}::uuid
    AND status='posted' AND reversed_at IS NULL FOR SHARE`;
   if(rows.length!==1)throw new Error('Depreciation receipt journal has changed');
  }
- return replayKnownOperationEffect<AssetDepreciationResult>(ctx,{entityType:'asset_depreciation_intent',entityId:intentId,operation:'asset_depreciation.post'},effect.id);
+ return replayKnownOperationEffect<AssetDepreciationResult>(ctx,ref(intentId),effect.id);
 }
-export async function executeAssetDepreciation(companyId:string,userId:string,intentId:string,options?:{approvalId?:string}):Promise<AssetDepreciationResult>{
+export async function executeAssetDepreciation(companyId:string,userId:string,inputIntentId:string,options?:{approvalId?:string}):Promise<AssetDepreciationResult>{
  const ctx=actor(companyId,userId);await assertEffectivePermission(ctx,'write:assets');await assertEffectivePermission(ctx,'write:post');
- if(!UUID_RE.test(intentId))throw new Error('Invalid depreciation intent');
+ if(!UUID_RE.test(inputIntentId))throw new Error('Invalid depreciation intent');
+ const intentId=canonicalIntentId(inputIntentId);
  const [intent]=await ctx.sql`SELECT requester_person_id FROM control_asset_depreciation_intents
   WHERE company_id=${companyId}::uuid AND id=${intentId}::uuid` as Row[];
  if(!intent||intent.requester_person_id!==userId)throw new Error('Depreciation intent does not belong to requester');
