@@ -36,6 +36,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'audit_snapshot_chunk',
   'audit_export_files',
   'audit_export_chunk',
+  'compare_audit_snapshots',
+  'audit_comparison_items',
 
   'duplicate_invoice_checks',
   'payment_risk_checks',

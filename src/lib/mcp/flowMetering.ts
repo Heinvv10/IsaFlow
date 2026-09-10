@@ -73,6 +73,8 @@ const TOOL_FLOW_OPERATIONS:Record<string,FlowOperationCode|null>={
   audit_snapshot_chunk:null,
   audit_export_files:null,
   audit_export_chunk:null,
+  compare_audit_snapshots:null,
+  audit_comparison_items:null,
 };
 
 /**
