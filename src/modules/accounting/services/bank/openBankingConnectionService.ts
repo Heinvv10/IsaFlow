@@ -10,6 +10,7 @@ import {
   type BankFeedConnectionInput,
   type BankFeedSyncLog,
 } from './openBankingTypes';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 
 // ── Connection CRUD ───────────────────────────────────────────────────────────
@@ -60,7 +61,7 @@ export async function createBankFeedConnection(
       SELECT id FROM gl_accounts
        WHERE id = ${input.accountId}::UUID
          AND company_id = ${companyId}::UUID
-         AND account_subtype = 'bank'
+         AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
        LIMIT 1
     `) as DbRow[];
     if (check.length === 0) {

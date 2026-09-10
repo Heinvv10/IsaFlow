@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { getGroupMembers } from './consolidatedTrialBalanceService';
 import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 
@@ -112,7 +113,7 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
           JOIN gl_accounts ga ON ga.id = bt.bank_account_id
           WHERE bt.company_id = ANY(${companyIds}::UUID[])
             AND ga.company_id = ANY(${companyIds}::UUID[])
-            AND ga.account_subtype = 'bank'
+            AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
           GROUP BY bt.company_id` as Promise<DbRow[]>,
       // There is no balance_due column on either invoice table — these queries
       // threw 42703, taking the whole dashboard down. Outstanding is

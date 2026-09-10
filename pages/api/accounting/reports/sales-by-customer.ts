@@ -24,14 +24,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { companyId } = req as CompanyAuthedRequest;
     const rows = await sql`
       SELECT
-        ci.client_id,
+        COALESCE(ci.client_id, ci.customer_id) AS client_id,
         c.name AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0)::numeric AS total_sales,
-        COALESCE(SUM(ci.amount_paid), 0)::numeric AS payments_received,
-        COALESCE(SUM(ci.total_amount - ci.amount_paid), 0)::numeric AS outstanding
+        COALESCE(SUM(COALESCE(ci.amount_paid, 0)), 0)::numeric AS payments_received,
+        COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0)::numeric AS outstanding
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+                           AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         -- Dated to the period end this report is drawn to, so the outstanding
         -- column agrees with the ageing and the control account at that date.
@@ -39,14 +40,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
-        AND ci.status != 'cancelled'
-      GROUP BY ci.client_id, c.name
+        -- COALESCE, because status is nullable and NULL != 'cancelled' is
+        -- NULL: the bare inequality silently dropped every null-status invoice,
+        -- the same under-reporting this report was fixed for.
+        AND COALESCE(ci.status, '') <> 'cancelled'
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY total_sales DESC
     `;
 
+    // An unresolvable id gets its own row (the grouping key is the id), so the
+    // placeholder must name it — otherwise the CSV shows several identical
+    // 'Unknown customer' lines that neither aggregate nor can be attributed.
+    // An invoice carrying NEITHER id would have no id to name, and printing
+    // `Unknown customer (null)` into a customer-facing CSV states an id that
+    // does not exist. `customer_invoices.customer_id` is NOT NULL today, so
+    // the COALESCE key cannot be null and this branch is unreachable — it is
+    // here because the label, not the constraint, is what makes it safe.
     const data = rows.map(r => ({
       clientId: r.client_id,
-      clientName: r.client_name,
+      clientName: r.client_name
+        ?? (r.client_id == null
+          ? 'Unattributed'
+          : `Unknown customer (${String(r.client_id)})`),
       invoiceCount: Number(r.invoice_count),
       totalSales: Number(r.total_sales),
       paymentsReceived: Number(r.payments_received),

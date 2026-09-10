@@ -93,7 +93,7 @@ describe('is_active never filters a balance query', () => {
     const cashQueries = queriesMatching(/FROM bank_transactions bt/i);
     expect(cashQueries).toHaveLength(2); // current + prior
     for (const q of cashQueries) {
-      expect(q).toMatch(/account_subtype = 'bank'/i); // still restricted to bank accounts
+      expect(q).toMatch(/account_subtype = ANY\(\s*[?$]/i); // still restricted to bank accounts
       expect(q).not.toMatch(IS_ACTIVE_PREDICATE);
     }
   });
@@ -116,7 +116,7 @@ describe('is_active never filters a balance query', () => {
 
     const [q] = queriesMatching(/FROM bank_transactions bt/i);
     expect(q).toBeDefined();
-    expect(q!).toMatch(/account_subtype = 'bank'/i);
+    expect(q!).toMatch(/account_subtype = ANY\(\s*[?$]/i);
     expect(q!).not.toMatch(IS_ACTIVE_PREDICATE);
   });
 
@@ -125,7 +125,9 @@ describe('is_active never filters a balance query', () => {
 
     const [q] = queriesMatching(/total_cash/i);
     expect(q).toBeDefined();
-    expect(q!).toMatch(/account_subtype IN \('bank', 'cash'\)/i);
+    // The literal pair became CASH_SUBTYPES in round 6: the forecast's opening
+    // cash and cash.balance.v1 must not disagree about which accounts are cash.
+    expect(q!).toMatch(/account_subtype = ANY\(\s*[?$]/i);
     expect(q!).not.toMatch(IS_ACTIVE_PREDICATE);
   });
 
