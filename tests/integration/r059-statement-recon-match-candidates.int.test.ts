@@ -21,6 +21,18 @@
  *      the statement's single line, closing 300. Balances tie (variance 0). Under
  *      round 8's rule B silenced the line and the statement reconciled against a
  *      bill nobody owes. Now B's line is missing from IsaFlow and it is refused.
+ *   X  a CANCELLED bill of 300 and its line: not matched either (round 10 —
+ *      the cancelled half of the rule was unpinned).
+ *
+ * ROUND 10 — Rematch re-measures the variance. rematchLines re-read the bills
+ * but kept the variance struck at creation, so after a draft was approved and
+ * the lines re-matched, the counts and the variance described different sets of
+ * bills. Both directions are pinned, continuing D and P:
+ *   P' approve B, Rematch: B now matches, we owe A + B = 600 against the
+ *      supplier's 300, variance −300 — refused. The stale variance was 0, and
+ *      the page allowed it.
+ *   D' approve the draft, Rematch: it matches and is owed, variance 0 —
+ *      reconcilable. The stale variance was a phantom 300.
  * Only the VLM extraction and the stored PDF bytes are mocked.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -52,7 +64,7 @@ vi.mock('@/modules/accounting/services/bank/vlmSupplierStatementService', () => 
   })),
 }));
 
-const { createReconciliation, markReconciled, getReconciliation } =
+const { createReconciliation, markReconciled, getReconciliation, rematchLines } =
   await import('@/modules/accounting/services/capture/supplierStatementReconService');
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
@@ -60,8 +72,16 @@ const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 const COMPANY = randomUUID();
 const USER = randomUUID();
 const TAG = `R59C${Math.floor(Math.random() * 1e8)}`;
-const docs = { N: randomUUID(), D: randomUUID(), P: randomUUID() };
-const suppliers = { N: '', D: '', P: '' };
+const docs = { N: randomUUID(), D: randomUUID(), P: randomUUID(), X: randomUUID() };
+const suppliers = { N: '', D: '', P: '', X: '' };
+/** Reconciliation ids from the creation tests, re-matched in round 10's. */
+const recons = { D: '', P: '' };
+
+/** "Approve" a bill the way the ageing reads it: its status. */
+async function approve(invoiceNumber: string): Promise<void> {
+  await sql`UPDATE supplier_invoices SET status = 'approved'
+            WHERE company_id = ${COMPANY}::UUID AND invoice_number = ${invoiceNumber}`;
+}
 
 /** The page's own gate, verbatim in meaning. */
 function canReconcile(r: { variance: number; missingInIsaflowCount: number; amountDiffCount: number }): boolean {
@@ -73,7 +93,7 @@ describeIfDb('R-059 statement lines match the ageing\'s population: NULL in, dra
     assertDisposable();
     await sql`INSERT INTO companies (id, name, registration_number) VALUES (${COMPANY}::UUID, ${'R059C ' + TAG}, ${TAG})`;
     await sql`INSERT INTO users (id, email, role, is_active) VALUES (${USER}, ${USER + '@test.local'}, 'admin', true)`;
-    for (const [key, status, gross] of [['N', null, 1000], ['D', 'draft', 300]] as const) {
+    for (const [key, status, gross] of [['N', null, 1000], ['D', 'draft', 300], ['X', 'cancelled', 300]] as const) {
       suppliers[key] = ((await sql`
         INSERT INTO suppliers (company_id, name) VALUES (${COMPANY}::UUID, ${key + ' ' + TAG}) RETURNING id
       `) as { id: string }[])[0]!.id;
@@ -128,6 +148,7 @@ describeIfDb('R-059 statement lines match the ageing\'s population: NULL in, dra
   it('D: a DRAFT bill is not a match candidate — its line is missing from IsaFlow', async () => {
     nextExtraction = { closingBalance: 300, lines: [{ date: shift(-50), reference: TAG + '-D', debit: 300 }] };
     const recon = await createReconciliation(COMPANY, suppliers.D, docs.D, USER);
+    recons.D = recon.id;
     expect({
       missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber),
       isaflow: recon.isaflowBalance, variance: recon.variance,
@@ -144,10 +165,39 @@ describeIfDb('R-059 statement lines match the ageing\'s population: NULL in, dra
       lines: [{ date: shift(-20), reference: TAG + '-PB', debit: 300 }],
     };
     const recon = await createReconciliation(COMPANY, suppliers.P, docs.P, USER);
+    recons.P = recon.id;
     expect({
       isaflow: recon.isaflowBalance, variance: recon.variance,
       missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber),
     }).toEqual({ isaflow: 300, variance: 0, missing: 1, matched: [null] });
     expect(canReconcile(recon)).toBe(false);
+  });
+
+  it('X: a CANCELLED bill is not a match candidate', async () => {
+    nextExtraction = { closingBalance: 300, lines: [{ date: shift(-50), reference: TAG + '-X', debit: 300 }] };
+    const recon = await createReconciliation(COMPANY, suppliers.X, docs.X, USER);
+    expect({ missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber) })
+      .toEqual({ missing: 1, matched: [null] });
+    expect(canReconcile(recon)).toBe(false);
+  });
+
+  it("P': approve the draft and Rematch — we now owe 600 against 300, and it is refused", async () => {
+    await approve(TAG + '-PB');
+    const recon = await rematchLines(COMPANY, recons.P);
+    expect({
+      isaflow: recon.isaflowBalance, variance: recon.variance,
+      missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber),
+    }).toEqual({ isaflow: 600, variance: -300, missing: 0, matched: [TAG + '-PB'] });
+    expect(canReconcile(recon)).toBe(false);
+  });
+
+  it("D': approve the draft and Rematch — it matches, is owed, and the statement ties", async () => {
+    await approve(TAG + '-D');
+    const recon = await rematchLines(COMPANY, recons.D);
+    expect({
+      isaflow: recon.isaflowBalance, variance: recon.variance,
+      missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber),
+    }).toEqual({ isaflow: 300, variance: 0, missing: 0, matched: [TAG + '-D'] });
+    expect(canReconcile(recon)).toBe(true);
   });
 });
