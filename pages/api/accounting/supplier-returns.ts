@@ -14,6 +14,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companySettingsService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -56,12 +57,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      // Generate return number
-      const countRows = (await sql`
-        SELECT COUNT(*)::int as cnt FROM credit_notes WHERE type = 'supplier' AND company_id = ${companyId}
-      `) as Row[];
-      const countRow = countRows[0];
-      const returnNum = `DR-${String(Number(countRow?.cnt ?? 0) + 1).padStart(4, '0')}`;
+      // The number comes from the company's `supplier_return` sequence. What
+      // this replaced was COUNT(*)+1 over the company's supplier credit notes:
+      // count is not max, so after any deletion — and on two concurrent creates
+      // — it silently re-issued a number already in use. credit_notes has no
+      // uniqueness constraint on the number, so nothing failed; the duplicate
+      // just existed, on a document that carries money.
+      const returnNum = await reserveNextDocumentNumber(companyId, 'supplier_return');
 
       const createdRows = (await sql`
         INSERT INTO credit_notes (

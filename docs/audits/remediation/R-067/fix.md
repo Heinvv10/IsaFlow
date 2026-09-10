@@ -354,7 +354,31 @@ the choice of company is pre-existing and left as found.
 `SELECT quote_number FROM customer_quotes ORDER BY created_at DESC LIMIT 1` with
 **no `company_id` filter**. RLS keeps it honest for `app_user`, but the query is
 wrong on its face and would number quotes from another tenant's sequence on any
-path that runs as a superuser.
+path that runs as a superuser. *(Round 5: gone on master — `createQuote` now reserves
+through `insertWithReservedNumber`; the fence stays ahead of that reservation.)*
+
+### Round 5 — merge of `origin/master`
+
+Merging master (no rebase) conflicted in eight files. Resolved so every fence still runs
+before the first write of its path, re-read after the merge:
+
+- `recurringTransactionService.ts` — master moved the customer-invoice branch of
+  `executeRecurring` into `recurringTransactionInvoices.ts` `mintRecurringCustomerInvoice`.
+  The row-8 fence moved with it: it now sits in that function right after `clientId` is
+  read from `templateData`, before `insertWithReservedNumber` (the first write).
+- `customerInvoiceCreateService.ts`, `quoteService.ts`, `recurringInvoiceService.ts` —
+  master replaced the inline number reservation with `insertWithReservedNumber`; the
+  fences already precede it. The now-unused `reserveNextDocumentNumber` import was dropped.
+- `writeOffService.ts`, `adjustmentService.ts` — import-only conflicts
+  (`claimUnderLockTimeout` is used by approve, after create's fence).
+- `projects.ts` — the fence is kept ahead of master's new MAX-based project numbering.
+- `tests/unit/services/ar/quoteService.test.ts` — master's reservation queue, with the
+  ownership row still first.
+- `tests/unit/services/customerOwnershipFence.test.ts` — master's `executeRecurring` now
+  takes a real `FOR UPDATE` on the template (`recurringTemplateLock`), which needs a live
+  request transaction; the lock is stubbed to return the due template, and the case
+  still asserts the refusal with no write. Commenting out the moved fence in
+  `recurringTransactionInvoices.ts` turns it red (`1 failed | 18 passed`).
 
 ## Tests
 

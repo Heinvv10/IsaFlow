@@ -49,6 +49,10 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - `scripts/migrations/sql/*payroll*`, `*uif*`, `*tax_directive*`, `*leave_accrual*`.
 
 ## Recent changes
+- 2026-09-10 (K-107 r8): `markUifDeclarationPaid` moved to a new `uifPaymentService.ts` — the claim below pushed `uifDeclarationService.ts` past 300 lines. It is NOT re-exported from there (that would be an import cycle: `mapUifDeclaration` and `UifPaymentResult` still live in the declaration service), so import it from `uifPaymentService` directly.
+- 2026-09-10 (K-107 r8): `markUifDeclarationPaid` claims the declaration with a `status = 'submitted'`-predicated UPDATE under `claimUnderLockTimeout` BEFORE it posts. It used to read `decl.status` in JS and then post DR 2150 / CR bank and rewrite the row unpredicated — two concurrent `markPaid` PATCHes both posted and both COMMITted. An already-paid declaration stays idempotent; anything else is refused.
+- 2026-09-10 (K-107 r8): `applyTaxDirective`'s `tax_directive_payments` INSERT is now the claim (`ON CONFLICT (company_id, tax_directive_id) DO NOTHING`, rowcount checked, `TaxDirectiveAlreadyAppliedError` on zero), taken before the journal is built; `journal_entry_id` is linked after posting.
+- 2026-09-10 (K-107 r8): `taxDirectivePaymentService.glByCode` selected `gl_accounts.code`, a column that does not exist (it is `account_code`). Every call raised 42703 and poisoned the request transaction, so **`applyTaxDirective` had never once succeeded** — `tax_directive_payments` cannot hold a row predating this fix. `loans/loanPaymentService` carried the same helper with the same defect.
 - 2026-09-09: SDL basis divides by 1 when the trailing window is empty, so a resumed dormant payroll is not read as exempt.
 - 2026-09-09: SDL basis divides by elapsed calendar months, not by runs found, so an intermittent payroll is not extrapolated; the basis is logged (`SDL leviability basis`) since it is not stored on the run.
 - 2026-09-09: SDL threshold no longer `employees.length * 25_000 * 12` (decided the levy by headcount alone); new `sdlLeviabilityService.ts`, `sdlLeviable` on `PayrollLineResult`.

@@ -9,6 +9,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { fetchRawBytes } from '@/lib/documentStorage';
 import { extractSupplierStatementWithVlm } from '@/modules/accounting/services/bank/vlmSupplierStatementService';
 import {
@@ -99,11 +100,15 @@ export async function createReconciliation(
   const supplierBalance = extraction.closingBalance ?? 0;
 
   const [balRow] = (await sql`
-    SELECT COALESCE(SUM(balance), 0) AS isaflow_balance
-    FROM supplier_invoices
-    WHERE company_id = ${companyId}
-      AND supplier_id = ${supplierId}::uuid
-      AND status NOT IN ('paid', 'cancelled')
+    SELECT COALESCE(SUM(si.balance), 0) AS isaflow_balance
+    FROM supplier_invoices si
+    WHERE si.company_id = ${companyId}
+      AND si.supplier_id = ${supplierId}::uuid
+      -- The variance below is against the supplier's own statement, so this
+      -- side must be the balance our ledger actually carries today.
+      -- See shared/softDeleteLedgerPresence.
+      AND ${documentInLedgerAsAtFragment('si', asAtTodayStr(), companyId)}
+      AND si.status NOT IN ('paid', 'cancelled')
   `) as DbRow[];
   const isaflowBalance = toNum(balRow?.isaflow_balance);
   const variance = Math.round((supplierBalance - isaflowBalance) * 100) / 100;

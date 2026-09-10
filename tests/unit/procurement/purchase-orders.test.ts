@@ -9,7 +9,6 @@ import {
   validateGRN,
   calculatePOTotals,
   calculateThreeWayMatch,
-  generatePONumber,
   generateGRNNumber,
   type PurchaseOrderInput,
   type POLineItem,
@@ -279,18 +278,6 @@ describe('Three-Way Match', () => {
       invoiceUnitPrice: 55, // R5 over per unit
     });
     expect(result.totalVarianceAmount).toBe(500); // 100 * R5
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// NUMBER GENERATION
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('PO Number Generation', () => {
-  it('generates sequential PO numbers', () => {
-    expect(generatePONumber(0)).toBe('PO-00001');
-    expect(generatePONumber(4)).toBe('PO-00005');
-    expect(generatePONumber(999)).toBe('PO-01000');
   });
 });
 

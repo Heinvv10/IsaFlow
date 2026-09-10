@@ -11,6 +11,7 @@
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 type Row = Record<string, unknown>;
 
@@ -77,7 +78,7 @@ export async function getBankAccountsStatus(
     LEFT JOIN gl_accounts gp
       ON gp.id = ga.parent_account_id
      AND gp.company_id = ga.company_id
-     AND gp.account_subtype = 'bank'
+     AND gp.account_subtype = ANY(${BANK_SUBTYPES as string[]})
     LEFT JOIN LATERAL (
       SELECT
         COUNT(*)::INT                                             AS txn_count,
@@ -112,7 +113,7 @@ export async function getBankAccountsStatus(
       FROM bank_transactions bt
       WHERE bt.bank_account_id = ga.id
     ) s ON TRUE
-    WHERE ga.account_subtype = 'bank'
+    WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
       AND (${includeInactive}::boolean = true OR ga.is_active = TRUE)
       AND ga.company_id = ${companyId}
       -- Show only leaf bank accounts. Tenants commonly nest 1110 Bank under
@@ -124,7 +125,7 @@ export async function getBankAccountsStatus(
         SELECT 1 FROM gl_accounts child
          WHERE child.parent_account_id = ga.id
            AND child.company_id = ga.company_id
-           AND child.account_subtype = 'bank'
+           AND child.account_subtype = ANY(${BANK_SUBTYPES as string[]})
       )
     ORDER BY ga.account_code
   `;

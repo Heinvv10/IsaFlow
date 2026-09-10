@@ -239,10 +239,13 @@ describe('BL-55: customer_invoices INSERT uses correct columns (quoteConvertServ
 
 describe('BL-56: recurring customer_invoice INSERT has all NOT-NULL columns', () => {
   it('INSERT with invoice_number, customer_id, created_by succeeds and SELECT-back passes', async () => {
+    // The number is the COMPANY SEQUENCE format (K-107). It used to be built as
+    // `RINV-<slug>-<YYYYMM>` here, mirroring a generator the service no longer
+    // has; this case INSERTs the row itself, so those assertions were a linter
+    // for a string nothing produced. What it is actually for — every NOT-NULL
+    // column the recurring runner must supply — is unchanged.
     const templateName = 'Monthly Retainer BL56';
-    const slug = templateName.replace(/[^A-Za-z0-9]/g, '-').toUpperCase().slice(0, 20);
-    const period = new Date().toISOString().slice(0, 7).replace('-', '');
-    const invoiceNumber = `RINV-${slug}-${period}`;
+    const invoiceNumber = `INV${String(Date.now() % 10000000).padStart(7, '0')}`;
 
     const inserted = await sql`
       INSERT INTO customer_invoices (
@@ -271,7 +274,7 @@ describe('BL-56: recurring customer_invoice INSERT has all NOT-NULL columns', ()
     }>;
 
     expect(inserted).toHaveLength(1);
-    expect(inserted[0]!.invoice_number).toContain('RINV-');
+    expect(inserted[0]!.invoice_number).toMatch(/^INV\d{7}/);
     expect(inserted[0]!.customer_id).toBe(customerId55);
     // created_by is VARCHAR(255) on customer_invoices — stored as text
     expect(inserted[0]!.created_by).toBe(USER_ID);
@@ -290,7 +293,7 @@ describe('BL-56: recurring customer_invoice INSERT has all NOT-NULL columns', ()
     }>;
 
     expect(row).toHaveLength(1);
-    expect(row[0]!.invoice_number).toContain('RINV-');
+    expect(row[0]!.invoice_number).toMatch(/^INV\d{7}/);
     expect(row[0]!.customer_id).toBe(customerId55);
     expect(row[0]!.created_by).toBe(USER_ID);
   });
@@ -300,10 +303,10 @@ describe('BL-56: recurring customer_invoice INSERT has all NOT-NULL columns', ()
 
 describe('BL-57: recurring supplier_invoice INSERT has all NOT-NULL columns', () => {
   it('INSERT with invoice_number, supplier_id, created_by succeeds and SELECT-back passes', async () => {
+    // Same as BL-56 above: the supplier number now comes from the
+    // 'supplier_invoice' sequence, not the retired `RSINV-<slug>-<YYYYMM>`.
     const templateName = 'Recurring Rent BL57';
-    const slug = templateName.replace(/[^A-Za-z0-9]/g, '-').toUpperCase().slice(0, 20);
-    const period = new Date().toISOString().slice(0, 7).replace('-', '');
-    const invoiceNumber = `RSINV-${slug}-${period}`;
+    const invoiceNumber = `SIV${String(Date.now() % 10000000).padStart(7, '0')}`;
 
     const inserted = await sql`
       INSERT INTO supplier_invoices (
@@ -332,7 +335,7 @@ describe('BL-57: recurring supplier_invoice INSERT has all NOT-NULL columns', ()
     }>;
 
     expect(inserted).toHaveLength(1);
-    expect(inserted[0]!.invoice_number).toContain('RSINV-');
+    expect(inserted[0]!.invoice_number).toMatch(/^SIV\d{7}/);
     expect(inserted[0]!.supplier_id).toBe(supplierId57);
     // created_by is UUID on supplier_invoices
     expect(inserted[0]!.created_by).toBe(USER_ID);
@@ -351,7 +354,7 @@ describe('BL-57: recurring supplier_invoice INSERT has all NOT-NULL columns', ()
     }>;
 
     expect(row).toHaveLength(1);
-    expect(row[0]!.invoice_number).toContain('RSINV-');
+    expect(row[0]!.invoice_number).toMatch(/^SIV\d{7}/);
     expect(row[0]!.supplier_id).toBe(supplierId57);
     expect(row[0]!.created_by).toBe(USER_ID);
   });

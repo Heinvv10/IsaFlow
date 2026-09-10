@@ -82,3 +82,38 @@ it('income statement carries a selected business unit through report, exports, t
   await screen.findByText('No journal entries found for this period');
   expect(String(request('/evidence/'))).toContain('business_unit_id=business-a');
 });
+
+it('balance sheet carries a selected business unit through report, exports, links, transactions and evidence', async () => {
+  const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+  vi.mocked(apiFetch).mockImplementation(async url => {
+    const path = String(url);
+    const data = path.includes('cost-centres') ? {items:[]}
+      : path.includes('business-units') ? {items:[businessUnit]}
+      : path.includes('fiscal-periods') ? {endDate:'2026-04-30'}
+      : path.includes('reports-account-transactions') ? {transactions:[]}
+      : path.includes('/evidence/') ? {rows:[], count:0}
+      : reports.bs;
+    return new Response(JSON.stringify({data}));
+  });
+
+  render(<BalanceSheetPage />);
+  fireEvent.change(await screen.findByDisplayValue('All Business Units'), {target:{value:'business-a'}});
+  const request = (fragment: string) => vi.mocked(apiFetch).mock.calls
+    .filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
+  await waitFor(() => expect(String(request('reports-balance-sheet'))).toContain('business_unit_id=business-a'));
+
+  fireEvent.click(screen.getByRole('button', {name:'Export CSV'}));
+  fireEvent.click(screen.getByRole('button', {name:'Export Excel'}));
+  expect(open.mock.calls.map(([url]) => String(url))).toEqual(expect.arrayContaining([
+    expect.stringMatching(/balance-sheet-export.*business_unit_id=business-a/),
+    expect.stringMatching(/balance-sheet-xlsx.*business_unit_id=business-a/),
+  ]));
+
+  const link = await screen.findByRole('link', {name:'Expense'});
+  expect(new URL(link.getAttribute('href')!, 'http://localhost').searchParams.get('business_unit_id')).toBe('business-a');
+  fireEvent.click(screen.getByRole('button', {name:'Expand'}));
+  await waitFor(() => expect(String(request('reports-account-transactions'))).toContain('business_unit_id=business-a'));
+  fireEvent.click(await screen.findByRole('button', {name:'Evidence'}));
+  await screen.findByText('No journal entries found for this period');
+  expect(String(request('/evidence/'))).toContain('business_unit_id=business-a');
+});

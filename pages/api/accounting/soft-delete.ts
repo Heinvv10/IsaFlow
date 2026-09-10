@@ -3,8 +3,15 @@
  *
  * POST /api/accounting/soft-delete
  *   Body: { entityType: string, entityId: string }
- *   Soft-deletes a non-posted entity — starts the 5-minute undo clock.
- *   Response: { undoToken: string, expiresIn: 30 }
+ *   Soft-deletes a non-posted entity.
+ *   Response: { undoToken: string, expiresIn: null }
+ *
+ *   expiresIn is null because the undo window does NOT expire. The header said
+ *   5 minutes, this response said 30 (of neither minutes nor seconds), and the
+ *   UI confirm said 5 minutes — three different answers, none of them true:
+ *   purgeExpiredDeletes has no caller (see softDeleteService, which explains
+ *   why K-053 makes a short purge window unsafe to wire up), so a soft-deleted
+ *   row is never hard-deleted and PUT restores it at any later time.
  *
  * PUT /api/accounting/soft-delete
  *   Body: { entityType: string, entityId: string }
@@ -23,9 +30,42 @@ import {
   undoDelete,
   isValidEntityType,
 } from '@/modules/accounting/services/core/softDeleteService';
+import { SoftDeleteRefusalError } from '@/modules/accounting/services/core/softDeleteErrors';
+import {
+  ClosedFiscalPeriodError,
+  ReversalPeriodError,
+} from '@/modules/accounting/services/gl/journalEntryPostingService';
+
+/**
+ * Refusals the caller can act on, as opposed to a fault. Both the delete and
+ * the undo reverse a journal through reverseJournalEntry, which refuses to
+ * date a correction into a closed or missing period — the user's problem to
+ * fix, not a 500. withAuth only ROLLBACKs above 4xx, so the savepoint inside
+ * softDelete/undoDelete is what keeps a 400 from committing the reversal's
+ * draft rows.
+ *
+ * Decided by TYPE, and by nothing else. The old `message.includes('not found')`
+ * also matched reverseJournalEntry's `Journal entry <id> not found` and
+ * getSystemAccount's "... account not found" — genuine data faults, which the
+ * undo path (newly wired to this helper) then answered as a 400 carrying the
+ * raw internal message, skipping the log.error branch entirely. Round 4 kept
+ * one `includes('fiscal period')` arm for resolveReversalDate's two plain
+ * Errors, with the same shape at a smaller radius: any fault whose message
+ * merely mentioned a fiscal period — the NULL-fiscal-period assertions
+ * elsewhere in the ledger code being the realistic source — was answered 400
+ * and never logged. Those two throws are ReversalPeriodError now, so the arm
+ * is gone and no message text is read here at all.
+ */
+function isUserFixable(err: unknown): err is Error {
+  return (
+    err instanceof SoftDeleteRefusalError ||
+    err instanceof ClosedFiscalPeriodError ||
+    err instanceof ReversalPeriodError
+  );
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   // ── POST: soft-delete ──────────────────────────────────────────────────────
   if (req.method === 'POST') {
@@ -45,20 +85,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      const result = await softDelete(companyId, entityType, entityId);
+      const result = await softDelete(companyId, entityType, entityId, user.id);
       log.info('Soft delete via API', { entityType, entityId, companyId }, 'accounting');
       return apiResponse.success(res, {
         undoToken: result.undoToken,
-        expiresIn: 30,
+        // Nothing purges soft-deleted rows, so the undo never expires. See the
+        // module header; do not restate a window that is not enforced.
+        expiresIn: null,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (
-        message.includes('not found') ||
-        message.includes('already deleted') ||
-        message.includes('Cannot delete a posted')
-      ) {
-        return apiResponse.badRequest(res, message);
+      if (isUserFixable(err)) {
+        return apiResponse.badRequest(res, (err as Error).message);
       }
       log.error('Soft delete API error', { entityType, entityId, error: err }, 'accounting');
       return apiResponse.internalError(res, err, 'Failed to delete entity');
@@ -83,10 +120,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      const restored = await undoDelete(companyId, entityType, entityId);
+      const restored = await undoDelete(companyId, entityType, entityId, user.id);
       log.info('Undo delete via API', { entityType, entityId, restored, companyId }, 'accounting');
       return apiResponse.success(res, { restored });
     } catch (err) {
+      // Same mapping as the delete path: the undo re-instates the journal
+      // through the same reverseJournalEntry, so a period closed between the
+      // delete and the undo is an ordinary, user-fixable refusal, not a 500.
+      if (isUserFixable(err)) {
+        return apiResponse.badRequest(res, (err as Error).message);
+      }
       log.error('Undo delete API error', { entityType, entityId, error: err }, 'accounting');
       return apiResponse.internalError(res, err, 'Failed to restore entity');
     }

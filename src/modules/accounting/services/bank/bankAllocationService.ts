@@ -12,6 +12,7 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { isControlAccountSettlement } from '../gl/settlementVat';
+import { isBankSubtype } from '../gl/accountSubtypes';
 import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -211,7 +212,7 @@ export async function allocateTransaction(
     `) as Row[];
     if (cpRows.length === 0) throw new Error('Counterparty bank account not found');
     const cp = cpRows[0]!;
-    if (String(cp.account_subtype) !== 'bank') {
+    if (!isBankSubtype(cp.account_subtype == null ? null : String(cp.account_subtype))) {
       throw new Error('Transfer counterparty must be a bank account (subtype = bank)');
     }
 

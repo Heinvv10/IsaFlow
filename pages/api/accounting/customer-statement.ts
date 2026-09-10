@@ -21,6 +21,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { buildStatementHtml } from '@/modules/accounting/utils/customerStatementHtml';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type Row = Record<string, unknown>;
 
@@ -76,6 +77,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       SELECT id, name, email, phone, billing_address AS address
       FROM customers
       WHERE id = ${customerId}::UUID AND company_id = ${companyId}::UUID
+    -- A soft-deleted CUSTOMER has no statement: the record is hidden
+      -- everywhere else (customerLedgerService does the same), and drawing one
+      -- here would email a balance for a contact the user has removed.
+        AND deleted_at IS NULL
     ` as Row[];
 
     if (customerRows.length === 0) {
@@ -84,12 +89,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const customer = customerRows[0]!;
 
     const invoicesRaw = await sql`
-      SELECT id, invoice_number, invoice_date, total_amount, status
-      FROM customer_invoices
-      WHERE client_id   = ${customerId}::UUID
-        AND company_id  = ${companyId}::UUID
-        AND status     != 'cancelled'
-        AND invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
+      SELECT ci.id, ci.invoice_number, ci.invoice_date, ci.total_amount, ci.status
+      FROM customer_invoices ci
+      -- COALESCE, not client_id alone: both columns exist and the emailed
+      -- statement (statementEmailService) already reads them that way, so
+      -- client_id alone dropped from the screen invoices the email billed.
+      WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+        AND ci.company_id  = ${companyId}::UUID
+        AND ci.status     != 'cancelled'
+        -- A deleted invoice is not owed and is not in aging — but the delete's
+        -- reversal is dated to the DELETE, so this window's upper bound is what
+        -- decides it, exactly as in arAgingService. An undated exclusion drops
+        -- an invoice the control account still carries at that upper bound.
+        AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
+        AND ci.invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
       ORDER BY invoice_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     ` as Row[];
@@ -139,9 +152,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const [totalsRow] = await sql`
       SELECT
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM customer_invoices
-          WHERE client_id = ${customerId}::UUID AND company_id = ${companyId}::UUID
-            AND status != 'cancelled' AND invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
+          SELECT SUM(ci.total_amount::numeric) FROM customer_invoices ci
+          WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+            AND ci.company_id = ${companyId}::UUID
+            AND ci.status != 'cancelled'
+            AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
+            AND ci.invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
           SELECT SUM(pmt_total) FROM (

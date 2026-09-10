@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult, type IntegritySampleRow } from './types';
+import { documentInLedgerAsAtFragment } from '../../shared/softDeleteLedgerPresence';
 
 function sample(rows: DbRow[]): IntegritySampleRow[] {
   return rows.map((r) => ({
@@ -35,6 +36,10 @@ export async function invoicesNullDueDate(ctx: IntegrityCheckContext): Promise<I
            COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS amount
     FROM customer_invoices ci
     WHERE ci.company_id = ${ctx.companyId}::UUID
+      -- This check quantifies what the ageing is understating, so it reads the
+      -- same population the ageing does at the same date.
+      -- See shared/softDeleteLedgerPresence.
+      AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
       AND ci.due_date IS NULL
       AND ci.invoice_date <= ${ctx.asAt}::DATE
       AND ci.status = ANY(${AR_OPEN_STATUSES as unknown as string[]}::TEXT[])
@@ -47,6 +52,10 @@ export async function invoicesNullDueDate(ctx: IntegrityCheckContext): Promise<I
            'invoiced ' || ci.invoice_date::TEXT AS detail
     FROM customer_invoices ci
     WHERE ci.company_id = ${ctx.companyId}::UUID
+      -- This check quantifies what the ageing is understating, so it reads the
+      -- same population the ageing does at the same date.
+      -- See shared/softDeleteLedgerPresence.
+      AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
       AND ci.due_date IS NULL
       AND ci.invoice_date <= ${ctx.asAt}::DATE
       AND ci.status = ANY(${AR_OPEN_STATUSES as unknown as string[]}::TEXT[])
@@ -133,6 +142,7 @@ export async function invoicesWithoutRevenueLine(ctx: IntegrityCheckContext): Pr
     JOIN gl_journal_entries je ON je.id = ci.gl_journal_entry_id AND je.company_id = ci.company_id
     WHERE ci.company_id = ${ctx.companyId}::UUID
       AND je.status = 'posted'
+      AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
       AND ci.invoice_date <= ${ctx.asAt}::DATE
       AND ci.status <> ALL(ARRAY['cancelled', 'void', 'voided', 'draft']::TEXT[])
       AND NOT EXISTS (
