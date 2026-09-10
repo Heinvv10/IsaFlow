@@ -1,3 +1,4 @@
+import {readRetainedAuditSnapshotSeal} from '@/modules/accounting/services/controls/auditRetainedSnapshotSeal';
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
@@ -69,4 +70,16 @@ it('keeps current source permissions, tenant checks and byte authentication on h
  finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[f.companyA,f.u1.id]);}
  await pool.query("UPDATE control_audit_snapshot_artifacts SET protected_artifact=jsonb_set(protected_artifact,'{ciphertext}',to_jsonb('changed'::text)) WHERE company_id=$1 AND snapshot_id=$2",[f.companyA,value.job.id]);
  await expect(actor(()=>readRetainedAuditSnapshot(requireControlTx(),value.job.id))).rejects.toThrow();
+});
+
+it('loads the authenticated legacy seal without reading corrupt binary artifacts, while full export still rejects them',async()=>{
+ const value=await storedLegacy();
+ await pool.query("UPDATE control_audit_snapshot_artifacts SET protected_artifact='{}' WHERE company_id=$1 AND snapshot_id=$2",[f.companyA,value.job.id]);
+ const retained=await actor(()=>readRetainedAuditSnapshotSeal(requireControlTx(),value.job.id));
+ expect(retained.sealed).toEqual(value.sealed);expect(retained.snapshot.populations).toHaveLength(15);
+ await expect(actor(()=>readRetainedAuditSnapshot(requireControlTx(),value.job.id))).rejects.toThrow();
+ await expect(actor(()=>readRetainedAuditSnapshotSeal(requireControlTx(),value.job.id),'u3')).rejects.toThrow(/unavailable/);
+ await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'payroll',false)",[f.companyA,f.u1.id]);
+ try{await expect(actor(()=>readRetainedAuditSnapshotSeal(requireControlTx(),value.job.id))).rejects.toMatchObject({code:'CONTROL_FORBIDDEN'});}
+ finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[f.companyA,f.u1.id]);}
 });
