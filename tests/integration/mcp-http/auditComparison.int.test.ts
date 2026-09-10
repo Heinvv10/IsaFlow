@@ -1,12 +1,12 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {auditDeliveryFixture} from './auditDeliveryFixture';
 import {runAuditJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {COMPARISON_SECTIONS,type ComparisonChange} from '@/modules/accounting/services/controls/auditSnapshotComparisonMaterial';
-import {createComparisonResultDigest} from '@/modules/accounting/services/controls/auditComparisonResultDigest';
+import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
 import type {ComparisonResultHeader} from '@/modules/accounting/services/controls/auditComparisonResultProtection';
 type Job={id:string;state:string;attempts:number;resultComparisonId?:string};
-type Page=Pick<ComparisonResultHeader,'canonicalHash'|'comparisonRuleVersion'|'first'|'second'|'counts'|'populationChanged'|'coverageChanged'> & {comparisonId:string;section:typeof COMPARISON_SECTIONS[number];total:number;items:ComparisonChange[];nextCursor:string|null};
+type Page=Pick<ComparisonResultHeader,'version'|'companyId'|'permissions'|'canonicalHash'|'comparisonRuleVersion'|'first'|'second'|'counts'|'populationChanged'|'coverageChanged'> & {comparisonId:string;section:typeof COMPARISON_SECTIONS[number];total:number;items:ComparisonChange[];nextCursor:string|null};
 let f:Awaited<ReturnType<typeof auditDeliveryFixture>>,first:string,second:string,comparison:string;
 const retry=randomUUID();
 beforeAll(async()=>{f=await auditDeliveryFixture();
@@ -28,14 +28,17 @@ it('actual default MCP HTTP enqueues once, publishes ordered changes and deliver
  expect((await f.rpc('audit_comparison_items',{comparison_id:comparison,section:'records'})).result?.isError).toBe(true);
  expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:comparison},{pool:f.pool})).toMatchObject({state:'succeeded',comparisonId:comparison});
  expect(await f.call<Job>('audit_job_status',{job_id:comparison})).toMatchObject({state:'succeeded',resultComparisonId:comparison});
- const digest=createComparisonResultDigest(),changes:ComparisonChange[]=[];let footer:Page|undefined;
- for(const section of COMPARISON_SECTIONS){let cursor:string|undefined;
+ const digest=createHash('sha256').update('isaflow.audit-comparison-result.v1\n'),changes:ComparisonChange[]=[];let footer:Page|undefined;
+ for(const section of COMPARISON_SECTIONS){let cursor:string|undefined,position=0;
   do{const page=await f.call<Page>('audit_comparison_items',{comparison_id:comparison,section,limit:1,...(cursor?{cursor}:{})},'u2');
-   footer=page;expect(page.items.length).toBeLessThanOrEqual(1);for(const change of page.items){digest.append(change);changes.push(change);}cursor=page.nextCursor??undefined;
+   footer=page;expect(page.items.length).toBeLessThanOrEqual(1);for(const change of page.items){digest.update(canonicalJson({section,position:position++,change})+'\n');changes.push(change);}cursor=page.nextCursor??undefined;
   }while(cursor);
  }
  expect(footer).toBeDefined();expect(footer!.first.id).toBe(first);expect(footer!.second.id).toBe(second);
- expect(digest.finish({...footer!,companyId:f.fixture.companyA})).toBe(footer!.canonicalHash);
+ const {version,companyId,comparisonRuleVersion,first:before,second:after,permissions,counts,populationChanged,coverageChanged}=footer!;
+ expect(companyId).toBe(f.fixture.companyA);expect(version).toBe(1);expect(permissions).toEqual(['read:bank-tx','read:payroll','read:reports']);
+ digest.update(canonicalJson({version,companyId,comparisonRuleVersion,first:before,second:after,permissions,counts,populationChanged,coverageChanged})+'\n');
+ expect(digest.digest('hex')).toBe(footer!.canonicalHash);
  expect(changes).toContainEqual(expect.objectContaining({section:'records',kind:'changed',identity:{source:'journal_entry',id:f.journal}}));
  expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:comparison},{pool:f.pool})).toEqual({state:'not_claimed'});
 },30000);
