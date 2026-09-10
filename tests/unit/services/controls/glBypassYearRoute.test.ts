@@ -11,6 +11,7 @@ vi.mock('@/modules/billing/services/flowOperationCatalog',()=>({getFlowCost:()=>
 const logger=vi.hoisted(()=>({info:vi.fn(),warn:vi.fn(),error:vi.fn(),debug:vi.fn()}));
 vi.mock('@/lib/logger',()=>({log:logger}));
 import handler from '../../../../pages/api/accounting/year-end';
+import {SuppliedApprovalRefusal} from '@/modules/accounting/services/controls/suppliedApprovalRefusal';
 it('forwards an explicit approval reference and preview flag to the shared financial close',async()=>{
  const approvalId='11111111-1111-1111-1111-111111111111';
  const req={method:'POST',companyId:'company',user:{id:'person'},body:{action:'close',yearLabel:'2025',approvalId,dryRun:true}} as unknown as NextApiRequest;
@@ -42,7 +43,7 @@ it('answers misaligned fiscal periods with a non-2xx status and both date ranges
  expect(body).toMatch(/March/);
 });
 it('answers an unusable supplied approval with a caller error, not a 500',async()=>{
- close.mockRejectedValueOnce(Object.assign(new Error('Approval not found'),{code:'OPERATION_APPROVAL_NOT_EXECUTABLE'}));
+ close.mockRejectedValueOnce(new SuppliedApprovalRefusal('Approval not found'));
  const req={method:'POST',companyId:'company',user:{id:'person'},body:{action:'close',yearLabel:'2025',dryRun:true,
   approvalId:'11111111-1111-1111-1111-111111111111'}} as unknown as NextApiRequest;
  const res={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};res.status.mockReturnValue(res);
