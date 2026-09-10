@@ -4,7 +4,7 @@
  * Fetches /api/accounting/evidence/trial-balance/[accountId] then drills into individual JEs.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Loader2, AlertCircle, FileText, ExternalLink } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -53,7 +53,11 @@ function JEDetailPanel({ jeId, onBack }: { jeId: string; onBack: () => void }) {
   useEffect(() => {
     setLoading(true);
     apiFetch(`/api/accounting/evidence/je/${jeId}`)
-      .then(r => r.json())
+      .then(async r => {
+        const json = await r.json();
+        if (!r.ok) throw new Error('Failed to load JE detail');
+        return json;
+      })
       .then(json => { if (json.data) setDetail(json.data); else setErr('Not found'); })
       .catch(() => setErr('Failed to load JE detail'))
       .finally(() => setLoading(false));
@@ -108,19 +112,23 @@ export function EvidenceDrillModal({ accountId, accountName, periodStart, period
   const [err, setErr] = useState('');
   const [drillJeId, setDrillJeId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true); setErr('');
     const params = new URLSearchParams({ from: periodStart, to: periodEnd, limit: '200' });
     if (costCentreId) params.set('cost_centre_id', costCentreId);
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
     apiFetch(`/api/accounting/evidence/trial-balance/${accountId}?${params}`)
-      .then(r => r.json())
-      .then(json => { setRows(json.data?.rows ?? []); })
-      .catch(() => setErr('Failed to load evidence'))
-      .finally(() => setLoading(false));
+      .then(async r => {
+        const json = await r.json();
+        if (!r.ok || !Array.isArray(json.data?.rows)) throw new Error('Failed to load evidence');
+        return json.data.rows as AccountEvidenceRow[];
+      })
+      .then(nextRows => { if (!cancelled) setRows(nextRows); })
+      .catch(() => { if (!cancelled) setErr('Failed to load evidence'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [accountId, periodStart, periodEnd, costCentreId, businessUnitId]);
-
-  useEffect(() => { void load(); }, [load]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>

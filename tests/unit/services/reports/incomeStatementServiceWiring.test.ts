@@ -159,4 +159,24 @@ describe('getIncomeStatement — the new bands reach the report', () => {
     // numbers; one banner over the current period does not qualify the prior.
     expect(report.priorSubtypeDisclosure!.grossProfitOverstatedByAtMost).toBeCloseTo(2000, 2);
   });
+
+  it('includes prior-only accounts so comparative lines reconcile to prior totals', async () => {
+    sqlMock
+      .mockResolvedValueOnce([glRow('4000', 'Current Sales', 'revenue', 'revenue', 0, 20)])
+      .mockResolvedValueOnce([
+        glRow('4000', 'Current Sales', 'revenue', 'revenue', 0, 11),
+        glRow('4100', 'Prior-only Sales', 'revenue', 'revenue', 0, 13),
+      ]);
+
+    const report = await getIncomeStatement(
+      'c-1', '2026-01-01', '2026-12-31', {}, { start: '2025-01-01', end: '2025-12-31' },
+    );
+
+    expect(report.revenue).toEqual([
+      expect.objectContaining({accountCode:'4000', amount:20, priorAmount:11}),
+      expect.objectContaining({accountCode:'4100', amount:0, priorAmount:13, variance:-13}),
+    ]);
+    expect(report.revenue.reduce((sum, line) => sum + (line.priorAmount ?? 0), 0))
+      .toBe(report.priorTotalRevenue);
+  });
 });

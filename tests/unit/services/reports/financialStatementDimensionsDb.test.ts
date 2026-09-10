@@ -31,6 +31,7 @@ const cc2 = '30000000-0000-4000-8000-000000000003';
 const project = '30000000-0000-4000-8000-000000000004';
 const selectedBu = '60000000-0000-4000-8000-000000000001';
 const otherBu = '60000000-0000-4000-8000-000000000002';
+const priorRevenue = '50000000-0000-4000-8000-000000000005';
 const accountIds = {
   asset: '50000000-0000-4000-8000-000000000001',
   revenue: '50000000-0000-4000-8000-000000000002',
@@ -113,6 +114,26 @@ describe('financial statement dimensions (Postgres)', async () => {
         { businessUnitId: selectedBu, costCentreId: legacy, projectId: project })).netProfit).toBe(20);
       expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
         { businessUnitId: otherBu, costCentreId: cc2, projectId: project })).netProfit).toBe(0);
+    });
+  });
+  it.skipIf(!reachable)('keeps prior-only BU accounts in comparative rows', async () => {
+    await withLedger(async () => {
+      const entry = '40000000-0000-4000-8000-000000000010';
+      await sql`INSERT INTO gl_accounts VALUES (${priorRevenue}::uuid, ${company}::uuid, '4100', 'Prior-only Sales',
+        'revenue', 'revenue', 'credit', 3, NULL)`;
+      await sql`INSERT INTO gl_journal_entries VALUES (${entry}::uuid, ${company}::uuid, 'posted', '2026-02-05'::date)`;
+      await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${entry}::uuid, ${accountIds.asset}::uuid,
+        13, 0, ${legacy}::uuid, ${cc1}::uuid, ${cc2}::uuid, ${project}::uuid, ${selectedBu}::uuid)`;
+      await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${entry}::uuid, ${priorRevenue}::uuid,
+        0, 13, ${legacy}::uuid, ${cc1}::uuid, ${cc2}::uuid, ${project}::uuid, ${selectedBu}::uuid)`;
+
+      const report = await getIncomeStatement(company, '2026-04-01', '2026-04-30',
+        { businessUnitId: selectedBu, costCentreId: cc2, projectId: project },
+        { start: '2026-02-01', end: '2026-02-28' });
+      expect(report.priorTotalRevenue).toBe(24);
+      expect(report.revenue.find(line => line.accountCode === '4100'))
+        .toMatchObject({amount:0, priorAmount:13, variance:-13});
+      expect(report.revenue.reduce((sum, line) => sum + (line.priorAmount ?? 0), 0)).toBe(24);
     });
   });
   it.skipIf(!reachable)('keeps current/prior balances, retained earnings and posted equity on the same centre', async () => {
