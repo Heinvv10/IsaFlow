@@ -140,7 +140,11 @@ export async function assertJournalLinesOwned(
   if (!(await accountsBelongToCompany(companyId, lines.map((l) => l.glAccountId)))) {
     throw new Error('One or more journal lines name a GL account outside this company');
   }
+  // CC1 is also mirrored into the legacy costCenterId field by bank allocation.
+  // Validate the canonical analysis dimensions first so that mirror cannot
+  // pre-empt the stricter active/type-aware CC1 policy with a generic legacy
+  // ownership error.
+  await assertJournalAnalysisDimensions(companyId, lines, dimensionMode);
   await assertDimensionOwned('project', companyId, lines.map((l) => l.projectId));
   await assertDimensionOwned('cost centre', companyId, lines.map((l) => l.costCenterId));
-  await assertJournalAnalysisDimensions(companyId, lines, dimensionMode);
 }
