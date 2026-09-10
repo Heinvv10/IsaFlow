@@ -18,6 +18,9 @@ vi.mock('@/lib/neon', () => {
     fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
   };
 });
+vi.mock('@/lib/alsTransaction', () => ({
+  withAlsTransaction: (_actor: unknown, fn: () => unknown) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

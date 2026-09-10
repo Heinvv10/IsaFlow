@@ -45,6 +45,7 @@ export async function assertJournalAnalysisDimensions(
     const rows = (await sql`
       SELECT id, cc_type, is_active FROM cost_centres
       WHERE company_id = ${companyId}::UUID AND id = ANY(${costCentreIds}::UUID[])
+      FOR SHARE
     `) as CostCentreRow[];
     costCentres = new Map(rows.map((row) => [String(row.id).toLowerCase(), row]));
   }
@@ -59,6 +60,7 @@ export async function assertJournalAnalysisDimensions(
     const rows = (await sql`
       SELECT id, is_active FROM business_units
       WHERE company_id = ${companyId}::UUID AND id = ANY(${buIds}::UUID[])
+      FOR SHARE
     `) as BusinessUnitRow[];
     const businessUnits = new Map(rows.map((row) => [String(row.id).toLowerCase(), row]));
     if (buIds.some((id) => {
