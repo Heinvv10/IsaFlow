@@ -25,6 +25,14 @@ describe('account-range and restriction refusals', () => {
     expect(await reason('write:accounts', { principal: { companyId: 'c' } as ControlTx['principal'], sql: sql as unknown as ControlTx['sql'] },
       { entityType: 'gl_account', entityId: '11111111-1111-4111-8111-111111111111' })).toBe('ACCOUNT_OUT_OF_RANGE');
   });
+  it('an account the company-scoped lookup does not return is ACCOUNT_NOT_FOUND, whoever owns it', async () => {
+    // Missing and other-tenant are the same zero-row answer: the lookup is
+    // scoped by company, and the reason must not tell the two apart.
+    state.load.mockResolvedValue({ role: 'admin', scopes: null, overrides: [override('accounts', { accountRangeFrom: '1000', accountRangeTo: '1999' })] });
+    const sql = vi.fn(async () => []);
+    expect(await reason('write:accounts', { principal: { companyId: 'c' } as ControlTx['principal'], sql: sql as unknown as ControlTx['sql'] },
+      { entityType: 'gl_account', entityId: '11111111-1111-4111-8111-111111111111' })).toBe('ACCOUNT_NOT_FOUND');
+  });
   it('a missing token scope is MISSING_SCOPE', async () => {
     state.load.mockResolvedValue({ role: 'admin', scopes: ['read:reports'], overrides: [] });
     expect(await reason('write:bank-tx', {})).toBe('MISSING_SCOPE');
@@ -36,6 +44,12 @@ describe('the reply each account-constraint reason gets', () => {
     const text = permissionRefusalMessage('write:bank-tx', 'ENTITY_REQUIRED');
     expect(text).toMatch(/remove/i);
     expect(text).not.toMatch(/widen/i);
+  });
+  it('an account the lookup never returned does not claim it exists', () => {
+    const text = permissionRefusalMessage('write:accounts', 'ACCOUNT_NOT_FOUND');
+    expect(text).not.toMatch(/widen/i);
+    expect(text).not.toMatch(/outside the account range/i);
+    expect(text).toMatch(/not found in this company/i);
   });
   it('an account outside the range asks for the range to be widened', () => {
     const text = permissionRefusalMessage('write:accounts', 'ACCOUNT_OUT_OF_RANGE');
