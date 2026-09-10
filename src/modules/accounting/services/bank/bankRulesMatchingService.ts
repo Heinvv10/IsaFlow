@@ -14,8 +14,8 @@ import type { RuleApplyResult } from '../../types/bank.types';
 import {
   findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
 } from './bankRulesMatchingHelpers';
+import { isRetryableContention } from '../core/retryableContention';
 import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
-import { BankTransactionLockTimeoutError } from './bankTxLock';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
@@ -205,7 +205,16 @@ export async function applyRules(
           // not abort a run that has already posted for earlier ones — the
           // route's catch would 400 while withAuth still COMMITted them.
           // Counted and retryable; anything else is a real failure.
-          if (!(lineErr instanceof BankTransactionLockTimeoutError)) throw lineErr;
+          //
+          // The UNION, not the bank-line lock alone: a supplier rule also
+          // reaches `recordSupplierBankPayment`, whose plan phase raises the
+          // payment-lock timeout and the `retryable` refusal for a held bill.
+          // Those surface HERE through a
+          // savepoint that rolled back cleanly, so the request transaction is
+          // still live and re-throwing them committed the earlier lines behind
+          // the route's 400 — measured, every bill held: 400 "Action failed",
+          // line A posted and committed, line B still imported.
+          if (!isRetryableContention(lineErr)) throw lineErr;
           autoPostSkippedLocked++;
           continue;
         }

@@ -97,6 +97,18 @@ export async function attachEvidenceToProvisional(
     const jeId = String(matchRows[0]!.je_id);
     const btId = String(matchRows[0]!.bt_id);
 
+    // (1) THE BANK LINE FIRST, then (4) the journal — the canonical order in
+    // `bank/.claude.md`, and the twin of the same reorder in
+    // `pages/api/accounting/provisional/[jeId]/attach.ts`. Reversed, these two
+    // writes invert every settlement path that holds a bank line and then
+    // reaches a PRE-EXISTING journal. Both statements address a row by id and
+    // neither reads what the other writes, so only the order changes.
+    await sql`
+      UPDATE bank_transactions
+      SET status = 'matched'
+      WHERE id = ${btId}::UUID AND company_id = ${companyId}::UUID
+    `;
+
     // Flip the JE to evidenced
     await sql`
       UPDATE gl_journal_entries
@@ -107,13 +119,6 @@ export async function attachEvidenceToProvisional(
           evidenced_at         = NOW(),
           extraction_confidence = COALESCE(${docConfidence}, extraction_confidence)
       WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
-    `;
-
-    // Flip the bank transaction to matched
-    await sql`
-      UPDATE bank_transactions
-      SET status = 'matched'
-      WHERE id = ${btId}::UUID AND company_id = ${companyId}::UUID
     `;
 
     log.info('Evidence attached to provisional JE', {

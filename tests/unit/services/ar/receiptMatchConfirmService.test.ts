@@ -25,6 +25,27 @@
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// `fetchInvoiceCandidates` refuses to run outside a request transaction — its
+// `FOR UPDATE` would be released at the end of its own statement and protect
+// nothing. Stand in for the withAuth-bound client.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: {
+    queries: [] as string[],
+    present: true,
+    client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
+  },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return {
+    ...actual,
+    als: {
+      ...actual.als,
+      getStore: () => (mockTx.present ? { client: mockTx.client } : undefined),
+    },
+  };
+});
+
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
@@ -63,13 +84,6 @@ import {
   validateBankReceiptApplication,
   confirmReceiptMatch,
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
-import { enterFakeRequestCtx } from '../../helpers/requestCtx';
-
-// `planAllocationLines` now takes a `FOR UPDATE` lock on every candidate
-// invoice, which refuses to run outside a request transaction. These tests
-// mock `sql`, so the ALS client is never actually used — it only has to be
-// present.
-beforeEach(() => enterFakeRequestCtx());
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const CUSTOMER = '22222222-2222-4222-8222-222222222222';

@@ -2,8 +2,8 @@
  * A 55P03 out of the match UPDATE has two readings and the mapping must ask
  * which one it is.
  *
- * `lockBankTransactionForUpdate` sets `lock_timeout` for the whole request, so
- * the code fires on a row/index wait (a real race) AND on a relation-level wait
+ * `withBankLockBudget` sets `lock_timeout` for the whole UPDATE, so the code
+ * fires on a row/index wait (a real race) AND on a relation-level wait
  * — DDL, `VACUUM FULL`, migration 657's own index build. Mapped to LINE_CLAIMED
  * unconditionally, a deploy told users their journal line was "already matched
  * to another bank transaction", which is a claim about a row nothing is known
@@ -30,7 +30,13 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', async (importOriginal) 
   const actual = await importOriginal<
     typeof import('@/modules/accounting/services/bank/bankTxLock')
   >();
-  return { ...actual, lockBankTransactionForUpdate: lockMock, tableLockUnavailable: tableLockMock };
+  return {
+    ...actual,
+    lockBankTransactionForUpdate: lockMock,
+    tableLockUnavailable: tableLockMock,
+    // Pass-through: the budget is a pg setting, measured by k144-match-line-lock-timeout.
+    withBankLockBudget: (fn: () => Promise<unknown>) => fn(),
+  };
 });
 
 import { matchTransaction, BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
