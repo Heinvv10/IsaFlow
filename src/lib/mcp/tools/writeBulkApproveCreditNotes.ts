@@ -100,6 +100,8 @@ const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
   // `bulk_appr_cn_99` — 15 characters at the widest index.
   savepointPrefix: 'bulk_appr_cn_',
   approvableStatuses: APPROVABLE,
+  operation: 'credit_note.approve',
+  entityType: 'credit_note',
   async readStates(companyId, ids) {
     const rows = (await sql`
       SELECT id, status, credit_date, credit_note_number, type,
@@ -176,7 +178,9 @@ export const bulkApproveCreditNotesTool: McpTool = {
     const ids = parseDocumentIds(args.credit_note_ids, 'credit_note_ids');
     if (typeof ids === 'string') return toolError(ids);
 
-    const { postable, skipped, states } = await partitionDocuments(ctx.companyId, ids, adapter);
+    const { postable, skipped, states } = await partitionDocuments(
+      ctx.companyId, ids, adapter, { preview: args.dry_run === true },
+    );
 
     // Checked AFTER the partition, unlike the two invoice arms, because the
     // roles needed depend on which note TYPES the batch actually contains — and

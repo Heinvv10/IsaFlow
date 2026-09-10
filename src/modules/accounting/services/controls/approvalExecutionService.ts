@@ -38,6 +38,17 @@ export async function assertControlledOperationAuthority(ctx: ControlTx, operati
   if(operationRequiresPosting(operation)) await assertEffectivePermission(ctx, 'write:post');
 }
 
+/**
+ * The kernel's own approval-required condition, read-only: a preview that skips
+ * the write must still know that this operation would be refused without an
+ * independent approval. `loadOperationMaterial` reads; nothing here writes.
+ */
+export async function controlledOperationApprovalRequired(ctx: ControlTx, input: OperationRef): Promise<boolean> {
+  assertControlTx(ctx);
+  const material = await loadOperationMaterial(ctx, canonicalOperationRef(input));
+  return material.binding.policies.length > 0;
+}
+
 /** Kernel only: owning domain services must call this before their financial effect. */
 export async function executeControlledOperation<T>(ctx: ControlTx, input: OperationRef, approvalId: string | null,
   effect: (permit: ControlledEffectPermit) => Promise<T>): Promise<T> {

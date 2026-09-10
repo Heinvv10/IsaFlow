@@ -83,6 +83,8 @@ const adapter: BulkApproveAdapter<ApprovedRow> = {
   // above 31, which would fail the batch before it posted anything.
   savepointPrefix: 'bulk_appr_si_',
   approvableStatuses: APPROVABLE,
+  operation: 'supplier_invoice.post',
+  entityType: 'supplier_invoice',
   async readStates(companyId, ids) {
     // ONE query for the batch. `invoice_date` is what createJournalEntry uses
     // as the entry date, so it is what the fiscal-period verdict must be read
@@ -162,7 +164,9 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       );
     }
 
-    const { postable, skipped, states } = await partitionDocuments(ctx.companyId, ids, adapter);
+    const { postable, skipped, states } = await partitionDocuments(
+      ctx.companyId, ids, adapter, { preview: args.dry_run === true },
+    );
 
     if (args.dry_run === true) {
       const preview = ok({
