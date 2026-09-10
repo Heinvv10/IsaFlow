@@ -1823,3 +1823,99 @@ branch's routes: `capturePostFingerprint` (fixed above), `r058-*`, `r075-*`.
 - Line counts over the 300 cap after the merge: `post.ts` 337 (master 296, branch 299), `post-expense.ts` 310 (branch 300),
   `captureRowLock.ts` 304, `journalEntryPostingService.ts` 306 — each side's comments merged;
   not condensed further to keep both sides' text reviewable.
+
+---
+
+## Round 18 — one figure reader for all three rules, counters by role, and the file-size breach
+
+Hein decided at 17:13 to keep the strict reconcile-end-to-end rule. This round closes the round-17
+review's five findings, all of them the whitelist failing open, and the cost finding with them. It
+starts from the master merge `b53754e8e` and adds commits only.
+
+### The 300-line breach from the merge — separate commit `0886e7417` (behaviour-neutral)
+
+The merge left `post.ts` 337, `post-expense.ts` 310, `captureRowLock.ts` 304 and
+`journalEntryPostingService.ts` 306 lines. Each lost one cohesive piece, verbatim with its reasons:
+the `posted_at` claim → `capturePostingClaim.ts`; the closed-period / inactive-account refusals →
+`journalEntryPostingGuards.ts` (both re-exported from their old module, so the many tests that
+`vi.mock` it still stub what they stub); everything after the supplier invoice is written →
+`capturePostFollowUps.ts`, same order, same error handling; the GL-expense-account resolution →
+`captureExpenseAccount.ts`. Now 285, 278, 208, 257. Proven by the same suites before and after:
+unit `877 passed | 40 skipped` files / `10962 passed | 248 skipped` tests, and integration `k072-*` +
+`r058-*` 9 files / 84 tests — identical.
+
+### The findings
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 rule 3 alone read whole rands, and excused a whole-rand PAYMENT unsummed | FIXED. `ocrWholeFigures.ts` finds every whole number on every line — beside cents figures too, every one, not the last — and `printedFigures` gives it a role; all three rules read that one list. `Paid by card 253`, `Paid 253`, `Waiter 23 CARD 253`, `Waiter 23 CASH` and `EFT 1500` are SUMMED by rule 1 (`paid 253.00`). `SERVICE:23`, `Service:R23`, `23,-`, `23=`, `23.-`, `R23-` and `SERVICE 23 ZAR` are read. A whole-rand charge beside a cents payment refuses. A whole-rand charge printed as a LINE ITEM with nothing paid (`Waiter 23` over the sub total) refuses on the item column's own sum. fix.md's round-17 sentence "all three rules see it" was false; it is true now. |
+| HIGH-2 `TOTAL 499.00CR`, `CR … CARD` on one line, 21 more markings | FIXED. `AMOUNT_CR` reads a `CR` against its figure with or without the space; the `CR`/card carve-back may not start after a figure on its line. Words match by STEM (`OMRUIL` → `OMRUILING`, `TERUGBETA` → `TERUGBETAALDE`, `KREDIT` → `KREDITNOTA`), never followed by `OR` (a creditors heading is not a credit). `RFND`, `RFD`, `CANC`, `CNCL`, `RTRN`, `RMA`, `C/M`, `CRD NOTE`, `CRED NOTE`, `KRED NOTA`, `C R`, `STORNO`, `GUTSCHRIFT`, `AVOIR`; `CM`/`REV` only NUMBERED and not after a number (`Ruler 30 CM 115.00`, `Rev B` stay ordinary). `TOTAL -R 499.00` is read as signed. All 50 of the reviewer's credit probes refuse. |
+| MEDIUM-1 23 of 26 footer counters refused; Q29 passes fell 26 → 14 | FIXED, by role. A whole number no role claims (no payment, change or summary label beside it, no currency mark) is a COUNT only where rule 1 has proven what was paid and no money figure shares its line; with no payment, or beside money, it refuses (fail closed). Excluded by SHAPE, never by a label list: dates and times, a leading zero, `%`, `N of M`, "No"/"Nr"/`#`, masked card digits, a following unit or prose word (`30 days`, `23 pp`), 4–6 bare digits with no role (`Terminal 12345`, `Store 1234`), and 7+ digits whatever labels them (`VAT-4123456789`). A loyalty word labels a whole number as a count, not a payment (`Smart Shopper points 5`). A summary word claims a whole number only when adjacent (`Total Items 5` is a count). |
+| MEDIUM-2 `€`/`£` after the figure, spelled-out currencies | FIXED. `\d\s*[$€£¥]` and `Dollars`, `Euros`, `Pounds Sterling`, `Sterling`, `Yen`, `Yuan`, `Renminbi`, `Naira` (a bare `Pound` is a weight). The EU reverse-charge invoice and every FX probe refuse. |
+| LOW-1 a summary label explained any value | FIXED. A summary line explains its figure only when the figure IS the total, the extracted net or the extracted tax — label AND value. Recap blocks tightened the same way: every row labelled only by a band word (`Std`, `Zero Rated`, `Incl`, a band letter), and the block either names a band or prints the tax — so `Std Rated 207.00 / SERVICE 23.00`, `200.00 / 7.00 / 23.00` and `Waiter 23.00 / Std Rated Incl 207.00` all refuse, while the honest mixed-basket analysis still posts. |
+
+### THE TRADE-OFF, stated and pinned
+
+`Table 12`, `Pump 5` and `Car Guard 23` have one shape, and no spelling separates them. Under a
+payment that equals the total, all three read as a count, so **`CARD 230.00 / Car Guard 23` (whole
+rand, its own line) auto-posts 230.00.** The round-16 reviewer scored the same shape (`Car Guard 23 /
+… / VISA 230.00`, M8) as payable 230 — the card proves what was paid. The same line with cents is money
+by its format and still refuses; with no payment on the document, or beside a cents figure, it refuses.
+Pinned in `k076-round18-policy.test.ts`. If Hein wants that shape refused too, the price is every
+footer counter on every settled slip — the 23 of 26 the round-17 review measured.
+
+### THE COST — head vs `37c699635`, extraction stamped `'vlm'`, identity supplied as the VLM stores it
+
+Both sides measured this round on the same harness over 591 probe rows + the 177-row corpus, including
+all of `rev-k072q`'s probes. "Newly refused" = passed correctly at `37c699635`, now goes to a person.
+
+| Set | rows | posts | approvals | WRONG posts | WRONG approvals | newly refused | newly passes |
+|---|---|---|---|---|---|---|---|
+| `k076-slip-corpus.ts` | 177 | 61 → 61 | 65 → 64 | 0 → 0 | 0 → 0 | 1 | 0 |
+| r13 ordinary receipts | 16 | 4 → 4 | 6 → 7 | 0 → 0 | 0 → 0 | 0 | 1 |
+| **rev-k072q ordinary documents** (Q1–Q18 + S1–S12) | 30 | **11 → 16** | **14 → 27** | 0 → 0 | 0 → 0 | 0 | 13 |
+| rev-k072q footer counters | 26 | 3 → 25 | 3 → 25 | 0 → 0 | 0 → 0 | 0 | 22 |
+| **rev-k072q under-refusal** | 77 | 31 → 0 | 32 → 0 | **31 → 0** | **32 → 0** | 0 | 0 |
+| **rev-k072q credit** | 50 | 27 → 0 | 27 → 0 | **27 → 0** | **27 → 0** | 0 | 0 |
+| rev-k072q over-refusal probes (OC/FX/MR) | 15 | 2 → 2 | 2 → 2 | 0 → 0 | 0 → 0 | 0 | 0 |
+| r16 reviewer ordinary / under / credit | 34 / 53 / 44 | 27 / 0 / 0 → same | 28 / 0 / 0 → same | 0 → 0 | 0 → 0 | 0 | 0 |
+| r15 / r14 / r13 probe sets, r15 own | 246 | unchanged | unchanged | unchanged (r14 artefact 1) | unchanged | 0 | 0 |
+
+**One row in 768 is newly refused:** the corpus's `N1 Woolworths` loses the AP approval round 17 gave
+it. Its VAT is printed under a label the reader cannot read, so there is no extracted tax for `VAT
+INCLUDED 18.65` to agree with, and LOW-1 now refuses a summary line it cannot confirm. Its pinned
+corpus outcome was already `refuse`. **The reviewer's ordinary documents pass 27 of 30 unattended (was
+14); the three that refuse are the two loyalty-savings lines (`Xtra Savings 5.00`, `WRewards savings
+3.30` — still Hein's call) and Q8, which the reader's own reconciliation refuses (pre-existing).**
+Full till slips S1–S12: 12 of 12 approve. Footer counters: 25 of 26 pass; `Batch 123` on a R115 slip
+refuses, because a count larger than the total always does.
+
+The one remaining WRONG row is the r14 `C negative stored total only` harness artefact, fixed at source
+in round 16.
+
+### Mutations — 22, all RED, restored byte-identically (`md5sum -c` OK on all five files)
+
+S1 whole numbers never read (47) · S2 a whole-rand payment is not a payment (5) · S3 loyalty words
+label a whole number as a payment (2) · S4 a summary word anywhere claims a whole number (1) · S5 a
+counter licensed with no payment (3) · S6 a counter licensed beside money (1) · S7 a summary label
+explains any value (2) · S8 no item-column check (1) · S9 a recap row may carry any label (2) · S10
+unlabelled recap rows need neither band nor tax (1) · S11 masked card digits are an amount (1) · S12
+no trailing money suffix (5) · S13 seven digits may be an amount (1) · S14 prose after a number does
+not exclude it (2) · S15 no glued `CR` (2) · S16 the CR-card carve-back may start after a figure (1) ·
+S17 stems match whole words only (16) · S18 `CREDITOR` is a credit (1) · S19 `CM`/`REV` count after a
+number (1) · S20 a spaced `-R` is not a sign (1) · S21 a currency after its figure is the rand (2) ·
+S22 a spelled-out currency is the rand (3).
+
+### Gates
+
+`env -u DATABASE_URL bun run ci` → 15 checks PASS, `Test Files 878 passed | 40 skipped (918)`,
+`Tests 11052 passed | 248 skipped (11300)`, component 84/530, build PASS, `[ci] all checks passed`,
+`CI_EXIT=0`. Integration `tests/integration/k072-*.int.test.ts` + `r058-*.int.test.ts` → 9 files /
+84 tests passed, `INT_EXIT=0`.
+
+**Files.** `ocrWholeFigures.ts` (new, 95), `ocrPrintedFigures.ts` 188, `ocrLargerFigure.ts` 270,
+`creditIndicators.ts` 231, `unattendedPostingGate.ts` 212. **Migration:** none. **Historical data:**
+unchanged. **Rollback:** revert the two commits.
+
+**Not mine, mentioned not changed:** `captureEventLock.ts:47` has a pre-existing lint warning
+(`CAPTURE_EVENT_STATUSES` used only as a type).

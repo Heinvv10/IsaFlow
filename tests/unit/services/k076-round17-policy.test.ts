@@ -109,19 +109,23 @@ describe('K-076 r17 MEDIUM-1 — explained by ROLE, never by a coincidence of va
     expect(refusal(S(line), 115, 100, 15)).toBe(`the document prints ${value.toFixed(2)} below its total, which nothing explains`);
   });
 
+  // Round 18 (LOW-1) made the value part of the role, so these pass the
+  // extracted net and tax, as the gate does.
+  const K = { subtotal: 100, vatAmount: 15 };
+
   it('a line that says what its figure IS stays explained', () => {
-    expect(unreconciledFigure(S('CARD 115.00'), 115)).toBeNull();
-    expect(unreconciledFigure(S('VAT @ 15% 15.00'), 115)).toBeNull();
-    expect(unreconciledFigure(S('Sub Total 100.00'), 115)).toBeNull();
-    expect(unreconciledFigure(S('Amount Due 115.00'), 115)).toBeNull();
-    expect(unreconciledFigure(S('Balance 0.00'), 115)).toBeNull();
+    expect(unreconciledFigure(S('CARD 115.00'), 115, K)).toBeNull();
+    expect(unreconciledFigure(S('VAT @ 15% 15.00'), 115, K)).toBeNull();
+    expect(unreconciledFigure(S('Sub Total 100.00'), 115, K)).toBeNull();
+    expect(unreconciledFigure(S('Amount Due 115.00'), 115, K)).toBeNull();
+    expect(unreconciledFigure(S('Balance 0.00'), 115, K)).toBeNull();
   });
 
   it('a recap block explains rows that carry no label of their own', () => {
-    expect(unreconciledFigure(S('CARD 115.00\nVAT ANALYSIS\nA 15.00% 100.00 15.00'), 115)).toBeNull();
-    expect(unreconciledFigure(S('CARD 115.00\nBTW OPSOMMING\n15% 100.00 15.00'), 115)).toBeNull();
+    expect(unreconciledFigure(S('CARD 115.00\nVAT ANALYSIS\nA 15.00% 100.00 15.00'), 115, K)).toBeNull();
+    expect(unreconciledFigure(S('CARD 115.00\nBTW OPSOMMING\n15% 100.00 15.00'), 115, K)).toBeNull();
     // …and only BELOW its own header: the same rows without one refuse.
-    expect(unreconciledFigure(S('CARD 115.00\nA 15.00% 100.00 15.00'), 115)).not.toBeNull();
+    expect(unreconciledFigure(S('CARD 115.00\nA 15.00% 100.00 15.00'), 115, K)).not.toBeNull();
   });
 
   it('a mixed-basket VAT analysis is explained by its own arithmetic, not its header', () => {
