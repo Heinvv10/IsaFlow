@@ -114,12 +114,12 @@ export async function platformImportAuthorityFixture(){
   await new Promise<void>((resolve,reject)=>{server!.once('error',reject);server!.listen(0,'127.0.0.1',()=>{server!.removeListener('error',reject);resolve();});});
   const address=server.address();if(!address||typeof address==='string')throw new Error('Authority fixture listener unavailable');
   const port=address.port;
-  async function request(probe:AuthorityProbe='identity',options:{person?:string;companyId?:string;csrf?:boolean;adminHeader?:boolean;defaultRoute?:boolean;anonymous?:boolean}={}){
+  async function request(probe:AuthorityProbe='identity',options:{person?:string;companyId?:string;csrf?:boolean;adminHeader?:boolean;defaultRoute?:boolean;anonymous?:boolean;clientIp?:string}={}){
    const token=await new SignJWT({role:'authenticated',aal:'aal2'}).setProtectedHeader({alg:'HS256'}).setSubject(options.person??admin).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(jwtKey));
    const id=randomUUID();let done!:()=>void;const completed=new Promise<void>(resolve=>{done=resolve;});finished.set(id,done);
    try{
     const companyId=options.companyId??f.companyA,path=options.defaultRoute?'/api/admin/migration/sage-commit':'/api/admin/forensic-authority-fixture';
-    const response=await fetch(`http://127.0.0.1:${port}${path}`,{method:'POST',signal:AbortSignal.timeout(15000),headers:{'content-type':'application/json','x-fixture-request':id,
+    const response=await fetch(`http://127.0.0.1:${port}${path}`,{method:'POST',signal:AbortSignal.timeout(15000),headers:{'content-type':'application/json','x-fixture-request':id,...(options.clientIp?{'x-forwarded-for':options.clientIp}:{}),
      cookie:`${options.anonymous?'':`sb-access-token=${token}; `}isaflow_csrf=${csrf}`,'x-csrf-token':options.csrf===false?'invalid':csrf,...(options.adminHeader===false?{}:{'x-admin-request':'true'})},
      body:JSON.stringify(options.defaultRoute?{companyId,pulled:{}}:{companyId,probe})});
     const body=await response.json();await completed;return{status:response.status,body};
