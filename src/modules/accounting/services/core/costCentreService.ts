@@ -3,15 +3,16 @@
  *
  * Accounting GL cost centres use cc_type to distinguish cc1 vs cc2 dimensions.
  * Payroll cost centres track per-employee assignment and run-level roll-ups.
- * The payroll_employees.cost_centre_id FK (mig 450) is the single source of
- * truth for HR cost allocation. costCentreSummaryForRun groups a completed
- * run's payroll_run_lines by that FK and returns per-centre breakdown + totals.
+ * The payroll_employees.cost_centre_id FK (mig 450, made RESTRICT by mig 649)
+ * is the single source of truth for HR cost allocation. costCentreSummaryForRun
+ * groups a run's payroll_run_lines by it. Delete eligibility: costCentreUsageGuard.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { recordEmployeeChange } from '../payroll/payrollEmployeeHistoryService';
+import { assertCostCentreUnused, cannotDeleteMessage, CostCentreActionError, FK_VIOLATION } from './costCentreUsageGuard';
 
 // ── GL / Accounting cost centre types ─────────────────────────────────────────
 
@@ -76,18 +77,23 @@ export async function updateGlCostCentre(companyId: string, id: string, input: P
 
 export async function toggleCostCentre(companyId: string, id: string, isActive: boolean): Promise<void> {
   const result = (await sql`UPDATE cost_centres SET is_active = ${isActive} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
-  if (result.length === 0) throw new Error(`Cost centre not found: ${id}`);
+  if (result.length === 0) throw new CostCentreActionError(`Cost centre not found: ${id}`);
 }
 
 export async function deleteCostCentre(companyId: string, id: string): Promise<void> {
-  // Check for usage in journal lines
-  const usage = (await sql`
-    SELECT COUNT(*) as cnt FROM gl_journal_lines jl WHERE (jl.cost_center_id = ${id}::UUID OR jl.cc1_id = ${id}::UUID OR jl.cc2_id = ${id}::UUID) AND jl.company_id = ${companyId}::UUID
-  `) as Record<string, unknown>[];
-  if (Number(usage[0]?.cnt) > 0) {
-    throw new Error('Cannot delete cost centre that is used in journal entries. Deactivate instead.');
+  await assertCostCentreUnused(companyId, id);
+  let deleted: Record<string, unknown>[];
+  try {
+    deleted = (await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
+  } catch (err) {
+    // Guard is tenant-scoped, the RESTRICT FKs are not: another company's row
+    // is invisible above and reaches us as a 23503.
+    if ((err as { code?: string }).code === FK_VIOLATION) throw new CostCentreActionError(cannotDeleteMessage([]));
+    throw err;
   }
-  await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+  // A scoped DELETE that matched nothing is another tenant's id, or an id that
+  // is already gone; either way reporting success is a lie. Mirrors toggleCostCentre.
+  if (deleted.length === 0) throw new CostCentreActionError(`Cost centre not found: ${id}`);
 }
 
 function mapGlRow(row: Record<string, unknown>): CostCentre {

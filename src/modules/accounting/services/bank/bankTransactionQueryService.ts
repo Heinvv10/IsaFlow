@@ -226,8 +226,13 @@ export async function bulkAcceptTransactions(companyId: string, ids: string[]): 
     const result = (await sql`
       UPDATE bank_transactions SET status = 'matched', updated_at = NOW()
       WHERE id = ANY(${ids}::UUID[]) AND status IN ('imported', 'allocated')
-        AND company_id = ${companyId}::UUID`) as Row[];
-    const count = (result as unknown as { count?: number }).count ?? ids.length;
+        AND company_id = ${companyId}::UUID
+      RETURNING id`) as Row[];
+    // Same reason as deleteTransactions above: without RETURNING this resolved
+    // to [], `.count` was always undefined and the fallback reported ids.length
+    // — success for every id the operator sent, including ones the status
+    // predicate never matched.
+    const count = result.length;
     log.info('Bulk accepted bank transactions', { count, ids }, 'accounting');
     return count;
   } catch (err) {
