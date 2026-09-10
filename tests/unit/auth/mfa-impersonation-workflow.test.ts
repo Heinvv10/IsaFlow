@@ -145,6 +145,24 @@ it('starts an authorized MFA-target impersonation, uses the emitted cookies on w
   expect(restored.state.statusCode).toBe(200);
 });
 
+it('records the impersonated target session and carries the actor into the control principal', async () => {
+  const jar: Record<string, string> = { 'sb-access-token': adminToken, 'sb-refresh-token': 'admin-refresh' };
+  const started = response();
+  await start(request(jar), started.res);
+  expect(started.state.statusCode).toBe(200);
+  const audit = fixture.sql.mock.calls.find(call => String((call[0] as string[]).join('')).includes('admin_audit_log'));
+  const details = (audit ?? []).slice(1).find(value => typeof value === 'string' && value.startsWith('{'));
+  expect(JSON.parse(String(details))).toMatchObject({ target_session_id: 'target-magiclink-session' });
+  applyCookies(jar, started);
+  const { als } = await import('@/lib/als');
+  const seen = response();
+  await withAuth(async (_req: PlatformAdminRequest, res: NextApiResponse) => {
+    expect(als.getStore()?.controlPrincipal?.impersonatorPersonId).toBe(adminId);
+    res.status(200).json({ ok: true });
+  })(request(jar, 'GET'), seen.res);
+  expect(seen.state.statusCode).toBe(200);
+});
+
 it('denies a pending MFA token copied into the access cookie without delegation proof', async () => {
   const handler = vi.fn();
   const result = response();
