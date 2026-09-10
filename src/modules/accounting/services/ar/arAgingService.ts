@@ -84,7 +84,9 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
-    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds);
+    // Disputes are rewound to the same date as the balances (R-059): a
+    // dispute raised after asAtStr had not moved anything out of a bucket then.
+    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
 
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),
@@ -197,7 +199,9 @@ export async function getARAgingDetail(companyId: string,
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
-    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds);
+    // Disputes are rewound to the same date as the balances (R-059): a
+    // dispute raised after asAtStr had not moved anything out of a bucket then.
+    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
 
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),

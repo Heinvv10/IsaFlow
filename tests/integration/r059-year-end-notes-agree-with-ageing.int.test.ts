@@ -17,17 +17,25 @@
  *   L  raised FYE+1 — after the year end
  *
  *   AR: X 700, Y 300, D 200, L 50  -> 1000 at FYE (Current 700, 60 days 200,
- *       Disputed 100 — Y carries an open dispute of 100, which the aged report
- *       holds outside the buckets and the note must still count)
+ *       Disputed 100, which the aged report holds outside the buckets and the
+ *       note must still count)
  *   AP: X 400, Y 150, D  80, L 50  ->  550 at FYE (Current 400, 60 days 150)
  *
  * Before the fix both notes read AR 500 and AP 230: Y plus the draft, X gone.
+ *
+ * THE DISPUTED COLUMN IS AS AT THE YEAR END TOO (round 3, LOW-1). Y carries
+ * two disputes, so the column can only be right if it is rewound:
+ *   R 100, raised FYE-30, RESOLVED today  -> open at the FYE, counted
+ *   O 200, raised today, still open       -> not raised at the FYE, not counted
+ * The undated `status = 'open'` read gives the mirror image, Disputed 200 and
+ * 60 days 100. Gross is 1000 either way, so only the age row can catch it.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { noteReceivables, notePayables } from '@/modules/accounting/services/reports/disclosureNoteGenerators';
 import { generateNote10TradeReceivables } from '@/modules/accounting/services/afs/noteGenerators/notes6to10';
 import { generateNote16TradePayables } from '@/modules/accounting/services/afs/noteGenerators/notes16to20';
@@ -103,8 +111,16 @@ describeIfDb('R-059 the year-end receivables and payables notes are the ageing a
 
     const arX = await arDoc('-AR-X', 700, fromFye(-10), fromFye(20), 'paid', 700);
     const arY = await arDoc('-AR-Y', 300, fromFye(-60), fromFye(-40), 'approved', 0);
-    await sql`INSERT INTO customer_invoice_disputes (company_id, customer_invoice_id, reason, raised_by, disputed_amount)
-              VALUES (${COMPANY}::UUID, ${arY}::UUID, ${'R059 disputed'}, ${'customer'}, 100)`;
+    // Only ONE dispute per invoice may be 'open' (mig 428's partial unique
+    // indexes), which is why the resolved one carries the year-end amount.
+    await sql`INSERT INTO customer_invoice_disputes (company_id, customer_invoice_id, reason, raised_by,
+                disputed_amount, raised_at, status, resolved_at, resolution_mode)
+              VALUES (${COMPANY}::UUID, ${arY}::UUID, ${'R059 disputed at the FYE, resolved since'},
+                ${'customer'}, 100, ${fromFye(-30)}::date, 'resolved', NOW(), 'resolve_no_credit')`;
+    await sql`INSERT INTO customer_invoice_disputes (company_id, customer_invoice_id, reason, raised_by,
+                disputed_amount, raised_at)
+              VALUES (${COMPANY}::UUID, ${arY}::UUID, ${'R059 disputed only since the FYE'},
+                ${'customer'}, 200, NOW())`;
     await arDoc('-AR-D', 200, fromFye(-5), fromFye(25), 'draft', 0);
     await arDoc('-AR-L', 50, fromFye(1), fromFye(31), 'approved', 0);
     const cp = ((await sql`
@@ -149,6 +165,18 @@ describeIfDb('R-059 the year-end receivables and payables notes are the ageing a
     expect(fromFye(3) < fmtDate(new Date())).toBe(true);
     expect(await routeTotal(arAgingRoute)).toBeCloseTo(1000, 2);
     expect(await routeTotal(apAgingRoute)).toBeCloseTo(550, 2);
+  });
+
+  it('the Disputed column is the disputes open at the year end, in both directions', async () => {
+    // At the FYE: R was raised and not yet resolved; O did not exist.
+    // Today:      R is resolved and gone; O is open. The two are not the same
+    //             number, so a Disputed column that reads today cannot pass both.
+    const atFye = await getARAging(COMPANY, FYE);
+    expect(atFye.reduce((s, b) => s + (b.disputed ?? 0), 0)).toBeCloseTo(100, 2);
+    expect(atFye.reduce((s, b) => s + b.days60, 0)).toBeCloseTo(200, 2);
+
+    const today = await getARAging(COMPANY, fmtDate(new Date()));
+    expect(today.reduce((s, b) => s + (b.disputed ?? 0), 0)).toBeCloseTo(200, 2);
   });
 
   const AGE_ROW_AR = [fmt(700), fmt(0), fmt(200), fmt(0), fmt(0), fmt(100), fmt(1000)];

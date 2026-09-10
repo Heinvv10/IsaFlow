@@ -19,6 +19,11 @@
  * Before the fix the two services gave paid 1000 / outstanding 0 at to = END,
  * and the two routes also counted the draft — total 1200, paid 1000,
  * outstanding 200 at every date (measured by restoring the pre-branch files).
+ *
+ * Round 3 (LOW-4) adds sales-by-item, whose comment claims it is dated
+ * "exactly as sales-by-customer over the same range" while it kept counting
+ * drafts. Each AR invoice carries one line for its full amount, so the two
+ * reports' revenue must agree: 1000, not 1200.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -29,6 +34,7 @@ import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getCustomerReport, getSupplierReport } from '@/modules/accounting/services/reports/transactionReportingService';
 import salesByCustomer from '../../pages/api/accounting/reports/sales-by-customer';
+import salesByItem from '../../pages/api/accounting/reports/sales-by-item';
 import purchasesBySupplier from '../../pages/api/accounting/reports/purchases-by-supplier';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
@@ -38,6 +44,8 @@ const COMPANY = randomUUID();
 const USER = randomUUID();
 const TAG = `R059P-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 const PAYTAG = `R59P-${Math.floor(Math.random() * 1e9)}`;
+/** The one item description both AR invoices are billed under. */
+const ITEM = `R059P item ${TAG}`;
 
 function shift(days: number): string {
   const d = new Date();
@@ -109,7 +117,7 @@ describeIfDb('R-059 period sales/purchase reports are as at their period end', (
     customer = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'cust ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
     supplier = ((await sql`INSERT INTO suppliers (company_id, name) VALUES (${COMPANY}::UUID, ${'supp ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
 
-    const [arS] = (await sql`
+    const [arS, arD] = (await sql`
       INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
         due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
       VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + '-AR-S'}, ${RAISED}::date,
@@ -117,6 +125,11 @@ describeIfDb('R-059 period sales/purchase reports are as at their period end', (
              (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + '-AR-D'}, ${RAISED}::date,
         ${RAISED}::date, 'draft', 200, 0, 0, 200, 0, ${USER}::UUID)
       RETURNING id`) as { id: string }[];
+    // One line per AR invoice, so sales-by-item has something to aggregate and
+    // the draft's 200 is visible to it if it counts drafts (LOW-4).
+    await sql`INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, amount)
+              VALUES (${arS!.id}::UUID, ${ITEM}, 1, 1000, 1000),
+                     (${arD!.id}::UUID, ${ITEM}, 1, 200, 200)`;
     const [cp] = (await sql`
       INSERT INTO customer_payments (company_id, payment_number, client_id, payment_date, total_amount, status, created_by)
       VALUES (${COMPANY}::UUID, ${PAYTAG + 'C'}, ${customer}::UUID, ${PAID}::date, 1000, 'confirmed', ${USER}::UUID)
@@ -149,6 +162,7 @@ describeIfDb('R-059 period sales/purchase reports are as at their period end', (
     await sql`DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = ${COMPANY}::UUID)`;
     await sql`DELETE FROM customer_payments WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM supplier_payments WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM customer_invoice_items WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = ${COMPANY}::UUID)`;
     await sql`DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM customers WHERE company_id = ${COMPANY}::UUID`;
@@ -167,6 +181,19 @@ describeIfDb('R-059 period sales/purchase reports are as at their period end', (
 
     it(`${side.name} to today: settled, and the draft is not a sale`, async () => {
       expect(await side.read(TODAY)).toEqual({ total: 1000, paid: 1000, outstanding: 0 });
+    });
+  }
+
+  async function itemRevenue(to: string): Promise<number> {
+    const rows = await callRoute(salesByItem, to);
+    return rows.reduce((s, r) => s + Number(r.totalRevenue), 0);
+  }
+
+  for (const to of [END, TODAY]) {
+    it(`sales-by-item to ${to === TODAY ? 'today' : 'a past period end'} counts the same sales as sales-by-customer`, async () => {
+      const [byCustomer] = await callRoute(salesByCustomer, to);
+      expect(await itemRevenue(to)).toBeCloseTo(1000, 2);
+      expect(await itemRevenue(to)).toBeCloseTo(Number(byCustomer!.totalSales), 2);
     });
   }
 });

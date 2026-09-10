@@ -40,7 +40,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
-        AND ci.status != 'cancelled'
+        -- Drafts are excluded for the same reason sales-by-customer and the
+        -- ageing exclude them: a draft invoice is not a sale. It is not issued
+        -- to anyone, it posts nothing to the GL, and its lines are still being
+        -- edited — counting them made this report disagree with
+        -- sales-by-customer over the same range by every draft, while the
+        -- comment above claimed the two were dated alike (R-059 round 3).
+        AND ci.status NOT IN ('draft', 'cancelled')
       GROUP BY cii.description, ga.account_name
       ORDER BY total_revenue DESC
     `;
