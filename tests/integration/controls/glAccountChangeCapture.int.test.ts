@@ -83,3 +83,14 @@ it('detaches caller inputs before awaits and never invokes accessors',async()=>{
  const malicious={...input(),get accountName(){accesses++;return 'Getter';}};
  await expect(actor(()=>createAccount(f.companyA,malicious))).rejects.toThrow();expect(accesses).toBe(0);
 });
+it('refuses suppressed descendant writes and rolls back the whole reclassification',async()=>{
+ const f=glFixture(),root=await legacy(),child=await legacy(root,2),grandchild=await legacy(child,3);
+ await pool.query(`CREATE FUNCTION public.synthetic_gl_suppress_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.company_id='${f.companyA}'::uuid AND OLD.id='${grandchild}'::uuid THEN RETURN NULL; END IF; RETURN NEW; END $$`);
+ await pool.query('CREATE TRIGGER synthetic_gl_suppress_update BEFORE UPDATE ON gl_accounts FOR EACH ROW EXECUTE FUNCTION public.synthetic_gl_suppress_update()');
+ try{
+  await expect(actor(()=>reclassifyAccount(f.companyA,child,{parentAccountId:null}))).rejects.toThrow();
+  const rows=(await pool.query('SELECT id,level,parent_account_id FROM gl_accounts WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.companyA,[child,grandchild]])).rows;
+  expect(rows.find(row=>row.id===child)).toMatchObject({level:2,parent_account_id:root});expect(rows.find(row=>row.id===grandchild)?.level).toBe(3);
+  expect(await changes(child)).toEqual([]);expect(await changes(grandchild)).toEqual([]);
+ }finally{await pool.query('DROP TRIGGER IF EXISTS synthetic_gl_suppress_update ON gl_accounts');await pool.query('DROP FUNCTION IF EXISTS public.synthetic_gl_suppress_update()');}
+});
