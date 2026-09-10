@@ -1,0 +1,262 @@
+{
+ "title": "Check-run work-deadline measurement (plan v8 A34, \u00a74 G2)",
+ "workDeadlineMs": 300000,
+ "leaseMs": 330000,
+ "finding": "The largest population that publishes is not one number on this machine. Settled tables: 2 093 361 journals published in 256.6 s. Immediately after a bulk load, while autovacuum was processing the streamed tables: 1 400 045 journals overran the 300 s deadline, and the failure was recorded 29.8 s before lease expiry.",
+ "runs": [
+  {
+   "run": "A: 1.4M quiet company (database ~19 GB), probe 300k",
+   "note": "first runs after seeding 1.4M; both brackets capped at the seeded 1.4M",
+   "fixture": {
+    "journals": 1400000,
+    "lines": 9102851,
+    "changes": 14008454,
+    "versions": 1259698,
+    "rules": 10,
+    "seedMs": 473451,
+    "profile": "quiet"
+   },
+   "workDeadlineMs": 300000,
+   "leaseMs": 330000,
+   "attempts": [
+    {
+     "target": 300000,
+     "cutoff": "2026-03-17",
+     "population": 303367,
+     "jobId": "4f4d22e8-6e9a-4081-98a0-80ff49d4cb3c",
+     "loadBefore": [
+      33.77,
+      24.57,
+      18.9
+     ],
+     "job": {
+      "state": "succeeded",
+      "attempts": 1,
+      "last_error_code": null,
+      "startedMs": 1789056843466.847,
+      "completedMs": 1789056883410.706
+     },
+     "leaseExpiresMs": 1789057173466.846,
+     "results": 1,
+     "observerErrors": 0,
+     "elapsedMs": 40161,
+     "reply": {
+      "state": "succeeded",
+      "checkRunId": "4f4d22e8-6e9a-4081-98a0-80ff49d4cb3c",
+      "canonicalHash": "69715e9e962b261880fc6695fef27b4aa1087b7adb1a0d9a50aec77098ee0f03"
+     },
+     "peakRssBytes": 170700800,
+     "vmHwmBytes": 170700800
+    },
+    {
+     "target": 1400000,
+     "cutoff": "2026-12-04",
+     "population": 1400000,
+     "jobId": "0015ceec-8352-4dbe-9570-34fc2766a892",
+     "loadBefore": [
+      29.35,
+      24.75,
+      19.22
+     ],
+     "job": {
+      "state": "succeeded",
+      "attempts": 1,
+      "last_error_code": null,
+      "startedMs": 1789056883707.223,
+      "completedMs": 1789057053950.948
+     },
+     "leaseExpiresMs": 1789057213707.222,
+     "results": 1,
+     "observerErrors": 0,
+     "elapsedMs": 170409,
+     "reply": {
+      "state": "succeeded",
+      "checkRunId": "0015ceec-8352-4dbe-9570-34fc2766a892",
+      "canonicalHash": "c34050e21c7d9e4c107d4a9782ab02af43b13be02ae681fff09de2239d9d7a36"
+     },
+     "peakRssBytes": 177070080,
+     "vmHwmBytes": 177070080
+    },
+    {
+     "target": 1400000,
+     "cutoff": "2026-12-04",
+     "population": 1400000,
+     "jobId": "142be050-b5ae-4e2e-b529-720f421f8f8d",
+     "loadBefore": [
+      20.51,
+      22.52,
+      19.28
+     ],
+     "job": {
+      "state": "succeeded",
+      "attempts": 1,
+      "last_error_code": null,
+      "startedMs": 1789057054206.302,
+      "completedMs": 1789057249135.009
+     },
+     "leaseExpiresMs": 1789057384206.302,
+     "results": 1,
+     "observerErrors": 0,
+     "elapsedMs": 195095,
+     "reply": {
+      "state": "succeeded",
+      "checkRunId": "142be050-b5ae-4e2e-b529-720f421f8f8d",
+      "canonicalHash": "ad52455761adeb95265479aa19dfe9183a00b66b9ab5537173cfd0d28e03b8b9"
+     },
+     "peakRssBytes": 176758784,
+     "vmHwmBytes": 176758784
+    }
+   ]
+  },
+  {
+   "run": "B: 3.2M quiet company (database ~60 GB), probe 1.4M",
+   "note": "first run straight after a 23-minute bulk load; autovacuum last passed over all four streamed tables at 16:45:54-16:52:29 container time, inside or just after this run (16:45:21-16:50:21)",
+   "fixture": {
+    "journals": 3200000,
+    "lines": 20800629,
+    "changes": 31976346,
+    "versions": 2880539,
+    "rules": 10,
+    "seedMs": 1403340,
+    "profile": "quiet"
+   },
+   "workDeadlineMs": 300000,
+   "leaseMs": 330000,
+   "attempts": [
+    {
+     "target": 1400000,
+     "cutoff": "2026-05-29",
+     "population": 1400045,
+     "jobId": "430f3277-1a3f-442d-8421-b51856f99ef7",
+     "loadBefore": [
+      9.22,
+      10.26,
+      13.91
+     ],
+     "job": {
+      "state": "failed",
+      "attempts": 1,
+      "last_error_code": "RESOURCE_LIMIT",
+      "startedMs": 1789058721428.494,
+      "completedMs": 1789059021646.691
+     },
+     "leaseExpiresMs": 1789059051428.494,
+     "results": 0,
+     "observerErrors": 0,
+     "elapsedMs": 300381,
+     "reply": {
+      "state": "failed",
+      "code": "RESOURCE_LIMIT",
+      "failureRecorded": true
+     },
+     "peakRssBytes": 183705600,
+     "vmHwmBytes": 183705600
+    }
+   ]
+  },
+  {
+   "run": "C: same 3.2M company, probe 700k, re-measured",
+   "note": "after the autovacuum passes had finished",
+   "fixture": {
+    "journals": 3200000,
+    "lines": 0,
+    "changes": 0,
+    "versions": 0,
+    "rules": 0,
+    "seedMs": 0,
+    "profile": "quiet"
+   },
+   "workDeadlineMs": 300000,
+   "leaseMs": 330000,
+   "attempts": [
+    {
+     "target": 700000,
+     "cutoff": "2026-03-18",
+     "population": 706701,
+     "jobId": "70c0c2d1-9f69-465a-a286-ae8d9818e879",
+     "loadBefore": [
+      16.49,
+      18.47,
+      16.65
+     ],
+     "job": {
+      "state": "succeeded",
+      "attempts": 1,
+      "last_error_code": null,
+      "startedMs": 1789059112020.693,
+      "completedMs": 1789059228712.905
+     },
+     "leaseExpiresMs": 1789059442020.692,
+     "results": 1,
+     "observerErrors": 0,
+     "elapsedMs": 116859,
+     "reply": {
+      "state": "succeeded",
+      "checkRunId": "70c0c2d1-9f69-465a-a286-ae8d9818e879",
+      "canonicalHash": "12bbfa2d38e2d35a24f8d4d9c08249fdeb332e75b07222e618a4a35a35a9c7e5"
+     },
+     "peakRssBytes": 182493184,
+     "vmHwmBytes": 182493184
+    },
+    {
+     "target": 1542104,
+     "cutoff": "2026-06-15",
+     "population": 1546708,
+     "jobId": "91f7f7cb-1f29-4b1d-a991-be21da3a8548",
+     "loadBefore": [
+      18.58,
+      18.05,
+      16.66
+     ],
+     "job": {
+      "state": "succeeded",
+      "attempts": 1,
+      "last_error_code": null,
+      "startedMs": 1789059228969.743,
+      "completedMs": 1789059424653.378
+     },
+     "leaseExpiresMs": 1789059558969.743,
+     "results": 1,
+     "observerErrors": 0,
+     "elapsedMs": 195841,
+     "reply": {
+      "state": "succeeded",
+      "checkRunId": "91f7f7cb-1f29-4b1d-a991-be21da3a8548",
+      "canonicalHash": "bfdca20108e345785fd318b8956b22a8442d6e0e48c9995e62ec7be3bfabc8b2"
+     },
+     "peakRssBytes": 181989376,
+     "vmHwmBytes": 181989376
+    },
+    {
+     "target": 2086376,
+     "cutoff": "2026-08-11",
+     "population": 2093361,
+     "jobId": "de11c75a-9692-4a91-9095-b25015b71f54",
+     "loadBefore": [
+      6.03,
+      12.3,
+      14.67
+     ],
+     "job": {
+      "state": "succeeded",
+      "attempts": 1,
+      "last_error_code": null,
+      "startedMs": 1789059424889.768,
+      "completedMs": 1789059681304.032
+     },
+     "leaseExpiresMs": 1789059754889.768,
+     "results": 1,
+     "observerErrors": 0,
+     "elapsedMs": 256561,
+     "reply": {
+      "state": "succeeded",
+      "checkRunId": "de11c75a-9692-4a91-9095-b25015b71f54",
+      "canonicalHash": "47e3bcb911ba49b2d82704d13192f165d420fd8025d2a5677431a38d8447ca67"
+     },
+     "peakRssBytes": 182771712,
+     "vmHwmBytes": 182771712
+    }
+   ]
+  }
+ ]
+}

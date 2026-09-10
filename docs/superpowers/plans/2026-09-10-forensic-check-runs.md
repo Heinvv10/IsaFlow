@@ -674,3 +674,38 @@ the vendored pre-seam reference compared byte for byte against today's sync dete
 
 The contract stays: a timeout records `RESOURCE_LIMIT` failure, so a population too large to stream in 300 s can
 never publish anything. T2e must measure the largest population that fits and put the number in the evidence doc.
+
+
+---
+
+# v9 amendments (T2e results; evidence in `forensic-evidence/check-run-t2e-evidence.md`)
+
+## A35 T2e ran without a systemd unit, so part of its definition of done is still open
+
+The worker ran as the real artifact but as a direct child process, because this session was barred from starting
+systemd units. "Under `createIsolatedAuditJobRunner`" and "under the real check-run unit with `RuntimeMaxUSec` read
+back" were therefore **not done**: no `RuntimeMaxSec`/`MemoryMax` wall was in force and no unit readback happened. The
+T1 spike's caveat that no runtime cap was in force is still open, and T2f or a later session must close it.
+
+## A36 A17's "≈101 statements" was the FETCH count, not the statement count
+
+Measured at 100 000 journals: 101 FETCH, one statement touching `control_change_events` (the DECLARE), two touching
+`gl_journal_lines` (the DECLARE and the SUM cross-check), 546 in total. The total grows with findings — one sealed
+INSERT and one re-read page per 512 — never with rows. The gate asserts the FETCH count, the two child-table counts and
+a total below one per hundred rows.
+
+## A37 A34's answer: there is no single largest population
+
+Settled tables: 2 093 361 journals published in 256.6 s, the most measured. The first run after a bulk load, while
+autovacuum was processing the streamed tables, overran the deadline at 1 400 045. So "largest population that fits"
+depends on the database's state, not only its size; a restored or freshly migrated tenant near 1.4M journals can time
+out and publish nothing. That overrun is also the only real evidence of the grace window: the failure record landed
+29.8 s before lease expiry. G2's success-inside-grace remains an emulation — a COMMIT after the work deadline is
+refused by construction.
+
+## A38 The mixed scale fixture makes every journal a finding
+
+Its day (`g % 240`) and person (`g % 50`) assignments cycle together every 1 200 journals, giving ~83 journals per
+(day, person) that split every threshold: the 100k run carried exactly `maxFindings`. It is the worst case for the
+findings path, not a realistic mix, and the evidence says so. Decorrelating it would change what the recorded run
+measured, so it stays as committed.
