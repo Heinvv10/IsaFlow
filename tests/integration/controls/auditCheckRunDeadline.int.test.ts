@@ -14,12 +14,14 @@ import {seedJournalRiskScale,type ScaleCensus} from './journalRiskScaleFixture';
 import {startCheckRunWorker,type WorkerOutcome} from './checkRunWorkerChild';
 /**
  * Plan v8 A34: a run that passes its 300 s work deadline is `failed`, never `unknown`, so there is a largest population
- * that can publish at all. This measures it on a quiet 350 000-journal population (same per-row streaming cost as the
- * mixed fixture, few findings, so the findings bound cannot end a run first), running rising cutoffs until one
- * overruns. That overrun is also the only real evidence of what the lease's grace window is for (plan §4 G2).
+ * that can publish at all. This measures it on a quiet 1 400 000-journal population (same per-row streaming cost as the
+ * mixed fixture, few findings, so the findings bound cannot end a run first). One probe run measures throughput on
+ * this machine at this moment; the next two bracket the extrapolated boundary at 0.85x and 1.15x, so the largest
+ * population that published and the smallest that overran are both measured, not inferred. The overrun is also the
+ * only real evidence of what the lease's grace window is for (plan §4 G2).
  */
 const env=process.env,config=fixtureConfigFromEnv(env),target=validateFixtureTarget(config);
-const SEEDED=350000,TARGETS=[150000,200000,250000,300000,350000],LIMITS=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks;
+const SEEDED=1400000,PROBE=300000,LIMITS=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks;
 const artifact=env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT??'',report=env.ISAFLOW_CHECK_RUN_DEADLINE_REPORT??'';
 let pool:Pool,fixture:ForensicFixture,census:ScaleCensus;
 interface Attempt {target:number;cutoff:string;population:number;jobId:string;outcome:WorkerOutcome;loadBefore:number[];
@@ -48,7 +50,9 @@ async function cutoffFor(population:number):Promise<{cutoff:string;population:nu
  if(!row)throw new Error(`No cutoff reaches ${population} journals`);return row;
 }
 it('measures the largest population that publishes inside the 300 s work deadline',async()=>{
- for(const goal of TARGETS){
+ const deadline=AUDIT_PROCESS_LIMITS.check_run.workDeadlineMs,goals:number[]=[PROBE];
+ for(let index=0;index<goals.length;index++){
+  const goal=goals[index]!;
   const {cutoff,population}=await cutoffFor(goal);
   const jobId=(await withAuditWorkerTransaction(pool,{...who(),jobId:randomUUID()},'read committed',Date.now()+60000,undefined,
    store=>withControlRequest(store,{...who(),authMethod:'cookie'},()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff,checks:['journal_risk_checks'],idempotencyKey:randomUUID()})))).jobs[0]!.id;
@@ -62,7 +66,11 @@ it('measures the largest population that publishes inside the 300 s work deadlin
    (extract(epoch FROM completed_at)*1000)::float8 AS "completedMs" FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2`,[fixture.companyA,jobId])).rows[0];
   const results=(await pool.query('SELECT count(*)::int AS n FROM control_audit_check_results WHERE company_id=$1 AND job_id=$2',[fixture.companyA,jobId])).rows[0].n;
   attempts.push({target:goal,cutoff,population,jobId,outcome,loadBefore,job,leaseExpiresMs,results,observerErrors});
-  if(outcome.reply?.state!=='succeeded')break;
+  if(index===0){
+   if(outcome.reply?.state!=='succeeded')break;
+   const boundary=population*deadline/outcome.elapsedMs;
+   goals.push(Math.min(SEEDED,Math.round(boundary*0.85)),Math.min(SEEDED,Math.round(boundary*1.15)));
+  }else if(outcome.reply?.state!=='succeeded')break;
  }
  const published=attempts.filter(attempt=>attempt.outcome.reply?.state==='succeeded');
  expect(published.length,'not even the smallest target published').toBeGreaterThan(0);
