@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import {AUDIT_WORKER_CLASS_ENV,decodeAuditProcessRequest,encodeAuditProcessReply} from '../../src/modules/accounting/services/controls/auditJobProcessProtocol';
+import {AUDIT_WORKER_CLASS_ENV,AUDIT_WORKER_STARTED_AT_ENV,decodeAuditProcessRequest,encodeAuditProcessReply} from '../../src/modules/accounting/services/controls/auditJobProcessProtocol';
 import {isAuditWorkerClass} from '../../src/modules/accounting/services/controls/auditJobContract';
 import {AUDIT_PROCESS_LIMITS} from '../../src/modules/accounting/services/controls/auditJobProcessContract';
 import type {AuditWorkerResult} from '../../src/modules/accounting/services/controls/auditJobRunner';
@@ -8,6 +8,10 @@ async function main(){
  // The parent pins the class as a literal unit variable. Without it this child cannot know which kinds it may claim: fail closed.
  const workerClass=process.env[AUDIT_WORKER_CLASS_ENV];
  if(!isAuditWorkerClass(workerClass)){process.stderr.write('Audit child worker class missing or invalid.\n');process.exit(2);}
+ const startedAt=Number(process.env[AUDIT_WORKER_STARTED_AT_ENV]);
+ if(!/^\d{1,16}$/.test(process.env[AUDIT_WORKER_STARTED_AT_ENV]??'')||!Number.isSafeInteger(startedAt)||startedAt>Date.now()+1000){
+  process.stderr.write('Audit child spawn timestamp missing or invalid.\n');process.exit(2);
+ }
  const writeReply=process.stdout.write.bind(process.stdout),writeDiagnostic=process.stderr.write.bind(process.stderr);
  let diagnostics=0;
  // Domain logging may contain source facts. Keep it out of IPC while retaining sanitized diagnostic occurrence counts.
@@ -39,7 +43,7 @@ async function main(){
   const {Pool}=await import('pg'),pool=new Pool({connectionString,max:2,connectionTimeoutMillis:5000,application_name:`isaflow-audit:${identity.jobId}`,
    ssl:process.env.DATABASE_SSL==='disable'?false:process.env.DATABASE_SSL==='strict'?{rejectUnauthorized:true}:undefined});
   try{const {runAuditJob}=await import('../../src/modules/accounting/services/controls/auditJobRunner');
-   result=await runAuditJob({companyId:identity.companyId,personId:identity.personId,jobId:identity.jobId},{pool,signal:controller.signal,workerClass});
+   result=await runAuditJob({companyId:identity.companyId,personId:identity.personId,jobId:identity.jobId},{pool,signal:controller.signal,workerClass,startedAt});
   }finally{await pool.end();}
  }catch{result={state:'failed',code:controller.signal.aborted?'CANCELLED':'WORKER_ERROR',failureRecorded:false};}
  finally{process.removeListener('SIGTERM',shutdown);process.removeListener('SIGINT',shutdown);}

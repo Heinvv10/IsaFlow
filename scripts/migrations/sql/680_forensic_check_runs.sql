@@ -1,5 +1,8 @@
 -- Complete-population check runs extend the authenticated job queue; results are generation-bound and sealed.
 -- Shared objects (root-coordinated): control_audit_job_intents_kind_check and control_audit_jobs_result_check.
+-- The constraint swaps take ACCESS EXCLUSIVE on the job and intent tables: wait at most 5 s behind a running worker, then
+-- fail and re-run (plan §4: drain the check-run poller first). The runner applies each file in one transaction.
+SET LOCAL lock_timeout='5s';
 ALTER TABLE control_audit_job_intents DROP CONSTRAINT IF EXISTS control_audit_job_intents_kind_check;
 ALTER TABLE control_audit_job_intents ADD CONSTRAINT control_audit_job_intents_kind_check
  CHECK(kind IN('audit_snapshot','audit_export','audit_compare','audit_check_run'));
@@ -77,7 +80,10 @@ GRANT SELECT,INSERT ON control_audit_check_findings TO app_user;
 -- Append-only: no mutation privilege for the application role (as 673).
 REVOKE UPDATE,DELETE ON control_audit_check_results,control_audit_check_findings FROM app_user;
 
--- A later migration that re-adds either shared constraint without every kind/result column must fail here, not silently narrow.
+-- Guards only this migration's own result: it fails 680 if, after its re-adds, the result check omits any result_%_id
+-- column present at that moment or the kind check omits a contract kind. It cannot catch a LATER migration that
+-- narrows either constraint, since it runs only when 680 runs. That guard is the merge-time grep (plan v6 A18):
+-- every ADD CONSTRAINT of either name under scripts/migrations/sql on any branch must be 662, 668 or 680.
 DO $$ DECLARE definition text; missing text; BEGIN
  SELECT pg_get_constraintdef(oid) INTO definition FROM pg_constraint
   WHERE conrelid='control_audit_jobs'::regclass AND conname='control_audit_jobs_result_check';

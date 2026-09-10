@@ -30,8 +30,9 @@ function leaseMs(kind:AuditJobKind,checkId:string|undefined):number{
  return limits.maxRuntimeMs+limits.graceMs;
 }
 /** Called by the worker, never a status/read path. SQL generation fencing survives worker restarts. */
-export async function claimAuditJob(ctx:ControlTx,id:string):Promise<AuditJobLease|null>{
+export async function claimAuditJob(ctx:ControlTx,id:string,allowedKinds:readonly AuditJobKind[]):Promise<AuditJobLease|null>{
  assertControlTx(ctx);const status=await getAuditJob(ctx,id);
+ if(!allowedKinds.includes(status.kind))return null;
  return claimPendingJob(ctx,id,leaseMs(status.kind,status.kind==='audit_check_run'?status.checkId:undefined));
 }
 /** Server-only cold bootstrap. The supplied transaction has no HTTP principal; saved evidence is its authority. */
