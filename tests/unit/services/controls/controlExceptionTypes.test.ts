@@ -14,7 +14,7 @@ describe('server recheck closure gate',()=>{
 describe('bounded exception inputs',()=>{
  it('allows only supported checks and bounded options',()=>{
   expect(parseExceptionCheck({checkId:'three_way_match_exceptions',cutoff:'2026-09-09'})).toEqual({checkId:'three_way_match_exceptions',cutoff:'2026-09-09'});
-  for(const value of [{checkId:'payroll_control_checks'},{checkId:'three_way_match_exceptions',result:pass},{checkId:'three_way_match_exceptions',cutoff:'2026-02-31'}])expect(()=>parseExceptionCheck(value)).toThrow();
+  for(const value of [{checkId:'unknown_control_check'},{checkId:'three_way_match_exceptions',result:pass},{checkId:'three_way_match_exceptions',cutoff:'2026-02-31'}])expect(()=>parseExceptionCheck(value)).toThrow();
  });
  it('requires accepted risk reason and future expiry and rejects caller recheck results',()=>{
   const input={exceptionId:'ad27508a-1f27-4ed3-9ad3-a5e14a47a6ba',expectedVersion:1,resolution:'accepted_risk',reason:'Documented decision',expiresAt:'2099-01-01T00:00:00Z'};
