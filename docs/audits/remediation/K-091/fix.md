@@ -1074,9 +1074,22 @@ asset, and is not netted off current assets — are untouched and still pass: th
 through `reserve-prefix.sh`. Rollback: `DROP TRIGGER
 trg_gl_accounts_normalise_subtype ON gl_accounts; DROP FUNCTION
 gl_accounts_normalise_subtype();`. The backfill is not reversible, and does not
-need to be: it rewrites nothing on `isaflow_dev` (zero matching rows; production not measured — impact SQL for Hein,
-query above), and where it does fire it maps a spelling onto the one the vocabulary
-already recognises.
+need to be: it rewrites nothing on `isaflow_dev` — zero of 4,026 accounts, measured by
+this fixer on 2026-09-10, read-only. Production not measured; the backfill's row count is
+impact SQL for Hein:
+
+```sql
+SELECT count(*) FROM gl_accounts
+WHERE account_subtype IS NOT NULL
+  AND account_subtype IS DISTINCT FROM NULLIF(
+        lower(regexp_replace(btrim(account_subtype), '[[:space:]-]+', '_', 'g')), '');
+```
+
+Where it does fire it maps a spelling onto the one the vocabulary already recognises.
+The migration is applied nowhere that tracks checksums: `SELECT name FROM
+schema_migrations WHERE name LIKE '674%'` returns no row on `isaflow_dev`, the branch is
+unpushed so golden CI has never run it, and only the disposable fixture carries it. That
+is what made the round-12 comment edit safe.
 
 ## Historical-data impact
 
@@ -1173,6 +1186,12 @@ items,loans,packs,reconciliation,reports,workbench}`, `src/modules/bureau/servic
 | `unappliedCashService.ts:146,167` — control-account leg of ONE payment's journal | 2 | One-sided per payment document by design (the leg that settles the control). Not a period total; flagged, not changed — outside K-091's report figures. |
 | **`notes16to20.ts` note 17 `current_tax`, `deferred_tax`** | **2** | **No — the defect. Fixed above.** (The script ran after the fix and bucketed these two as nets, giving 196; 194 + 2 is the pre-fix split. 194 + 113 + 8 + 8 + 2 + 2 + 4 = 331.) |
 | Per-line `ABS(debit) + ABS(credit)` — `bankTxQueryFragments.ts:32,40`, `vatAllocationMismatchService.ts:96,99` | 4 | See LOW-4. |
+
+> **Corrected in round 12.** This table is wrong in two places, both found by
+> reconciling it against its own `onesided.txt`: `disclosureNoteGenerators.ts:262-263`
+> (IFRS note 7) was filed under "paired" and is a second defect of the same class, and
+> `vatChecks.ts:44` was filed under "nets" and is a per-line `ABS`. The corrected
+> table is in round 12.
 
 Nearest-sibling check on every single-sided site: none but note 17 has a
 neighbour computing the same figure with the other side subtracted. A second
@@ -1287,3 +1306,210 @@ do not connect to production, read-only included.
 
 `accountSubtypes.ts` was 306 at `747c76e63` and is 307 (one alias line).
 `disclosureNoteGenerators.ts` stays at 300 (guard folded onto the existing line).
+
+
+---
+
+# Round 12 — review-k091-r9 of `7aac98c2f` (0 H · 1 M · 2 L)
+
+## MEDIUM-1 (fixed) — IFRS note 7 printed gross VAT throughput
+
+`disclosureNoteGenerators.ts:262-263`, `noteTaxation`:
+`SUM(gjl.debit) FILTER (vat_input)` and `SUM(gjl.credit) FILTER (vat_output)`. Each
+FILTER is one-sided on its OWN account, so no consumer can net them: a customer credit
+note (DR VAT Output) and a supplier credit note (CR VAT Input) were added to the figures
+they reverse. Now `SUM(debit - credit)` / `SUM(credit - debit)`, the shape the sibling
+`vatControlMovement.findVatControlMovement` has always used over the same two accounts
+under the same `auto_vat_submission` exclusion.
+
+Measured on the fixture (`k091f`, bill DR 200 / supplier CN CR 50; invoice CR 1 500 /
+customer CN DR 150): the note printed Output **1 500,00**, Input **200,00**, Net
+**1 300,00**; it now prints **1 350,00 / 150,00 / 1 200,00**, and both figures equal
+`findVatControlMovement` over the same fiscal year.
+
+**Both directions of the guard.** A tenant with the same trade and NO credit notes still
+prints 1 500 / 200 / 1 300 — the fix moves nothing where there is no contra. And the
+settlement journal is still excluded: netting makes that predicate load-bearing for the
+first time (the forward DR Output / CR Input would now zero both figures, where the
+one-sided sums missed it by direction), which M9 below proves.
+
+The V-05 comment at the predicate, the header of
+`disclosureNoteTaxationExcludesSubmissionJournalDb.test.ts` and the `seedClearingReversal`
+comment in `vatControlFixture.ts` all argued from "this note only sums one direction per
+account". That reasoning is now false, and all three are rewritten. The unit test's four
+assertions are unchanged and still pass.
+
+### The census, reconciled line by line against its own `onesided.txt`
+
+Round 11 walked 131 single-sided aggregates and then filed 113 of them as "paired
+Dr/Cr … netted by the consumer". Note 7's two sums were inside that 113. Every entry of
+`onesided.txt` now carries an explicit disposition:
+
+| Disposition | n |
+|---|---|
+| Paired Dr/Cr over the SAME account set — consumer nets, or the columns ARE the figure (TB, account ledger, journal audit, balance-cache writes) | 88 |
+| Nets in the ENCLOSING expression, not inside the aggregate — `SUM(debit) - SUM(credit)` (`bankReconciliationService:303`, `migrationExecuteService:197`, `transactionLedgerService:57`, `cashFlowForecastDataService:46,49`, `backfill-je-fiscal-periods:155`, `integrityChecks.ts:14,19,36,41`) | 19 |
+| Per-entry `SUM(debit)` as the entry amount (8 sites, unchanged) | 8 |
+| Deliberate one-sided or volume splits (8 sites, unchanged) | 8 |
+| `unappliedCashService:146,167` — one payment's control leg (unchanged, flagged) | 2 |
+| **Not code at all** — the string `SUM(debit) - SUM(credit)` inside a DOC COMMENT (`glAccountBalance.ts:6`, `sageImportService.ts:202`) | 4 |
+| **`disclosureNoteGenerators.ts:262-263` — the defect, fixed above** | **2** |
+| **131** | |
+
+So **25 of the 113 were misfiled**: 2 of them a real defect, 19 misbucketed as "paired"
+when they net one level out, and 4 that are comment text. Only the 2 change a figure.
+
+**And the "nets" bucket was rechecked mechanically**, not by eye: every one of the 200
+remaining `census-raw.txt` bodies was re-tested for a `debit`/`credit` subtraction and for
+`ABS`/`GREATEST`/`+`. One misfile — `vatChecks.ts:44`, LOW-1 below. No other.
+
+### Two directories neither census walked
+
+1. **`scripts/` top level and `scripts/audit-2026-04-14/`** — 13 files reference
+   `gl_journal_lines`; round 11 walked only `scripts/{ci,fixes,lib,repairs}`. They hold
+   **12** aggregates: `perf-explain.mjs:42-43` (per-entry Dr/Cr in an EXPLAIN string) and
+   `:54-55` (nets), `simulate-fy2026-workflows.ts:335` and `verify-2024-final.ts:12` (TB
+   Dr/Cr totals), `verify-2024-final.ts:32,39,52,59` (net). No defect. 331 + 12 = **343**,
+   which is the count the round-9 reviewer independently derived.
+2. **`scripts/migrations/sql/`** — walked by no census in this programme. A balanced-paren
+   scan of the 7 migrations that name `gl_journal_lines` finds 40 one-sided `SUM` bodies:
+   `200`, `465`, `499` write the `gl_account_balances` cache as
+   `(debit_total, credit_total, debit_total - credit_total)`; `523`/`524` take per-entry
+   Dr/Cr totals; `271` and `480` are commented-out SQL. None is a report figure and none is
+   one-sided in effect. Recorded as a spot scan of that directory, not a per-line census.
+
+### The corrected table — 343 aggregates
+
+| Class | n |
+|---|---|
+| Nets inside the aggregate | 199 |
+| Paired Dr/Cr, same account set | 94 |
+| Nets in the enclosing expression | 19 |
+| Per-entry `SUM(debit)` | 8 |
+| Deliberate splits / volume | 8 |
+| Per-line `ABS` (tabled, LOW-4 + LOW-1) | 5 |
+| Comment text, not code | 4 |
+| `unappliedCashService` payment legs (flagged) | 2 |
+| **Note 17 — defect, fixed round 11** | **2** |
+| **Note 7 — defect, fixed round 12** | **2** |
+
+**The true count is 4 defective sites in 2 functions, not "exactly 2, both note 17".**
+Both are now fixed and both are pinned by a test that reddens when reverted.
+
+## LOW-1 (tabled, measured) — `vatChecks.ts:40,44` is a per-line `ABS`
+
+`vatDisplayedDiffersFromPosted` sums `ABS(vl.debit - vl.credit)` over every VAT line of
+the matched journal and filters per line on the same expression, so a VAT line and its
+same-entry reversal add (15 + 15) where the net is 0, and `COUNT(*)` counts VAT LINES, not
+bank transactions. Same class and same limit as the tabled LOW-4
+(`bankTxQueryFragments.ts:32,40`), so it joins that row and the per-line-`ABS` count
+becomes **5**, not 4.
+
+Not changed, and measured rather than argued. On `isaflow_dev`, read-only, 2026-09-10:
+
+* bank-matched transactions whose journal carries both a debit and a credit on a VAT
+  account — the shape that double-counts: **0**;
+* transactions the check flags whose journal has more than one VAT line — the `COUNT(*)`
+  fan-out: **0**;
+* what the check reports today: **1** row, `SUM(ABS(...))` = **150.00**, and
+  `SUM(debit - credit)` over the same rows = **150.00**. Identical, so no figure is
+  misstated on that database.
+
+Production not measured — impact SQL for Hein:
+
+```sql
+SELECT COUNT(DISTINCT bt.id)
+FROM bank_transactions bt
+JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id AND jl.company_id = bt.company_id
+WHERE jl.journal_entry_id IN (
+  SELECT vl.journal_entry_id FROM gl_journal_lines vl
+  JOIN gl_accounts ga ON ga.id = vl.gl_account_id
+  WHERE ga.account_subtype IN ('vat_input','vat_output')
+  GROUP BY vl.journal_entry_id
+  HAVING bool_or(vl.debit > 0) AND bool_or(vl.credit > 0));
+```
+
+Fixing it means changing what an integrity check counts, which is the same
+badge-versus-report coupling argued under LOW-4 — a VAT-surface behaviour change for Hein,
+not a K-091 report figure.
+
+## LOW-2 (fixed) — migration 674's comment cited a production figure
+
+`674_gl_accounts_normalise_subtype.sql:53-55` said the backfill "measured zero in both
+`isaflow` (949 accounts) and `isaflow_dev`". The `isaflow` figure came from an earlier
+reviewer's read against PRODUCTION, which this programme forbids, and the comment
+attributed it to nobody. The production figure is gone. The comment now carries this
+fixer's own reading — **zero of 4,026 accounts in `isaflow_dev`, 2026-09-10** — says
+"production not measured", and inlines the counting SELECT as impact SQL for Hein. The
+"Migration / rollback" section above is edited to agree.
+
+Safe to edit: `SELECT name FROM schema_migrations WHERE name LIKE '674%'` returns no row on
+`isaflow_dev`, the branch is unpushed so golden CI has never applied it, and the only
+database carrying it is the disposable fixture — so no checksum conflict.
+
+## Tests — `tests/integration/k091f-note-taxation-credit-notes.int.test.ts` (new, 3 tests)
+
+A separate file rather than more of `k091e`, which is already 511 lines. Two tenants seeded
+with the same trade, one with a credit note on each side and one without, each settled by an
+`auto_vat_submission` journal: the netting, the agreement with `findVatControlMovement`, and
+the no-credit-note tenant printing unchanged.
+
+## Mutation proof — file copies, md5-verified restore
+
+| # | Mutation | k091f (fixture) | note-7 unit test (isaflow_dev) |
+|---|---|---|---|
+| M7 | `vat_input` back to `SUM(debit)` | **2 of 3 red** | 4 pass |
+| M8 | `vat_output` back to `SUM(credit)` | **2 of 3 red** | 4 pass |
+| M9 | `auto_vat_submission` predicate dropped | **3 of 3 red** | **2 of 4 red** |
+
+Unmutated control: k091f 3 pass, unit test 4 pass. M9 reddening the unit test is also the
+proof that it reaches a database rather than skipping on `dbUp === false`.
+
+## Gates
+
+`env -u DATABASE_URL bun run ci` → **EXIT 0**: 11 stages PASS, unit 806 files / 9 590 tests
+(40 files / 243 tests skipped), component 70 / 466, migration-naming PASS, build PASS,
+integration skipped (no DATABASE_URL).
+k091 suites on the fixture, `--no-file-parallelism`: **6 files / 68 tests passed**, EXIT 0.
+The five pre-existing AFS suites against `isaflow_dev`: **5 files / 37 tests passed**, EXIT 0.
+
+## Historical-data impact (round 12)
+
+Note 7's Output VAT falls by every posted DEBIT on a `vat_output` account, and Input VAT by
+every posted CREDIT on a `vat_input` account, outside the settlement journals. Measured on
+`isaflow_dev`, 2026-09-10, read-only: **1 251 such lines totalling R848 265,00** on
+`vat_output` across 2 companies, and **1 line of R1,00** on `vat_input`. Every one of them
+is a customer credit note or equivalent that the note has been printing as output VAT
+collected. Production not measured — impact SQL for Hein:
+
+```sql
+SELECT ga.account_subtype, COUNT(*), COUNT(DISTINCT jl.company_id),
+       SUM(CASE WHEN ga.account_subtype = 'vat_input' THEN jl.credit ELSE jl.debit END)
+FROM gl_journal_lines jl
+JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+WHERE je.status = 'posted'
+  AND je.source IS DISTINCT FROM 'auto_vat_submission'
+  AND ((ga.account_subtype = 'vat_input'  AND jl.credit > 0)
+    OR (ga.account_subtype = 'vat_output' AND jl.debit  > 0))
+GROUP BY 1;
+```
+
+The books are not corrected; only the note is. Restating a signed AFS pack that printed the
+gross figure is Hein's decision.
+
+## Migration / rollback (round 12)
+
+No new migration. `674` is edited in its COMMENT only — no DDL, no DML change — and is
+applied to no checksum-tracked database (see above). Rollback: revert the commit.
+
+## Limits and things not done
+
+* `scripts/migrations/sql/` is spot-scanned, not censused line by line. Nothing there
+  produces a report figure, but the claim rests on a balanced-paren scan for `SUM` over
+  `debit`/`credit`, not on reading all 7 files end to end.
+* `vatChecks.ts` and `bankTxQueryFragments.ts` keep their per-line `ABS`, tabled and
+  measured at 0 exposure on `isaflow_dev`.
+* The five one-sided `HAVING`s from round 9's H1b remain un-dispositioned.
+* Production is not measured anywhere in this round. Every figure above is `isaflow_dev` or
+  the fixture.

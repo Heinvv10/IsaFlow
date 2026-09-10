@@ -51,9 +51,11 @@ CREATE TRIGGER trg_gl_accounts_normalise_subtype
 -- Backfill. Deliberately NOT scoped by company_id: this normalises a shared
 -- vocabulary column, not one tenant's data, and leaving one tenant behind is
 -- exactly the divergence the trigger exists to end. It touches only rows that
--- are not already normalised — measured zero in both `isaflow` (949 accounts)
--- and `isaflow_dev` at the time of writing, so this is a no-op there and is
--- here for the databases that are not those two.
+-- are not already normalised: zero of 4,026 accounts in isaflow_dev on
+-- 2026-09-10. Production not measured; its row count is impact SQL for Hein:
+--   SELECT count(*) FROM gl_accounts WHERE account_subtype IS NOT NULL
+--     AND account_subtype IS DISTINCT FROM NULLIF(lower(regexp_replace(
+--       btrim(account_subtype), '[[:space:]-]+', '_', 'g')), '');
 UPDATE gl_accounts
 SET account_subtype = NULLIF(
       lower(regexp_replace(btrim(account_subtype), '[[:space:]-]+', '_', 'g')),
