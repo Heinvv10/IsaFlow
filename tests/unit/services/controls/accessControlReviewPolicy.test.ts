@@ -24,3 +24,9 @@ it('fails closed on absent profiles, missing membership, revoked credentials and
  const duplicate=reviewAccessSubject(subject({overrides:[override({canRead:true}),override({canRead:true})]}),now,90);
  expect(duplicate.permissions).not.toContain('read:bank-tx');expect(duplicate.findings).toContain('duplicate_module_override');
 });
+it('does not advertise refresh for a revoked OAuth app even when its grant refresh expiry is future',()=>{
+ const row={...subject({kind:'oauth',scopes:['read:bank-tx'],accessExpiresAt:'2027-01-01T00:00:00Z',refreshExpiresAt:'2027-01-01T00:00:00Z'}),oauthAppActive:false};
+ const result=reviewAccessSubject(row,now,90);expect(result.refreshEligible).toBe(false);
+ // Existing access-token validation checks the grant, while refresh also checks the app.
+ expect(result.permissions).toContain('read:bank-tx');expect(result.findings).toContain('oauth_app_revoked_or_missing');
+});
