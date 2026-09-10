@@ -177,6 +177,7 @@ const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   finance_cost: 'finance_cost',
   finance_costs: 'finance_cost',
   interest_expense: 'finance_cost',
+  bank_charges: 'finance_cost', // unaliased, it banded operating: notes 20 AND 21 printed it
   tax: 'tax_expense',
   tax_expense: 'tax_expense',
   income_tax: 'tax_expense',

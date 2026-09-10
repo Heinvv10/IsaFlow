@@ -83,11 +83,11 @@ export async function generateNote17IncomeTax(
 
   const [taxProvision, deferredBalance] = await Promise.all([
     sql`SELECT
-        SUM(gjl.debit) FILTER (
+        SUM(gjl.debit - gjl.credit) FILTER (
           WHERE ga.account_type = 'expense'
             AND ga.account_subtype = ANY(${CURRENT_TAX_SUBTYPES as string[]}::TEXT[])
         ) AS current_tax,
-        SUM(gjl.debit) FILTER (
+        SUM(gjl.debit - gjl.credit) FILTER (
           WHERE ga.account_type = 'expense' AND ga.account_subtype = ${DEFERRED_TAX_SUBTYPE}
         ) AS deferred_tax
       FROM gl_journal_lines gjl

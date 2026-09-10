@@ -75,8 +75,9 @@ export async function generateNote27GoingConcern(
     // current_asset and other_current_asset were current to one surface and
     // absent from the other: 1.11 here against 1.89 in the KPI block of the
     // same export. `fetchBalanceSnapshot` is exported for exactly this, and it
-    // carries the account_type guard on both arms (production has 27 paycards
-    // typed 'liability' with a bank subtype).
+    // carries the account_type guard on both arms, because the invariant is
+    // that a liability carrying a bank subtype — an overdraft, a paycard — is
+    // not a current ASSET and must not be netted off one.
     fetchBalanceSnapshot(companyId, end),
     sql`
       -- NET movement per side. ABS applied INSIDE the SUM is applied per

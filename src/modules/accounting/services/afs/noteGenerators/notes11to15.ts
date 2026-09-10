@@ -33,7 +33,11 @@ export async function generateNote11CashAndCashEquivalents(
       -- CASH_SUBTYPES, not the literal triple: this note prints in the same
       -- AFS export as the cash KPI tiles, which resolve cash the same way.
       -- The literal missed bank_account and cash_on_hand, so the note and the
-      -- tile above it could disagree.
+      -- tile above it could disagree. account_type is half of that same
+      -- resolution: afsKpiCash counts only assets, so without this guard a
+      -- liability carrying a bank subtype is cash to the note and not to the
+      -- tile printed above it.
+      AND ga.account_type = 'asset'
       AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
     GROUP BY ga.account_name, ga.account_code
     ORDER BY ga.account_code

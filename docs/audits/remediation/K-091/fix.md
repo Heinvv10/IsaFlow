@@ -1009,8 +1009,10 @@ The backfill is deliberately **not** scoped by `company_id`, against the usual
 rule: it normalises a shared vocabulary column rather than one tenant's data,
 and leaving one tenant unnormalised is precisely the divergence the trigger
 exists to end. It touches only rows that are not already normalised — the
-round-9 reviewer measured **zero** such rows in `isaflow` (949 accounts) and
-zero in `isaflow_dev`, so it is a no-op on both.
+round-9 reviewer measured **zero** such rows in `isaflow_dev`; production not measured — impact SQL for Hein:
+`SELECT count(*) FROM gl_accounts WHERE account_subtype IS NOT NULL AND
+account_subtype IS DISTINCT FROM NULLIF(lower(regexp_replace(btrim(account_subtype),
+'[[:space:]-]+','_','g')),'')`.
 
 ## Tests — `tests/integration/k091e-note-contra-line-footing.int.test.ts`
 
@@ -1072,13 +1074,13 @@ asset, and is not netted off current assets — are untouched and still pass: th
 through `reserve-prefix.sh`. Rollback: `DROP TRIGGER
 trg_gl_accounts_normalise_subtype ON gl_accounts; DROP FUNCTION
 gl_accounts_normalise_subtype();`. The backfill is not reversible, and does not
-need to be: it rewrites nothing on `isaflow` or `isaflow_dev` (zero matching
-rows), and where it does fire it maps a spelling onto the one the vocabulary
+need to be: it rewrites nothing on `isaflow_dev` (zero matching rows; production not measured — impact SQL for Hein,
+query above), and where it does fire it maps a spelling onto the one the vocabulary
 already recognises.
 
 ## Historical-data impact
 
-Read-only apart from the migration backfill (a no-op on both live databases).
+Read-only apart from the migration backfill (a no-op on `isaflow_dev`; production not measured — impact SQL for Hein).
 Figures that MOVE, for any company that has ever raised a credit note, a sales
 return, a supplier rebate or a reversed accrual:
 
@@ -1131,3 +1133,157 @@ ORDER  BY contra_total DESC;
   300-line cap before this round and is not refactored here.
 * The five one-sided `HAVING`s listed under round 9's H1b remain
   un-dispositioned.
+
+# Round 11 — review-k091-r7 of `747c76e63` (0 H · 2 M · 4 L)
+
+## MEDIUM-1 (fixed) — note 17 printed gross tax DEBITS
+
+`notes16to20.ts` note 17, `current_tax` and `deferred_tax`: `SUM(gjl.debit)`
+with no credit side is gross throughput, so an overprovision reversed or a
+deferred-tax release was never subtracted. Now `SUM(gjl.debit - gjl.credit)`
+on both FILTER arms — the shape the `deferredBalance` query in the same
+function already used. R-056's class (the orchestrator extended R-056 to it).
+
+Pinned in `k091e` on a third tenant (`taxCo`; seeding tax into `co` would have
+moved `co`'s note 21 and note 27 figures): current tax R5,000 less a R2,000
+credit prints **3 000,00**, deferred R1,200 less R200 prints **1 000,00**, and
+the total equals `getIncomeStatement(taxCo).totalOtherExpenses`, for both
+fiscal years.
+
+### The census, redone by ARITHMETIC
+
+Enumerated every `SUM/AVG/MIN/MAX(...)` whose balanced-paren body names
+`debit` or `credit`, across all **156** files in `src/`, `pages/`, `scripts/`
+that reference `gl_journal_lines` (script in `<scratchpad>/agents/fix-k091g/`).
+Directories walked: `pages/api/accounting{,/assets/[assetId]}`, `scripts/{ci,
+fixes,lib,repairs}`, `src/components/accounting`, `src/lib/mcp/tools`,
+`src/modules/accounting/services/{afs,afs/noteGenerators,
+afs/noteGenerators/primaryStatements,bank,capture,core,dashboard,gl,
+gl/closeReadinessChecks,gl/closeRun,gl/integrityChecks,gl/reclassification,
+items,loans,packs,reconciliation,reports,workbench}`, `src/modules/bureau/services`.
+
+**331 aggregates judged**, by the arithmetic each performs:
+
+| Class | n | Does a contra line subtract? |
+|---|---|---|
+| Nets inside the aggregate (`debit - credit` / `credit - debit`, incl. `CASE`-guarded) | 194 | Yes. |
+| Paired `SUM(debit)` + `SUM(credit)` in the same SELECT, netted by the consumer or printed as TB/ledger Dr/Cr columns | 113 | Yes, at the consumer; or the columns ARE the gross turnover by definition (trial balance, account ledger, journal audit, integrity `SUM(debit)=SUM(credit)` checks). |
+| Single `SUM(jl.debit)` per journal ENTRY as the entry amount — `dashboard-stats.ts:111`, `agentActivityService.ts:45`, `auditTrailAttribution.ts:101`, `auditTrailLedgerService.ts:225`, `orphanPeriodJournalsCheck.ts:46`, `documentChecks.ts:82,97`, `journalEntryListService.ts:170` | 8 | N/A — grouped by entry, where Σdebit = Σcredit = the entry total. A balanced entry has no contra to subtract. |
+| Deliberate one-sided or volume splits — `cashFlowForecastDataService.ts:83,84` (inflow/outflow), `reports-waterfall.ts:54,55` (debit +, credit −, i.e. nets), `opening-balances-export.ts:27,28` (Dr/Cr columns), `migrationSubtypeCheck.ts:86` and `reclassification/impact.ts:259` (`debit + credit` = activity volume) | 8 | By design; the figure is the one side or the volume. |
+| `unappliedCashService.ts:146,167` — control-account leg of ONE payment's journal | 2 | One-sided per payment document by design (the leg that settles the control). Not a period total; flagged, not changed — outside K-091's report figures. |
+| **`notes16to20.ts` note 17 `current_tax`, `deferred_tax`** | **2** | **No — the defect. Fixed above.** (The script ran after the fix and bucketed these two as nets, giving 196; 194 + 2 is the pre-fix split. 194 + 113 + 8 + 8 + 2 + 2 + 4 = 331.) |
+| Per-line `ABS(debit) + ABS(credit)` — `bankTxQueryFragments.ts:32,40`, `vatAllocationMismatchService.ts:96,99` | 4 | See LOW-4. |
+
+Nearest-sibling check on every single-sided site: none but note 17 has a
+neighbour computing the same figure with the other side subtracted. A second
+pass for aggregates over GL-joined amounts that never name `debit`/`credit`
+found 13, all over subledger/bank columns (`total_amount - amount_paid`,
+`bt.amount`) or over an already-netted per-account balance
+(`afsPreExportChecks.ts:246-247`, `bureauClientMetricsService.ts:69`,
+`documentChecks.ts:80` over per-entry totals).
+
+## MEDIUM-2 (fixed) — `getVatMultiYearSummary` revenue now pinned
+
+New `k091e` test: `getVatMultiYearSummary(co, n).totalRevenue` for calendar
+2025 and 2026 equals the fixture's net revenue book (turnover less the credit
+note, the net-debit returns account with its sign, sundry income less its
+reversal). `n` is derived from today's year so the window always reaches the
+fixture. Only lines 81-83 and 320-326 of `vatReconciliationService.ts` are
+read by this round; nothing in that file changed (K-053 owns 108/172/339).
+
+## LOW-1 (fixed) — `bank_charges` claimed by notes 20 AND 21
+
+`SUBTYPE_ALIASES` gains `bank_charges: 'finance_cost'`, so `expenseBand`, note
+20's exclusion set and note 21's `rawSubtypesFor('finance_cost')` all agree.
+Note 21's hand-added `'bank_charges'` literal is removed as now redundant.
+Pinned in `k091e`: a `bank_charges` account is in note 21, absent from note 20,
+and note 21 foots to `totalOtherExpenses` = (400 + 250) × scale.
+
+## LOW-2 (fixed) — one definition of cash
+
+`AND ga.account_type = 'asset'` added to AFS note 11 (`notes11to15.ts`) and the
+IFRS `noteCash` (`disclosureNoteGenerators.ts`), matching `afsKpiCash`. Pinned:
+`co` now carries a `liability|bank` "Fuel paycard" with a R300 balance; note 11
+and `noteCash` both total `fetchClosingCash(co, end)` = 1 000 and list no
+paycard row.
+
+## LOW-3 (fixed) — the false measurement is gone
+
+`notes26to30.ts` no longer says "production has 27 paycards typed 'liability'".
+The reviewer measured 0 on `isaflow_dev` (production not measured — impact SQL for Hein:
+`SELECT account_type, account_subtype, count(*) FROM gl_accounts WHERE account_subtype
+IN ('bank','cash','bank_account','petty_cash','cash_on_hand') GROUP BY 1,2`).
+The comment now states the invariant
+(a liability carrying a bank subtype is not a current asset) with no count.
+
+## LOW-4 (tabled, measured) — `bankTxQueryFragments.ts:32,40`
+
+Added to the immunity table with its real limit, not the sibling's reason:
+unlike `vatAllocationMismatchService.ts:96,99`, `POSTED_VAT_LATERAL` spans every
+sibling line of the matched journal entry, so an entry holding a VAT line and
+its same-entry reversal reports the gross of both as `posted_vat_amount`.
+Measured on `isaflow_dev`: **0** such entries, **0** bank-matched. production not measured — impact SQL for Hein:
+
+```sql
+SELECT COUNT(*) FROM (
+  SELECT jl.journal_entry_id FROM gl_journal_lines jl
+  JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+  WHERE ga.account_subtype IN ('vat_input','vat_output')
+  GROUP BY jl.journal_entry_id
+  HAVING bool_or(jl.debit > 0) AND bool_or(jl.credit > 0)) x;
+-- and how many are matched to a bank transaction (the only path into the lateral):
+-- join bank_transactions.matched_journal_line_id -> gl_journal_lines.journal_entry_id
+```
+
+Not changed: it is the display-only VAT badge, and `vatAllocationMismatchService`
+computes the same column for the mismatch report with the same shape — moving
+one without the other makes the badge and the report disagree. Changing both is
+a VAT-report behaviour change for Hein, not a K-091 report-figure fix.
+
+## Mutation proof — file copies, md5-verified restore
+
+| # | Mutation | k091 suites |
+|---|---|---|
+| M1 | note 17 `current_tax` back to `SUM(debit)` | **2 red** |
+| M2 | note 17 `deferred_tax` back to `SUM(debit)` | **2 red** |
+| M3 | `getVatMultiYearSummary` revenue per-line `ABS` | **1 red** |
+| M4 | `bank_charges` alias removed | **4 red** |
+| M5 | note 11 `account_type` guard removed | **2 red** |
+| M6 | `noteCash` `account_type` guard removed | **2 red** |
+
+Unmutated control: 5 files / 65 tests green.
+
+## Historical-data impact (this round)
+
+* Note 17 falls by every posted credit to a tax-expense account. Measured on
+  `isaflow_dev`: one `expense|tax` account carries **R411,237.00** of them.
+  production not measured — impact SQL for Hein:
+
+  ```sql
+  SELECT ga.company_id, ga.account_subtype, COUNT(DISTINCT ga.id) AS accounts, SUM(jl.credit) AS credits
+  FROM gl_journal_lines jl
+  JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+  JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+  WHERE ga.account_type = 'expense'
+    AND ga.account_subtype IN ('tax','tax_expense','income_tax','income_tax_expense','deferred_tax_expense')
+    AND je.status = 'posted' AND jl.credit > 0
+  GROUP BY 1, 2;
+  ```
+* Round 10's widening of note 17 to `CURRENT_TAX_SUBTYPES` ({tax, tax_expense,
+  income_tax, income_tax_expense}) makes any `expense|tax` account visible to
+  note 17 for the first time — a change to a printed statutory figure, missing
+  from round 10's list. production not measured — impact SQL for Hein (same query, no `credit` filter).
+* Notes 20/21 and the cash notes: 0 affected accounts in `isaflow_dev`; production not measured — impact SQL for Hein
+  (the LOW-3 query above, plus `WHERE account_subtype = 'bank_charges'`).
+
+**Production access this round:** fixer `fix-k091g` ran ONE psql session
+against `isaflow`: `SET default_transaction_read_only = on;` followed by a single
+`SELECT` (four `SELECT`s joined by `UNION ALL` — the LOW-4 count, its
+bank-matched subset, and the two tax-credit figures). No other statement. The
+figures it returned are withdrawn from this file; programme rule since: agents
+do not connect to production, read-only included.
+
+## Files over 300 lines
+
+`accountSubtypes.ts` was 306 at `747c76e63` and is 307 (one alias line).
+`disclosureNoteGenerators.ts` stays at 300 (guard folded onto the existing line).

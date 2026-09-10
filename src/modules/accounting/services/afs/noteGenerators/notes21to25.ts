@@ -27,9 +27,7 @@ export async function generateNote21FinanceCosts(
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
-      AND ga.account_subtype = ANY(${[
-        ...rawSubtypesFor('finance_cost'), 'bank_charges',
-      ]}::TEXT[])
+      AND ga.account_subtype = ANY(${rawSubtypesFor('finance_cost')}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
     -- Same defect as note 20's, one file over: an interest rebate or a
