@@ -12,6 +12,7 @@ import {preparePayrollCompensation} from '@/modules/accounting/services/controls
 import {executeCompensationCaller} from '@/modules/accounting/services/controls/payrollCompensationLegacyAdapter';
 import {recordBankRuleChange} from '@/modules/accounting/services/bank/bankRuleChangeControl';
 import {readControlEntityHistory} from '@/modules/accounting/services/controls/controlChangeHistoryService';
+import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
 import {appendEntityVersion,effectRows,entityVersions,eventSpellings,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
 async function approved(ref:OperationRef){const approval=await actor(()=>requestOperationApproval(requireControlTx(),ref));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');return approval.id;}
 async function oneCanonicalEffect(id:string,operation:string){
@@ -73,6 +74,35 @@ it('a rule change extends the lineage retained under a legacy spelling instead o
  await actor(()=>recordBankRuleChange(requireControlTx(),rule,null,{id:rule,name:'Synthetic legacy rule'},'created'));
  expect(await entityVersions(pool,fixture.companyA,'bank_categorisation_rule',rule)).toEqual([{entity_id:rule.toUpperCase(),version:2}]);
  expect((await eventSpellings(pool,fixture.companyA,'bank_categorisation_rule',rule)).events).toEqual([rule.toUpperCase()]);
+});
+type Lineage={entityId:string;eventCount:number};
+type HistoryPage={available:boolean;code?:string;lineages?:Lineage[];entity:{lineage?:string};items:{newVersion:number;eventId:string}[];nextCursor:string|null};
+const history=(entityId:string,extra:Record<string,unknown>={})=>actor(()=>readControlEntityHistory(requireControlTx(),{entityType:'bank_transaction',entityId,...extra})) as Promise<unknown> as Promise<HistoryPage>;
+it('a forked history is two named lineages, never a merge, and each pages without losing a sibling',async()=>{
+ const tx=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',123.45,'Synthetic forked history bank','imported')",[tx,fixture.companyA,bank]);
+ await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_transaction',tx.toUpperCase());
+ const p=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ const allocationApproval=await approved(p.operation);
+ await actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId:allocationApproval}));
+ // A canonical lineage appears beside the legacy one; the reversal then extends the caller-spelled lineage.
+ await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_transaction',tx);
+ const r=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:p.intentId,reversalDate:'2026-09-11',reason:'Synthetic forked history inverse'}));
+ const reversalApproval=await approved(r.operation);
+ await actor(()=>executeBankAllocationReversal(requireControlTx(),r.intentId,{approvalId:reversalApproval}));
+ const retained=async(lineage:string)=>(await pool.query('SELECT id FROM control_change_events WHERE company_id=$1 AND entity_type=$2 AND entity_id=$3 ORDER BY new_version,id',
+  [fixture.companyA,'bank_transaction',lineage])).rows.map((row:{id:string})=>row.id);
+ expect((await retained(tx)).length).toBeGreaterThan(0);expect((await retained(tx.toUpperCase())).length).toBeGreaterThan(0);
+ const fork=await history(tx);
+ expect(fork).toMatchObject({available:false,code:'FORKED_LINEAGE',items:[],nextCursor:null});
+ expect(fork.lineages!.map(row=>row.entityId).sort()).toEqual([tx,tx.toUpperCase()].sort());
+ for(const lineage of [tx,tx.toUpperCase()]){
+  const seen:string[]=[];let cursor:string|null=null;
+  do{const page:HistoryPage=await history(tx,{lineage,limit:1,...(cursor?{cursor}:{})});
+   expect(page.available).toBe(true);expect(page.entity.lineage).toBe(lineage);
+   seen.push(...page.items.map(item=>item.eventId));cursor=page.nextCursor;}while(cursor);
+  expect(seen).toEqual(await retained(lineage));
+ }
 });
 it('two retained spellings and no canonical lineage fail closed instead of forking a third',async()=>{
  const tx=randomUUID(),mixed=`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`;

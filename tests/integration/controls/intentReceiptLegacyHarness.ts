@@ -34,9 +34,10 @@ export async function runLegacySeed(kind:Baseline):Promise<LegacySeed>{
  await run('git',['diff','--exit-code',commit,'--','src','scripts/migrations/sql','tests/integration/controls/cashApplicationFixture.ts','tests/integration/forensic-fixture.ts','vitest.integration.config.ts'],{cwd});
  for(const file of [SEED,CONFIG])expect(await readFile(path.join(cwd,file),'utf8'),`${kind} baseline ${file} differs`).toBe(await readFile(path.resolve(file),'utf8'));
  const directory=await mkdtemp(path.join(tmpdir(),'isaflow-intent-seed-')),artifact=path.join(directory,'seed.json');
- const childEnv=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('VITEST')));
+ const childEnv:NodeJS.ProcessEnv={...process.env,ISAFLOW_INTENT_SEED_OUT:artifact};
+ for(const key of Object.keys(childEnv))if(key.startsWith('VITEST'))delete childEnv[key];
  try{
-  await run(path.join(cwd,'node_modules/.bin/vitest'),['run','--config',CONFIG],{cwd,env:{...childEnv,ISAFLOW_INTENT_SEED_OUT:artifact},timeout:300000,maxBuffer:16*1024*1024});
+  await run(path.join(cwd,'node_modules/.bin/vitest'),['run','--config',CONFIG],{cwd,env:childEnv,timeout:300000,maxBuffer:16*1024*1024});
   return seedSchema.parse(JSON.parse(await readFile(artifact,'utf8')));
  }finally{await rm(directory,{recursive:true,force:true});}
 }
