@@ -18,7 +18,8 @@
  * so it must never be able to produce one.
  *
  * The range is the dangerous part of the design, so two guards sit in front of
- * it. `dry_run` reports exactly what WOULD be reversed, and an oversize range
+ * it. `dry_run` reports what WOULD be reversed (or refuses, when an approval is
+ * required for one of them), and an oversize range
  * is REFUSED rather than truncated — reversing the first N of M and saying
  * nothing would be the same half-done state, only harder to notice.
  */
@@ -48,7 +49,7 @@ export const reverseAllocationsTool: McpTool = {
     'Reverse EVERY allocation in one bank account between two dates, inclusive — including allocations made by bank rules or by an import, which carry no batch_id and cannot be reversed by reverse_bank_allocation_batch. ' +
     'ALL OR NOTHING: if any reversal fails, none are applied, so the account is never left half-unwound. ' +
     `Refuses (it does not truncate) if the range holds more than ${MAX_RANGE} allocated transactions — narrow the dates. ` +
-    'Run with dry_run=true first: it reports exactly which transactions would be reversed, with the rule that created each one, and writes nothing. ' +
+    'Run with dry_run=true first: it reports exactly which transactions would be reversed, with the rule that created each one, and writes nothing — ' + 'unless the company policy requires an independent approval for one of them, in which case the dry run refuses exactly as the live call does. ' +
     'Unallocated, excluded and already-reversed transactions in the range are not touched. Requires the write:post permission.',
   scope: 'write:bank-tx',
   write: true,
