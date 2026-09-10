@@ -40,7 +40,7 @@ it('historical boolean remains a refusal and is not mistaken for repaired Sage a
 });
 it('current denied invoice authority and foreign ownership refuse before effects',async()=>{
  const id=await f.invoice(),before=await f.state();await expect(f.actor(()=>postCustomerInvoiceToGL(f.f.companyB,id,f.f.u3.id),'u3')).rejects.toThrow();
- await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,'invoices',false)",[f.f.companyA,f.f.u1.id]);
+ await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_write) VALUES($1,$2,'customers',false)",[f.f.companyA,f.f.u1.id]);
  try{await expect(f.actor(()=>postCustomerInvoiceToGL(f.f.companyA,id,f.f.u1.id))).rejects.toThrow('Current permissions');expect(await f.state()).toEqual(before);}
- finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='invoices'",[f.f.companyA,f.f.u1.id]);}
+ finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='customers'",[f.f.companyA,f.f.u1.id]);}
 });
