@@ -16,8 +16,8 @@
  * tax line does not (12/1138 = 1.1%). Anything else keeps the printed figures
  * and the caller's refusal, with the discrepancy named rather than implied.
  */
-import { parseAmount } from './ocrAmountParsing';
-import { TOTAL_PATTERNS } from './ocrAmountPatterns';
+import { isPlausibleVatAmount, parseAmount } from './ocrAmountParsing';
+import { TOTAL_PATTERNS, VAT_PATTERNS } from './ocrAmountPatterns';
 
 const STANDARD_RATE_MIN = 0.13;
 const STANDARD_RATE_MAX = 0.17;
@@ -128,14 +128,33 @@ export interface SelectedTotal {
  * The payable total out of the candidates, and whether the choice is safe to
  * post unattended.
  *
- * One distinct figure is not a choice at all. Where several disagree, the
- * document's own arithmetic decides first — a printed net plus the printed tax
- * equals exactly one of them on an ordinary invoice, which is evidence rather
- * than page order. Failing that the LAST one wins, because a grand total is
- * printed below the sections it sums, and the disagreement is declared under
- * the `UNRECONCILED_WARNING` prefix so `shouldAutoPostReceipt` refuses. An
- * operator looking at the capture screen then reads both figures; nobody is
- * looking on the unattended path, which is where the R87.50 went.
+ * One distinct figure is not a choice at all. Where several disagree, the LAST
+ * one wins, because a grand total is printed below the sections it sums, and
+ * the disagreement is declared under the `UNRECONCILED_WARNING` prefix so
+ * `shouldAutoPostReceipt` refuses. An operator looking at the capture screen
+ * then reads both figures; nobody is looking on the unattended path, which is
+ * where the R87.50 went.
+ *
+ * The warning is dropped ONLY when the printed net plus the printed tax comes
+ * to the BOTTOM figure. `subtotal + VAT` matching a candidate ANYWHERE was the
+ * previous rule and it inverted the defect it was written for: on the ordinary
+ * layout that prints a gratuity, a delivery fee or a rounding line BELOW the
+ * Sub Total / VAT / Total block —
+ *
+ *     Sub Total 200.00 / VAT 30.00 / Total 230.00 / Gratuity 23.00 / Total Due 253.00
+ *
+ * — 200 + 30 endorsed the INTERMEDIATE 230.00, and because the endorsement
+ * branch also suppressed the warning it converted a correct refusal into a
+ * silent wrong number: measured, total 230.00 against a payable of 253.00,
+ * `warnings: []`, `autoPost: true`, the journal balancing by construction and
+ * the bank credited R230.00. `subtotal + VAT` proves a figure is *a* total of
+ * the VAT-bearing part; it is no evidence that nothing was added below it.
+ *
+ * Requiring the endorsed figure to be the bottom one costs the case where the
+ * payable is endorsed and something LARGER is printed under it (a cash-tendered
+ * line). That document is genuinely ambiguous from the labels alone — which is
+ * the denylist this module abolished — and on an unattended posting path the
+ * correct default for an ambiguous document is to refuse, not to guess.
  */
 export function selectTotalAmount(
   candidates: readonly number[],
@@ -148,18 +167,69 @@ export function selectTotalAmount(
   const distinct = [...new Set(candidates)];
   if (distinct.length === 1) return { totalAmount: last, warning: null };
 
-  if (subtotal !== null && vatAmount !== null) {
-    const endorsed = distinct.filter(
-      (c) => Math.round((subtotal + vatAmount) * 100) / 100 === c,
-    );
-    if (endorsed.length === 1) return { totalAmount: endorsed[0]!, warning: null };
-  }
+  const endorsed = subtotal !== null && vatAmount !== null
+    ? Math.round((subtotal + vatAmount) * 100) / 100
+    : null;
+  if (endorsed !== null && endorsed === last) return { totalAmount: last, warning: null };
 
   const figures = distinct.map((c) => c.toFixed(2)).join(', ');
+  const arithmetic = endorsed !== null
+    ? `its own subtotal and VAT come to ${endorsed.toFixed(2)}, which is not the bottom figure`
+    : 'its own subtotal and VAT settle none of them';
   return {
     totalAmount: last,
     warning: `${UNRECONCILED_WARNING} (totals ${figures}) — the document prints more than one `
-      + `total and its own subtotal and VAT settle none of them; read the payable as `
+      + `total and ${arithmetic}; read the payable as `
       + `${last.toFixed(2)}. Check it before posting.`,
   };
+}
+
+/* ------------------------------------------------------------------------- *
+ * WHICH FIGURE IS THE VAT
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The VAT amount, from the first label form that yields a plausible candidate.
+ *
+ * Every occurrence of that form is collected, not just the first, for two
+ * reasons. A registration number printed above the real VAT line used to
+ * consume the whole pattern; and a slip that splits its VAT summary across
+ * several lines used to report only the first, under-claiming.
+ *
+ * Summing is allowed ONLY where the arithmetic proves it: subtotal + sum must
+ * equal the stated total. Without that check a document printing both a
+ * per-line VAT and a "Total VAT" of the same figure would double it, and the
+ * result would still balance well enough to post.
+ */
+export function extractVatAmount(
+  text: string,
+  subtotal: number | null,
+  totalAmount: number | null,
+): number | null {
+  for (const pattern of VAT_PATTERNS) {
+    const candidates: number[] = [];
+    for (const match of text.matchAll(pattern)) {
+      if (match[1] && isPlausibleVatAmount(match[1], totalAmount)) {
+        candidates.push(parseAmount(match[1]));
+      }
+    }
+    if (candidates.length === 0) continue;
+
+    if (candidates.length > 1 && subtotal !== null && totalAmount !== null) {
+      // Prefer the candidate the DOCUMENT'S OWN ARITHMETIC endorses over the
+      // one that happens to be printed first. Where a slip prints both a levy
+      // and the VAT under the same label form, subtotal + candidate === total
+      // picks the tax out of the pair; falling through to `candidates[0]` picks
+      // by page order, which is not evidence of anything.
+      const reconciling = candidates.filter(
+        (c) => Math.round((subtotal + c) * 100) / 100 === totalAmount,
+      );
+      if (reconciling.length === 1) return reconciling[0]!;
+
+      const sum = Math.round(candidates.reduce((a, c) => a + c, 0) * 100) / 100;
+      if (Math.round((subtotal + sum) * 100) / 100 === totalAmount) return sum;
+    }
+    return candidates[0]!;
+  }
+  return null;
 }

@@ -35,8 +35,15 @@
  * matches that instead. Requiring that NO digit follows through a run of digits
  * and separators makes the whole match fail, so the field comes back null and
  * the caller's own validation refuses the document.
+ *
+ * The leading `-?` is the SIGN, and it is inside the capture group so
+ * `parseAmount` sees it. Without it a credit note printing "Sub Total -100.00 /
+ * VAT -15.00 / Total -115.00" came back {100, 15, 115} with no warning — a
+ * refund read as a purchase, balanced, and inside the auto-post gate. It only
+ * ever reaches this pattern when the hyphen is glued to the first digit; the
+ * label separators in `ocrAmountPatterns` consume a spaced dash themselves.
  */
-export const AMOUNT = String.raw`(\d{1,3}(?:[ \u00A0.,]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d.,]*\d)`;
+export const AMOUNT = String.raw`(-?(?:\d{1,3}(?:[ \u00A0.,]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?))(?![\d.,]*\d)`;
 
 /**
  * Read a printed amount as a number.
@@ -71,9 +78,13 @@ function hasDecimalPart(raw: string): boolean {
  * derived subtotal to minus forty-one million. What actually separates the two
  * is arithmetic — the tax on a document can never exceed the document's own
  * total, and a registration number always does.
+ *
+ * The comparison is on MAGNITUDE because a credit note prints both figures
+ * negative: `-15 <= -115` is false, so a signed VAT line printed without cents
+ * would be refused as a registration number and the tax lost entirely.
  */
 export function isPlausibleVatAmount(raw: string, totalAmount: number | null): boolean {
   if (hasDecimalPart(raw)) return true;
-  const value = parseAmount(raw);
-  return totalAmount !== null ? value <= totalAmount : value < 1_000_000;
+  const value = Math.abs(parseAmount(raw));
+  return totalAmount !== null ? value <= Math.abs(totalAmount) : value < 1_000_000;
 }

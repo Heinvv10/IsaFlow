@@ -66,6 +66,37 @@ describe('K-076 — a section total is never the payable total', () => {
     expect(result.autoPost).toBe(true);
   });
 
+  // The MIRROR of the section-total defect, and the one the first version of
+  // this fix inverted. `subtotal + VAT` matching a candidate ANYWHERE endorsed
+  // the INTERMEDIATE total on the ordinary layout that prints an extra BELOW
+  // the Sub Total / VAT / Total block, and suppressed the warning while doing
+  // it: measured, total 230.00 against a payable of 253.00, `warnings: []`,
+  // `autoPost: true`, and the bank credited R230.00. Only the BOTTOM figure may
+  // be endorsed.
+  const EXTRAS_BELOW_THE_BLOCK: [string, string, number][] = [
+    ['a gratuity', 'Gratuity 23.00\nTotal Due 253.00', 253],
+    ['a delivery fee', 'Delivery 57.50\nTotal Due 287.50', 287.5],
+    ['a rounding line', 'Rounding 0.05\nTotal Due 230.05', 230.05],
+  ];
+
+  it.each(EXTRAS_BELOW_THE_BLOCK)('reads the payable when %s is printed below the total', (_label, tail, payable) => {
+    const result = read(`Ocean Basket\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00\n${tail}`);
+    expect(result.totalAmount).toBe(payable);
+    expect(isUnreconciled(result.warnings)).toBe(true);
+    expect(result.autoPost).toBe(false);
+  });
+
+  it('refuses rather than guesses when the endorsed figure is not the bottom one', () => {
+    // The cost of the rule above, stated as an outcome rather than left to be
+    // rediscovered: a cash-tendered line printed UNDER an endorsed payable is
+    // indistinguishable from a gratuity by arithmetic, and by label only to a
+    // denylist — which is what this module abolished. On an unattended posting
+    // path an ambiguous document goes to a person.
+    const result = read('Sub Total 1000.00\nVAT 150.00\nTotal Due 1150.00\nCash Total 1200.00');
+    expect(isUnreconciled(result.warnings)).toBe(true);
+    expect(result.autoPost).toBe(false);
+  });
+
   it('does not warn when the document prints one total twice', () => {
     const result = read('TOTAL (VAT INCL) 1150.00\nTotal Due 1150.00');
     expect(result.totalAmount).toBe(1150);

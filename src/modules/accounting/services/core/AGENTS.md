@@ -54,6 +54,14 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 
 ## Recent changes
 
+- 2026-09-10: `ocrAmountReconciliation.selectTotalAmount` — `subtotal + VAT` endorses a total ONLY
+  when it is the BOTTOM candidate. Endorsing one anywhere read the intermediate `Total 230.00` as the
+  payable on a slip that prints a gratuity/delivery line below it (`Total Due 253.00`), with no
+  warning and `autoPost: true`. An endorsed figure with something larger printed under it now
+  refuses rather than guesses. `AMOUNT` reads a glued minus sign (`Total -115.00` on a credit note);
+  `SEP`/`VALUE_SEP` consume a dash only when no digit follows it, and `shouldAutoPostReceipt`
+  refuses a total <= 0. `extractVatAmount` moved here from `ocrAmountPatterns` (document
+  arithmetic, not label grammar; both files back under 300 lines).
 - 2026-09-09: `ocrAmountPatterns` — the guards and the patterns are now built from ONE LABEL
   VOCABULARY (`SEP`, `EXCL`, `INCL`, `VAT_WORD`, `TAX_WORD`, `NET_LABEL`, `NET_PREFIX`), because
   fixing one spelling at a time is how the same money defect came back three rounds running:
