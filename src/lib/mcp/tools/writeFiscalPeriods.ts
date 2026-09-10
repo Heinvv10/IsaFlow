@@ -20,7 +20,7 @@ import { getFiscalPeriodById, reopenPeriod } from '@/modules/accounting/services
 import { assertPeriodControlAuthority } from '@/modules/accounting/services/controls/periodControl';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
-import { OPERATION_APPROVAL_REQUIRED_REPLY } from '../scopeRemediation';
+import { approvalRequiredReply } from '../approvalReply';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const DRY = { wroteNothing: true, billable: false } as const;
@@ -241,7 +241,7 @@ export const yearEndCloseTool: McpTool = {
           + 'Nothing was posted.',
         );
       }
-      if (result.error === 'approval_required') return toolError(OPERATION_APPROVAL_REQUIRED_REPLY);
+      if (result.error === 'approval_required') return toolError(approvalRequiredReply(yearEndCloseTool));
       if (result.error === 'no_retained_earnings') {
         return toolError(
           'No account carries the retained_earnings system role for this company. Create one with '

@@ -43,5 +43,5 @@ export async function assertEffectivePermission(ctx: ControlTx, permission: stri
   const code = rows[0]?.account_code;
   if (rows.length !== 1 || typeof code !== 'string' || constrained.some(p =>
     (p.accountRangeFrom !== null && code < p.accountRangeFrom)
-    || (p.accountRangeTo !== null && code > p.accountRangeTo))) throw new EffectivePermissionError(permission, 'ENTITY_REQUIRED');
+    || (p.accountRangeTo !== null && code > p.accountRangeTo))) throw new EffectivePermissionError(permission, 'ACCOUNT_OUT_OF_RANGE');
 }

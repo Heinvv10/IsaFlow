@@ -9,11 +9,11 @@
  */
 import { controlledOperationApprovalRequiredForPreview } from '@/modules/accounting/services/controls/approvalExecutionService';
 import { requireControlTx } from '@/modules/accounting/services/controls/context';
+import { approvalRequiredReason } from '../approvalReply';
 import type { OperationRef } from '@/modules/accounting/services/controls/contracts';
 
-export const APPROVAL_REQUIRED_REASON =
-  'an independent approval is required for this operation — request one with '
-  + 'request_operation_approval, then retry';
+/** None of the bulk-approve tools accepts approval_id; see approvalReply.ts. */
+export const APPROVAL_REQUIRED_REASON = approvalRequiredReason('bulk_approve');
 /** Deliberately not an approval instruction: something else stopped the question. */
 export const APPROVAL_UNKNOWN_REASON =
   'could not be previewed — this document\'s posting material could not be built; an '
@@ -27,14 +27,14 @@ export interface ApprovalPartition {
 /** Never called on the live path: there the kernel refuses the batch itself. */
 export async function partitionApprovalBound(
   candidates: readonly { index: number; id: string }[],
-  ref: { entityType: string; operation: OperationRef['operation'] },
+  ref: { entityType: string; operation: OperationRef['operation']; toolName?: string },
 ): Promise<ApprovalPartition> {
   const partition: ApprovalPartition = { postable: [], skipped: [] };
   for (const candidate of candidates) {
     const answer = await controlledOperationApprovalRequiredForPreview(requireControlTx(),
       { entityType: ref.entityType, entityId: candidate.id, operation: ref.operation });
     const reason = answer.kind === 'answered'
-      ? (answer.required ? APPROVAL_REQUIRED_REASON : null)
+      ? (answer.required ? (ref.toolName ? approvalRequiredReason(ref.toolName) : APPROVAL_REQUIRED_REASON) : null)
       // No policy binds it, so nothing is being withheld: leave the document to
       // the rest of the partition, which reports its own reasons.
       : (answer.policiesExist ? APPROVAL_UNKNOWN_REASON : null);

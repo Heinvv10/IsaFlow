@@ -32,7 +32,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierPaymentService';
 import { assertControlledOperationAuthority, controlledOperationApprovalRequiredForAmount } from '@/modules/accounting/services/controls/approvalExecutionService';
 import { requireControlTx } from '@/modules/accounting/services/controls/context';
-import { OPERATION_APPROVAL_REQUIRED_REPLY } from '../scopeRemediation';
+import { approvalRequiredReply } from '../approvalReply';
 import { requireApControl } from '@/modules/accounting/services/ap/apControlBoundary';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { fmtDate } from '@/lib/fmtDate';
@@ -166,7 +166,7 @@ export const settleByContraTool: McpTool = {
       // the policy question with the amount it holds.
       const operation = subledger === 'ar' ? 'customer_payment.confirm' : 'supplier_payment.process';
       if (await controlledOperationApprovalRequiredForAmount(requireControlTx(), operation, amount.toFixed(2))) {
-        return toolError(OPERATION_APPROVAL_REQUIRED_REPLY);
+        return toolError(approvalRequiredReply(settleByContraTool));
       }
       const result: DryRunResult = {
         dryRun: true,
