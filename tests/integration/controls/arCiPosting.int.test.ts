@@ -31,7 +31,7 @@ it.each([false,true])('parent approval and wrapper preserve current person prove
 });
 it('empty wrapper options retain human attribution and actual cookie REST approves with saved approval',async()=>{
  const id=await f.invoice(),journal=await f.actor(()=>postCustomerInvoiceToGL(f.f.companyA,id,f.f.u1.id,{}));expect((await f.pool.query('SELECT posting_agent FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[f.f.companyA,journal])).rows[0].posting_agent).toBe(`human:${f.f.u1.id}`);
- await withInvoicePolicy(async()=>{const restId=await f.invoice(),approvalId=await f.approval(ref(restId));const response=await f.rest({id:restId,action:'approve',approval_id:approvalId});expect(response.status).toBe(200);
+ await withInvoicePolicy(async()=>{const restId=await f.invoice(),approvalId=await f.approval(ref(restId));const response=await f.rest({id:restId,action:'approve',approvalId});expect(response.status).toBe(200);
  const rows=(await f.pool.query('SELECT j.posting_agent FROM customer_invoices i JOIN gl_journal_entries j ON j.company_id=i.company_id AND j.id=i.gl_journal_entry_id WHERE i.company_id=$1 AND i.id=$2',[f.f.companyA,restId])).rows;
  expect(rows).toEqual([{posting_agent:`human:${f.f.u1.id}`}]);});
 });
