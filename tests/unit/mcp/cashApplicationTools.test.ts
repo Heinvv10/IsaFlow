@@ -201,24 +201,23 @@ describe('apply_payment_to_supplier_invoice', () => {
     expect(vi.mocked(planSupplierPaymentApplication).mock.calls[0]![0]).toBe(COMPANY);
   });
 
-  it('A DRY RUN REFUSES WHERE THE LIVE CALL WOULD, and writes nothing', async () => {
+  it('a payment_id dry run refuses up front: the live call needs a prepared intent', async () => {
+    const r = await applyPaymentToSupplierInvoiceTool.handler(
+      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true }, ctx(),
+    );
+    expect(errText(r)).toMatch(/prepared cash application intent and independent approval are required/i);
+    expect(planSupplierPaymentApplication).not.toHaveBeenCalled();
+    expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
+  });
+
+  it('the live call still refuses where its plan refuses, and writes nothing', async () => {
     vi.mocked(planSupplierPaymentApplication).mockRejectedValue(
       new Error('This payment has not been processed (status "draft")'),
     );
     const r = await applyPaymentToSupplierInvoiceTool.handler(
-      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true }, ctx(),
+      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT }, ctx(),
     );
     expect(errText(r)).toMatch(/has not been processed/);
-    expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
-  });
-
-  it('a dry run sets wroteNothing and shows no journal for the payment source', async () => {
-    vi.mocked(planSupplierPaymentApplication).mockResolvedValue(apPlan());
-    const r = await applyPaymentToSupplierInvoiceTool.handler(
-      { ...AP_ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true }, ctx(),
-    );
-    expect(r.wroteNothing).toBe(true);
-    expect(parseOk(r).journals).toEqual([]);
     expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
   });
 
