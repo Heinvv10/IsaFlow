@@ -224,38 +224,21 @@ describe('apply_receipt_to_invoice — payment source', () => {
     expect(vi.mocked(planReceiptApplication).mock.calls[0]![0]).toBe(COMPANY);
   });
 
-  it('a dry run runs the guards, writes nothing, and sets wroteNothing', async () => {
-    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
-
+  it('a payment_id dry run refuses up front: the live call needs a prepared intent', async () => {
     const r = await applyReceiptToInvoiceTool.handler(
       { ...ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true },
       ctx(),
     );
-    const out = parseOk(r);
-    expect(planReceiptApplication).toHaveBeenCalledTimes(1);
+    expect(errText(r)).toMatch(/prepared cash application intent and independent approval are required/i);
+    expect(planReceiptApplication).not.toHaveBeenCalled();
     expect(applyReceiptPlan).not.toHaveBeenCalled();
-    expect(r.wroteNothing).toBe(true);
-    expect(out.dryRun).toBe(true);
-    // Cash already in the ledger: no journal, and the preview says so.
-    expect(out.journals).toEqual([]);
-    expect(out.effects).toContainEqual({
-      entityType: 'customer_invoice',
-      entityId: INV_A,
-      documentNumber: 'INV0001',
-      field: 'outstanding',
-      before: 600,
-      after: 0,
-    });
   });
 
-  it('A DRY RUN REFUSES WHERE THE LIVE CALL WOULD REFUSE', async () => {
+  it('the live call still refuses where its plan refuses', async () => {
     vi.mocked(planReceiptApplication).mockRejectedValue(
       new Error('Allocations total R900.00 but only R400.00 of this receipt is unapplied'),
     );
-    const r = await applyReceiptToInvoiceTool.handler(
-      { ...ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true },
-      ctx(),
-    );
+    const r = await applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx());
     expect(errText(r)).toMatch(/only R400\.00 of this receipt is unapplied/);
     expect(applyReceiptPlan).not.toHaveBeenCalled();
   });
@@ -363,22 +346,17 @@ describe('apply_receipt_to_invoice — the two paths must not diverge', () => {
     unappliedRemainder: 400,
   };
 
-  it('BOTH DRY RUNS RETURN THE SAME SHAPE — an agent need not know which service ran', async () => {
-    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
-    const fromPayment = parseOk(await applyReceiptToInvoiceTool.handler(
+  it('the payment dry run refuses while the bank dry run previews — each matches its live call', async () => {
+    const fromPayment = await applyReceiptToInvoiceTool.handler(
       { ...ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true }, ctx(),
-    ));
+    );
+    expect(errText(fromPayment)).toMatch(/prepared cash application intent/i);
 
     vi.mocked(validateBankReceiptApplication).mockResolvedValue(validation);
     const fromBank = parseOk(await applyReceiptToInvoiceTool.handler(
       { ...ALLOC, ...KEY, bank_transaction_id: TX, dry_run: true }, ctx(),
     ));
-
-    expect(Object.keys(fromPayment).sort()).toEqual(Object.keys(fromBank).sort());
-    expect(fromPayment.dryRun).toBe(true);
     expect(fromBank.dryRun).toBe(true);
-    // The CONTENT differs, and honestly so: one posts a journal, one does not.
-    expect(fromPayment.journals).toEqual([]);
     expect((fromBank.journals as unknown[]).length).toBe(1);
   });
 
