@@ -30,6 +30,8 @@ import {
   approveSupplierPayment,
   processSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
+import { assertControlledOperationAuthority } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { requireApControl } from '@/modules/accounting/services/ap/apControlBoundary';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
@@ -120,9 +122,12 @@ export const settleByContraTool: McpTool = {
       return toolError(`amount has more than two decimal places (${amount}) — amounts are stored to the cent.`);
     }
     const settlementDate = strArg(args, 'settlement_date') ?? fmtDate(new Date());
-    // A receivable contra is settled by createCustomerPayment, which asserts
-    // write:bank-tx. The preview runs that guard too and skips only the write.
+    // Both sides settle through a bank-tx write authority: AR through
+    // createCustomerPayment's own assert, AP through the control kernel's
+    // supplier_payment.process. The preview runs the same guard and skips only
+    // the write.
     if (subledger === 'ar') await assertCustomerPaymentAuthority(ctx.companyId, ctx.userId);
+    else await assertControlledOperationAuthority(requireApControl(ctx.companyId, ctx.userId), 'supplier_payment.process');
 
     // Every refusal is answered from READS, before the first write, so it can
     // be a toolError. Once createCustomerPayment / createSupplierPayment has
