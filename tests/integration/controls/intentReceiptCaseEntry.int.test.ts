@@ -56,6 +56,16 @@ it('an entity whose retained version is spelled in uppercase is extended, not fo
  await actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId}));
  expect(await entityVersions(pool,fixture.companyA,'bank_transaction',tx)).toEqual([{entity_id:tx.toUpperCase(),version:2}]);
 });
+it('two retained spellings and no canonical lineage fail closed instead of forking a third',async()=>{
+ const tx=randomUUID(),mixed=`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`;
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',123.45,'Synthetic ambiguous version bank','imported')",[tx,fixture.companyA,bank]);
+ for(const spelling of [tx.toUpperCase(),mixed])await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_transaction',spelling);
+ const p=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ const approvalId=await approved(p.operation);
+ await expect(actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId}))).rejects.toThrow('Ambiguous control entity version');
+ expect(await entityVersions(pool,fixture.companyA,'bank_transaction',tx)).toHaveLength(2);
+ expect(await receiptsFor(pool,fixture.companyA,p.intentId,'bank_allocation.post')).toHaveLength(0);
+});
 it('cash reversal refuses a case-variant twin receipt without another effect or ledger change',async()=>{
  const {p,approvalId}=await cashIntent();
  await actor(()=>executeCashApplication(requireControlTx(),p.intentId,{approvalId}));

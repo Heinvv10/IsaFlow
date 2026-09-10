@@ -11,7 +11,7 @@ import {reverseReconciledTransaction} from '@/modules/accounting/services/bank/b
 import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
 import {executePayrollCompensation} from '@/modules/accounting/services/controls/payrollCompensationControl';
 import {committed,runLegacySeed,applySeedKeys,type Baseline,type LegacyOp,type LegacySeed} from './intentReceiptLegacyHarness';
-import {actorAs,effectRows,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
+import {actorAs,effectRows,entityVersions,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
 const pool=new Pool({connectionString:validateFixtureTarget(fixtureConfigFromEnv(process.env)).connectionString,ssl:false,max:3,statement_timeout:10000});
 const seeds={} as Record<Baseline,LegacySeed>;
 beforeAll(async()=>{seeds.upper=await runLegacySeed('upper');seeds.window=await runLegacySeed('window');},700000);
@@ -88,6 +88,16 @@ it('upper baseline allocation is reversible at HEAD without rewriting its receip
  await expect(actorAs(pool,user,ctx=>executeBankAllocationReversal(ctx,prepared.intentId))).rejects.toThrow('Ambiguous operation receipt');
  expect(await snapshot(seed)).toEqual(withTwin);
 },60000);
+it('a legacy fork binds the canonical lineage and never grows a third spelling',async()=>{
+ const seed=seeds.upper,outcome=committed(seed,'bankPayment'),user=seed.fixture.u1;applySeedKeys(seed);
+ // The baseline observed the same intent under its uppercase spelling, beside the lineage preparation retained.
+ const before=await entityVersions(pool,seed.fixture.companyA,'bank_allocation_intent',outcome.intentId);
+ expect(before).toEqual([{entity_id:outcome.intentId,version:1},{entity_id:outcome.intentId.toUpperCase(),version:2}]);
+ const request=await actorAs(pool,user,ctx=>requestOperationApproval(ctx,{entityType:'bank_allocation_intent',entityId:outcome.intentId,operation:'bank_allocation.post'}));
+ const binding=(await pool.query('SELECT binding FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[seed.fixture.companyA,request.id])).rows[0].binding;
+ expect(binding.entityVersion).toBe(1);
+ expect(await entityVersions(pool,seed.fixture.companyA,'bank_allocation_intent',outcome.intentId)).toEqual(before);
+},60000);
 it('a cash application finds the legacy uppercase bank origin of its own payment',async()=>{
  const seed=seeds.upper,outcome=committed(seed,'bankPayment'),user=seed.fixture.u1;applySeedKeys(seed);
  const paymentId=String(outcome.result.paymentId),invoiceId=seed.extras.bankPaymentInvoice;
@@ -103,12 +113,4 @@ it('the legacy bank reversal adapter resolves a legacy uppercase allocation as p
   .then(()=>'',(error:Error)=>error.message);
  expect(attempt).not.toMatch(/explicit verified provenance/);
  if(attempt)expect(attempt).toMatch(/approval/i);
-},60000);
-it('a forked legacy version lineage fails closed instead of binding the wrong lineage',async()=>{
- const seed=seeds.upper,outcome=committed(seed,'bankPayment'),user=seed.fixture.u1;applySeedKeys(seed);
- const rows=(await pool.query('SELECT entity_id,version::int AS version FROM control_entity_versions WHERE company_id=$1 AND entity_type=$2 AND lower(entity_id)=$3 ORDER BY version',
-  [seed.fixture.companyA,'bank_allocation_intent',outcome.intentId])).rows;
- expect(rows).toEqual([{entity_id:outcome.intentId,version:1},{entity_id:outcome.intentId.toUpperCase(),version:2}]);
- await expect(actorAs(pool,user,ctx=>requestOperationApproval(ctx,{entityType:'bank_allocation_intent',entityId:outcome.intentId,operation:'bank_allocation.post'})))
-  .rejects.toThrow('Ambiguous control entity version');
 },60000);
