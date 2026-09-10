@@ -12,7 +12,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest }
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { signingInvalidationWarnings } from '@/modules/accounting/services/afs/afsSigningIntegrity';
+import { withSignatureImpactWarnings } from '@/modules/accounting/services/afs/afsSigningIntegrity';
 import {
   getCompany, createCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
@@ -49,13 +49,6 @@ const VALID_VAT_SYSTEM_TYPES = ['invoice', 'payment', 'none'];
 export function isValidVatSystemType(value: unknown): boolean {
   if (value === undefined || value === null || value === '') return true;
   return typeof value === 'string' && VALID_VAT_SYSTEM_TYPES.includes(value.trim().toLowerCase());
-}
-
-async function registeredIdentity(companyId: string): Promise<{ name: string | null; registration_number: string | null }> {
-  const rows = (await sql`
-    SELECT name, registration_number FROM companies WHERE id = ${companyId}::UUID
-  `) as Array<{ name: string | null; registration_number: string | null }>;
-  return rows[0] ?? { name: null, registration_number: null };
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -143,14 +136,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     // The registered name and number are printed on the statements' cover. Changing them is the
     // company's right while a document is out for signature, but it voids that signature — so
-    // warn when, and only when, one of them actually changed (the settings page PUTs the whole
-    // object on every save).
-    const before = await registeredIdentity(id);
-    const company = await updateCompany(id, updates);
-    const after = await registeredIdentity(id);
-    const warnings = before.name !== after.name || before.registration_number !== after.registration_number
-      ? await signingInvalidationWarnings(sql, id, 'the registered company name or number')
-      : [];
+    // the response warns for exactly the documents whose fingerprint the save changed (the
+    // settings page PUTs the whole object on every save, so most saves change nothing signed).
+    const { result: company, warnings } = await withSignatureImpactWarnings(sql, id, () => updateCompany(id, updates));
     return apiResponse.success(res, { ...company, warnings });
   }
 
