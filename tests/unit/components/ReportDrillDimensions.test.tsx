@@ -17,6 +17,17 @@ afterEach(cleanup);
 beforeEach(() => vi.mocked(apiFetch).mockReset());
 
 describe('report drill cost centre selection', () => {
+  it('offers a BU-scoped full ledger link that returns to the income statement', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => response({transactions: []}));
+    render(<AccountDrillDown accountCode="5000" {...dates} businessUnitId="bu-a"
+      source="is" returnTo="/accounting/reports/income-statement?period_start=2026-01-01" />);
+    const link = await screen.findByRole('link', {name:'Open full ledger'});
+    const href = new URL(link.getAttribute('href')!, 'http://localhost');
+    expect(href.searchParams.get('business_unit_id')).toBe('bu-a');
+    expect(href.searchParams.get('source')).toBe('is');
+    expect(href.searchParams.get('return_to')).toContain('/accounting/reports/income-statement');
+  });
+
   it('carries the business unit through transactions, evidence, account links and account detail', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => response({transactions: []}));
     const view = render(<AccountDrillDown accountCode="5000" {...dates} businessUnitId="bu-a" />);

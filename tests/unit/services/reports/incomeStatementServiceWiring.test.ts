@@ -101,6 +101,25 @@ describe('getIncomeStatement — the disclosure reaches the report', () => {
 });
 
 describe('getIncomeStatement — the new bands reach the report', () => {
+  it('applies the same business unit to current and comparative SQL', async () => {
+    sqlMock.mockResolvedValue([]);
+    const businessUnitId = '20000000-0000-4000-8000-000000000001';
+
+    const report = await getIncomeStatement(
+      'c-1',
+      '2026-01-01',
+      '2026-12-31',
+      { businessUnitId },
+      { start: '2025-01-01', end: '2025-12-31' },
+    );
+
+    expect(report.businessUnitId).toBe(businessUnitId);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+    for (const call of sqlMock.mock.calls) {
+      expect(call.slice(1)).toContain(businessUnitId);
+    }
+  });
+
   it('reports other income on its own line, outside turnover and outside gross profit', async () => {
     sqlMock.mockResolvedValue([
       glRow('4000', 'Sales', 'revenue', 'revenue', 0, 5000000),
