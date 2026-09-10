@@ -11064,6 +11064,39 @@
       "severity": "high",
       "source": "Raised by the R-058 round-3 blind reviewer from code; the un-awaited calls (upload.ts:173, inbound-email.ts:51) confirmed on origin/master by the orchestrating session, as is neon.ts:110 routing every sql call through als.getStore()?.client whenever one is present. Measured by probe-r075 on a master archive.",
       "processNotes": "Same class as K-226 (fire-and-forget on the request transaction), at a different site. Fix direction: run background work outside the request's ALS context (als.exit / a fresh context with its own pooled connection and its own company GUCs), or enqueue it. First step for the fixer: MEASURE which of the outcomes above actually occurs.\n\nFix constraint (measured): routeEvent is started BEFORE the request COMMITs, so wrapping it in als.exit alone never sees the uncommitted event. It must run after commit: an after-commit queue drained outside the request context, or a worker claiming status='received'. Also make neon.ts refuse a released client. K-226 is the same family, a different mechanism (already awaited and savepointed on master). Report: scratchpad probe-r075.md."
+    },
+    {
+      "id": "R-076",
+      "claim": "",
+      "area": "accounting/ap",
+      "affectedPaths": [
+        "tests/integration/supplierStatementBalances.int.test.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Test-only: production tables have deleted_at. But the file is red on master, so it no longer guards supplierStatementBalancesService, and every branch's integration run carries it as noise.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-053"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-071/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None; test fixture defect.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "supplierStatementBalances integration test fails on master: its shadow TEMP tables lack deleted_at, which the soft-delete predicates merged with K-053 now read",
+      "severity": "low",
+      "source": "Found by the K-071 round-20 blind reviewer: fails identically on a clean origin/master e86b10664 archive. Shadow tables confirmed on master by the orchestrator (test lines 17-21 create suppliers/supplier_invoices/supplier_payments/credit_notes TEMP tables with no deleted_at).",
+      "processNotes": "Fix: add deleted_at TIMESTAMPTZ to the shadow tables the service reads (or drive the test through the real schema). Measure which shadow tables the service's queries now filter on deleted_at before editing."
     }
   ],
   "sourceInventory": [
