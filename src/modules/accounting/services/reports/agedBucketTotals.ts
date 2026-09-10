@@ -15,9 +15,9 @@
  * and does no arithmetic of its own, so the notes cannot drift from the ageing
  * again. Same pattern as `reconciliation/agedReportTotal.ts`.
  *
- * `gross` adds back `disputed`: the AR service keeps open disputes OUT of the
- * buckets, but a disputed invoice is still receivable, and `gross` is what the
- * reports-ar-aging route totals.
+ * `gross` adds back `disputed`: the AR service keeps the disputes that were
+ * open AT the date out of the buckets, but a disputed invoice is still
+ * receivable, and `gross` is what the reports-ar-aging route totals.
  */
 
 import { getARAging } from '../ar/arAgingService';
@@ -36,7 +36,7 @@ export interface AgedBucketTotals {
   days90: number;
   /** 91+ days overdue. */
   days120Plus: number;
-  /** AR only: open disputes, held outside the buckets. Always 0 on AP. */
+  /** AR only: the disputes open at the date, held outside the buckets. Always 0 on AP. */
   disputed: number;
   /** Everything outstanding at the date: the five buckets plus `disputed`. */
   gross: number;

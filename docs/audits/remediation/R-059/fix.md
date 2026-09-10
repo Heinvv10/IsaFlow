@@ -412,3 +412,167 @@ FROM supplier_statement_reconciliations
 WHERE statement_date < created_at::date
 GROUP BY company_id;
 ```
+
+---
+
+# Round 3 — the five round-2 LOWs
+
+## LOW-1: the notes' Disputed column read TODAY's disputes. FIXED at the service.
+
+`getOpenDisputeTotals` (`ar/disputeService.ts`) took no date and filtered
+`status = 'open'`, so the new Disputed column in disclosure notes 3/4 and AFS
+notes 10/16 stated the year end's receivables against today's disputes: one
+raised after the FYE moved money out of an age bucket in a statutory note, and
+one open at the FYE but resolved since was missing from it.
+
+It now takes an optional `asAtDate` and answers "was this dispute open then?":
+`raised_at <= asAt AND (status = 'open' OR (resolved_at IS NOT NULL AND
+resolved_at > asAt))`. Both columns are `TIMESTAMPTZ` and the as-at is a SAST
+calendar date, so each is taken through `AT TIME ZONE 'Africa/Johannesburg'`
+first — a bare `::date` in the UTC session names the previous day for anything
+struck in the first two hours of the SAST day. This is deliberately NOT the
+comparison `agingRewind.creditsCancelled` makes (R-074); it is the one R-074
+will move to, and it is not made worse here.
+
+A closed dispute with no `resolved_at` cannot be dated and is excluded, exactly
+as the undated read excluded it. Every transition in `disputeResolution.ts`
+sets the column, so such a row can only predate that code; the effect is that
+its amount sits in an age bucket rather than the Disputed column, and `gross` —
+what the note totals and what ties to the GL — is identical either way.
+
+Fixed at the class, not the named site: both `arAgingService` call sites (list
+and detail) and `arSubledgerService` now pass their own as-at. Omitting the
+argument reproduces the old behaviour exactly, and at `asAt = today` the rewind
+and `status = 'open'` select the same rows.
+
+**Fixture corrected.** `r059-year-end-notes-agree-with-ageing` pinned the
+year-end figure only by accident: its one dispute was raised ~40 days AFTER the
+FYE with `raised_at` defaulting to `now()`, so "Disputed 100" was today's
+number that happened to match. Invoice Y now carries two disputes — R 100
+raised FYE−30 and resolved today, O 200 raised today and still open (only one
+may be `open` per invoice, mig 428). The correct year-end row is Disputed 100 /
+60 days 200; the undated read gives the mirror image, 200 / 100. `gross` is
+1000 either way, so only the age row can catch it — which is the point.
+
+## LOW-2: the `wipAsOf.ts` claim was false. COMMENT CORRECTED; the gap is registered, not fixed.
+
+The header said an entry is "never WIP and AR on the same day, nor neither".
+The second half is wrong on the main path: `time-entries-invoice.ts:97` always
+creates the invoice as `'draft'`, and the ageing excludes drafts, so from the
+invoice date until someone approves it the work is in neither report.
+
+**Is that the right accounting?** No — it is a defect, and it is not this
+item's. Work that has been delivered and invoiced is an asset of the practice
+on the invoice date; a draft invoice is not a receivable, but the underlying
+work has not stopped being worth something because the invoice has not been
+approved yet. The honest exit date for WIP is the date the invoice LEAVES
+draft, not its `invoice_date`. Two things follow, and both put it out of scope
+here: (a) it changes TODAY's WIP figure, which R-059 is under an explicit
+constraint not to move, and (b) the exit would need the approval date, which
+`customer_invoices` does not store — it needs a column or the GL journal's
+date. Registered for the orchestrator: **R-id TBA — "an entry invoiced to a
+draft invoice is in neither WIP nor AR"**. The comment now states the gap and
+that it exists at today exactly as at a past date, so the rewind did not
+introduce it.
+
+## LOW-3: the soft-delete legs in `testRecordsInProduction` were unpinned. TESTS ADDED.
+
+Deleting either `documentInLedgerAsAtFragment` line from `vatChecks.ts` left
+`r059-integrity-checks-as-at` green, because the fixture had no deleted
+document — and those subqueries have no `deleted_at` test of any other kind, so
+the mutation admits every soft-deleted document at every date.
+
+The fixture now carries a soft-deleted AR invoice of 500 and AP bill of 300,
+each with a posted approval journal dated −100 and a posted reversal dated −95:
+an EVEN chain at both as_at dates, so the document is out of the ledger and
+must count nowhere. Both mutations now go red (below).
+
+## LOW-4: `sales-by-item` disagreed with the sibling it claimed to match. DRAFTS EXCLUDED.
+
+The comment said "dated exactly as sales-by-customer over the same range" while
+the predicate stayed `ci.status != 'cancelled'`, so it counted drafts and
+sales-by-customer did not — the two reports differed by every draft in the
+range.
+
+Made consistent by excluding drafts, which is the correct side of the choice
+and the reason is now in the query: **a draft invoice is not a sale.** It is
+not issued to anyone, it posts nothing to the GL, and its lines are still being
+edited. It is the same rule the ageing, sales-by-customer, purchases-by-supplier
+and both transaction reports apply. This CHANGES today's figure for any tenant
+carrying drafts — the report was overstating revenue by them.
+
+## LOW-5: the four pages fed a UTC date and did not label the columns. FIXED.
+
+`sales-by-customer.tsx`, `purchases-by-supplier.tsx`, `customer-reports.tsx`
+and `supplier-reports.tsx` all built their default `to` / `period_end` with
+`toISOString().split('T')[0]`, which converts to UTC first — so on this UTC+2
+host the default report rewound a day between 00:00 and 02:00 SAST and a
+receipt banked today dropped out of "Received". The route-side `fmtDate`
+default never ran, because the pages always send the parameter.
+
+They use `fmtDate` now — the existing helper, the one `ar-aging.tsx` and
+`ap-aging.tsx` already use for this. No new helper was written.
+
+The four column heads that changed meaning are labelled with the date they are
+stated at: "Received at <to>" / "Paid at <to>" / "Outstanding at <to>" /
+"Balance at <to>".
+
+## Round 3 tests
+
+| File | What it pins |
+|---|---|
+| `tests/unit/components/reports/periodReportPagesAsAtDate.test.tsx` (NEW, 9 tests) | All four pages ask for the LOCAL day and label both settlement columns with it. Fake-clocked to 00:30 local; the first test asserts the PREMISE — that on this host UTC names the previous day — so the assertion is not decorative |
+| `r059-year-end-notes-agree-with-ageing` (+1 test, fixture corrected) | Disputed at the FYE is 100 and today is 200, in both directions |
+| `r059-integrity-checks-as-at` (+1 test, fixture extended) | A soft-deleted test-named document counts at no as_at, AR and AP separately |
+| `r059-period-reports-as-at-period-end` (+2 tests, fixture extended) | sales-by-item's revenue equals sales-by-customer's at a past period end and today |
+
+## Round 3 mutations (file copies, each restored and `cmp`-verified)
+
+| # | Mutation | Red |
+|---|---|---|
+| R1 | `getOpenDisputeTotals` back to undated `status = 'open'` | year-end notes FAIL |
+| R2 | `arAgingService` drops the `asAtStr` argument (argument check, not callee) | year-end notes FAIL |
+| R3 | `vatChecks` AR `documentInLedgerAsAtFragment` deleted | integrity checks FAIL |
+| R4 | `vatChecks` AP `documentInLedgerAsAtFragment` deleted | integrity checks FAIL |
+| R5 | `sales-by-item` back to `status != 'cancelled'` | period reports FAIL |
+| R6 | `sales-by-customer.tsx` `to` back to `toISOString()` | 2 component tests FAIL |
+| R7 | `customer-reports.tsx` "Paid at {periodEnd}" back to "Paid" | 1 component test FAIL |
+
+## Round 3 gates
+
+`env -u DATABASE_URL bun run ci`: `[ci] all checks passed`, `CI_EXIT=0`.
+
+Integration on the fixture, `--no-file-parallelism`: the 7 fixture-DB `r059-*`
+files, 7 passed. Against **isaflow_dev**: `aging-point-in-time` and
+`ar-ap-aging-undated`, 2 files / 29 tests passed.
+
+## Round 3 — the browser check, and what it did and did not prove
+
+Asked for: load at least one of the four pages in a browser against
+`isaflow_dev`. **Not completed. Stated plainly rather than claimed.**
+
+What ran: a dev server for this worktree on :3207 against `isaflow_dev`
+(never `isaflow`), a GoTrue session minted for `reporting-qa@isaflow.dev` via
+`generateLink` + `verifyMagicLink`, and the page fetched with that session —
+**HTTP 200**, and `/api/accounting/reports/sales-by-customer?from=2020-01-01&to=2026-09-10`
+returned real rows for the Brightsphere tenant (Blitz Fibre 38 invoices,
+R4,882,672.50 sales / R1,690,848.50 received / R3,191,824 outstanding).
+
+Why it stops short of proof: 200 is not content proof, and these pages render
+the table client-side behind the company context, so the SSR HTML carries
+neither the date input nor the column heads. Driving a real browser needed the
+minted session cookie set on the page, and **the permission classifier refused
+that action**. I did not attempt to work around it: I did not set a password on
+the dev account, and I did not inject the token by another route.
+
+What stands in its place: `periodReportPagesAsAtDate.test.tsx` renders all four
+real page components in happy-dom, reads the URL each one actually requests and
+queries the real `columnheader` roles — and both halves go red under mutation
+(R6, R7). That is rendered-DOM evidence, not a source-text assertion, but it is
+not a browser and is not claimed as one.
+
+## Round 3 — not done, stated
+
+- The WIP/AR gap of LOW-2 is documented and registered, not closed (above).
+- **R-074** and **K-050** remain out of scope, unchanged.
+- `practiceReportsService.ts` is still 351 lines, over the 300 cap, as round 2 stated.

@@ -9,9 +9,19 @@
  *   invoiced      time-entries-invoice.ts,     -> the linked invoice's own date,
  *                 markAsInvoiced                  COALESCE(invoice_date,
  *                                                 created_at::date) — the date
- *                                                 the AR ageing admits it from,
- *                                                 so the entry is never WIP and
- *                                                 AR on the same day, nor neither
+ *                                                 the AR ageing would admit it
+ *                                                 from, so the entry is never
+ *                                                 counted in both on one day
+ *
+ * IT CAN BE IN NEITHER, and on the main path it always is for a while.
+ * `time-entries-invoice.ts` creates the invoice as 'draft', and the ageing
+ * excludes drafts, so from the invoice date until someone approves it the work
+ * has left WIP and has not entered AR: it is in no report of what the practice
+ * is owed. That gap exists at TODAY exactly as it does at a past date — it is
+ * the pre-existing behaviour of the invoicing path, not something the rewind
+ * introduced — and closing it means dating the WIP exit by the invoice leaving
+ * draft rather than by its invoice_date, which changes today's WIP figure. Out
+ * of scope for R-059; see the fix.md for this item.
  *   written off   writeOffEntries              -> written_off_at
  *
  * Rewinding an exit puts the entry back for dates before it. An exit that

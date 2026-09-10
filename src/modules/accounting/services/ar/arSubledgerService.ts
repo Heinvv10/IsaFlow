@@ -123,9 +123,12 @@ export async function getARSubledger(
       return { ...doc, balance: -doc.balance };
     });
 
+    // As at the reporting date, like every balance above it (R-059): a
+    // dispute raised after asAtDate was not in force on it.
     const disputes = await getOpenDisputeTotals(
       companyId,
       documents.map((d) => d.id),
+      asAtDate,
     );
 
     return {

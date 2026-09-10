@@ -17,6 +17,14 @@
  *   as_at −70: null-due-date 1 invoice / 1000; test records 1000 + 400
  *   as_at today: 0 / 0; test records 0
  * Before the fix: −70 gave 0 / 0 and 200 + 80; today gave 0 and 200 + 80.
+ *
+ * ROUND 3 (LOW-3) adds the soft-delete leg, which nothing pinned: deleting
+ * either `documentInLedgerAsAtFragment` line from testRecordsInProduction left
+ * the file green. A soft-deleted AR invoice of 500 and AP bill of 300 are
+ * added, each with a posted approval journal and a posted reversal, both dated
+ * −95 — an EVEN chain at every as_at here, so the document is out of the
+ * ledger and must count nowhere. Without the fragment the subquery has no
+ * deleted_at test of any kind, so each amount reappears at BOTH dates.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -81,6 +89,41 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
       RETURNING id`) as { id: string }[];
     await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
               VALUES (${sp!.id}::UUID, ${bill!.id}::UUID, 400)`;
+
+    // The soft-deleted pair. The chain is built directly because no service
+    // can post a reversal into a fixture this thin; the fragment walks
+    // gl_journal_entries only, so no lines are needed.
+    for (const [kind, table, amount] of [
+      ['AR', 'customer_invoices', 500],
+      ['AP', 'supplier_invoices', 300],
+    ] as const) {
+      const original = randomUUID();
+      const reversal = randomUUID();
+      await sql`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, created_by)
+                VALUES (${original}::UUID, ${COMPANY}::UUID, ${'JE-' + TAG + kind}, ${shift(-100)}::date,
+                  ${'approval ' + TAG}, 'posted', ${USER}::UUID)`;
+      await sql`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, reversal_of_id, created_by)
+                VALUES (${reversal}::UUID, ${COMPANY}::UUID, ${'JE-' + TAG + kind + 'R'}, ${shift(-95)}::date,
+                  ${'delete reversal ' + TAG}, 'posted', ${original}::UUID, ${USER}::UUID)`;
+      const id = kind === 'AR'
+        ? ((await sql`
+            INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
+              due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by,
+              gl_journal_entry_id)
+            VALUES (${COMPANY}::UUID, ${cu!.id}::UUID, ${cu!.id}::UUID, ${TAG + '-XDEL'}, ${shift(-100)}::date,
+              ${shift(-90)}::date, 'approved', ${amount}, 0, 0, ${amount}, 0, ${USER}::UUID, ${original}::UUID)
+            RETURNING id`) as { id: string }[])[0]!.id
+        : ((await sql`
+            INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
+              status, subtotal, tax_amount, total_amount, amount_paid, created_by, gl_journal_entry_id)
+            VALUES (${COMPANY}::UUID, ${su!.id}::UUID, ${TAG + '-YDEL'}, ${shift(-100)}::date, ${shift(-90)}::date,
+              'approved', ${amount}, 0, ${amount}, 0, ${USER}::UUID, ${original}::UUID)
+            RETURNING id`) as { id: string }[])[0]!.id;
+      await sql.unsafe(
+        `UPDATE ${table} SET deleted_at = NOW() WHERE id = $1::UUID AND company_id = $2::UUID`,
+        [id, COMPANY],
+      );
+    }
   }, 120000);
 
   afterAll(async () => {
@@ -90,6 +133,8 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
     await sql`DELETE FROM supplier_payments WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM gl_journal_entries WHERE company_id = ${COMPANY}::UUID AND reversal_of_id IS NOT NULL`;
+    await sql`DELETE FROM gl_journal_entries WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM customers WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
@@ -119,5 +164,26 @@ describeIfDb('R-059 integrity checks read the ageing at their as_at', () => {
     const r = await testRecordsInProduction(ctx(TODAY));
     expect(r.count).toBe(2);
     expect(r.amount).toBeCloseTo(0, 2);
+  });
+
+  // The soft-deleted pair is unpaid and raised before both dates, so the ONLY
+  // thing keeping its 500 + 300 out of either figure above is the ledger-parity
+  // fragment on each of the two legs. Asserted here as its own statement so a
+  // reader can see which mutation each number belongs to.
+  it('a soft-deleted test-named document is out of the figure at every as_at', async () => {
+    const [past, today] = await Promise.all([
+      testRecordsInProduction(ctx(PAST)),
+      testRecordsInProduction(ctx(TODAY)),
+    ]);
+    // AR would add 500, AP 300; both legs gone would add 800.
+    expect(past.amount).toBeCloseTo(1400, 2);
+    expect(today.amount).toBeCloseTo(0, 2);
+    const deleted = (await sql`
+      SELECT (SELECT COUNT(*)::INT FROM customer_invoices
+              WHERE company_id = ${COMPANY}::UUID AND deleted_at IS NOT NULL) AS ar,
+             (SELECT COUNT(*)::INT FROM supplier_invoices
+              WHERE company_id = ${COMPANY}::UUID AND deleted_at IS NOT NULL) AS ap
+    `) as { ar: number; ap: number }[];
+    expect(deleted[0]).toEqual({ ar: 1, ap: 1 });
   });
 });
