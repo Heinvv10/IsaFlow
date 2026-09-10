@@ -1,9 +1,10 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { mockUnsafe } from '../../helpers/sqlFragmentMock';
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: mockUnsafe }) }));
 import { sql } from '@/lib/neon';
 import handler from '../../../../../pages/api/accounting/supplier-statement-detail';
 const supplierId = '8feca858-a00a-41ff-b71d-2b77d0dcfaa5';

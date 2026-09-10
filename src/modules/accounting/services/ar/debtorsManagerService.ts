@@ -9,6 +9,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type Row = DbRow;
 
@@ -119,6 +120,7 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
+        AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
@@ -166,6 +168,7 @@ export async function getDebtorDetail(companyId: string, clientId: string): Prom
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
+        AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       ORDER BY ci.due_date ASC NULLS LAST, ci.invoice_date ASC
@@ -218,6 +221,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
+        AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
         AND ci.due_date IS NOT NULL
         AND ci.due_date < CURRENT_DATE
         AND (CURRENT_DATE - ci.due_date) >= ${minDays}
@@ -266,6 +270,7 @@ export async function getCollectionStats(companyId: string): Promise<CollectionS
         COUNT(CASE WHEN ci.due_date < CURRENT_DATE THEN 1 END)::int      AS overdue_count
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
+        AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
     `) as Row[];
@@ -276,6 +281,7 @@ export async function getCollectionStats(companyId: string): Promise<CollectionS
         SUM(COALESCE(ci.amount_paid, 0)) AS collected
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
+        AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
         AND ci.status NOT IN ('draft', 'cancelled')
     `) as Row[];
 

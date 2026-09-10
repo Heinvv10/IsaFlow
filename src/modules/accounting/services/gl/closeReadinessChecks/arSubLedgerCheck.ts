@@ -14,6 +14,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ChecklistItem } from '../periodCloseReadinessService';
+import { documentInLedgerAsAtFragment } from '../../shared/softDeleteLedgerPresence';
 
 type Row = DbRow;
 
@@ -35,6 +36,16 @@ export async function arSubLedgerCheck(
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}::UUID
       AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+      -- K-053: a soft-deleted invoice belongs on this side of the comparison
+      -- exactly when it is still on the OTHER side, AS AT THE SAME DATE. The
+      -- GL half below is bounded by entry_date <= endDate, and the delete's
+      -- reversal is dated TODAY whenever the invoice's own period is closed,
+      -- so an undated exclusion here fails the check by the whole document
+      -- amount for every period between the invoice and the delete. The
+      -- reversal-chain parity in shared/softDeleteLedgerPresence answers the
+      -- dated question, and covers documents deleted BEFORE this change (whose
+      -- journal is still standing) with no historical repair.
+      AND ${documentInLedgerAsAtFragment('ci', period.endDate, companyId)}
       AND ci.invoice_date <= ${period.endDate}::date
   `) as Row[];
 
