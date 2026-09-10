@@ -6,7 +6,7 @@
 // mandatory section is still signed off. Anything else is a signature over content the database no longer holds, so it is
 // refused, the reason recorded, and the document handed back for a fresh send.
 import { log } from '@/lib/logger';
-import { asLockTimeout } from './afsSectionAttestation';
+import type { BrandProfile } from './afsTypes';
 
 /** A tagged-template query: the request-bound `sql`, or a `withTransaction` tx. */
 export type Query = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
@@ -40,15 +40,44 @@ export async function documentContentFingerprint(
   companyId: string,
   documentId: string,
 ): Promise<{ fingerprint: string; digests: SigningInputDigests }> {
+  const { fingerprint, digests } = await snapshotRenderInputs(q, companyId, documentId);
+  return { fingerprint, digests };
+}
+
+/** What the send renders from: the values the fingerprint was taken over, in the same statement. */
+export interface RenderInputSnapshot {
+  fingerprint: string;
+  digests: SigningInputDigests;
+  companyName: string;
+  registrationNumber: string | null;
+  /** Null when the company has saved none: the render then uses DEFAULT_BRAND_PROFILE. */
+  brandProfile: BrandProfile | null;
+}
+
+/**
+ * Reads the company and brand inputs ONCE and fingerprints them in the SAME statement — one
+ * statement is one snapshot even under READ COMMITTED — and returns the values so the send
+ * renders from exactly what was fingerprinted, rather than letting the renderer re-read the
+ * tables. No lock is taken on the company or its branding: a later edit to either simply makes
+ * the webhook's recomputation differ, and the signature is refused, naming the input. (The
+ * document and its sections are held by the send's document lock, which every section write
+ * respects.)
+ */
+export async function snapshotRenderInputs(
+  q: Query,
+  companyId: string,
+  documentId: string,
+): Promise<RenderInputSnapshot> {
   const rows = (await q`
-      SELECT x.id, x.company_id, x.digests,
+      SELECT x.id, x.company_id, x.digests, x.company_name, x.company_registration, x.brand_row,
              encode(sha256(convert_to(jsonb_build_object('v', 3, 'inputs', x.digests)::text, 'UTF8')), 'hex') AS fingerprint
       FROM (
-        SELECT p.id, p.company_id,
+        SELECT p.id, p.company_id, p.company_name, p.company_registration, p.brand_row,
                jsonb_build_object('document', encode(sha256(convert_to(p.document_part::text, 'UTF8')), 'hex'), 'company', encode(sha256(convert_to(p.company_part::text, 'UTF8')), 'hex'),
                  'brand', encode(sha256(convert_to(p.brand_part::text, 'UTF8')), 'hex'), 'sections', encode(sha256(convert_to(p.sections_part::text, 'UTF8')), 'hex')) AS digests
         FROM (
           SELECT d.id, d.company_id,
+        c.name AS company_name, c.registration_number AS company_registration, to_jsonb(b) AS brand_row,
         jsonb_build_object(
           'fiscal_year', d.fiscal_year, 'period', d.period, 'document_type', d.document_type,
           'reporting_framework', d.reporting_framework, 'status', d.status) AS document_part,
@@ -76,7 +105,25 @@ export async function documentContentFingerprint(
   `) as Record<string, unknown>[];
   const row = rows[0];
   if (!row) throw new Error(`Cannot fingerprint AFS document ${documentId}: not found`);
-  return { fingerprint: String(row.fingerprint), digests: row.digests as SigningInputDigests };
+  const brand = row.brand_row as Record<string, unknown> | null;
+  return {
+    fingerprint: String(row.fingerprint),
+    digests: row.digests as SigningInputDigests,
+    companyName: String(row.company_name),
+    registrationNumber: (row.company_registration as string | null) ?? null,
+    brandProfile: brand === null ? null : {
+      id: brand.id as string,
+      companyId: brand.company_id as string,
+      logoUrl: (brand.logo_url as string | null) ?? null,
+      primaryColour: brand.primary_colour as string,
+      secondaryColour: brand.secondary_colour as string,
+      fontFamily: brand.font_family as BrandProfile['fontFamily'],
+      coverStyle: brand.cover_style as BrandProfile['coverStyle'],
+      reportFooterText: (brand.report_footer_text as string | null) ?? null,
+      createdAt: brand.created_at as string,
+      updatedAt: brand.updated_at as string,
+    },
+  };
 }
 
 /** Null when the document may be signed as it stands; otherwise why it may not. */
@@ -124,22 +171,6 @@ export async function signatureRefusalReason(
   return changed.length > 0
     ? `Changed after the document was sent for signature: ${changed.join('; ')}`
     : 'The statements changed after the document was sent for signature';
-}
-
-/**
- * Holds the company row and its brand profile (when it has one) against change for the rest of
- * the send. Company and brand edits are deliberately NOT refused while a document is out for
- * signature, so without this an edit could land between the render and the fingerprint and be
- * recorded as signed. A lock cannot stop a FIRST brand profile being inserted — the send
- * compares the fingerprint before and after the render for exactly that.
- */
-export async function lockRenderInputs(q: Query, companyId: string): Promise<void> {
-  try {
-    await q`SELECT id FROM companies WHERE id = ${companyId}::UUID FOR SHARE`;
-    await q`SELECT id FROM brand_profiles WHERE company_id = ${companyId}::UUID FOR SHARE`;
-  } catch (err) {
-    throw asLockTimeout(err, 'The company settings');
-  }
 }
 
 /** Documents of this company whose signature an edit to its settings or branding will void. */
