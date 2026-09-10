@@ -137,7 +137,9 @@ export async function runMcpReadAcceptance(env:NodeJS.ProcessEnv){
    (SELECT status FROM gl_journal_entries WHERE company_id=$1 AND id=$2) AS status,
    (SELECT scopes FROM personal_access_tokens WHERE company_id=$1 AND user_id=$3 AND id=$4) AS scopes`,[fixture.companyA,journal,fixture.u1.id,token.id]);
   if(proof.rows[0].effects!==0||proof.rows[0].approvals!==0||proof.rows[0].status!=='draft'||!same([...proof.rows[0].scopes].sort(),[...PAT_SCOPES].sort()))throw new Error('Read-only dynamic control changed effects or token scopes');
-  return{version:1,origin,fixtureRunId:fixture.runId,identityTools:['company_profile','list_companies'],dynamicRevocation:'verified',effects:0,
+  await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[fixture.companyA,fixture.u1.id]);
+  for(const name of ['company_profile','list_companies'])await client.expectedHttp(403,token.raw,{jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:{}}});
+  return{version:1,origin,fixtureRunId:fixture.runId,identityRevocation:'verified',identityTools:['company_profile','list_companies'],dynamicRevocation:'verified',effects:0,
    defaultRead:{tool:'list_gl_accounts',defaultRows:200,total:201,includingInactive:202,numericStringRows:3},
    limitations:['Draft journal and accounts are synthetic source fixtures, not controlled creation/posting proof','Dynamic refusal is a generic public handler envelope with successful before/after controls','No financial execution or production verification']};
  }finally{await pool.end();}
