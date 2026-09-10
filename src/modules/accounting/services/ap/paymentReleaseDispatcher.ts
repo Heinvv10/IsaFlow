@@ -108,14 +108,19 @@ async function recordFailedDispatch(identity:Identity,intentId:string,action:str
  const reason=provider?`${detail} after provider outcome ${provider.state} (${provider.code})`:detail;
  try{
   await transaction(identity,async ctx=>{
-   // LAST-RESORT BUDGET. recordCommittedChange writes control_entity_versions, and
-   // withInvoiceMatchSourceLocks holds LOCK TABLE control_entity_versions IN SHARE ROW EXCLUSIVE from
-   // the moment it is taken until that transaction COMMITs — its own lock_timeout bounds acquisition
-   // only, and it then runs a full three-way-match materialization with no upper bound. So the wait
-   // here is the holder's whole transaction, against the dispatch pool's 5s statement_timeout. A 30s
-   // tail on the observer of an already-failed dispatch is far cheaper than losing the forensic
-   // record of a payment that may already have left; the success path never reaches this function.
-   await ctx.sql`SET LOCAL statement_timeout='30000ms'`;
+   // NO LONGER BUDGET THAN THE POOL'S, deliberately. recordCommittedChange writes
+   // control_entity_versions, and withInvoiceMatchSourceLocks holds LOCK TABLE control_entity_versions
+   // IN SHARE ROW EXCLUSIVE from the moment it is taken until that transaction COMMITs — its own
+   // lock_timeout bounds acquisition only, and it then runs a full three-way-match materialization
+   // with no upper bound — so the wait here is the holder's whole transaction. The dispatch pool sets
+   // statement_timeout 5s BELOW query_timeout 6s, and that ordering is load-bearing: the server cancels
+   // the statement first, so transaction()'s ROLLBACK runs and the connection returns to the pool
+   // clean. query_timeout is a client-side pg timer that never cancels the server; raising
+   // statement_timeout past it lets the client give up at 6s while the INSERT keeps waiting, the
+   // ROLLBACK queues behind it on its own timer, and a connection still holding this transaction, the
+   // outbox FOR UPDATE lock and this tenant's role and claims goes back to a max:2 pool for the next
+   // borrower. A longer wait is also wrong in itself: this transaction holds the outbox FOR UPDATE, so
+   // it would stall a winner's completePaymentRelease and strand an accepted payment in 'attempting'.
    // FOR UPDATE, so a concurrent claim cannot advance the row between this read and the record.
    const [outbox]=await ctx.sql`SELECT *,intent_id AS id FROM control_payment_release_outbox
     WHERE company_id=${ctx.principal.companyId}::uuid AND intent_id=${intentId}::uuid FOR UPDATE` as Array<Record<string,unknown>>;
@@ -126,10 +131,13 @@ async function recordFailedDispatch(identity:Identity,intentId:string,action:str
   // KNOWN DEGRADATION, deliberately loud. This transaction takes the outbox row lock before the
   // version table, the same order claimPaymentRelease takes them and an order
   // withInvoiceMatchSourceLocks cannot invert because it never touches the outbox, so there is no
-  // deadlock cycle — but the version-table wait above can still exhaust even the 30s budget. An
-  // operator greps 57014 (statement_timeout), not 55P03: the dispatch pool sets no lock_timeout.
-  // Closing the window properly needs an append-only release-event table with no version lineage,
-  // which is a migration this change does not carry; until then the loss is reported, never silent.
+  // deadlock cycle — but the version-table wait above can outlast the pool's budget and lose the
+  // record. What an operator greps for depends on which timer fires: the server's 5s
+  // statement_timeout rejects with code 57014 and leaves the connection clean, while the pool's 6s
+  // client query_timeout rejects with Error('Query read timeout') and code null. Never 55P03: the
+  // pool sets no lock_timeout. Closing the window properly needs an append-only release-event table
+  // with no version lineage — a migration this change does not carry, and the recorded follow-up.
+  // Until then the loss is reported, never silent.
   log.error('Release dispatch failure could not be recorded; queued release requires reconciliation',
    {intentId,action,reason,error:recordError instanceof Error?recordError.message:'unknown',
     code:typeof (recordError as {code?:unknown})?.code==='string'?(recordError as {code:string}).code:null},'payment-release');
