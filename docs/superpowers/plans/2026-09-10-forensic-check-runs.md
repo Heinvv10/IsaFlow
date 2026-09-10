@@ -1,4 +1,4 @@
-# Plan v5: minimal vertical slice — measurement spike, then journal_risk_checks
+# Plan v6: minimal vertical slice — measurement spike, then journal_risk_checks
 
 Status: v5. Narrowed after three independent adversarial reviews rejected the whole-system designs
 (v1 c47c7e246, v2 3e4c0aaa7, v3 fcd86380a). Verified at `fcd86380a`. Spec `c76b9706`.
@@ -303,3 +303,204 @@ release, while a legacy unit still gets 65 s / 8 GiB; (5) the claim transaction'
 observed at ≤5 s while the work transaction gets the class deadline; (6) cross-process concurrency — a
 snapshot job completes in a second unit while a check-run unit sleeps; (7) an out-of-class kind is not
 claimed; (8) the reply union round-trips the new variant and rejects malformed replies.
+
+
+---
+
+# v6 amendments (after the v5 review — ACCEPT WITH CHANGES; spike folded in)
+
+v5 was accepted with changes: nothing needed redesign, but T2 could not execute until the worker-class
+blocker was written in. These amendments supersede any conflicting earlier text. The T1 spike is complete
+with a GO (`62096e9d2:docs/superpowers/plans/forensic-evidence/check-run-spike-100k.json`): 100k journals
+in ~102–116 s of a 600 s budget. Verified at `62096e9d2`. Next free migration prefix: **680, provisional** —
+674 is K-091, 675–677 belong to the platform-import branch, 678–679 to the control-intent branch.
+
+## Review response
+
+| # | v5 finding | Disposition |
+|---|---|---|
+| 1 | The worker child cannot learn its kind class, so it would run the legacy path and claim any kind | A10 |
+| 2 | 65 s and 4 GiB hardcoded in the parent; no written timing order | A11 |
+| 3 | `systemctl show` prints human time spans on this host | A12 |
+| 4 | Gates not run by `bun run ci`; timeouts; informational naming gate; parallel deadlocks | A13 |
+| 5 | The seam cannot reach the oracle; limits would leak into `sourceHash` | A14 |
+| 6 | Gate c0 cannot pass as written | A15 |
+| 7 | The adapter copies detector logic | A16 |
+| 8 | Keep the changes LATERAL whole in the cursor (the spike agrees: 94% of wall) | A17 |
+| 9 | Two shared constraints; stale prefix premise | A18 |
+| 10 | Return the SQL slab tuple as columns | A19 |
+| 11 | §2.4 omissions and stale exclusions | A20 |
+| 12 | Resource-limit `unknown` row semantics | A21 |
+| 13 | Owned-file additions | A22 |
+| 14 | Per-class idle timeout | A23 |
+
+Spike conditions folded in: lease = `maxRuntimeMs + graceMs` at claim (A11); a class-specific `RuntimeMaxSec`
+(A10/A11); permission asserted once before the cursor (A16); `SET LOCAL work_mem='64MB'` (A17); change facts
+fetched with the cursor row (A17).
+
+## A10 Worker class propagation and fail-closed claiming
+
+- `AuditProcessConfig` (`auditJobProcessContract.ts:10`) gains `workerClass: 'audit' | 'check_run'`, frozen
+  with the rest (`auditJobProcess.ts:14`).
+- `auditProcessArguments(config, unitName)` appends the literal
+  `--setenv=ISAFLOW_AUDIT_WORKER_CLASS=${config.workerClass}`. The name is NOT added to `AUDIT_PROCESS_ENV`,
+  so it can never be inherited from the parent environment.
+- `scripts/forensic/run-audit-job.ts` validates the variable against the enum, exits non-zero with a bounded
+  diagnostic when it is missing or invalid, and calls `runAuditJob(identity, {pool, signal, workerClass})`.
+- `runAuditJob` requires `workerClass`. `claimAuditJobForWorker(store, id, allowedKinds)` compares the intent
+  kind read at `auditJobLease.ts:35` against the class's kind set (`audit` → snapshot/export/compare;
+  `check_run` → `audit_check_run`) and returns null BEFORE `claimPendingJob`, so the row is untouched.
+- The parent rejects any decoded success variant not permitted for `config.workerClass` (`WORKER_ERROR`,
+  `invalid=true`).
+- **Gate A10-G1:** a legacy-class unit handed a queued `audit_check_run` job returns `not_claimed` and the
+  job row (state, attempts, generation, lease columns, updated_at) is byte-identical before and after; the
+  converse holds for a check-run unit handed a snapshot job. **Gate A10-G2:** a child started without the
+  variable fails closed with no claim.
+
+## A11 Class-derived timers, heap and the written ordering
+
+| | `audit` (unchanged) | `check_run` (spike-derived) |
+|---|---|---|
+| work deadline | 60 000 runner / 65 000 parent | **300 000** (≈116 s measured; 2.6× the worst clean run) |
+| lease grace | n/a (90 s lease) | **30 000** (reclaim ≤119 ms; post-stream work 1–3 s) |
+| claim deadline | 5 000 | **5 000** |
+| unknown-publication budget | n/a | **10 000** |
+| failure-record bound (`auditJobRunner.ts:81`) | 5 000 | 5 000 |
+| parent SIGTERM (`auditJobProcess.ts:38`) | 65 000 | **325 000** |
+| killGraceMs (`:39`) | 2 000 | 2 000 |
+| systemd `RuntimeMaxSec` | 65 s | **340 s** |
+| `MemoryMax` / `--max-old-space-size` | 8 GiB / 4096 | **2 GiB / 1536** (+57–61 MB RSS at 100k findings) |
+| `idle_in_transaction_session_timeout` | unset | **15 000** (A23) |
+
+The ordering is enforced by a unit test over this table:
+`claim 5 + work 300 + unknown 10 + failure record 5 = 320 s < parent SIGTERM 325 s ≤ RuntimeMaxSec 340 − killGrace 2`,
+and `lease = 300 + 30 = 330 s ≥ 320 s`. `createIsolatedAuditJobRunner` derives its timer, hard kill, heap,
+`MemoryMax` and `RuntimeMaxSec` from `AUDIT_PROCESS_LIMITS[config.workerClass]`.
+**Gate A11-G1:** a check-run child that deliberately runs 130 s completes and publishes; a legacy child still
+dies at 65 s (existing `auditJobProcess.int.test.ts` behaviour preserved).
+
+## A12 Reading the unit's real caps before identity release
+
+Read `RuntimeMaxUSec` through `busctl --user get-property org.freedesktop.systemd1
+/org/freedesktop/systemd1/unit/<escaped unit> org.freedesktop.systemd1.Service RuntimeMaxUSec`, parsing the
+raw `t <integer>` reply; `MemoryMax` keeps coming from `systemctl show`, which prints bytes as an integer. A
+fallback `parseSystemdTimeSpan(text)` is unit-tested against real strings captured on this host (`"1min 30s"`,
+`"5min 40s"`, `"45s"`, `"infinity"`, `"2h 3min 4.500s"`). The readiness loop releases the identity only when
+`RuntimeMaxUSec`, `MemoryMax` and `MemorySwapMax='0'` all equal the class limits; otherwise it terminates.
+**Gate A12-G1:** a real transient unit for each class reports the expected values, and a unit started with a
+wrong `RuntimeMaxSec` is refused before the identity is written.
+
+## A13 Running the gates
+
+T2f runs `DATABASE_URL=<isaflow_test> bun run ci` (the integration step at `scripts/ci/run-ci.sh:42-46`) and
+then the controls suite with `--no-file-parallelism`, because parallel files deadlock on the shared fixture
+database. Long gates carry explicit per-test timeouts and opt-in variables: the 3× lease gate (400 s,
+`ISAFLOW_CHECK_RUN_LONG_GATES=1`), the 100k scale run (900 s, reusing the `ISAFLOW_AUDIT_SCALE_OPT_IN`
+conventions of `auditJobScale.int.test.ts:38-39`), and the lease-boundary and 130 s gates (300 s). The prefix
+rescan is recorded manually in the ledger, because `audit-migration-naming.ts:4` only warns and exits 0.
+
+## A14 The seam reaches the oracle
+
+`JOURNAL_RISK_DEFAULT_LIMITS = Object.freeze({sourceFetch: 10001, sourceKeep: 10000})`;
+`loadJournalRiskPopulation(ctx, cutoff, limits = DEFAULT)` and `checkJournalRisks(ctx, options = {}, limits =
+DEFAULT)`, which still calls `riskOptions(options)` so the unknown-key check is untouched. The limits never
+enter the returned `source` object, since `sourceHash = riskHash(source)`. The threshold, change-facts and
+line-facts limits stay literals and are never raised.
+
+## A15 Gate c0 made passable
+
+A verbatim copy of the pre-seam `journalRiskQueries.ts` is vendored under
+`tests/integration/controls/journalRiskSeamReference/`, with its source SHA in the header. The test pins the
+clock with fake timers so `capturedAt` is fixed, runs both versions on the same live fixture in the same
+transaction, and compares full canonical JSON for every page cursor. Stated delta: production SQL changes from
+the literal `LIMIT 10001` to a bound parameter; the rows are identical, so `sourceHash` and fingerprints are
+identical, and the test asserts it.
+
+## A16 Shared pure functions, not copied logic
+
+Extract from `journalRiskChecks.ts` the missing-reasons loop (`:11-16`) as `journalRiskMissingReasons(row)`,
+the finding builder (`:18-21`) as `buildJournalRiskFinding(...)`, and the coverage constant (`:23`) as
+`JOURNAL_RISK_COVERAGE`; `checkJournalRisks` calls them (behaviour-neutral, covered by the existing unit test
+and A15). The adapter calls exactly these plus `analyseJournalRisks`, `riskAmountTotals` and `checkStatus`. A
+mutation test stubs each extracted function with a marker and asserts BOTH paths reflect it, so a private copy
+in either fails the test. Permission is asserted exactly once, before `DECLARE` (M5: per-row assertion would
+add ~17 minutes at 100k).
+
+## A17 The cursor keeps the changes LATERAL; per-transaction work_mem
+
+One shared builder `journalRiskPopulationSql({limits, slabTuple, orderBy})` produces both the sync query
+(`slabTuple: false`, `orderBy: 'id'`, `LIMIT ${sourceFetch}`) and the cursor body (`slabTuple: true`,
+`orderBy: 'slab'`, no LIMIT). Both the `lines` and `changes` LATERALs are kept whole, including their capped
+`facts` sub-selects (LIMIT 101), so a 1000-row fetch carries at most ~101k facts of each kind and there are no
+per-parent child queries; `maxChildrenPerParent` is removed. Before `DECLARE`, `SET LOCAL work_mem='64MB'` (M2:
+removes the ~17 MB external sort; no expression index, which the planner would not choose). Both
+`*_exceeds_100` markers are emitted by the shared `journalRiskMissingReasons`.
+
+## A18 Shared constraints and prefix
+
+Both `control_audit_jobs_result_check` and `control_audit_job_intents_kind_check` are root-coordinated shared
+objects. Migration 680 drops and re-adds both (the `662:2-3` / `668:2-8` pattern) and ends with a `DO` block
+asserting that the result-check definition names every `result_%_id` column found in
+`information_schema.columns` for `control_audit_jobs`, and that the kind-check names every kind in the contract
+(`audit_snapshot, audit_export, audit_compare, audit_check_run`); T2a repeats both assertions from the contract's
+exported list. Merge-time gate: a `git grep` across every local branch for `ADD CONSTRAINT
+control_audit_job(s|_intents)_(result|kind)_check` under `scripts/migrations/sql` must list only 662, 668 and
+680; any other hit blocks integration until root sequences it.
+
+## A19 SQL slab tuple columns
+
+With `slabTuple: true` the builder adds `slab_day`, `slab_person` and `slab_currency` (the same expressions as
+the ORDER BY). The adapter splits slabs on those three columns and strips them before calling the shared
+functions; `parts()` is not used for slab boundaries. With `slabTuple: false` they are absent, so the sync row
+shape and `sourceHash` are unchanged, which A15 depends on.
+
+## A20 §2.4, rewritten in place
+
+Asserted equal between the run and the seam oracle (paged via `collectSnapshotCheckPages` at limit 100):
+`checkId`, `checkVersion`, `cutoff`, `status`, `populationCount`, `excludedCount`, `findingCount`,
+`amountTotals`, `coverage`, `missingSources` (including both `*_exceeds_100` markers, the two policy markers,
+and every per-row reason), and per finding key `kind, severity, classification, message, entities, evidence`.
+Excluded, with reason: `sourceHash` and `sourceVersions` (framing differs; the run reports
+`sourceVersions: {available: false, reason: 'deferred_paged_source_versions', count}`), `capturedAt` and
+`nextCursor`. The oracle with raised source limits does not emit
+`async_scan_required:journal_population_exceeds_10000` either, so no vocabulary mapping remains. The order-key
+invariant stays one-directional and unit-tested. This supersedes v4 §2.4.
+
+## A21 Resource-limit `unknown` row
+
+Published in a fresh read-committed transaction under the same lease: `status='unknown'`, `finding_count=0`,
+`population_count` from a `count(*)` over the same predicate in that transaction (recorded as
+`populationCountBasis: 'recount_after_limit'` in the header), `excluded_count=0`, `snapshot_text` and
+`capture_xid` from that transaction, `missingSources=['resource_limit:<reason>']`, `amountTotals={}`. Table
+CHECK: `(status <> 'unknown') OR finding_count = 0`. The reader surfaces `populationCountBasis`.
+
+## A22 Owned-file additions
+
+`scripts/forensic/run-audit-job.ts`; `scripts/forensic/run-audit-worker.ts` (`--class`, strict `parseArgs` at
+`:9`); `src/lib/mcp/toolIndex.ts`; `src/lib/mcp/clientMetadata.ts` and its drift test; `src/lib/mcp/flowMetering.ts`
+(`TOOL_FLOW_OPERATIONS` at `:58` must name the three new tools) and its drift test; the `auditJobPoller.ts` strict
+schema (`kinds`); a new unit template `scripts/isaflow-audit-check-run-worker.service` (modelled on
+`scripts/isaflow-fraud-scan.service`, invoking `run-audit-worker.ts --class check_run`); `auditJobSystemd.ts`,
+`auditJobProcess.ts`, `auditJobProcessProtocol.ts`, `auditJobProcessContract.ts`; plus the v5 set. New or shared
+files are requested through root.
+
+## A23 Per-class idle timeout
+
+`withAuditWorkerTransaction` receives the class limits and sets `idle_in_transaction_session_timeout='15000ms'`
+only for `check_run`; legacy classes keep today's settings (`auditWorkerTransaction.ts:26-27`) unchanged. Gate:
+a legacy job's transaction reads the default (0) via `current_setting`; a check-run transaction reads 15 s.
+
+## Consolidated limits (`AUDIT_CHECK_RUN_LIMITS.journal_risk_checks`)
+
+`maxRuntimeMs 300000`, `graceMs 30000`, `idleMs 15000`, `fetchRows 1000`, `maxSlabRows 1000` (real slabs ≤6
+rows; `analyseJournalRisks` is quadratic per group), `maxFindings 100000` (measured at exactly 100k),
+`workMem '64MB'`. Thresholds follow the sync truncate-and-flag rule (LIMIT 101, keep 100, `missingPolicy`), so
+there is no threshold resource limit. `maxChildrenPerParent` is removed.
+
+## Gate additions to T2
+
+A10-G1/G2, A11-G1, A12-G1, the A13 timeouts and opt-ins, A15 c0 as rewritten, the A16 mutation test, an A17
+check that no per-row child query appears in the statement log (≈101 statements for 100k rows, M3-style), the
+A18 constraint assertions and merge grep, the A21 CHECK and the A23 setting check. T2e records the 100k run
+under the real check-run unit with `RuntimeMaxUSec` read back, closing the spike's caveat that no runtime cap
+was in force.
