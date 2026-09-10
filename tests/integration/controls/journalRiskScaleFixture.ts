@@ -21,7 +21,7 @@ export interface ScaleCensus {journals:number;lines:number;changes:number;versio
 export const SCALE_CUTOFF='2026-09-09';
 export type ScaleProfile='mixed'|'quiet';
 export async function seedJournalRiskScale(pool:Pool,fixture:ForensicFixture,journals:number,profile:ScaleProfile='mixed'):Promise<ScaleCensus>{
- if(!Number.isSafeInteger(journals)||journals<1||journals>1500000)throw new Error('Bounded journal count required');
+ if(!Number.isSafeInteger(journals)||journals<1||journals>3200000)throw new Error('Bounded journal count required');
  const quiet=profile==='quiet';
  const started=Date.now(),company=fixture.companyA,creator=fixture.u1.id,account=randomUUID(),open=randomUUID(),closed=randomUUID(),evidence=randomUUID();
  const people=Array.from({length:50},()=>randomUUID()),client=await pool.connect();
