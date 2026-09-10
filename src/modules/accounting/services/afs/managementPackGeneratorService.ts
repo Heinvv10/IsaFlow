@@ -277,7 +277,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   }
 
   // reviewRequired is enforced above: a generated pack is always a draft awaiting review.
-  const finalStatus: 'draft' = 'draft';
+  const finalStatus = 'draft' as const;
 
   await sql`
     UPDATE afs_documents SET status = ${finalStatus}, updated_at = NOW()
