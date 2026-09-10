@@ -10251,7 +10251,7 @@
       "title": "The check-then-act posting class survives in AR payments, VAT adjustments and two DB number triggers with no unique index",
       "severity": "high",
       "source": "Inventory produced by the K-107 fixer in round 6, as its scoped hand-off; recorded 2026-09-10",
-      "processNotes": "K-107 fixed eight instances of this class across six modules and was then scoped to STOP and inventory the rest rather than keep absorbing a codebase-wide defect. The inventory is in docs/audits/remediation/K-107/fix.md. Headlines: (1) confirmCustomerPayment / cancelCustomerPayment are the unfixed AR twins of the supplier-payment defect -- HIGH, they post to the ledger. (2) approveVATAdjustment is byte-for-byte the adjustment shape already fixed -- HIGH. (3) generateJournalFromRecurring lacks company_id on its UPDATE -- a multi-tenant violation. (4) The DB triggers trg_cp_payment_number and trg_sp_payment_number mint MAX+1 with NO UNIQUE INDEX on either payments table -- the same shape as the stock-adjustment defect, on the two tables that carry money. This one is a database-level fix and needs its own ledger review. Related: R-043 (journal-entry-number trigger not concurrency-safe), R-044, R-045, R-047. Together these are one missing idiom applied inconsistently, not five bugs."
+      "processNotes": "K-107 fixed eight instances of this class across six modules and was then scoped to STOP and inventory the rest rather than keep absorbing a codebase-wide defect. The inventory is in docs/audits/remediation/K-107/fix.md. Headlines: (1) confirmCustomerPayment / cancelCustomerPayment are the unfixed AR twins of the supplier-payment defect -- HIGH, they post to the ledger. (2) approveVATAdjustment is byte-for-byte the adjustment shape already fixed -- HIGH. (3) generateJournalFromRecurring lacks company_id on its UPDATE -- a multi-tenant violation. (4) The DB triggers trg_cp_payment_number and trg_sp_payment_number mint MAX+1 with NO UNIQUE INDEX on either payments table -- the same shape as the stock-adjustment defect, on the two tables that carry money. This one is a database-level fix and needs its own ledger review. Related: R-043 (journal-entry-number trigger not concurrency-safe), R-044, R-045, R-047. Together these are one missing idiom applied inconsistently, not five bugs. UPDATE 2026-09-10 (K-107 r7 reviewer): the inventory itself was incomplete — its enumeration never walked services/payroll or services/loans. Two more live instances found there: payroll/taxDirectivePaymentService::applyTaxDirective (no unique index on tax_directive_payments) and payroll/uifDeclarationService::markUifDeclarationPaid (unpredicated UPDATE after posting). K-107 is fixing both and re-running the enumeration with the walked directories listed so coverage is auditable. The lesson generalises: that census was complete over the set it looked at, and the SET was the thing that was wrong. Any future sweep for this class must state which directories it walked."
     },
     {
       "id": "R-052",
@@ -10385,6 +10385,40 @@
       "severity": "high",
       "source": "Verified by the K-053 r7 blind reviewer (42703 measured); first spotted by the K-053 fixer; recorded 2026-09-10",
       "processNotes": "portalService selects `customer_invoices.total` and `customer_payments.amount` / `.reference` / `.customer_id` -- NONE of those columns exist on this schema. Both portal endpoints raise 42703 in production today. Verified by execution, not inference. This is the FIFTH never-worked feature this programme has found: validateMigration (R-050), the archive (R-053), ai-invoice-pipeline (R-054), and these two endpoints. Distinguishing feature: this one is CUSTOMER-FACING. The other four fail where only staff or a cron would notice; a customer opening a portal link gets an error. No test exercises either endpoint, which is why it survived. Note the correct column for an invoice's outstanding amount is total_amount - COALESCE(amount_paid,0) -- there is no balance_due and no total. Out of K-053's scope (that branch owns dated ledger presence, not the portal) so it gets its own item rather than being folded in. HEIN: worth knowing whether any customer has ever been sent a portal link."
+    },
+    {
+      "id": "R-056",
+      "claim": "",
+      "area": "accounting/afs",
+      "affectedPaths": [
+        "src/modules/accounting/services/afs/noteGenerators/notes16to20.ts",
+        "src/modules/accounting/services/afs/noteGenerators/notes26to30.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Published annual financial statements carry wrong figures, and note 27 drives the going-concern conclusion.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-091"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-091/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No data is wrong -- nothing is written. Every AFS pack ALREADY PRODUCED from a period containing a credit note, rebate or reversal shows overstated note figures that do not tie to the income statement. Any pack already issued to a lender, SARS or a shareholder is affected and may need reissuing. Scope must be established before Hein decides; do not query production from an agent.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "AFS notes 18, 19 and 27 overstate every band that contains a contra line: SUM(ABS(credit-debit)) applies ABS per LINE",
+      "severity": "high",
+      "source": "Found by the K-091 r5 blind reviewer; the shape independently confirmed on origin/master by the orchestrating session, 2026-09-10",
+      "processNotes": "`SUM(ABS(gjl.credit - gjl.debit))` applies ABS to each LINE before summing, so a contra line adds instead of subtracting. Correct is `ABS(SUM(...))` or a plain signed SUM. Confirmed present on origin/master at notes16to20.ts:125,163,173 and notes26to30.ts:82,85 -- i.e. deployed, not branch-introduced. Measured on the fixture: R100,000 sales less an R8,000 credit note prints R108,000 in note 18 while the income statement says R92,000; note 19 prints R4,000 vs R2,000; note 27 prints a 'profit of R 9 000,00' where net profit is R19,000. `bun run ci` passes all 15 gates at exit 0 because integration-tests self-skips without DATABASE_URL, so the gate cannot catch it. The code fix is in flight on K-091 r6; what needs Hein is the question of already-issued packs."
     }
   ],
   "sourceInventory": [
