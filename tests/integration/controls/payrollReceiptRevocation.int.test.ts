@@ -1,0 +1,110 @@
+import { afterAll,beforeAll,expect,it } from 'vitest';
+import { Pool } from 'pg';
+import { randomUUID,randomBytes } from 'node:crypto';
+import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstrap';
+import { provisionForensicFixture,validateFixtureTarget,type ForensicFixture } from '../forensic-fixture';
+import { withControlRequest,requireControlTx } from '@/modules/accounting/services/controls/context';
+import type { ControlTx,OperationRef } from '@/modules/accounting/services/controls/contracts';
+// A retried payroll posting must prove present approval authority, as the sibling
+// historical-import/bank-transfer receipts do through replayKnownOperationEffect.
+process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
+process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
+const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
+const pool=new Pool({connectionString:target.connectionString,ssl:false,max:3,statement_timeout:7000});
+let fixture:ForensicFixture;
+type Person={id:string;companyId:string};
+const u4:Person={id:randomUUID(),companyId:''};
+const employee=randomUUID(),component=randomUUID();
+const accounts=['5200','2140','2150','2160','1110','2175'].map(code=>({id:randomUUID(),code}));
+async function actor<T>(user:Person,fn:(ctx:ControlTx)=>Promise<T>):Promise<T>{
+  const client=await pool.connect();
+  try{
+    await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
+    const claims={sub:user.id,company_id:user.companyId,role:'authenticated'};
+    await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
+    const result=await withControlRequest({client,userId:user.id,companyId:user.companyId,claims},
+      {personId:user.id,companyId:user.companyId,authMethod:'cookie'},()=>fn(requireControlTx()));
+    const outcome=await client.query('COMMIT');if(outcome.command!=='COMMIT')throw new Error('Transaction did not commit');return result;
+  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
+beforeAll(async()=>{
+  fixture=await provisionForensicFixture(config);u4.companyId=fixture.companyA;
+  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'viewer',true)",[u4.id,`${u4.id}@forensic.invalid`]);
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')",[fixture.companyA,u4.id]);
+  await pool.query("UPDATE companies SET default_currency='ZAR',lockdown_enabled=false WHERE id=$1",[fixture.companyA]);
+  for(const account of accounts)await pool.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,is_active,level)
+    VALUES($1,$2,$3,'Synthetic payroll account',$4,$5,true,3)`,[account.id,fixture.companyA,account.code,account.code==='5200'?'expense':'liability',account.code==='5200'?'debit':'credit']);
+  await pool.query(`INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status)
+    VALUES($1,$2,'SYNTHETIC','Fixture','Payroll','2026-01-01','active')`,[employee,fixture.companyA]);
+  await pool.query(`INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type)
+    VALUES($1,$2,'Synthetic basic','3601','earning')`,[component,fixture.companyA]);
+  await pool.query(`INSERT INTO payroll_employee_components(id,employee_id,component_id,amount,effective_from)
+    VALUES($1,$2,$3,100,'2026-01-01')`,[randomUUID(),employee,component]);
+  await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
+    VALUES($1,$2,'Synthetic payroll policy','payroll_run','amount','any',0,'admin')`,[randomUUID(),fixture.companyA]);
+});
+afterAll(async()=>{await pool.end();});
+let nextMonth=0;
+async function calculatedRun(){
+  const month=++nextMonth,id=randomUUID(),end=new Date(Date.UTC(2026,month,0)).toISOString().slice(0,10);
+  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+    VALUES($1,$2,'Synthetic revocation period',$3,2026,$4,$5,'open')`,[randomUUID(),fixture.companyA,month,`2026-${String(month).padStart(2,'0')}-01`,end]);
+  await pool.query(`INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,$3,2026,'draft')`,[id,fixture.companyA,month]);
+  const {calculatePayrollRun}=await import('@/modules/accounting/services/payroll/payrollRunService');
+  await actor(fixture.u1,()=>calculatePayrollRun(id,fixture.companyA));
+  return {id,ref:{entityType:'payroll_run',entityId:id,operation:'payroll_run.post'} as OperationRef};
+}
+async function approve(ref:OperationRef,requester:Person,reviewer:Person){
+  const {requestOperationApproval,decideOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+  const request=await actor(requester,ctx=>requestOperationApproval(ctx,ref));
+  await actor(reviewer,ctx=>decideOperationApproval(ctx,request.id,'approved'));return request.id;
+}
+async function post(runId:string,approvalId?:string){
+  const {approvePayrollRun}=await import('@/modules/accounting/services/payroll/payrollApprovalService');
+  return actor(fixture.u1,()=>approvePayrollRun(fixture.companyA,runId,fixture.u1.id,approvalId?{approvalId}:undefined));
+}
+const settle=<T>(p:Promise<T>)=>p.then(value=>({ok:true as const,value}),(error:unknown)=>({ok:false as const,error:error instanceof Error?error.message:String(error)}));
+async function ledger(runId:string){
+  const journals=await pool.query(`SELECT id,status FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2 ORDER BY id`,[fixture.companyA,runId]);
+  const totals=await pool.query(`SELECT COALESCE(SUM(debit),0)::text AS debit,COALESCE(SUM(credit),0)::text AS credit,COUNT(*)::int AS lines FROM gl_journal_lines
+    WHERE company_id=$1 AND journal_entry_id IN(SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2)`,[fixture.companyA,runId]);
+  const effects=await pool.query(`SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='payroll_run.post'`,[fixture.companyA,runId]);
+  const events=await pool.query(`SELECT id FROM control_change_events WHERE company_id=$1 AND entity_id=$2 AND action='payroll_run.post'`,[fixture.companyA,runId]);
+  return {journals:journals.rows,totals:totals.rows[0],effects:effects.rows.length,events:events.rows.length};
+}
+async function withRole<T>(person:Person,role:string,fn:()=>Promise<T>):Promise<T>{
+  await pool.query('UPDATE company_users SET role=$3 WHERE company_id=$1 AND user_id=$2',[fixture.companyA,person.id,role]);
+  try{return await fn();}finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,person.id]);}
+}
+
+it('replays an unrevoked effected payroll posting exactly once on retry, with and without the approval id',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref,fixture.u1,fixture.u2);
+  const first=await post(current.id,approvalId),before=await ledger(current.id);
+  expect(before.journals).toEqual([{id:first.journalEntryId,status:'posted'}]);expect(before.effects).toBe(1);
+  expect(await post(current.id)).toEqual(first);
+  expect(await post(current.id,approvalId)).toEqual(first);
+  expect(await ledger(current.id)).toEqual(before);
+  expect(before.totals.debit).toBe(before.totals.credit);expect(Number(before.totals.debit)).toBeGreaterThan(0);
+});
+
+it('refuses a retried payroll posting after the independent reviewer is revoked, without a second GL effect',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref,fixture.u1,fixture.u2);
+  const first=await post(current.id,approvalId),before=await ledger(current.id);
+  const [withId,withoutId]=await withRole(fixture.u2,'viewer',async()=>[await settle(post(current.id,approvalId)),await settle(post(current.id))] as const);
+  expect(await ledger(current.id)).toEqual(before);
+  expect(before.journals).toEqual([{id:first.journalEntryId,status:'posted'}]);
+  // Kernel path (approval id supplied) is the sibling behaviour: the revoked reviewer voids replay.
+  expect(withId).toMatchObject({ok:false,error:expect.stringMatching(/no longer valid/)});
+  // Fresh retry of the same run must refuse too; a returned receipt here is the defect.
+  expect(withoutId,'fresh retry returned the stored receipt despite revoked reviewer').toMatchObject({ok:false});
+});
+
+it('refuses a retried payroll posting after the original requester is revoked, without a second GL effect',async()=>{
+  const current=await calculatedRun(),approvalId=await approve(current.ref,u4,fixture.u2);
+  const first=await post(current.id,approvalId),before=await ledger(current.id);
+  const [withId,withoutId]=await withRole(u4,'viewer',async()=>[await settle(post(current.id,approvalId)),await settle(post(current.id))] as const);
+  expect(await ledger(current.id)).toEqual(before);
+  expect(before.journals).toEqual([{id:first.journalEntryId,status:'posted'}]);
+  expect(withId).toMatchObject({ok:false,error:expect.stringMatching(/no longer valid/)});
+  expect(withoutId,'fresh retry returned the stored receipt despite revoked requester').toMatchObject({ok:false});
+});
