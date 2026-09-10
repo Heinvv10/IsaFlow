@@ -69,7 +69,7 @@ describe('platform import authority through actual admin middleware and PostgreS
   try{
    expect(['both_targets','serialized_authority_wait']).toContain(await f.waitForLockOverlap());
    f.releaseLock();
-   const responses=await Promise.all(requests);
+   const responses=await Promise.all(requests);expect(f.lockErrors).toEqual([]);
    for(const response of responses){expect(response.status).toBe(200);expect(response.body.caught,response.body.result?.message).toBe(false);}
   }finally{f.releaseLock();await Promise.allSettled(requests);}
  },15000);
