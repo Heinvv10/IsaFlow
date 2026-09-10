@@ -64,4 +64,15 @@ describe('journal analysis-dimension assignment policy', () => {
       'historical-copy',
     )).resolves.toBeUndefined();
   });
+
+  it('locks validated rows against concurrent deactivation until assignment commits', async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: CC1, cc_type: 'cc1', is_active: true }])
+      .mockResolvedValueOnce([{ id: BU, is_active: true }]);
+    await assertJournalAnalysisDimensions(COMPANY, line({ cc1Id: CC1, buId: BU }));
+    const statements = mockSql.mock.calls.map((call) =>
+      (call[0] as readonly string[]).join(' '));
+    expect(statements).toHaveLength(2);
+    expect(statements.every((statement) => /FOR SHARE/i.test(statement))).toBe(true);
+  });
 });
