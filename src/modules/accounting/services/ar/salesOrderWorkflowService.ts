@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSalesOrder } from './salesOrderService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 
 type Row = DbRow;
 
@@ -64,13 +65,13 @@ export async function convertSalesOrderToInvoice(
   // order pointing at only the second so the duplicate is invisible from the
   // order screen. The status-predicated UPDATE is the guard; the loser sees
   // zero rows and stops here, before the sequence is touched.
-  const claimed = (await sql`
+  const claimed = await claimUnderLockTimeout('sales order', async () => (await sql`
     UPDATE customer_sales_orders
     SET status = 'invoiced', invoiced_at = NOW(), updated_at = NOW()
     WHERE id = ${salesOrderId}::UUID AND company_id = ${companyId}::UUID
       AND status = 'confirmed'
     RETURNING id
-  `) as Row[];
+  `) as Row[]);
   if (claimed.length === 0) {
     // Re-read rather than trusting the row read before the UPDATE: the loser
     // needs the winner's invoice id, which did not exist then.

@@ -160,3 +160,78 @@ bunx tsc --noEmit -> clean. bunx eslint <11 changed src/pages files> -> clean.
 File sizes: recurringTransactionInvoices 176, recurringTemplateLines 132 (new),
 companySettingsService 266, quoteConvertService 221, salesOrderWorkflowService 135,
 documentNumberRetry 53 — all under 300. No migration this round.
+
+================================================================================
+ROUND 5 (R-044) — 2026-09-10
+================================================================================
+
+Integration (fixture DB isaflow_schema_fixture, migration 646 present, 666 applied as a
+no-op because K-060's uq_customer_quotes_company_quote_number already enforces the same
+column set):
+
+  bun run test:integration -- tests/integration/k1{07,20,21}-*.int.test.ts
+    Test Files  19 passed (19)
+    Tests       71 passed (71)
+
+Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+    Test Files  805 passed | 40 skipped (845)
+    Tests       9569 passed | 243 skipped (9812)   0 failed
+
+  Four pre-existing mocked unit files were updated for the production changes (this is
+  the failure the brief's addendum warns about — they were red before the update):
+    tests/unit/services/ap/batchPaymentService.test.ts    (claim adds one sql call)
+    tests/unit/services/ar/quoteService.test.ts           (reserve + withSavepoint)
+    tests/unit/services/customerInvoiceCreateRetry.test.ts(reserve moved module; the
+        23505 now needs the constraint name — a NEW case pins that a 23505 on a
+        DIFFERENT index does not renumber)
+    tests/unit/services/practice/practiceWipService.test.ts (lock stubbed, sequence)
+
+bunx tsc --noEmit                     clean
+bunx eslint <every changed src/pages> clean
+
+Migration 666, all three paths proven against the fixture DB inside rolled-back transactions:
+    no-op     NOTICE: uq_customer_quotes_company_quote_number already enforces ... nothing to do.
+    create    NOTICE: uq_customer_quotes_company_number created.   (index verified present)
+    refuse    ERROR:  Migration 666 refused: 1 duplicate (company_id, quote_number) group(s)
+              covering 2 quotes. ... company=999... quote_number='QUO-DUP' (2 quotes)
+
+Mutation proof — each applied ALONE (unless marked +) and restored:
+
+  M20  quoteService: back to the unscoped ORDER BY created_at DESC read
+       RED  3 failed | 2 passed   (k107-quote-number-tenant-scope)
+  M21  practiceWipService: lockTimeEntries removed
+       RED  1 failed | 4 passed   — "expected 'Expected to mark 1 time entries bille…'
+            to contain 'no eligible approved time entries'": the COUNT CHECK caught it
+  M22  practiceWipService: markEntriesBilled row count discarded
+       GREEN 5 passed  — unreachable behind the row lock (defence in depth)
+  M21+M22 both removed
+       RED  1 failed — "expected null to be an instance of Error": the loser SUCCEEDS,
+            i.e. the real double-bill. This is what proves the count check matters.
+  M23  time-entries route: lockTimeEntries removed
+       RED  1 failed | 3 passed
+  M24  time-entries route: claim predicate dropped
+       GREEN 5 passed  — same defence-in-depth position as M22
+  M23+M24 both removed
+       RED  1 failed — "expected 201 to be 400": the second POST bills again
+  M25  purchase-orders: back to COUNT(*)+1
+       RED  5 failed (5)
+  M26  projects: MAX -> COUNT
+       RED  3 failed | 2 passed
+  M27  supplier-returns: back to COUNT(*)+1
+       RED  1 failed | 4 passed
+  M28  documentClaimLock: lock_timeout '5s' -> '0'
+       RED  2 failed — both hung to the 30s test timeout
+  M29  companySettingsService: restore-before-throw removed
+       RED  1 failed | 1 passed — SHOW lock_timeout came back '5s'
+  M30  apiDocumentLock: respondIfLockTimeout returns false
+       RED  3 failed | 1 passed
+  M31  time-entries route: billed_at IS NULL dropped from the read
+       RED  1 failed — "expected 500 to be 400": the WIP-billed entry is accepted and
+            only the claim predicate then refuses it
+  M32  batchPaymentService: claim replaced by the old status READ
+       RED  2 failed | 2 passed   (two journals, amount_paid 2300 on a 1150 bill)
+  M33  itemService: MAX -> COUNT
+       RED  1 failed | 5 passed
+  M34  salesOrderService: claim row count discarded
+       RED  1 failed | 2 passed   (the confirmed order's lines were rewritten)

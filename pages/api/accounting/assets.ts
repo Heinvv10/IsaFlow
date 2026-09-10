@@ -91,11 +91,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     const catKey = body.category || body.sarsCategory || 'general';
-    const countResult = await sql`
-      SELECT COUNT(*) as cnt FROM assets WHERE category = ${catKey} AND company_id = ${companyId}::UUID
+    // MAX of the numbers ALREADY MINTED under this category's prefix, not a
+    // COUNT of the category's rows: assets carries UNIQUE(company_id,
+    // asset_number), and count is not max — after a single asset was deleted
+    // every later create in that category re-issued an existing number and
+    // 23505'd permanently, since the count never caught up.
+    const assetPrefix = generateAssetNumber(body.sarsCategory || body.category || 'general', 0).split('-')[0]!;
+    const maxResult = await sql`
+      SELECT COALESCE(MAX(CAST(SUBSTRING(asset_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
+      FROM assets
+      WHERE company_id = ${companyId}::UUID AND asset_number LIKE ${assetPrefix + '-%'}
     ` as Row[];
-    const existingCount = Number(countResult[0]?.cnt ?? 0);
-    const assetNumber = generateAssetNumber(body.sarsCategory || body.category || 'general', existingCount);
+    const assetNumber = generateAssetNumber(body.sarsCategory || body.category || 'general', Number(maxResult[0]?.max_num ?? 0));
 
     const inserted = await sql`
       INSERT INTO assets (

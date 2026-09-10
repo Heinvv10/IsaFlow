@@ -3,6 +3,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { markEntriesBilled } from './practiceTimeEntryWorkflow';
+import { lockTimeEntries, TimeEntriesNotClaimedError } from './timeEntryLock';
+import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { mapEntry } from './practiceTimeEntryService';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 
@@ -152,7 +154,10 @@ export async function generateWipInvoice(
     throw new Error('practice client has no linked AR customer — set link_customer_id before generating an invoice');
   const customerId = String(clientRows[0].link_customer_id);
 
-  // 2. Load eligible entries
+  // 2. Load eligible entries — under a row lock taken FIRST, so the read below
+  // is not a check-then-act. Without it two concurrent generations over the same
+  // ids both saw them eligible and both billed the client (see timeEntryLock).
+  await lockTimeEntries(companyId, input.timeEntryIds);
   const entries = (await sql`
     SELECT te.id, te.hours, te.applied_rate, te.line_total,
       te.entry_date, te.task_description,
@@ -179,17 +184,14 @@ export async function generateWipInvoice(
   const totalAmount = round2(subtotal + taxAmount);
   const invDate = input.invoiceDate ?? new Date().toISOString().split('T')[0]!;
 
-  // 3. Generate invoice number with retry-on-collision
-  let invoiceId = '';
-  let invoiceNumber = '';
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const maxRows = (await sql`
-      SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
-      FROM customer_invoices WHERE company_id = ${companyId}::UUID AND invoice_number ~ '^INV-[0-9]+$'
-    `) as DbRow[];
-    const base = Number(maxRows[0]?.['max_num'] ?? 0) + 1 + attempt;
-    invoiceNumber = `INV-${String(base).padStart(5, '0')}`;
-    try {
+  // 3. Reserve the number from the company sequence. What this replaced was a
+  // third MAX(invoice_number)+1 generator inside the sequence's own uniqueness
+  // domain — it never advanced company_document_numbers — retrying on a message
+  // that contains "unique" with no savepoint, so a real 23505 left the request
+  // transaction aborted and every later attempt failed 25P02 instead.
+  const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
+    companyId, 'customer_invoice', 'wip_inv_', 'uq_customer_invoices_company_number',
+    async (number) => {
       const invRows = (await sql`
         INSERT INTO customer_invoices (
           company_id, invoice_number, customer_id, client_id,
@@ -197,26 +199,15 @@ export async function generateWipInvoice(
           invoice_date, status, created_by,
           currency_code, exchange_rate, functional_total
         ) VALUES (
-          ${companyId}::UUID, ${invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
+          ${companyId}::UUID, ${number}, ${customerId}::UUID, ${customerId}::UUID,
           ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
           ${invDate}, 'draft', ${userId},
           'ZAR', 1.0, ${totalAmount}
         ) RETURNING id
       `) as DbRow[];
-      invoiceId = String(invRows[0]!.id);
-      break;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('unique') && attempt < 4) {
-        log.warn('Invoice number collision, retrying', { attempt, invoiceNumber, companyId }, 'practice');
-        continue;
-      }
-      throw err;
-    }
-  }
-  if (!invoiceId) {
-    throw new Error('invoice number generation failed — exhausted 5 attempts');
-  }
+      return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };
+    },
+  );
 
   // 4. Insert line items based on groupBy mode
   const groupBy = input.groupBy ?? 'detailed';
@@ -259,7 +250,13 @@ export async function generateWipInvoice(
   // 5. Mark entries billed via workflow
   const eligibleIds = entries.map((e) => String(e.id));
   try {
-    await markEntriesBilled(companyId, eligibleIds, invoiceId);
+    // The row count is the proof the claim actually happened. It was discarded,
+    // which is what kept the double-bill silent: the loser's predicated UPDATE
+    // matched zero rows and the invoice was returned as if it had worked.
+    const claimed = await markEntriesBilled(companyId, eligibleIds, invoiceId);
+    if (claimed !== eligibleIds.length) {
+      throw new TimeEntriesNotClaimedError(eligibleIds.length, claimed);
+    }
   } catch (err) {
     log.error('markEntriesBilled failed after invoice creation — orphan invoice may need cleanup', {
       invoiceId,

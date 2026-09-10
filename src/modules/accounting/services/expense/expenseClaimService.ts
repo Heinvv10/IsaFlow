@@ -162,8 +162,12 @@ export function computeMileageAmount(km: number, rate: number): number {
 
 async function nextClaimNumber(companyId: string, claimDate: string): Promise<string> {
   const year = claimDate.slice(0, 4);
+  // MAX, not COUNT: expense_claims carries UNIQUE(company_id, claim_number) and
+  // count is not max — after a single claim in the year was deleted every later
+  // claim re-issued an existing number and 23505'd permanently, since the count
+  // never caught up.
   const rows = (await sql`
-    SELECT COUNT(*) AS n
+    SELECT COALESCE(MAX(CAST(SUBSTRING(claim_number FROM '[0-9]+$') AS INTEGER)), 0) AS n
     FROM expense_claims
     WHERE company_id = ${companyId}::uuid
       AND claim_number LIKE ${'CL-' + year + '-%'}

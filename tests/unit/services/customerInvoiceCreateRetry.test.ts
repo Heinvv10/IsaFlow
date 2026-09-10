@@ -55,7 +55,10 @@ vi.mock('@/lib/apiResponse', () => ({
 }));
 
 const reserveMock = vi.hoisted(() => vi.fn());
-vi.mock('@/modules/accounting/services/core/companyService', () => ({
+// The reserve-and-retry loop moved into insertWithReservedNumber, which takes
+// its reservation from companySettingsService — so that is the module to stub.
+vi.mock('@/modules/accounting/services/core/companySettingsService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/core/companySettingsService')>()),
   reserveNextDocumentNumber: reserveMock,
 }));
 
@@ -103,7 +106,12 @@ describe('customer-invoices-create number-collision retry (SQLSTATE 23505)', () 
         invoiceInserts += 1;
         if (invoiceInserts === 1) {
           return Promise.reject(
-            Object.assign(new Error('duplicate key value'), { code: '23505' }),
+            Object.assign(new Error('duplicate key value'), {
+              code: '23505',
+              // Only a clash on the NUMBERING index renumbers; the constraint
+              // name is what says so.
+              constraint: 'uq_customer_invoices_company_number',
+            }),
           );
         }
         return Promise.resolve([{ id: 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa' }]);
@@ -119,6 +127,33 @@ describe('customer-invoices-create number-collision retry (SQLSTATE 23505)', () 
     expect(invoiceInserts).toBe(2);
     expect(reserveMock).toHaveBeenCalledTimes(2);
     expect(reserveMock).toHaveBeenCalledWith(COMPANY_ID, 'customer_invoice');
+  });
+
+  it('does NOT retry a 23505 raised by a DIFFERENT unique index', async () => {
+    let invoiceInserts = 0;
+    mockSql.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join('?');
+      sqlTexts.push(text);
+      if (/INSERT INTO customer_invoices/i.test(text)) {
+        invoiceInserts += 1;
+        // A duplicate on some other unique constraint the header touches. Read
+        // as "that number is taken", this burned four more sequence numbers and
+        // then surfaced an error naming the wrong cause.
+        return Promise.reject(
+          Object.assign(new Error('duplicate key value'), {
+            code: '23505',
+            constraint: 'uq_customer_invoices_external_ref',
+          }),
+        );
+      }
+      return Promise.resolve([]);
+    });
+
+    const result = (await (handler as Function)(makeReq(), makeRes())) as { kind: string };
+
+    expect(result.kind).toBe('raw500');
+    expect(invoiceInserts).toBe(1);
+    expect(reserveMock).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT retry when the error is not a unique violation (even if the message says unique)', async () => {
