@@ -102,6 +102,8 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   if (isFallbackExtraction(doc)) return 'the figures were read by the text fallback, which never posts unattended';
   if (isUnreconciled(doc.warnings)) return 'the reader could not reconcile the amounts';
 
+  if (namesForeignCurrency(doc.rawText ?? '')) return 'the document names a currency other than the rand';
+
   const total = doc.totalAmount;
   if (total === null || total === undefined || total <= 0) return 'no positive total was read';
   // A null VAT is not a zero: `buildExpenseJournalFromReceipt` then DERIVES 15%
@@ -130,7 +132,7 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   // The WHITELIST: the whole document must reconcile against the total, not
   // the slice below it. A split tender printed ABOVE the total block, and a
   // charge printed BELOW the tender line, both evaded the slice.
-  const off = unreconciledFigure(doc.rawText ?? '', total, doc);
+  const off = unreconciledFigure(doc.rawText ?? '', total);
   if (off) return unreconciledReason(off);
 
   // The TOTAL was re-read; the VAT was not, and a stored net and VAT are a
@@ -171,14 +173,34 @@ export function isAmbiguousTotal(
   doc: Pick<ExtractedDocument, 'rawText' | 'warnings'>,
 ): boolean {
   if (isUnreconciled(doc.warnings)) return true;
-  const printed = [...new Set(extractTotalCandidates(doc.rawText ?? ''))];
+  const text = doc.rawText ?? '';
+  // A document that names a currency other than the rand is not one this
+  // ledger can approve at the figure printed on it. Measured on round 16:
+  // `TOTAL USD 115.00 / ZAR 2116.00 / CARD 2116.00`, stored total 115.00, was
+  // auto-approved at R115.00 against a payable of R2 116.00.
+  if (namesForeignCurrency(text)) return true;
+  const printed = [...new Set(extractTotalCandidates(text))];
   if (printed.length > 1) return true;
-  // One candidate is only one candidate the vocabulary could NAME: the same
-  // amount-based check as the gate, so `Total 230.00 / Tip 23.00 / CARD 253.00`
-  // is not approved at R230.00 here either.
-  if (printed.length === 0) return false;
-  const reread = extractAmounts(doc.rawText ?? '');
-  return unexplainedLargerFigure(doc.rawText ?? '', printed[0]!) !== null
-    || adjustmentAfterTotal(doc.rawText ?? '', printed[0]!) !== null
-    || unreconciledFigure(doc.rawText ?? '', printed[0]!, reread) !== null;
+  // NO CANDIDATE is two different facts, and round 16 answered both the same
+  // way. A document with no text at all cannot show it is ambiguous and is the
+  // VLM-read image this check exists to let through. TEXT that yields no total
+  // is the opposite: the vocabulary could not read the payable, so there is
+  // nothing to compare the stored total against, and approving it approves a
+  // figure the document never corroborated.
+  if (printed.length === 0) return text.trim().length > 0;
+  const off = unreconciledFigure(text, printed[0]!);
+  return unexplainedLargerFigure(text, printed[0]!) !== null
+    || adjustmentAfterTotal(text, printed[0]!) !== null
+    || off !== null;
+}
+
+/**
+ * Does the document name a currency that is not the rand?
+ *
+ * `R`/`ZAR` are the rand. Anything else means the printed figures are not the
+ * amounts this ledger would post, whatever the reader made of them.
+ */
+function namesForeignCurrency(text: string): boolean {
+  return /(?<![A-Za-z])(?:USD|EUR|GBP|AUD|CAD|CHF|JPY|CNY|INR|NGN|KES|BWP|NAD|ZWL)(?![A-Za-z])/.test(text)
+    || /[$€£¥]\s*\d/.test(text);
 }

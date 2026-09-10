@@ -1521,15 +1521,13 @@ all 14 of its charge names (LOW-1). The vocabulary now only ever buys an ordinar
 | LOW-1 a charge printed BELOW the tender line | FIXED by rule 3 — the stray check no longer stops once a tender is found. |
 | r14 `C negative stored total only` | Round 15 called it a harness artefact and the reviewer agreed; the orchestrator ruled it a real bug and it is fixed at source. See below. |
 
-### Why the abbreviation set is closed where the charge names were not
+### ~~Why the abbreviation set is closed~~ — WITHDRAWN in round 17
 
-A charge is a noun a merchant INVENTS — `Car Guard`, `Packer`, `Tronc`, `Bag Levy` — and the next
-merchant invents another, so no list of them can be finished. An abbreviation is a CONTRACTION of a word
-already in the credit list: the document types that return money are credit note, return, cancellation,
-reversal and refund, and every abbreviation is built from those same letters. The generator is bounded,
-which is exactly what the charge list did not have. `DEBIT NOTE` is included even though a supplier's
-debit note ADDS to what is owed: whose debit note it is decides the direction, the document does not say
-it, and a refusal is the cheap half.
+This subsection argued that the credit abbreviations form a closed set because each contracts a word
+already listed. **That claim was false and is withdrawn.** The round-16 review posted 20 of 36 credit
+markings, half of which contract nothing (`OMRUIL`, `TERUGGAWE`, `KORREKSIE`, `ALLOWANCE NOTE`,
+`NEGATIVE SALE`, `NO SALE`), and the Sage/Pastel bare `CR` was missing despite being the most common
+contraction of all. See round 17. `DEBIT NOTE` stays in, for the reason given there.
 
 ### Two structural carve-backs, not more phrases
 
@@ -1635,3 +1633,110 @@ deleting them would drop pinned cases the whitelist reads differently (a whole-r
 tender/change pair separated by another figure). Rule 3's exemption list is the extracted net and tax
 only, so a mixed-basket VAT analysis whose recap figures are neither will refuse — that is the largest
 single share of the measured cost, and widening it is the first knob to turn if Hein wants the rate back.
+
+---
+
+## Round 17 — the whitelist failing OPEN, closed five ways
+
+Every round-16 finding was the whitelist letting something through because a rule could not SEE it.
+This round makes each of them fail closed. No rule was widened to recover an ordinary slip without a
+measurement showing no wrong post returned.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 a charge printed without cents | FIXED. `WHOLE_RAND` (`ocrPrintedFigures.ts`) reads a figure printed in whole rands, with or without thousands separators, so all three rules see `SERVICE 23 / AMT DUE 253`. `ADDITION_LABEL` is no longer the only guard on that shape: all 28 of the review's probes refuse with `ADDITION_LABEL` still in place, and the round-17 tests pin the arithmetic, not the label. |
+| HIGH-2 20 of 36 credit markings posted | FIXED. Bare `CR` (the Sage/Pastel `TOTAL 499.00 CR`, `Doc Type: CR`), `CN`, `KN`, `K/N`, `OMRUIL`, `TERUGGAWE`, `TERUGSTUUR`, `GOEDERE TERUG`, `KORREKSIE`, `ALLOWANCE NOTE`, `REBATE (NOTE)`, `CLAIM NOTE`, `CORRECTION SLIP`, `NEGATIVE SALE`, `MINUS SALE`, `NO SALE`. Every marking now goes through the SAME mechanical OCR map as the words (`ocrTolerantMarking`), so `CR N0TE` refuses as `CRED1T N0TE` does; `N`/`H` join the map (measured free on every ordinary set, and it closes `RETURH SLIP`). The "closed generator" claim is withdrawn above. All 44 credit probes refuse. |
+| HIGH-2, the other way | Bare `CR` does not refuse where it means a card: `CR CARD`, `CARD DR`, `Acc Type: CREDIT` stay ordinary (pinned). The phrase is ONE LINE only — with `[\s./-]` it crossed the newline in `TOTAL 499.00 CR\nCARD 499.00` and scrubbed the Pastel marking it sits beside (measured, then fixed). |
+| MEDIUM-1 rule 3 explained by VALUE | FIXED. A figure below the total is explained only by its ROLE: a payment or change line, a zero, a line beginning with the reader's own net/tax/total/payable vocabulary (`SUMMARY_LINE_START`), or a row of a VAT/tax recap block **whose rows add up to the total**. `SERVICE 15.00` (= the VAT), `Car Guard 100.00` (= the net) and `Second table 115.00` (= the total) all refuse. |
+| MEDIUM-2 no readable total auto-approved | FIXED. `isAmbiguousTotal` distinguishes "no text" (the VLM image, still let through) from "text with no total candidate" (now ambiguous). A document naming a currency other than the rand refuses on BOTH the AP route and the gate; the pinned case has nothing else wrong with it, so only the currency check can be what refuses it. |
+| LOW-1 rule 2's tender exemption wider than its comment | FIXED by narrowing the predicate: a payment or change figure larger than the total is forgiven only when rule 1 RAN AND BALANCED. A `Change 300.00` with no tender now refuses. |
+
+### What the whole-rand reader had to be taught — each item measured, not assumed
+
+The first cut read a whole number anywhere and **refused every document on the branch** (corpus 177 →
+1 post): `Invoice No: 88123` and the `2026` of a date were read as amounts larger than the total. So it
+is confined to where the hole is — rule 3, below the total block — and to a line that carries no cents
+figure. Within that: no leading zero (`Till 04`, `Receipt No: 004512`), at most five digits (`Branch
+250655`, `Odometer 145230` — a whole-rand payable above R99 999 is not read here; it prints cents in
+practice), no neighbouring `:`/`/`/`-` (dates, times), no document-number label or letter prefix in
+front (`Delivery Note No: 4471`, `DN4471`), and it must END its line (`Goods may be returned in 7
+days` is prose). Every one of those was a measured over-refusal first.
+
+### Two structural recoveries — and why the loyalty line is not one of them
+
+- **A mixed-basket VAT analysis now posts, recovered by ARITHMETIC.** `VAT ANALYSIS / Std Rated Incl
+  137.98 / Zero Rated 52.98` under a total of 190.96 decomposes it exactly, and that sum — not the header
+  — is what explains the rows. A charge printed inside the block breaks the sum and refuses (`VAT ANALYSIS
+  / Std Rated Incl 230.00 / SERVICE 23.00`, pinned). No wrong post returned on any probe set.
+- **Payments that were being read as charges:** `VISA CREDIT 115.00` (a card type between the tender word
+  and its figure), `Fleet card R 1 140.47` (the thousands group), `Staff Account`, `On Account`, `Debit
+  Order`, `Stop Order`, `Please remit 1148.85`. The tender vocabulary only buys a slip back; a remittance
+  for a DIFFERENT amount is a disagreeing payment and refuses (pinned).
+- **The loyalty-savings line is NOT recovered, and is left refusing.** `You saved R5.00` and `WRewards
+  savings 12.00` carry no role a structural rule can read: a line's arithmetic cannot tell a saving from a
+  charge, only its wording can, and a savings vocabulary is exactly the kind of list that failed seven
+  times. **This is the shape that will cost volume on grocery till slips, and whether to accept a savings
+  vocabulary to recover it is Hein's decision.**
+
+### THE COST — head vs `3a1014154`, extraction stamped `'vlm'`, same harness, both measured this round
+
+"Newly refused" = auto-posted or auto-approved correctly on `3a1014154` and now goes to a person.
+
+| Set | rows | posts | approvals | WRONG posts | WRONG approvals | newly refused | newly passes |
+|---|---|---|---|---|---|---|---|
+| `k076-slip-corpus.ts` | 177 | 61 → 61 | 64 → 65 | 0 → 0 | 0 → 0 | 0 | 1 |
+| r13 ordinary receipts | 16 | 4 → 4 | 6 → 6 | 0 → 0 | 0 → 0 | 0 | 0 |
+| **r16 reviewer's 24 ordinary documents** (O1–O24) | 24 | **19 → 20** | 20 → 21 | 0 → 0 | 0 → 0 | 0 | 1 |
+| r16 reviewer — all ordinary rows | 34 | 24 → 25 | 25 → 26 | 0 → 0 | 0 → 0 | 0 | 1 |
+| **r16 reviewer — under-refusal** | 53 | 39 → 1 | 40 → 1 | **38 → 0** | **39 → 0** | 0 | 0 |
+| **r16 reviewer — credit** | 44 | 25 → 0 | 25 → 0 | **25 → 0** | **25 → 0** | 0 | 0 |
+| r15 reviewer — under / credit / ordinary | 40 / 18 / 24 | 0 / 0 / 19 → same | 0 / 0 / 19 → same | 0 → 0 | 0 → 0 | 0 | 0 |
+| r14 ordinary probes | 12 | 9 → 8 | 10 → 9 | 0 → 0 | 0 → 0 | **1** | 0 |
+| r14 credit / charge, r15 own, r13 probes / refunds | 29 / 33 / 36 / 44 / 10 | unchanged | unchanged | unchanged (1 / 0 / 0 / 0 / 0) | unchanged | 0 | 0 |
+
+**One document in 570 is newly refused:** `Refunds within 30 days with this slip 115.00` — a policy
+footer that prints the total's amount. It is the direct price of MEDIUM-1: the figure equals the total
+and nothing on its line says what it is, which is precisely the shape of `Second table 115.00`. The one
+remaining WRONG row is the r14 `C negative stored total only`, whose credit lives only in a negative VLM
+total the probe harness never sets; round 16 fixed it at source (`vlmInvoiceService`), pinned end to end.
+
+**The shapes that refuse on the reviewer's 24 ordinary documents (4 of 24):** loyalty savings below the
+total (left for Hein, above); SA cash rounding / a rounded total then cash (`ROUNDING 0.03 / CASH 25.00`
+— the payments are 25.00 against a total of 24.97, a real 3c disagreement); a discount line above the
+total and a zero-rated basket (both refused by the reader's own reconciliation, pre-existing, not by this
+file). Round 16's 19 of 24 is now 20 of 24.
+
+### Mutations — 17, all RED, files restored byte-identically (`md5sum -c`)
+
+| # | mutation | result |
+|---|---|---|
+| R1 | whole rands are never read | RED (29) |
+| R2 | whole rands are read everywhere, header included | RED (2) |
+| R3 | a whole-rand figure need not end its line | RED (3) |
+| R4 | the markings skip `ocrTolerant` | RED (1) |
+| R5 | bare `CR` is not a marking | RED (3) |
+| R6 | the `CR`/card phrase crosses a newline | RED (1) |
+| R7 | `N`/`H` are not lookalikes | RED (2) |
+| R8 | a figure equal to the total is explained by value again (round 16) | RED (1) |
+| R9 | the recap block is ignored | RED (3) |
+| R9b | a recap header explains its rows without their sum | RED (1) |
+| R10 | text with no total is unambiguous again | RED (1) |
+| R11 | the AP route does not refuse a foreign currency | RED (1) — survived the first sweep; the test that kills it (currency the ONLY defect) was added |
+| R12 | rule 2 forgives every payment figure (round 16) | RED (1) |
+| R13 | a digit run may not sit between a tender word and its figure | RED (2) |
+| R14 | a summary line does not explain its figure | RED (2) |
+| R15 | the gate does not refuse a foreign currency | RED (2) |
+| R16 | a debit order is not a payment | RED (1) |
+
+### Gates
+
+`env -u DATABASE_URL bun run ci` → 15 checks PASS, `Test Files 809 passed | 36 skipped (845)`,
+`Tests 10262 passed | 234 skipped (10496)`, component 62/418, build PASS, `[ci] all checks passed`,
+`CI_EXIT=0`. Integration `tests/integration/k072-*.int.test.ts` → 7 files / 58 tests passed,
+`INT_EXIT=0`.
+
+**Files.** `ocrPrintedFigures.ts` is new: the figure READER split out of `ocrLargerFigure.ts`, which the
+whole-rand and role work took to 371 lines against the 300 cap. A pure move — the 570-row probe set gives
+identical results before and after the split. `ocrLargerFigure.ts` 209 lines, `ocrPrintedFigures.ts` 172.
+
+**Migration:** none. **Historical data:** unchanged. **Rollback:** revert the commit.

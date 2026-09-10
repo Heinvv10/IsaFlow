@@ -37,7 +37,9 @@ import { parseAmount } from './ocrAmountParsing';
  * to each word below, so no one has to hand-spell `CRED[I1l]T` and get one of
  * them wrong — which is how `TERUGBETAL` came to miss `terugbetaal`.
  */
-const OCR_LOOKALIKE: Record<string, string> = { O: '[O0]', I: '[I1l]', L: '[L1I]', S: '[S5]' };
+const OCR_LOOKALIKE: Record<string, string> = {
+  O: '[O0]', I: '[I1l]', L: '[L1I]', S: '[S5]', N: '[NH]', H: '[HN]',
+};
 
 function ocrTolerant(word: string): string {
   return [...word].map((c) => OCR_LOOKALIKE[c] ?? c).join('');
@@ -62,35 +64,49 @@ const CREDIT_WORDS = [
 ];
 
 /**
- * The ABBREVIATIONS the same document types are printed under. Round 15's
- * word list was beaten by thirteen of them on the first attempt: `CR NOTE
- * 0012`, `Cr Note No 0012`, `C/N 0012`, `CRN 0012`, `CR/NOTE`, `RETOUR`,
- * `TAX INVOICE (CR)`, `CANX`, `CANX SALE`, `RTN SLIP`, `R/A 0012`.
+ * The MARKINGS and abbreviations the same document types are printed under.
  *
- * This set IS closed where the charge names were not, and the difference is
- * where each set comes from. A charge is a noun a merchant invents — `Car
- * Guard`, `Packer`, `Tronc`, `Bag Levy` — and the next merchant invents
- * another. An abbreviation is a CONTRACTION of a word already above: the
- * document types that return money are credit note, return, cancellation,
- * reversal and refund, and a contraction is built from those same letters. So
- * the generator is bounded, which is why this list can be finished and the
- * charge list could not. `DEBIT NOTE` is included even though a supplier's
- * debit note ADDS to what is owed: whose debit note it is decides the
- * direction, the document does not say, and a refusal is the cheap half.
+ * Round 16 claimed this set was "closed", on the argument that an abbreviation
+ * contracts a word already listed while a charge name is invented. **That
+ * claim was false and is withdrawn.** The round-16 review posted 20 of 36
+ * markings: bare `CR` (how Sage and Pastel, the systems most SA suppliers run,
+ * mark a credit — `TOTAL 499.00 CR`), `CN`, `KN`, the Afrikaans `OMRUIL`,
+ * `TERUGGAWE`, `TERUGSTUUR`, `GOEDERE TERUG` and `KORREKSIE`, and the English
+ * `ALLOWANCE NOTE`, `REBATE`, `CLAIM NOTE`, `CORRECTION SLIP`, `NEGATIVE
+ * SALE`, `MINUS SALE`, `NO SALE`. Half of those are not contractions of
+ * anything; they are simply more words, and the word list under the
+ * abbreviations is the same open set it always was.
+ *
+ * What holds the line is not this list — it is that a credit word ANYWHERE
+ * refuses and the carve-back is by phrase, so a spelling missing here costs a
+ * wrong-direction post only when NOTHING else on the document is off. Adding a
+ * marking is cheap; relying on the list being complete is what was wrong.
+ *
+ * A space means an OPTIONAL separator (`CR NOTE` also reads `CRNOTE`,
+ * `CR/NOTE`, `CR-NOTE`), a `/` a REQUIRED one (`R/A` must not read `RA`), and
+ * every letter goes through `ocrTolerant` — round 16 concatenated these RAW,
+ * so `CR N0TE 0012` escaped while `CRED1T N0TE` refused, which is the exact
+ * hand-spelling failure the mechanical map exists to prevent.
  */
-const CREDIT_ABBREVIATIONS = [
-  String.raw`CR[\s./-]*N(?:OTE)?`,
-  String.raw`C[./-]N`,
-  String.raw`CRN`,
-  String.raw`RTN`,
-  String.raw`CANX`,
-  String.raw`R[./]A`,
-  String.raw`ADJUSTMENT\s+N[O0]TE`,
-  String.raw`DEB[I1l]T\s+N[O0]TE`,
+const CREDIT_MARKINGS = [
+  'CR NOTE', 'CRN', 'C N', 'K N', 'CR', 'RTN', 'CANX', 'R/A',
+  'ADJUSTMENT NOTE', 'DEBIT NOTE', 'ALLOWANCE NOTE', 'REBATE NOTE', 'REBATE',
+  'CLAIM NOTE', 'CORRECTION SLIP', 'NEGATIVE SALE', 'MINUS SALE', 'NO SALE',
+  'GOEDERE TERUG', 'OMRUIL', 'TERUGGAWE', 'TERUGSTUUR', 'KORREKSIE',
 ];
 
+const SEPARATOR = String.raw`[\s./-]`;
+
+/** `CR NOTE` → `CR[\s./-]*N[O0]TE`; `R/A` → `R[\s./-]A`. */
+function ocrTolerantMarking(marking: string): string {
+  const chars = (word: string) => [...word].map((c) => OCR_LOOKALIKE[c] ?? c).join('');
+  return marking.split(' ')
+    .map((word) => word.split('/').map(chars).join(SEPARATOR))
+    .join(`${SEPARATOR}*`);
+}
+
 const CREDIT_WORD = new RegExp(
-  `(?<![A-Za-z0-9])(?:${[...CREDIT_WORDS.map(ocrTolerant), ...CREDIT_ABBREVIATIONS].join('|')})(?![A-Za-z0-9])`,
+  `(?<![A-Za-z0-9])(?:${[...CREDIT_WORDS.map(ocrTolerant), ...CREDIT_MARKINGS.map(ocrTolerantMarking)].join('|')})(?![A-Za-z0-9])`,
   'i',
 );
 
@@ -117,6 +133,10 @@ const BENIGN_PHRASES: RegExp[] = [
   /krediet\s*kaart/gi,
   /credit\s+(?:limit|application|controller|terms|account|balance)/gi,
   /acc(?:ount)?\.?\s*type\s*:?\s*(?:credit|debit)/gi,
+  // ON ONE LINE. `[\s./-]` would cross the newline in `TOTAL 499.00 CR\nCARD
+  // 499.00` and scrub the Pastel credit marking this phrase exists beside.
+  /(?:cr|dr)[ \t./-]*card/gi,
+  /card[ \t./-]*(?:cr|dr)(?![A-Za-z0-9])/gi,
   /on\s+credit(?![A-Za-z])/gi,
   /(?:no|geen)\s+(?:cash\s+)?(?:refunds?|returns?|exchanges?|terugbetalings?)[^\n]*/gi,
   /(?:refunds?|returns?|exchanges?)\s+(?:policy|within|only|accepted|will|are|is|subject|may|must)[^\n]*/gi,
