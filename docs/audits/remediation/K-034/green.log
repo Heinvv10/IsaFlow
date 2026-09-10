@@ -1,0 +1,22 @@
+=== GREEN (fix in place) ===
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+=== MUTATION 1: drop the cancel_at_period_end filter from the due query ===
+     × must not raise a new charge for a subscription cancelled at period end 48ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+=== MUTATION 2: drop the terminal close-out UPDATE ===
+     × closes the cancelled subscription out once its period has ended 32ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+=== MUTATION 3: drop the cancel_at_period_end reset from updateSubscription ===
+     × clears the scheduled cancellation when the subscription is reactivated 44ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+=== RESTORED — both suites together ===
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+
+=== FULL UNIT SUITE (bunx vitest run, DATABASE_URL and PG* unset) ===
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9321 passed | 234 skipped (9555)
