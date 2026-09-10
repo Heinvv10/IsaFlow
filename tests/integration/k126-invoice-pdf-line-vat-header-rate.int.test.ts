@@ -25,6 +25,7 @@ const uniformZeroInvoice = crypto.randomUUID();
 const roundingInvoice = crypto.randomUUID();
 const unattributableInvoice = crypto.randomUUID();
 const partlyUnattributableInvoice = crypto.randomUUID();
+const headerBelowLinesInvoice = crypto.randomUUID();
 const driftedInvoice = crypto.randomUUID();
 const otherCustomer = crypto.randomUUID();
 
@@ -122,6 +123,12 @@ beforeAll(async () => {
   // the column foot by printing 30% VAT against a line the same page labels 15%.
   await seedInvoice(partlyUnattributableInvoice, 'K126-INV-8', null, 200, 30,
     [['Partly rated A', 100, 15], ['Partly rated B', 100, 0]]);
+  // Round 5 review, LOW-1: the header states LESS VAT than the lines carry.
+  // Two R100 lines at 15% is R30 of line VAT under a header of R21 — the
+  // unattributed figure is NEGATIVE and the single "includes R -9.00" sentence
+  // read backwards to a customer.
+  await seedInvoice(headerBelowLinesInvoice, 'K126-INV-9', null, 200, 21,
+    [['Header below A', 100, 15], ['Header below B', 100, 15]]);
 });
 
 afterAll(async () => {
@@ -129,7 +136,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id = ANY($1::uuid[])',
       [[invoice, legacyInvoice, zeroHeaderInvoice, uniformZeroInvoice,
         roundingInvoice, unattributableInvoice, partlyUnattributableInvoice,
-        driftedInvoice]]);
+        headerBelowLinesInvoice, driftedInvoice]]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, otherCompany]]);
@@ -229,6 +236,24 @@ it('will not misstate a rated line to absorb a header it cannot account for', as
   const note = text.find((t) => /no line item accounts for/.test(t));
   expect(note).toBeDefined();
   expect(note).toContain('15.00');
+});
+
+it('states the direction correctly when the header VAT is BELOW the lines', async () => {
+  const text = pdfText(await generateInvoicePdf(company, headerBelowLinesInvoice));
+  const rands = (v: string | undefined) => Number(String(v).replace(/[^0-9.]/g, ''));
+
+  // Each line keeps its own 15%; the header aggregate is still authoritative.
+  expect.soft(rands(vatCellOf(text, 'Header below A'))).toBeCloseTo(15.00, 2);
+  expect.soft(rands(vatCellOf(text, 'Header below B'))).toBeCloseTo(15.00, 2);
+  expect(rands(totalsVatOf(text))).toBeCloseTo(21.00, 2);
+
+  // The disclosure says the lines account for MORE than the total states. It
+  // must NOT say the total "includes R -9.00", which is the opposite claim.
+  const note = text.find((t) => /VAT/.test(t) && /9\.00/.test(t) && /account/.test(t));
+  expect(note).toBeDefined();
+  expect(note).toContain('more VAT than the total states');
+  expect(note).not.toContain('-9.00');
+  expect(text.some((t) => /no line item accounts for/.test(t))).toBe(false);
 });
 
 it('will not print another tenant\'s customer on a customer-facing invoice', async () => {

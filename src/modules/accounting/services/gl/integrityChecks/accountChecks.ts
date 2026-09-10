@@ -10,6 +10,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { CASH_SUBTYPES } from '../accountSubtypes';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult, type IntegritySampleRow } from './types';
 
 function sample(rows: DbRow[]): IntegritySampleRow[] {
@@ -225,7 +226,12 @@ export async function duplicateControlAccounts(ctx: IntegrityCheckContext): Prom
         AND je.entry_date <= ${ctx.asAt}::DATE
         AND je.source = ANY(${sources as string[]}::TEXT[])
         AND ga.account_type = ${accountType}
-        AND COALESCE(ga.account_subtype, '') <> ALL(ARRAY['bank', 'cash', 'vat_input', 'vat_output']::TEXT[])
+        -- CASH_SUBTYPES rather than the literal 'bank','cash': a control
+        -- account spelled bank_account or petty_cash was counted as a
+        -- contending control account and reported as a split.
+        AND COALESCE(ga.account_subtype, '') <> ALL(${[
+          ...CASH_SUBTYPES, 'vat_input', 'vat_output',
+        ] as string[]}::TEXT[])
       GROUP BY ga.id, ga.account_code, ga.account_name
       ORDER BY SUM(ABS(jl.debit - jl.credit)) DESC
     `) as DbRow[];

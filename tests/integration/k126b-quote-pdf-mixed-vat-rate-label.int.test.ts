@@ -24,6 +24,7 @@ const roundingQuote = crypto.randomUUID();
 const driftedQuote = crypto.randomUUID();
 const linelessQuote = crypto.randomUUID();
 const linelessZeroVatQuote = crypto.randomUUID();
+const wideToleranceQuote = crypto.randomUUID();
 const otherCompany = crypto.randomUUID();
 const otherCustomer = crypto.randomUUID();
 
@@ -98,6 +99,12 @@ beforeAll(async () => {
   await seedQuote(linelessQuote, 'K126B-Q8', 15, 0, 15, []);
   // The control: no lines and no VAT is an empty quote, not a disagreement.
   await seedQuote(linelessZeroVatQuote, 'K126B-Q9', 15, 0, 0, []);
+  // Round 5 review, LOW-2: twenty R100 lines at 15% are R300.00 of line VAT
+  // EXACTLY — this table prints no per-line VAT amount, so nothing rounds. A
+  // header of R300.15 is 15c of genuine disagreement, and the old
+  // `lines.length / 100` tolerance (R0.20 here) swallowed it silently.
+  await seedQuote(wideToleranceQuote, 'K126B-Q10', 15, 2000, 300.15,
+    Array.from({ length: 20 }, (_, i) => [`Wide tolerance ${i + 1}`, 100, 15] as [string, number, number]));
 });
 
 afterAll(async () => {
@@ -105,7 +112,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM customer_quote_lines WHERE quote_id = ANY($1::uuid[])',
       [[mixedQuote, singleQuote, uniformZeroQuote, nullLineRateQuote,
         disagreeingQuote, roundingQuote, driftedQuote, linelessQuote,
-        linelessZeroVatQuote]]);
+        linelessZeroVatQuote, wideToleranceQuote]]);
     await pool.query('DELETE FROM customer_quotes WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, otherCompany]]);
@@ -177,6 +184,18 @@ it('does not report per-line rounding as a disagreement', async () => {
 
   expect(vatLabelOf(text)).toBe('VAT (15%)');
   expect(text.some((t) => /differs by/.test(t))).toBe(false);
+});
+
+it('does not scale its tolerance by line count on a table that never rounds', async () => {
+  const text = pdfText(await generateQuotePdf(company, wideToleranceQuote));
+
+  // Twenty lines at one rate, so the label is still definite...
+  expect(vatLabelOf(text)).toBe('VAT (15%)');
+  // ...and the 15c the lines cannot account for is stated, not absorbed by a
+  // tolerance justified as per-line rounding on a page that rounds nothing.
+  const note = text.find((t) => /differs by/.test(t));
+  expect(note).toBeDefined();
+  expect(note).toContain('0.15');
 });
 
 it('will not print another tenant\'s customer on a customer-facing quote', async () => {

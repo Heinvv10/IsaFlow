@@ -8,7 +8,7 @@ import type { DisclosureNote } from './disclosureNoteService';
 import type { DbRow } from '@/types/db';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
-
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -234,7 +234,7 @@ export async function noteCash(companyId: string, fiscalYear: number): Promise<D
     LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('bank', 'cash', 'petty_cash')
+      AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
     GROUP BY ga.account_name, ga.account_code
     ORDER BY ga.account_code
   ` as DbRow[];

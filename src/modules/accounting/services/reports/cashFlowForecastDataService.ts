@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
+import { CASH_SUBTYPES } from '../gl/accountSubtypes';
 
 export interface CashFlowPeriod {
   weekStart: string;
@@ -43,7 +44,7 @@ export function toDateStr(val: unknown): string {
 export async function getCurrentCashBalance(companyId: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
-      CASE WHEN ga.account_subtype IN ('bank', 'cash')
+      CASE WHEN ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
         THEN COALESCE(
           (SELECT SUM(jl.debit) - SUM(jl.credit)
            FROM gl_journal_lines jl
@@ -61,7 +62,10 @@ export async function getCurrentCashBalance(companyId: string): Promise<number> 
       AND ga.account_type = 'asset'
       -- No is_active filter: it is a picker flag, and a deactivated bank or
       -- cash account still holds real money that opening cash must include.
-      AND ga.account_subtype IN ('bank', 'cash')
+      -- CASH_SUBTYPES rather than the literal pair: the forecast's opening cash
+      -- and cash.balance.v1 must not disagree about which accounts are cash,
+      -- and the literal missed bank_account, cash_on_hand and petty_cash.
+      AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
   `) as Record<string, unknown>[];
   return Number(rows[0]?.total_cash ?? 0);
 }
@@ -76,8 +80,8 @@ export async function getHistoricalCashFlows(companyId: string, months: number):
     WITH monthly AS (
       SELECT
         date_trunc('month', je.entry_date) AS month,
-        COALESCE(SUM(CASE WHEN jl.debit > 0 AND ga.account_subtype IN ('bank', 'cash') THEN jl.debit ELSE 0 END), 0) AS inflow,
-        COALESCE(SUM(CASE WHEN jl.credit > 0 AND ga.account_subtype IN ('bank', 'cash') THEN jl.credit ELSE 0 END), 0) AS outflow
+        COALESCE(SUM(CASE WHEN jl.debit > 0 AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[]) THEN jl.debit ELSE 0 END), 0) AS inflow,
+        COALESCE(SUM(CASE WHEN jl.credit > 0 AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[]) THEN jl.credit ELSE 0 END), 0) AS outflow
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -85,7 +89,7 @@ export async function getHistoricalCashFlows(companyId: string, months: number):
         AND jl.company_id = ${companyId}::UUID
         AND je.status = 'posted'
         AND ga.account_type = 'asset'
-        AND ga.account_subtype IN ('bank', 'cash')
+        AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
         AND je.entry_date >= ${startStr}::DATE
       GROUP BY date_trunc('month', je.entry_date)
     )

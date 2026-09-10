@@ -5,6 +5,11 @@ import { log } from '@/lib/logger';
 import type { KpiResult, KpiScorecard, FinancialSnapshot, RagThresholds } from './afsTypes';
 import { marginPct } from '../reports/marginPct';
 import { fetchOpeningCash, fetchClosingCash } from './afsKpiCash';
+import {
+  INVENTORY_SUBTYPES,
+  PAYABLE_SUBTYPES,
+  RECEIVABLE_SUBTYPES,
+} from '../gl/accountSubtypes';
 
 export type { FinancialSnapshot, RagThresholds };
 
@@ -199,9 +204,9 @@ async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promi
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype NOT IN ('fixed_asset','accumulated_depreciation') THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
       COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = 'inventory' THEN jl.debit - jl.credit ELSE 0 END), 0) AS inventory,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = 'receivable' THEN jl.debit - jl.credit ELSE 0 END), 0) AS trade_receivables,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = 'payable' THEN jl.credit - jl.debit ELSE 0 END), 0) AS trade_payables,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = ANY(${INVENTORY_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS inventory,
+      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS trade_receivables,
+      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit ELSE 0 END), 0) AS trade_payables,
       COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_debt,
       COALESCE(SUM(CASE WHEN ga.account_type = 'equity' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity
     FROM gl_journal_lines jl

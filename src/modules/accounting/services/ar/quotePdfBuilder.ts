@@ -141,21 +141,21 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   // The table prints a RATE per line, not a VAT amount, so there is no column to
   // foot. What can still disagree is the stored header aggregate: a quote whose
   // lines are all zero-rated but whose `tax_amount` still holds a 15% figure
-  // prints 'VAT (0%) R150.00'. Per-line rounding can legitimately move the total
-  // by up to a cent a line; anything beyond that is a disagreement, and it is
-  // printed and logged rather than left for the customer to find.
+  // prints 'VAT (0%) R150.00'. It is printed and logged, not left for the
+  // customer to find. The tolerance is a HALF CENT, not `lines.length / 100`:
+  // nothing on this page rounds per line, so a line-scaled tolerance only
+  // silenced up to R0.20 of real disagreement on a 20-line quote.
   const headerVat = Number(q.tax_amount || 0);
   const linesVat = lines.reduce(
     (sum, line) => sum + Number(line.amount || 0) * (lineRate(line) / 100),
     0,
   );
   const vatDisagreement = Math.round((headerVat - linesVat) * 100) / 100;
-  const roundingTolerance = lines.length / 100;
   // A quote with NO lines and a non-zero header VAT is a disagreement of the
   // whole amount, not an exemption from the check: nothing on the page can
   // account for it, and `lines.length > 0` suppressed the note in exactly that
-  // case. Zero lines means zero tolerance.
-  const vatDisagrees = Math.abs(vatDisagreement) > roundingTolerance;
+  // case.
+  const vatDisagrees = Math.abs(vatDisagreement) > 0.005;
   if (vatDisagrees) {
     log.warn('Quote VAT total disagrees with the rates its lines carry', {
       quoteId, headerVat, linesVat: Math.round(linesVat * 100) / 100, vatDisagreement,

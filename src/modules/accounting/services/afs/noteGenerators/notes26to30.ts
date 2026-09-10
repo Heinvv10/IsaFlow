@@ -9,6 +9,12 @@ import type { DbRow } from '@/types/db';
 import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import {
+  CASH_SUBTYPES,
+  INVENTORY_SUBTYPES,
+  PAYABLE_SUBTYPES,
+  RECEIVABLE_SUBTYPES,
+} from '@/modules/accounting/services/gl/accountSubtypes';
 
 // ── Note 26 — Events After Reporting Date ────────────────────────────────────
 
@@ -65,10 +71,19 @@ export async function generateNote27GoingConcern(
   const [ratioRows, profitRows, terms] = await Promise.all([
     sql`
       SELECT
-        SUM(CASE WHEN ga.account_subtype IN ('bank','cash','trade_receivable','inventory')
+        -- Shared vocabulary for the subtypes that have one: the literal list
+        -- recognised only trade_receivable/trade_payable and missed debtors,
+        -- receivable, creditors, bank_account, petty_cash and stock,
+        -- understating both sides of the current ratio.
+        -- vat_payable, overdraft and current_tax_liability are not in the
+        -- canonical vocabulary at all and stay as literals.
+        SUM(CASE WHEN ga.account_subtype = ANY(${[
+          ...CASH_SUBTYPES, ...RECEIVABLE_SUBTYPES, ...INVENTORY_SUBTYPES,
+        ] as string[]}::TEXT[])
                  THEN gjl.debit - gjl.credit ELSE 0 END) AS current_assets,
-        SUM(CASE WHEN ga.account_subtype IN ('trade_payable','vat_payable','overdraft',
-                                              'current_tax_liability')
+        SUM(CASE WHEN ga.account_subtype = ANY(${[
+          ...PAYABLE_SUBTYPES, 'vat_payable', 'overdraft', 'current_tax_liability',
+        ] as string[]}::TEXT[])
                  THEN gjl.credit - gjl.debit ELSE 0 END) AS current_liabilities
       FROM gl_accounts ga
       JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
@@ -172,7 +187,7 @@ export async function generateNote29FinancialInstrumentsRisk(
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
         AND gje.entry_date <= ${end} AND gje.status = 'posted'
       WHERE ga.company_id = ${companyId}
-        AND ga.account_subtype = 'trade_receivable'
+        AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
       GROUP BY ga.account_name, ga.account_code
       HAVING SUM(gjl.debit - gjl.credit) > 0
     ` as Promise<DbRow[]>,
@@ -185,7 +200,9 @@ export async function generateNote29FinancialInstrumentsRisk(
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
         AND gje.entry_date <= ${end} AND gje.status = 'posted'
       WHERE ga.company_id = ${companyId}
-        AND ga.account_subtype IN ('trade_payable', 'bank_loan', 'overdraft')
+        AND ga.account_subtype = ANY(${[
+          ...PAYABLE_SUBTYPES, 'bank_loan', 'overdraft',
+        ] as string[]}::TEXT[])
       GROUP BY ga.account_name, ga.account_code, ga.account_subtype
       HAVING SUM(gjl.credit - gjl.debit) > 0
     ` as Promise<DbRow[]>,
