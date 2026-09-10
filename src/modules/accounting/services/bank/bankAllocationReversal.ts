@@ -2,7 +2,7 @@ import {resolveBankTransferOriginal} from './bankAllocationTransferOriginal';
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
-import {isRealCalendarDate} from '@/lib/validation';
+import {UUID_RE,isRealCalendarDate} from '@/lib/validation';
 import {withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from '../controls/context';
@@ -31,6 +31,7 @@ export async function prepareBankAllocationReversal(ctx:ControlTx,input:unknown)
  });
 }
 export async function executeBankAllocationReversal(ctx:ControlTx,intentId:string,options?:PostingActorOpts&{approvalId?:string}){
+ assertControlTx(ctx);if(!UUID_RE.test(intentId))throw new Error('Invalid controlled intent UUID');intentId=intentId.toLowerCase();
  return withSavepoint('bank_reversal_execute',async()=>{
   await authority(ctx);const state=await loadBankAllocationReversal(ctx,intentId);
   if(state.intent.requester_person_id!==ctx.principal.personId)throw new Error('Bank reversal requester required');

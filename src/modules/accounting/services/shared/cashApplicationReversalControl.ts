@@ -1,3 +1,4 @@
+import {UUID_RE} from '@/lib/validation';
 import {randomUUID} from 'node:crypto';
 import {withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -26,7 +27,8 @@ export async function prepareCashApplicationReversal(ctx:ControlTx,input:unknown
 }
 
 export async function executeCashApplicationReversal(ctx:ControlTx,intentId:string,options?:{approvalId?:string}){
- assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ assertControlTx(ctx);if(!UUID_RE.test(intentId))throw new Error('Invalid controlled intent UUID');intentId=intentId.toLowerCase();
+ await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
  const {loadCashApplicationReversal}=await import('./cashApplicationReversalMaterial');
  const {executeControlledOperation}=await import('../controls/approvalExecutionService');
  const {replayKnownOperationEffect}=await import('../controls/operationReceiptReplay');
