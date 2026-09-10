@@ -66,7 +66,7 @@ it('captures every old designation beyond a preview page and exposes real author
 });
 it('serializes simultaneous settings and ordinary chart updates with consecutive exact images',async()=>{
  const id=await f.account(),{saveDefaultAccounts}=await import('@/modules/accounting/services/gl/defaultAccountsControl'),{updateAccount}=await import('@/modules/accounting/services/gl/chartOfAccountsService');
- await Promise.all([f.actor(ctx=>saveDefaultAccounts(ctx,{mappings:{primary_bank:id}})),f.actor(()=>updateAccount(f.f.companyA,id,{account_name:'Concurrent chart name'}))]);
+ await Promise.all([f.actor(ctx=>saveDefaultAccounts(ctx,{mappings:{primary_bank:id}})),f.actor(()=>updateAccount(f.f.companyA,id,{accountName:'Concurrent chart name'}))]);
  const state=await f.state(),row=state.accounts.find((r:{id:string})=>r.id===id),events=await f.changes('gl_account',id);
  expect(row).toMatchObject({account_name:'Concurrent chart name',account_subtype:'bank',is_system_account:true});expect(events).toHaveLength(2);
  expect(events[0].values.after).toEqual(events[1].values.before);expect(events[1].values.after).toEqual(row);
